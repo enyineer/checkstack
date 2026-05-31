@@ -9,11 +9,14 @@ import {
   INCIDENT_ENTITY_KIND,
   INCIDENT_TRIGGER_EVENTS,
   IncidentEntityStateSchema,
+  createIncidentEntityRead,
   deriveIncidentTriggerEvents,
-  mirrorIncidentEntity,
   removeIncidentEntity,
+  toIncidentEntityState,
+  writeIncidentEntity,
   type IncidentEntityState,
 } from "./incident-entity";
+import type { IncidentService } from "./service";
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
   return {
@@ -85,67 +88,122 @@ describe("IncidentEntityStateSchema", () => {
   });
 });
 
-describe("incident mirror", () => {
-  it("mirrors keyed by incident id", async () => {
+describe("toIncidentEntityState", () => {
+  it("projects the reactive subset off a full incident", () => {
+    expect(
+      toIncidentEntityState({
+        status: "monitoring",
+        severity: "major",
+        systemIds: ["a", "b"],
+      }),
+    ).toEqual({ status: "monitoring", severity: "major", systemIds: ["a", "b"] });
+  });
+});
+
+describe("createIncidentEntityRead", () => {
+  it("routes the batched read straight to the service (plugin-backed)", async () => {
+    const seen: ReadonlyArray<string>[] = [];
+    const service = {
+      async getManyEntityStates(ids: ReadonlyArray<string>) {
+        seen.push(ids);
+        return {
+          "inc-1": {
+            status: "investigating" as const,
+            severity: "minor" as const,
+            systemIds: ["a"],
+          },
+        };
+      },
+    } as unknown as IncidentService;
+    const read = createIncidentEntityRead(service);
+    const out = await read(["inc-1", "inc-2"]);
+    expect(seen).toEqual([["inc-1", "inc-2"]]);
+    expect(out["inc-1"]).toEqual({
+      status: "investigating",
+      severity: "minor",
+      systemIds: ["a"],
+    });
+  });
+});
+
+describe("writeIncidentEntity", () => {
+  it("drives the write through handle.mutate keyed by incident id", async () => {
     const calls: Array<{ id: string; next: IncidentEntityState }> = [];
     const handle = {
       kind: INCIDENT_ENTITY_KIND,
-      async set(id: string, next: IncidentEntityState) {
-        calls.push({ id, next });
+      async mutate(input: {
+        id: string;
+        apply: () => Promise<IncidentEntityState>;
+      }) {
+        const next = await input.apply();
+        calls.push({ id: input.id, next });
+        return next;
       },
     } as unknown as EntityHandle<IncidentEntityState>;
-    await mirrorIncidentEntity({
+
+    let applied = false;
+    await writeIncidentEntity({
       handle,
       incidentId: "inc-9",
-      status: "investigating",
-      severity: "critical",
-      systemIds: ["a"],
+      apply: async () => {
+        applied = true;
+        return { status: "monitoring", severity: "critical", systemIds: ["a"] };
+      },
     });
+    expect(applied).toBe(true);
     expect(calls).toEqual([
       {
         id: "inc-9",
-        next: { status: "investigating", severity: "critical", systemIds: ["a"] },
+        next: { status: "monitoring", severity: "critical", systemIds: ["a"] },
       },
     ]);
   });
 
-  it("removeIncidentEntity tombstones via remove()", async () => {
+  it("still runs the plugin write when no handle is wired", async () => {
+    let applied = false;
+    await writeIncidentEntity({
+      handle: undefined,
+      incidentId: "inc-9",
+      apply: async () => {
+        applied = true;
+        return { status: "investigating", severity: "minor", systemIds: [] };
+      },
+    });
+    expect(applied).toBe(true);
+  });
+});
+
+describe("removeIncidentEntity", () => {
+  it("tombstones via handle.remove({ apply })", async () => {
     const removed: string[] = [];
+    let deleted = false;
     const handle = {
       kind: INCIDENT_ENTITY_KIND,
-      async remove(id: string) {
-        removed.push(id);
+      async remove(input: { id: string; apply: () => Promise<void> }) {
+        await input.apply();
+        removed.push(input.id);
       },
     } as unknown as EntityHandle<IncidentEntityState>;
-    await removeIncidentEntity({ handle, incidentId: "inc-9" });
+    await removeIncidentEntity({
+      handle,
+      incidentId: "inc-9",
+      apply: async () => {
+        deleted = true;
+      },
+    });
+    expect(deleted).toBe(true);
     expect(removed).toEqual(["inc-9"]);
   });
 
-  it("no-ops without a handle and routes errors", async () => {
-    await mirrorIncidentEntity({
+  it("still runs the delete when no handle is wired", async () => {
+    let deleted = false;
+    await removeIncidentEntity({
       handle: undefined,
-      incidentId: "x",
-      status: "investigating",
-      severity: "minor",
-      systemIds: [],
-    });
-    let captured: unknown;
-    const handle = {
-      kind: INCIDENT_ENTITY_KIND,
-      async set() {
-        throw new Error("boom");
-      },
-    } as unknown as EntityHandle<IncidentEntityState>;
-    await mirrorIncidentEntity({
-      handle,
-      incidentId: "x",
-      status: "investigating",
-      severity: "minor",
-      systemIds: [],
-      onError: (e) => {
-        captured = e;
+      incidentId: "inc-9",
+      apply: async () => {
+        deleted = true;
       },
     });
-    expect((captured as Error).message).toBe("boom");
+    expect(deleted).toBe(true);
   });
 });

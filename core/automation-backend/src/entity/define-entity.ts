@@ -1,8 +1,6 @@
 import type { z } from "zod";
 import type { Actor } from "@checkstack/common";
 
-import type { EntityTx } from "./entity-store";
-
 /** A declarable secondary index over fields of the entity state. */
 export interface EntityIndexSpec<TState> {
   /** Stable id, namespaced under the kind. */
@@ -72,59 +70,82 @@ export interface EntityMutationOpts {
  *
  *   1. snapshots `prev` via the kind's `read` accessor BEFORE the write
  *      (so a change is structurally impossible to miss),
- *   2. opens ONE transaction and runs `apply(tx)` — the plugin's ACTUAL
- *      write against its own storage (or the framework keyed store), which
- *      returns the resulting current state (`next`),
- *   3. diffs prev → next and, on a real diff, appends the field-level
- *      transition rows to `entity_transitions` IN THE SAME transaction,
- *   4. commits, then emits `ENTITY_CHANGED` AFTER COMMIT (never on a
- *      rolled-back write).
+ *   2. runs `apply()` — the plugin's ACTUAL write against ITS OWN storage,
+ *      committed in the PLUGIN's own transaction. `apply` returns the
+ *      resulting current state (`next`),
+ *   3. AFTER the plugin write has committed, diffs prev → next and, on a real
+ *      diff, appends the field-level transition rows to `entity_transitions`
+ *      in the FRAMEWORK's own transaction (a separate db/client),
+ *   4. emits `ENTITY_CHANGED` AFTER the plugin write has committed (never on a
+ *      rolled-back / throwing write).
  *
- * Because `apply`'s write and the transition append share one transaction, a
- * non-reactive write is structurally impossible and every transition is
- * durably logged regardless of where current state lives.
+ * Cross-plugin transaction boundary (the deliberate Model B tradeoff): a
+ * plugin-backed kind keeps its state in its OWN schema, behind its OWN drizzle
+ * client — a DIFFERENT client than automation-backend's `entity_transitions`.
+ * Two different clients cannot share one transaction, so `apply` does NOT
+ * receive the framework tx; it owns its own. The framework appends the
+ * transition log in a SEPARATE transaction AFTER the plugin write commits.
+ *
+ * Consequences, by design:
+ *   - The plugin write is the source of truth. If it throws, NOTHING is
+ *     appended and NOTHING is emitted (the change never happened).
+ *   - `prev` is snapshotted BEFORE `apply`, so the diff is always correct even
+ *     when `read` and `apply` touch the same rows.
+ *   - The transition-log append is best-effort-after-commit: if the framework
+ *     append throws after a committed plugin write, the plugin state is still
+ *     correct but that one transition row is missing (a history gap, never a
+ *     state corruption). This is the accepted cost of decoupling plugin writes
+ *     from framework-internal tables — a plugin platform must NOT couple a
+ *     plugin's storage to a framework table's transaction.
+ *
+ * The deprecated store-owned `set`/`patch` sugar is the ONE case where the
+ * write target IS a framework table (`entity_state`, same client as
+ * `entity_transitions`); there the keyed write and the transition append DO
+ * share one framework transaction (see `create-handle.ts`).
  */
 export interface MutateInput<TState extends Record<string, unknown>> {
   id: string;
   opts?: EntityMutationOpts;
   /**
-   * The plugin's write, run inside the handle-owned transaction. Receives
-   * the transaction handle `tx` so the plugin's reactive-state write commits
-   * atomically with the framework transition append. MUST return the
-   * resulting current state (`next`) so the handle can diff without a second
-   * read.
+   * The plugin's write, committed in the PLUGIN's own transaction. Takes no
+   * arguments: the plugin owns its db/tx and must NOT receive the framework
+   * tx (different client). MUST return the resulting current state (`next`)
+   * so the handle can diff without a second read.
    */
-  apply: (tx: EntityTx) => Promise<TState>;
+  apply: () => Promise<TState>;
 }
 
 /**
  * Driven tombstone entry point. Same orchestration as {@link MutateInput},
- * but `next` is `null` (the entity is removed). `apply` performs the
- * plugin's delete inside the transaction; the handle records the tombstone
- * transition and emits the tombstone change AFTER COMMIT.
+ * but `next` is `null` (the entity is removed). `apply` performs the plugin's
+ * delete in the plugin's own transaction; the handle records the tombstone
+ * transition (framework tx) and emits the tombstone change AFTER the delete
+ * has committed.
  */
 export interface RemoveInput {
   id: string;
   opts?: EntityMutationOpts;
-  /** The plugin's delete, run inside the handle-owned transaction. */
-  apply: (tx: EntityTx) => Promise<void>;
+  /** The plugin's delete, committed in the plugin's own transaction. */
+  apply: () => Promise<void>;
 }
 
 export interface EntityHandle<TState extends Record<string, unknown>> {
   readonly kind: string;
   /**
    * The single driven mutation entry point (Model B). Snapshots prev via
-   * `read`, runs `apply(tx)` in one transaction, appends transitions in the
-   * same transaction, emits `ENTITY_CHANGED` after commit. No-op (no emit,
+   * `read`, runs `apply()` (the plugin's own write, committed in the plugin's
+   * own tx), then appends transitions in the framework's own tx and emits
+   * `ENTITY_CHANGED` — both AFTER the plugin write commits. No-op (no emit,
    * no transition) when `apply` returns a structurally-equal state. Returns
    * the resulting state.
    */
   mutate(input: MutateInput<TState>): Promise<TState>;
   /**
-   * Driven tombstone (Model B). Snapshots prev via `read`, runs `apply(tx)`
-   * (the plugin delete) in one transaction, records the tombstone transition,
-   * emits a tombstone `ENTITY_CHANGED` (next = null) after commit. No-op when
-   * the entity was already absent.
+   * Driven tombstone (Model B). Snapshots prev via `read`, runs `apply()`
+   * (the plugin delete, committed in the plugin's own tx), records the
+   * tombstone transition (framework tx), emits a tombstone `ENTITY_CHANGED`
+   * (next = null) after the delete commits. No-op when the entity was already
+   * absent.
    */
   remove(input: RemoveInput): Promise<void>;
   /**

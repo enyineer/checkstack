@@ -8,29 +8,42 @@
  *
  *   handle.mutate({ id, opts?, apply })
  *
- * The orchestration (identical for `mutate` and `remove`):
+ * The orchestration (`mutate` and `remove` share it):
  *
  *   1. Snapshot `prev` via `read([id])` BEFORE the write, so a change can
  *      never be missed (we never re-read prev AFTER the plugin has written).
- *   2. Open ONE transaction. Run the plugin's `apply(tx)` — the ACTUAL write
- *      against its own storage (or the framework keyed store). `apply`
- *      returns the resulting current state (`next`); `remove`'s `apply`
- *      returns void and `next` is `null` (tombstone).
- *   3. Validate `next` (zod), mask run-originated writes, diff prev → next.
- *      On a real diff, append the field-level transition rows to
- *      `entity_transitions` ON THE SAME `tx`, so the plugin's write and the
- *      transition log commit atomically (every transition is durably logged,
- *      even for an in-memory-backed kind).
- *   4. COMMIT. Only AFTER commit, emit the internal `ENTITY_CHANGED` event
- *      carrying the mutating actor. A rolled-back `apply` (a throw) emits
- *      nothing and logs nothing.
+ *   2. Run the plugin's `apply()` — the ACTUAL write against its OWN storage,
+ *      committed in the PLUGIN's own transaction. `apply` returns the
+ *      resulting current state (`next`); `remove`'s `apply` returns void and
+ *      `next` is `null` (tombstone). `apply` takes NO tx: a plugin-backed kind
+ *      lives behind a different drizzle client than `entity_transitions`, so
+ *      it cannot share the framework transaction.
+ *   3. AFTER the plugin write has committed: validate `next` (zod), mask
+ *      run-originated writes, diff prev → next. On a real diff, append the
+ *      field-level transition rows to `entity_transitions` in the FRAMEWORK's
+ *      OWN transaction (a separate db/client from the plugin's write).
+ *   4. Emit the internal `ENTITY_CHANGED` event carrying the mutating actor.
+ *      A rolled-back / throwing `apply` emits nothing and logs nothing — the
+ *      plugin write is the source of truth.
  *
- * A structurally-unchanged `apply` (returns an equal state) is a no-op: the
- * write still commits, but no transition is appended and no event is emitted.
+ * Cross-plugin transaction boundary (the deliberate tradeoff): the plugin
+ * write (step 2) and the transition append (step 3) are NOT in one shared db
+ * transaction — they target different schemas behind different clients. The
+ * plugin write is authoritative; the transition append is a post-commit
+ * framework write. A failure between them leaves correct plugin state with a
+ * missing history row (a gap, never a corruption). A plugin platform must NOT
+ * couple plugin writes to framework-internal tables, so this decoupling is
+ * intentional. See `define-entity.ts` for the full rationale.
  *
- * The deprecated `set` / `patch` sugar (back-compat for the not-yet-migrated
- * domains) re-expresses the old store-owned API on top of this core + the
- * framework keyed store; a later step removes them.
+ * The ONE exception is the deprecated store-owned `set` / `patch` / `remove(id)`
+ * sugar: there the write target IS a framework table (`entity_state`, same
+ * client as `entity_transitions`), so the keyed write AND the transition
+ * append share one framework transaction (`driveStoreBacked`). A later step
+ * removes that sugar.
+ *
+ * A structurally-unchanged write (returns an equal state) is a no-op: the
+ * plugin write still happened, but no transition is appended and no event is
+ * emitted.
  */
 import type { z } from "zod";
 import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
@@ -110,58 +123,150 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
   }
 
   /**
-   * The shared driven pipeline for `mutate` (a write) and `remove` (a
-   * tombstone). `apply` runs the plugin write inside the handle-owned
-   * transaction and yields the post-write state (`null` for a tombstone).
-   * Transitions are appended on the SAME tx; the change event is emitted
-   * only AFTER commit. Returns the resolved post-write state (`null` on
-   * remove or when the entity did not exist after the write).
+   * Snapshot `prev` via the plugin `read` accessor STRICTLY BEFORE any write,
+   * masking run-originated reads. A change can never be missed because we
+   * never re-read prev after the write.
    */
-  async function drive(input: {
+  async function snapshotPrev(
+    id: string,
+    opts?: EntityMutationOpts,
+  ): Promise<Record<string, unknown> | null> {
+    const prevRaw = (await readOne(id)) ?? null;
+    return prevRaw === null
+      ? null
+      : maskForRun({
+          registry: secretRegistry,
+          runId: opts?.runId,
+          value: prevRaw as Record<string, unknown>,
+        });
+  }
+
+  /** Validate (zod) + mask the post-write state (a tombstone has none). */
+  function normalizeNext(
+    applied: TState | null,
+    opts?: EntityMutationOpts,
+  ): Record<string, unknown> | null {
+    return applied === null
+      ? null
+      : maskForRun({
+          registry: secretRegistry,
+          runId: opts?.runId,
+          value: schema.parse(applied) as Record<string, unknown>,
+        });
+  }
+
+  /**
+   * Diff prev → next and emit `ENTITY_CHANGED` when there is a real change.
+   * `appendTransitions` performs the (kind-specific) durable transition write
+   * for a non-tombstone diff; it is supplied by the caller so the store-backed
+   * path can ride the framework tx while the plugin-backed path uses a fresh
+   * framework tx AFTER the plugin write has committed. Returns the post-write
+   * state (echoed for `mutate`).
+   */
+  async function diffAppendEmit(args2: {
+    id: string;
+    opts?: EntityMutationOpts;
+    prev: Record<string, unknown> | null;
+    next: Record<string, unknown> | null;
+    appendTransitions: (rows: TransitionAppend[]) => Promise<void>;
+  }): Promise<Record<string, unknown> | null> {
+    const { id, opts, prev, next, appendTransitions } = args2;
+
+    const { changedFields, delta } = diffEntityState({ prev, next });
+
+    // Structurally unchanged ⇒ no transition, no emit (the write itself may
+    // still have touched non-state columns; that is the plugin's concern).
+    if (changedFields.length === 0) return next;
+
+    // Append transitions for a real write (a tombstone records none, like the
+    // old `remove`).
+    if (next !== null) {
+      await appendTransitions(buildTransitions({ prev, next, changedFields }));
+    }
+
+    // Tombstone wire shape (§13.2): `delta` is `{}` because the tombstone
+    // signal is `next === null`, not a per-field null delta. A real write
+    // carries the changed-field delta. `changedFields` is still the set of
+    // prev fields (drives the change-event `changedFields` list).
+    await emitter.emit({
+      kind,
+      id,
+      prev,
+      next,
+      delta: next === null ? {} : delta,
+      changedFields,
+      actor: resolveActor(opts),
+      occurredAt: new Date().toISOString(),
+    });
+
+    return next;
+  }
+
+  /**
+   * PLUGIN-BACKED driven pipeline for `mutate` / `remove`. The plugin's
+   * `apply()` runs FIRST and commits in the PLUGIN's own transaction (no
+   * framework tx is handed in — a plugin-backed kind lives behind a different
+   * client). Only AFTER that commit does the framework open its OWN
+   * transaction to append the transition log, then emit. The plugin write is
+   * authoritative; a throwing `apply` appends nothing and emits nothing.
+   */
+  async function drivePluginBacked(input: {
+    id: string;
+    opts?: EntityMutationOpts;
+    apply: () => Promise<TState | null>;
+  }): Promise<Record<string, unknown> | null> {
+    const { id, opts, apply } = input;
+
+    // 1. Snapshot prev STRICTLY BEFORE the plugin write.
+    const prev = await snapshotPrev(id, opts);
+
+    // 2. Run the plugin write, committed in the PLUGIN's own tx. A throw
+    //    propagates here, so nothing below runs (no append, no emit).
+    const next = normalizeNext(await apply(), opts);
+
+    // 3 + 4. AFTER the plugin commit, append transitions in the FRAMEWORK's
+    //    own tx, then emit. Not atomic with the plugin write (documented
+    //    cross-plugin tx boundary): a failure here leaves correct plugin state
+    //    with a missing history row, never a corrupted state.
+    return diffAppendEmit({
+      id,
+      opts,
+      prev,
+      next,
+      appendTransitions: (rows) =>
+        store.runInTransaction((tx) =>
+          store.appendTransitions({ tx, kind, entityId: id, transitions: rows }),
+        ),
+    });
+  }
+
+  /**
+   * STORE-BACKED driven pipeline for the deprecated `set` / `patch` /
+   * `remove(id)` sugar. Here the write target IS a framework table
+   * (`entity_state`, same client as `entity_transitions`), so the keyed write
+   * AND the transition append share ONE framework transaction — the change
+   * event is still emitted only AFTER commit. `apply(tx)` receives the
+   * framework tx and writes `entity_state` on it.
+   */
+  async function driveStoreBacked(input: {
     id: string;
     opts?: EntityMutationOpts;
     apply: (tx: EntityTx) => Promise<TState | null>;
-  }): Promise<TState | null> {
+  }): Promise<Record<string, unknown> | null> {
     const { id, opts, apply } = input;
 
-    // 1. Snapshot prev STRICTLY BEFORE the write so a change is never missed.
-    const prevRaw = (await readOne(id)) ?? null;
-    const prev =
-      prevRaw === null
-        ? null
-        : maskForRun({
-            registry: secretRegistry,
-            runId: opts?.runId,
-            value: prevRaw as Record<string, unknown>,
-          });
+    // 1. Snapshot prev STRICTLY BEFORE the write.
+    const prev = await snapshotPrev(id, opts);
 
-    // 2 + 3. Run the plugin write + (on a diff) the transition append inside
-    // ONE transaction. The change event is deferred to after COMMIT, so the
-    // tx callback only computes + persists; it returns the data to emit.
+    // 2 + 3. The keyed write + the transition append ride ONE framework tx, so
+    //    the framework store and its own transition log commit atomically. The
+    //    emit is deferred to after COMMIT.
     const committed = await store.runInTransaction(async (tx) => {
-      const applied = await apply(tx);
-
-      // Validate + mask the post-write view (a tombstone has none).
-      const next =
-        applied === null
-          ? null
-          : maskForRun({
-              registry: secretRegistry,
-              runId: opts?.runId,
-              value: schema.parse(applied) as Record<string, unknown>,
-            });
-
+      const next = normalizeNext(await apply(tx), opts);
       const { changedFields, delta } = diffEntityState({ prev, next });
-
-      // Structurally unchanged ⇒ no transition, no emit (the write itself
-      // still commits — the plugin may have touched non-state columns).
       if (changedFields.length === 0) {
         return { emit: false as const, next };
       }
-
-      // Append transitions for a real write (a tombstone records none, like
-      // the old `remove`). The append shares this tx so the plugin's write
-      // and the transition log commit atomically.
       if (next !== null) {
         await store.appendTransitions({
           tx,
@@ -170,15 +275,9 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
           transitions: buildTransitions({ prev, next, changedFields }),
         });
       }
-
-      // Tombstone wire shape (§13.2): `delta` is `{}` because the tombstone
-      // signal is `next === null`, not a per-field null delta. A real write
-      // carries the changed-field delta. `changedFields` is still the set of
-      // prev fields (drives the change-event `changedFields` list).
       return {
         emit: true as const,
         next,
-        prev,
         delta: next === null ? {} : delta,
         changedFields,
       };
@@ -197,8 +296,7 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
         occurredAt: new Date().toISOString(),
       });
     }
-
-    return (committed.next ?? null) as TState | null;
+    return committed.next ?? null;
   }
 
   /** Resolve "in this value since" for a field via the transition log. */
@@ -229,16 +327,16 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
 
     async mutate(input: MutateInput<TState>): Promise<TState> {
       const { id, opts, apply } = input;
-      // `apply` always returns a (non-null) state, so `drive` resolves it
+      // `apply` always returns a (non-null) state, so the pipeline resolves it
       // regardless of whether the diff was a no-op.
-      const next = await drive({ id, opts, apply: (tx) => apply(tx) });
+      const next = await drivePluginBacked({ id, opts, apply: () => apply() });
       // Unreachable: `mutate`'s apply never yields null. Guarded for types.
       if (next === null) {
         throw new Error(
           `EntityHandle.mutate: apply for kind "${kind}" id "${id}" resolved to no state`,
         );
       }
-      return next;
+      return next as TState;
     },
 
     async remove(
@@ -246,12 +344,13 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
       maybeOpts?: EntityMutationOpts,
     ): Promise<void> {
       // Back-compat: the old store-owned `remove(id, opts?)` form deletes the
-      // keyed-store row; the driven Model B form is `remove({ id, opts, apply })`.
+      // keyed-store row (framework tx); the driven Model B form is
+      // `remove({ id, opts, apply })` (plugin's own tx).
       if (typeof inputOrId === "string") {
         if (!keyedStore) rejectStoreOwned("remove");
         const ks = keyedStore;
         const id = inputOrId;
-        await drive({
+        await driveStoreBacked({
           id,
           opts: maybeOpts,
           apply: async (tx) => {
@@ -262,11 +361,11 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
         return;
       }
       const { id, opts, apply } = inputOrId;
-      await drive({
+      await drivePluginBacked({
         id,
         opts,
-        apply: async (tx) => {
-          await apply(tx);
+        apply: async () => {
+          await apply();
           return null;
         },
       });
@@ -305,7 +404,9 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
     async set(id, next, opts) {
       if (!keyedStore) rejectStoreOwned("set");
       const ks = keyedStore;
-      await this.mutate({
+      // Store-backed: the keyed `entity_state` write + transition append share
+      // ONE framework tx (`driveStoreBacked`), unlike the plugin-backed path.
+      await driveStoreBacked({
         id,
         opts,
         // The framework owns this storage (entity_state), so mask BEFORE the
@@ -318,7 +419,7 @@ export function createEntityHandle<TState extends Record<string, unknown>>(
     async patch(id, partial, opts) {
       if (!keyedStore) rejectStoreOwned("patch");
       const ks = keyedStore;
-      await this.mutate({
+      await driveStoreBacked({
         id,
         opts,
         apply: async (tx) => {

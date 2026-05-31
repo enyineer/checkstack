@@ -15,12 +15,16 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
 import { notifyAffectedSystems } from "./notifications";
-import type { IncidentUpdate } from "@checkstack/incident-common";
+import type {
+  IncidentUpdate,
+  IncidentWithSystems,
+} from "@checkstack/incident-common";
 import type { IncidentCache } from "./cache";
 import type { EntityHandle } from "@checkstack/automation-backend";
 import {
-  mirrorIncidentEntity,
+  writeIncidentEntity,
   removeIncidentEntity,
+  toIncidentEntityState,
   type IncidentEntityState,
 } from "./incident-entity";
 
@@ -155,7 +159,23 @@ export function createRouter(
     createIncident: os.createIncident.handler(async ({ input, context }) => {
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;
-      const result = await service.createIncident(input, userId);
+
+      // Drive the create through the reactive `incident` entity (§10.1):
+      // `apply` performs the REAL `incidents`/junction write (the plugin's own
+      // db/tx) and returns the new reactive state; the deriver fires
+      // `incident.created` from the resulting change. The id is generated up
+      // front so the handle is keyed on it and the create's `prev` snapshot
+      // correctly reads the not-yet-existing row as absent.
+      const incidentId = crypto.randomUUID();
+      let result!: Awaited<ReturnType<typeof service.createIncident>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId,
+        apply: async () => {
+          result = await service.createIncident(input, userId, incidentId);
+          return toIncidentEntityState(result);
+        },
+      });
 
       // Invalidate before signal so any frontend that refetches in response
       // sees fresh data. The mutation invariant for every handler in this
@@ -170,16 +190,6 @@ export function createRouter(
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "created",
-      });
-
-      // Mirror into the reactive `incident` entity (§10.1); the deriver
-      // fires `incident.created` from this change.
-      await mirrorIncidentEntity({
-        handle: getIncidentEntity?.(),
-        incidentId: result.id,
-        status: result.status,
-        severity: result.severity,
-        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -200,10 +210,30 @@ export function createRouter(
     }),
 
     updateIncident: os.updateIncident.handler(async ({ input }) => {
-      const result = await service.updateIncident(input);
-      if (!result) {
+      // Probe existence first so a missing incident still surfaces as
+      // NOT_FOUND without driving an entity write.
+      const exists = await service.getIncident(input.id);
+      if (!exists) {
         throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
       }
+
+      // Drive the update through the reactive `incident` entity (§10.1);
+      // `apply` performs the REAL update (the plugin's own db/tx) and returns
+      // the new reactive state. The deriver fires `incident.updated` (or
+      // `incident.resolved` on a resolution) from the resulting change.
+      let result!: NonNullable<Awaited<ReturnType<typeof service.updateIncident>>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.id,
+        apply: async () => {
+          const updated = await service.updateIncident(input);
+          if (!updated) {
+            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+          }
+          result = updated;
+          return toIncidentEntityState(result);
+        },
+      });
 
       await cache.invalidateForMutation({
         incidentId: result.id,
@@ -215,17 +245,6 @@ export function createRouter(
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "updated",
-      });
-
-      // Mirror into the reactive `incident` entity (§10.1); the deriver
-      // fires `incident.updated` (or `incident.resolved` on a resolution)
-      // from this change.
-      await mirrorIncidentEntity({
-        handle: getIncidentEntity?.(),
-        incidentId: result.id,
-        status: result.status,
-        severity: result.severity,
-        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -255,11 +274,30 @@ export function createRouter(
         : undefined;
       const previousStatus = previousIncident?.status;
 
-      const result = await service.addUpdate(input, userId);
+      // Drive the update through the reactive `incident` entity (§10.1).
+      // `apply` posts the update row + (optionally) flips status in the
+      // plugin's own db/tx, then re-reads the post-write reactive state. The
+      // deriver fires `incident.resolved` on a transition to resolved,
+      // otherwise `incident.updated` — purely from the entity diff (so the
+      // `statusChange` branch collapses into the single driven write). When
+      // the status is unchanged, the diff is empty and no event fires.
+      let result!: Awaited<ReturnType<typeof service.addUpdate>>;
+      let incident: Awaited<ReturnType<typeof service.getIncident>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.incidentId,
+        apply: async () => {
+          result = await service.addUpdate(input, userId);
+          incident = await service.getIncident(input.incidentId);
+          // The incident must exist (the update FK-references it); guard for
+          // the type and to fail loudly if it vanished mid-write.
+          if (!incident) {
+            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+          }
+          return toIncidentEntityState(incident);
+        },
+      });
 
-      // Read post-write state directly from the service so the broadcast
-      // payload is fresh; the cache is invalidated below before the signal.
-      const incident = await service.getIncident(input.incidentId);
       if (incident) {
         await cache.invalidateForMutation({
           incidentId: input.incidentId,
@@ -270,18 +308,6 @@ export function createRouter(
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
           action: "updated",
-        });
-
-        // Mirror into the reactive `incident` entity (§10.1). The deriver
-        // fires `incident.resolved` on a transition to resolved, otherwise
-        // `incident.updated` — derived purely from the entity diff (so the
-        // `statusChange` branch above collapses into the single mirror).
-        await mirrorIncidentEntity({
-          handle: getIncidentEntity?.(),
-          incidentId: input.incidentId,
-          status: incident.status,
-          severity: incident.severity,
-          systemIds: incident.systemIds,
         });
 
         // Send notifications when status changes
@@ -318,14 +344,33 @@ export function createRouter(
     resolveIncident: os.resolveIncident.handler(async ({ input, context }) => {
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;
-      const result = await service.resolveIncident(
-        input.id,
-        input.message,
-        userId,
-      );
-      if (!result) {
+
+      const exists = await service.getIncident(input.id);
+      if (!exists) {
         throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
       }
+
+      // Drive the resolve through the reactive `incident` entity (§10.1);
+      // `apply` performs the REAL resolve (the plugin's own db/tx) and returns
+      // the new reactive state. The deriver fires `incident.resolved` from the
+      // status → resolved transition.
+      let result!: NonNullable<Awaited<ReturnType<typeof service.resolveIncident>>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.id,
+        apply: async () => {
+          const resolved = await service.resolveIncident(
+            input.id,
+            input.message,
+            userId,
+          );
+          if (!resolved) {
+            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+          }
+          result = resolved;
+          return toIncidentEntityState(result);
+        },
+      });
 
       await cache.invalidateForMutation({
         incidentId: result.id,
@@ -337,16 +382,6 @@ export function createRouter(
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "resolved",
-      });
-
-      // Mirror into the reactive `incident` entity (§10.1); the deriver
-      // fires `incident.resolved` from the status → resolved transition.
-      await mirrorIncidentEntity({
-        handle: getIncidentEntity?.(),
-        incidentId: result.id,
-        status: result.status,
-        severity: result.severity,
-        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -367,10 +402,27 @@ export function createRouter(
     }),
 
     deleteIncident: os.deleteIncident.handler(async ({ input }) => {
-      // Get incident before deleting to get systemIds
+      // Get incident before deleting to get systemIds.
       const incident = await service.getIncident(input.id);
-      const success = await service.deleteIncident(input.id);
-      if (success && incident) {
+      if (!incident) {
+        return { success: false };
+      }
+
+      // Drive the delete through the reactive `incident` entity tombstone
+      // (§10.1). `apply` performs the REAL delete (the plugin's own db/tx);
+      // the framework records the tombstone transition and emits a tombstone
+      // change. No `incident.deleted` trigger event exists, so the deriver
+      // fires nothing. `success` tracks whether the row was actually deleted.
+      let success = false;
+      await removeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.id,
+        apply: async () => {
+          success = await service.deleteIncident(input.id);
+        },
+      });
+
+      if (success) {
         await cache.invalidateForMutation({
           incidentId: input.id,
           systemIds: incident.systemIds,
@@ -380,14 +432,6 @@ export function createRouter(
           incidentId: input.id,
           systemIds: incident.systemIds,
           action: "deleted",
-        });
-
-        // Tombstone the reactive `incident` entity (§10.1). No
-        // `incident.deleted` trigger event exists, so the deriver fires
-        // nothing — this just keeps the entity store clean.
-        await removeIncidentEntity({
-          handle: getIncidentEntity?.(),
-          incidentId: input.id,
         });
       }
       return { success };
@@ -403,10 +447,21 @@ export function createRouter(
 
     createAutoIncident: os.createAutoIncident.handler(
       async ({ input }) => {
-        // No user context for service-initiated incidents; createdBy
-        // stays null and the timeline shows the originating plugin via
-        // the mirrored entity state.
-        const result = await service.createIncident(input);
+        // No user context for service-initiated incidents; createdBy stays
+        // null and the timeline shows the originating plugin via the entity
+        // state. Driven through the reactive `incident` entity (§10.1); the
+        // deriver fires `incident.created` from the resulting change. The id
+        // is generated up front so the create's `prev` snapshot is null.
+        const incidentId = crypto.randomUUID();
+        let result!: Awaited<ReturnType<typeof service.createIncident>>;
+        await writeIncidentEntity({
+          handle: getIncidentEntity?.(),
+          incidentId,
+          apply: async () => {
+            result = await service.createIncident(input, undefined, incidentId);
+            return toIncidentEntityState(result);
+          },
+        });
 
         await cache.invalidateForMutation({
           incidentId: result.id,
@@ -417,16 +472,6 @@ export function createRouter(
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "created",
-        });
-
-        // Mirror into the reactive `incident` entity (§10.1); the deriver
-        // fires `incident.created` from this change.
-        await mirrorIncidentEntity({
-          handle: getIncidentEntity?.(),
-          incidentId: result.id,
-          status: result.status,
-          severity: result.severity,
-          systemIds: result.systemIds,
         });
 
         const systemNames = await resolveSystemNames(result.systemIds);
@@ -448,9 +493,30 @@ export function createRouter(
 
     resolveAutoIncident: os.resolveAutoIncident.handler(
       async ({ input }) => {
-        const result = await service.resolveIncident(input.id, input.message);
-        // Idempotent: a missing or already-resolved incident is treated
-        // as success so the auto-close worker can be re-run safely.
+        // Idempotent: a missing incident is treated as success so the
+        // auto-close worker can be re-run safely. Probe first so the no-op
+        // case never drives an entity write.
+        const exists = await service.getIncident(input.id);
+        if (!exists) {
+          return { success: true };
+        }
+
+        // Drive the resolve through the reactive `incident` entity (§10.1):
+        // the REAL resolve runs INSIDE `apply`, so `prev` is snapshotted
+        // before the status flips and the deriver fires `incident.resolved`
+        // from the status → resolved transition. An already-resolved incident
+        // yields an empty diff and no event — the idempotent re-run case.
+        let result: IncidentWithSystems | undefined;
+        await writeIncidentEntity({
+          handle: getIncidentEntity?.(),
+          incidentId: input.id,
+          apply: async () => {
+            result = await service.resolveIncident(input.id, input.message);
+            // The probe found it; a race could still delete it mid-write.
+            // Fall back to the pre-write state so the diff is a no-op.
+            return toIncidentEntityState(result ?? exists);
+          },
+        });
         if (!result) {
           return { success: true };
         }
@@ -464,16 +530,6 @@ export function createRouter(
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "resolved",
-        });
-
-        // Mirror into the reactive `incident` entity (§10.1); the deriver
-        // fires `incident.resolved` from the status → resolved transition.
-        await mirrorIncidentEntity({
-          handle: getIncidentEntity?.(),
-          incidentId: result.id,
-          status: result.status,
-          severity: result.severity,
-          systemIds: result.systemIds,
         });
 
         const systemNames = await resolveSystemNames(result.systemIds);

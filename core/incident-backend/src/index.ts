@@ -29,6 +29,7 @@ import { CATALOG_SYSTEM_ENTITY_KIND } from "@checkstack/catalog-backend";
 import {
   INCIDENT_ENTITY_KIND,
   IncidentEntityStateSchema,
+  createIncidentEntityRead,
   deriveIncidentTriggerEvents,
   type IncidentEntityState,
 } from "./incident-entity";
@@ -48,6 +49,13 @@ import {
 // Reactive `incident` entity handle (§10.1). Defined in register(); mutated
 // from the router onward.
 let incidentEntity: EntityHandle<IncidentEntityState> | undefined;
+
+// The incident service is created in init() (it needs the resolved database),
+// but the PLUGIN-BACKED entity `read` accessor must be supplied at
+// `defineEntity` time in register(). This holder bridges the two: the `read`
+// closure resolves the service lazily, and init() sets it before any mutation
+// runs (the registry only mutates from init() onward).
+let incidentServiceRef: IncidentService | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -70,14 +78,24 @@ export default createBackendPlugin({
     }
 
     // ─── Reactive `incident` entity (§10.1) ────────────────────────────
+    // PLUGIN-BACKED (Model B): the `incidents` + `incident_systems` tables ARE
+    // the current-state storage. `read` routes straight to the service's
+    // batched authoritative read — no framework `entity_state` row, so no
+    // `indexes` (those only apply to store-backed kinds). The `read` closure
+    // resolves the service set by init() (mutations only happen from init on).
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
     incidentEntity = entityPoint.defineEntity<IncidentEntityState>({
       kind: INCIDENT_ENTITY_KIND,
       state: IncidentEntityStateSchema,
-      indexes: [
-        { name: "status", fields: ["status"] },
-        { name: "severity", fields: ["severity"] },
-      ],
+      read: (ids) => {
+        const svc = incidentServiceRef;
+        if (!svc) {
+          throw new Error(
+            "incident entity read before init: service not yet resolved",
+          );
+        }
+        return createIncidentEntityRead(svc)(ids);
+      },
     });
     entityPoint.registerChangeDeriver({
       kind: INCIDENT_ENTITY_KIND,
@@ -125,6 +143,9 @@ export default createBackendPlugin({
         const service = new IncidentService(
           database as SafeDatabase<typeof schema>,
         );
+        // Publish the service for the PLUGIN-BACKED entity `read` accessor
+        // (defined in register()). Mutations only run from here onward.
+        incidentServiceRef = service;
         const cache = createIncidentCache({ cacheManager, logger });
         incidentCache = cache;
         const router = createRouter(
@@ -147,7 +168,10 @@ export default createBackendPlugin({
         const automationActions = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
-        for (const action of createIncidentActions({ service })) {
+        for (const action of createIncidentActions({
+          service,
+          getIncidentEntity: () => incidentEntity,
+        })) {
           automationActions.registerAction(action, pluginMetadata);
         }
 

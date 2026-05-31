@@ -41,6 +41,13 @@ export interface FakeEntityStore extends EntityStore {
   readonly transitions: TransitionRow[];
   /** Override the clock used for transition timestamps (defaults to Date.now). */
   setClock(fn: () => Date): void;
+  /**
+   * Register an observer invoked each time `runInTransaction` opens the fake
+   * framework transaction. Lets a test assert the cross-plugin ordering: the
+   * plugin-backed path opens the framework (transition-append) tx ONLY after
+   * the plugin write has committed.
+   */
+  onTransaction(fn: () => void): void;
   /** An in-memory keyed store over `rows` for a given kind. */
   keyedStore<TState extends Record<string, unknown>>(
     kind: string,
@@ -58,6 +65,7 @@ export function createFakeEntityStore(): FakeEntityStore {
   const rows = new Map<string, Record<string, unknown>>();
   const transitions: TransitionRow[] = [];
   let clock: () => Date = defaultClock;
+  let onTx: (() => void) | undefined;
 
   return {
     rows,
@@ -65,9 +73,13 @@ export function createFakeEntityStore(): FakeEntityStore {
     setClock(fn) {
       clock = fn;
     },
+    onTransaction(fn) {
+      onTx = fn;
+    },
 
     async runInTransaction(fn) {
       // No real transaction in the fake — just run with the sentinel tx.
+      onTx?.();
       return fn(FAKE_TX);
     },
 

@@ -12,8 +12,8 @@
  *     lives in a non-`entity_state` backing (durable platform history for a
  *     homeless/in-memory kind);
  *   - `prev` is snapshotted BEFORE `apply`, so a change is never missed;
- *   - the change event is emitted only AFTER the tx commits — a throwing
- *     `apply` (rolled-back tx) emits nothing and logs nothing;
+ *   - the change event is emitted only AFTER the plugin write resolves — a
+ *     throwing `apply` emits nothing and appends no transition;
  *   - run-originated writes are masked;
  *   - `get` / `getMany` route to the plugin `read`.
  */
@@ -24,8 +24,7 @@ import type { EntityChanged } from "@checkstack/automation-common";
 
 import { createEntityHandle } from "./create-handle";
 import { createChangeEmitter, type ChangeEmitter } from "./change-emitter";
-import { createFakeEntityStore, FAKE_TX } from "./fake-entity-store";
-import type { EntityTx } from "./entity-store";
+import { createFakeEntityStore } from "./fake-entity-store";
 import { createRunSecretRegistry } from "../dispatch/run-secret-registry";
 
 const satelliteSchema = z.object({
@@ -91,10 +90,10 @@ describe("Model B mutate — emit on diff / no-op on equal", () => {
     const { store, events, handle, plugin } = setup();
     const next = await handle.mutate({
       id: "sat-1",
-      apply: (tx: EntityTx) => {
-        expect(tx).toBe(FAKE_TX);
-        return Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" }));
-      },
+      // PLUGIN-BACKED `apply` takes NO framework tx — the plugin owns its own
+      // write/tx. It just returns the post-write state.
+      apply: () =>
+        Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" })),
     });
     expect(next).toEqual({ status: "online", region: "eu" });
     // The current state lives ONLY in the plugin map — entity_state untouched.
@@ -175,13 +174,58 @@ describe("Model B mutate — post-commit emit (no emit on rollback)", () => {
       handle.mutate({
         id: "sat-1",
         apply: () => {
-          // The plugin write fails inside the tx → rollback.
+          // The plugin write fails (in the plugin's own tx) → nothing else runs.
           throw new Error("write blew up");
         },
       }),
     ).rejects.toThrow(/write blew up/);
     expect(events).toHaveLength(0);
     expect(store.transitions).toHaveLength(0);
+  });
+});
+
+describe("Model B mutate — cross-plugin tx boundary", () => {
+  it("runs the plugin write FIRST, then appends transitions in a SEPARATE framework tx", async () => {
+    const { handle, plugin, store } = setup();
+    const order: string[] = [];
+    // Observe the framework transaction boundary: the plugin write must have
+    // already happened (the row is in the plugin map) by the time the
+    // framework opens its tx to append the transition.
+    store.onTransaction(() => {
+      order.push(
+        plugin.rows.has("sat-1") ? "framework-tx-after-write" : "framework-tx-before-write",
+      );
+    });
+    await handle.mutate({
+      id: "sat-1",
+      apply: () => {
+        order.push("plugin-write");
+        return Promise.resolve(plugin.put("sat-1", { status: "online", region: "eu" }));
+      },
+    });
+    // Plugin write happens BEFORE the framework opens its transition-append tx,
+    // and that tx sees the already-committed plugin state.
+    expect(order).toEqual(["plugin-write", "framework-tx-after-write"]);
+    expect(store.transitions).toHaveLength(2);
+  });
+
+  it("does NOT open a framework tx when the plugin write throws", async () => {
+    const { handle, plugin, store } = setup();
+    let frameworkTxOpened = false;
+    store.onTransaction(() => {
+      frameworkTxOpened = true;
+    });
+    plugin.put("sat-1", { status: "online", region: "eu" });
+    await expect(
+      handle.mutate({
+        id: "sat-1",
+        apply: () => {
+          throw new Error("boom");
+        },
+      }),
+    ).rejects.toThrow(/boom/);
+    // The transition-append tx is opened ONLY after a committed plugin write.
+    expect(frameworkTxOpened).toBe(false);
   });
 });
 

@@ -17,6 +17,7 @@ import type {
   UpdateIncidentInput,
   AddIncidentUpdateInput,
   IncidentStatus,
+  IncidentSeverity,
 } from "@checkstack/incident-common";
 
 type Db = SafeDatabase<typeof schema>;
@@ -126,6 +127,62 @@ export class IncidentService {
   }
 
   /**
+   * Batched reactive-state read for the `incident` entity (Model B
+   * plugin-backed `read` accessor). Given incident ids, return the reactive
+   * subset `{ status, severity, systemIds }` for each that exists (missing
+   * ids omitted). Reads the AUTHORITATIVE `incidents` + `incident_systems`
+   * tables — no framework `entity_state` storage. This is the single source
+   * of truth `handle.mutate` snapshots `prev` from and `get`/`getMany`/scope
+   * enrichment route through.
+   */
+  async getManyEntityStates(
+    ids: ReadonlyArray<string>,
+  ): Promise<
+    Record<string, { status: IncidentStatus; severity: IncidentSeverity; systemIds: string[] }>
+  > {
+    if (ids.length === 0) return {};
+
+    const rows = await this.db
+      .select({
+        id: incidents.id,
+        status: incidents.status,
+        severity: incidents.severity,
+      })
+      .from(incidents)
+      .where(inArray(incidents.id, [...ids]));
+    if (rows.length === 0) return {};
+
+    const presentIds = rows.map((r) => r.id);
+    const systemRows = await this.db
+      .select({
+        incidentId: incidentSystems.incidentId,
+        systemId: incidentSystems.systemId,
+      })
+      .from(incidentSystems)
+      .where(inArray(incidentSystems.incidentId, presentIds));
+
+    const systemsByIncident = new Map<string, string[]>();
+    for (const r of systemRows) {
+      const list = systemsByIncident.get(r.incidentId);
+      if (list) list.push(r.systemId);
+      else systemsByIncident.set(r.incidentId, [r.systemId]);
+    }
+
+    const out: Record<
+      string,
+      { status: IncidentStatus; severity: IncidentSeverity; systemIds: string[] }
+    > = {};
+    for (const row of rows) {
+      out[row.id] = {
+        status: row.status,
+        severity: row.severity,
+        systemIds: systemsByIncident.get(row.id) ?? [],
+      };
+    }
+    return out;
+  }
+
+  /**
    * Get active incidents for a system
    */
   async getIncidentsForSystem(
@@ -165,13 +222,18 @@ export class IncidentService {
   }
 
   /**
-   * Create a new incident
+   * Create a new incident.
+   *
+   * `id` may be supplied by the caller so the reactive `incident` entity can
+   * be keyed on a known id BEFORE the insert runs (the create's `prev`
+   * snapshot must read the not-yet-existing row as absent — see §10.1). When
+   * omitted, a fresh id is generated. The id is server-owned either way.
    */
   async createIncident(
     input: CreateIncidentInput,
     userId?: string,
+    id: string = generateId(),
   ): Promise<IncidentWithSystems> {
-    const id = generateId();
 
     await this.db.insert(incidents).values({
       id,
@@ -453,6 +515,18 @@ export class IncidentService {
     input: CreateIncidentInput,
     dedupeSystemId: string,
     userId?: string,
+    newId?: string,
+    /**
+     * Optional create wrapper (§10.1, 6(a)). When the dedup decides to CREATE,
+     * the actual create runs through this wrapper INSIDE the advisory lock, so
+     * the reactive `incident` entity write (which snapshots `prev` before the
+     * insert) is serialized with the dedup check. The wrapper receives the
+     * bound create thunk and MUST call it exactly once, returning its result.
+     * Defaults to calling the create directly (non-reactive).
+     */
+    onCreate: (
+      create: () => Promise<IncidentWithSystems>,
+    ) => Promise<IncidentWithSystems> = (create) => create(),
   ): Promise<{ incident: IncidentWithSystems; reused: boolean }> {
     return withXactLock({
       db: this.db,
@@ -468,7 +542,11 @@ export class IncidentService {
         if (existing) {
           return { incident: existing, reused: true };
         }
-        const incident = await this.createIncident(input, userId);
+        // Create through the caller's wrapper (reactive entity write) so the
+        // `incident.created` emit is serialized inside the dedup lock.
+        const incident = await onCreate(() =>
+          this.createIncident(input, userId, newId),
+        );
         return { incident, reused: false };
       },
     });

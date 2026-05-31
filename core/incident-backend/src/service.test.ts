@@ -131,6 +131,67 @@ describe("IncidentService.hasActiveIncidentWithSuppression", () => {
   });
 });
 
+describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () => {
+  it("returns {} for an empty id set without querying", async () => {
+    const dbHelper = createProgrammableSelectDb([]);
+    const service = new IncidentService(dbHelper.db as never);
+    expect(await service.getManyEntityStates([])).toEqual({});
+    expect(dbHelper.getCallCount()).toBe(0);
+  });
+
+  it("projects { status, severity, systemIds } from incidents + junction", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st query: incidents rows for the requested ids.
+      [
+        { id: "inc-1", status: "investigating", severity: "major" },
+        { id: "inc-2", status: "resolved", severity: "minor" },
+      ],
+      // 2nd query: incident_systems junction rows for the present ids.
+      [
+        { incidentId: "inc-1", systemId: "sys-a" },
+        { incidentId: "inc-1", systemId: "sys-b" },
+        { incidentId: "inc-2", systemId: "sys-c" },
+      ],
+    ]);
+    const service = new IncidentService(dbHelper.db as never);
+    const out = await service.getManyEntityStates(["inc-1", "inc-2", "inc-x"]);
+    expect(out).toEqual({
+      "inc-1": {
+        status: "investigating",
+        severity: "major",
+        systemIds: ["sys-a", "sys-b"],
+      },
+      "inc-2": { status: "resolved", severity: "minor", systemIds: ["sys-c"] },
+    });
+    // Missing ids are omitted (never a null/undefined entry).
+    expect("inc-x" in out).toBe(false);
+  });
+
+  it("returns {} when none of the ids exist (no junction query)", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // incidents query returns nothing → no second query.
+      [],
+    ]);
+    const service = new IncidentService(dbHelper.db as never);
+    expect(await service.getManyEntityStates(["ghost"])).toEqual({});
+    expect(dbHelper.getCallCount()).toBe(1);
+  });
+
+  it("yields an empty systemIds array for an incident with no systems", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      [{ id: "inc-1", status: "monitoring", severity: "critical" }],
+      [], // no junction rows
+    ]);
+    const service = new IncidentService(dbHelper.db as never);
+    const out = await service.getManyEntityStates(["inc-1"]);
+    expect(out["inc-1"]).toEqual({
+      status: "monitoring",
+      severity: "critical",
+      systemIds: [],
+    });
+  });
+});
+
 /**
  * Table-backed fake `db` for the dedup-create path. Models just enough of
  * the Drizzle surface the service touches (select/insert by TABLE IDENTITY,

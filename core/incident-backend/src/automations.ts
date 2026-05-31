@@ -15,6 +15,7 @@ import { Versioned } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   ArtifactTypeDefinition,
+  EntityHandle,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
 import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
@@ -24,6 +25,11 @@ import {
 } from "@checkstack/incident-common";
 
 import type { IncidentService } from "./service";
+import {
+  toIncidentEntityState,
+  writeIncidentEntity,
+  type IncidentEntityState,
+} from "./incident-entity";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
@@ -237,12 +243,20 @@ function resolveIncidentId(
 
 export interface IncidentActionDeps {
   service: IncidentService;
+  /**
+   * Resolver for the reactive `incident` entity (§10.1). When present, the
+   * `incident.create` action drives its write through `handle.mutate` so an
+   * action-created incident becomes reactive like any other (6(a)). Undefined
+   * in tests / before the handle is wired — the create still runs, just
+   * non-reactively.
+   */
+  getIncidentEntity?: () => EntityHandle<IncidentEntityState> | undefined;
 }
 
 export function createIncidentActions(
   deps: IncidentActionDeps,
 ): ActionDefinition<unknown, unknown>[] {
-  const { service } = deps;
+  const { service, getIncidentEntity } = deps;
 
   const createAction: ActionDefinition<
     z.infer<typeof incidentCreateConfigSchema>,
@@ -267,6 +281,7 @@ export function createIncidentActions(
         initialMessage: config.initialMessage,
         suppressNotifications: config.suppressNotifications,
       };
+      const handle = getIncidentEntity?.();
 
       // Per-system dedup (opt-in): if an open incident already exists on
       // the first target system, reuse it instead of opening a duplicate.
@@ -276,11 +291,38 @@ export function createIncidentActions(
       // serialized per system inside the service (advisory lock), so two
       // concurrent triggers (e.g. sustained + flapping) for the same system
       // can't both find none and both create.
+      //
+      // 6(a): an action-created incident is now reactive — the create runs
+      // through `handle.mutate`, so the deriver fires `incident.created` and
+      // automations can trigger on it. A REUSED incident drives NO entity
+      // write (it already exists and is unchanged, so no duplicate
+      // `incident.created`). The id is generated up front so a real create's
+      // `prev` snapshot reads the not-yet-existing row as absent.
       if (config.dedupe_open_for_system) {
+        const newId = crypto.randomUUID();
+        // The create (when not reused) runs INSIDE the dedup lock via
+        // `onCreate`, driven through `handle.mutate` so `prev` is snapshotted
+        // (absent → null) BEFORE the insert and `incident.created` fires. A
+        // REUSE never calls `onCreate`, so no entity write and no duplicate
+        // `incident.created` — matching the pre-reactive dedupe behavior.
         const { incident, reused } =
           await service.createIncidentDedupedForSystem(
             createInput,
             config.systemIds[0]!,
+            undefined,
+            newId,
+            async (create) => {
+              let created!: Awaited<ReturnType<typeof create>>;
+              await writeIncidentEntity({
+                handle,
+                incidentId: newId,
+                apply: async () => {
+                  created = await create();
+                  return toIncidentEntityState(created);
+                },
+              });
+              return created;
+            },
           );
         if (reused) {
           logger.info(
@@ -301,7 +343,16 @@ export function createIncidentActions(
         };
       }
 
-      const incident = await service.createIncident(createInput);
+      const newId = crypto.randomUUID();
+      let incident!: Awaited<ReturnType<typeof service.createIncident>>;
+      await writeIncidentEntity({
+        handle,
+        incidentId: newId,
+        apply: async () => {
+          incident = await service.createIncident(createInput, undefined, newId);
+          return toIncidentEntityState(incident);
+        },
+      });
       logger.info(`Automation created incident ${incident.id}`);
       return {
         success: true,

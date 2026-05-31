@@ -59,14 +59,21 @@ describe("incident automation actions", () => {
       expect((result.artifact as { incidentId: string }).incidentId).toBe(
         "INC-1",
       );
-      expect(service.createIncident).toHaveBeenCalledWith({
-        title: "DB down",
-        description: undefined,
-        severity: "critical",
-        systemIds: ["sys-1"],
-        initialMessage: undefined,
-        suppressNotifications: false,
-      });
+      // The action now reserves an id up front and passes it (with no user)
+      // so the reactive `incident` entity can key on it and snapshot a null
+      // `prev` before the insert (§10.1).
+      expect(service.createIncident).toHaveBeenCalledWith(
+        {
+          title: "DB down",
+          description: undefined,
+          severity: "critical",
+          systemIds: ["sys-1"],
+          initialMessage: undefined,
+          suppressNotifications: false,
+        },
+        undefined,
+        expect.any(String),
+      );
     });
 
     it("dedupe_open_for_system reuses an existing open incident on the system", async () => {
@@ -169,6 +176,85 @@ describe("incident automation actions", () => {
         "INC-NEW",
       );
       expect(service.findActiveIncidentForSystem).not.toHaveBeenCalled();
+    });
+
+    // 6(a): an action-created incident is now reactive — the create runs
+    // through `handle.mutate`, so the deriver fires `incident.created`.
+    it("drives the create through handle.mutate (action-created incident is reactive)", async () => {
+      const created = {
+        id: "INC-NEW",
+        status: "investigating" as const,
+        severity: "critical" as const,
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        createIncident: mock(
+          async () => created,
+        ) as unknown as IncidentService["createIncident"],
+      });
+      const mutate = mock(
+        async (input: { id: string; apply: () => Promise<unknown> }) =>
+          input.apply(),
+      );
+      const handle = { kind: "incident", mutate } as never;
+      const [createAction] = createIncidentActions({
+        service,
+        getIncidentEntity: () => handle,
+      });
+      await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+        } as never,
+      });
+      // The create was routed through the entity handle (reactive), keyed on
+      // the reserved id passed to the service create.
+      expect(mutate).toHaveBeenCalledTimes(1);
+      const mutateArg = mutate.mock.calls[0]![0] as { id: string };
+      expect(service.createIncident).toHaveBeenCalledWith(
+        expect.anything(),
+        undefined,
+        mutateArg.id,
+      );
+    });
+
+    it("dedupe reuse drives NO handle.mutate (no duplicate incident.created)", async () => {
+      const existing = {
+        id: "INC-OPEN",
+        status: "investigating" as const,
+        severity: "critical" as const,
+        systemIds: ["sys-1"],
+      };
+      const service = makeServiceStub({
+        createIncidentDedupedForSystem: mock(async () => ({
+          incident: existing,
+          reused: true,
+        })) as unknown as IncidentService["createIncidentDedupedForSystem"],
+      });
+      const mutate = mock(
+        async (input: { id: string; apply: () => Promise<unknown> }) =>
+          input.apply(),
+      );
+      const handle = { kind: "incident", mutate } as never;
+      const [createAction] = createIncidentActions({
+        service,
+        getIncidentEntity: () => handle,
+      });
+      await createAction.execute({
+        ...actionContext,
+        config: {
+          title: "DB down",
+          severity: "critical",
+          systemIds: ["sys-1"],
+          suppressNotifications: false,
+          dedupe_open_for_system: true,
+        } as never,
+      });
+      // A reused incident is unchanged → no entity write at all.
+      expect(mutate).not.toHaveBeenCalled();
     });
   });
 
