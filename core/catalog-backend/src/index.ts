@@ -7,7 +7,19 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
+import {
+  CATALOG_GROUP_ENTITY_KIND,
+  CATALOG_SYSTEM_ENTITY_KIND,
+  CatalogGroupStateSchema,
+  CatalogSystemStateSchema,
+  deriveCatalogGroupTriggerEvents,
+  deriveCatalogSystemTriggerEvents,
+  type CatalogGroupState,
+  type CatalogSystemState,
+} from "./catalog-entity";
 import {
   catalogAccessRules,
   catalogAccess,
@@ -43,6 +55,11 @@ import * as schema from "./schema";
 
 export let db: SafeDatabase<typeof schema> | undefined;
 
+// Reactive catalog entity handles (§10.4). Defined in register() via the
+// entity extension point; mutate from init()/afterPluginsReady onward.
+let systemEntity: EntityHandle<CatalogSystemState> | undefined;
+let groupEntity: EntityHandle<CatalogGroupState> | undefined;
+
 // Export hooks for other plugins to subscribe to
 export { catalogHooks } from "./hooks";
 
@@ -65,6 +82,27 @@ export default createBackendPlugin({
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(systemRecordArtifactType, pluginMetadata);
+
+    // ─── Reactive catalog entities (§10.4) ─────────────────────────────
+    const entityPoint = env.getExtensionPoint(entityExtensionPoint);
+    systemEntity = entityPoint.defineEntity<CatalogSystemState>({
+      kind: CATALOG_SYSTEM_ENTITY_KIND,
+      state: CatalogSystemStateSchema,
+      indexes: [{ name: "name", fields: ["name"] }],
+    });
+    groupEntity = entityPoint.defineEntity<CatalogGroupState>({
+      kind: CATALOG_GROUP_ENTITY_KIND,
+      state: CatalogGroupStateSchema,
+      indexes: [{ name: "name", fields: ["name"] }],
+    });
+    entityPoint.registerChangeDeriver({
+      kind: CATALOG_SYSTEM_ENTITY_KIND,
+      derive: deriveCatalogSystemTriggerEvents,
+    });
+    entityPoint.registerChangeDeriver({
+      kind: CATALOG_GROUP_ENTITY_KIND,
+      derive: deriveCatalogGroupTriggerEvents,
+    });
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────
     // Mutable DB reference — populated during init(), consumed by reconcile closures.
@@ -238,6 +276,8 @@ export default createBackendPlugin({
           gitOpsClient,
           pluginId: pluginMetadata.pluginId,
           cache,
+          getSystemEntity: () => systemEntity,
+          getGroupEntity: () => groupEntity,
         });
         rpc.registerRouter(catalogRouter, catalogContract);
 
@@ -327,6 +367,7 @@ export default createBackendPlugin({
           entityService,
           cache,
           emitHook,
+          getSystemEntity: () => systemEntity,
         })) {
           automationActions.registerAction(action, pluginMetadata);
         }

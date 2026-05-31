@@ -16,6 +16,14 @@ import { catalogHooks } from "./hooks";
 import { eq } from "drizzle-orm";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import type { CatalogCache } from "./cache";
+import type { EntityHandle } from "@checkstack/automation-backend";
+import {
+  mirrorCatalogGroup,
+  mirrorCatalogSystem,
+  removeCatalogEntity,
+  type CatalogGroupState,
+  type CatalogSystemState,
+} from "./catalog-entity";
 
 /**
  * Creates the catalog router using contract-based implementation.
@@ -35,6 +43,9 @@ export interface CatalogRouterDeps {
   gitOpsClient: InferClient<typeof GitOpsApi>;
   pluginId: string;
   cache: CatalogCache;
+  /** Resolvers for the reactive catalog entities (§10.4). Undefined in tests. */
+  getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
+  getGroupEntity?: () => EntityHandle<CatalogGroupState> | undefined;
 }
 
 export const createCatalogRouter = ({
@@ -44,6 +55,8 @@ export const createCatalogRouter = ({
   gitOpsClient,
   pluginId: _pluginId,
   cache,
+  getSystemEntity,
+  getGroupEntity,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
 
@@ -238,6 +251,15 @@ export const createCatalogRouter = ({
       systemName: result.name,
     });
 
+    // Mirror into the reactive `catalog-system` entity (§10.4).
+    await mirrorCatalogSystem({
+      handle: getSystemEntity?.(),
+      systemId: result.id,
+      name: result.name,
+      description: result.description,
+      metadata: result.metadata as Record<string, unknown> | null,
+    });
+
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };
@@ -288,6 +310,17 @@ export const createCatalogRouter = ({
       });
     }
 
+    // Mirror into the reactive `catalog-system` entity (§10.4). The entity
+    // store diffs internally, so a save-with-no-diff stays a no-op (the
+    // deriver only fires `system.updated` on a real change).
+    await mirrorCatalogSystem({
+      handle: getSystemEntity?.(),
+      systemId: result.id,
+      name: result.name,
+      description: result.description,
+      metadata: result.metadata as Record<string, unknown> | null,
+    });
+
     return result as typeof result & {
       metadata: Record<string, unknown> | null;
     };
@@ -310,6 +343,9 @@ export const createCatalogRouter = ({
     // Emit hook for other plugins to clean up related data
     await context.emitHook(catalogHooks.systemDeleted, { systemId: input });
 
+    // Tombstone the reactive `catalog-system` entity (§10.4).
+    await removeCatalogEntity({ handle: getSystemEntity?.(), id: input });
+
     return { success: true };
   });
 
@@ -326,6 +362,14 @@ export const createCatalogRouter = ({
     await context.emitHook(catalogHooks.groupCreated, {
       groupId: result.id,
       groupName: result.name,
+    });
+
+    // Mirror into the reactive `catalog-group` entity (§10.4).
+    await mirrorCatalogGroup({
+      handle: getGroupEntity?.(),
+      groupId: result.id,
+      name: result.name,
+      metadata: result.metadata as Record<string, unknown> | null,
     });
 
     // New groups have no systems yet
@@ -361,6 +405,17 @@ export const createCatalogRouter = ({
     if (input.data.name !== undefined) {
       await upsertGroupResource({ id: fullGroup.id, name: fullGroup.name });
     }
+
+    // Mirror into the reactive `catalog-group` entity (§10.4). There is no
+    // `catalog.group.updated` hook, so the deriver fires nothing on a pure
+    // update — but the entity state stays current for scope/conditions.
+    await mirrorCatalogGroup({
+      handle: getGroupEntity?.(),
+      groupId: fullGroup.id,
+      name: fullGroup.name,
+      metadata: fullGroup.metadata as Record<string, unknown> | null,
+    });
+
     return fullGroup as unknown as typeof fullGroup & {
       metadata: Record<string, unknown> | null;
     };
@@ -376,6 +431,9 @@ export const createCatalogRouter = ({
 
     // Emit hook for other plugins to clean up related data
     await context.emitHook(catalogHooks.groupDeleted, { groupId: input });
+
+    // Tombstone the reactive `catalog-group` entity (§10.4).
+    await removeCatalogEntity({ handle: getGroupEntity?.(), id: input });
 
     return { success: true };
   });

@@ -26,9 +26,14 @@ import type {
   TriggerDefinition,
 } from "@checkstack/automation-backend";
 
+import type { EntityHandle } from "@checkstack/automation-backend";
 import { catalogHooks } from "./hooks";
 import type { EntityService } from "./services/entity-service";
 import type { createCatalogCache } from "./cache";
+import {
+  mirrorCatalogSystem,
+  type CatalogSystemState,
+} from "./catalog-entity";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
@@ -139,6 +144,8 @@ export interface CatalogActionDeps {
    * automations waiting on the trigger wouldn't see the change.
    */
   emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
+  /** Resolver for the reactive `catalog-system` entity (§10.4). */
+  getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
 }
 
 export function createCatalogActions(
@@ -190,6 +197,15 @@ export function createCatalogActions(
         systemId: updated.id,
         systemName: updated.name,
         changedFields: ["metadata"],
+      });
+
+      // Mirror into the reactive `catalog-system` entity (§10.4).
+      await mirrorCatalogSystem({
+        handle: deps.getSystemEntity?.(),
+        systemId: updated.id,
+        name: updated.name,
+        description: updated.description,
+        metadata: nextMetadata,
       });
 
       logger.info(
