@@ -136,3 +136,16 @@ filters.registerFilter(
 ```
 
 A filter whose name collides with a built-in is skipped with a warning rather than overwriting it.
+
+## Exposing reactive state
+
+Domain state (an incident's status, a maintenance window, a system's health) is exposed through the separate `automation.entity` extension point, not as a hand-rolled state table plus an ad-hoc change hook. Resolve `entityExtensionPoint` and call `defineEntity` to get a typed, reactive entity; use `registerChangeDeriver` to map a change to the trigger event id(s) it fires, and `onEntityChanged` to react to another plugin's changes.
+
+```ts
+import { entityExtensionPoint } from "@checkstack/automation-backend";
+
+const entity = env.getExtensionPoint(entityExtensionPoint);
+const handle = entity.defineEntity({ kind: "incident", state: IncidentEntityStateSchema });
+```
+
+See [the entity state machine](/checkstack/developer-guide/backend/automations/entity-state-machine/) for the full API, the non-reactive escape hatch, delivery semantics, and runnable examples.

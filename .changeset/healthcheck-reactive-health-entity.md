@@ -7,9 +7,11 @@ Migrate the per-system aggregated health to the reactive `health` entity (reacti
 
 Healthcheck now defines a `health` entity `{ status, healthyChecks, totalChecks }` keyed by `systemId` through the `automation.entity` extension point and mirrors the aggregate into the framework entity store at every aggregate-write site in the queue executor (success + failure evaluation paths). A behavior-preserving change → trigger-event deriver maps a status transition to the existing qualified trigger events so automations keep firing:
 
-- recovery (`prev !== healthy` → `next === healthy`) → `healthcheck.system.healthy` + `healthcheck.system.health_changed`
-- degradation (`prev === healthy` → `next !== healthy`) → `healthcheck.system.degraded` + `healthcheck.system.health_changed`
-- any other transition → `healthcheck.system.health_changed`
+- recovery (`prev !== healthy` → `next === healthy`) → `healthcheck.system_healthy` + `healthcheck.system_health_changed`
+- degradation (`prev === healthy` → `next !== healthy`) → `healthcheck.system_degraded` + `healthcheck.system_health_changed`
+- any other transition → `healthcheck.system_health_changed`
+
+(The deriver emits the qualified TRIGGER event ids automations match on — the healthcheck triggers use underscore ids, not the dotted hook ids.)
 
 The mirror is fail-soft (a store error never breaks check execution) and diff-suppressed (an unchanged aggregate is a no-op). Raw `health_check_runs` stay intentionally non-reactive (`declareNonReactiveState`, raw-sample) — the aggregate is the entity; individual runs remain a `numeric_state` wake source only.
 

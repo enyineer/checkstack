@@ -143,7 +143,6 @@ actions:
       sequence:
         - wait_until:
             condition: "health.system.status == 'healthy'"
-            poll_seconds: 60
 ```
 
 ### variables
@@ -202,7 +201,7 @@ actions:
 
 ### wait_until
 
-Suspends the run until a condition becomes true, polling on an interval and re-resolving live state each tick. The condition counterpart to `wait_for_trigger`. If the condition is already true when reached, the run continues without suspending.
+Suspends the run until a condition becomes true, woken reactively by a relevant entity change (no polling). The condition counterpart to `wait_for_trigger`. If the condition is already true when reached, the run continues without suspending.
 
 ```yaml
 actions:
@@ -212,10 +211,12 @@ actions:
       condition: "health.system.status == 'healthy'"
       timeout_seconds: 3600        # wait up to 1h
       continue_on_timeout: true    # default; false = fail the run on timeout
-      poll_seconds: 30             # re-check interval (default 30)
   - action: incident.resolve
     config: { incidentId: "{{ artifacts.incident.id }}" }
 ```
+
+> [!NOTE]
+> `wait_until` is reactive: at suspend time the engine extracts the `state.*` refs the condition reads and wakes the run when a matching entity change arrives, then re-evaluates the full condition. The `poll_seconds` field is now inert (a wait is no longer re-checked on a timer). See [the reactive dispatch pipeline](/checkstack/developer-guide/backend/automations/reactive-dispatch/).
 
 ## Triggers
 
@@ -225,10 +226,13 @@ A trigger is the entry point. Every trigger has an `event`; built-in triggers al
 
 ```yaml
 triggers:
-  - event: healthcheck.system.degraded
+  - event: healthcheck.system_degraded
     id: payments_degraded
     filter: "{{ trigger.payload.systemId == 'payments-api' }}"
 ```
+
+> [!NOTE]
+> Health lifecycle events use the underscore trigger ids `healthcheck.system_degraded` / `healthcheck.system_healthy` / `healthcheck.system_health_changed` (the qualified `${pluginId}.${triggerId}`). These are now driven by the reactive `health` entity's change deriver rather than a hook; the event ids are unchanged from an operator's point of view. See [the entity state machine](/checkstack/developer-guide/backend/automations/entity-state-machine/).
 
 ### for: dwell
 
@@ -236,7 +240,7 @@ Fire only if the matched state still holds after a duration. Accepts a single-un
 
 ```yaml
 triggers:
-  - event: healthcheck.system.degraded
+  - event: healthcheck.system_degraded
     for: { minutes: 30 }
 ```
 
@@ -259,7 +263,7 @@ There is no dedicated flapping trigger primitive: trigger on a health-changed ev
 
 ```yaml
 triggers:
-  - event: healthcheck.system.health_changed
+  - event: healthcheck.system_health_changed
 state_window_minutes: 30
 conditions:
   - numeric_state:
