@@ -215,6 +215,7 @@ describe("wait_until — reactive suspend + wake-index", () => {
     await handleDispatchJob({
       deps,
       automationStore: storeFor(auto),
+      changeDerivers,
       job: jobs[0]!,
     });
     expect(runs.runs.get(result.runId)?.status).toBe("success");

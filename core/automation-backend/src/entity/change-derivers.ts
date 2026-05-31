@@ -28,13 +28,41 @@ export type EntityChangeDeriver = (
   changed: EntityChanged,
 ) => ReadonlyArray<string>;
 
+/**
+ * Map an entity change to the DOMAIN-named trigger payload (`trigger.payload`)
+ * a fresh run sees. Pure + synchronous.
+ *
+ * The generic `EntityChanged` shape (`{ kind, id, prev, next, delta, ... }`)
+ * is editor/engine-internal; operators author filters and templates against
+ * the domain-named `payloadSchema` a trigger declares (incident `incidentId`,
+ * health `systemId` / `previousStatus`, …). Without a mapper the runtime
+ * payload would NOT carry those documented keys and `trigger.payload.incidentId`
+ * etc. would silently resolve to `undefined` (a regression vs the legacy hook
+ * payloads). A domain registers `toPayload` alongside its deriver so the
+ * runtime payload matches its declared `payloadSchema`. Stage-2 falls back to
+ * the generic shape for kinds without a mapper.
+ */
+export type EntityChangePayloadMapper = (
+  changed: EntityChanged,
+) => Record<string, unknown>;
+
 export interface ChangeDeriverRegistry {
   /**
-   * Register a deriver for an entity `kind`. Multiple derivers may be
-   * registered per kind (their outputs union); registering the same deriver
-   * twice is harmless.
+   * Register a deriver (and optional payload mapper) for an entity `kind`.
+   * Multiple derivers may be registered per kind (their outputs union);
+   * registering the same deriver twice is harmless.
+   *
+   * `toPayload`, when supplied, maps a change of this kind to the domain-named
+   * `trigger.payload` shape the kind's `payloadSchema` declares (see
+   * {@link EntityChangePayloadMapper}). At most one payload mapper may be
+   * registered per kind — a second distinct mapper throws (the payload shape
+   * for a kind must be unambiguous).
    */
-  register(args: { kind: string; derive: EntityChangeDeriver }): void;
+  register(args: {
+    kind: string;
+    derive: EntityChangeDeriver;
+    toPayload?: EntityChangePayloadMapper;
+  }): void;
 
   /**
    * Derive the union of qualified trigger event ids for a change, across
@@ -43,15 +71,24 @@ export interface ChangeDeriverRegistry {
    */
   derive(changed: EntityChanged): ReadonlyArray<string>;
 
+  /**
+   * Map a change to its domain-named `trigger.payload`, using the payload
+   * mapper registered for `changed.kind`. Returns `undefined` when the kind
+   * has no registered mapper (the caller falls back to the generic payload
+   * shape).
+   */
+  payload(changed: EntityChanged): Record<string, unknown> | undefined;
+
   /** Kinds that have at least one registered deriver. */
   kinds(): ReadonlyArray<string>;
 }
 
 export function createChangeDeriverRegistry(): ChangeDeriverRegistry {
   const byKind = new Map<string, EntityChangeDeriver[]>();
+  const payloadByKind = new Map<string, EntityChangePayloadMapper>();
 
   return {
-    register({ kind, derive }) {
+    register({ kind, derive, toPayload }) {
       if (typeof kind !== "string" || kind.trim().length === 0) {
         throw new Error("registerChangeDeriver: `kind` must be a non-empty string");
       }
@@ -60,6 +97,15 @@ export function createChangeDeriverRegistry(): ChangeDeriverRegistry {
         if (!list.includes(derive)) list.push(derive);
       } else {
         byKind.set(kind, [derive]);
+      }
+      if (toPayload) {
+        const existing = payloadByKind.get(kind);
+        if (existing && existing !== toPayload) {
+          throw new Error(
+            `registerChangeDeriver: a payload mapper is already registered for kind "${kind}"`,
+          );
+        }
+        payloadByKind.set(kind, toPayload);
       }
     },
 
@@ -83,6 +129,11 @@ export function createChangeDeriverRegistry(): ChangeDeriverRegistry {
         }
       }
       return out;
+    },
+
+    payload(changed) {
+      const mapper = payloadByKind.get(changed.kind);
+      return mapper ? mapper(changed) : undefined;
     },
 
     kinds() {

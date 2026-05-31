@@ -31,6 +31,7 @@ import {
   IncidentEntityStateSchema,
   createIncidentEntityRead,
   deriveIncidentTriggerEvents,
+  incidentChangeToPayload,
   type IncidentEntityState,
 } from "./incident-entity";
 import { registerSearchProvider } from "@checkstack/command-backend";
@@ -100,6 +101,7 @@ export default createBackendPlugin({
     entityPoint.registerChangeDeriver({
       kind: INCIDENT_ENTITY_KIND,
       derive: deriveIncidentTriggerEvents,
+      toPayload: incidentChangeToPayload,
     });
     const onEntityChanged = entityPoint.onEntityChanged;
 

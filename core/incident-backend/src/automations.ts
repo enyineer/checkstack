@@ -33,20 +33,27 @@ import {
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
+// NOTE (reactive entity payload mapper): the reactive `incident` entity state
+// is only `{ status, severity, systemIds }`. The descriptive fields below
+// (`title`, `description`, `createdAt`, `resolvedAt`) are NOT derivable from an
+// entity change, so they are OPTIONAL — the entity-driven `trigger.payload`
+// (see `incidentChangeToPayload`) carries `incidentId` / `systemIds` /
+// `severity` / `status` / `statusChange` only. They stay in the schema for
+// editor introspection / forward compatibility.
 const incidentCreatedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
-  title: z.string(),
+  title: z.string().optional(),
   description: z.string().optional(),
   severity: IncidentSeverityEnum,
   status: IncidentStatusEnum,
-  createdAt: z.string(),
+  createdAt: z.string().optional(),
 });
 
 const incidentUpdatedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
-  title: z.string(),
+  title: z.string().optional(),
   description: z.string().optional(),
   severity: IncidentSeverityEnum,
   status: IncidentStatusEnum,
@@ -56,9 +63,9 @@ const incidentUpdatedPayloadSchema = z.object({
 const incidentResolvedPayloadSchema = z.object({
   incidentId: z.string(),
   systemIds: z.array(z.string()),
-  title: z.string(),
+  title: z.string().optional(),
   severity: IncidentSeverityEnum,
-  resolvedAt: z.string(),
+  resolvedAt: z.string().optional(),
 });
 
 // ─── Triggers ──────────────────────────────────────────────────────────
@@ -272,7 +279,7 @@ export function createIncidentActions(
       schema: incidentCreateConfigSchema,
     }),
     produces: "incident",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId }) => {
       const createInput = {
         title: config.title,
         description: config.description,
@@ -316,6 +323,7 @@ export function createIncidentActions(
               await writeIncidentEntity({
                 handle,
                 incidentId: newId,
+                opts: { runId },
                 apply: async () => {
                   created = await create();
                   return toIncidentEntityState(created);
@@ -348,6 +356,7 @@ export function createIncidentActions(
       await writeIncidentEntity({
         handle,
         incidentId: newId,
+        opts: { runId },
         apply: async () => {
           incident = await service.createIncident(createInput, undefined, newId);
           return toIncidentEntityState(incident);
@@ -381,7 +390,7 @@ export function createIncidentActions(
       schema: incidentResolveConfigSchema,
     }),
     consumes: ["incident"],
-    execute: async ({ config, consumedArtifacts, logger }) => {
+    execute: async ({ config, consumedArtifacts, logger, runId }) => {
       const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
       if (!incidentId) {
         return {
@@ -389,7 +398,42 @@ export function createIncidentActions(
           error: "No incidentId given and no upstream incident artifact found",
         };
       }
-      const incident = await service.resolveIncident(incidentId, config.message);
+      // Guard existence BEFORE the driven write so `apply` never throws on a
+      // missing incident (a graceful action failure, not a run error).
+      if (!(await service.getIncident(incidentId))) {
+        return {
+          success: false,
+          error: `Incident ${incidentId} not found`,
+        };
+      }
+      // 6(a): route the resolve through the reactive `incident` entity (like
+      // the RPC router) so the status flip appends an `entity_transitions` row,
+      // emits `ENTITY_CHANGED` (waking any `wait_until`), and fires the
+      // `incident.resolved` deriver. `apply` performs the REAL resolve and
+      // re-reads the post-write state inside the mutate window. `opts.runId`
+      // masks any run-resolved secret that lands in the reactive state.
+      const captured: {
+        incident: NonNullable<
+          Awaited<ReturnType<typeof service.resolveIncident>>
+        > | null;
+      } = { incident: null };
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId,
+        opts: { runId },
+        apply: async () => {
+          const resolved = await service.resolveIncident(
+            incidentId,
+            config.message,
+          );
+          if (!resolved) {
+            throw new Error(`Incident ${incidentId} not found`);
+          }
+          captured.incident = resolved;
+          return toIncidentEntityState(resolved);
+        },
+      });
+      const incident = captured.incident;
       if (!incident) {
         return {
           success: false,
@@ -424,7 +468,7 @@ export function createIncidentActions(
       schema: incidentAddUpdateConfigSchema,
     }),
     consumes: ["incident"],
-    execute: async ({ config, consumedArtifacts, logger }) => {
+    execute: async ({ config, consumedArtifacts, logger, runId }) => {
       const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
       if (!incidentId) {
         return {
@@ -432,11 +476,39 @@ export function createIncidentActions(
           error: "No incidentId given and no upstream incident artifact found",
         };
       }
-      const update = await service.addUpdate({
+      // 6(a): route the update through the reactive `incident` entity (like the
+      // RPC router). `apply` posts the update row + (optionally) flips status,
+      // then re-reads the post-write reactive state. When `statusChange` flips
+      // the status to resolved the deriver fires `incident.resolved`; any other
+      // status change fires `incident.updated`; an update with no status change
+      // is a no-op diff (no event). `opts.runId` masks run-resolved secrets.
+      const captured: {
+        update: Awaited<ReturnType<typeof service.addUpdate>> | null;
+      } = { update: null };
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
         incidentId,
-        message: config.message,
-        statusChange: config.statusChange,
+        opts: { runId },
+        apply: async () => {
+          captured.update = await service.addUpdate({
+            incidentId,
+            message: config.message,
+            statusChange: config.statusChange,
+          });
+          const incident = await service.getIncident(incidentId);
+          if (!incident) {
+            throw new Error(`Incident ${incidentId} not found`);
+          }
+          return toIncidentEntityState(incident);
+        },
       });
+      const update = captured.update;
+      if (!update) {
+        return {
+          success: false,
+          error: `Incident ${incidentId} not found`,
+        };
+      }
       logger.info(
         `Automation added update ${update.id} to incident ${incidentId}`,
       );
@@ -465,7 +537,7 @@ export function createIncidentActions(
       schema: incidentUpdateStatusConfigSchema,
     }),
     consumes: ["incident"],
-    execute: async ({ config, consumedArtifacts, logger }) => {
+    execute: async ({ config, consumedArtifacts, logger, runId }) => {
       const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
       if (!incidentId) {
         return {
@@ -473,11 +545,38 @@ export function createIncidentActions(
           error: "No incidentId given and no upstream incident artifact found",
         };
       }
-      const update = await service.addUpdate({
+      // 6(a): route the status flip through the reactive `incident` entity
+      // (like the RPC router) so it appends an `entity_transitions` row, emits
+      // `ENTITY_CHANGED` (waking any `wait_until`), and fires `incident.resolved`
+      // (→ resolved) or `incident.updated`. `apply` performs the REAL write +
+      // re-reads post-write state. `opts.runId` masks run-resolved secrets.
+      const captured: {
+        update: Awaited<ReturnType<typeof service.addUpdate>> | null;
+      } = { update: null };
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
         incidentId,
-        message: config.message ?? `Status changed to ${config.status}`,
-        statusChange: config.status,
+        opts: { runId },
+        apply: async () => {
+          captured.update = await service.addUpdate({
+            incidentId,
+            message: config.message ?? `Status changed to ${config.status}`,
+            statusChange: config.status,
+          });
+          const incident = await service.getIncident(incidentId);
+          if (!incident) {
+            throw new Error(`Incident ${incidentId} not found`);
+          }
+          return toIncidentEntityState(incident);
+        },
       });
+      const update = captured.update;
+      if (!update) {
+        return {
+          success: false,
+          error: `Incident ${incidentId} not found`,
+        };
+      }
       logger.info(
         `Automation set incident ${incidentId} status → ${config.status}`,
       );

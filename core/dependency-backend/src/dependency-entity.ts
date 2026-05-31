@@ -21,6 +21,7 @@ import { z } from "zod";
 import { ImpactTypeSchema } from "@checkstack/dependency-common";
 import type {
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
   EntityHandle,
   EntityRead,
 } from "@checkstack/automation-backend";
@@ -58,6 +59,31 @@ export const deriveDependencyTriggerEvents: EntityChangeDeriver = (changed) => {
     return [DEPENDENCY_TRIGGER_EVENTS.deleted];
   }
   return [DEPENDENCY_TRIGGER_EVENTS.updated];
+};
+
+/**
+ * Map a `dependency-edge` change to the domain-named `trigger.payload` the
+ * dependency triggers declare via `payloadSchema` (`dependencyId`,
+ * `sourceSystemId`, `targetSystemId`, `impactType`). Restores the keys
+ * operators read (`trigger.payload.dependencyId`, `.sourceSystemId`, …) that
+ * the generic change shape omits.
+ *
+ * `dependencyId` is the entity id. The edge fields are read from `next`, or
+ * from `prev` on a tombstone (`deleted`), so a delete trigger still carries
+ * the removed edge's endpoints. `impactType` is omitted on a delete (the
+ * `deleted` schema does not declare it).
+ */
+export const dependencyChangeToPayload: EntityChangePayloadMapper = (
+  changed,
+) => {
+  const source = changed.next ?? changed.prev;
+  const impactType = source?.["impactType"];
+  return {
+    dependencyId: changed.id,
+    sourceSystemId: source?.["sourceSystemId"],
+    targetSystemId: source?.["targetSystemId"],
+    ...(impactType === undefined ? {} : { impactType }),
+  };
 };
 
 /**

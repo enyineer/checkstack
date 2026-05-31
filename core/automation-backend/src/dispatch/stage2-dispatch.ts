@@ -26,6 +26,7 @@ import {
 } from "@checkstack/automation-common";
 
 import type { AutomationStore } from "../automation-store";
+import type { ChangeDeriverRegistry } from "../entity/change-derivers";
 import { checkWaitUntil } from "./engine";
 import { startRunsForAutomationEvent } from "./trigger-subscriber";
 import type { DispatchDeps, LoadedAutomation } from "./types";
@@ -36,6 +37,14 @@ export const DISPATCH_QUEUE_NAME = "automation-dispatch";
 export interface DispatchQueueConsumerArgs {
   deps: DispatchDeps;
   automationStore: AutomationStore;
+  /**
+   * The per-kind payload mappers (registered alongside derivers). When the
+   * changed kind has a registered `toPayload`, the fresh-run `trigger.payload`
+   * matches that kind's domain-named `payloadSchema` (so `trigger.payload.
+   * incidentId` / `.systemId` / `.previousStatus` resolve); otherwise the
+   * generic change shape is used.
+   */
+  changeDerivers: ChangeDeriverRegistry;
   logger: Logger;
 }
 
@@ -43,10 +52,14 @@ export interface DispatchQueueConsumer {
   stop: () => Promise<void>;
 }
 
-/** The entity-change payload becomes the trigger payload for a fresh run. */
-function changedToPayload(changed: EntityChanged): Record<string, unknown> {
-  // Expose the change in a shape automations can read: the entity id + the
-  // new state fields (or a tombstone marker), plus the kind for clarity.
+/**
+ * Generic fallback payload shape for kinds WITHOUT a registered payload
+ * mapper. Exposes the change as the entity id + the new state fields (or a
+ * tombstone marker), plus the kind for clarity.
+ */
+function genericChangedPayload(
+  changed: EntityChanged,
+): Record<string, unknown> {
   return {
     kind: changed.kind,
     id: changed.id,
@@ -59,6 +72,22 @@ function changedToPayload(changed: EntityChanged): Record<string, unknown> {
     // when the change is a state update.
     ...(changed.next === null ? {} : changed.next),
   };
+}
+
+/**
+ * The entity-change payload becomes the trigger payload for a fresh run.
+ *
+ * Prefers the per-kind domain payload mapper (`registerChangeDeriver({
+ * toPayload })`) so the runtime `trigger.payload` matches each migrated
+ * trigger's declared `payloadSchema` — preserving the legacy domain keys
+ * operators read (`incidentId`, `systemId`, `previousStatus`, …). Falls back
+ * to the generic change shape for kinds without a mapper.
+ */
+function changedToPayload(
+  changeDerivers: ChangeDeriverRegistry,
+  changed: EntityChanged,
+): Record<string, unknown> {
+  return changeDerivers.payload(changed) ?? genericChangedPayload(changed);
 }
 
 async function loadAutomation(
@@ -82,9 +111,10 @@ async function loadAutomation(
 export async function handleDispatchJob(args: {
   deps: DispatchDeps;
   automationStore: AutomationStore;
+  changeDerivers: ChangeDeriverRegistry;
   job: DispatchJob;
 }): Promise<void> {
-  const { deps, automationStore, job } = args;
+  const { deps, automationStore, changeDerivers, job } = args;
 
   if (job.reason === "trigger") {
     const automation = await loadAutomation(automationStore, job.automationId);
@@ -100,7 +130,7 @@ export async function handleDispatchJob(args: {
       deps,
       automation,
       eventId: job.triggerId,
-      triggerPayload: changedToPayload(job.changed),
+      triggerPayload: changedToPayload(changeDerivers, job.changed),
       actor: job.changed.actor,
       contextKey: job.changed.id,
     });
@@ -162,6 +192,7 @@ export async function startDispatchQueueConsumer(
       await handleDispatchJob({
         deps: args.deps,
         automationStore: args.automationStore,
+        changeDerivers: args.changeDerivers,
         job: parsed.data,
       });
     },

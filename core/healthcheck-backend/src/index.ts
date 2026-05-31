@@ -38,6 +38,7 @@ import {
   HealthEntityStateSchema,
   createHealthEntityRead,
   deriveHealthTriggerEvents,
+  healthChangeToPayload,
   type HealthEntityState,
 } from "./health-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
@@ -131,6 +132,7 @@ export default createBackendPlugin({
     entityPoint.registerChangeDeriver({
       kind: HEALTH_ENTITY_KIND,
       derive: deriveHealthTriggerEvents,
+      toPayload: healthChangeToPayload,
     });
     // Raw per-check samples + cursors are intentionally NON-reactive (§5):
     // a firehose of individual runs would melt the wake-index; the

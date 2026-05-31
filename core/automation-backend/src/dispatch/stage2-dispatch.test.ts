@@ -6,8 +6,14 @@ import { SYSTEM_ACTOR } from "@checkstack/common";
 import { createActionRegistry } from "../action-registry";
 import { makeDispatchDeps, makeRecordingAction, testPlugin } from "./test-fixtures";
 import { handleDispatchJob } from "./stage2-dispatch";
+import { createChangeDeriverRegistry } from "../entity/change-derivers";
 import type { AutomationStore } from "../automation-store";
 import type { LoadedAutomation } from "./types";
+
+/** An empty registry: every change falls back to the generic payload shape. */
+function emptyDerivers() {
+  return createChangeDeriverRegistry();
+}
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
   return {
@@ -82,7 +88,7 @@ describe("Stage-2 handleDispatchJob — reason: trigger", () => {
       changed: change(),
     };
 
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: emptyDerivers(), job });
 
     // The action ran with the entity-change's `next.status` in payload.
     expect(rec.calls.map((c) => c.value)).toEqual(["open"]);
@@ -102,6 +108,7 @@ describe("Stage-2 handleDispatchJob — reason: trigger", () => {
     await handleDispatchJob({
       deps,
       automationStore: storeFor(automationFor("fake.opened")),
+      changeDerivers: emptyDerivers(),
       job,
     });
     expect(runs.runs.size).toBe(0);
@@ -121,7 +128,7 @@ describe("Stage-2 handleDispatchJob — reason: trigger", () => {
       ref: "fake:ent-1",
       changed: change(),
     };
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: emptyDerivers(), job });
     expect(rec.calls).toHaveLength(0);
     expect(runs.runs.size).toBe(0);
   });
@@ -248,7 +255,7 @@ describe("Stage-2 handleDispatchJob — reason: wake", () => {
       ref: "health:sys-1",
       changed: change({ kind: "health", id: "sys-1" }),
     };
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: emptyDerivers(), job });
 
     // Re-eval passed (healthy) → resumed → recording action ran.
     expect(rec.calls.map((c) => c.value)).toEqual(["woke"]);
@@ -269,6 +276,7 @@ describe("Stage-2 handleDispatchJob — reason: wake", () => {
     await handleDispatchJob({
       deps,
       automationStore: storeFor(automationFor("x")),
+      changeDerivers: emptyDerivers(),
       job,
     });
     expect(true).toBe(true);

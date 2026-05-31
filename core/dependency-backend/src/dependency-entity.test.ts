@@ -10,12 +10,18 @@ import {
   DEPENDENCY_TRIGGER_EVENTS,
   DependencyEdgeStateSchema,
   createDependencyEntityRead,
+  dependencyChangeToPayload,
   deriveDependencyTriggerEvents,
   removeDependencyEdge,
   toDependencyEdgeState,
   writeDependencyEdge,
   type DependencyEdgeState,
 } from "./dependency-entity";
+import {
+  dependencyCreatedTrigger,
+  dependencyDeletedTrigger,
+  dependencyUpdatedTrigger,
+} from "./automations";
 import type { DependencyService } from "./services/dependency-service";
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
@@ -41,6 +47,45 @@ function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
     ...overrides,
   };
 }
+
+describe("dependencyChangeToPayload — payloadSchema parity", () => {
+  it("a create payload validates against the created trigger's payloadSchema", () => {
+    const payload = dependencyChangeToPayload(
+      change({
+        prev: null,
+        next: {
+          sourceSystemId: "a",
+          targetSystemId: "b",
+          impactType: "degraded",
+          transitive: false,
+        },
+      }),
+    );
+    const parsed = dependencyCreatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.dependencyId).toBe("dep-1");
+    expect(parsed.sourceSystemId).toBe("a");
+    expect(parsed.targetSystemId).toBe("b");
+    expect(parsed.impactType).toBe("degraded");
+  });
+
+  it("an update payload validates against the updated trigger's payloadSchema", () => {
+    const parsed = dependencyUpdatedTrigger.payloadSchema.parse(
+      dependencyChangeToPayload(change()),
+    );
+    expect(parsed.dependencyId).toBe("dep-1");
+    expect(parsed.impactType).toBe("critical");
+  });
+
+  it("a delete payload validates against the deleted trigger's payloadSchema (endpoints from prev)", () => {
+    const parsed = dependencyDeletedTrigger.payloadSchema.parse(
+      dependencyChangeToPayload(change({ next: null })),
+    );
+    expect(parsed.dependencyId).toBe("dep-1");
+    // The deleted edge's endpoints come from `prev` (next is the tombstone).
+    expect(parsed.sourceSystemId).toBe("a");
+    expect(parsed.targetSystemId).toBe("b");
+  });
+});
 
 describe("deriveDependencyTriggerEvents", () => {
   it("create → dependency.created", () => {

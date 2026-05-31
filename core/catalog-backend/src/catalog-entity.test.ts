@@ -10,6 +10,7 @@ import {
   CATALOG_GROUP_TRIGGER_EVENTS,
   CATALOG_SYSTEM_ENTITY_KIND,
   CATALOG_SYSTEM_TRIGGER_EVENTS,
+  catalogSystemChangeToPayload,
   createCatalogGroupEntityRead,
   createCatalogSystemEntityRead,
   deriveCatalogGroupTriggerEvents,
@@ -22,6 +23,11 @@ import {
   type CatalogGroupState,
   type CatalogSystemState,
 } from "./catalog-entity";
+import {
+  systemCreatedTrigger,
+  systemDeletedTrigger,
+  systemUpdatedTrigger,
+} from "./automations";
 import type { EntityService } from "./services/entity-service";
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
@@ -66,6 +72,47 @@ describe("deriveCatalogSystemTriggerEvents", () => {
     expect(deriveCatalogSystemTriggerEvents(change())).toEqual([
       CATALOG_SYSTEM_TRIGGER_EVENTS.updated,
     ]);
+  });
+});
+
+describe("catalogSystemChangeToPayload — payloadSchema parity", () => {
+  it("a create payload validates against the created trigger's payloadSchema", () => {
+    const payload = catalogSystemChangeToPayload(
+      change({
+        prev: null,
+        next: { name: "new", description: null, metadata: {} },
+        delta: { name: "new" },
+        changedFields: ["name", "description", "metadata"],
+      }),
+    );
+    const parsed = systemCreatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.systemName).toBe("new");
+  });
+
+  it("an update payload validates against the updated trigger's payloadSchema with changedFields", () => {
+    const payload = catalogSystemChangeToPayload(
+      change({ changedFields: ["name", "metadata"] }),
+    );
+    const parsed = systemUpdatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.systemName).toBe("new");
+    expect(parsed.changedFields).toEqual(["name", "metadata"]);
+  });
+
+  it("a delete payload validates against the deleted trigger's payloadSchema (systemName omitted on tombstone)", () => {
+    const payload = catalogSystemChangeToPayload(change({ next: null }));
+    const parsed = systemDeletedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.systemName).toBeUndefined();
+  });
+
+  it("drops non-enum changedFields (only name/description/metadata survive)", () => {
+    const payload = catalogSystemChangeToPayload(
+      change({ changedFields: ["name", "ownerId", "metadata"] }),
+    );
+    const parsed = systemUpdatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.changedFields).toEqual(["name", "metadata"]);
   });
 });
 

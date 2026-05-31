@@ -206,7 +206,7 @@ describe("wait_until — wildcard health wake drops nothing (§Fix 2)", () => {
     expect(jobs[0]?.reason).toBe("wake");
     expect(jobs[0]?.ref).toBe("health:sys-other");
 
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: jobs[0]! });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: jobs[0]! });
 
     // Resumed: without the fix, sys-other would never be resolved into
     // scope.health.systems and the run would stay waiting.
@@ -265,7 +265,7 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
     expect(jobs[0]?.reason).toBe("wake");
 
     // Run the wake job: re-enrich state.incident.inc-1 (now resolved) → resume.
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: jobs[0]! });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: jobs[0]! });
 
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     expect(rec.calls.map((c) => c.value)).toEqual(["closed"]);
@@ -304,7 +304,7 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
       changeDerivers: createChangeDeriverRegistry(),
       changed: incidentChange("inc-1", "open"),
     });
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: jobs[0]! });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: jobs[0]! });
 
     expect(runs.runs.get(result.runId)?.status).toBe("waiting");
     expect(rec.calls).toHaveLength(0);
@@ -358,7 +358,7 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
     expect(jobs[0]?.reason).toBe("wake");
     expect(jobs[0]?.ref).toBe("incident:inc-9");
 
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: jobs[0]! });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: jobs[0]! });
 
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     expect(rec.calls.map((c) => c.value)).toEqual(["closed"]);
@@ -438,7 +438,7 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
       changed: incidentChange("inc-1", "resolved"),
     });
     const wake = jobs.find((j) => j.reason === "wake")!;
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: wake });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: wake });
 
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     expect(rec.calls.map((c) => c.value)).toEqual(["done"]);
@@ -532,7 +532,7 @@ describe("wait_until — non-health entity-kind wake re-eval", () => {
       changed: incidentChange("inc-1", "resolved"),
     });
     const wake = jobs.find((j) => j.reason === "wake")!;
-    await handleDispatchJob({ deps, automationStore: storeFor(auto), job: wake });
+    await handleDispatchJob({ deps, automationStore: storeFor(auto), changeDerivers: createChangeDeriverRegistry(), job: wake });
 
     expect(runs.runs.get(result.runId)?.status).toBe("success");
     // Health went through the rich RPC path on the wake re-eval...

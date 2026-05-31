@@ -84,3 +84,65 @@ describe("ChangeDeriverRegistry", () => {
     expect(reg.kinds().toSorted()).toEqual(["a", "b"]);
   });
 });
+
+describe("ChangeDeriverRegistry — payload mapper", () => {
+  it("returns undefined when the kind has no registered mapper", () => {
+    const reg = createChangeDeriverRegistry();
+    reg.register({ kind: "fake", derive: () => ["fake.evt"] });
+    expect(reg.payload(change())).toBeUndefined();
+  });
+
+  it("maps a change to the domain-named payload via the registered mapper", () => {
+    const reg = createChangeDeriverRegistry();
+    reg.register({
+      kind: "fake",
+      derive: () => ["fake.evt"],
+      toPayload: (c) => ({ fakeId: c.id, status: c.next?.["status"] }),
+    });
+    expect(reg.payload(change({ id: "x", next: { status: "open" } }))).toEqual({
+      fakeId: "x",
+      status: "open",
+    });
+  });
+
+  it("only applies the mapper for the matching kind", () => {
+    const reg = createChangeDeriverRegistry();
+    reg.register({
+      kind: "fake",
+      derive: () => [],
+      toPayload: () => ({ mapped: true }),
+    });
+    expect(reg.payload(change({ kind: "other" }))).toBeUndefined();
+  });
+
+  it("allows registering the deriver and mapper in one call", () => {
+    const reg = createChangeDeriverRegistry();
+    reg.register({
+      kind: "fake",
+      derive: () => ["fake.evt"],
+      toPayload: (c) => ({ id: c.id }),
+    });
+    expect(reg.derive(change())).toEqual(["fake.evt"]);
+    expect(reg.payload(change({ id: "id-1" }))).toEqual({ id: "id-1" });
+  });
+
+  it("re-registering the SAME mapper for a kind is harmless", () => {
+    const reg = createChangeDeriverRegistry();
+    const toPayload = (c: EntityChanged) => ({ id: c.id });
+    reg.register({ kind: "fake", derive: () => [], toPayload });
+    reg.register({ kind: "fake", derive: () => [], toPayload });
+    expect(reg.payload(change({ id: "id-1" }))).toEqual({ id: "id-1" });
+  });
+
+  it("throws on a second DISTINCT mapper for the same kind", () => {
+    const reg = createChangeDeriverRegistry();
+    reg.register({ kind: "fake", derive: () => [], toPayload: () => ({ a: 1 }) });
+    expect(() =>
+      reg.register({
+        kind: "fake",
+        derive: () => [],
+        toPayload: () => ({ b: 2 }),
+      }),
+    ).toThrow();
+  });
+});

@@ -26,6 +26,7 @@ import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
 import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
 import type {
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
   EntityHandle,
   EntityRead,
 } from "@checkstack/automation-backend";
@@ -107,6 +108,39 @@ export const deriveHealthTriggerEvents: EntityChangeDeriver = (changed) => {
   // Umbrella fires on every transition, alongside the directional event.
   events.push(HEALTH_TRIGGER_EVENTS.healthChanged);
   return events;
+};
+
+function readNumber(
+  state: Record<string, unknown> | null,
+  field: string,
+): number | undefined {
+  if (state === null) return undefined;
+  const value = state[field];
+  return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * Map a `health` entity change to the domain-named `trigger.payload` the
+ * healthcheck triggers declare via `payloadSchema` (`systemId`,
+ * `previousStatus`, `newStatus`, `healthyChecks`, `totalChecks`, `timestamp`).
+ * Restores the keys operators read (`trigger.payload.systemId`,
+ * `.previousStatus`, …) that the generic change shape omits.
+ *
+ * `systemId` is the entity id; `previousStatus` is `prev.status` and `newStatus`
+ * is `next.status`; `healthyChecks` / `totalChecks` come from `next`;
+ * `timestamp` is the change's `occurredAt`. `systemName` is not derivable from a
+ * health change (it lives in the catalog) and is OPTIONAL on the schemas, so it
+ * is omitted.
+ */
+export const healthChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  return {
+    systemId: changed.id,
+    previousStatus: readStatus(changed.prev) ?? undefined,
+    newStatus: readStatus(changed.next) ?? undefined,
+    healthyChecks: readNumber(changed.next, "healthyChecks") ?? 0,
+    totalChecks: readNumber(changed.next, "totalChecks") ?? 0,
+    timestamp: changed.occurredAt,
+  };
 };
 
 /**

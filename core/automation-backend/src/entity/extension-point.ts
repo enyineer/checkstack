@@ -1,7 +1,10 @@
 import { createExtensionPoint } from "@checkstack/backend-api";
 
 import type { DeclareNonReactiveState, DefineEntity } from "./define-entity";
-import type { EntityChangeDeriver } from "./change-derivers";
+import type {
+  EntityChangeDeriver,
+  EntityChangePayloadMapper,
+} from "./change-derivers";
 import type { OnEntityChanged } from "./on-entity-changed";
 
 /**
@@ -9,10 +12,19 @@ import type { OnEntityChanged } from "./on-entity-changed";
  * Stage-1 routing). A domain (Phase 4) maps "this entity kind changed like
  * THIS" → the qualified trigger event id(s) it should fire; Stage 1 unions
  * the results and fans out to the enabled automations referencing them.
+ *
+ * `toPayload`, when supplied, maps a change of this kind to the DOMAIN-named
+ * `trigger.payload` shape the kind's triggers declare via `payloadSchema`
+ * (incident `incidentId`, health `systemId` / `previousStatus`, …). Stage-2
+ * uses it so operator filters/templates reading `trigger.payload.incidentId`
+ * etc. resolve correctly; without it Stage-2 falls back to the generic
+ * `{ kind, id, prev, next, delta, ...next }` shape. At most one mapper per
+ * kind (a second distinct mapper throws).
  */
 export type RegisterChangeDeriver = (input: {
   kind: string;
   derive: EntityChangeDeriver;
+  toPayload?: EntityChangePayloadMapper;
 }) => void;
 
 /**

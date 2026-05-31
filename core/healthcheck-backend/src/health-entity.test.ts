@@ -15,6 +15,7 @@ import {
   createHealthEntityRead,
   createHealthEntitySerializer,
   deriveHealthTriggerEvents,
+  healthChangeToPayload,
   writeHealthEntity,
   type HealthEntityState,
 } from "./health-entity";
@@ -118,6 +119,41 @@ describe("deriveHealthTriggerEvents", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("healthChangeToPayload — payloadSchema parity", () => {
+  it("a degradation payload validates against the degraded trigger's payloadSchema", () => {
+    const payload = healthChangeToPayload(change());
+    const parsed = systemDegradedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.previousStatus).toBe("healthy");
+    expect(parsed.newStatus).toBe("unhealthy");
+    expect(parsed.healthyChecks).toBe(0);
+    expect(parsed.totalChecks).toBe(2);
+    expect(typeof parsed.timestamp).toBe("string");
+  });
+
+  it("a recovery payload validates against the healthy trigger's payloadSchema", () => {
+    const payload = healthChangeToPayload(
+      change({
+        prev: { status: "unhealthy", healthyChecks: 0, totalChecks: 2 },
+        next: { status: "healthy", healthyChecks: 2, totalChecks: 2 },
+      }),
+    );
+    const parsed = systemHealthyTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.previousStatus).toBe("unhealthy");
+    expect(parsed.healthyChecks).toBe(2);
+    expect(parsed.totalChecks).toBe(2);
+  });
+
+  it("any transition payload validates against the health_changed trigger's payloadSchema", () => {
+    const payload = healthChangeToPayload(change());
+    const parsed = systemHealthChangedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.previousStatus).toBe("healthy");
+    expect(parsed.newStatus).toBe("unhealthy");
   });
 });
 

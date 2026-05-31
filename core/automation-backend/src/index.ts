@@ -575,6 +575,7 @@ export default createBackendPlugin({
         stash.dispatchConsumer = await startDispatchQueueConsumer({
           deps: stash.dispatchDeps,
           automationStore: stash.automationStore,
+          changeDerivers: stash.changeDerivers,
           logger,
         });
 
@@ -665,6 +666,7 @@ export type {
   RemoveInput,
   EntityTx,
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
   RegisterChangeDeriver,
   OnEntityChanged,
   OnEntityChangedInput,

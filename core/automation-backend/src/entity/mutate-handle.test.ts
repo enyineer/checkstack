@@ -289,6 +289,66 @@ describe("Model B — masking run-originated writes", () => {
     expect(JSON.stringify(events[0]!.next)).toContain("s3cr3t");
   });
 
+  // Fix 3 (security) regression: catalog `metadata` is `z.record(z.unknown())`
+  // — a nested record, the only reactive catalog field that can carry an
+  // arbitrary run-resolved secret string. A run-originated write (runId set)
+  // MUST mask that secret in BOTH the emitted `ENTITY_CHANGED` and the durable
+  // `entity_transitions` rows, even when nested inside the metadata object.
+  it("masks a secret nested inside a record/metadata field (emit + transitions)", async () => {
+    const metadataSchema = z.object({
+      name: z.string(),
+      metadata: z.record(z.string(), z.unknown()),
+    });
+    type WithMetadata = z.infer<typeof metadataSchema>;
+    const store = createFakeEntityStore();
+    const events: EntityChanged[] = [];
+    const emitter = createChangeEmitter();
+    void emitter.wire(async (payload) => {
+      events.push(payload);
+    });
+    const secretRegistry = createRunSecretRegistry();
+    secretRegistry.register("run-1", ["s3cr3t"]);
+    const rows = new Map<string, WithMetadata>();
+    const handle = createEntityHandle<WithMetadata>({
+      kind: "catalog-system",
+      schema: metadataSchema,
+      store,
+      emitter,
+      secretRegistry,
+      read: async (ids) => {
+        const out: Record<string, WithMetadata> = {};
+        for (const id of ids) {
+          const row = rows.get(id);
+          if (row) out[id] = row;
+        }
+        return out;
+      },
+    });
+
+    const returned = await handle.mutate({
+      id: "sys-1",
+      opts: { runId: "run-1" },
+      apply: () => {
+        const next: WithMetadata = {
+          name: "API",
+          metadata: { token: "s3cr3t" },
+        };
+        rows.set("sys-1", next);
+        return Promise.resolve(next);
+      },
+    });
+
+    // The plugin gets the REAL value back...
+    expect(returned).toEqual({ name: "API", metadata: { token: "s3cr3t" } });
+    // ...but the emitted change masks the nested secret...
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify(events[0]!.next)).not.toContain("s3cr3t");
+    // ...and the durable transition rows mask it too.
+    expect(store.transitions.some((t) => t.toValue.includes("s3cr3t"))).toBe(
+      false,
+    );
+  });
+
   it("mutate RETURNS the unmasked state even though the emitted next is masked", async () => {
     // Masking is an emission/persistence concern: the EMITTED payload + the
     // transition rows are masked, but `mutate`'s return is the real resulting

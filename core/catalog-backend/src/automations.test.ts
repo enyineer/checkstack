@@ -178,7 +178,11 @@ function makeFixture(args: {
   // resulting reactive state, mirroring the framework handle.
   const mutateResults: unknown[] = [];
   const mutateMock = mock(
-    async (input: { id: string; apply: () => Promise<unknown> }) => {
+    async (input: {
+      id: string;
+      opts?: { runId?: string };
+      apply: () => Promise<unknown>;
+    }) => {
       const next = await input.apply();
       mutateResults.push(next);
       return next;
@@ -263,6 +267,39 @@ describe("catalog.system.update_metadata", () => {
         owner: "platform",
       },
     });
+  });
+
+  // Fix 3 (security): the action resolves config (including `metadata` values)
+  // against the run scope, which can contain run-resolved secrets. It MUST pass
+  // `opts: { runId }` into the entity write so the framework handle masks any
+  // such secret in the `entity_transitions` rows + the cluster-wide
+  // `ENTITY_CHANGED` (the masking itself is proven end-to-end in
+  // automation-backend's mutate-handle masking test).
+  it("forwards the dispatch runId to handle.mutate (secret-masking choke point)", async () => {
+    const fx = makeFixture({
+      initialRow: { id: "sys-1", name: "API", metadata: {} },
+    });
+    const [action] = createCatalogActions({
+      entityService: fx.service,
+      cache: fx.cache,
+      getSystemEntity: fx.getSystemEntity,
+    });
+
+    await action!.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: {
+        systemId: "sys-1",
+        strategy: "merge",
+        metadata: { token: "resolved-secret-value" },
+      } as never,
+    });
+
+    expect(fx.mutateMock).toHaveBeenCalledTimes(1);
+    const mutateCall = fx.mutateMock.mock.calls[0]![0] as {
+      opts?: { runId?: string };
+    };
+    expect(mutateCall.opts?.runId).toBe("run-1");
   });
 
   it("replaces the whole metadata object when strategy=replace", async () => {

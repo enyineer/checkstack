@@ -307,6 +307,7 @@ const entity = env.getExtensionPoint(entityExtensionPoint);
 entity.registerChangeDeriver({
   kind: INCIDENT_ENTITY_KIND,
   derive: deriveIncidentTriggerEvents,
+  toPayload: incidentChangeToPayload, // see "Trigger payload mappers" below
 });
 ```
 
@@ -314,6 +315,33 @@ entity.registerChangeDeriver({
 > The deriver must return the qualified TRIGGER event id (`${pluginId}.${trigger.id}`) that automations store in `trigger.event` and that Stage-1 routing matches on - NOT the dotted hook id. The healthcheck triggers use underscore ids, so the health deriver emits `healthcheck.system_degraded` (not `healthcheck.system.degraded`); the catalog system triggers use ids `created` / `updated` / `deleted`, so the catalog deriver emits `catalog.created` (not `catalog.system.created`). Returning the wrong shape means the migrated automations never fire. Verify the exact ids against your plugin's registered triggers.
 
 Multiple derivers may be registered per kind; their outputs union (de-duplicated, registration order). A deriver that throws is skipped so it cannot wedge routing for the others.
+
+### Trigger payload mappers
+
+The generic entity-change shape (`{ kind, id, prev, next, delta, changedFields, ... }`) is engine-internal. Operators author filters and templates against the DOMAIN-named payload your trigger declares via `payloadSchema` - `trigger.payload.incidentId`, `trigger.payload.systemId`, `trigger.payload.previousStatus`. Supply an optional `toPayload` mapper alongside the deriver so the runtime `trigger.payload` matches that schema. Without one, Stage-2 falls back to the generic shape and those domain keys resolve to `undefined`.
+
+`toPayload` is pure and synchronous, receives the same validated `EntityChanged`, and returns the domain payload. At most one mapper may be registered per kind (a second distinct mapper throws - the payload shape for a kind must be unambiguous).
+
+```ts
+import type { EntityChangePayloadMapper } from "@checkstack/automation-backend";
+
+const incidentChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  const next = changed.next;
+  const statusChanged = changed.changedFields.includes("status");
+  const status = next?.["status"];
+  return {
+    incidentId: changed.id, // matches the trigger's payloadSchema
+    systemIds: next?.["systemIds"] ?? [],
+    severity: next?.["severity"],
+    status,
+    ...(statusChanged && typeof status === "string"
+      ? { statusChange: status }
+      : {}),
+  };
+};
+```
+
+Fields a trigger's `payloadSchema` declares but that are NOT derivable from the reactive entity state (for example an incident's `title` / `createdAt`, which are not part of the `{ status, severity, systemIds }` reactive subset) should be marked OPTIONAL on the schema - the entity-driven payload cannot carry them.
 
 ## How automations consume entities
 

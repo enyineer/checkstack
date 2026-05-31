@@ -15,6 +15,8 @@ import {
   CATALOG_SYSTEM_ENTITY_KIND,
   CatalogGroupStateSchema,
   CatalogSystemStateSchema,
+  catalogGroupChangeToPayload,
+  catalogSystemChangeToPayload,
   createCatalogGroupEntityRead,
   createCatalogSystemEntityRead,
   deriveCatalogGroupTriggerEvents,
@@ -139,10 +141,12 @@ export default createBackendPlugin({
     entityPoint.registerChangeDeriver({
       kind: CATALOG_SYSTEM_ENTITY_KIND,
       derive: deriveCatalogSystemTriggerEvents,
+      toPayload: catalogSystemChangeToPayload,
     });
     entityPoint.registerChangeDeriver({
       kind: CATALOG_GROUP_ENTITY_KIND,
       derive: deriveCatalogGroupTriggerEvents,
+      toPayload: catalogGroupChangeToPayload,
     });
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────

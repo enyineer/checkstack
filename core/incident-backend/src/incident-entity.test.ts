@@ -11,11 +11,17 @@ import {
   IncidentEntityStateSchema,
   createIncidentEntityRead,
   deriveIncidentTriggerEvents,
+  incidentChangeToPayload,
   removeIncidentEntity,
   toIncidentEntityState,
   writeIncidentEntity,
   type IncidentEntityState,
 } from "./incident-entity";
+import {
+  incidentCreatedTrigger,
+  incidentResolvedTrigger,
+  incidentUpdatedTrigger,
+} from "./automations";
 import type { IncidentService } from "./service";
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
@@ -74,6 +80,57 @@ describe("deriveIncidentTriggerEvents", () => {
 
   it("tombstone → no event (no incident.deleted)", () => {
     expect(deriveIncidentTriggerEvents(change({ next: null }))).toEqual([]);
+  });
+});
+
+describe("incidentChangeToPayload — payloadSchema parity", () => {
+  it("a create payload validates against the created trigger's payloadSchema", () => {
+    const payload = incidentChangeToPayload(
+      change({
+        prev: null,
+        next: { status: "investigating", severity: "minor", systemIds: ["a", "b"] },
+        delta: { status: "investigating" },
+        changedFields: ["status", "severity", "systemIds"],
+      }),
+    );
+    const parsed = incidentCreatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.incidentId).toBe("inc-1");
+    expect(parsed.status).toBe("investigating");
+    expect(parsed.severity).toBe("minor");
+    expect(parsed.systemIds).toEqual(["a", "b"]);
+  });
+
+  it("a status-flip payload validates against the updated trigger's payloadSchema and carries statusChange", () => {
+    const payload = incidentChangeToPayload(change());
+    const parsed = incidentUpdatedTrigger.payloadSchema.parse(payload);
+    expect(parsed.incidentId).toBe("inc-1");
+    expect(parsed.status).toBe("monitoring");
+    // status was in changedFields → statusChange mirrors the new status.
+    expect(parsed.statusChange).toBe("monitoring");
+  });
+
+  it("a resolve payload validates against the resolved trigger's payloadSchema", () => {
+    const payload = incidentChangeToPayload(
+      change({
+        prev: { status: "monitoring", severity: "major", systemIds: ["a"] },
+        next: { status: "resolved", severity: "major", systemIds: ["a"] },
+      }),
+    );
+    const parsed = incidentResolvedTrigger.payloadSchema.parse(payload);
+    expect(parsed.incidentId).toBe("inc-1");
+    expect(parsed.severity).toBe("major");
+    expect(parsed.systemIds).toEqual(["a"]);
+  });
+
+  it("omits statusChange when status did not change", () => {
+    const payload = incidentChangeToPayload(
+      change({
+        delta: { severity: "critical" },
+        changedFields: ["severity"],
+        next: { status: "monitoring", severity: "critical", systemIds: ["a"] },
+      }),
+    );
+    expect("statusChange" in payload).toBe(false);
   });
 });
 

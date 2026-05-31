@@ -40,6 +40,7 @@ import {
   DEPENDENCY_EDGE_ENTITY_KIND,
   DependencyEdgeStateSchema,
   createDependencyEntityRead,
+  dependencyChangeToPayload,
   deriveDependencyTriggerEvents,
   type DependencyEdgeState,
 } from "./dependency-entity";
@@ -104,6 +105,7 @@ export default createBackendPlugin({
     entityPoint.registerChangeDeriver({
       kind: DEPENDENCY_EDGE_ENTITY_KIND,
       derive: deriveDependencyTriggerEvents,
+      toPayload: dependencyChangeToPayload,
     });
     const onEntityChanged = entityPoint.onEntityChanged;
     // The propagation cursor is internal bookkeeping (§5): derived

@@ -177,7 +177,7 @@ export function createCatalogActions(
       schema: systemUpdateMetadataConfigSchema,
     }),
     produces: "catalog.system_record",
-    execute: async ({ config, logger }) => {
+    execute: async ({ config, logger, runId }) => {
       const existing = await deps.entityService.getSystem(config.systemId);
       if (!existing) {
         return {
@@ -208,6 +208,11 @@ export function createCatalogActions(
       await writeCatalogSystemEntity({
         handle: deps.getSystemEntity?.(),
         systemId: config.systemId,
+        // Run-secret masking choke point: this action resolves config
+        // (including `metadata` values) against the run scope, which can
+        // contain run-resolved secrets. Passing `runId` masks any such secret
+        // in the `entity_transitions` rows + the cluster-wide `ENTITY_CHANGED`.
+        opts: { runId },
         apply: async () => {
           const row = await deps.entityService.updateSystem(config.systemId, {
             metadata: nextMetadata,

@@ -17,7 +17,9 @@
 import { z } from "zod";
 import type {
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
   EntityHandle,
+  EntityMutationOpts,
   EntityRead,
 } from "@checkstack/automation-backend";
 
@@ -98,6 +100,59 @@ export const deriveCatalogGroupTriggerEvents: EntityChangeDeriver = (
   return [];
 };
 
+/** The catalog `system.updated` trigger's `changedFields` enum members. */
+const CATALOG_SYSTEM_CHANGED_FIELDS = ["name", "description", "metadata"] as const;
+
+function readName(state: Record<string, unknown> | null): string | undefined {
+  if (state === null) return undefined;
+  const name = state["name"];
+  return typeof name === "string" ? name : undefined;
+}
+
+/**
+ * Map a `catalog-system` change to the domain-named `trigger.payload` the
+ * catalog system triggers declare via `payloadSchema` (`systemId`,
+ * `systemName`, `changedFields`). Restores the keys operators read
+ * (`trigger.payload.systemId`, `.systemName`, `.changedFields`) that the
+ * generic change shape omits.
+ *
+ * `systemId` is the entity id; `systemName` is `next.name` (absent on a
+ * tombstone, where the `deleted` schema marks it optional); `changedFields` is
+ * the change's `changedFields` intersected with the system trigger enum
+ * (`name` / `description` / `metadata`).
+ */
+export const catalogSystemChangeToPayload: EntityChangePayloadMapper = (
+  changed,
+) => {
+  const changedFields = changed.changedFields.filter(
+    (f): f is (typeof CATALOG_SYSTEM_CHANGED_FIELDS)[number] =>
+      (CATALOG_SYSTEM_CHANGED_FIELDS as readonly string[]).includes(f),
+  );
+  const systemName = readName(changed.next);
+  return {
+    systemId: changed.id,
+    ...(systemName === undefined ? {} : { systemName }),
+    changedFields,
+  };
+};
+
+/**
+ * Map a `catalog-group` change to a domain-named `trigger.payload`
+ * (`groupId`, `groupName`). There are NO registered catalog GROUP triggers
+ * today, so this fires for no automation yet — it is supplied for forward
+ * compatibility + parity so a group change carries the same domain shape the
+ * other kinds do when group triggers are added.
+ */
+export const catalogGroupChangeToPayload: EntityChangePayloadMapper = (
+  changed,
+) => {
+  const groupName = readName(changed.next);
+  return {
+    groupId: changed.id,
+    ...(groupName === undefined ? {} : { groupName }),
+  };
+};
+
 /**
  * Build the PLUGIN-BACKED `read` accessor for the `catalog-system` entity.
  * Routes straight to the service's batched authoritative read over the
@@ -164,14 +219,23 @@ export function toCatalogGroupState(group: {
 export async function writeCatalogSystemEntity(args: {
   handle: EntityHandle<CatalogSystemState> | undefined;
   systemId: string;
+  /**
+   * Mutation context (actor / runId). When the write originates inside a
+   * dispatch run (e.g. `system.update_metadata`), pass `opts: { runId }` so a
+   * run-resolved secret that lands in `metadata` is masked in the
+   * `entity_transitions` rows + the cluster-wide `ENTITY_CHANGED` — `metadata`
+   * is `z.record(z.string(), z.unknown())`, the only reactive catalog field
+   * that can carry an arbitrary secret string.
+   */
+  opts?: EntityMutationOpts;
   apply: () => Promise<CatalogSystemState>;
 }): Promise<void> {
-  const { handle, systemId, apply } = args;
+  const { handle, systemId, opts, apply } = args;
   if (!handle) {
     await apply();
     return;
   }
-  await handle.mutate({ id: systemId, apply });
+  await handle.mutate({ id: systemId, opts, apply });
 }
 
 /**
@@ -181,14 +245,16 @@ export async function writeCatalogSystemEntity(args: {
 export async function writeCatalogGroupEntity(args: {
   handle: EntityHandle<CatalogGroupState> | undefined;
   groupId: string;
+  /** Mutation context (actor / runId) — see {@link writeCatalogSystemEntity}. */
+  opts?: EntityMutationOpts;
   apply: () => Promise<CatalogGroupState>;
 }): Promise<void> {
-  const { handle, groupId, apply } = args;
+  const { handle, groupId, opts, apply } = args;
   if (!handle) {
     await apply();
     return;
   }
-  await handle.mutate({ id: groupId, apply });
+  await handle.mutate({ id: groupId, opts, apply });
 }
 
 /**
@@ -203,12 +269,14 @@ export async function removeCatalogEntity<
 >(args: {
   handle: EntityHandle<TState> | undefined;
   id: string;
+  /** Mutation context (actor / runId) — see {@link writeCatalogSystemEntity}. */
+  opts?: EntityMutationOpts;
   apply: () => Promise<void>;
 }): Promise<void> {
-  const { handle, id, apply } = args;
+  const { handle, id, opts, apply } = args;
   if (!handle) {
     await apply();
     return;
   }
-  await handle.remove({ id, apply });
+  await handle.remove({ id, opts, apply });
 }

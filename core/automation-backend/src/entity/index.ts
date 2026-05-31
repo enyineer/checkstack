@@ -15,6 +15,7 @@ export {
 export type {
   ChangeDeriverRegistry,
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
 } from "./change-derivers";
 export {
   createEntityChangedSubscriptions,

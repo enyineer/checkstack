@@ -19,7 +19,9 @@ import {
 } from "@checkstack/incident-common";
 import type {
   EntityChangeDeriver,
+  EntityChangePayloadMapper,
   EntityHandle,
+  EntityMutationOpts,
   EntityRead,
 } from "@checkstack/automation-backend";
 
@@ -79,6 +81,43 @@ export const deriveIncidentTriggerEvents: EntityChangeDeriver = (changed) => {
   return [INCIDENT_TRIGGER_EVENTS.updated];
 };
 
+function readField(
+  state: Record<string, unknown> | null,
+  field: string,
+): unknown {
+  return state === null ? undefined : state[field];
+}
+
+/**
+ * Map an `incident` entity change to the domain-named `trigger.payload` the
+ * incident triggers declare via `payloadSchema` (`incidentId`, `systemIds`,
+ * `severity`, `status`, `statusChange`). This restores the keys operators read
+ * (`trigger.payload.incidentId` etc.) that the generic change shape omits.
+ *
+ * The reactive `incident` entity state is only `{ status, severity, systemIds }`,
+ * so the schemas' descriptive fields (`title`, `description`, `createdAt`,
+ * `resolvedAt`) are NOT available from a change and are declared OPTIONAL on
+ * those schemas. `statusChange` is populated when the status field changed (the
+ * `updated` trigger's hint), so a status flip carries the new status both as
+ * `status` and `statusChange`.
+ */
+export const incidentChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  const next = changed.next;
+  const statusChanged = changed.changedFields.includes("status");
+  const nextStatus = readField(next, "status");
+  return {
+    incidentId: changed.id,
+    systemIds: Array.isArray(readField(next, "systemIds"))
+      ? (readField(next, "systemIds") as unknown[])
+      : [],
+    severity: readField(next, "severity"),
+    status: nextStatus,
+    ...(statusChanged && typeof nextStatus === "string"
+      ? { statusChange: nextStatus }
+      : {}),
+  };
+};
+
 /**
  * Build the PLUGIN-BACKED `read` accessor for the `incident` entity. Routes
  * straight to the service's batched authoritative read — no framework storage.
@@ -120,14 +159,20 @@ export function toIncidentEntityState(incident: {
 export async function writeIncidentEntity(args: {
   handle: EntityHandle<IncidentEntityState> | undefined;
   incidentId: string;
+  /**
+   * Mutation context (actor / runId). When the write originates inside a
+   * dispatch run, pass `opts: { runId }` so a run-resolved secret that lands
+   * in the reactive state is masked in the transition rows + `ENTITY_CHANGED`.
+   */
+  opts?: EntityMutationOpts;
   apply: () => Promise<IncidentEntityState>;
 }): Promise<void> {
-  const { handle, incidentId, apply } = args;
+  const { handle, incidentId, opts, apply } = args;
   if (!handle) {
     await apply();
     return;
   }
-  await handle.mutate({ id: incidentId, apply });
+  await handle.mutate({ id: incidentId, opts, apply });
 }
 
 /**
