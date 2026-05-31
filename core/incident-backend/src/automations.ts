@@ -17,12 +17,12 @@ import type {
   ArtifactTypeDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
+import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import {
   IncidentSeverityEnum,
   IncidentStatusEnum,
 } from "@checkstack/incident-common";
 
-import { incidentHooks } from "./hooks";
 import type { IncidentService } from "./service";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
@@ -57,6 +57,10 @@ const incidentResolvedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// These triggers are ENTITY-DRIVEN (§10.1): the `incident` entity's change
+// deriver fires `incident.created/.updated/.resolved` via Stage-1 routing,
+// so they no longer subscribe to a hook. A no-op `setup` keeps them in the
+// editor's trigger catalog without re-introducing a hook.
 export const incidentCreatedTrigger: TriggerDefinition<
   z.infer<typeof incidentCreatedPayloadSchema>
 > = {
@@ -66,7 +70,9 @@ export const incidentCreatedTrigger: TriggerDefinition<
   category: "Incidents",
   icon: "CircleAlert",
   payloadSchema: incidentCreatedPayloadSchema,
-  hook: incidentHooks.incidentCreated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof incidentCreatedPayloadSchema>
+  >(),
   contextKey: (p) => p.incidentId,
 };
 
@@ -79,7 +85,9 @@ export const incidentUpdatedTrigger: TriggerDefinition<
   category: "Incidents",
   icon: "CircleAlert",
   payloadSchema: incidentUpdatedPayloadSchema,
-  hook: incidentHooks.incidentUpdated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof incidentUpdatedPayloadSchema>
+  >(),
   contextKey: (p) => p.incidentId,
 };
 
@@ -92,7 +100,9 @@ export const incidentResolvedTrigger: TriggerDefinition<
   category: "Incidents",
   icon: "CircleCheck",
   payloadSchema: incidentResolvedPayloadSchema,
-  hook: incidentHooks.incidentResolved,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof incidentResolvedPayloadSchema>
+  >(),
   contextKey: (p) => p.incidentId,
 };
 

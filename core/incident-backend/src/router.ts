@@ -14,10 +14,15 @@ import type { IncidentService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
-import { incidentHooks } from "./hooks";
 import { notifyAffectedSystems } from "./notifications";
 import type { IncidentUpdate } from "@checkstack/incident-common";
 import type { IncidentCache } from "./cache";
+import type { EntityHandle } from "@checkstack/automation-backend";
+import {
+  mirrorIncidentEntity,
+  removeIncidentEntity,
+  type IncidentEntityState,
+} from "./incident-entity";
 
 export function createRouter(
   service: IncidentService,
@@ -29,6 +34,8 @@ export function createRouter(
   authClient: InferClient<typeof AuthApi>,
   logger: Logger,
   cache: IncidentCache,
+  /** Resolver for the reactive `incident` entity (§10.1). Undefined in tests. */
+  getIncidentEntity?: () => EntityHandle<IncidentEntityState> | undefined,
 ) {
   /**
    * Resolve user IDs to profile names for a list of updates.
@@ -165,15 +172,14 @@ export function createRouter(
         action: "created",
       });
 
-      // Emit hook for cross-plugin coordination
-      await context.emitHook(incidentHooks.incidentCreated, {
+      // Mirror into the reactive `incident` entity (§10.1); the deriver
+      // fires `incident.created` from this change.
+      await mirrorIncidentEntity({
+        handle: getIncidentEntity?.(),
         incidentId: result.id,
-        systemIds: result.systemIds,
-        title: result.title,
-        description: result.description,
-        severity: result.severity,
         status: result.status,
-        createdAt: result.createdAt.toISOString(),
+        severity: result.severity,
+        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -193,7 +199,7 @@ export function createRouter(
       return result;
     }),
 
-    updateIncident: os.updateIncident.handler(async ({ input, context }) => {
+    updateIncident: os.updateIncident.handler(async ({ input }) => {
       const result = await service.updateIncident(input);
       if (!result) {
         throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
@@ -211,14 +217,15 @@ export function createRouter(
         action: "updated",
       });
 
-      // Emit hook for cross-plugin coordination
-      await context.emitHook(incidentHooks.incidentUpdated, {
+      // Mirror into the reactive `incident` entity (§10.1); the deriver
+      // fires `incident.updated` (or `incident.resolved` on a resolution)
+      // from this change.
+      await mirrorIncidentEntity({
+        handle: getIncidentEntity?.(),
         incidentId: result.id,
-        systemIds: result.systemIds,
-        title: result.title,
-        description: result.description,
-        severity: result.severity,
         status: result.status,
+        severity: result.severity,
+        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -265,27 +272,17 @@ export function createRouter(
           action: "updated",
         });
 
-        // Emit hook for cross-plugin coordination
-        await context.emitHook(incidentHooks.incidentUpdated, {
+        // Mirror into the reactive `incident` entity (§10.1). The deriver
+        // fires `incident.resolved` on a transition to resolved, otherwise
+        // `incident.updated` — derived purely from the entity diff (so the
+        // `statusChange` branch above collapses into the single mirror).
+        await mirrorIncidentEntity({
+          handle: getIncidentEntity?.(),
           incidentId: input.incidentId,
-          systemIds: incident.systemIds,
-          title: incident.title,
-          description: incident.description,
-          severity: incident.severity,
           status: incident.status,
-          statusChange: input.statusChange,
+          severity: incident.severity,
+          systemIds: incident.systemIds,
         });
-
-        // If status changed to resolved, emit resolved hook
-        if (input.statusChange === "resolved") {
-          await context.emitHook(incidentHooks.incidentResolved, {
-            incidentId: input.incidentId,
-            systemIds: incident.systemIds,
-            title: incident.title,
-            severity: incident.severity,
-            resolvedAt: new Date().toISOString(),
-          });
-        }
 
         // Send notifications when status changes
         if (input.statusChange && previousStatus !== input.statusChange) {
@@ -342,13 +339,14 @@ export function createRouter(
         action: "resolved",
       });
 
-      // Emit hook for cross-plugin coordination
-      await context.emitHook(incidentHooks.incidentResolved, {
+      // Mirror into the reactive `incident` entity (§10.1); the deriver
+      // fires `incident.resolved` from the status → resolved transition.
+      await mirrorIncidentEntity({
+        handle: getIncidentEntity?.(),
         incidentId: result.id,
-        systemIds: result.systemIds,
-        title: result.title,
+        status: result.status,
         severity: result.severity,
-        resolvedAt: new Date().toISOString(),
+        systemIds: result.systemIds,
       });
 
       // Send notifications to system subscribers
@@ -383,6 +381,14 @@ export function createRouter(
           systemIds: incident.systemIds,
           action: "deleted",
         });
+
+        // Tombstone the reactive `incident` entity (§10.1). No
+        // `incident.deleted` trigger event exists, so the deriver fires
+        // nothing — this just keeps the entity store clean.
+        await removeIncidentEntity({
+          handle: getIncidentEntity?.(),
+          incidentId: input.id,
+        });
       }
       return { success };
     }),
@@ -396,10 +402,10 @@ export function createRouter(
       }),
 
     createAutoIncident: os.createAutoIncident.handler(
-      async ({ input, context }) => {
+      async ({ input }) => {
         // No user context for service-initiated incidents; createdBy
         // stays null and the timeline shows the originating plugin via
-        // the hook payload.
+        // the mirrored entity state.
         const result = await service.createIncident(input);
 
         await cache.invalidateForMutation({
@@ -413,14 +419,14 @@ export function createRouter(
           action: "created",
         });
 
-        await context.emitHook(incidentHooks.incidentCreated, {
+        // Mirror into the reactive `incident` entity (§10.1); the deriver
+        // fires `incident.created` from this change.
+        await mirrorIncidentEntity({
+          handle: getIncidentEntity?.(),
           incidentId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
-          description: result.description,
-          severity: result.severity,
           status: result.status,
-          createdAt: result.createdAt.toISOString(),
+          severity: result.severity,
+          systemIds: result.systemIds,
         });
 
         const systemNames = await resolveSystemNames(result.systemIds);
@@ -441,7 +447,7 @@ export function createRouter(
     ),
 
     resolveAutoIncident: os.resolveAutoIncident.handler(
-      async ({ input, context }) => {
+      async ({ input }) => {
         const result = await service.resolveIncident(input.id, input.message);
         // Idempotent: a missing or already-resolved incident is treated
         // as success so the auto-close worker can be re-run safely.
@@ -460,12 +466,14 @@ export function createRouter(
           action: "resolved",
         });
 
-        await context.emitHook(incidentHooks.incidentResolved, {
+        // Mirror into the reactive `incident` entity (§10.1); the deriver
+        // fires `incident.resolved` from the status → resolved transition.
+        await mirrorIncidentEntity({
+          handle: getIncidentEntity?.(),
           incidentId: result.id,
-          systemIds: result.systemIds,
-          title: result.title,
+          status: result.status,
           severity: result.severity,
-          resolvedAt: new Date().toISOString(),
+          systemIds: result.systemIds,
         });
 
         const systemNames = await resolveSystemNames(result.systemIds);
