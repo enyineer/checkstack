@@ -3,16 +3,22 @@
  * §9.1).
  *
  * Satellite connection state is genuinely an entity: the WS handler's
- * in-memory connection map and the heartbeat monitor's online→offline
- * transition ARE state with diffs. The `satellite-connection` entity is
- * PLUGIN-BACKED (Model B): its current state lives ONLY in a process-local
- * connection-state map (see `connection-state-store.ts`) — there is NO
- * `entity_state` mirror. The three lifecycle sites that used to emit the
- * `satellite.connected` / `.disconnected` / `.heartbeat_lost` hooks now drive
- * `handle.mutate`, whose `apply` updates that map; the framework still records
- * full transition HISTORY in `entity_transitions` (in-memory current state,
- * durable platform history). The persisted `satellites.lastHeartbeatAt`
- * column stays as escape-hatched bookkeeping (declared non-reactive).
+ * connection lifecycle and the heartbeat monitor's online→offline transition
+ * ARE state with diffs. The `satellite-connection` entity is PLUGIN-BACKED
+ * (Model B): its current state lives in the shared `satellites` table — in the
+ * durable `connectionStatus` / `lastSeenAt` / `lastConnectionEvent` columns —
+ * so it is GLOBALLY readable from any pod. There is NO framework `entity_state`
+ * mirror. This fixes a horizontal-scaling read bug: the previous design stored
+ * current state in a process-local in-memory map, so a satellite connected to
+ * pod A was invisible to pod B's scope enrichment / `wait_until` re-eval.
+ *
+ * The three lifecycle sites that used to emit the `satellite.connected` /
+ * `.disconnected` / `.heartbeat_lost` hooks now drive `handle.mutate`, whose
+ * `apply` UPDATEs the satellite row's connection columns (the pod that owns the
+ * socket is the writer) and returns the view; the framework still records full
+ * transition HISTORY in `entity_transitions` (durable current state AND durable
+ * platform history). The persisted `satellites.lastHeartbeatAt` column stays as
+ * escape-hatched bookkeeping (declared non-reactive).
  *
  * The three hooks are removed; the change-deriver below maps an entity
  * change back to the SAME qualified trigger event ids existing automations
@@ -25,6 +31,8 @@
  */
 import { z } from "zod";
 import type { EntityChanged } from "@checkstack/automation-common";
+import type { EntityRead } from "@checkstack/automation-backend";
+import type { SatelliteService } from "./service";
 
 /** Globally-unique entity kind for a satellite connection. */
 export const SATELLITE_CONNECTION_ENTITY_KIND = "satellite-connection";
@@ -102,4 +110,56 @@ export function deriveSatelliteConnectionEvents(
       return [SATELLITE_HEARTBEAT_LOST_EVENT];
     }
   }
+}
+
+/**
+ * The durable connection columns of a satellite row, as read from the shared
+ * `satellites` table. This is the raw shape the service returns for the entity
+ * `read` accessor; {@link toSatelliteConnectionState} projects it onto the
+ * reactive view. A satellite that has never connected has `lastSeenAt === null`
+ * and `lastConnectionEvent === null`.
+ */
+export interface SatelliteConnectionRow {
+  status: "online" | "offline";
+  name: string;
+  region: string;
+  lastSeenAt: Date | null;
+  lastConnectionEvent: SatelliteConnectionEvent | null;
+}
+
+/**
+ * Project a durable `satellites` connection row onto the reactive
+ * `SatelliteConnectionState` view (the exact shape the deriver + change events
+ * consume). A satellite with no recorded lifecycle edge yet (never connected)
+ * has no entity state, so this returns `null` and the `read` accessor omits the
+ * id — exactly the `prev === null` (create) signal the framework needs on the
+ * first connect.
+ */
+export function toSatelliteConnectionState(
+  row: SatelliteConnectionRow,
+): SatelliteConnectionState | null {
+  if (row.lastSeenAt === null || row.lastConnectionEvent === null) {
+    return null;
+  }
+  return {
+    status: row.status,
+    name: row.name,
+    region: row.region,
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    lastEvent: row.lastConnectionEvent,
+  };
+}
+
+/**
+ * Build the PLUGIN-BACKED `read` accessor for the `satellite-connection`
+ * entity. Routes straight to the service's batched durable read of the
+ * `satellites` connection columns (no framework storage), so the current state
+ * is the SAME for every pod — this is what makes the entity globally consistent
+ * and is the single source of truth `handle.mutate` snapshots `prev` from and
+ * `get` / `getMany` / scope enrichment / `wait_until` re-eval route through.
+ */
+export function createSatelliteConnectionRead(
+  service: SatelliteService,
+): EntityRead<SatelliteConnectionState> {
+  return (ids) => service.getManyConnectionStates(ids);
 }

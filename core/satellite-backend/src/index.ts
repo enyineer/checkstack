@@ -26,11 +26,11 @@ import {
 } from "@checkstack/automation-backend";
 import {
   SATELLITE_CONNECTION_ENTITY_KIND,
+  createSatelliteConnectionRead,
   deriveSatelliteConnectionEvents,
   satelliteConnectionStateSchema,
   type SatelliteConnectionState,
 } from "./entity";
-import { createConnectionStateStore } from "./connection-state-store";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -45,18 +45,21 @@ export default createBackendPlugin({
     // ─── Automation Platform: reactive connection entity ─────────────
     // Satellite connection state is the `satellite-connection` entity
     // (reactive automation engine §10.6, §9.1), PLUGIN-BACKED (Model B):
-    // its current state lives ONLY in this process-local connection-state
-    // map — there is NO `entity_state` mirror. `read` reads that map; the
-    // three lifecycle sites (connect / disconnect / heartbeat-lost) write it
-    // through `handle.mutate`, and the framework still records full
-    // transition HISTORY in `entity_transitions` for every change.
+    // its current state lives in the DURABLE, shared `satellites` table
+    // (the `connectionStatus` / `lastSeenAt` / `lastConnectionEvent`
+    // columns) — there is NO framework `entity_state` mirror. `read` reads
+    // those columns via the service, so EVERY pod sees the same state (this
+    // fixes the horizontal-scaling read bug where the old in-memory map made a
+    // satellite connected to pod A invisible to pod B). The three lifecycle
+    // sites (connect / disconnect / heartbeat-lost) write through
+    // `handle.mutate` — the pod that owns the socket UPDATEs the row — and the
+    // framework still records full transition HISTORY in `entity_transitions`.
     //
     // The `satellite.connected` / `.disconnected` / `.heartbeat_lost` trigger
     // events are DERIVED from its changes (no hook-backed triggers). The
     // persisted `satellites.lastHeartbeatAt` column stays as escape-hatched
-    // bookkeeping — the entity's `status` is what's reactive.
+    // bookkeeping — the entity's `connectionStatus` is what's reactive.
     const entity = env.getExtensionPoint(entityExtensionPoint);
-    const connectionStateStore = createConnectionStateStore();
     entity.registerChangeDeriver({
       kind: SATELLITE_CONNECTION_ENTITY_KIND,
       derive: deriveSatelliteConnectionEvents,
@@ -100,15 +103,16 @@ export default createBackendPlugin({
         gitopsService = service;
 
         // Declare the reactive `satellite-connection` entity once. PLUGIN-
-        // BACKED: `read` reads the in-memory connection-state map (the source
-        // of truth — no `entity_state` mirror). The handle is the only typed
-        // path that drives connection-state changes (reactive automation
-        // engine §4.2); it is reused by the WS handler + heartbeat monitor
-        // wired in afterPluginsReady.
+        // BACKED: `read` reads the durable connection columns of the shared
+        // `satellites` table via the service (the source of truth — no
+        // `entity_state` mirror, globally readable from any pod). The handle is
+        // the only typed path that drives connection-state changes (reactive
+        // automation engine §4.2); it is reused by the WS handler + heartbeat
+        // monitor wired in afterPluginsReady.
         satelliteEntityHandle = entity.defineEntity({
           kind: SATELLITE_CONNECTION_ENTITY_KIND,
           state: satelliteConnectionStateSchema,
-          read: (ids) => connectionStateStore.readMany(ids),
+          read: createSatelliteConnectionRead(service),
         });
 
         const router = createSatelliteRouter({
@@ -170,17 +174,21 @@ export default createBackendPlugin({
           logger,
           {
             // Drive connect/disconnect through `handle.mutate` (Model B):
-            // `apply` updates the in-memory connection-state map (the source
-            // of truth) and returns the view. The framework snapshots `prev`
-            // via `read`, records the transition (durable history), and emits
-            // the change; the deriver re-fires the equivalent trigger events.
+            // `apply` UPDATEs the satellite row's durable connection columns
+            // (the globally-readable source of truth) and returns the view. The
+            // framework snapshots `prev` via `read`, records the transition
+            // (durable history), and emits the change; the deriver re-fires the
+            // equivalent trigger events.
             mirror: async (satelliteId, state) => {
               await satelliteEntityHandle.mutate({
                 id: satelliteId,
                 apply: () =>
-                  Promise.resolve(
-                    connectionStateStore.write({ satelliteId, state }),
-                  ),
+                  service.applyConnectionState({
+                    satelliteId,
+                    status: state.status,
+                    lastEvent: state.lastEvent,
+                    lastSeenAt: new Date(state.lastSeenAt),
+                  }),
               });
             },
           },
@@ -242,16 +250,23 @@ export default createBackendPlugin({
           logger,
           {
             // Drive the online → offline edge through `handle.mutate`; `apply`
-            // updates the in-memory map and returns the view, the framework
-            // records the transition (durable history), and the deriver
-            // re-fires `satellite.heartbeat_lost`.
+            // UPDATEs the satellite row's durable connection columns and returns
+            // the view, the framework records the transition (durable history),
+            // and the deriver re-fires `satellite.heartbeat_lost`. The
+            // heartbeat monitor is also the offline-on-timeout BACKSTOP for
+            // distributed presence: if a pod dies without flipping its
+            // satellites to offline, the stale "online" persists only until
+            // this monitor observes the heartbeat timeout and writes "offline".
             mirror: async (satelliteId, state) => {
               await satelliteEntityHandle.mutate({
                 id: satelliteId,
                 apply: () =>
-                  Promise.resolve(
-                    connectionStateStore.write({ satelliteId, state }),
-                  ),
+                  service.applyConnectionState({
+                    satelliteId,
+                    status: state.status,
+                    lastEvent: state.lastEvent,
+                    lastSeenAt: new Date(state.lastSeenAt),
+                  }),
               });
             },
           },
