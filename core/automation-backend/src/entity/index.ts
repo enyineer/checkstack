@@ -41,12 +41,8 @@ export type {
 
 // Internal wiring surface (consumed by automation-backend's index.ts).
 export { createEntityRegistry } from "./registry";
-export type {
-  EntityRegistry,
-  NonReactiveDeclaration,
-  EntityKindResolver,
-} from "./registry";
+export type { EntityRegistry } from "./registry";
 export { createEntityStore } from "./entity-store";
-export type { EntityStore, EntityTx } from "./entity-store";
+export type { EntityTx } from "./entity-store";
 export { createChangeEmitter } from "./change-emitter";
-export type { ChangeEmitter, EmitEntityChanged } from "./change-emitter";
+export type { ChangeEmitter } from "./change-emitter";

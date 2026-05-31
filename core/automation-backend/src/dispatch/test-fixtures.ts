@@ -5,12 +5,9 @@
  * registries so engine tests can run without a real database or queue.
  */
 import { z } from "zod";
-import { Versioned, createHook } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import { createDefaultFilterRegistry } from "@checkstack/template-engine";
-import type {
-  ActionDefinition,
-  TriggerDefinition,
-} from "../action-types";
+import type { ActionDefinition } from "../action-types";
 import { createActionRegistry, type ActionRegistry } from "../action-registry";
 import {
   createArtifactTypeRegistry,
@@ -493,7 +490,7 @@ export interface FakeQueueManager {
   fireAll: () => Promise<void>;
 }
 
-export function createFakeQueueManager(opts?: {
+function createFakeQueueManager(opts?: {
   onJob?: (queue: string, data: unknown) => Promise<void> | void;
 }): FakeQueueManager {
   const jobs: FakeQueueManager["jobs"] = [];
@@ -755,18 +752,5 @@ export function makeFailingAction(): ActionDefinition<{ reason: string }> {
       success: false,
       error: ctx.config.reason,
     }),
-  };
-}
-
-/** Hook used by tests that need a registered hook reference. */
-export const testHook = createHook<{ id: string }>("test.event");
-
-export function makeTrigger(): TriggerDefinition<{ id: string }> {
-  return {
-    id: "event",
-    displayName: "Test event",
-    payloadSchema: z.object({ id: z.string() }),
-    hook: testHook,
-    contextKey: (p) => p.id,
   };
 }
