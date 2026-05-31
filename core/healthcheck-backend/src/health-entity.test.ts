@@ -2,6 +2,10 @@ import { describe, it, expect } from "bun:test";
 import type {
   EntityChanged,
   EntityHandle,
+  EntityKeyedStoreService,
+  EntityTx,
+  KeyedStore,
+  MutateInput,
 } from "@checkstack/automation-backend";
 import { SYSTEM_ACTOR } from "@checkstack/common";
 
@@ -13,6 +17,7 @@ import {
   deriveHealthTriggerEvents,
   mirrorHealthEntity,
   type HealthEntityState,
+  type HealthEntityWriter,
 } from "./health-entity";
 import {
   systemDegradedTrigger,
@@ -167,41 +172,110 @@ describe("HealthEntityStateSchema", () => {
   });
 });
 
-describe("mirrorHealthEntity", () => {
-  function fakeHandle(): {
-    handle: EntityHandle<HealthEntityState>;
-    calls: Array<{ id: string; next: HealthEntityState }>;
+describe("mirrorHealthEntity (homeless kind → keyed store via handle.mutate)", () => {
+  /**
+   * A fake reactive-write surface for the homeless `health` kind. The keyed
+   * store is an in-memory map standing in for `entity_state` (the SOLE
+   * current-state home — no duplicate domain row). The handle's `mutate`
+   * routes through `apply`, which writes that keyed store inside a fake tx,
+   * exactly as production does.
+   */
+  function fakeWriter(opts?: { handleThrows?: boolean }): {
+    writer: HealthEntityWriter;
+    rows: Map<string, HealthEntityState>;
+    mutateCalls: Array<{ id: string }>;
+    txOpened: number;
   } {
-    const calls: Array<{ id: string; next: HealthEntityState }> = [];
+    const rows = new Map<string, HealthEntityState>();
+    const mutateCalls: Array<{ id: string }> = [];
+    let txOpened = 0;
+
+    const keyedStore = {
+      kind: HEALTH_ENTITY_KIND,
+      readMany: async (ids: ReadonlyArray<string>) => {
+        const out: Record<string, HealthEntityState> = {};
+        for (const id of ids) {
+          const row = rows.get(id);
+          if (row) out[id] = row;
+        }
+        return out;
+      },
+      read: async (id: string) => rows.get(id),
+      write: async ({
+        id,
+        state,
+      }: {
+        tx: EntityTx;
+        id: string;
+        state: HealthEntityState;
+      }) => {
+        rows.set(id, state);
+        return state;
+      },
+      remove: async ({ id }: { tx: EntityTx; id: string }) => {
+        rows.delete(id);
+      },
+    } as unknown as KeyedStore<HealthEntityState>;
+
+    const keyedStoreService: EntityKeyedStoreService = {
+      // `mirrorHealthEntity` uses the bundled `keyedStore`, not this factory;
+      // the generic signature just has to be satisfiable.
+      keyedStoreFor: <TState extends Record<string, unknown>>() =>
+        keyedStore as unknown as KeyedStore<TState>,
+      // The fake tx is opaque — `write` ignores it; we just count openings to
+      // prove the apply runs inside a transaction.
+      runInTransaction: async <R,>(fn: (tx: EntityTx) => Promise<R>) => {
+        txOpened += 1;
+        return fn({} as EntityTx);
+      },
+    };
+
     const handle = {
       kind: HEALTH_ENTITY_KIND,
-      async set(id: string, next: HealthEntityState) {
-        calls.push({ id, next });
+      // Production `mutate` snapshots prev via `read`, runs `apply` (the keyed
+      // write), and returns next. The fake reproduces the observable parts:
+      // it runs `apply` (so the keyed store is written) and records the call.
+      async mutate(input: MutateInput<HealthEntityState>) {
+        if (opts?.handleThrows) throw new Error("store down");
+        mutateCalls.push({ id: input.id });
+        return input.apply();
       },
     } as unknown as EntityHandle<HealthEntityState>;
-    return { handle, calls };
+
+    return {
+      writer: { handle, keyedStore, keyedStoreService },
+      rows,
+      mutateCalls,
+      get txOpened() {
+        return txOpened;
+      },
+    };
   }
 
-  it("mirrors the reactive subset keyed by systemId", async () => {
-    const { handle, calls } = fakeHandle();
+  it("writes the reactive subset into the keyed store via handle.mutate", async () => {
+    const fake = fakeWriter();
     await mirrorHealthEntity({
-      handle,
+      writer: fake.writer,
       systemId: "sys-9",
       status: "unhealthy",
       healthyChecks: 0,
       totalChecks: 4,
     });
-    expect(calls).toEqual([
-      {
-        id: "sys-9",
-        next: { status: "unhealthy", healthyChecks: 0, totalChecks: 4 },
-      },
-    ]);
+    // The mutation was driven through the handle, keyed by systemId.
+    expect(fake.mutateCalls).toEqual([{ id: "sys-9" }]);
+    // The keyed store (the SOLE current-state home) now holds the aggregate.
+    expect(fake.rows.get("sys-9")).toEqual({
+      status: "unhealthy",
+      healthyChecks: 0,
+      totalChecks: 4,
+    });
+    // The apply ran inside a transaction on the keyed-store DB.
+    expect(fake.txOpened).toBe(1);
   });
 
-  it("is a no-op when no handle is bound (version skew / tests)", async () => {
+  it("is a no-op when no writer is bound (version skew / tests)", async () => {
     await mirrorHealthEntity({
-      handle: undefined,
+      writer: undefined,
       systemId: "sys-9",
       status: "healthy",
       healthyChecks: 1,
@@ -211,16 +285,11 @@ describe("mirrorHealthEntity", () => {
     expect(true).toBe(true);
   });
 
-  it("routes a set() failure to onError instead of throwing", async () => {
+  it("routes a mutate() failure to onError instead of throwing", async () => {
     let captured: unknown;
-    const handle = {
-      kind: HEALTH_ENTITY_KIND,
-      async set() {
-        throw new Error("store down");
-      },
-    } as unknown as EntityHandle<HealthEntityState>;
+    const fake = fakeWriter({ handleThrows: true });
     await mirrorHealthEntity({
-      handle,
+      writer: fake.writer,
       systemId: "sys-9",
       status: "healthy",
       healthyChecks: 1,
@@ -230,5 +299,7 @@ describe("mirrorHealthEntity", () => {
       },
     });
     expect((captured as Error).message).toBe("store down");
+    // The failing write left the keyed store untouched.
+    expect(fake.rows.size).toBe(0);
   });
 });

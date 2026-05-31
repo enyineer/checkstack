@@ -88,6 +88,7 @@ import {
   automationFilterExtensionPoint,
   automationRegistriesRef,
   automationTriggerExtensionPoint,
+  entityKeyedStoreServiceRef,
 } from "./extension-points";
 import {
   registerBuiltinTriggerConsumer,
@@ -325,6 +326,20 @@ export default createBackendPlugin({
           keyedStoreFactory: <TState extends Record<string, unknown>>(
             kind: string,
           ) => createKeyedStore<TState>({ kind, db: database }),
+        });
+
+        // Expose the framework keyed store (`entity_state`) cross-plugin for
+        // homeless reactive kinds whose current state has no table of their
+        // own (e.g. healthcheck's computed `health` aggregate). They cannot
+        // reach `entity_state` through their OWN scoped DB, so they read/write
+        // it through this service (bound to automation-backend's DB) while
+        // staying reactive via `handle.mutate`. The transition log is still
+        // appended by the framework for every change (durable history).
+        env.registerService(entityKeyedStoreServiceRef, {
+          keyedStoreFor: <TState extends Record<string, unknown>>(
+            kind: string,
+          ) => createKeyedStore<TState>({ kind, db: database }),
+          runInTransaction: (fn) => entityStore.runInTransaction(fn),
         });
 
         // Create the declarable expression indexes (§15.1) idempotently,
@@ -669,6 +684,7 @@ export {
   automationArtifactTypeExtensionPoint,
   automationRegistriesRef,
   automationArtifactStoreRef,
+  entityKeyedStoreServiceRef,
 } from "./extension-points";
 
 // Entity state machine — the typed path to reactive state. The internal
@@ -726,5 +742,8 @@ export type { ArtifactStore, PersistedArtifact } from "./artifact-store";
 export type { TriggerRegistry } from "./trigger-registry";
 export type { ActionRegistry } from "./action-registry";
 export type { ArtifactTypeRegistry } from "./artifact-type-registry";
-export type { AutomationRegistries } from "./extension-points";
+export type {
+  AutomationRegistries,
+  EntityKeyedStoreService,
+} from "./extension-points";
 export type { AutomationStore } from "./automation-store";
