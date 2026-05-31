@@ -34,10 +34,21 @@ export const CatalogGroupStateSchema = z.object({
 });
 export type CatalogGroupState = z.infer<typeof CatalogGroupStateSchema>;
 
+/**
+ * Qualified TRIGGER event ids (`${pluginId}.${trigger.id}`) that automations
+ * store in `trigger.event` and Stage-1 routing matches on — NOT the dotted
+ * hook ids. The catalog system triggers use ids `created`/`updated`/`deleted`
+ * (pluginId `catalog`), so the deriver emits `catalog.created` etc., not the
+ * hook id `catalog.system.created`. (Verified against `automations.ts`.)
+ *
+ * There are NO registered catalog GROUP triggers today, so the group deriver
+ * fires nothing that any automation matches — kept for forward-compat + so
+ * group changes still drive scope/wake resolution as a known reactive kind.
+ */
 export const CATALOG_SYSTEM_TRIGGER_EVENTS = {
-  created: "catalog.system.created",
-  updated: "catalog.system.updated",
-  deleted: "catalog.system.deleted",
+  created: "catalog.created",
+  updated: "catalog.updated",
+  deleted: "catalog.deleted",
 } as const;
 
 export const CATALOG_GROUP_TRIGGER_EVENTS = {

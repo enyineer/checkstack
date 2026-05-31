@@ -20,14 +20,15 @@
  * hook so downstream automations + cache subscribers see the change.
  */
 import { z } from "zod";
-import { Versioned, type Hook } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
-
-import type { EntityHandle } from "@checkstack/automation-backend";
-import { catalogHooks } from "./hooks";
+import {
+  makeEntityDrivenTriggerSetup,
+  type EntityHandle,
+} from "@checkstack/automation-backend";
 import type { EntityService } from "./services/entity-service";
 import type { createCatalogCache } from "./cache";
 import {
@@ -55,6 +56,10 @@ const systemDeletedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// These triggers are ENTITY-DRIVEN (§10.4): the `catalog-system` entity's
+// change deriver fires `catalog.created/.updated/.deleted` via Stage-1
+// routing, so they no longer subscribe to a hook. A no-op `setup` keeps
+// them in the editor's trigger catalog without re-introducing a hook.
 export const systemCreatedTrigger: TriggerDefinition<
   z.infer<typeof systemCreatedPayloadSchema>
 > = {
@@ -64,7 +69,9 @@ export const systemCreatedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemCreatedPayloadSchema,
-  hook: catalogHooks.systemCreated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemCreatedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -77,7 +84,9 @@ export const systemUpdatedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemUpdatedPayloadSchema,
-  hook: catalogHooks.systemUpdated,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemUpdatedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -90,7 +99,9 @@ export const systemDeletedTrigger: TriggerDefinition<
   category: "Catalog",
   icon: "Activity",
   payloadSchema: systemDeletedPayloadSchema,
-  hook: catalogHooks.systemDeleted,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemDeletedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -139,12 +150,11 @@ export interface CatalogActionDeps {
   entityService: EntityService;
   cache: ReturnType<typeof createCatalogCache>;
   /**
-   * `emitHook` bound during `afterPluginsReady`. Required so the
-   * action fires `systemUpdated` downstream — without it, other
-   * automations waiting on the trigger wouldn't see the change.
+   * Resolver for the reactive `catalog-system` entity (§10.4). The
+   * `update_metadata` action mirrors its edit here; the entity's change
+   * deriver fires the `catalog.updated` trigger event downstream (the old
+   * `systemUpdated` hook emission was removed).
    */
-  emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
-  /** Resolver for the reactive `catalog-system` entity (§10.4). */
   getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
 }
 
@@ -193,11 +203,8 @@ export function createCatalogActions(
       }
 
       await deps.cache.invalidateTopology();
-      await deps.emitHook(catalogHooks.systemUpdated, {
-        systemId: updated.id,
-        systemName: updated.name,
-        changedFields: ["metadata"],
-      });
+      // The `catalog.system.updated` hook was removed in Phase 4 (§10.4);
+      // the entity mirror below drives the `catalog.updated` trigger event.
 
       // Mirror into the reactive `catalog-system` entity (§10.4).
       await mirrorCatalogSystem({

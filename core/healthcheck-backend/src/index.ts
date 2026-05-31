@@ -49,7 +49,7 @@ import {
   healthCheckTriggers,
 } from "./automations";
 import { registerHealthcheckGitOpsKinds, registerHealthcheckGitOpsDocumentation } from "./healthcheck-gitops-kinds";
-import { catalogHooks } from "@checkstack/catalog-backend";
+import { CATALOG_SYSTEM_ENTITY_KIND } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -345,17 +345,23 @@ export default createBackendPlugin({
           automationActions.registerAction(action, pluginMetadata);
         }
 
-        onHook(
-          catalogHooks.systemDeleted,
-          async (payload) => {
+        // React to catalog system deletion (tombstone) via the reactive
+        // `catalog-system` entity instead of the (removed) `system.deleted`
+        // hook (§10.4). `work-queue` delivery preserved: association cleanup
+        // must run once per cluster, not per-instance.
+        entityPoint.onEntityChanged({
+          kind: CATALOG_SYSTEM_ENTITY_KIND,
+          handler: async (change) => {
+            if (change.next !== null) return; // tombstone only
+            const systemId = change.id;
             logger.debug(
-              `Cleaning up health check associations for deleted system: ${payload.systemId}`,
+              `Cleaning up health check associations for deleted system: ${systemId}`,
             );
-            await service.removeAllSystemAssociations(payload.systemId);
-            await healthCheckCache?.invalidateSystem(payload.systemId);
+            await service.removeAllSystemAssociations(systemId);
+            await healthCheckCache?.invalidateSystem(systemId);
           },
-          { mode: "work-queue", workerGroup: "system-cleanup" },
-        );
+          delivery: { mode: "work-queue", workerGroup: "system-cleanup" },
+        });
 
         // Subscribe to satellite deletion to scrub satellite IDs from associations
         onHook(

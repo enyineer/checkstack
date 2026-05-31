@@ -973,59 +973,11 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
       });
 
-      // Emit integration hooks for external integrations
-      const emitHook = getEmitHook();
-      if (emitHook) {
-        const healthyChecks = newState.checkStatuses.filter(
-          (c) => c.status === "healthy",
-        ).length;
-        const totalChecks = newState.checkStatuses.length;
-        const timestamp = new Date().toISOString();
-
-        if (newState.status === "healthy" && previousStatus !== "healthy") {
-          // Recovery: system became healthy
-          await emitHook(healthCheckHooks.systemHealthy, {
-            systemId,
-            previousStatus,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
-          );
-        } else if (
-          previousStatus === "healthy" &&
-          newState.status !== "healthy"
-        ) {
-          // Degradation: system went from healthy to unhealthy/degraded
-          await emitHook(healthCheckHooks.systemDegraded, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
-          );
-        }
-
-        // Umbrella hook — fires on every transition. Emitted alongside
-        // the directional hooks so existing subscribers stay unchanged
-        // while new automation triggers can react to any change.
-        if (previousStatus !== newState.status) {
-          await emitHook(healthCheckHooks.systemHealthChanged, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-        }
-      }
+      // The directional + umbrella system-health hooks were removed in
+      // Phase 4 (§10.3): the `health` entity mirror above is the single
+      // source of truth, and its change deriver fires the
+      // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
+      // trigger events through Stage-1 routing. Nothing to emit here.
     }
 
     // Per-check flapping detection: see comment on the failed-execution path.
@@ -1160,59 +1112,11 @@ async function executeHealthCheckJob(props: {
         newStatus: newState.status,
       });
 
-      // Emit integration hooks for external integrations
-      const emitHook = getEmitHook();
-      if (emitHook) {
-        const healthyChecks = newState.checkStatuses.filter(
-          (c) => c.status === "healthy",
-        ).length;
-        const totalChecks = newState.checkStatuses.length;
-        const timestamp = new Date().toISOString();
-
-        if (newState.status === "healthy" && previousStatus !== "healthy") {
-          // Recovery: system became healthy
-          await emitHook(healthCheckHooks.systemHealthy, {
-            systemId,
-            previousStatus,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemHealthy hook: ${previousStatus} → ${newState.status}`,
-          );
-        } else if (
-          previousStatus === "healthy" &&
-          newState.status !== "healthy"
-        ) {
-          // Degradation: system went from healthy to unhealthy/degraded
-          await emitHook(healthCheckHooks.systemDegraded, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-          logger.debug(
-            `Emitted systemDegraded hook: ${previousStatus} → ${newState.status}`,
-          );
-        }
-
-        // Umbrella hook — fires on every transition. Emitted alongside
-        // the directional hooks so existing subscribers stay unchanged
-        // while new automation triggers can react to any change.
-        if (previousStatus !== newState.status) {
-          await emitHook(healthCheckHooks.systemHealthChanged, {
-            systemId,
-            previousStatus,
-            newStatus: newState.status,
-            healthyChecks,
-            totalChecks,
-            timestamp,
-          });
-        }
-      }
+      // The directional + umbrella system-health hooks were removed in
+      // Phase 4 (§10.3): the `health` entity mirror above is the single
+      // source of truth, and its change deriver fires the
+      // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
+      // trigger events through Stage-1 routing. Nothing to emit here.
     }
 
     // Per-check flapping detection: see comment on the failed-execution path.

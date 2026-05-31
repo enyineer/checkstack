@@ -30,6 +30,7 @@ import type {
   ActionDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
+import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
 
 import { healthCheckHooks } from "./hooks";
@@ -99,7 +100,11 @@ export const systemDegradedTrigger: TriggerDefinition<
   category: "Health",
   icon: "HeartPulse",
   payloadSchema: systemDegradedPayloadSchema,
-  hook: healthCheckHooks.systemDegraded,
+  // Entity-driven (§10.3): fired by the `health` entity change deriver via
+  // Stage-1 routing, not a hook. No-op setup keeps it in the editor catalog.
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemDegradedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -112,7 +117,10 @@ export const systemHealthyTrigger: TriggerDefinition<
   category: "Health",
   icon: "HeartPulse",
   payloadSchema: systemHealthyPayloadSchema,
-  hook: healthCheckHooks.systemHealthy,
+  // Entity-driven (§10.3): fired by the `health` entity change deriver.
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemHealthyPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 
@@ -126,7 +134,10 @@ export const systemHealthChangedTrigger: TriggerDefinition<
   category: "Health",
   icon: "HeartPulse",
   payloadSchema: systemHealthChangedPayloadSchema,
-  hook: healthCheckHooks.systemHealthChanged,
+  // Entity-driven (§10.3): fired by the `health` entity change deriver.
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof systemHealthChangedPayloadSchema>
+  >(),
   contextKey: (p) => p.systemId,
 };
 

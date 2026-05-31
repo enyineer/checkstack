@@ -41,11 +41,20 @@ export const HealthEntityStateSchema = z.object({
 
 export type HealthEntityState = z.infer<typeof HealthEntityStateSchema>;
 
-/** Qualified trigger event ids the health entity drives (pluginId.hookId). */
+/**
+ * Qualified trigger event ids the health entity drives. These are the
+ * TRIGGER qualifiedIds (`${pluginId}.${trigger.id}`) that automations store
+ * in `trigger.event` and that Stage-1 routing matches on via
+ * `findEnabledByTriggerEvent` — NOT the underlying hook ids. The healthcheck
+ * triggers use underscore ids (`system_degraded`, …), so the deriver must
+ * emit `healthcheck.system_degraded`, not the dotted hook id
+ * `healthcheck.system.degraded`. (Verified against `automations.ts` trigger
+ * ids + `trigger-subscriber.ts` which fires on `t.event === qualifiedId`.)
+ */
 export const HEALTH_TRIGGER_EVENTS = {
-  degraded: "healthcheck.system.degraded",
-  healthy: "healthcheck.system.healthy",
-  healthChanged: "healthcheck.system.health_changed",
+  degraded: "healthcheck.system_degraded",
+  healthy: "healthcheck.system_healthy",
+  healthChanged: "healthcheck.system_health_changed",
 } as const;
 
 /**

@@ -11,33 +11,14 @@ import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
  * editor.
  */
 export const healthCheckHooks = {
-  /**
-   * Emitted when a system's aggregated health status degrades.
-   * This fires when status changes from healthy to degraded/unhealthy,
-   * or from degraded to unhealthy.
-   */
-  systemDegraded: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    newStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.degraded"),
-
-  /**
-   * Emitted when a system's aggregated health status recovers to healthy.
-   * This fires when status changes from degraded/unhealthy to healthy.
-   */
-  systemHealthy: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.healthy"),
+  // The `healthcheck.system.degraded` / `.healthy` / `.health_changed` hooks
+  // were removed in Phase 4 (§10.3): the per-system aggregated health is now
+  // the reactive `health` entity, whose change deriver fires the
+  // `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
+  // events through Stage-1 routing. The remaining hooks below are KEPT:
+  // `assignmentChanged` (config signal), `checkCompleted` / `checkFailed`
+  // (high-frequency raw samples + numeric_state wake source), and
+  // `flappingDetected` (derived signal).
 
   /**
    * Emitted when a health check ↔ system association changes.
@@ -61,26 +42,6 @@ export const healthCheckHooks = {
     result: Record<string, unknown> | undefined;
     timestamp: string;
   }>("healthcheck.check.completed"),
-
-  /**
-   * Umbrella variant of `systemDegraded` + `systemHealthy` — fires on
-   * **any** aggregated-health transition, carrying both the previous
-   * and new statuses. Subscribers (e.g. an automation that wants to
-   * react to every state change without subscribing to two hooks
-   * and coalescing themselves) prefer this one.
-   *
-   * Emitted alongside the directional hooks, never instead of them,
-   * so existing subscribers keep working unchanged.
-   */
-  systemHealthChanged: createHook<{
-    systemId: string;
-    systemName?: string;
-    previousStatus: HealthCheckStatus;
-    newStatus: HealthCheckStatus;
-    healthyChecks: number;
-    totalChecks: number;
-    timestamp: string;
-  }>("healthcheck.system.health_changed"),
 
   /**
    * Narrow variant of `checkCompleted` — fires only when an individual

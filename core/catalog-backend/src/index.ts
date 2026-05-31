@@ -351,7 +351,6 @@ export default createBackendPlugin({
         rpcClient,
         logger,
         onHook,
-        emitHook,
         cacheManager,
       }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
@@ -364,9 +363,9 @@ export default createBackendPlugin({
         // provisioning happens server-side from this signal.
         await bootstrapNotificationTargets(typedDb, notificationClient, logger);
 
-        // Register automation actions now that `emitHook` is available
-        // — the `update_metadata` action needs to fire `systemUpdated`
-        // downstream so other automations + caches react to the change.
+        // Register automation actions. The `update_metadata` action mirrors
+        // its edit into the `catalog-system` entity, whose deriver fires the
+        // `catalog.updated` trigger event downstream (§10.4).
         const automationActions = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
@@ -375,7 +374,6 @@ export default createBackendPlugin({
         for (const action of createCatalogActions({
           entityService,
           cache,
-          emitHook,
           getSystemEntity: () => systemEntity,
         })) {
           automationActions.registerAction(action, pluginMetadata);

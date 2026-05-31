@@ -14,6 +14,13 @@ import {
   mirrorHealthEntity,
   type HealthEntityState,
 } from "./health-entity";
+import {
+  systemDegradedTrigger,
+  systemHealthyTrigger,
+  systemHealthChangedTrigger,
+} from "./automations";
+
+const HEALTHCHECK_PLUGIN_ID = "healthcheck";
 
 function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
   return {
@@ -28,6 +35,33 @@ function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
     ...overrides,
   };
 }
+
+describe("HEALTH_TRIGGER_EVENTS (must equal the trigger qualifiedIds)", () => {
+  it("emits the underscore trigger qualifiedIds, not the dotted hook ids", () => {
+    // Stage-1 routing fires automations on `t.event === trigger.qualifiedId`
+    // (`${pluginId}.${trigger.id}`). The healthcheck triggers have ids
+    // `system_degraded` / `system_healthy` / `system_health_changed`, so the
+    // deriver MUST emit these — NOT the dotted hook ids.
+    expect(HEALTH_TRIGGER_EVENTS.degraded).toBe("healthcheck.system_degraded");
+    expect(HEALTH_TRIGGER_EVENTS.healthy).toBe("healthcheck.system_healthy");
+    expect(HEALTH_TRIGGER_EVENTS.healthChanged).toBe(
+      "healthcheck.system_health_changed",
+    );
+  });
+
+  it("matches the registered trigger qualifiedIds exactly", () => {
+    // Compare as plain strings (the constants are narrow literal types).
+    expect(`${HEALTHCHECK_PLUGIN_ID}.${systemDegradedTrigger.id}`).toBe(
+      HEALTH_TRIGGER_EVENTS.degraded,
+    );
+    expect(`${HEALTHCHECK_PLUGIN_ID}.${systemHealthyTrigger.id}`).toBe(
+      HEALTH_TRIGGER_EVENTS.healthy,
+    );
+    expect(`${HEALTHCHECK_PLUGIN_ID}.${systemHealthChangedTrigger.id}`).toBe(
+      HEALTH_TRIGGER_EVENTS.healthChanged,
+    );
+  });
+});
 
 describe("deriveHealthTriggerEvents", () => {
   it("maps a healthy → unhealthy transition to degraded + umbrella", () => {

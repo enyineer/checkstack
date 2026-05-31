@@ -33,6 +33,17 @@ function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
   };
 }
 
+describe("CATALOG_SYSTEM_TRIGGER_EVENTS (must equal the trigger qualifiedIds)", () => {
+  it("emits the registered system trigger qualifiedIds, not the dotted hook ids", () => {
+    // The catalog system triggers have ids `created`/`updated`/`deleted`
+    // (pluginId `catalog`), so the deriver MUST emit `catalog.created` etc.,
+    // NOT the dotted hook ids `catalog.system.created`.
+    expect(CATALOG_SYSTEM_TRIGGER_EVENTS.created).toBe("catalog.created");
+    expect(CATALOG_SYSTEM_TRIGGER_EVENTS.updated).toBe("catalog.updated");
+    expect(CATALOG_SYSTEM_TRIGGER_EVENTS.deleted).toBe("catalog.deleted");
+  });
+});
+
 describe("deriveCatalogSystemTriggerEvents", () => {
   it("maps a create (prev === null) to system.created", () => {
     expect(

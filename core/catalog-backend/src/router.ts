@@ -12,7 +12,6 @@ import * as schema from "./schema";
 import { NotificationApi } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
-import { catalogHooks } from "./hooks";
 import { eq } from "drizzle-orm";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import type { CatalogCache } from "./cache";
@@ -231,7 +230,7 @@ export const createCatalogRouter = ({
     },
   );
 
-  const createSystem = os.createSystem.handler(async ({ input, context }) => {
+  const createSystem = os.createSystem.handler(async ({ input }) => {
     const result = await entityService.createSystem(input);
 
     // Push the new system into notification-backend's resource registry.
@@ -243,13 +242,9 @@ export const createCatalogRouter = ({
 
     await cache.invalidateTopology();
 
-    // Hooks remain for non-notification cleanup concerns (e.g. incident
-    // associations) — emitting plugins no longer use them for
-    // subscription provisioning.
-    await context.emitHook(catalogHooks.systemCreated, {
-      systemId: result.id,
-      systemName: result.name,
-    });
+    // The `catalog.system.created` hook was removed in Phase 4 (§10.4):
+    // the `catalog-system` entity mirror below is the single source of
+    // truth, and its deriver fires the `catalog.created` trigger event.
 
     // Mirror into the reactive `catalog-system` entity (§10.4).
     await mirrorCatalogSystem({
@@ -265,26 +260,24 @@ export const createCatalogRouter = ({
     };
   });
 
-  const updateSystem = os.updateSystem.handler(async ({ input, context }) => {
+  const updateSystem = os.updateSystem.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("System", input.id);
-    // Convert null to undefined and filter out fields
+    // Convert null to undefined and filter out fields. The entity mirror
+    // diffs internally now, so we no longer track `changedFields` for a
+    // hook payload (§10.4).
     const cleanData: Partial<{
       name: string;
       description?: string;
       metadata?: Record<string, unknown>;
     }> = {};
-    const changedFields: Array<"name" | "description" | "metadata"> = [];
     if (input.data.name !== undefined) {
       cleanData.name = input.data.name;
-      changedFields.push("name");
     }
     if (input.data.description !== undefined) {
       cleanData.description = input.data.description ?? undefined;
-      changedFields.push("description");
     }
     if (input.data.metadata !== undefined) {
       cleanData.metadata = input.data.metadata ?? undefined;
-      changedFields.push("metadata");
     }
 
     const result = await entityService.updateSystem(input.id, cleanData);
@@ -300,19 +293,14 @@ export const createCatalogRouter = ({
       await upsertSystemResource({ id: result.id, name: result.name });
     }
 
-    // Emit only when a tracked field actually changed (skip no-op
-    // updates so automations don't fire on every save-with-no-diff).
-    if (changedFields.length > 0) {
-      await context.emitHook(catalogHooks.systemUpdated, {
-        systemId: result.id,
-        systemName: result.name,
-        changedFields,
-      });
-    }
-
-    // Mirror into the reactive `catalog-system` entity (§10.4). The entity
+    // The `catalog.system.updated` hook was removed in Phase 4 (§10.4):
+    // the entity mirror below is the single source of truth. The entity
     // store diffs internally, so a save-with-no-diff stays a no-op (the
-    // deriver only fires `system.updated` on a real change).
+    // deriver only fires `catalog.updated` on a real change) — preserving
+    // the old "don't fire automations on no-op updates" behavior without
+    // the explicit `changedFields` guard.
+
+    // Mirror into the reactive `catalog-system` entity (§10.4).
     await mirrorCatalogSystem({
       handle: getSystemEntity?.(),
       systemId: result.id,
@@ -326,7 +314,7 @@ export const createCatalogRouter = ({
     };
   });
 
-  const deleteSystem = os.deleteSystem.handler(async ({ input, context }) => {
+  const deleteSystem = os.deleteSystem.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("System", input);
     await entityService.deleteSystem(input);
 
@@ -340,16 +328,16 @@ export const createCatalogRouter = ({
       cache.invalidateContacts(input),
     ]);
 
-    // Emit hook for other plugins to clean up related data
-    await context.emitHook(catalogHooks.systemDeleted, { systemId: input });
-
-    // Tombstone the reactive `catalog-system` entity (§10.4).
+    // The `catalog.system.deleted` hook was removed in Phase 4 (§10.4):
+    // the tombstone below drives the `catalog.deleted` trigger event and
+    // cross-plugin cleanup reactors (incident/dependency/slo/healthcheck)
+    // now subscribe to the `catalog-system` tombstone via onEntityChanged.
     await removeCatalogEntity({ handle: getSystemEntity?.(), id: input });
 
     return { success: true };
   });
 
-  const createGroup = os.createGroup.handler(async ({ input, context }) => {
+  const createGroup = os.createGroup.handler(async ({ input }) => {
     const result = await entityService.createGroup({
       name: input.name,
       metadata: input.metadata,
@@ -359,10 +347,8 @@ export const createCatalogRouter = ({
 
     await cache.invalidateTopology();
 
-    await context.emitHook(catalogHooks.groupCreated, {
-      groupId: result.id,
-      groupName: result.name,
-    });
+    // The `catalog.group.created` hook was removed in Phase 4 (§10.4):
+    // the entity mirror below is the single source of truth.
 
     // Mirror into the reactive `catalog-group` entity (§10.4).
     await mirrorCatalogGroup({
@@ -421,7 +407,7 @@ export const createCatalogRouter = ({
     };
   });
 
-  const deleteGroup = os.deleteGroup.handler(async ({ input, context }) => {
+  const deleteGroup = os.deleteGroup.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("Group", input);
     await entityService.deleteGroup(input);
 
@@ -429,10 +415,8 @@ export const createCatalogRouter = ({
 
     await cache.invalidateTopology();
 
-    // Emit hook for other plugins to clean up related data
-    await context.emitHook(catalogHooks.groupDeleted, { groupId: input });
-
-    // Tombstone the reactive `catalog-group` entity (§10.4).
+    // The `catalog.group.deleted` hook was removed in Phase 4 (§10.4):
+    // the tombstone below is the single source of truth.
     await removeCatalogEntity({ handle: getGroupEntity?.(), id: input });
 
     return { success: true };
