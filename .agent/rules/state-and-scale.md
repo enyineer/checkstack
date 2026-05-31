@@ -41,9 +41,13 @@ PR description or the changeset):
 
 ## Before reaching for framework-owned storage
 
-- Before declaring state "homeless" and using a generic framework store (e.g.
-  the entity keyed store), **verify no existing durable table already holds or
-  can derive it** (an aggregates table, a bulk-state service, etc.). Prefer
-  plugin-owned storage or compute-on-read over a framework-owned materialized
-  copy. A materialized cache of derivable data is denormalization - only
-  introduce it for a measured reason, and never as the default.
+- Entities are plugin-backed: every `defineEntity` kind owns its storage (its
+  own table, a computation over durable tables, or another shared-DB source).
+  The framework owns only the `entity_transitions` history log, never a kind's
+  current state. Do not reintroduce a generic framework-owned current-state
+  store.
+- Before declaring state "homeless", **verify no existing durable table already
+  holds or can derive it** (an aggregates table, a bulk-state service, etc.).
+  Prefer plugin-owned storage or compute-on-read over a materialized copy. A
+  materialized cache of derivable data is denormalization - only introduce it
+  for a measured reason, and never as the default.
