@@ -401,6 +401,16 @@ export default createBackendPlugin({
           // through this client. forPlugin is lazy; the actual RPC only
           // fires at evaluation time.
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
+          // Kind-agnostic entity resolver for reactive `wait_until` wake
+          // re-evaluation: any registered entity kind resolves through the
+          // framework entity store's batched `loadMany`. Unknown kinds yield
+          // `undefined` (enrichment leaves them unresolved, fail-open). This
+          // is what lets a wait on `state.<kind>.<id>` (incident, slo, …)
+          // re-evaluate correctly when that kind changes (not just health).
+          entityResolverFor: (kind) =>
+            entityRegistry.getKinds().includes(kind)
+              ? (ids) => entityStore.loadMany({ kind, entityIds: ids })
+              : undefined,
           // Registry-backed resolution of provider-action deps (connection
           // store, secret resolver, ...) at execute time. Safe here because
           // dispatch only runs from afterPluginsReady onward, by which point

@@ -49,6 +49,7 @@
 import type {
   Action,
   ChooseInput,
+  Condition,
   ConditionGuardInput,
   DelayInput,
   ParallelInput,
@@ -83,8 +84,16 @@ import {
   resolveConsumedArtifacts,
   withRepeatContext,
 } from "./scope";
-import { enrichScopeWithState } from "./state-scope";
-import { extractWakeRefs, refToString } from "./wake-refs";
+import {
+  enrichScopeWithEntities,
+  enrichScopeWithState,
+  type EntityRef,
+} from "./state-scope";
+import {
+  extractWakeRefs,
+  refToString,
+  HEALTH_ENTITY_KIND,
+} from "./wake-refs";
 import {
   formatActionPath,
   type ActionPath,
@@ -540,6 +549,71 @@ export type WaitUntilCheckOutcome =
   | "gone";
 
 /**
+ * Re-enrich a suspended `wait_until`'s scope before re-evaluation so the
+ * condition sees CURRENT state, not the value at suspension time. Two
+ * sources, kind-aware:
+ *
+ *   1. Health — resolved via the RPC `healthCheckClient`
+ *      (`enrichScopeWithState`), since the health aggregate is not (yet) in
+ *      the framework entity store. Sets `scope.health.*` (back-compat).
+ *   2. Every OTHER `state.<kind>.<id>` ref the wait depends on — resolved
+ *      kind-agnostically through the entity store
+ *      (`enrichScopeWithEntities` + `deps.entityResolverFor`), folding into
+ *      `scope.state.<kind>.<id>.<field>`. The refs are statically extracted
+ *      from the condition (concrete ids only — wildcards carry no id) PLUS
+ *      the concrete `changedRef` that woke this wait (so a wildcard wait on a
+ *      dynamic id still resolves the entity that actually changed).
+ */
+async function reEnrichWaitScope(args: {
+  deps: DispatchDeps;
+  scope: Record<string, unknown>;
+  automation: LoadedAutomation;
+  contextKey: string | null;
+  condition: Condition;
+  changedRef?: string;
+}): Promise<void> {
+  const { deps, scope, automation, contextKey, condition, changedRef } = args;
+
+  // 1. Health back-compat (RPC-resolved). Sets scope.health.*.
+  await enrichScopeWithState({
+    scope,
+    client: deps.healthCheckClient,
+    logger: deps.logger,
+    contextKey,
+    usesState: automation.definition.uses_state,
+    transitionWindowMinutes: automation.definition.state_window_minutes,
+  });
+
+  // 2. Kind-agnostic entity refs (entity-store-resolved). Collect the
+  //    concrete refs the condition reads plus the changed ref, drop the
+  //    health kind (handled above) and any wildcard (no concrete id).
+  const refs: EntityRef[] = [];
+  const seen = new Set<string>();
+  const addRef = (kind: string, id: string) => {
+    if (kind === HEALTH_ENTITY_KIND || id === "*" || id.length === 0) return;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ kind, id });
+  };
+  for (const ref of extractWakeRefs(condition).refs) addRef(ref.kind, ref.id);
+  if (changedRef) {
+    const colon = changedRef.indexOf(":");
+    if (colon > 0) {
+      addRef(changedRef.slice(0, colon), changedRef.slice(colon + 1));
+    }
+  }
+  if (refs.length === 0) return;
+
+  await enrichScopeWithEntities({
+    scope,
+    logger: deps.logger,
+    refs,
+    resolverFor: (kind) => deps.entityResolverFor?.(kind),
+  });
+}
+
+/**
  * Re-check a suspended `wait_until`: re-enrich scope, evaluate the
  * condition, and either resume the run (satisfied or timeout-continue),
  * fail it (timeout-fail), or report "still waiting" so the caller
@@ -551,7 +625,18 @@ export type WaitUntilCheckOutcome =
  */
 export async function checkWaitUntil(
   deps: DispatchDeps,
-  args: { runId: string; waitLockId: string; automation: LoadedAutomation },
+  args: {
+    runId: string;
+    waitLockId: string;
+    automation: LoadedAutomation;
+    /**
+     * The `${kind}:${id}` ref of the change that woke this wait (Stage-2
+     * `wake` job). Included in the re-enrichment so the changed entity is
+     * always resolved into scope — essential for a wildcard wait whose
+     * condition reads a dynamic id (the ref isn't statically extractable).
+     */
+    changedRef?: string;
+  },
 ): Promise<WaitUntilCheckOutcome> {
   const lock = await deps.runStore.loadWaitLock(args.waitLockId);
   if (!lock || lock.kind !== "until" || !lock.waitConfig) return "gone";
@@ -568,7 +653,7 @@ export async function checkWaitUntil(
   }
 
   // Rebuild the scope from the snapshot + re-enrich live state so the
-  // condition sees CURRENT health, not the value at suspension time.
+  // condition sees CURRENT state, not the value at suspension time.
   const persisted = await deps.runStateStore.load(args.runId);
   const scope = persisted?.scopeSnapshot
     ? { ...persisted.scopeSnapshot }
@@ -578,13 +663,13 @@ export async function checkWaitUntil(
         payload: run.triggerPayload,
         startedAt: run.startedAt,
       });
-  await enrichScopeWithState({
+  await reEnrichWaitScope({
+    deps,
     scope,
-    client: deps.healthCheckClient,
-    logger: deps.logger,
+    automation: args.automation,
     contextKey: run.contextKey,
-    usesState: args.automation.definition.uses_state,
-    transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    condition: lock.waitConfig.condition,
+    changedRef: args.changedRef,
   });
 
   let satisfied = false;

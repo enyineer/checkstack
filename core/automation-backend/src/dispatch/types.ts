@@ -21,6 +21,7 @@ import type { ArtifactStore } from "../artifact-store";
 
 import type { RunStateStore } from "./run-state-store";
 import type { RunSecretRegistry } from "./run-secret-registry";
+import type { EntityKindResolver } from "./state-scope";
 
 /**
  * Persistent dependency bundle threaded through the dispatch engine.
@@ -54,6 +55,18 @@ export interface DispatchDeps {
    * and a dwell with no client re-confirms without a status gate.
    */
   healthCheckClient?: InferClient<typeof HealthCheckApi>;
+  /**
+   * Kind-agnostic entity resolver for reactive `wait_until` wake re-eval
+   * (reactive automation engine §3.6, §8). On wake, the engine re-enriches
+   * scope with EVERY `state.<kind>.<id>` ref the wait depends on, resolved
+   * through the framework entity store. Returns a batched `getMany`-style
+   * resolver for a registered kind, or `undefined` for an unknown kind (the
+   * enrichment then leaves that kind unresolved, fail-open). Optional so test
+   * harnesses / minimal installs without the entity store omit it — non-health
+   * waits then can't re-resolve their state (health waits still work via
+   * `healthCheckClient`).
+   */
+  entityResolverFor?: (kind: string) => EntityKindResolver | undefined;
   /** Persistence backend for pre-run `for:` dwell timers. */
   dwellStore: DwellStore;
   /**

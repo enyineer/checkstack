@@ -609,6 +609,11 @@ export function makeDispatchDeps(opts?: {
   /** Optional health-check client for sensing-layer enrichment tests. */
   healthCheckClient?: DispatchDeps["healthCheckClient"];
   /**
+   * Optional kind-agnostic entity resolver for reactive `wait_until` wake
+   * re-eval tests (resolves `state.<kind>.<id>` for non-health entity kinds).
+   */
+  entityResolverFor?: DispatchDeps["entityResolverFor"];
+  /**
    * Wire a faithful in-memory serializing lock for the concurrency-mode
    * check-then-create (models the real transaction-scoped advisory lock:
    * keyed, blocks until granted). Off by default so the natural
@@ -659,6 +664,7 @@ export function makeDispatchDeps(opts?: {
     dwellStore: dwells.store,
     queueManager: queue.manager,
     healthCheckClient: opts?.healthCheckClient,
+    entityResolverFor: opts?.entityResolverFor,
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },

@@ -131,13 +131,15 @@ export async function handleDispatchJob(args: {
     await deps.runStateStore.clear(job.runId);
     return;
   }
-  // checkWaitUntil re-enriches scope, re-evaluates the full condition, and
-  // resumes (or applies timeout). Idempotent: it deletes the lock before
-  // resuming and resumeRun takes the per-run advisory lock.
+  // checkWaitUntil re-enriches scope (with every ref the wait depends on +
+  // the changed ref), re-evaluates the full condition, and resumes (or
+  // applies timeout). Idempotent: it deletes the lock before resuming and
+  // resumeRun takes the per-run advisory lock.
   await checkWaitUntil(deps, {
     runId: job.runId,
     waitLockId: job.waitLockId,
     automation,
+    changedRef: job.ref,
   });
 }
 
