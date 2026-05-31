@@ -66,6 +66,38 @@ export default tseslint.config(
       "checkstack/no-extraneous-runtime-deps": "error",
       "checkstack/enforce-package-metadata": "error",
       "checkstack/no-eslint-disable-any": "error",
+      // Reactive automation engine backstop (plan §6.4, §15.6). Severity is
+      // intentionally `warn` and MUST NOT be escalated to `error`: it informs
+      // authors that entity state should flow through `defineEntity`, it does
+      // not block CI (see .agent/rules/code-style-guide.md). The entity hooks
+      // it flags are removed in the migration phase (plan §9).
+      "checkstack/no-unmanaged-entity-state": [
+        "warn",
+        {
+          // §9 "keep" hooks that happen to match the naming shape but are NOT
+          // entity-change events (lifecycle / config-change signals). They are
+          // exempted so the rule's signal stays on genuine entity hooks.
+          allowedHookIds: [
+            // The framework's own internal entity-change hook — this IS the
+            // canonical defineEntity emit path (plan §6.1), not an off-pattern
+            // manual hook, so it must never be flagged.
+            "automation.entity.changed",
+            // §9 "keep" hooks: lifecycle / config-change signals that match the
+            // naming shape but are not entity-change events.
+            "auth.user.deleted",
+            "healthcheck.assignment.changed",
+          ],
+          // Migrated-domain former state columns to flag direct writes to.
+          // EMPTY at this phase — no domain is migrated yet (plan §16 step 4
+          // populates this as each domain moves to defineEntity), so part (b)
+          // matches nothing on the current codebase.
+          deniedColumns: [],
+          // Tables declared non-reactive via declareNonReactiveState (plan §5).
+          // Mirror each runtime declaration here so part (b)'s matches on that
+          // table are suppressed. EMPTY until a denylisted column exists.
+          allowedTables: [],
+        },
+      ],
     },
   },
   // Frontend packages: ban console.* to enforce proper error handling
