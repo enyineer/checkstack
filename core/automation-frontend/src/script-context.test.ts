@@ -254,17 +254,26 @@ describe("generateAutomationContextTypes", () => {
 describe("generateSecretEnvTypes", () => {
   it("emits a ProcessEnv augmentation typing each declared key as string", () => {
     const out = generateSecretEnvTypes({ envNames: ["API_TOKEN", "DB_PASS"] });
-    expect(out).toContain("declare global");
-    expect(out).toContain("namespace NodeJS");
+    expect(out).toContain("declare namespace NodeJS");
     expect(out).toContain("interface ProcessEnv");
     expect(out).toContain("readonly API_TOKEN: string;");
     expect(out).toContain("readonly DB_PASS: string;");
-    // Module marker so the augmentation is a proper augmentation.
-    expect(out).toContain("export {};");
   });
 
-  it("emits a harmless empty module for empty input", () => {
-    expect(generateSecretEnvTypes({ envNames: [] })).toBe("export {};");
+  it("stays a global script - no top-level export/import that would modularize the merged extra-lib", () => {
+    // A single top-level `export`/`import` would turn the concatenated
+    // `context + secretEnv` extra-lib into a module, demoting the
+    // `declare const context` global to a module-local binding and breaking
+    // `context.*` IntelliSense. The augmentation must use an ambient
+    // `declare namespace`, never `declare global { … } export {};`.
+    const out = generateSecretEnvTypes({ envNames: ["API_TOKEN"] });
+    expect(out).not.toMatch(/^\s*export\b/m);
+    expect(out).not.toMatch(/^\s*import\b/m);
+    expect(out).not.toContain("declare global");
+  });
+
+  it("emits an empty string for empty input so the caller drops it", () => {
+    expect(generateSecretEnvTypes({ envNames: [] })).toBe("");
   });
 
   it("skips invalid identifiers but keeps the valid ones", () => {
@@ -278,16 +287,32 @@ describe("generateSecretEnvTypes", () => {
     expect(out).not.toContain("with space");
   });
 
-  it("emits an empty module when every name is invalid", () => {
-    expect(generateSecretEnvTypes({ envNames: ["BAD-NAME", "1x"] })).toBe(
-      "export {};",
-    );
+  it("emits an empty string when every name is invalid", () => {
+    expect(generateSecretEnvTypes({ envNames: ["BAD-NAME", "1x"] })).toBe("");
   });
 
   it("de-duplicates repeated keys", () => {
     const out = generateSecretEnvTypes({ envNames: ["TOKEN", "TOKEN"] });
     const occurrences = out.split("readonly TOKEN: string;").length - 1;
     expect(occurrences).toBe(1);
+  });
+
+  it("merged context + secretEnv stays a global script (regression guard)", () => {
+    // Reproduces the action-leaf-cards merge: the `context` global concatenated
+    // with the secretEnv augmentation must NOT contain a top-level
+    // export/import, otherwise `declare const context` stops being global and
+    // its IntelliSense silently disappears in the automation script editor.
+    const { typeDefinitions } = generateAutomationContextTypes({
+      definition: baseDef(),
+      triggers: [],
+      path: [{ slot: "root", index: 0 }],
+    });
+    const secretEnvLib = generateSecretEnvTypes({ envNames: ["API_TOKEN"] });
+    const merged = [typeDefinitions, secretEnvLib].filter(Boolean).join("\n\n");
+    expect(merged).toContain("declare const context");
+    expect(merged).toContain("declare namespace NodeJS");
+    expect(merged).not.toMatch(/^\s*export\b/m);
+    expect(merged).not.toMatch(/^\s*import\b/m);
   });
 });
 

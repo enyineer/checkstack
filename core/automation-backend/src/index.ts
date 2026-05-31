@@ -25,6 +25,7 @@ import {
   reconcileAutomation,
   deleteAutomationEntity,
 } from "./gitops-kinds";
+import { registerAutomationGitOpsDocumentation } from "./gitops-docs";
 import { AutomationDefinitionSchema } from "@checkstack/automation-common";
 
 import type {
@@ -271,6 +272,21 @@ export default createBackendPlugin({
           logger: context.logger,
         });
       },
+    });
+
+    // Register the GitOps spec-schema documentation PROVIDER for the
+    // `Automation` kind HERE in register() (not afterPluginsReady). It is a
+    // LAZY provider: it re-reads the trigger/action registries on every
+    // kind-browser query (`describeKinds()`), so it needs no populated
+    // registries at registration time — registering it early, before any
+    // init / afterPluginsReady ordering, guarantees it is always present.
+    // Surfaces each trigger's / provider action's config schema in the Kind
+    // Registry, conditioned on the chosen `triggers[].event` /
+    // `actions[].action`.
+    registerAutomationGitOpsDocumentation({
+      kindRegistry,
+      triggerRegistry,
+      actionRegistry,
     });
 
     env.registerInit({

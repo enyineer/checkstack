@@ -27,6 +27,39 @@ clicking **Run** returns the object built from your sample `trigger.payload`.
 > [!NOTE]
 > Tests run on the central server with the same sandbox and curated environment as the real action, so scripts cannot read server secrets. A real run on a satellite may differ slightly; the panel notes this.
 
+## See type errors before you save
+
+Inline `Run Script (TypeScript)` actions are type-checked live against their
+`context` types, and any error shows up as a red badge on the action's card in
+the visual editor (and in the definition issue list) - not just as a squiggle
+inside the open editor. This runs for every script action in the automation,
+including the ones whose cards are collapsed, so a broken script you are not
+currently looking at is still flagged.
+
+This matters most when you change a trigger. With a single trigger,
+`context.trigger.payload.id` reads directly; add a second trigger with a
+different payload and that access is no longer valid for every variant, so you
+must narrow first:
+
+```ts
+export default async function (context) {
+  if (context.trigger.id === "incident_created") {
+    // context.trigger.payload is narrowed to the incident.created shape here.
+    return { incident: context.trigger.payload.id };
+  }
+  return {};
+}
+```
+
+Without the narrowing, the card shows a type-error badge the moment the second
+trigger is added - so the break surfaces in the editor instead of silently
+reading `undefined` at run time.
+
+> [!NOTE]
+> This check runs in your browser for the automation you are editing. Scripts
+> in other automations, or definitions authored directly in YAML, are not
+> type-checked here.
+
 ## Map secrets to environment variables
 
 A **Run Script** / **Run Shell Script** action can expose secrets to the script as environment variables through its **secret → env mapping**. Each row maps an environment-variable name to a secret. The secret field is a **searchable dropdown**: start typing to filter the secret names from your backend, then pick one with the mouse or arrow keys plus Enter. You can also free-type a name that does not exist yet (a secret you plan to create later) - it still saves. Checkstack stores each entry as a `${{ secrets.NAME }}` template behind the scenes, so you only ever deal with the bare name in the editor. You can also author the mapping by name in YAML (`secretEnv: { API_TOKEN: jira_token }`).

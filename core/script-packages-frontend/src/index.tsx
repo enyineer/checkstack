@@ -37,7 +37,7 @@ export default createFrontendPlugin({
     createSlotExtension(UserMenuItemsSlot, {
       id: "script-packages.user-menu.items",
       component: ScriptPackagesMenuItems,
-      metadata: { group: "Administration" },
+      metadata: { group: "Configuration" },
     }),
   ],
 });

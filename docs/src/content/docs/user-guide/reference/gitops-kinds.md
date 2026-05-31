@@ -157,6 +157,8 @@ spec:
 
 The `spec` accepts every automation field: `triggers` (with optional `for:` dwells), structured `conditions`, the full action catalog, `mode`, `concurrency_scope`, `max_runs`, `uses_state`, and `state_window_minutes`. Validation is the same `AutomationDefinitionSchema` the editor uses, so a definition that round-trips in the UI is a valid descriptor.
 
+The polymorphic config blocks document themselves in the editor: each `triggers[].config` shows the schema for the chosen `triggers[].event`, and each `actions[].config` shows the schema for the chosen `actions[].action`. The same per-variant docs appear in the Kind Registry Browser, so you can discover the exact fields a trigger or provider action expects without leaving the UI.
+
 The optional `metadata.labels.group` label sets the automation's grouping label (the same field as the UI group picker), which organises the automations list into collapsible sections. It is a row-level field, not part of the `spec` definition. Omit it (or leave it blank) to keep the automation in the implicit "Ungrouped" bucket.
 
 ## Built-in extensions

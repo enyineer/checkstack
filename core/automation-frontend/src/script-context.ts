@@ -231,11 +231,22 @@ const TS_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * unknown keys still resolve to `string | undefined` while the declared ones
  * narrow to `string`.
  *
+ * IMPORTANT: the output is a **global script**, NOT a module. It uses a
+ * top-level ambient `declare namespace NodeJS` (which declaration-merges into
+ * the global `NodeJS.ProcessEnv`) rather than the module-form
+ * `declare global { … } export {};`. The reason is the consumer
+ * (`action-leaf-cards`) CONCATENATES this into the same extra-lib string as the
+ * `declare const context` global. A single top-level `export {};` would turn
+ * the whole concatenated `.d.ts` into a module, which silently demotes
+ * `declare const context` from a global ambient to a module-local binding -
+ * breaking `context.*` IntelliSense entirely. Staying a global script keeps the
+ * merged file ambient. Empty / all-invalid input emits `""` (dropped by the
+ * caller's `.filter(Boolean)`) so merging is always safe.
+ *
  * Only valid TS identifiers are emitted as ambient keys (an env var like
  * `MY-VAR` is not a legal `process.env.MY-VAR` member access, so it is
  * skipped — it remains reachable via the index signature as
- * `process.env["MY-VAR"]`). Empty / all-invalid input emits a harmless empty
- * module (`export {};`) so merging it is always safe.
+ * `process.env["MY-VAR"]`).
  */
 export function generateSecretEnvTypes({
   envNames,
@@ -253,13 +264,15 @@ export function generateSecretEnvTypes({
   }
 
   if (valid.length === 0) {
-    // Nothing to declare — emit an empty module so a caller can always
-    // concatenate the result without producing a syntax error.
-    return "export {};";
+    // Nothing to declare — emit an empty string so the caller's
+    // `.filter(Boolean)` drops it and the merged extra-lib stays untouched
+    // (a global script). Emitting `export {};` here would modularize the
+    // merged file and break the `context` global (see the doc comment).
+    return "";
   }
 
   const members = valid
-    .map((name) => `      readonly ${name}: string;`)
+    .map((name) => `    readonly ${name}: string;`)
     .join("\n");
   return [
     "/**",
@@ -267,15 +280,11 @@ export function generateSecretEnvTypes({
     " * these names as `process.env.<NAME>` for the run. Typed `string` so they",
     " * autocomplete; unknown keys still resolve via @types/node's index signature.",
     " */",
-    "declare global {",
-    "  namespace NodeJS {",
-    "    interface ProcessEnv {",
+    "declare namespace NodeJS {",
+    "  interface ProcessEnv {",
     members,
-    "    }",
     "  }",
     "}",
-    "",
-    "export {};",
   ].join("\n");
 }
 

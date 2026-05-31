@@ -144,11 +144,11 @@ export const ActionEditor: React.FC<ActionEditorProps> = ({
   const hasAdvancedMeta =
     value.description !== undefined || value.continue_on_error === true;
 
-  // Open the sheet automatically when this card has validation errors, so a
-  // problem is never hidden behind a collapsed row + closed sheet.
-  React.useEffect(() => {
-    if (issues.length > 0) setSheetOpen(true);
-  }, [issues.length]);
+  // Validation issues (structural + inline-script type errors) surface only as
+  // the card's error badge - never auto-open the sheet. Auto-opening would pop
+  // multiple sheets at once when several cards have errors (e.g. every script
+  // action after a trigger change), so the badge is the single, calm signal and
+  // the operator clicks in for detail.
 
   const menuItems: ActionCardMenuItem[] = disabled
     ? []

@@ -55,10 +55,7 @@ import { AutomationDefinitionEditor } from "../editor/AutomationDefinitionEditor
 import { assignDefaultIds } from "../editor/action-helpers";
 import { assignDefaultTriggerIds } from "../editor/trigger-helpers";
 import { computeYamlMarkers } from "../editor/yaml-markers";
-import {
-  ValidationProvider,
-  partitionIssues,
-} from "../editor/editor-validation";
+import { partitionIssues } from "../editor/editor-validation";
 import { AutomationGroupCombobox } from "../components/AutomationGroupCombobox";
 
 const STARTER_DEFINITION: AutomationDefinition = {
@@ -569,26 +566,29 @@ const AutomationEditContent: React.FC = () => {
               />
             </div>
             <TabPanel id="visual" activeTab={tab}>
-              <ValidationProvider issues={validationErrors}>
-                {unattributedIssues.length > 0 && (
-                  <Alert variant="error" className="mb-2">
-                    <AlertTitle>Definition issues</AlertTitle>
-                    <AlertDescription>
-                      <ul className="space-y-1 text-xs font-mono">
-                        {unattributedIssues.map((issue, index) => (
-                          <li key={index}>{issue}</li>
-                        ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                )}
-                <AutomationDefinitionEditor
-                  value={definition}
-                  onChange={setDefinition}
-                  disabled={!canManage}
-                  automationId={isNew ? undefined : automationId}
-                />
-              </ValidationProvider>
+              {unattributedIssues.length > 0 && (
+                <Alert variant="error" className="mb-2">
+                  <AlertTitle>Definition issues</AlertTitle>
+                  <AlertDescription>
+                    <ul className="space-y-1 text-xs font-mono">
+                      {unattributedIssues.map((issue, index) => (
+                        <li key={index}>{issue}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+              {/* `AutomationDefinitionEditor` owns the `ValidationProvider`
+                  (inside its registry provider) so it can merge these
+                  structural issues with the live inline-script type issues it
+                  computes. */}
+              <AutomationDefinitionEditor
+                value={definition}
+                onChange={setDefinition}
+                disabled={!canManage}
+                automationId={isNew ? undefined : automationId}
+                structuralIssues={validationErrors}
+              />
             </TabPanel>
             <TabPanel id="yaml" activeTab={tab}>
               <Card>

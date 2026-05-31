@@ -19,16 +19,15 @@
 // (Monarch grammars for ~80 languages) without pulling in the extension host
 // (no SharedArrayBuffer / COOP / COEP needed).
 import "@codingame/monaco-vscode-standalone-languages";
-// The named imports below ALSO trigger this package's side-effect registration
-// of the standalone TypeScript language features (defaults + ts.worker). We use
-// them to configure the TS/JS language services + inject ambient context types.
+// TS/JS language-service setup (compiler options, ambient stdlib types, worker
+// factory) lives in the shared `monacoTsService` module so the headless
+// `validateScripts` validator can reuse the exact same configured singletons.
 import {
   typescriptDefaults,
   javascriptDefaults,
-  ScriptTarget,
-  ModuleKind,
-  ModuleResolutionKind,
-} from "@codingame/monaco-vscode-standalone-typescript-language-features";
+  ensureStandaloneWorkerFactory,
+  markVscodeServicesReady,
+} from "./monacoTsService";
 // Named import also triggers the side-effect registration of the REAL VS Code
 // JSON language service (proper highlighting + completion + folding), replacing
 // the hand-rolled `json-template` Monarch grammar. We turn its built-in
@@ -41,18 +40,6 @@ import { jsonDefaults } from "@codingame/monaco-vscode-standalone-json-language-
 // `languageStatusServiceOverride` below).
 import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-service-override";
 
-// Worker entry URLs, bundled and resolved by Vite via the `?worker&url`
-// suffix. We import them as URL STRINGS (not Worker constructors) because
-// monaco-languageclient's worker factory consumes `loader().url.toString()`.
-// Vite's STATIC `?worker&url` resolution is required here: a runtime
-// `new URL(specifier, import.meta.url)` would resolve the bare specifier
-// relative to THIS source file (e.g. core/ui/src/components/CodeEditor/...)
-// and 404. The editor worker comes from the monaco-editor drop-in
-// (@codingame/monaco-vscode-editor-api); the TypeScript worker (which also
-// serves JavaScript) from the standalone language-features package.
-import editorWorkerUrl from "@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker.js?worker&url";
-import tsWorkerUrl from "@codingame/monaco-vscode-standalone-typescript-language-features/worker?worker&url";
-import jsonWorkerUrl from "@codingame/monaco-vscode-standalone-json-language-features/worker?worker&url";
 
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import * as monaco from "@codingame/monaco-vscode-editor-api";
@@ -93,132 +80,6 @@ import {
   type TextContents,
 } from "monaco-languageclient/editorApp";
 import { type MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
-import {
-  // `useWorkerFactory` is a plain library registration function, not a React
-  // hook. We alias away the `use` prefix so the `react-hooks/rules-of-hooks`
-  // lint rule (which keys purely off the identifier name) does not misfire.
-  useWorkerFactory as registerWorkerFactory,
-  Worker,
-  type WorkerFactoryConfig,
-  type WorkerLoader,
-} from "monaco-languageclient/workerFactory";
-
-// The logger type originates from `@codingame/monaco-vscode-log-service-override`,
-// which is not a direct dependency of this package. We derive it from the
-// `WorkerFactoryConfig` we already import so we never reach for a transitive
-// specifier (and never need an `any`).
-type WorkerFactoryLogger = WorkerFactoryConfig["logger"];
-
-const editorWorkerLoader: WorkerLoader = () =>
-  new Worker(editorWorkerUrl, { type: "module" });
-
-const tsWorkerLoader: WorkerLoader = () =>
-  new Worker(tsWorkerUrl, { type: "module" });
-
-const jsonWorkerLoader: WorkerLoader = () =>
-  new Worker(jsonWorkerUrl, { type: "module" });
-
-/**
- * Registers the worker loaders required for the standalone (classic) Monaco
- * setup. We only need the generic editor worker plus the TypeScript worker
- * (which also serves JavaScript). Mirrors the upstream `defineClassicWorkers`
- * helper referenced above. The underlying `useWorkerFactory` export is a
- * plain library registration function (not a React hook) despite its name;
- * it is called from module scope here, never from a component render.
- */
-const configureStandaloneWorkerFactory = (
-  logger?: WorkerFactoryLogger,
-): void => {
-  registerWorkerFactory({
-    workerLoaders: {
-      editorWorkerService: editorWorkerLoader,
-      // Both must be defined or the worker factory errors (see upstream
-      // helper-classic.ts).
-      javascript: tsWorkerLoader,
-      typescript: tsWorkerLoader,
-      json: jsonWorkerLoader,
-    },
-    logger,
-  });
-};
-
-// Base compiler options for the standalone TS + JS services. `types` (node +
-// bun-types) is added only once the stdlib bundle has loaded (see
-// ensureStandaloneStdlib), so the service doesn't transiently error on a
-// missing `node` type while the ~3 MB bundle is still fetching.
-//
-// `baseUrl: "file:///"` anchors NodeJs bare-import resolution at the virtual
-// root so an `import "lodash"` walks `file:///node_modules/...` — the same
-// virtual layout the stdlib bundle AND the lazy-ATA extra-libs are registered
-// under. `typeRoots` lists BOTH the `@types` root (so a package with no own
-// types, e.g. lodash, falls back to `@types/lodash`) and the bare
-// `node_modules` root (so the bundled `bun-types`, which is NOT under
-// `@types`, still resolves as an ambient `types` entry).
-const BASE_COMPILER_OPTIONS = {
-  target: ScriptTarget.ESNext,
-  module: ModuleKind.ESNext,
-  moduleResolution: ModuleResolutionKind.NodeJs,
-  lib: ["esnext"],
-  allowNonTsExtensions: false,
-  noEmit: true,
-  strict: true,
-  esModuleInterop: true,
-  baseUrl: "file:///",
-  typeRoots: ["file:///node_modules/@types", "file:///node_modules"],
-};
-
-/**
- * Configure the standalone TS + JS language services ONCE at module load.
- * `typescriptDefaults` / `javascriptDefaults` are singletons, so doing this at
- * module scope (not per-mount) guarantees the first editor to mount cannot
- * start the service with stale defaults - the timing race the legacy monaco
- * editor hit.
- */
-const configureTypeScriptDefaults = (): void => {
-  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
-    defaults.setCompilerOptions({ ...BASE_COMPILER_OPTIONS });
-    // 1108: a top-level `return` is valid because the runtime wraps scripts in
-    // an async IIFE (same suppression as the legacy editor).
-    defaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [1108] });
-    // Push models to the worker eagerly so diagnostics/completions are ready on
-    // the first keystroke.
-    defaults.setEagerModelSync(true);
-  }
-};
-
-configureTypeScriptDefaults();
-
-/**
- * Lazy-load the bundled `@types/node` + `bun-types` declarations into the
- * standalone TS service so script editors have `console`, `fetch`, `process`,
- * `Bun`, etc. typed (parity with the legacy editor). The ~3 MB bundle is
- * code-split into its own chunk and fetched once. Ported from the legacy
- * `monacoStdlib.ts` (without its `@monaco-editor/react` dependency). Runs at
- * module load; this file is browser-only so the dynamic import is safe here.
- */
-let stdlibLoadStarted = false;
-const ensureStandaloneStdlib = async (): Promise<void> => {
-  if (stdlibLoadStarted) {
-    return;
-  }
-  stdlibLoadStarted = true;
-  const stdlibModule = await import("./generated/stdlib-types.json");
-  const bundle = stdlibModule.default;
-  for (const defaults of [typescriptDefaults, javascriptDefaults]) {
-    for (const [path, content] of Object.entries(bundle)) {
-      defaults.addExtraLib(content, `file:///${path}`);
-    }
-    // The @types/node + bun-types declarations now exist at their node_modules
-    // virtual paths, so include them ambiently.
-    defaults.setCompilerOptions({
-      ...BASE_COMPILER_OPTIONS,
-      types: ["node", "bun-types"],
-    });
-  }
-};
-
-void ensureStandaloneStdlib();
-
 // ─── Lazy Automatic Type Acquisition (ATA) registry ─────────────────────────
 //
 // The TS/JS language services are singletons, so acquired package types are
@@ -1098,7 +959,7 @@ export const TypefoxEditor = ({
       // Plain editor, no workbench views.
       $type: "EditorService",
     },
-    monacoWorkerFactory: configureStandaloneWorkerFactory,
+    monacoWorkerFactory: ensureStandaloneWorkerFactory,
   };
 
   const editorAppConfig: EditorAppConfig = {
@@ -1152,6 +1013,11 @@ export const TypefoxEditor = ({
         // once, so a second editor never gets its own onVscodeApiInitDone - but
         // onEditorStartDone fires for each editor instance.
         setApiReady(true);
+        // The monaco-vscode services are now up. Let the headless script
+        // validator know it may safely use the worker (it must never init the
+        // services itself - that would collide with this wrapper's one-time
+        // init and throw "Services are already initialized").
+        markVscodeServicesReady();
       }}
     />
   );
