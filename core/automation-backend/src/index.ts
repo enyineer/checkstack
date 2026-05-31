@@ -99,6 +99,7 @@ import {
   createEntityChangedSubscriptions,
   createEntityRegistry,
   createEntityStore,
+  createKeyedStore,
   entityExtensionPoint,
   type ChangeDeriverRegistry,
   type ChangeEmitter,
@@ -312,12 +313,19 @@ export default createBackendPlugin({
         const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 
-        // Bind the DB-backed entity store to the registry (the extension
-        // point impl registered in `register()` forwards through it). The
-        // store is bound here in `init()` — after migrations have run — so
-        // the `entity_state` / `entity_transitions` tables exist.
+        // Bind the DB-backed transition store + keyed-store factory to the
+        // registry (the extension point impl registered in `register()`
+        // forwards through it). Model B: the transition store owns the tx +
+        // `entity_transitions` log for EVERY kind; the keyed-store factory
+        // backs auto-wired store-backed kinds (`entity_state`). Bound here in
+        // `init()` — after migrations have run — so both tables exist.
         const entityStore = createEntityStore(database);
-        entityRegistry.setStore(entityStore);
+        entityRegistry.setStore({
+          store: entityStore,
+          keyedStoreFactory: <TState extends Record<string, unknown>>(
+            kind: string,
+          ) => createKeyedStore<TState>({ kind, db: database }),
+        });
 
         // Create the declarable expression indexes (§15.1) idempotently,
         // after migrations. Each spec became a `CREATE INDEX IF NOT EXISTS`
@@ -402,15 +410,13 @@ export default createBackendPlugin({
           // fires at evaluation time.
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
           // Kind-agnostic entity resolver for reactive `wait_until` wake
-          // re-evaluation: any registered entity kind resolves through the
-          // framework entity store's batched `loadMany`. Unknown kinds yield
-          // `undefined` (enrichment leaves them unresolved, fail-open). This
-          // is what lets a wait on `state.<kind>.<id>` (incident, slo, …)
+          // re-evaluation (Model B): the registry routes each kind to its
+          // `read` accessor — plugin-backed kinds via their own `read`,
+          // store-backed kinds via the auto-wired keyed store. Unknown kinds
+          // yield `undefined` (enrichment leaves them unresolved, fail-open).
+          // This is what lets a wait on `state.<kind>.<id>` (incident, slo, …)
           // re-evaluate correctly when that kind changes (not just health).
-          entityResolverFor: (kind) =>
-            entityRegistry.getKinds().includes(kind)
-              ? (ids) => entityStore.loadMany({ kind, entityIds: ids })
-              : undefined,
+          entityResolverFor: (kind) => entityRegistry.entityResolverFor(kind),
           // Registry-backed resolution of provider-action deps (connection
           // store, secret resolver, ...) at execute time. Safe here because
           // dispatch only runs from afterPluginsReady onward, by which point
@@ -677,6 +683,11 @@ export type {
   EntityHandle,
   EntityIndexSpec,
   EntityMutationOpts,
+  EntityRead,
+  MutateInput,
+  RemoveInput,
+  EntityTx,
+  KeyedStore,
   EntityChangeDeriver,
   RegisterChangeDeriver,
   OnEntityChanged,
@@ -685,6 +696,9 @@ export type {
   EntityChangedDelivery,
   EntityChangedUnsubscribe,
 } from "./entity";
+
+// Model B turnkey current-state store for homeless kinds.
+export { createKeyedStore } from "./entity";
 
 // The validated entity-change payload (Phase 4 derivers + cross-plugin
 // consumers type against this). Re-exported from automation-common so a

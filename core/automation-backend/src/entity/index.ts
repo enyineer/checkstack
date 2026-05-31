@@ -35,12 +35,21 @@ export type {
   EntityHandle,
   EntityIndexSpec,
   EntityMutationOpts,
+  EntityRead,
+  MutateInput,
+  RemoveInput,
 } from "./define-entity";
 
 // Internal wiring surface (consumed by automation-backend's index.ts).
 export { createEntityRegistry } from "./registry";
-export type { EntityRegistry, NonReactiveDeclaration } from "./registry";
+export type {
+  EntityRegistry,
+  NonReactiveDeclaration,
+  EntityKindResolver,
+} from "./registry";
 export { createEntityStore } from "./entity-store";
-export type { EntityStore } from "./entity-store";
+export type { EntityStore, EntityTx } from "./entity-store";
+export { createKeyedStore } from "./create-keyed-store";
+export type { KeyedStore } from "./create-keyed-store";
 export { createChangeEmitter } from "./change-emitter";
 export type { ChangeEmitter, EmitEntityChanged } from "./change-emitter";

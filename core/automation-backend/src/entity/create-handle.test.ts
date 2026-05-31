@@ -28,12 +28,15 @@ function setup(opts?: { secretValues?: string[]; runId?: string }) {
   if (opts?.runId && opts.secretValues) {
     secretRegistry.register(opts.runId, opts.secretValues);
   }
+  const keyedStore = store.keyedStore<Incident>("incident");
   const handle = createEntityHandle<Incident>({
     kind: "incident",
     schema: incidentSchema,
     store,
     emitter,
     secretRegistry,
+    read: keyedStore.readMany,
+    keyedStore,
   });
   return { store, events, handle, secretRegistry };
 }

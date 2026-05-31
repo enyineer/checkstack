@@ -115,12 +115,85 @@ describe("entity registry — store binding", () => {
     const reg = makeRegistry();
     const handle = reg.defineEntity({ kind: "incident", state: stateSchema });
     const store = createFakeEntityStore();
-    reg.setStore(store);
+    reg.setStore({ store, keyedStoreFactory: (kind) => store.keyedStore(kind) });
     expect(reg.hasStore).toBe(true);
     await handle.set("inc-1", { status: "open", region: "eu" });
     expect(store.rows.get("incident:inc-1")).toEqual({
       status: "open",
       region: "eu",
     });
+  });
+});
+
+describe("entity registry — Model B read + entityResolverFor", () => {
+  const incidentSchema = z.object({ status: z.string(), severity: z.string() });
+
+  it("rejects `indexes` declared alongside an explicit plugin `read`", () => {
+    const reg = makeRegistry();
+    expect(() =>
+      reg.defineEntity({
+        kind: "incident",
+        state: incidentSchema,
+        indexes: [{ name: "by_status", fields: ["status"] }],
+        read: async () => ({}),
+      }),
+    ).toThrow(/expression indexes only apply to store-backed/);
+  });
+
+  it("rejects a `read` that is not a function", () => {
+    const reg = makeRegistry();
+    expect(() =>
+      reg.defineEntity({
+        kind: "incident",
+        state: incidentSchema,
+        // @ts-expect-error — deliberately not a function
+        read: 42,
+      }),
+    ).toThrow(/`read` must be a function/);
+  });
+
+  it("does NOT collect index DDL for a plugin-backed kind", () => {
+    const reg = makeRegistry();
+    reg.defineEntity({
+      kind: "incident",
+      state: incidentSchema,
+      read: async () => ({}),
+    });
+    expect(reg.getIndexDdl()).toHaveLength(0);
+  });
+
+  it("entityResolverFor routes a PLUGIN-BACKED kind to its `read`", async () => {
+    const reg = makeRegistry();
+    const read = async (ids: ReadonlyArray<string>) => {
+      const out: Record<string, { status: string; severity: string }> = {};
+      for (const id of ids) out[id] = { status: "open", severity: "high" };
+      return out;
+    };
+    reg.defineEntity({ kind: "incident", state: incidentSchema, read });
+    const resolver = reg.entityResolverFor("incident");
+    expect(resolver).toBeDefined();
+    expect(await resolver!(["inc-1"])).toEqual({
+      "inc-1": { status: "open", severity: "high" },
+    });
+  });
+
+  it("entityResolverFor routes a STORE-BACKED kind through the keyed store", async () => {
+    const reg = makeRegistry();
+    reg.defineEntity({ kind: "health", state: incidentSchema });
+    // Before the store is bound, a store-backed kind has no resolver.
+    expect(reg.entityResolverFor("health")).toBeUndefined();
+    const store = createFakeEntityStore();
+    reg.setStore({ store, keyedStoreFactory: (kind) => store.keyedStore(kind) });
+    store.rows.set("health:sys-1", { status: "open", severity: "low" });
+    const resolver = reg.entityResolverFor("health");
+    expect(resolver).toBeDefined();
+    expect(await resolver!(["sys-1"])).toEqual({
+      "sys-1": { status: "open", severity: "low" },
+    });
+  });
+
+  it("entityResolverFor returns undefined for an unknown kind", () => {
+    const reg = makeRegistry();
+    expect(reg.entityResolverFor("nope")).toBeUndefined();
   });
 });

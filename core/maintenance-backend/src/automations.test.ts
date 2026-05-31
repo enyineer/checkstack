@@ -55,14 +55,19 @@ function makeEntityHandle(): EntityHandle<MaintenanceEntityState> & {
       sets.push({ id, next, opts });
     },
     async patch() {},
+    async mutate() {
+      throw new Error("not used in these tests");
+    },
     async get() {
       return undefined;
     },
     async getMany() {
       return {};
     },
-    async remove(id) {
-      removes.push(id);
+    async remove(inputOrId: unknown) {
+      // The deprecated store-owned `remove(id)` form is what the maintenance
+      // automations call; record the id.
+      if (typeof inputOrId === "string") removes.push(inputOrId);
     },
     async inStateSince() {
       return null;
