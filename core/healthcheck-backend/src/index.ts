@@ -76,7 +76,6 @@ let healthEntity: EntityHandle<HealthEntityState> | undefined;
 // supplied at `defineEntity` time in register(). These holders bridge the two;
 // init() sets them before any mutation runs (the queue worker — the only
 // mutation site — is set up in init() after these are bound).
-let healthEntityDb: SafeDatabase<typeof schema> | undefined;
 let healthEntityService: HealthCheckService | undefined;
 
 export default createBackendPlugin({
@@ -107,9 +106,12 @@ export default createBackendPlugin({
     // domain table and NO framework `entity_state` row. `read` COMPUTES each
     // system's `{ status, healthyChecks, totalChecks }` on demand from the same
     // durable `health_check_runs` the rest of the plugin reads (via
-    // `getSystemHealthStatus`), gated on the system having at least one run —
-    // see `createHealthEntityRead`. The db + service are resolved in init() and
-    // bridged via the holders. The change → trigger-event deriver keeps the
+    // `getSystemHealthStatus`), gated on the system having at least one ENABLED
+    // check association — see `createHealthEntityRead`. A system with an enabled
+    // check but no runs yet resolves to the default-`healthy` baseline so a
+    // first-ever unhealthy run is a real `healthy → degraded` diff. The service
+    // is resolved in init() and bridged via the holder. The change →
+    // trigger-event deriver keeps the
     // existing `healthcheck.system.degraded` / `.healthy` / `.health_changed`
     // automations firing off the computed state.
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
@@ -117,14 +119,13 @@ export default createBackendPlugin({
       kind: HEALTH_ENTITY_KIND,
       state: HealthEntityStateSchema,
       read: (ids) => {
-        const db = healthEntityDb;
         const service = healthEntityService;
-        if (!db || !service) {
+        if (!service) {
           throw new Error(
-            "health entity read before init: db/service not yet resolved",
+            "health entity read before init: service not yet resolved",
           );
         }
-        return createHealthEntityRead({ db, service })(ids);
+        return createHealthEntityRead({ service })(ids);
       },
     });
     entityPoint.registerChangeDeriver({
@@ -223,7 +224,6 @@ export default createBackendPlugin({
         // computes each system's aggregate from durable `health_check_runs`,
         // and the queue worker (set up just below — the only mutation site)
         // drives writes through `handle.mutate`.
-        healthEntityDb = database;
         healthEntityService = new HealthCheckService(
           database,
           healthCheckRegistry,

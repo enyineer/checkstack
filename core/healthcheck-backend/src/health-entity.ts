@@ -22,16 +22,14 @@
  *  - the `writeHealthEntity` helper called at every evaluation-write site.
  */
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
 import type {
   EntityChangeDeriver,
   EntityHandle,
   EntityRead,
 } from "@checkstack/automation-backend";
 import type { HealthCheckService } from "./service";
-import { healthCheckRuns } from "./schema";
 import * as schema from "./schema";
 // Re-export the change type through automation-backend's barrel (it
 // re-exports it from automation-common) so this domain needs no extra dep.
@@ -153,51 +151,40 @@ export function classifyHealthChange(changed: {
 }
 
 /**
- * Whether the system has at least one persisted `health_check_runs` row.
- *
- * This is the EXISTENCE GATE for the computed entity: a system with no runs
- * yet has no `health` entity (the `read` omits it). It reproduces the old
- * keyed-store semantic where the entity row only appeared on the FIRST mirror
- * (i.e. after the first run was persisted), so a system's very first
- * evaluation is a create (`prev === null`) and fires no directional/umbrella
- * event. Once any run exists, the entity is resolvable on every read.
- */
-async function systemHasRuns(args: {
-  db: Db;
-  systemId: string;
-}): Promise<boolean> {
-  const { db, systemId } = args;
-  const [row] = await db
-    .select({ id: healthCheckRuns.id })
-    .from(healthCheckRuns)
-    .where(eq(healthCheckRuns.systemId, systemId))
-    .limit(1);
-  return row !== undefined;
-}
-
-/**
  * Compute the reactive `health` view for a single system from durable data.
  *
- * Derives `{ status, healthyChecks, totalChecks }` exactly as the old
- * evaluation-site mirror did:
+ * Derives `{ status, healthyChecks, totalChecks }` from the SAME default-
+ * `healthy` baseline aggregate the executor reads via
+ * `getSystemHealthStatus`:
  *  - `status`         = `getSystemHealthStatus(systemId).status` (the worst-
  *    wins aggregate across the system's ENABLED checks, computed from
- *    `health_check_runs` via `evaluateHealthStatus`),
+ *    `health_check_runs` via `evaluateHealthStatus`; a check with no runs yet
+ *    evaluates to `"healthy"`),
  *  - `healthyChecks`  = count of per-check statuses that are `"healthy"`,
  *  - `totalChecks`    = number of enabled checks (`checkStatuses.length`).
  *
- * Returns `undefined` when the system has no persisted runs yet (existence
- * gate — see {@link systemHasRuns}); missing ids are omitted from the batched
- * `read`.
+ * EXISTENCE GATE: the entity resolves iff the system has at least one ENABLED
+ * check association (`checkStatuses.length > 0`). A system with no enabled
+ * checks has no `health` entity and is omitted from the batched `read` (its
+ * health is undefined, not a meaningful `healthy`).
+ *
+ * The gate is intentionally on ASSOCIATIONS, not on persisted runs: a system
+ * that has an enabled check but has never run yet resolves to the default-
+ * `healthy` baseline (the exact value `getSystemHealthStatus` returns for an
+ * empty run window). That makes a first-ever evaluation that comes up
+ * unhealthy a real `healthy → degraded` diff — firing `system_degraded` /
+ * `health_changed` and the `degraded` `onEntityChanged` for SLO/dependency
+ * consumers — instead of a suppressed create (`prev === null`). The entity and
+ * the executor therefore agree on the pre-run baseline.
  */
 export async function computeHealthEntityState(args: {
-  db: Db;
   service: HealthCheckService;
   systemId: string;
 }): Promise<HealthEntityState | undefined> {
-  const { db, service, systemId } = args;
-  if (!(await systemHasRuns({ db, systemId }))) return undefined;
+  const { service, systemId } = args;
   const overview = await service.getSystemHealthStatus(systemId);
+  // No enabled check associations ⇒ no health entity for this system.
+  if (overview.checkStatuses.length === 0) return undefined;
   return {
     status: overview.status,
     healthyChecks: overview.checkStatuses.filter((c) => c.status === "healthy")
@@ -214,16 +201,15 @@ export async function computeHealthEntityState(args: {
  * route through — no framework `entity_state` storage.
  */
 export function createHealthEntityRead(deps: {
-  db: Db;
   service: HealthCheckService;
 }): EntityRead<HealthEntityState> {
-  const { db, service } = deps;
+  const { service } = deps;
   return async (ids) => {
     if (ids.length === 0) return {};
     const out: Record<string, HealthEntityState> = {};
     await Promise.all(
       ids.map(async (systemId) => {
-        const state = await computeHealthEntityState({ db, service, systemId });
+        const state = await computeHealthEntityState({ service, systemId });
         if (state) out[systemId] = state;
       }),
     );
@@ -242,9 +228,25 @@ export function createHealthEntityRead(deps: {
  * `healthcheck.system_degraded` / `_healthy` / `_health_changed` trigger
  * events. An unchanged aggregate is a no-op (the handle diffs internally).
  *
+ * Concurrency:
+ *  - `serialize`, when provided, wraps the ENTIRE snapshot-prev + apply + diff
+ *    + emit (the `handle.mutate` call) in a per-`systemId` critical section.
+ *    Without it, concurrent evaluations of one system (multiple per-config jobs
+ *    across pods, or at-least-once redelivery) interleave: both snapshot
+ *    `prev = healthy`, both persist a failing run, both diff `healthy →
+ *    degraded`, and both emit — yielding two `ENTITY_CHANGED` + two transition
+ *    rows for one logical transition (inflating `transitionCount`/flapping and
+ *    re-running dependency notify). The executor wires this to a transaction-
+ *    scoped advisory lock keyed `health:<systemId>` (`withXactLock`), so two
+ *    concurrent evals of one system serialize through prev-snapshot to emit.
+ *    The durable `apply` write is the SAME whether serialized or not — only the
+ *    snapshot/diff/emit window is protected.
+ *
  * Failure handling:
  *  - When no `handle` is bound (version skew / tests), `apply` still runs —
- *    the durable write is never gated on entity reactivity.
+ *    the durable write is never gated on entity reactivity. (The serialization
+ *    lock is part of the reactive path, so an unbound handle skips it too; the
+ *    durable insert keeps its own ordering guarantees.)
  *  - If `apply` throws BEFORE the durable write commits, the error propagates
  *    so the executor's own error path (fallback insert) runs. We detect this
  *    via `durableState`: it is only set once `apply` has produced its view, so
@@ -265,21 +267,35 @@ export async function writeHealthEntity(args: {
   systemId: string;
   apply: () => Promise<HealthEntityState>;
   onError?: (error: unknown) => void;
+  /**
+   * Optional per-`systemId` critical section wrapping the snapshot-prev +
+   * apply + diff + emit. The executor supplies a transaction-scoped advisory
+   * lock (`withXactLock`, key `health:<systemId>`) so concurrent evaluations
+   * of one system can't double-emit a single logical transition. Identity by
+   * default (no serialization) for the unbound-handle / test paths.
+   */
+  serialize?: <T>(fn: () => Promise<T>) => Promise<T>;
 }): Promise<HealthEntityState> {
-  const { handle, systemId, apply, onError } = args;
+  const { handle, systemId, apply, onError, serialize } = args;
   if (!handle) {
     // No reactivity bound — run the durable write directly.
     return apply();
   }
+  const run = serialize ?? (<T>(fn: () => Promise<T>) => fn());
   let durableState: HealthEntityState | undefined;
   try {
-    return await handle.mutate({
-      id: systemId,
-      apply: async () => {
-        durableState = await apply();
-        return durableState;
-      },
-    });
+    // The lock scope MUST cover prev-snapshot through emit: `handle.mutate`
+    // snapshots `prev` via `read`, runs `apply`, diffs, and emits inside one
+    // call, and we wrap that whole call so two concurrent evals serialize.
+    return await run(() =>
+      handle.mutate({
+        id: systemId,
+        apply: async () => {
+          durableState = await apply();
+          return durableState;
+        },
+      }),
+    );
   } catch (error) {
     // `apply` never committed ⇒ the durable write failed; propagate so the
     // executor's outer catch can run its fallback path.
@@ -288,4 +304,32 @@ export async function writeHealthEntity(args: {
     onError?.(error);
     return durableState;
   }
+}
+
+/** Advisory-lock key namespace for the per-system health critical section. */
+export function healthSystemLockKey(systemId: string): string {
+  return `health:${systemId}`;
+}
+
+/**
+ * Build the per-`systemId` serializer for {@link writeHealthEntity} backed by
+ * a transaction-scoped advisory lock (`withXactLock`, key
+ * `health:<systemId>`). The returned function blocks until it holds the
+ * system's lock, runs `fn` (the whole snapshot-prev + apply + diff + emit), and
+ * auto-releases the lock at COMMIT/ROLLBACK. Two concurrent evaluations of one
+ * system therefore serialize — exactly one logical `healthy → degraded`
+ * transition emits exactly one `ENTITY_CHANGED` + one transition row.
+ *
+ * `fn` does its own durable writes on the outer pool; the lock only gates
+ * ENTRY to the critical section, so its connection affinity is irrelevant —
+ * the second caller cannot acquire the xact lock until the first transaction
+ * commits.
+ */
+export function createHealthEntitySerializer(deps: {
+  db: Db;
+}): (systemId: string) => <T>(fn: () => Promise<T>) => Promise<T> {
+  const { db } = deps;
+  return (systemId) =>
+    <T>(fn: () => Promise<T>) =>
+      withXactLock({ db, key: healthSystemLockKey(systemId), fn: () => fn() });
 }

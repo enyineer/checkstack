@@ -13,13 +13,12 @@ import {
   classifyHealthChange,
   computeHealthEntityState,
   createHealthEntityRead,
+  createHealthEntitySerializer,
   deriveHealthTriggerEvents,
   writeHealthEntity,
   type HealthEntityState,
 } from "./health-entity";
 import type { HealthCheckService } from "./service";
-import type { SafeDatabase } from "@checkstack/backend-api";
-import * as schema from "./schema";
 import {
   systemDegradedTrigger,
   systemHealthyTrigger,
@@ -181,47 +180,12 @@ describe("HealthEntityStateSchema", () => {
 type CheckStatus = HealthEntityState["status"];
 
 /**
- * Extract the bound systemId from a real drizzle `eq(column, value)` predicate.
- * `eq` returns an opaque `SQL` object whose `queryChunks` array carries the
- * bound value as a `Param`-like chunk (`{ value: "<systemId>" }`). Walking it
- * lets the fake db answer the existence gate per-system while still exercising
- * the REAL `systemHasRuns` query builder.
+ * Fake service whose `getSystemHealthStatus` returns canned per-system state.
+ * A system absent from the map gets the SAME default-`healthy` baseline the
+ * real `getSystemHealthStatus` returns for an empty run window — and an empty
+ * `checkStatuses` for a system with no enabled associations (the existence
+ * gate), exactly like production.
  */
-function systemIdFromPredicate(predicate: unknown): string | undefined {
-  const chunks = (predicate as { queryChunks?: unknown[] } | undefined)
-    ?.queryChunks;
-  if (!Array.isArray(chunks)) return undefined;
-  for (const chunk of chunks) {
-    const value = (chunk as { value?: unknown } | null)?.value;
-    if (typeof value === "string") return value;
-  }
-  return undefined;
-}
-
-/**
- * A fake db whose run-existence gate answers per systemId. Reproduces the
- * `systemHasRuns` chain `select().from().where(eq(...)).limit(1)`, resolving to
- * a row iff `present[systemId]`. The systemId is read off the real drizzle
- * predicate, so the test drives the production query shape verbatim.
- */
-function runGateDb(
-  present: Record<string, boolean>,
-): SafeDatabase<typeof schema> {
-  return {
-    select: () => ({
-      from: () => ({
-        where: (predicate: unknown) => ({
-          limit: async () => {
-            const sid = systemIdFromPredicate(predicate);
-            return sid && present[sid] ? [{ id: "run-1" }] : [];
-          },
-        }),
-      }),
-    }),
-  } as unknown as SafeDatabase<typeof schema>;
-}
-
-/** Fake service whose `getSystemHealthStatus` returns canned per-system state. */
 function fakeService(
   statusBySystem: Record<
     string,
@@ -246,25 +210,35 @@ function fakeService(
 }
 
 describe("computeHealthEntityState (compute-on-read from durable data)", () => {
-  it("omits a system with no persisted runs (existence gate)", async () => {
-    const db = runGateDb({}); // no runs for any system
+  it("omits a system with NO enabled check associations (existence gate)", async () => {
+    // No enabled associations ⇒ `getSystemHealthStatus` returns checkStatuses:
+    // [] ⇒ no `health` entity for this system.
     const service = fakeService({
-      "sys-1": {
-        status: "unhealthy",
-        checkStatuses: [{ status: "unhealthy" }],
-      },
+      "sys-1": { status: "healthy", checkStatuses: [] },
     });
-    const state = await computeHealthEntityState({
-      db,
-      service,
-      systemId: "sys-1",
-    });
-    // No runs yet ⇒ no entity (mirrors the old keyed-store first-mirror create).
+    const state = await computeHealthEntityState({ service, systemId: "sys-1" });
     expect(state).toBeUndefined();
   });
 
-  it("derives { status, healthyChecks, totalChecks } once runs exist", async () => {
-    const db = runGateDb({ "sys-1": true });
+  it("resolves the default-`healthy` baseline for a system with an enabled check but no runs yet", async () => {
+    // A run-less system with an enabled check evaluates to the default-healthy
+    // baseline (the executor's pre-run state), NOT undefined — so a first-ever
+    // unhealthy run is a real healthy → degraded diff (Defect 1 fix).
+    const service = fakeService({
+      "sys-1": {
+        status: "healthy",
+        checkStatuses: [{ status: "healthy" }, { status: "healthy" }],
+      },
+    });
+    const state = await computeHealthEntityState({ service, systemId: "sys-1" });
+    expect(state).toEqual({
+      status: "healthy",
+      healthyChecks: 2,
+      totalChecks: 2,
+    });
+  });
+
+  it("derives { status, healthyChecks, totalChecks } from the worst-wins aggregate", async () => {
     const service = fakeService({
       "sys-1": {
         status: "degraded",
@@ -275,11 +249,7 @@ describe("computeHealthEntityState (compute-on-read from durable data)", () => {
         ],
       },
     });
-    const state = await computeHealthEntityState({
-      db,
-      service,
-      systemId: "sys-1",
-    });
+    const state = await computeHealthEntityState({ service, systemId: "sys-1" });
     // status = worst-wins aggregate; healthyChecks = count of "healthy";
     // totalChecks = number of enabled checks.
     expect(state).toEqual({
@@ -290,35 +260,28 @@ describe("computeHealthEntityState (compute-on-read from durable data)", () => {
   });
 });
 
-describe("createHealthEntityRead (batched, omits run-less systems)", () => {
-  it("returns a map keyed by systemId, omitting systems with no runs", async () => {
-    const db = runGateDb({ "sys-a": true, "sys-c": true });
+describe("createHealthEntityRead (batched, omits checkless systems)", () => {
+  it("returns a map keyed by systemId, omitting systems with no enabled checks", async () => {
     const service = fakeService({
       "sys-a": { status: "healthy", checkStatuses: [{ status: "healthy" }] },
-      "sys-b": {
-        status: "unhealthy",
-        checkStatuses: [{ status: "unhealthy" }],
-      },
+      // sys-b has NO enabled associations ⇒ omitted from the read.
+      "sys-b": { status: "healthy", checkStatuses: [] },
       "sys-c": {
         status: "unhealthy",
         checkStatuses: [{ status: "healthy" }, { status: "unhealthy" }],
       },
     });
-    const read = createHealthEntityRead({ db, service });
+    const read = createHealthEntityRead({ service });
     const out = await read(["sys-a", "sys-b", "sys-c"]);
     expect(out).toEqual({
       "sys-a": { status: "healthy", healthyChecks: 1, totalChecks: 1 },
       "sys-c": { status: "unhealthy", healthyChecks: 1, totalChecks: 2 },
     });
-    // sys-b has status data but no runs ⇒ omitted from the batched read.
     expect(out["sys-b"]).toBeUndefined();
   });
 
   it("returns {} for an empty id list without touching the backing", async () => {
-    const read = createHealthEntityRead({
-      db: runGateDb({}),
-      service: fakeService({}),
-    });
+    const read = createHealthEntityRead({ service: fakeService({}) });
     expect(await read([])).toEqual({});
   });
 });
@@ -454,5 +417,246 @@ describe("writeHealthEntity (durable write driven through handle.mutate)", () =>
     ).rejects.toThrow("insert failed");
     // A durable-write failure must propagate, NOT be swallowed by onError.
     expect(onErrorCalled).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// DEFECT 1 (first-run degradation): a system whose very first run comes up
+// unhealthy must produce a real healthy → degraded diff so `system_degraded` /
+// `health_changed` fire and the `degraded` `onEntityChanged` opens SLO /
+// dependency downtime — NOT a suppressed create (prev === null).
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("first-run-unhealthy degradation (Defect 1 regression)", () => {
+  /**
+   * A handle whose `read` snapshots `prev` from `computeHealthEntityState`
+   * (the SAME compute-on-read accessor production uses) against a service that
+   * reflects the durable state. Before `apply`, the system has an enabled
+   * check but no runs ⇒ default-`healthy` baseline; `apply` records the first
+   * (unhealthy) run, so the post-write read sees unhealthy. We assert the
+   * framework-style change (prev → next) drives the directional + umbrella
+   * trigger events and the `degraded` classification.
+   */
+  it("fires system_degraded + umbrella and a `degraded` onEntityChanged on the first-ever unhealthy run", async () => {
+    // Durable state the fake service reads. Starts run-less (default healthy),
+    // flips to unhealthy when the first run is recorded by `apply`.
+    let firstRunRecorded = false;
+    const service = {
+      getSystemHealthStatus: async () => ({
+        status: firstRunRecorded
+          ? ("unhealthy" as CheckStatus)
+          : ("healthy" as CheckStatus),
+        evaluatedAt: new Date(),
+        // One ENABLED check association exists from the start (run-less but
+        // configured), so the entity resolves to the healthy baseline.
+        checkStatuses: [
+          {
+            configurationId: "cfg-0",
+            configurationName: "Check 0",
+            status: firstRunRecorded
+              ? ("unhealthy" as CheckStatus)
+              : ("healthy" as CheckStatus),
+            runsConsidered: firstRunRecorded ? 1 : 0,
+          },
+        ],
+      }),
+    } as unknown as HealthCheckService;
+
+    const emitted: Array<{
+      prev: HealthEntityState | undefined;
+      next: HealthEntityState;
+    }> = [];
+
+    // Model B handle: snapshot prev via the REAL compute-on-read accessor
+    // BEFORE apply, run apply, diff, emit on a real change.
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async mutate(input: MutateInput<HealthEntityState>) {
+        const prev = await computeHealthEntityState({
+          service,
+          systemId: "sys-1",
+        });
+        const next = await input.apply();
+        if (!prev || prev.status !== next.status) onEmitChange(prev, next);
+        return next;
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+
+    function onEmitChange(
+      prev: HealthEntityState | undefined,
+      next: HealthEntityState,
+    ) {
+      emitted.push({ prev, next });
+    }
+
+    const next = await writeHealthEntity({
+      handle,
+      systemId: "sys-1",
+      apply: async () => {
+        // The durable first run lands here (unhealthy).
+        firstRunRecorded = true;
+        const computed = await computeHealthEntityState({
+          service,
+          systemId: "sys-1",
+        });
+        if (!computed) throw new Error("expected a computed view");
+        return computed;
+      },
+    });
+
+    // Exactly one emit, a real healthy → unhealthy transition (NOT a create).
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].prev).toEqual({
+      status: "healthy",
+      healthyChecks: 1,
+      totalChecks: 1,
+    });
+    expect(emitted[0].next.status).toBe("unhealthy");
+    expect(next.status).toBe("unhealthy");
+
+    // The deriver fires the directional + umbrella trigger events.
+    const events = deriveHealthTriggerEvents({
+      kind: HEALTH_ENTITY_KIND,
+      id: "sys-1",
+      prev: emitted[0].prev ?? null,
+      next: emitted[0].next,
+      delta: {},
+      changedFields: ["status"],
+      actor: SYSTEM_ACTOR,
+      occurredAt: new Date().toISOString(),
+    });
+    expect(events).toEqual([
+      HEALTH_TRIGGER_EVENTS.degraded,
+      HEALTH_TRIGGER_EVENTS.healthChanged,
+    ]);
+
+    // The cross-plugin consumer predicate reports `degraded` (opens SLO /
+    // dependency downtime).
+    const classified = classifyHealthChange({
+      id: "sys-1",
+      prev: emitted[0].prev ?? null,
+      next: emitted[0].next,
+    });
+    expect(classified.degraded).toBe(true);
+    expect(classified.recovered).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// DEFECT 2 (concurrent N-pod evaluation): two concurrent `writeHealthEntity`
+// for ONE system must serialize through prev-snapshot → emit, producing
+// exactly ONE transition + ONE emit (not two).
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("per-system serialization (Defect 2 regression)", () => {
+  /**
+   * A faithful in-memory stand-in for `withXactLock`'s mutual exclusion: a
+   * per-key promise chain. Two callers with the same key run strictly one
+   * after another; the second cannot enter until the first resolves — exactly
+   * the guarantee `pg_advisory_xact_lock` provides across pods.
+   */
+  function makeKeyedSerializer() {
+    const chains = new Map<string, Promise<unknown>>();
+    return (key: string) =>
+      <T>(fn: () => Promise<T>): Promise<T> => {
+        const prior = chains.get(key) ?? Promise.resolve();
+        const next = prior.then(fn, fn);
+        chains.set(
+          key,
+          next.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+        return next;
+      };
+  }
+
+  it("two concurrent evals of one system emit exactly ONE transition", async () => {
+    // Shared durable state both evaluations write to. The first failing run
+    // flips it to unhealthy; the second sees it already unhealthy ⇒ no-op.
+    let unhealthy = false;
+    const compute = (): HealthEntityState => ({
+      status: unhealthy ? "unhealthy" : "healthy",
+      healthyChecks: unhealthy ? 0 : 1,
+      totalChecks: 1,
+    });
+
+    const emitted: Array<{
+      prev: HealthEntityState | undefined;
+      next: HealthEntityState;
+    }> = [];
+
+    // Model B handle: snapshot prev (current durable view) BEFORE apply, run
+    // apply, diff, emit on a real change. With NO lock, two concurrent calls
+    // both snapshot prev=healthy and both emit; the lock prevents that.
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async mutate(input: MutateInput<HealthEntityState>) {
+        const prev = compute(); // snapshot BEFORE apply
+        // Yield so the second concurrent caller could interleave here if it
+        // were not serialized — the lock must prevent that.
+        await Promise.resolve();
+        const next = await input.apply();
+        if (prev.status !== next.status) emitted.push({ prev, next });
+        return next;
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+
+    const keyed = makeKeyedSerializer();
+    const serialize = keyed(`health:sys-1`);
+
+    const evalOnce = () =>
+      writeHealthEntity({
+        handle,
+        systemId: "sys-1",
+        serialize,
+        apply: async () => {
+          // The durable "insert failing run" — first writer flips the state.
+          unhealthy = true;
+          return compute();
+        },
+      });
+
+    // Fire both concurrently for the SAME system.
+    await Promise.all([evalOnce(), evalOnce()]);
+
+    // Exactly one logical transition emitted (healthy → unhealthy), not two.
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].prev?.status).toBe("healthy");
+    expect(emitted[0].next.status).toBe("unhealthy");
+  });
+
+  it("createHealthEntitySerializer keys the advisory lock `health:<systemId>` and runs work in a transaction", async () => {
+    // Intercept `db.transaction` + the advisory-lock SQL the serializer's
+    // `withXactLock` issues. The fake runs `fn(tx)` inline (single connection),
+    // mirroring `withXactLock`'s single-session contract. We assert the
+    // namespaced key flows into `pg_advisory_xact_lock(...)`.
+    const executedKeys: string[] = [];
+    let transactionRan = false;
+    const fakeDb = {
+      transaction: async (
+        cb: (tx: { execute: (q: unknown) => Promise<void> }) => Promise<unknown>,
+      ) => {
+        transactionRan = true;
+        return cb({
+          execute: async (q) => {
+            // The bound key is a plain string chunk in the drizzle template.
+            const chunks = (q as { queryChunks?: unknown[] }).queryChunks ?? [];
+            for (const c of chunks) {
+              if (typeof c === "string") executedKeys.push(c);
+            }
+          },
+        });
+      },
+    } as unknown as Parameters<typeof createHealthEntitySerializer>[0]["db"];
+
+    const serializer = createHealthEntitySerializer({ db: fakeDb });
+    const result = await serializer("sys-42")(async () => "ok");
+
+    expect(result).toBe("ok");
+    expect(transactionRan).toBe(true);
+    // The advisory lock was acquired with the per-system namespaced key.
+    expect(executedKeys).toContain("health:sys-42");
   });
 });
