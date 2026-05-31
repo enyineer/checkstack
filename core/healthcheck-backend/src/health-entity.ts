@@ -1,13 +1,16 @@
 /**
  * The reactive `health` entity (reactive automation engine §10.3).
  *
- * A behavior-preserving MIRROR of the per-system aggregated health: the
- * healthcheck domain keeps computing + storing aggregate state the way it
- * always has (the `health_check_*` tables stay authoritative), and ALSO
- * mirrors the reactive subset `{ status, healthyChecks, totalChecks }` into
- * the framework entity store keyed by `systemId`. The entity store is the
- * reactive projection consumed by automations / scope; the domain remains
- * the record of truth for everything else.
+ * The per-system aggregated health is HOMELESS (Model B): it is COMPUTED at
+ * check-evaluation time and has no domain table of its own — only the
+ * `health_check_*` tables (raw runs + transitions) persist. The reactive
+ * subset `{ status, healthyChecks, totalChecks }` therefore lives in the
+ * framework keyed store (`entity_state`, keyed by `systemId`), the SANCTIONED
+ * home for a homeless kind. `defineEntity({ read: keyedStore.readMany })`
+ * makes it reactive: every evaluation-site write goes through
+ * `handle.mutate`, whose `apply` writes the keyed store and returns the
+ * aggregate view. The framework snapshots `prev` via `read`, appends the
+ * transition log, and emits `ENTITY_CHANGED`.
  *
  * This module is the single source of truth for:
  *  - the `health` entity zod state schema + kind id,
@@ -21,6 +24,8 @@ import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
 import type {
   EntityChangeDeriver,
   EntityHandle,
+  EntityKeyedStoreService,
+  KeyedStore,
 } from "@checkstack/automation-backend";
 // Re-export the change type through automation-backend's barrel (it
 // re-exports it from automation-common) so this domain needs no extra dep.
@@ -139,26 +144,57 @@ export function classifyHealthChange(changed: {
 }
 
 /**
+ * The reactive-write surface for the homeless `health` kind: the entity
+ * handle plus the framework keyed store (`entity_state`) the handle's `apply`
+ * writes through. Bundled so the queue executor can pass a single value and
+ * `mirrorHealthEntity` can drive `handle.mutate` (the keyed store is the
+ * SOLE current-state home for this kind — there is no duplicate domain row).
+ */
+export interface HealthEntityWriter {
+  handle: EntityHandle<HealthEntityState>;
+  keyedStore: KeyedStore<HealthEntityState>;
+  keyedStoreService: EntityKeyedStoreService;
+}
+
+/**
  * Mirror the aggregated health of one system into the `health` entity.
+ *
+ * Routes the write through `handle.mutate({ id: systemId, apply })` (Model B):
+ * `apply` upserts the aggregate into the framework keyed store (`entity_state`)
+ * on its OWN transaction and returns the view; the framework snapshots `prev`
+ * via `read`, appends the transition log, and emits `ENTITY_CHANGED` (whose
+ * deriver fires `healthcheck.system_degraded` / `_healthy` / `_health_changed`).
+ * An unchanged aggregate is a no-op (the handle diffs internally).
  *
  * Fail-soft: a mirror failure must never break the health-check execution
  * path (the domain tables already captured the authoritative state). The
- * caller passes the resolved handle (or `undefined` during version skew /
+ * caller passes the resolved writer (or `undefined` during version skew /
  * tests) plus the freshly-computed aggregate.
  */
 export async function mirrorHealthEntity(args: {
-  handle: EntityHandle<HealthEntityState> | undefined;
+  writer: HealthEntityWriter | undefined;
   systemId: string;
   status: HealthEntityState["status"];
   healthyChecks: number;
   totalChecks: number;
   onError?: (error: unknown) => void;
 }): Promise<void> {
-  const { handle, systemId, status, healthyChecks, totalChecks, onError } =
+  const { writer, systemId, status, healthyChecks, totalChecks, onError } =
     args;
-  if (!handle) return;
+  if (!writer) return;
+  const { handle, keyedStore, keyedStoreService } = writer;
+  const state: HealthEntityState = { status, healthyChecks, totalChecks };
   try {
-    await handle.set(systemId, { status, healthyChecks, totalChecks });
+    await handle.mutate({
+      id: systemId,
+      // PLUGIN-BACKED apply (no framework tx): the keyed store IS this kind's
+      // current-state home, so open a tx on automation-backend's DB and write
+      // it there, returning the aggregate view as `next`.
+      apply: () =>
+        keyedStoreService.runInTransaction((tx) =>
+          keyedStore.write({ tx, id: systemId, state }),
+        ),
+    });
   } catch (error) {
     onError?.(error);
   }

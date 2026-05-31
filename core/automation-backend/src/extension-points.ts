@@ -13,6 +13,7 @@ import type { ActionRegistry } from "./action-registry";
 import type { ArtifactTypeRegistry } from "./artifact-type-registry";
 import type { TriggerRegistry } from "./trigger-registry";
 import type { ArtifactStore } from "./artifact-store";
+import type { EntityTx, KeyedStore } from "./entity";
 
 /**
  * Extension point for registering automation triggers — entry points that
@@ -121,3 +122,52 @@ export const automationRegistriesRef = createServiceRef<AutomationRegistries>(
 export const automationArtifactStoreRef = createServiceRef<ArtifactStore>(
   "automation.artifactStore",
 );
+
+/**
+ * Cross-plugin access to the framework keyed store (`entity_state`) for a
+ * HOMELESS reactive entity kind (Model B, reactive automation engine §15.1).
+ *
+ * `entity_state` lives in automation-backend's schema, behind automation-
+ * backend's schema-scoped DB. A plugin whose entity kind has no natural
+ * current-state table of its own (e.g. healthcheck's computed per-system
+ * `health` aggregate) cannot reach `entity_state` through its OWN scoped DB,
+ * so this ref hands out a {@link KeyedStore} bound to automation-backend's
+ * DB plus a transaction runner over the same DB. The plugin wires:
+ *
+ * ```ts
+ * const keyed = svc.keyedStoreFor<HealthEntityState>("health");
+ * const handle = defineEntity({ kind: "health", state, read: keyed.readMany });
+ * // ...inside a mutation, where `handle.mutate`'s apply takes NO framework tx:
+ * await handle.mutate({
+ *   id: systemId,
+ *   apply: () =>
+ *     svc.runInTransaction((tx) => keyed.write({ tx, id: systemId, state })),
+ * });
+ * ```
+ *
+ * The keyed write + the framework transition append run in SEPARATE
+ * transactions (the documented Model B post-commit boundary), but both target
+ * the same physical schema, so the homeless kind still gets durable platform
+ * history in `entity_transitions`.
+ */
+export interface EntityKeyedStoreService {
+  /** A keyed store over `entity_state` for `kind`, bound to automation's DB. */
+  keyedStoreFor<TState extends Record<string, unknown>>(
+    kind: string,
+  ): KeyedStore<TState>;
+  /**
+   * Run `fn` inside ONE transaction on automation-backend's DB, passing the
+   * transaction handle the keyed store's `write` / `remove` need. Use this to
+   * drive a keyed-store write from a plugin-backed `handle.mutate` apply
+   * (which receives no framework tx).
+   */
+  runInTransaction<R>(fn: (tx: EntityTx) => Promise<R>): Promise<R>;
+}
+
+/**
+ * Service ref for the framework keyed store (`entity_state`). A plugin with a
+ * homeless reactive entity kind injects this to read/write its current state
+ * in `entity_state` while keeping the kind reactive via `handle.mutate`.
+ */
+export const entityKeyedStoreServiceRef =
+  createServiceRef<EntityKeyedStoreService>("automation.entityKeyedStore");

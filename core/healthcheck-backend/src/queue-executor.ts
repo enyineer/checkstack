@@ -53,9 +53,8 @@ import {
 import { recordStateTransition } from "./state-transitions";
 import {
   mirrorHealthEntity,
-  type HealthEntityState,
+  type HealthEntityWriter,
 } from "./health-entity";
-import type { EntityHandle } from "@checkstack/automation-backend";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -444,11 +443,12 @@ async function executeHealthCheckJob(props: {
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
   /**
-   * Resolver for the reactive `health` entity handle (§10.3). Returns the
-   * handle once automation-backend has bound the store; `undefined` during
-   * version skew / tests. Mirrors the `getEmitHook` closure pattern.
+   * Resolver for the reactive `health` entity write surface (§10.3): the
+   * handle + framework keyed store. Returns the writer once automation-backend
+   * has bound the keyed store; `undefined` during version skew / tests.
+   * Mirrors the `getEmitHook` closure pattern.
    */
-  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  getHealthEntityWriter?: () => HealthEntityWriter | undefined;
   /**
    * Central secret resolver. When set, a collector declaring a `secretEnv`
    * has it resolved + injected for this centrally-executed run; the
@@ -469,7 +469,7 @@ async function executeHealthCheckJob(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
-    getHealthEntity,
+    getHealthEntityWriter,
     cache,
     secretResolver,
   } = props;
@@ -930,7 +930,7 @@ async function executeHealthCheckJob(props: {
     // aggregate is a no-op; a status change drives the directional/umbrella
     // trigger events via `deriveHealthTriggerEvents`.
     await mirrorHealthEntity({
-      handle: getHealthEntity?.(),
+      writer: getHealthEntityWriter?.(),
       systemId,
       status: newState.status,
       healthyChecks: newState.checkStatuses.filter(
@@ -1069,7 +1069,7 @@ async function executeHealthCheckJob(props: {
     // Mirror the aggregated health into the reactive `health` entity on
     // every run (§10.3). See the success path for the rationale.
     await mirrorHealthEntity({
-      handle: getHealthEntity?.(),
+      writer: getHealthEntityWriter?.(),
       systemId,
       status: newState.status,
       healthyChecks: newState.checkStatuses.filter(
@@ -1147,7 +1147,7 @@ export async function setupHealthCheckWorker(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
-  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  getHealthEntityWriter?: () => HealthEntityWriter | undefined;
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
 }): Promise<void> {
@@ -1163,7 +1163,7 @@ export async function setupHealthCheckWorker(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
-    getHealthEntity,
+    getHealthEntityWriter,
     cache,
     secretResolver,
   } = props;
@@ -1186,7 +1186,7 @@ export async function setupHealthCheckWorker(props: {
         maintenanceClient,
         incidentClient,
         getEmitHook,
-        getHealthEntity,
+        getHealthEntityWriter,
         cache,
         secretResolver,
       });
