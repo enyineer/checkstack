@@ -146,6 +146,22 @@ flag rather than a normal admin toggle).
 
 ---
 
+## Code / docs hygiene follow-ups (cheap, pre-existing)
+
+- **Unify `secret-field.ts`** — `gitops-common` and `secrets-common` both define
+  near-identical `SECRET_NAME_REGEX` / `secretNameSchema` / `SECRET_TEMPLATE_REGEX`
+  / `collectSecretNames`. Make `secrets-common` canonical and have `gitops-common`
+  re-export it. Deferred because it adds a `gitops-common → secrets-common`
+  dependency edge (+ references-graph regen) — a small cross-package architectural
+  change, and the gitops copy pre-dates the secrets platform.
+- **Fix pre-existing broken docs cross-links** (present on `main`, not introduced
+  by this work): ~8 stale `/checkstack/...` links in `plugins.md`,
+  `data-management.md`, `config-schemas.md` — e.g.
+  `/checkstack/developer-guide/backend/collectors/` should be
+  `.../healthchecks/collectors/`, and several `backend/frontend/...` links carry a
+  spurious `backend/` segment. Also a few em-dashes on pre-existing doc lines that
+  predate the no-em-dash rule.
+
 ## Known minor edges (documented, no action needed unless they recur)
 
 - **Resume-vs-recover lock race (self-healing):** if `recoverStalledRun` and
