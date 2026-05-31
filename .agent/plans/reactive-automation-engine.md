@@ -17,47 +17,72 @@ claim carries a `file:line` anchor so the implementer never has to guess.
 
 ## 0. Design revision (Model B) — plugin-owned reactive wrapper
 
-> **Revised 2026-05-31, mid-implementation.** The original design (still
-> described verbatim in §2, §4, §15.1 below for historical context) had the
+> **Revised 2026-05-31, mid-implementation, then finalized.** The original design
+> (still described verbatim in §2, §4, §15.1 below for historical context) had the
 > framework OWN entity current-state in a generic `entity_state` table, and each
 > domain MIRRORED its state into that table through `handle.set` / `handle.patch`.
 > That duplicated every domain's state and coupled plugin writes to a
 > framework-owned table.
 >
 > **Model B replaces it:** `defineEntity` is a reactive WRAPPER that owns NO
-> current-state storage. Each plugin keeps owning its own state (its own table,
-> an in-memory map, or a computed aggregate) and supplies a REQUIRED `read`
-> accessor. ALL reactive-state writes go through a single driven entry point —
-> `handle.mutate({ id, opts?, apply })` (and `handle.remove({ id, opts?, apply })`
-> for tombstones). The handle snapshots `prev` via `read` BEFORE the write, runs
-> the plugin's `apply` (the REAL write against the plugin's own storage, in the
-> plugin's own transaction, returning the resulting state as `next`), then diffs
-> `prev → next` and appends the change to the framework's `entity_transitions`
-> table. There is NO `handle.set` / `handle.patch` and NO `indexes` option.
+> current-state storage. Each plugin keeps owning its own state (its own durable
+> table, or a value computed on read from its own durable tables) and supplies a
+> REQUIRED `read` accessor. ALL reactive-state writes go through a single driven
+> entry point — `handle.mutate({ id, opts?, apply })` (and
+> `handle.remove({ id, opts?, apply })` for tombstones). The handle snapshots
+> `prev` via `read` BEFORE the write, runs the plugin's `apply` (the REAL write
+> against the plugin's own storage, in the plugin's own transaction, returning the
+> resulting state as `next`), then diffs `prev → next` and appends the change to
+> the framework's `entity_transitions` table. There is NO `handle.set` /
+> `handle.patch` and NO `indexes` option.
+>
+> **FINAL: there is NO framework-owned current-state storage at all.** The
+> `createKeyedStore` opt-in and the generic `entity_state` table that the
+> intermediate revision kept for "homeless" kinds have been REMOVED entirely
+> (`createKeyedStore`, `KeyedStore`, `entityKeyedStoreServiceRef`,
+> `EntityKeyedStoreService`, and the `entity_state` table are all gone). EVERY
+> kind is plugin-backed; there is no "homeless" fallback. The two resolution
+> shapes are:
+> - **Plugin-table-backed** — the reactive subset projects straight off the
+>   plugin's own table(s): incident, maintenance, catalog (system + group),
+>   dependency, and `satellite-connection`.
+> - **Compute-on-read** — the reactive subset has NO stored row; it is derived on
+>   demand from the plugin's own durable data, so no second copy can drift. The
+>   per-system `health` aggregate computes from `health_check_runs` (via
+>   `getSystemHealthStatus`); the `slo` budget/streak view computes via the SLO
+>   engine over the objective's downtime history.
+>
+> `satellite-connection` is DURABLE, not in-memory: its current state lives in
+> the `connection_status` / `last_seen_at` / `last_connection_event` columns on
+> the shared `satellites` table, so it is globally readable from any pod. The
+> in-process WebSocket map is now ONLY the pod-local live-socket registry
+> (`declareNonReactiveState`, bookkeeping), never the entity source.
 >
 > **Why:**
 > - **No state duplication.** The framework never owns a plugin's current state;
->   there is no mirror table to keep in sync. The plugin's own storage stays the
->   single source of truth.
+>   there is no mirror table to keep in sync. The plugin's own storage (or a
+>   computation over it) stays the single source of truth.
 > - **History is always platform-kept.** For EVERY kind, on every real change,
 >   the framework appends field-level rows to `entity_transitions` — including
->   in-memory kinds (e.g. satellite connection state lives only in process
->   memory, yet still gets durable platform transition history).
+>   compute-on-read kinds like `health`, which has no current-state row of its
+>   own yet still gets durable platform transition history.
 > - **No cross-plugin transaction coupling.** A plugin-backed kind lives behind a
 >   different DB client than `entity_transitions`, so `apply` commits first and
 >   the transition append runs afterwards in the framework's own transaction. The
 >   plugin write is authoritative; a failure between the two leaves correct plugin
 >   state with at most a missing history row (a gap, never a corruption).
->
-> **`createKeyedStore` is the opt-in home for HOMELESS kinds only.** A kind whose
-> state has no natural home of its own (the computed `health` aggregate is the
-> sole user today) can opt into a framework keyed store backed by `entity_state`
-> and pass its `readMany` as `read`. It is no longer the universal storage layer —
-> just one possible `read`/`apply` target among "own table", "in-memory map", and
-> "keyed store".
+> - **Horizontal-scale read-consistency is now a hard rule + guard.** A reactive
+>   entity's current state MUST be globally readable from shared/durable storage,
+>   never process-local memory (`.agent/rules/state-and-scale.md`). It is enforced
+>   by the `checkstack/no-pod-local-entity-state` ESLint tripwire at the
+>   `defineEntity({ read })` boundary and the deterministic
+>   `cross-pod-read-consistency.it.test.ts` integration test.
 >
 > Sections §2.1, §4, and §15.1 below describe the SUPERSEDED original model and
 > are retained only as historical record of the locked-then-revised decision.
+> Their references to `entity_state` / `createKeyedStore` as a surviving
+> opt-in are also superseded by this FINAL note — no framework current-state
+> store exists.
 
 ---
 
@@ -91,9 +116,12 @@ claim carries a `file:line` anchor so the implementer never has to guess.
    **SUPERSEDED by Model B (see §0).** The framework owns NO current-state
    storage. Each plugin keeps owning its state and exposes a `read` accessor;
    all writes go through `handle.mutate({ id, apply })`; the framework records
-   change history in `entity_transitions` only. The generic keyed store survives
-   as the opt-in home for homeless kinds (the `health` aggregate), not as the
-   universal store. There is no `set` / `patch` / `indexes`.
+   change history in `entity_transitions` only. FINAL: there is no framework
+   current-state store at all — the generic keyed store and its `entity_state`
+   table are removed. Every kind is plugin-backed, either projected off the
+   plugin's own table or computed on read from it (the `health` aggregate and the
+   `slo` budget/streak view compute on read). There is no `set` / `patch` /
+   `indexes`.
 2. **Explicit, reason-annotated escape hatch** for data that is intentionally NOT
    a reactive entity (see §5). Its purpose is to *enable strict enforcement* —
    declare intent so enforcement can flag everything unmarked. (Concrete API in §15.6.)
@@ -573,6 +601,16 @@ name, lastSeenAt }`. The three hooks become diffs of `status`. The persisted
 `lastHeartbeatAt` column (`schema.ts:23`) stays as escape-hatched bookkeeping;
 the entity's `status` is what's reactive. **Classification: entity.**
 
+> **FINAL (§0).** The shipped `satellite-connection` entity is DURABLE, not
+> in-memory-backed: its current state lives in the `connection_status` /
+> `last_seen_at` / `last_connection_event` columns on the shared `satellites`
+> table (added by migration), so it is globally readable from any pod (fixing a
+> horizontal-scale read bug). The in-memory connection map is now ONLY the
+> pod-local live-socket registry (`declareNonReactiveState`, bookkeeping), never
+> the entity source. The shipped state also carries a `lastEvent` discriminator
+> so the deriver can tell a socket drop (`disconnected`) from the heartbeat-lost
+> offline edge (`heartbeat_lost`).
+
 ### 9.2 SLO classification (definitive — resolves the §14 borderline)
 
 **Decision: the SLO budget IS the entity; `budget.warning/critical/exhausted` and
@@ -837,17 +875,18 @@ job at `:115-150`), with `services: { postgres, redis }`, run
 
 ### 15.1 Entity-store layout — DECIDED: generic keyed store + generic transition log
 
-> **REVISED for Model B (§0).** The `entity_transitions` table below ships
-> unchanged and is the framework's ONLY current-state-adjacent store: it holds
-> the change HISTORY for every kind. The `entity_state` table, however, is NO
-> LONGER the universal current-state store. Under Model B each plugin owns its
-> current state and exposes a `read` accessor; `entity_state` survives only as
-> the backing store of the OPT-IN `createKeyedStore` for HOMELESS kinds (the
-> `health` aggregate is the sole user). The "declarable indexes map onto the
-> generic store" mechanism is dropped — there is no `indexes` option and no
-> per-kind expression indexes are generated. Read the `entity_state` block below
-> as "the keyed-store backing table for homeless kinds", not "where every kind
-> lives".
+> **REVISED for Model B, then FINALIZED (§0).** The `entity_transitions` table
+> below ships unchanged and is the framework's ONLY persistent store: it holds the
+> change HISTORY for every kind. The `entity_state` table below is REMOVED — it
+> never shipped as the universal store and, in the final design, does not ship at
+> all. Under Model B each plugin owns its current state (its own table) or
+> computes it on read from its own durable data, and exposes a `read` accessor.
+> The `createKeyedStore` opt-in that an intermediate revision kept for "homeless"
+> kinds was deleted along with the `entity_state` table (the `health` aggregate
+> is now compute-on-read over `health_check_runs`, not keyed-store-backed). The
+> "declarable indexes map onto the generic store" mechanism is dropped — there is
+> no `indexes` option and no per-kind expression indexes. Read the `entity_state`
+> block below as historical record of a table that was designed but never shipped.
 
 A **single generic keyed store** (one table for all kinds), NOT per-kind tables.
 

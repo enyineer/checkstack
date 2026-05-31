@@ -95,7 +95,7 @@ A wait wakes when ANY of its refs match; the engine then re-evaluates the full c
 At suspend time the engine statically walks the wait's condition and extracts the `state.*` refs it reads. Coverage:
 
 - Structured `state` conditions read `health.systems[entity]`, yielding `health:<entity>`.
-- Structured `numeric_state` conditions whose `value` is a path/template into `state.<kind>.<id>.<field>` (or back-compat `health.*`) yield `state.<kind>:<id>`.
+- Structured `numeric_state` conditions whose `value` is a path/template into `state.<kind>.<id>.<field>` (or the rich `health.*` snapshot) yield `state.<kind>:<id>`.
 - Template-string conditions yield a ref per member-expression rooted at `state.<kind>.<id>` or `health.systems[<id>]` / `health.system`.
 - `and` / `or` / `not` combinators recurse into their operands.
 
@@ -105,7 +105,7 @@ When the walker sees a kind but not a concrete id (a dynamic or computed key), i
 
 A `wait_until` that is not already satisfied suspends with a durable `kind: "until"` wait lock carrying the condition + timeout policy, its wake-index rows, and a single durable timeout timer armed at the deadline. There is no active job and no polling while it waits.
 
-- A relevant `ENTITY_CHANGED` wakes the run via Stage 1. The engine re-enriches scope kind-agnostically (health via the RPC client into `scope.health.*` for back-compat, plus every other `state.<kind>.<id>` ref the wait depends on resolved through each kind's `read` accessor into `scope.state.<kind>.<id>.<field>`), then synchronously re-evaluates the full condition and resumes only if it now holds.
+- A relevant `ENTITY_CHANGED` wakes the run via Stage 1. The engine re-enriches scope kind-agnostically: health is resolved through the RPC client into the rich `scope.health.*` snapshot (excluded from the generic entity pass so it is round-tripped at most once per scope build), and every other `state.<kind>.<id>` ref the wait depends on is resolved through each kind's `read` accessor into `scope.state.<kind>.<id>.<field>`. The engine then synchronously re-evaluates the full condition and resumes only if it now holds.
 - The single timeout timer handles the deadline - one job, not a re-check loop. On timeout the run resumes (continue) or fails per `continue_on_timeout` (default `true`).
 - The stalled sweeper applies the timeout policy as a backstop if the timer job is ever lost.
 

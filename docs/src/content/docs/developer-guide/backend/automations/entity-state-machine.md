@@ -9,11 +9,14 @@ The entity state machine is the framework primitive every plugin uses to make it
 
 The framework NEVER owns a plugin's current state. There is no framework-managed mirror table that domains copy their state into. Instead:
 
-- The plugin owns its current state - in its own table, an in-memory map, or a value computed on the fly. It exposes that state through a required batched `read` accessor.
-- The framework owns only the change HISTORY. For every kind, on every real change, it appends field-level rows to its own `entity_transitions` table. This history is always platform-kept, even for in-memory kinds, so a satellite connection that lives only in process memory still gets durable transition history.
+- The plugin owns its current state - in its own durable table, or a value computed on the fly from its own durable tables. It exposes that state through a required batched `read` accessor. EVERY kind is plugin-backed: there is no framework-owned current-state storage and no "homeless" kind that falls back to a generic framework table.
+- The framework owns only the change HISTORY. For every kind, on every real change, it appends field-level rows to its own `entity_transitions` table. This history is always platform-kept, so even a compute-on-read kind like `health` gets durable transition history.
 - All reactive-state writes go through one driven entry point - `handle.mutate({ id, apply })`. The handle snapshots `prev` via `read` before the write, runs the plugin's `apply` (the real write against the plugin's own storage), then diffs and records the transition.
 
-A kind whose state has no natural home of its own can opt into `createKeyedStore` (see [homeless kinds](#homeless-kinds-createkeyedstore)); only the computed `health` aggregate uses it today. Everything else reads and writes its own storage.
+A kind's `read` resolves one of two ways, both plugin-backed:
+
+- **Plugin-table-backed** - the reactive subset is projected straight off the plugin's own table(s). Incident, maintenance, catalog (system + group), dependency, and satellite-connection all read this way.
+- **Compute-on-read** - the reactive subset has no stored row at all; it is derived on demand from the plugin's own durable data. The per-system `health` aggregate and the `slo` budget/streak view compute this way, so there is no second materialized copy to drift from the source.
 
 ## When to use defineEntity vs the escape hatch
 
@@ -137,36 +140,96 @@ await incidentEntity.mutate({
 > [!IMPORTANT]
 > The plugin write is authoritative. A plugin-backed kind keeps its state in its own schema, behind its own database client - a different client than the framework's `entity_transitions`. The two cannot share one transaction, so `apply` runs and commits first, and the transition log is appended afterwards in the framework's own transaction. If that append fails after a committed plugin write, the plugin state is still correct and only one history row is missing (a gap, never a corruption). This decoupling is deliberate: a plugin platform must not couple a plugin's storage to a framework-internal table's transaction.
 
-### Homeless kinds: createKeyedStore
+### Compute-on-read kinds
 
-Most kinds own their state and pass their own reader to `read`. A kind whose state has NO natural home of its own - it is computed and otherwise unpersisted, like healthcheck's per-system `health` aggregate - can opt into the framework keyed store. `createKeyedStore` is backed by a generic `entity_state` table keyed by `(kind, id)` and plugs into `defineEntity` like any other plugin storage: pass its `readMany` as `read`, and write it from inside your `apply`.
+A kind whose reactive subset has no stored row of its own - it is derivable from the plugin's own durable data - computes it on read instead of materializing a copy. The `read` accessor recomputes the view from the same tables the rest of the plugin already reads; `handle.mutate` snapshots `prev` through that same `read` before the write, so a real change still produces exactly one correct `ENTITY_CHANGED`.
+
+The per-system `health` aggregate is the canonical example. It has no domain table and no framework storage; its `read` derives `{ status, healthyChecks, totalChecks }` on demand from `health_check_runs` (via `getSystemHealthStatus`), gated on the system having at least one persisted run:
 
 ```ts
-import { entityKeyedStoreServiceRef } from "@checkstack/automation-backend";
+import { z } from "zod";
+import { entityExtensionPoint, type EntityRead } from "@checkstack/automation-backend";
 
-// The homeless kind injects the keyed-store service ref (its `entity_state`
-// lives in automation-backend's schema, reachable only through this ref).
-const keyedSvc = env.getService(entityKeyedStoreServiceRef);
-const keyed = keyedSvc.keyedStoreFor<HealthEntityState>("health");
+const HealthEntityStateSchema = z.object({
+  status: HealthCheckStatusSchema,
+  healthyChecks: z.number().int().nonnegative(),
+  totalChecks: z.number().int().nonnegative(),
+});
+
+// COMPUTE-ON-READ: no stored row. Derive the view from the durable
+// health_check_runs the rest of the plugin reads. A system with no runs yet
+// has no entity (the read omits it), so its first evaluation is a create.
+const read: EntityRead<HealthEntityState> = async (ids) => {
+  const out: Record<string, HealthEntityState> = {};
+  await Promise.all(ids.map(async (systemId) => {
+    if (!(await systemHasRuns(systemId))) return;
+    const overview = await service.getSystemHealthStatus(systemId);
+    out[systemId] = {
+      status: overview.status,
+      healthyChecks: overview.checkStatuses.filter((c) => c.status === "healthy").length,
+      totalChecks: overview.checkStatuses.length,
+    };
+  }));
+  return out;
+};
 
 const handle = entity.defineEntity<HealthEntityState>({
   kind: "health",
   state: HealthEntityStateSchema,
-  read: keyed.readMany, // the keyed store IS this kind's current-state home
+  read,
 });
 
-// ...at every aggregate-write site:
+// At every evaluation-write site, `apply` does the REAL durable write (insert
+// the run + bump the aggregate) and returns the freshly-computed view. The
+// framework snapshots `prev` via `read` BEFORE the run is persisted, so the
+// diff and the emitted change are correct.
 await handle.mutate({
   id: systemId,
-  // `apply` takes no framework tx; open one over automation's DB and write the
-  // keyed store there, returning the aggregate view as `next`.
-  apply: () =>
-    keyedSvc.runInTransaction((tx) =>
-      keyed.write({ tx, id: systemId, state })),
+  apply: async () => {
+    await persistRunAndAggregate(systemId, result);
+    return (await read([systemId]))[systemId]!;
+  },
 });
 ```
 
-The keyed store is the SOLE current-state home for the homeless kind - there is no duplicate domain row. The keyed write and the framework transition append still commit in separate transactions, but both target the same physical schema, so the homeless kind gets durable platform history in `entity_transitions` exactly like every other kind. Kinds that own their storage NEVER touch the keyed store.
+The `slo` entity computes the same way: its `budgetRemainingPercent` is a pure function of the objective's append-only downtime history, so the `read` recomputes it via the SLO engine rather than storing a second copy.
+
+### Durable state with a pod-local live socket
+
+A kind can be plugin-table-backed AND still keep some genuinely pod-local infrastructure - as long as that infrastructure is never the queryable source of truth. The `satellite-connection` entity is the canonical example. Its current state lives in DURABLE columns on the shared `satellites` table (`connection_status`, `last_seen_at`, `last_connection_event`), so it is globally readable from any pod:
+
+```ts
+const read: EntityRead<SatelliteConnectionState> = (ids) =>
+  service.getManyConnectionStates(ids); // reads the durable satellites columns
+
+const handle = entity.defineEntity<SatelliteConnectionState>({
+  kind: "satellite-connection",
+  state: satelliteConnectionStateSchema,
+  read,
+});
+
+// The pod that owns the live WebSocket is the writer: on connect / close /
+// heartbeat-lost it UPDATEs the durable connection columns through `apply`.
+await handle.mutate({
+  id: satelliteId,
+  apply: () => service.updateConnection({ satelliteId, status, event }),
+});
+```
+
+The in-process WebSocket registry still exists, but ONLY as the pod-local live-socket map used to route messages to a connection physically held by THIS pod. It is never read as the entity's state. Mark it `declareNonReactiveState({ reason: "bookkeeping" })` (as `satellites.lastHeartbeatAt` is). This is exactly the distinction the [horizontal-scale rule](#horizontal-scale) draws: the durable columns are the entity, the socket map is pod-local bookkeeping.
+
+## Horizontal scale
+
+The platform runs as N pods sharing one database, so a reactive entity's current state MUST be globally readable. Scope enrichment and `wait_until` re-evaluation run on whichever pod claims the dispatch/wake job, so a `read` that resolves from process-local memory returns a value written on pod A as invisible to pod B - the automation then reads stale or empty state. This is a real bug even when the single-process test suite passes (a value written in one process is trivially visible to the same process).
+
+The rule, the guard, and the test:
+
+- **Rule.** [State management & horizontal scale](https://github.com/enyineer/checkstack/blob/main/.agent/rules/state-and-scale.md) is the principle: a reactive entity's `read` MUST resolve from shared, durable storage (the plugin's own Postgres tables, or a derivation of them), never from process-local memory. In-memory is allowed only for genuinely pod-local infrastructure that is never the queryable source of truth (a live-socket registry), marked `declareNonReactiveState`.
+- **Lint.** The `checkstack/no-pod-local-entity-state` ESLint rule is a forcing-function tripwire at the `defineEntity({ read })` boundary: it flags a `read` that reads a `Map`/`Set` or calls `.get`/`.has` on an in-memory structure, and warns (`needsAssertion`) when it cannot confirm durability so the author asserts it with a reason. It is wired at `warn`, never escalated to an error.
+- **Integration test.** `cross-pod-read-consistency.it.test.ts` is the deterministic backstop the single-process suite cannot provide. It models two pods as two registries over two connections pointed at the same database, and asserts a write driven on pod A is visible to pod B's `read` for a durable kind (with a pod-local kind as a negative control that proves the test has teeth).
+
+> [!IMPORTANT]
+> Working triggers do NOT prove the read path is scale-correct. Entity change events propagate cluster-wide via the event bus, so `onEntityChanged` consumers and trigger routing fire correctly even when the current-state read is pod-local and broken. Verify the read path separately.
 
 ## Cross-plugin change subscriptions
 
@@ -246,7 +309,7 @@ Multiple derivers may be registered per kind; their outputs union (de-duplicated
 
 Two reactive consumers read entity state through each kind's `read` accessor, both kind-agnostically:
 
-- **Scope projection.** Before a run starts (and on resume, and at the trigger gate), the engine resolves the referenced entity refs through each kind's `getMany` resolver (which routes to that kind's `read`) and folds them into scope under `state.<kind>.<id>.<field>`. Conditions and templates read it as plain data: `state.slo['payments-slo'].budgetRemainingPercent`, `state.incident['abc'].severity`. The legacy `health.*` namespace is kept as a back-compat alias projection of `state.health.*` for one release.
+- **Scope projection.** Before a run starts (and on resume, and at the trigger gate), the engine resolves the referenced entity refs through each kind's `getMany` resolver (which routes to that kind's `read`) and folds them into scope under `state.<kind>.<id>.<field>`. Conditions and templates read it as plain data: `state.slo['payments-slo'].budgetRemainingPercent`, `state.incident['abc'].severity`. This minimal `state.<kind>` view is the small reactive subset each kind's `defineEntity` exposes. Health additionally has a SEPARATE, richer projection: `scope.health.*` is the full health condition snapshot (status, latency, success rate, in-maintenance, transitions-in-window, ...) resolved through the healthcheck RPC, because the health aggregate is computed on read rather than stored as a framework row. The two coexist by design, not as a migration shim: `state.health.*` is the minimal reactive entity view, `scope.health.*` is the rich snapshot the structured `state` / `numeric_state` evaluators read, owned solely by the RPC path.
 - **Reactive `wait_until`.** A suspended `wait_until` no longer polls. At suspend time the engine statically extracts the `state.*` refs the condition reads and inserts wake-index rows keyed by `${kind}:${id}`. A relevant change wakes the wait, re-resolves scope, and re-evaluates the condition synchronously. When an id is dynamic the engine records a kind-level wildcard `${kind}:*` so the wait wakes on any change of that kind and re-evaluates - a few extra wakes, never a silent stall.
 
 ```yaml
