@@ -3,7 +3,6 @@ import {
   bootstrapHealthChecks,
 } from "./queue-executor";
 import { setupRetentionJob } from "./retention-job";
-import { setupAutoIncidentCloseJob } from "./auto-incident-close-job";
 import * as schema from "./schema";
 import {
   healthCheckAccessRules,
@@ -33,6 +32,7 @@ import {
   automationTriggerExtensionPoint,
 } from "@checkstack/automation-backend";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { secretResolverRef } from "@checkstack/secrets-backend";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import {
@@ -43,9 +43,6 @@ import {
 import { registerHealthcheckGitOpsKinds, registerHealthcheckGitOpsDocumentation } from "./healthcheck-gitops-kinds";
 import { catalogHooks } from "@checkstack/catalog-backend";
 import { satelliteHooks } from "@checkstack/satellite-backend";
-import { incidentHooks } from "@checkstack/incident-backend";
-import { eq, and, isNull } from "drizzle-orm";
-import { healthCheckAutoIncidents } from "./schema";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
@@ -134,6 +131,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         cacheManager: coreServices.cacheManager,
         config: coreServices.config,
+        secretResolver: secretResolverRef,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -147,6 +145,7 @@ export default createBackendPlugin({
         signalService,
         cacheManager,
         config,
+        secretResolver,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
 
@@ -192,6 +191,7 @@ export default createBackendPlugin({
           incidentClient,
           getEmitHook: () => storedEmitHook,
           cache,
+          secretResolver,
         });
 
         // Setup retention job for tiered storage (daily aggregation)
@@ -201,15 +201,11 @@ export default createBackendPlugin({
           queueManager,
         });
 
-        // Setup auto-incident close worker (ticks every 60s, closes
-        // auto-opened incidents whose systems have been steady-healthy
-        // for the cooldown).
-        await setupAutoIncidentCloseJob({
-          db: database,
-          logger,
-          queueManager,
-          incidentClient,
-        });
+        // The hardcoded auto-incident open/close path was removed in
+        // Phase 20 — auto-incident behaviour now ships as user-editable
+        // default automations (sustained-unhealthy / flapping / cooldown
+        // close). Flapping DETECTION still runs in the queue executor and
+        // emits `healthcheck.flapping_detected` for those automations.
 
         const healthCheckRouter = createHealthCheckRouter({
           database: database as SafeDatabase<typeof schema>,
@@ -220,6 +216,8 @@ export default createBackendPlugin({
           cache,
           configService: config,
           catalogClient,
+          maintenanceClient,
+          logger,
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
@@ -337,31 +335,10 @@ export default createBackendPlugin({
           { mode: "work-queue", workerGroup: "satellite-cleanup" },
         );
 
-        // Sync our auto-incident mapping when an incident is resolved.
-        // Without this, a manually-closed incident would still appear
-        // "active" in our mapping, blocking the require-recovery rule
-        // from re-evaluating fresh transitions.
-        onHook(
-          incidentHooks.incidentResolved,
-          async ({ incidentId }) => {
-            const updated = await database
-              .update(healthCheckAutoIncidents)
-              .set({ closedAt: new Date() })
-              .where(
-                and(
-                  eq(healthCheckAutoIncidents.incidentId, incidentId),
-                  isNull(healthCheckAutoIncidents.closedAt),
-                ),
-              )
-              .returning({ id: healthCheckAutoIncidents.id });
-            if (updated.length > 0) {
-              logger.debug(
-                `Marked auto-incident mapping closed for resolved incident ${incidentId}`,
-              );
-            }
-          },
-          { mode: "work-queue", workerGroup: "auto-incident-sync" },
-        );
+        // (The auto-incident mapping-sync hook was removed in Phase 20
+        // along with the hardcoded open/close path — the legacy
+        // `health_check_auto_incidents` mapping table is no longer
+        // written or read.)
 
         logger.debug("✅ Health Check Backend afterPluginsReady complete.");
       },

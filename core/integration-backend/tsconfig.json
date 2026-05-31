@@ -23,6 +23,12 @@
       "path": "../queue-api"
     },
     {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
       "path": "../signal-common"
     },
     {

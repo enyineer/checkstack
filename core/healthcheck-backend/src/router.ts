@@ -11,13 +11,20 @@ import {
 } from "@checkstack/backend-api";
 import { healthCheckContract } from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
+import {
+  resolveResolutionRootFromStore,
+  resolveScriptPackagesDir,
+} from "@checkstack/script-packages-backend";
 import { HealthCheckService } from "./service";
+import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
 import type { InferClient } from "@checkstack/common";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
+import type { Logger } from "@checkstack/backend-api";
 import type { HealthCheckCache } from "./cache";
 
 /**
@@ -35,6 +42,8 @@ export const createHealthCheckRouter = (opts: {
   cache: HealthCheckCache;
   configService: ConfigService;
   catalogClient: InferClient<typeof CatalogApi>;
+  maintenanceClient: InferClient<typeof MaintenanceApi>;
+  logger: Logger;
 }) => {
   const {
     database,
@@ -44,6 +53,8 @@ export const createHealthCheckRouter = (opts: {
     cache,
     configService,
     catalogClient,
+    maintenanceClient,
+    logger,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -123,6 +134,19 @@ export const createHealthCheckRouter = (opts: {
           : undefined,
         allowMultiple: collector.allowMultiple ?? false,
       }));
+    }),
+
+    testCollectorScript: os.testCollectorScript.handler(async ({ input }) => {
+      // Resolve the managed npm-package root from the local store so a
+      // collector test resolves the same allowlisted packages the real
+      // collector would (plan §4.1). Filesystem-only; safety is the
+      // runner's (auto-install disabled).
+      const status = await resolveResolutionRootFromStore(
+        resolveScriptPackagesDir(),
+      );
+      const resolutionRoot =
+        status.mode === "ready" ? status.root : undefined;
+      return runCollectorScriptTest({ input, deps: { resolutionRoot } });
     }),
 
     getConfigurations: os.getConfigurations.handler(async () => {
@@ -326,6 +350,26 @@ export const createHealthCheckRouter = (opts: {
       },
     ),
 
+    getHealthState: os.getHealthState.handler(async ({ input }) => {
+      return service.getHealthState({
+        systemId: input.systemId,
+        configurationId: input.configurationId,
+        transitionWindowMinutes: input.transitionWindowMinutes,
+        maintenanceClient,
+        logger,
+      });
+    }),
+
+    getBulkHealthState: os.getBulkHealthState.handler(async ({ input }) => {
+      const states = await service.getBulkHealthState({
+        systemIds: input.systemIds,
+        transitionWindowMinutes: input.transitionWindowMinutes,
+        maintenanceClient,
+        logger,
+      });
+      return { states };
+    }),
+
     // ========================================================================
     // SERVICE INTERFACE (S2S — satellite-backend)
     // ========================================================================
@@ -348,6 +392,12 @@ export const createHealthCheckRouter = (opts: {
     getRunsForAnalysis: os.getRunsForAnalysis.handler(
       async ({ input }) => {
         return service.getRunsForAnalysis(input);
+      },
+    ),
+
+    listAutoIncidentPolicies: os.listAutoIncidentPolicies.handler(
+      async () => {
+        return service.listAutoIncidentPolicies();
       },
     ),
   });

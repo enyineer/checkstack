@@ -24,13 +24,24 @@ import type {
   CreateStepInput,
   CreateWaitLockInput,
   DispatchDeps,
+  DwellStore,
+  LoadedDwell,
   LoadedRun,
   LoadedWaitLock,
   RunStore,
+  UpsertDwellInput,
 } from "./types";
 import type { RunStateSnapshot, RunStateStore } from "./run-state-store";
 
-export function createInMemoryRunStore(): {
+export function createInMemoryRunStore(opts?: {
+  /**
+   * Called with the ids of runs cancelled by `cancelActiveRuns`, so a
+   * caller (makeDispatchDeps) can clear the corresponding run-state rows -
+   * faithfully modelling the real store, which deletes wait locks AND
+   * run-state in the same operation.
+   */
+  onCancel?: (cancelledRunIds: string[]) => void;
+}): {
   store: RunStore;
   runs: Map<string, LoadedRun>;
   steps: Array<{
@@ -61,6 +72,7 @@ export function createInMemoryRunStore(): {
     resultPayload?: Record<string, unknown>;
   }> = [];
   const waitLocks = new Map<string, LoadedWaitLock>();
+  const onCancel = opts?.onCancel;
   let runCounter = 0;
   let stepCounter = 0;
   let lockCounter = 0;
@@ -96,33 +108,45 @@ export function createInMemoryRunStore(): {
     async loadRun(runId) {
       return runs.get(runId);
     },
-    async countActiveRuns(automationId) {
+    async countActiveRuns(automationId, contextKey?) {
       let count = 0;
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           count += 1;
         }
       }
       return count;
     },
-    async hasActiveRun(automationId) {
-      return (await this.countActiveRuns(automationId)) > 0;
+    async hasActiveRun(automationId, contextKey?) {
+      return (await this.countActiveRuns(automationId, contextKey)) > 0;
     },
-    async cancelActiveRuns(automationId, reason) {
+    async cancelActiveRuns(automationId, reason, contextKey?) {
       const cancelled: string[] = [];
       for (const r of runs.values()) {
         if (
           r.automationId === automationId &&
-          ["pending", "running", "waiting"].includes(r.status)
+          ["pending", "running", "waiting"].includes(r.status) &&
+          (contextKey === undefined || r.contextKey === contextKey)
         ) {
           r.status = "cancelled";
           r.errorMessage = reason;
           r.finishedAt = new Date();
           cancelled.push(r.id);
         }
+      }
+      // Faithful model of the real store: tear down the cancelled runs'
+      // wait locks in the same operation so a later wake can't resurrect
+      // them. (Run-state clearing happens via the optional hook wired in
+      // makeDispatchDeps.)
+      if (cancelled.length > 0) {
+        for (const [id, lock] of waitLocks) {
+          if (cancelled.includes(lock.runId)) waitLocks.delete(id);
+        }
+        onCancel?.(cancelled);
       }
       return cancelled;
     },
@@ -181,6 +205,7 @@ export function createInMemoryRunStore(): {
         contextKey: input.contextKey,
         filterTemplate: input.filterTemplate,
         timeoutAt: input.timeoutAt,
+        waitConfig: input.waitConfig ?? null,
         createdAt: new Date(),
       });
       return id;
@@ -196,6 +221,12 @@ export function createInMemoryRunStore(): {
         }
       }
       return matches;
+    },
+    async findWaitLocksByKind(kind) {
+      return [...waitLocks.values()].filter((lock) => lock.kind === kind);
+    },
+    async findWaitLocksByRun(runId) {
+      return [...waitLocks.values()].filter((lock) => lock.runId === runId);
     },
     async deleteWaitLock(id) {
       waitLocks.delete(id);
@@ -267,7 +298,15 @@ export function createInMemoryArtifactStore(): {
   return { store, artifacts };
 }
 
-export function createInMemoryRunStateStore(): {
+/**
+ * @param runs - the run store's `runs` map, so `findStalledRunIds`
+ *   faithfully models the real DB join that filters to `status =
+ *   'running'`. Without it the fake would skip the status filter and a
+ *   test couldn't observe the C1 fix (a `waiting` run must NOT be swept).
+ */
+export function createInMemoryRunStateStore(
+  runs?: Map<string, LoadedRun>,
+): {
   store: RunStateStore;
   states: Map<string, RunStateSnapshot>;
   locks: Set<string>;
@@ -277,9 +316,16 @@ export function createInMemoryRunStateStore(): {
 
   const store: RunStateStore = {
     async upsert(input) {
+      const existing = states.get(input.runId);
+      // Mirror the real store: omitting `lastActionPath` on an existing
+      // row preserves the prior checkpoint; passing it (incl. null) sets it.
+      const lastActionPath =
+        input.lastActionPath === undefined
+          ? (existing?.lastActionPath ?? null)
+          : input.lastActionPath;
       states.set(input.runId, {
         scopeSnapshot: input.scopeSnapshot,
-        lastActionPath: input.lastActionPath,
+        lastActionPath,
         lastHeartbeatAt: new Date(),
       });
     },
@@ -296,21 +342,102 @@ export function createInMemoryRunStateStore(): {
     async findStalledRunIds(threshold) {
       const ids: string[] = [];
       for (const [runId, s] of states.entries()) {
-        if (s.lastHeartbeatAt < threshold) ids.push(runId);
+        if (s.lastHeartbeatAt >= threshold) continue;
+        // Faithful model of the DB join: only `running` runs are stalled.
+        if (runs && runs.get(runId)?.status !== "running") continue;
+        ids.push(runId);
       }
       return ids;
     },
     async tryAdvisoryLock(runId) {
-      if (locks.has(runId)) return false;
+      if (locks.has(runId)) return null;
       locks.add(runId);
-      return true;
-    },
-    async releaseAdvisoryLock(runId) {
-      locks.delete(runId);
+      let released = false;
+      return {
+        async release() {
+          if (released) return;
+          released = true;
+          locks.delete(runId);
+        },
+      };
     },
   };
 
   return { store, states, locks };
+}
+
+export function createInMemoryDwellStore(): {
+  store: DwellStore;
+  dwells: Map<string, LoadedDwell>;
+} {
+  const dwells = new Map<string, LoadedDwell>();
+  let counter = 0;
+
+  const matchesKey = (
+    d: LoadedDwell,
+    automationId: string,
+    triggerId: string,
+    contextKey: string | null,
+  ) =>
+    d.automationId === automationId &&
+    d.triggerId === triggerId &&
+    d.contextKey === contextKey;
+
+  const store: DwellStore = {
+    async arm(input: UpsertDwellInput) {
+      // Insert-if-absent: preserve an existing dwell's original fireAt.
+      const existing = [...dwells.values()].find((d) =>
+        matchesKey(d, input.automationId, input.triggerId, input.contextKey),
+      );
+      if (existing) {
+        return { id: existing.id, created: false, fireAt: existing.fireAt };
+      }
+      const id = `dwell-${++counter}`;
+      dwells.set(id, {
+        id,
+        automationId: input.automationId,
+        triggerId: input.triggerId,
+        eventId: input.eventId,
+        contextKey: input.contextKey,
+        armedStatus: input.armedStatus,
+        payloadSnapshot: input.payloadSnapshot,
+        actorSnapshot: input.actorSnapshot,
+        fireAt: input.fireAt,
+        createdAt: new Date(),
+      });
+      return { id, created: true, fireAt: input.fireAt };
+    },
+    async load(id) {
+      return dwells.get(id);
+    },
+    async findByKey(automationId, triggerId, contextKey) {
+      return [...dwells.values()].find((d) =>
+        matchesKey(d, automationId, triggerId, contextKey),
+      );
+    },
+    async delete(id) {
+      // Map.delete returns true only if the key existed — a faithful
+      // model of the DB's `DELETE ... RETURNING` atomic claim.
+      return dwells.delete(id);
+    },
+    async deleteByKey(automationId, triggerId, contextKey) {
+      for (const [id, d] of dwells.entries()) {
+        if (matchesKey(d, automationId, triggerId, contextKey)) dwells.delete(id);
+      }
+    },
+    async deleteForAutomation(automationId) {
+      for (const [id, d] of dwells.entries()) {
+        if (d.automationId === automationId) dwells.delete(id);
+      }
+    },
+    async sweepExpired(now) {
+      return [...dwells.values()].filter(
+        (d) => d.fireAt.getTime() <= now.getTime(),
+      );
+    },
+  };
+
+  return { store, dwells };
 }
 
 /**
@@ -442,16 +569,38 @@ export function makeDispatchDeps(opts?: {
   actions?: ActionRegistry;
   artifactTypes?: ArtifactTypeRegistry;
   triggers?: TriggerRegistry;
+  /** Optional health-check client for sensing-layer enrichment tests. */
+  healthCheckClient?: DispatchDeps["healthCheckClient"];
+  /**
+   * Wire a faithful in-memory serializing lock for the concurrency-mode
+   * check-then-create (models the real transaction-scoped advisory lock:
+   * keyed, blocks until granted). Off by default so the natural
+   * check-then-create race is observable in tests that don't opt in.
+   */
+  withConcurrencyLock?: boolean;
 }): {
   deps: DispatchDeps;
   runs: ReturnType<typeof createInMemoryRunStore>;
   artifacts: ReturnType<typeof createInMemoryArtifactStore>;
   state: ReturnType<typeof createInMemoryRunStateStore>;
+  dwells: ReturnType<typeof createInMemoryDwellStore>;
   queue: FakeQueueManager;
 } {
-  const runs = createInMemoryRunStore();
+  // `cancelActiveRuns` clears the cancelled runs' run-state rows too (the
+  // real store deletes wait locks + run-state in one op). The run-state map
+  // doesn't exist yet, so let the cancel hook reach it lazily via a holder.
+  const stateHolder: {
+    store?: ReturnType<typeof createInMemoryRunStateStore>;
+  } = {};
+  const runs = createInMemoryRunStore({
+    onCancel: (ids) => {
+      for (const id of ids) stateHolder.store?.states.delete(id);
+    },
+  });
   const artifacts = createInMemoryArtifactStore();
-  const state = createInMemoryRunStateStore();
+  const state = createInMemoryRunStateStore(runs.runs);
+  stateHolder.store = state;
+  const dwells = createInMemoryDwellStore();
   const queue = createFakeQueueManager();
   const noopLogger = {
     debug: () => {},
@@ -470,12 +619,34 @@ export function makeDispatchDeps(opts?: {
     runStore: runs.store,
     artifactStore: artifacts.store,
     runStateStore: state.store,
+    dwellStore: dwells.store,
     queueManager: queue.manager,
+    healthCheckClient: opts?.healthCheckClient,
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },
   };
-  return { deps, runs, artifacts, state, queue };
+  if (opts?.withConcurrencyLock) {
+    // A faithful keyed async mutex: a second caller for the same key awaits
+    // the first's completion, exactly like pg_advisory_xact_lock blocking
+    // until COMMIT. Distinct keys never contend.
+    const chains = new Map<string, Promise<unknown>>();
+    deps.withConcurrencyLock = <T>(key: string, fn: () => Promise<T>) => {
+      const prior = chains.get(key) ?? Promise.resolve();
+      const next = prior.then(() => fn());
+      // Keep the chain alive even if fn rejects, so the lock still releases
+      // (catch swallows both outcomes into a settled void promise).
+      chains.set(
+        key,
+        next.then(
+          () => {},
+          () => {},
+        ),
+      );
+      return next;
+    };
+  }
+  return { deps, runs, artifacts, state, dwells, queue };
 }
 
 // ─── Shared fixtures ────────────────────────────────────────────────────

@@ -127,6 +127,34 @@ spec:
 
 The reconciler adopts pre-existing satellites by `metadata.name` on first sync, so manually-created satellites are absorbed safely.
 
+### `kind: Automation` (automation)
+
+Declares an automation - its triggers, conditions, and actions - so the whole workflow lives in Git. The `spec` is the full automation definition (the same shape the visual / YAML editor produces). On reconcile the automation is upserted; reconciled rows are marked GitOps-managed, so the editor shows a lock banner and disables Save / Delete until the change is made in Git.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: Automation
+metadata:
+  name: jira-on-incident
+  title: Open a Jira ticket on incident
+spec:
+  triggers:
+    - event: incident.created
+  conditions:
+    - "trigger.payload.severity == 'critical'"
+  actions:
+    - id: file_ticket
+      action: integration-jira.create_issue
+      config:
+        connectionId: "prod-jira"
+        projectKey: "OPS"
+        summary: "{{ trigger.payload.title }}"
+  mode: single
+  concurrency_scope: automation
+```
+
+The `spec` accepts every automation field: `triggers` (with optional `for:` dwells), structured `conditions`, the full action catalog, `mode`, `concurrency_scope`, `max_runs`, `uses_state`, and `state_window_minutes`. Validation is the same `AutomationDefinitionSchema` the editor uses, so a definition that round-trips in the UI is a valid descriptor.
+
 ## Built-in extensions
 
 Extensions add namespaced fields to an existing kind. They appear under `spec.<namespace>:` in the descriptor.
@@ -181,14 +209,14 @@ spec:
         autoCloseAfterMinutes: 30  # null = never auto-close
 ```
 
-The `notificationPolicy` block is per assignment — different checks on the
+The `notificationPolicy` block is per assignment - different checks on the
 same system are fully independent. Any field omitted falls back to the
 platform default. Inner objects (`sustainedUnhealthyTrigger`,
 `flappingTrigger`) are also accepted partially.
 
 Either trigger can independently open an auto-incident; both can be
 individually disabled by setting their `enabled: false`. The cooldown is
-snapshotted per-incident at open time — a later policy edit doesn't
+snapshotted per-incident at open time - a later policy edit doesn't
 change in-flight incidents.
 
 > [!TIP]
@@ -199,7 +227,7 @@ change in-flight incidents.
 
 > [!NOTE]
 > If both triggers fire on the same run, the flapping reason takes the
-> incident description. The behaviour is identical either way — one
+> incident description. The behaviour is identical either way - one
 > incident per system, attached to via `findActiveAutoIncident`.
 
 ### `System.dependencies` (dependency)

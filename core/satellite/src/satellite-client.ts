@@ -8,8 +8,15 @@ import type {
   CoreToSatelliteMessage,
   SatelliteToCoreMessage,
   ResultMessage,
+  ScriptPackageSyncStateMessage,
 } from "@checkstack/satellite-common";
 import { ResultBuffer } from "./result-buffer";
+
+interface ManifestEntryWire {
+  name: string;
+  version: string;
+  integrity: string;
+}
 
 interface SatelliteClientConfig {
   coreUrl: string;
@@ -18,6 +25,12 @@ interface SatelliteClientConfig {
   version: string;
   onAssignments: (assignments: SatelliteAssignment[]) => void;
   onDisconnect?: () => void;
+  /**
+   * Called with the desired script-package lockfile hash whenever the core
+   * signals one - on connect (assignment-carried backstop) and on a
+   * `refresh_script_packages` push. The satellite reconciles to it.
+   */
+  onScriptPackagesLockfileHash?: (lockfileHash: string | null) => void;
   logger?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -38,9 +51,115 @@ export class SatelliteClient {
   private connected = false;
   private readonly resultBuffer = new ResultBuffer();
   private readonly config: SatelliteClientConfig;
+  // Pending script-package request promises, resolved when the matching
+  // core reply arrives. Keyed by lockfileHash (manifest) / integrity (blob).
+  private readonly pendingManifest = new Map<
+    string,
+    (entries: ManifestEntryWire[]) => void
+  >();
+  private readonly pendingBlob = new Map<
+    string,
+    (data: string | null) => void
+  >();
+  // Pending run-secret requests, keyed by requestId, resolved/rejected when
+  // the matching `run_secrets` reply arrives.
+  private readonly pendingRunSecrets = new Map<
+    string,
+    {
+      resolve: (env: Record<string, string>) => void;
+      reject: (error: Error) => void;
+    }
+  >();
 
   constructor(config: SatelliteClientConfig) {
     this.config = config;
+  }
+
+  /**
+   * Request the manifest for a lockfile hash from core (over the WS channel).
+   * Resolves when the core replies, or rejects on timeout.
+   */
+  requestManifest(
+    lockfileHash: string,
+    timeoutMs = 30_000,
+  ): Promise<ManifestEntryWire[]> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingManifest.delete(lockfileHash);
+        reject(new Error(`Manifest request timed out for ${lockfileHash}`));
+      }, timeoutMs);
+      this.pendingManifest.set(lockfileHash, (entries) => {
+        clearTimeout(timer);
+        resolve(entries);
+      });
+      this.sendMessage({
+        type: "request_script_package_manifest",
+        lockfileHash,
+      });
+    });
+  }
+
+  /** Request one blob (base64) from core. Resolves null if core lacks it. */
+  requestBlob(integrity: string, timeoutMs = 60_000): Promise<string | null> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingBlob.delete(integrity);
+        reject(new Error(`Blob request timed out for ${integrity}`));
+      }, timeoutMs);
+      this.pendingBlob.set(integrity, (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+      this.sendMessage({ type: "request_script_package_blob", integrity });
+    });
+  }
+
+  /**
+   * Request just-in-time secret env for a collector run from core. Core
+   * resolves the collector's declared `secretEnv` (from the satellite's own
+   * assignment) and replies with the env map. Rejects on a resolution error
+   * or timeout so the caller fails the run clearly rather than running
+   * without the secret. The returned env is held in memory only.
+   */
+  requestRunSecrets(
+    input: { configId: string; collectorId: string; runId: string },
+    timeoutMs = 30_000,
+  ): Promise<Record<string, string>> {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pendingRunSecrets.delete(requestId);
+        reject(
+          new Error(
+            `Run-secret delivery timed out for ${input.collectorId} (run ${input.runId})`,
+          ),
+        );
+      }, timeoutMs);
+      this.pendingRunSecrets.set(requestId, {
+        resolve: (env) => {
+          clearTimeout(timer);
+          resolve(env);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      this.sendMessage({
+        type: "request_run_secrets",
+        requestId,
+        configId: input.configId,
+        collectorId: input.collectorId,
+        runId: input.runId,
+      });
+    });
+  }
+
+  /** Report this satellite's script-package reconcile state to core. */
+  reportScriptPackageSyncState(
+    state: Omit<ScriptPackageSyncStateMessage, "type">,
+  ): void {
+    this.sendMessage({ type: "script_package_sync_state", ...state });
   }
 
   /**
@@ -123,6 +242,13 @@ export class SatelliteClient {
         this.startHeartbeat();
         this.flushBuffer();
         this.config.onAssignments(msg.assignments);
+        // Durable backstop: reconcile to the assignment-carried hash on
+        // every (re)connect, even if a refresh push was missed offline.
+        if (msg.scriptPackagesLockfileHash !== undefined) {
+          this.config.onScriptPackagesLockfileHash?.(
+            msg.scriptPackagesLockfileHash,
+          );
+        }
         break;
       }
 
@@ -138,6 +264,52 @@ export class SatelliteClient {
           `Config updated: ${msg.assignments.length} assignments`,
         );
         this.config.onAssignments(msg.assignments);
+        if (msg.scriptPackagesLockfileHash !== undefined) {
+          this.config.onScriptPackagesLockfileHash?.(
+            msg.scriptPackagesLockfileHash,
+          );
+        }
+        break;
+      }
+
+      case "refresh_script_packages": {
+        this.config.logger?.info(
+          `Script packages refresh requested: ${msg.lockfileHash}`,
+        );
+        this.config.onScriptPackagesLockfileHash?.(msg.lockfileHash);
+        break;
+      }
+
+      case "script_package_manifest": {
+        // The pending callback is looked up by a message-supplied key. Validate
+        // that what we got back is actually callable before invoking it, so an
+        // unknown/forged key can never dispatch to an unexpected target.
+        const resolveManifest = this.pendingManifest.get(msg.lockfileHash);
+        this.pendingManifest.delete(msg.lockfileHash);
+        if (typeof resolveManifest === "function") resolveManifest(msg.entries);
+        break;
+      }
+
+      case "script_package_blob": {
+        const resolveBlob = this.pendingBlob.get(msg.integrity);
+        this.pendingBlob.delete(msg.integrity);
+        if (typeof resolveBlob === "function") resolveBlob(msg.data);
+        break;
+      }
+
+      case "run_secrets": {
+        const pending = this.pendingRunSecrets.get(msg.requestId);
+        this.pendingRunSecrets.delete(msg.requestId);
+        if (!pending) break;
+        if (msg.error !== undefined || msg.env === undefined) {
+          pending.reject(
+            new Error(
+              msg.error ?? "Required secret not available on this satellite",
+            ),
+          );
+        } else {
+          pending.resolve(msg.env);
+        }
         break;
       }
 

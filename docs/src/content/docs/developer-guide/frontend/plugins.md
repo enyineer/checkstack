@@ -1134,5 +1134,5 @@ run `bun run dev` from your plugin's repo — see
 - [Backend Plugin Development](/checkstack/developer-guide/backend/plugins/)
 - [Common Plugin Guidelines](/checkstack/developer-guide/common/plugins/)
 - [Extension Points](/checkstack/developer-guide/frontend/extension-points/)
-- [UI Component Library](/checkstack/developer-guide/core/ui/README/)
+- UI Component Library
 

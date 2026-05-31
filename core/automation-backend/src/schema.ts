@@ -5,6 +5,7 @@ import {
   jsonb,
   integer,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -200,19 +201,35 @@ export const automationWaitLocks = pgTable(
       .references(() => automationRuns.id, { onDelete: "cascade" }),
     /** Action path of the suspended node — used to resume from the next sibling. */
     actionPath: text("action_path").notNull(),
-    /** Discriminator: "trigger" (wait_for_trigger) or "delay" (queue-backed sleep). */
+    /**
+     * Discriminator:
+     *   - "trigger" — wait_for_trigger (woken by a matching event)
+     *   - "delay"   — queue-backed sleep
+     *   - "until"   — wait_until: polled condition re-check on an interval
+     */
     kind: text("kind").notNull().default("trigger"),
-    /** Fully qualified event id being awaited (only meaningful when kind = "trigger"). */
+    /**
+     * Fully qualified event id being awaited (only meaningful when
+     * kind = "trigger"). For "delay" / "until" a synthetic marker.
+     */
     eventId: text("event_id").notNull(),
     /** Optional context-key filter (e.g. same incidentId). */
     contextKey: text("context_key"),
     /** Optional template that must evaluate truthy on the arriving payload. */
     filterTemplate: text("filter_template"),
     /**
+     * Config for `kind = "until"` — the condition to re-evaluate, the
+     * poll interval, and the timeout behaviour. JSON because the
+     * condition may be a structured object, not just a template string.
+     */
+    waitConfig: jsonb("wait_config").$type<Record<string, unknown>>(),
+    /**
      * Absolute deadline. For `kind = "trigger"`: nullable; if set, the
      * sweeper fails the run when exceeded. For `kind = "delay"`:
      * required; the firing time after which the run should resume even
-     * if the queue job is lost.
+     * if the queue job is lost. For `kind = "until"`: optional wait
+     * deadline (null = wait forever); the sweeper re-ticks "until" locks
+     * regardless, so a lost re-check job still self-heals.
      */
     timeoutAt: timestamp("timeout_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -227,6 +244,8 @@ export const automationWaitLocks = pgTable(
     timeoutIdx: index("automation_wait_locks_timeout_idx").on(t.timeoutAt),
     /** Powers the run-detail UI's "what are we waiting on?" view. */
     runIdx: index("automation_wait_locks_run_idx").on(t.runId),
+    /** Powers the sweeper's "re-tick all until locks" scan. */
+    kindIdx: index("automation_wait_locks_kind_idx").on(t.kind),
   }),
 );
 
@@ -267,6 +286,83 @@ export const automationRunState = pgTable(
      */
     heartbeatIdx: index("automation_run_state_heartbeat_idx").on(
       t.lastHeartbeatAt,
+    ),
+  }),
+);
+
+/**
+ * Pre-run dwell timers — the durable backing for a trigger's `for:`
+ * dwell ("fire only if the matched state still holds after Y").
+ *
+ * A dwell is a property of the *trigger* and arms BEFORE any run exists,
+ * so it cannot reuse `automation_wait_locks` (whose `runId` is NOT NULL).
+ * The row is the source of truth; an `automation-dwell` queue job is just
+ * the wake signal. Cancellation is DB-side (delete the row) — the queue
+ * job pops later and no-ops because the row is gone (constraint 2).
+ *
+ *   - `armedStatus` — the status snapshotted at arm time; the expiry
+ *     re-confirm proceeds only if the system is still in this status.
+ *   - `fireAt` — absolute deadline; the queue job carries the matching
+ *     `startDelay`, and the sweeper catches expired rows whose job was
+ *     lost.
+ *   - `payloadSnapshot` / `actorSnapshot` — the firing event's payload +
+ *     actor, replayed into the run when the dwell fires.
+ *
+ * Unique on `(automationId, triggerId, contextKey)` so a re-fire re-arms
+ * the same row (pushes `fireAt`) rather than stacking duplicate timers.
+ */
+export const automationDwellTimers = pgTable(
+  "automation_dwell_timers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    automationId: text("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    /** Operator-assigned or derived trigger id this dwell belongs to. */
+    triggerId: text("trigger_id").notNull(),
+    /** Fully qualified event id that armed the dwell. */
+    eventId: text("event_id").notNull(),
+    /** Durable context key (typically the systemId). Nullable. */
+    contextKey: text("context_key"),
+    /**
+     * Status the system was in when the dwell armed. The expiry
+     * re-confirm fires the run only if the system is still in this
+     * status. Null when no live status was resolvable at arm time
+     * (re-confirm then proceeds without a status gate).
+     */
+    armedStatus: text("armed_status"),
+    /** Firing event payload, replayed into the run on fire. */
+    payloadSnapshot: jsonb("payload_snapshot")
+      .notNull()
+      .$type<Record<string, unknown>>(),
+    /** Firing event actor, replayed into the run on fire. */
+    actorSnapshot: jsonb("actor_snapshot")
+      .notNull()
+      .$type<Record<string, unknown>>(),
+    /** Absolute deadline (now + for). */
+    fireAt: timestamp("fire_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    /**
+     * Addressable for re-arm + cancellation. Postgres treats NULLs as
+     * distinct in a unique index, so the rare null-context-key dwell
+     * cannot rely on ON CONFLICT to de-dupe; the store handles that case
+     * with an explicit find-then-update (see dwell-store.ts). Non-null
+     * keys (the common systemId case) de-dupe via this index.
+     */
+    keyUnique: uniqueIndex("automation_dwell_timers_key_unique").on(
+      t.automationId,
+      t.triggerId,
+      t.contextKey,
+    ),
+    /** Powers the sweeper's expired-dwell scan. */
+    fireAtIdx: index("automation_dwell_timers_fire_at_idx").on(t.fireAt),
+    /** Powers cleanup of dwells for a deleted/disabled automation. */
+    automationIdx: index("automation_dwell_timers_automation_idx").on(
+      t.automationId,
     ),
   }),
 );

@@ -491,5 +491,5 @@ describe("SshHealthCheckStrategy", () => {
 ## Next Steps
 
 - [Collector Plugin Development](/checkstack/developer-guide/backend/healthchecks/collectors/) - Extend strategies with collectors
-- [Versioned Configurations](/checkstack/developer-guide/backend/healthchecks/versioned-configs/) - Schema versioning and migrations
-- [Plugin Development Guide](/checkstack/developer-guide/backend/healthchecks/plugins/) - General plugin patterns
+- [Versioned Configurations](/checkstack/developer-guide/backend/versioned-configs/) - Schema versioning and migrations
+- [Plugin Development Guide](/checkstack/developer-guide/backend/plugins/) - General plugin patterns

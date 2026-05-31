@@ -27,15 +27,55 @@ import {
   defaultShellScriptRunner,
   requestTimeoutMs,
   Versioned,
+  withConfigMeta,
   type EsmScriptRunner,
+  type ServiceRef,
   type ShellScriptRunner,
 } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   ActionRunScope,
 } from "@checkstack/automation-backend";
+import type { ResolutionRootStatus } from "@checkstack/script-packages-backend";
 import { extractErrorMessage, SYSTEM_ACTOR } from "@checkstack/common";
+import { secretEnvMappingSchema } from "@checkstack/secrets-common";
+import {
+  secretResolverRef,
+  EMPTY_MASKING_CONTEXT,
+  type SecretMaskingContext,
+} from "@checkstack/secrets-backend";
 import { flattenScopeToShellEnv } from "./script-env";
+
+/**
+ * `getService` shape an action's `execute` receives (mirrors the
+ * automation `ActionExecutionContext`). The resolver is looked up at run
+ * time so the action factory stays dependency-free and unit-testable.
+ */
+type GetService = <T>(ref: ServiceRef<T>) => Promise<T>;
+
+/**
+ * Resolve a consumer's least-privilege `secretEnv` allowlist into the env
+ * to inject + a run-scoped masking context. Decision 5 (least-privilege):
+ * ONLY the secrets the consumer declared are resolved; nothing ambient.
+ *
+ * Returns an empty injection + no-op masking context when no `secretEnv`
+ * is declared. Throws (propagated to a clear run failure) if a referenced
+ * secret can't resolve — a run never proceeds silently without a required
+ * secret.
+ */
+async function resolveRunSecrets({
+  secretEnv,
+  getService,
+}: {
+  secretEnv: Record<string, string> | undefined;
+  getService: GetService;
+}): Promise<{ env: Record<string, string>; masking: SecretMaskingContext }> {
+  if (!secretEnv || Object.keys(secretEnv).length === 0) {
+    return { env: {}, masking: EMPTY_MASKING_CONTEXT };
+  }
+  const resolver = await getService(secretResolverRef);
+  return resolver.resolveForRun({ secretEnv });
+}
 
 /**
  * Fallback scope for the (test-only) case where `execute` is invoked
@@ -53,12 +93,18 @@ const EMPTY_SCOPE: ActionRunScope = {
 const shellRunConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["shell"],
+    "x-script-testable": true,
   }).describe("Bash script to execute"),
   env: z
     .record(z.string(), configString({}))
     .optional()
     .describe(
       "Extra environment variables — keys must be uppercase shell-safe identifiers.",
+    ),
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
+    .optional()
+    .describe(
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via $API_TOKEN). Values are masked out of the captured output.',
     ),
   workingDirectory: z
     .string()
@@ -114,18 +160,46 @@ export function createShellRunAction(
       schema: shellRunConfigSchema,
     }),
     produces: "shell_result",
-    execute: async ({ config, logger, scope = EMPTY_SCOPE }) => {
+    execute: async ({ config, logger, scope = EMPTY_SCOPE, getService }) => {
       const startedAt = Date.now();
+      // Resolve the declared least-privilege secret allowlist into env +
+      // a run-scoped masking context. Throws clearly if a secret is
+      // missing, so a run never proceeds without a required secret.
+      let secretEnv: Record<string, string>;
+      let masking: SecretMaskingContext;
       try {
-        const result = await runner.run({
+        const resolved = await resolveRunSecrets({
+          secretEnv: config.secretEnv,
+          getService,
+        });
+        secretEnv = resolved.env;
+        masking = resolved.masking;
+      } catch (error) {
+        const message = extractErrorMessage(error);
+        logger.error(`Secret resolution failed: ${message}`);
+        return { success: false, error: `Secret error: ${message}` };
+      }
+      try {
+        const raw = await runner.run({
           script: config.script,
           // Run context is exposed as `$CHECKSTACK_*` env vars (not
-          // `{{ }}` templates). The operator's own `config.env` wins on
-          // any name collision.
-          env: { ...flattenScopeToShellEnv(scope), ...config.env },
+          // `{{ }}` templates). The operator's own `config.env` then the
+          // resolved secret env are layered on top; secrets win last so a
+          // declared secret can't be shadowed by a plain env entry.
+          env: {
+            ...flattenScopeToShellEnv(scope),
+            ...config.env,
+            ...secretEnv,
+          },
           cwd: config.workingDirectory,
           timeoutMs: config.timeout,
         });
+        // Mask captured output at the boundary before logging / persisting.
+        const result = {
+          ...raw,
+          stdout: masking.maskText(raw.stdout),
+          stderr: masking.maskText(raw.stderr),
+        };
         const durationMs = Date.now() - startedAt;
 
         if (result.timedOut) {
@@ -195,9 +269,15 @@ export const shellRunAction = createShellRunAction();
 const scriptRunConfigSchema = z.object({
   script: configString({
     "x-editor-types": ["typescript"],
+    "x-script-testable": true,
   }).describe(
     "TypeScript/JavaScript module to execute. Default-export an async function that receives `context` and returns a JSON-serialisable value (e.g. `{ id }`). The Monaco editor for this field consumes `generateAutomationContextTypes` from `@checkstack/automation-frontend` so `context.trigger.payload` is typed as a discriminated union over the automation's subscribed triggers.",
   ),
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
+    .optional()
+    .describe(
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.jira_token }}" }. Only the named secrets are resolved and injected for this run (read via process.env.API_TOKEN). Values are masked out of the captured output and the return value.',
+    ),
   timeout: requestTimeoutMs().describe("Maximum execution time in milliseconds"),
 });
 
@@ -288,6 +368,13 @@ export interface ScriptActionDeps {
    * real Bun subprocess.
    */
   runner?: EsmScriptRunner;
+  /**
+   * Resolves the managed npm-package resolution root for THIS run. Wired by
+   * the plugin (which has DB access). When omitted, no package resolution
+   * is attempted (today's behavior). `notReady` fails the run with a clear
+   * error instead of running against a stale / empty tree.
+   */
+  getResolutionRoot?: () => Promise<ResolutionRootStatus>;
 }
 
 export function createScriptRunAction(
@@ -313,6 +400,7 @@ export function createScriptRunAction(
       automationId,
       contextKey,
       scope = EMPTY_SCOPE,
+      getService,
     }) => {
       const startedAt = Date.now();
       const scriptContext: ScriptContext = {
@@ -322,14 +410,58 @@ export function createScriptRunAction(
         ...(scope.repeat ? { repeat: scope.repeat } : {}),
         automation: { runId, automationId, contextKey },
       };
+      // Resolve the managed npm-package root for this run. `none` -> unset
+      // (no packages configured); `notReady` -> fail clearly (syncing);
+      // `ready` -> point the runner at the materialized tree.
+      const rootStatus = await deps.getResolutionRoot?.();
+      if (rootStatus?.mode === "notReady") {
+        logger.error(rootStatus.reason);
+        return { success: false, error: rootStatus.reason };
+      }
+      const resolutionRoot =
+        rootStatus?.mode === "ready" ? rootStatus.root : undefined;
+      // Resolve the declared least-privilege secret allowlist into env +
+      // a run-scoped masking context (memory-only; throws clearly on a
+      // missing required secret).
+      let secretEnv: Record<string, string>;
+      let masking: SecretMaskingContext;
       try {
-        const execResult = await runner.run({
+        const resolved = await resolveRunSecrets({
+          secretEnv: config.secretEnv,
+          getService,
+        });
+        secretEnv = resolved.env;
+        masking = resolved.masking;
+      } catch (error) {
+        const message = extractErrorMessage(error);
+        logger.error(`Secret resolution failed: ${message}`);
+        return { success: false, error: `Secret error: ${message}` };
+      }
+      try {
+        const raw = await runner.run({
           script: config.script,
           context: scriptContext,
           timeoutMs: config.timeout,
           helperModuleName: "@checkstack/integration",
           helperFunctionName: "defineIntegration",
+          // Inject the resolved secrets as process.env for THIS run only.
+          ...(Object.keys(secretEnv).length > 0 ? { env: secretEnv } : {}),
+          ...(resolutionRoot ? { resolutionRoot } : {}),
         });
+        // Mask captured output at the boundary (stdout/stderr go to logs,
+        // result + stdout/stderr to the persisted artifact). A script that
+        // echoes a secret it was given is redacted here too.
+        const execResult = {
+          ...raw,
+          stdout: masking.maskText(raw.stdout),
+          stderr: masking.maskText(raw.stderr),
+          ...(raw.error === undefined
+            ? {}
+            : { error: masking.maskText(raw.error) }),
+          ...(raw.result === undefined
+            ? {}
+            : { result: masking.maskDeep(raw.result) }),
+        };
         const durationMs = Date.now() - startedAt;
 
         if (execResult.stdout.length > 0) {

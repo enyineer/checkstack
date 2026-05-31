@@ -10,6 +10,7 @@ import type {
   StopInput,
   VariablesInput,
   WaitForTriggerInput,
+  WaitUntilInput,
 } from "@checkstack/automation-common";
 import type { LucideIconName } from "@checkstack/ui";
 
@@ -27,6 +28,7 @@ export type ActionKind =
   | "condition"
   | "stop"
   | "wait_for_trigger"
+  | "wait_until"
   | "sequence"
   | "delay";
 
@@ -39,6 +41,7 @@ export const ACTION_KINDS: ActionKind[] = [
   "condition",
   "stop",
   "wait_for_trigger",
+  "wait_until",
   "sequence",
   "delay",
 ];
@@ -103,6 +106,12 @@ export const ACTION_KIND_META: Record<ActionKind, ActionKindMeta> = {
     description: "Suspend until a matching trigger event arrives.",
     icon: "Hourglass",
   },
+  wait_until: {
+    kind: "wait_until",
+    label: "Wait until",
+    description: "Suspend until a condition becomes true, with optional timeout.",
+    icon: "TimerReset",
+  },
   sequence: {
     kind: "sequence",
     label: "Sequence",
@@ -132,6 +141,7 @@ export function actionKindOf(action: ActionInput): ActionKind {
   if ("condition" in action) return "condition";
   if ("stop" in action) return "stop";
   if ("wait_for_trigger" in action) return "wait_for_trigger";
+  if ("wait_until" in action) return "wait_until";
   if ("sequence" in action) return "sequence";
   return "delay";
 }
@@ -189,6 +199,16 @@ export function makeEmptyAction(kind: ActionKind): ActionInput {
         ...BASE,
         wait_for_trigger: { event: "" },
       } satisfies WaitForTriggerInput;
+    }
+    case "wait_until": {
+      return {
+        ...BASE,
+        wait_until: {
+          condition: "",
+          continue_on_timeout: true,
+          poll_seconds: 30,
+        },
+      } satisfies WaitUntilInput;
     }
     case "sequence": {
       return {

@@ -382,6 +382,6 @@ Follow the platform's design system for colors and spacing:
 
 ## Next Steps
 
-- [Health Check Data Management](/checkstack/developer-guide/backend/healthcheck-data-management/) - Backend aggregation details
+- [Health Check Data Management](/checkstack/developer-guide/backend/healthchecks/data-management/) - Backend aggregation details
 - [Extension Points](/checkstack/developer-guide/frontend/extension-points/) - General slot system
 - [Theming](/checkstack/developer-guide/frontend/theming/) - Design tokens and colors

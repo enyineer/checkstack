@@ -1,0 +1,17 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../script-packages-backend"
+    }
+  ]
+}

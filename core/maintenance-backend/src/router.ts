@@ -380,6 +380,11 @@ export function createRouter(
         return { suppressed };
       }),
 
+    hasActiveMaintenance: os.hasActiveMaintenance.handler(async ({ input }) => {
+      const active = await service.hasActiveMaintenance(input.systemId);
+      return { active };
+    }),
+
     addLink: os.addLink.handler(async ({ input }) => {
       const maintenance = await service.getMaintenance(input.maintenanceId);
       if (!maintenance) {

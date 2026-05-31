@@ -43,6 +43,12 @@ import type { AutomationStore } from "./automation-store";
 import { dispatchTrigger } from "./dispatch/engine";
 import type { DispatchDeps } from "./dispatch/types";
 import { collectDefinitionIssues } from "./validate-definition";
+import {
+  resolveResolutionRootFromStore,
+  resolveScriptPackagesDir,
+} from "@checkstack/script-packages-backend";
+import { runScriptTest } from "./script-test";
+import { buildReplayContext } from "./script-test-replay";
 import * as schema from "./schema";
 
 interface RouterDeps {
@@ -513,6 +519,60 @@ export function createAutomationRouter(deps: RouterDeps) {
         return { success: true };
       },
     ),
+
+    // ─── Inline script testing ───────────────────────────────────────────
+
+    testScript: os.testScript.handler(async ({ input }) => {
+      // Resolve the managed npm-package root from the local store so a test
+      // resolves the same allowlisted packages the real `run_script` action
+      // would (plan §4.1). Filesystem-only: ready when a tree is
+      // materialized, else unset. Execution safety is the runner's
+      // (auto-install disabled).
+      const status = await resolveResolutionRootFromStore(
+        resolveScriptPackagesDir(),
+      );
+      const resolutionRoot =
+        status.mode === "ready" ? status.root : undefined;
+      return runScriptTest({ input, deps: { resolutionRoot } });
+    }),
+
+    getRunScopeForReplay: os.getRunScopeForReplay.handler(async ({ input }) => {
+      const runRow = await db
+        .select()
+        .from(schema.automationRuns)
+        .where(eq(schema.automationRuns.id, input.runId))
+        .limit(1);
+      const run = runRow[0];
+      if (!run) {
+        throw new ORPCError("NOT_FOUND", {
+          message: `Run ${input.runId} not found`,
+        });
+      }
+
+      const [artifactRows, runState] = await Promise.all([
+        db
+          .select()
+          .from(schema.automationArtifacts)
+          .where(eq(schema.automationArtifacts.runId, input.runId))
+          .orderBy(asc(schema.automationArtifacts.createdAt)),
+        dispatchDeps.runStateStore.load(input.runId),
+      ]);
+
+      const context = buildReplayContext({
+        run: {
+          triggerEventId: run.triggerEventId,
+          triggerPayload: run.triggerPayload,
+        },
+        artifacts: artifactRows.map((row) => ({
+          artifactType: row.artifactType,
+          actionId: row.actionId,
+          data: row.data,
+        })),
+        scopeSnapshot: runState?.scopeSnapshot,
+      });
+
+      return { context, scopeSnapshotAvailable: runState !== undefined };
+    }),
 
     // ─── Template playground ─────────────────────────────────────────────
 

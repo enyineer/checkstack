@@ -8,9 +8,10 @@
  * trigger subscriber).
  */
 import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 
 import {
+  automationRunState,
   automationRunSteps,
   automationRuns,
   automationWaitLocks,
@@ -23,17 +24,57 @@ import type {
   LoadedStep,
   LoadedWaitLock,
   RunStore,
+  WaitLockKind,
 } from "./types";
+import { parseWaitConfig } from "./snapshots";
+import type { RunSecretRegistry } from "./run-secret-registry";
 
 type Schema = {
   automationRuns: typeof automationRuns;
   automationRunSteps: typeof automationRunSteps;
   automationWaitLocks: typeof automationWaitLocks;
+  automationRunState: typeof automationRunState;
 };
 
 const ACTIVE_STATUSES = ["pending", "running", "waiting"] as const;
 
-export function createRunStore(db: SafeDatabase<Schema>): RunStore {
+/**
+ * Predicate for "active runs of this automation". When `contextKey` is
+ * `undefined` the filter is per-automation (the default concurrency
+ * scope); when provided (string or `null`) it additionally narrows to
+ * that context key (the per-context-key scope) - `null` matches runs
+ * with no context key.
+ */
+function activeRunsPredicate(
+  automationId: string,
+  contextKey: string | null | undefined,
+) {
+  const conditions = [
+    eq(automationRuns.automationId, automationId),
+    inArray(automationRuns.status, [...ACTIVE_STATUSES]),
+  ];
+  if (contextKey !== undefined) {
+    conditions.push(
+      contextKey === null
+        ? isNull(automationRuns.contextKey)
+        : eq(automationRuns.contextKey, contextKey),
+    );
+  }
+  return and(...conditions);
+}
+
+export function createRunStore(
+  db: SafeDatabase<Schema>,
+  logger?: Logger,
+  /**
+   * Run-scoped secret values accumulated during dispatch. When provided,
+   * step `resultPayload` / `errorMessage` and run-level `errorMessage` are
+   * masked (Jenkins-style, by-value) BEFORE persistence, so no resolved
+   * secret can reach a DTO / run-detail page. Optional so tests / older
+   * boots degrade to no masking.
+   */
+  secretRegistry?: RunSecretRegistry,
+): RunStore {
   return {
     async createRun(input: CreateRunInput): Promise<string> {
       const [row] = await db
@@ -57,14 +98,22 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         status === "failed" ||
         status === "cancelled" ||
         status === "skipped";
+      // Mask the run-level error before persisting (a provider HTTP error
+      // could embed a resolved credential).
+      const maskedError =
+        errorMessage === undefined
+          ? null
+          : (secretRegistry?.maskText(runId, errorMessage) ?? errorMessage);
       await db
         .update(automationRuns)
         .set({
           status,
-          errorMessage: errorMessage ?? null,
+          errorMessage: maskedError,
           finishedAt: isTerminal ? new Date() : null,
         })
         .where(eq(automationRuns.id, runId));
+      // Drop the run's accumulated mask set once it is terminal (memory-only).
+      if (isTerminal) secretRegistry?.drop(runId);
     },
 
     async loadRun(runId: string): Promise<LoadedRun | undefined> {
@@ -89,29 +138,25 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
       };
     },
 
-    async countActiveRuns(automationId: string): Promise<number> {
+    async countActiveRuns(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<number> {
       const rows = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        );
+        .where(activeRunsPredicate(automationId, contextKey));
       return rows[0]?.count ?? 0;
     },
 
-    async hasActiveRun(automationId: string): Promise<boolean> {
+    async hasActiveRun(
+      automationId: string,
+      contextKey?: string | null,
+    ): Promise<boolean> {
       const rows = await db
         .select({ id: automationRuns.id })
         .from(automationRuns)
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .limit(1);
       return rows.length > 0;
     },
@@ -119,6 +164,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
     async cancelActiveRuns(
       automationId: string,
       reason: string,
+      contextKey?: string | null,
     ): Promise<string[]> {
       const rows = await db
         .update(automationRuns)
@@ -127,14 +173,26 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
           errorMessage: reason,
           finishedAt: new Date(),
         })
-        .where(
-          and(
-            eq(automationRuns.automationId, automationId),
-            inArray(automationRuns.status, [...ACTIVE_STATUSES]),
-          ),
-        )
+        .where(activeRunsPredicate(automationId, contextKey))
         .returning({ id: automationRuns.id });
-      return rows.map((r) => r.id);
+      const ids = rows.map((r) => r.id);
+      // Tear down the cancelled runs' suspension state in the SAME
+      // operation: delete their wait locks and durable run-state so a
+      // later wake (wakeWaitingRuns / delay-expiry / a racing queue job)
+      // can't resurrect a cancelled run. Mirrors the operator cancelRun
+      // path. (resumeRun also guards on status, but cleaning up here stops
+      // the sweeper from even re-ticking an orphaned lock.)
+      if (ids.length > 0) {
+        await db
+          .delete(automationWaitLocks)
+          .where(inArray(automationWaitLocks.runId, ids));
+        await db
+          .delete(automationRunState)
+          .where(inArray(automationRunState.runId, ids));
+        // Drop each run's in-memory mask set (terminal).
+        for (const id of ids) secretRegistry?.drop(id);
+      }
+      return ids;
     },
 
     async createStep(input: CreateStepInput): Promise<string> {
@@ -151,6 +209,9 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         })
         .returning({ id: automationRunSteps.id });
       if (!row) throw new Error("createStep: insert returned no rows");
+      // Link the step to its run so updateStep (which carries only stepId)
+      // can find the run's mask set.
+      secretRegistry?.linkStep(row.id, input.runId);
       return row.id;
     },
 
@@ -159,10 +220,23 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         patch.status === "success" ||
         patch.status === "failed" ||
         patch.status === "skipped";
+      // Mask resolved secret values out of the step output BEFORE persist —
+      // this is the run-wide choke point covering ALL actions (provider,
+      // log, etc.), not just the script/collector source-side masking.
+      const maskedError =
+        patch.errorMessage === undefined
+          ? null
+          : (secretRegistry?.maskTextForStep(stepId, patch.errorMessage) ??
+            patch.errorMessage);
+      const maskedPayload =
+        patch.resultPayload === undefined
+          ? null
+          : (secretRegistry?.maskDeepForStep(stepId, patch.resultPayload) ??
+            patch.resultPayload);
       const set: Record<string, unknown> = {
         status: patch.status,
-        errorMessage: patch.errorMessage ?? null,
-        resultPayload: patch.resultPayload ?? null,
+        errorMessage: maskedError,
+        resultPayload: maskedPayload,
       };
       if (isTerminal) set.finishedAt = new Date();
       if (patch.incrementAttempts) {
@@ -214,6 +288,11 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
           contextKey: input.contextKey,
           filterTemplate: input.filterTemplate,
           timeoutAt: input.timeoutAt,
+          // Serialisation boundary: UntilWaitConfig is a plain JSON object
+          // but its `condition` union isn't structurally a Record, so cast.
+          waitConfig: input.waitConfig
+            ? (input.waitConfig as unknown as Record<string, unknown>)
+            : undefined,
         })
         .returning({ id: automationWaitLocks.id });
       if (!row) throw new Error("createWaitLock: insert returned no rows");
@@ -228,17 +307,7 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .limit(1);
       const row = rows[0];
       if (!row) return;
-      return {
-        id: row.id,
-        runId: row.runId,
-        actionPath: row.actionPath,
-        kind: row.kind as "trigger" | "delay",
-        eventId: row.eventId,
-        contextKey: row.contextKey,
-        filterTemplate: row.filterTemplate,
-        timeoutAt: row.timeoutAt,
-        createdAt: row.createdAt,
-      };
+      return mapWaitLock(row, logger);
     },
 
     async findWaitLocksFor(
@@ -255,17 +324,23 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
         .select()
         .from(automationWaitLocks)
         .where(and(...filters));
-      return rows.map((r) => ({
-        id: r.id,
-        runId: r.runId,
-        actionPath: r.actionPath,
-        kind: r.kind as "trigger" | "delay",
-        eventId: r.eventId,
-        contextKey: r.contextKey,
-        filterTemplate: r.filterTemplate,
-        timeoutAt: r.timeoutAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map((r) => mapWaitLock(r, logger));
+    },
+
+    async findWaitLocksByKind(kind): Promise<LoadedWaitLock[]> {
+      const rows = await db
+        .select()
+        .from(automationWaitLocks)
+        .where(eq(automationWaitLocks.kind, kind));
+      return rows.map((r) => mapWaitLock(r, logger));
+    },
+
+    async findWaitLocksByRun(runId): Promise<LoadedWaitLock[]> {
+      const rows = await db
+        .select()
+        .from(automationWaitLocks)
+        .where(eq(automationWaitLocks.runId, runId));
+      return rows.map((r) => mapWaitLock(r, logger));
     },
 
     async deleteWaitLock(id: string): Promise<void> {
@@ -282,17 +357,33 @@ export function createRunStore(db: SafeDatabase<Schema>): RunStore {
             lte(automationWaitLocks.timeoutAt, now),
           ),
         );
-      return rows.map((r) => ({
-        id: r.id,
-        runId: r.runId,
-        actionPath: r.actionPath,
-        kind: r.kind as "trigger" | "delay",
-        eventId: r.eventId,
-        contextKey: r.contextKey,
-        filterTemplate: r.filterTemplate,
-        timeoutAt: r.timeoutAt,
-        createdAt: r.createdAt,
-      }));
+      return rows.map((r) => mapWaitLock(r, logger));
     },
+  };
+}
+
+/** Map a wait-lock row to the engine's {@link LoadedWaitLock}. */
+function mapWaitLock(
+  row: typeof automationWaitLocks.$inferSelect,
+  logger?: Logger,
+): LoadedWaitLock {
+  return {
+    id: row.id,
+    runId: row.runId,
+    actionPath: row.actionPath,
+    kind: row.kind as WaitLockKind,
+    eventId: row.eventId,
+    contextKey: row.contextKey,
+    filterTemplate: row.filterTemplate,
+    timeoutAt: row.timeoutAt,
+    // Parse the stored config on load — a drifted/hand-edited row degrades
+    // to null (engine treats the `until` lock as gone) instead of being
+    // trusted as a wrongly-typed UntilWaitConfig.
+    waitConfig: parseWaitConfig({
+      value: row.waitConfig,
+      logger,
+      context: `Wait lock ${row.id}`,
+    }),
+    createdAt: row.createdAt,
   };
 }

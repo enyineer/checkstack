@@ -8,13 +8,25 @@
       "path": "../automation-common"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
       "path": "../common"
     },
     {
       "path": "../frontend-api"
     },
     {
+      "path": "../gitops-frontend"
+    },
+    {
       "path": "../integration-common"
+    },
+    {
+      "path": "../script-packages-frontend"
+    },
+    {
+      "path": "../secrets-frontend"
     },
     {
       "path": "../signal-frontend"

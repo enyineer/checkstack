@@ -59,6 +59,15 @@
       "path": "../satellite-backend"
     },
     {
+      "path": "../script-packages-backend"
+    },
+    {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
       "path": "../signal-common"
     },
     {

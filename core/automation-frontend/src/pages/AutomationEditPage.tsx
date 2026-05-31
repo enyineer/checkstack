@@ -46,6 +46,10 @@ import {
   TabPanel,
 } from "@checkstack/ui";
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
+import {
+  GitOpsLockBanner,
+  useProvenanceLock,
+} from "@checkstack/gitops-frontend";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { AutomationDefinitionEditor } from "../editor/AutomationDefinitionEditor";
 import { assignDefaultIds } from "../editor/action-helpers";
@@ -80,6 +84,7 @@ const STARTER_DEFINITION: AutomationDefinition = {
     new Set(),
   ),
   mode: "single",
+  concurrency_scope: "automation",
   max_runs: 10,
 };
 
@@ -119,7 +124,21 @@ const AutomationEditContent: React.FC = () => {
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  const { allowed: canManage } = accessApi.useAccess(automationAccess.manage);
+  const { allowed: hasManageAccess } = accessApi.useAccess(
+    automationAccess.manage,
+  );
+
+  // GitOps provenance lock: when this automation is declaratively managed,
+  // disable manual edits + show a banner. `entityId` is the automation id
+  // (the GitOps reconciler stores it in provenance). New (unsaved)
+  // automations are never locked.
+  const { isLocked, provenance } = useProvenanceLock({
+    kind: "Automation",
+    entityId: isNew ? undefined : automationId,
+  });
+
+  // Effective edit permission: manage access AND not GitOps-locked.
+  const canManage = hasManageAccess && !isLocked;
 
   const loadQuery = client.getAutomation.useQuery(
     { id: automationId ?? "" },
@@ -431,7 +450,11 @@ const AutomationEditContent: React.FC = () => {
       ) : !isNew && loadQuery.isLoading ? (
         <LoadingSpinner />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
+        <div className="space-y-4">
+          {isLocked && provenance && (
+            <GitOpsLockBanner provenance={provenance} />
+          )}
+          <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
           <Card>
             <CardHeader className="border-b">
               <CardTitle className="text-base">Metadata</CardTitle>
@@ -540,6 +563,7 @@ const AutomationEditContent: React.FC = () => {
                   value={definition}
                   onChange={setDefinition}
                   disabled={!canManage}
+                  automationId={isNew ? undefined : automationId}
                 />
               </ValidationProvider>
             </TabPanel>
@@ -557,6 +581,7 @@ const AutomationEditContent: React.FC = () => {
                 </CardContent>
               </Card>
             </TabPanel>
+          </div>
           </div>
         </div>
       )}

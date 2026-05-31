@@ -40,6 +40,82 @@ export type SystemHealthStatusResponse = z.infer<
   typeof SystemHealthStatusResponseSchema
 >;
 
+/**
+ * Live health-state snapshot used by the automation sensing layer.
+ * Service-typed (backend-to-backend). `inStatusSince` is null when no
+ * transition has been recorded; `inStatusForMs` is 0 in that case.
+ */
+const HealthStateSchema = z.object({
+  status: HealthCheckStatusSchema,
+  inStatusSince: z.date().nullable(),
+  inStatusForMs: z.number(),
+  latencyMs: z.number().optional(),
+  avgLatencyMs: z.number().optional(),
+  p95LatencyMs: z.number().optional(),
+  successRate: z.number().optional(),
+  lastRunAt: z.date().optional(),
+  inMaintenance: z.boolean(),
+  /** Count of aggregate status transitions in the trailing window (flapping). */
+  transitionsInWindow: z.number(),
+  /** The window (minutes) `transitionsInWindow` was counted over. */
+  transitionWindowMinutes: z.number(),
+  evaluatedAt: z.date(),
+});
+
+export type HealthStateResponse = z.infer<typeof HealthStateSchema>;
+
+// --- Collector script testing (in-UI) ---
+
+/**
+ * Curated check/system metadata a collector script reads. Every part is
+ * optional so a partial sample still runs.
+ */
+const CollectorTestRunContextSchema = z.object({
+  check: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      intervalSeconds: z.number().int(),
+    })
+    .optional(),
+  system: z.object({ id: z.string(), name: z.string() }).optional(),
+});
+
+export const CollectorScriptTestInputSchema = z.object({
+  kind: z.enum(["typescript", "shell"]),
+  script: z.string(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  /**
+   * The collector's declared secret -> env mapping. The test panel NEVER
+   * resolves real secret values: each declared env var gets a
+   * `__SECRET_<NAME>__` placeholder by default, or the user override below
+   * (decision 4).
+   */
+  secretEnv: z.record(z.string(), z.string()).optional(),
+  /** User-supplied per-secret-NAME override values, masked out of the result. */
+  secretOverrides: z.record(z.string(), z.string()).optional(),
+  workingDirectory: z.string().optional(),
+  runContext: CollectorTestRunContextSchema.optional(),
+  timeoutMs: z.number().int().min(100).max(300_000).default(30_000),
+});
+export type CollectorScriptTestInputDto = z.infer<
+  typeof CollectorScriptTestInputSchema
+>;
+
+export const CollectorScriptTestResultSchema = z.object({
+  result: z.unknown().optional(),
+  stdout: z.string(),
+  stderr: z.string(),
+  exitCode: z.number().int().optional(),
+  durationMs: z.number().int().nonnegative(),
+  timedOut: z.boolean(),
+  error: z.string().optional(),
+});
+export type CollectorScriptTestResultDto = z.infer<
+  typeof CollectorScriptTestResultSchema
+>;
+
 // Health Check RPC Contract using oRPC's contract-first pattern
 export const healthCheckContract = {
   // ==========================================================================
@@ -59,6 +135,24 @@ export const healthCheckContract = {
   })
     .input(z.object({ strategyId: z.string() }))
     .output(z.array(CollectorDtoSchema)),
+
+  /**
+   * Run a collector script (inline-script TS or the shell `script`
+   * collector) against an editable sample context, using the same
+   * sandboxed runner the real collector uses. Lets operators test a
+   * collector script in the editor without scheduling a real execution.
+   *
+   * Gated by `configuration.manage` because authoring a collector script
+   * already executes code on the central backend - same privilege. The
+   * run is central-only and time-bounded.
+   */
+  testCollectorScript: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
+    .input(CollectorScriptTestInputSchema)
+    .output(CollectorScriptTestResultSchema),
 
   // ==========================================================================
   // CONFIGURATION MANAGEMENT (userType: "authenticated")
@@ -482,6 +576,46 @@ export const healthCheckContract = {
     )
     .output(z.void()),
 
+  /**
+   * Live health-state snapshot for a single system (Wave-2 sensing
+   * contract). Returns status, in-status duration, latency, windowed
+   * metrics, and suppression-agnostic maintenance state.
+   */
+  getHealthState: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string().optional(),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
+      }),
+    )
+    .output(HealthStateSchema),
+
+  /**
+   * Bulk variant of {@link getHealthState}. POST to avoid N+1 from
+   * dashboards and multi-system automation rules; all systems share one
+   * evaluation timestamp.
+   */
+  getBulkHealthState: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemIds: z.array(z.string()),
+        /** Trailing window (minutes) for `transitionsInWindow`. Default 60. */
+        transitionWindowMinutes: z.number().int().min(1).optional(),
+      }),
+    )
+    .output(z.object({ states: z.record(z.string(), HealthStateSchema) })),
+
   getRunsForAnalysis: proc({
     operationType: "query",
     userType: "service",
@@ -506,6 +640,27 @@ export const healthCheckContract = {
         }),
       ),
     ),
+
+  /**
+   * Every (system, configuration) assignment with its effective
+   * notification policy. Service-typed; the automation platform's
+   * auto-incident migration reads this to seed per-system default
+   * automations whose thresholds mirror each policy 1:1.
+   */
+  listAutoIncidentPolicies: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  }).output(
+    z.array(
+      z.object({
+        systemId: z.string(),
+        configurationId: z.string(),
+        configurationName: z.string(),
+        policy: NotificationPolicySchema,
+      }),
+    ),
+  ),
 };
 // Export contract type
 export type HealthCheckContract = typeof healthCheckContract;

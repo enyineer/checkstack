@@ -17,9 +17,8 @@ import type {
 import { createEntityKindRegistry } from "./kind-registry";
 import { createGitOpsRouter } from "./router";
 import { setupSyncWorker } from "./sync/sync-worker";
-import { decrypt } from "@checkstack/backend-api";
+import { secretResolverRef, secretAdminRef } from "@checkstack/secrets-backend";
 import * as schema from "./schema";
-import { eq } from "drizzle-orm";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Extension Points
@@ -83,18 +82,38 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         rpc: coreServices.rpc,
         queueManager: coreServices.queueManager,
+        secretResolver: secretResolverRef,
+        secretAdmin: secretAdminRef,
       },
-      init: async ({ logger, database, rpc, queueManager }) => {
+      init: async ({
+        logger,
+        database,
+        rpc,
+        queueManager,
+        secretResolver,
+        secretAdmin,
+      }) => {
         logger.debug("🔄 Initializing GitOps Backend...");
 
         const db = database as SafeDatabase<typeof schema>;
 
-        const router = createGitOpsRouter({ database: db, queueManager, kindRegistry });
+        const router = createGitOpsRouter({
+          database: db,
+          queueManager,
+          kindRegistry,
+          secretAdmin,
+          secretResolver,
+        });
         rpc.registerRouter(router, gitopsContract);
 
         logger.debug("✅ GitOps Backend initialized.");
       },
-      afterPluginsReady: async ({ logger, database, queueManager }) => {
+      afterPluginsReady: async ({
+        logger,
+        database,
+        queueManager,
+        secretResolver,
+      }) => {
         const registeredKinds = kindRegistry.getKinds();
         logger.debug(
           `🔄 GitOps: ${registeredKinds.length} entity kinds registered: ${registeredKinds.map((k) => k.kind).join(", ")}`,
@@ -102,19 +121,12 @@ export default createBackendPlugin({
 
         const db = database as SafeDatabase<typeof schema>;
 
-        // Create a SecretStore backed by the secrets table
+        // Resolve ${{ secrets.NAME }} via the central Secrets platform
+        // (secretResolverRef) instead of reading the gitops secrets table
+        // directly. The Secrets platform owns the table now.
         const secretStore = {
-          resolve: async (name: string): Promise<string> => {
-            const rows = await db
-              .select()
-              .from(schema.secrets)
-              .where(eq(schema.secrets.name, name));
-            const secret = rows[0];
-            if (!secret) {
-              throw new Error(`Secret not found: ${name}`);
-            }
-            return decrypt(secret.encryptedValue);
-          },
+          resolve: (name: string): Promise<string> =>
+            secretResolver.resolveSecret({ name }),
         };
 
         // Bootstrap sync worker

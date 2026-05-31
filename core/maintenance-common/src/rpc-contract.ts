@@ -146,6 +146,19 @@ export const maintenanceContract = {
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ suppressed: z.boolean() })),
+
+  /** Check if a system currently has an active maintenance window,
+   * regardless of notification-suppression. Used by automations and the
+   * health-state provider to gate on maintenance state without coupling
+   * to the suppression flag. Service-to-service endpoint.
+   */
+  hasActiveMaintenance: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.object({ active: z.boolean() })),
 };
 
 // Export contract type

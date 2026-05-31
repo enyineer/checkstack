@@ -296,9 +296,9 @@ env.registerInit({
 Plugins that depend on external connectivity (queues, caches, external
 APIs) should contribute a probe to the `/ready` endpoint via
 `coreServices.readinessRegistry`. The platform's `/ready` probe will not
-return 200 while any critical plugin probe is failing — this gates
+return 200 while any critical plugin probe is failing - this gates
 orchestrators (k8s/docker-compose) from sending traffic to a backend
-that isn't actually ready. See **[Health & Readiness](/checkstack/developer-guide/backend/health-and-readiness/)**
+that isn't actually ready. See **Health & Readiness**
 for the full API and probe contract.
 
 ## Hooks and Events
@@ -405,7 +405,7 @@ still distinguishable:
 ```
 
 ```typescript
-// inline-script action — `id` and `event` are both literal-typed, so either
+// inline-script action - `id` and `event` are both literal-typed, so either
 // can discriminate the union:
 if (context.trigger.id === "majors") { /* … */ }
 ```
@@ -434,7 +434,7 @@ The full trigger contract available to templates and scripts is
 > [!NOTE]
 > Two of the hooks above (`pluginInitialized`, `accessRulesRegistered`)
 > are emitted from inside the plugin loader during boot. The platform
-> applies a deliberate per-hook policy if a subscriber throws — see
+> applies a deliberate per-hook policy if a subscriber throws - see
 > **[Plugin boot-time hook policy](/checkstack/developer-guide/backend/plugin-hook-policy/)** for the
 > rules and the reasoning.
 
@@ -519,6 +519,37 @@ env.registerService(myServiceRef, {
   },
 });
 ```
+
+#### `env.getService<S>(ref: ServiceRef<S>): Promise<S>`
+
+Resolve a service registered by another plugin, by its ref. This is the
+runtime counterpart to declaring `deps` on `env.registerInit`: use `deps`
+when you know your dependencies up front (they are resolved and injected
+for you), and use `env.getService` when you must resolve an arbitrary ref
+dynamically (for example, an engine that hands a `getService` to
+plugin-contributed callbacks at execution time).
+
+```typescript
+import { connectionStoreRef } from "@checkstack/integration-backend";
+
+env.registerInit({
+  deps: { logger: coreServices.logger },
+  init: async ({ logger }) => {
+    // Resolve a cross-plugin service on demand.
+    const connectionStore = await env.getService(connectionStoreRef);
+    logger.debug("resolved connection store");
+  },
+});
+```
+
+Resolution uses the calling plugin's identity (for audit and scoped
+factories) and throws a clear error if the ref is not registered - it
+never silently returns `undefined`. Safe to call from `init` /
+`afterPluginsReady` onward, by which point every service is registered.
+
+> [!NOTE]
+> Prefer declaring static dependencies via `env.registerInit`'s `deps`.
+> Reach for `env.getService` only when the ref is not known until runtime.
 
 #### `env.registerExtensionPoint<T>(ref: ExtensionPoint<T>, impl: T)`
 
@@ -757,7 +788,7 @@ at path: <plugin>.<procedure>
 When method is "GET", input schema must satisfy: object | any | unknown
 ```
 
-This isn't a serializer limitation — it's that a query string needs a
+This isn't a serializer limitation - it's that a query string needs a
 field name to attach each value to, and a top-level scalar has no key.
 Fix it by wrapping the input:
 
@@ -770,7 +801,7 @@ Fix it by wrapping the input:
 ```
 
 Nested objects, arrays, and `z.date()` inside the object input are all
-fine — they're serialized as bracket-notation params
+fine - they're serialized as bracket-notation params
 (`?filter[status]=active&ids[0]=a`) and `z.date()` becomes an ISO 8601
 string.
 
@@ -835,7 +866,7 @@ Backend plugins should extend the shared backend configuration.
 }
 ```
 
-See [Monorepo Tooling](/checkstack/developer-guide/tooling/cli/) for more information.
+See Monorepo Tooling for more information.
 
 ### Configure Drizzle
 
@@ -1098,15 +1129,15 @@ If TypeScript complains about handler types:
 
 Once your backend (and any sibling `-frontend` / `-common` packages) are
 ready, package and publish them so operators can install via the runtime
-Plugin Manager. The full guide — required `package.json` shape, the
+Plugin Manager. The full guide - required `package.json` shape, the
 `bunx @checkstack/scripts plugin-pack` CLI, single-package vs `--bundle`
 mode, npm / GitHub release / GitHub Enterprise / tarball-upload distribution,
-and a copy-paste GitHub Actions workflow — lives in
+and a copy-paste GitHub Actions workflow - lives in
 [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/).
 
 For the dev loop itself, add `@checkstack/dev-server` as a devDependency,
 wire `"dev": "checkstack-dev"` into your `package.json` scripts, and
-run `bun run dev` from your plugin's repo — it boots a local Checkstack
+run `bun run dev` from your plugin's repo - it boots a local Checkstack
 with your plugin loaded and auth bypassed. (`bunx @checkstack/dev-server`
 also works as a one-shot before any install.) Full guide:
 [Developing Plugins in Isolation](/checkstack/developer-guide/getting-started/plugin-development/).
@@ -1120,7 +1151,7 @@ Quick checklist before your first release:
 2. Set the required `checkstack` block (`type`, `pluginId`) and standard
    metadata fields (`description`, `author`, `license`).
 3. For multi-package plugins, declare `checkstack.bundle` on the **primary**
-   only — all siblings ship at the same version.
+   only - all siblings ship at the same version.
 4. Run `bun run pack` (or `bun run pack -- --bundle` for bundles) locally
    to verify metadata before pushing the release tag.
 5. Use the [release workflow template](../examples/plugin-release.yml) as a
@@ -1131,8 +1162,8 @@ Quick checklist before your first release:
 - [Developing Plugins in Isolation](/checkstack/developer-guide/getting-started/plugin-development/) - Running Checkstack locally for plugin dev
 - [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/) - How to ship your plugin to operators
 - [Configuration Storage](/checkstack/developer-guide/backend/config-service/) - When to use ConfigService vs custom schemas
-- [Health Check Strategies](/checkstack/developer-guide/backend/healthcheck-strategies/) - Transport strategy development
-- [Collector Plugins](/checkstack/developer-guide/backend/collectors/) - Extend strategies with diagnostic collectors
+- [Health Check Strategies](/checkstack/developer-guide/backend/healthchecks/strategies/) - Transport strategy development
+- [Collector Plugins](/checkstack/developer-guide/backend/healthchecks/collectors/) - Extend strategies with diagnostic collectors
 - [Frontend Plugin Development](/checkstack/developer-guide/frontend/plugins/)
 - [Common Plugin Guidelines](/checkstack/developer-guide/common/plugins/)
 - [Extension Points](/checkstack/developer-guide/frontend/extension-points/)

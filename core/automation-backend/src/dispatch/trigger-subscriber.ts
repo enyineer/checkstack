@@ -25,6 +25,8 @@ import { dispatchTrigger, resumeRun } from "./engine";
 import { evaluateCondition } from "./condition";
 import { renderString } from "./render";
 import { buildInitialScope } from "./scope";
+import { enrichScopeWithState } from "./state-scope";
+import { armDwell, type StartRunFromDwell } from "./dwell";
 import type {
   DispatchDeps,
   LoadedAutomation,
@@ -147,7 +149,7 @@ export async function setupTriggerSubscriptions(
   };
 }
 
-interface HandleTriggerFiringArgs {
+export interface HandleTriggerFiringArgs {
   deps: DispatchDeps;
   automationStore: AutomationStore;
   qualifiedEventId: string;
@@ -156,7 +158,7 @@ interface HandleTriggerFiringArgs {
   contextKey: string | null;
 }
 
-async function handleTriggerFiring(
+export async function handleTriggerFiring(
   args: HandleTriggerFiringArgs,
 ): Promise<void> {
   // ── Step 1: resume any waiting runs ──
@@ -182,6 +184,65 @@ async function handleTriggerFiring(
       });
     }
   }
+
+  // ── Step 3: eager inverse-cancel ──
+  // A state-change event may be the natural inverse of an armed dwell
+  // (e.g. `system.healthy` cancels a `system.degraded` + for: dwell on
+  // the same automation + system). The expiry re-confirm would catch
+  // this anyway, but cancelling now deletes the dwell row so its queue
+  // job no-ops promptly instead of waking and re-checking later.
+  await cancelStaleDwells(args);
+}
+
+/**
+ * For every automation referencing the firing event with a `for:` dwell
+ * armed on the same context key, re-confirm the system's current status;
+ * if it no longer matches the dwell's `armedStatus`, cancel the dwell.
+ * Bounded to the matching automations and skipped entirely when no
+ * health client is wired (nothing to re-confirm against).
+ */
+async function cancelStaleDwells(
+  args: HandleTriggerFiringArgs,
+): Promise<void> {
+  const client = args.deps.healthCheckClient;
+  if (!client || args.contextKey === null) return;
+
+  const matches = await args.automationStore.findEnabledByTriggerEvent(
+    args.qualifiedEventId,
+  );
+
+  let currentStatus: string | undefined;
+  for (const automation of matches) {
+    for (const trigger of automation.definition.triggers) {
+      if (!trigger.for) continue;
+      const triggerId = trigger.id ?? deriveTriggerId(trigger);
+      const dwell = await args.deps.dwellStore.findByKey(
+        automation.id,
+        triggerId,
+        args.contextKey,
+      );
+      if (!dwell || dwell.armedStatus === null) continue;
+
+      // Resolve current status once per firing (cheap memoised lookup).
+      if (currentStatus === undefined) {
+        try {
+          const state = await client.getHealthState({
+            systemId: args.contextKey,
+          });
+          currentStatus = state.status;
+        } catch {
+          return; // can't re-confirm — leave the dwell for expiry.
+        }
+      }
+
+      if (currentStatus !== dwell.armedStatus) {
+        await args.deps.dwellStore.delete(dwell.id);
+        args.deps.logger.debug(
+          `Cancelled dwell ${dwell.id} (${automation.id}/${triggerId}): system ${args.contextKey} left status "${dwell.armedStatus}" (now "${currentStatus}")`,
+        );
+      }
+    }
+  }
 }
 
 async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
@@ -201,6 +262,12 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
           payload: args.triggerPayload,
           actor: args.actor,
           startedAt: new Date(),
+        });
+        await enrichScopeWithState({
+          scope: ctx,
+          client: args.deps.healthCheckClient,
+          logger: args.deps.logger,
+          contextKey: args.contextKey,
         });
         const pass = evaluateCondition(
           lock.filterTemplate,
@@ -248,20 +315,51 @@ interface MaybeStartRunArgs {
 }
 
 async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
-  // Trigger-level filter check.
+  // Structured config gate (e.g. numeric_state's above/below threshold).
+  // Runs before the operator's template filter. A registered trigger that
+  // declares `evaluateConfig` decides per-automation whether this payload
+  // fires, using the trigger's typed `config`.
+  const registered = args.deps.registries.triggers.getTrigger(args.eventId);
+  if (registered?.evaluateConfig) {
+    let pass: boolean;
+    try {
+      pass = registered.evaluateConfig(
+        args.triggerPayload,
+        args.trigger.config,
+      );
+    } catch (error) {
+      args.deps.logger.warn(
+        `Trigger config gate threw; skipping firing: ${(error as Error).message}`,
+      );
+      return;
+    }
+    if (!pass) return;
+  }
+
+  // Trigger-level filter gates BOTH the immediate run and arming a dwell.
+  // (Conditions, by contrast, gate the run itself and are evaluated at
+  // fire time so a dwell re-checks them after the duration.)
   if (args.trigger.filter) {
-    const ctx = buildInitialScope({
+    const filterScope = buildInitialScope({
       triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
       triggerEventId: args.eventId,
       payload: args.triggerPayload,
       actor: args.actor,
       startedAt: new Date(),
     });
+    await enrichScopeWithState({
+      scope: filterScope,
+      client: args.deps.healthCheckClient,
+      logger: args.deps.logger,
+      contextKey: args.contextKey,
+      usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    });
     let pass: boolean;
     try {
       pass = evaluateCondition(
         args.trigger.filter,
-        ctx,
+        filterScope,
         args.deps.filters,
       );
     } catch (error) {
@@ -273,20 +371,63 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
     if (!pass) return;
   }
 
-  // Top-level conditions gate the run.
-  if (args.automation.definition.conditions.length > 0) {
-    const ctx = buildInitialScope({
+  // `for:` dwell — arm (or re-arm) instead of starting the run now. The
+  // run starts only if the matched state still holds after the duration.
+  if (args.trigger.for) {
+    await armDwell({
+      deps: args.deps,
+      automation: args.automation,
+      trigger: args.trigger,
       triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+      eventId: args.eventId,
+      contextKey: args.contextKey,
+      triggerPayload: args.triggerPayload,
+      actor: args.actor,
+    });
+    return;
+  }
+
+  await startRunRespectingMode({
+    deps: args.deps,
+    automation: args.automation,
+    trigger: args.trigger,
+    triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+    eventId: args.eventId,
+    contextKey: args.contextKey,
+    triggerPayload: args.triggerPayload,
+    actor: args.actor,
+  });
+}
+
+/**
+ * Evaluate the automation's pre-run conditions (against freshly-enriched
+ * scope) and, if they pass, dispatch a run honouring the concurrency
+ * mode. Shared by the immediate trigger path and the dwell-fire path
+ * (so a dwell re-checks conditions at expiry, not at arm time).
+ */
+export const startRunRespectingMode: StartRunFromDwell = async (args) => {
+  // Top-level conditions gate the run, evaluated against enriched scope.
+  if (args.automation.definition.conditions.length > 0) {
+    const gateScope = buildInitialScope({
+      triggerId: args.triggerId,
       triggerEventId: args.eventId,
       payload: args.triggerPayload,
       actor: args.actor,
       startedAt: new Date(),
     });
+    await enrichScopeWithState({
+      scope: gateScope,
+      client: args.deps.healthCheckClient,
+      logger: args.deps.logger,
+      contextKey: args.contextKey,
+      usesState: args.automation.definition.uses_state,
+      transitionWindowMinutes: args.automation.definition.state_window_minutes,
+    });
     for (const condition of args.automation.definition.conditions) {
       try {
         const pass = evaluateCondition(
           condition,
-          ctx,
+          gateScope,
           args.deps.filters,
         );
         if (!pass) return;
@@ -301,14 +442,14 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
     automationId: args.automation.id,
     mode: args.automation.definition.mode,
     maxRuns: args.automation.definition.max_runs,
-    triggerId: args.trigger.id ?? deriveTriggerId(args.trigger),
+    triggerId: args.triggerId,
     triggerEventId: args.eventId,
     triggerPayload: args.triggerPayload,
     actor: args.actor,
     contextKey: args.contextKey,
     automation: args.automation,
   });
-}
+};
 
 interface RespectConcurrencyArgs {
   deps: DispatchDeps;
@@ -326,9 +467,42 @@ interface RespectConcurrencyArgs {
 async function respectConcurrencyMode(
   args: RespectConcurrencyArgs,
 ): Promise<void> {
+  // Per the automation's concurrency scope, the active-run bucket is
+  // either the whole automation (`undefined` → no context filter) or just
+  // the incoming context key. Passing `undefined` keeps the original
+  // per-automation behaviour for the default scope.
+  const scopeKey =
+    args.automation.definition.concurrency_scope === "context_key"
+      ? args.contextKey
+      : undefined;
+
+  // Serialize the check-then-create. Without a lock, two concurrent fires
+  // (two trigger events, a dwell-fire racing a fresh fire, or two pods) can
+  // both read "no active run" and both `dispatchTrigger`, double-running a
+  // `single`-mode automation. The lock is keyed on (automationId, scope) so
+  // it doesn't serialize unrelated automations or distinct context keys.
+  const lockKey = `automation.concurrency:${args.automationId}:${
+    scopeKey ?? "@@all"
+  }`;
+  const run = args.deps.withConcurrencyLock
+    ? <T>(fn: () => Promise<T>) => args.deps.withConcurrencyLock!(lockKey, fn)
+    : <T>(fn: () => Promise<T>) => fn();
+
+  await run(async () => {
+    await respectConcurrencyModeInner(args, scopeKey);
+  });
+}
+
+async function respectConcurrencyModeInner(
+  args: RespectConcurrencyArgs,
+  scopeKey: string | null | undefined,
+): Promise<void> {
   switch (args.mode) {
     case "single": {
-      const active = await args.deps.runStore.hasActiveRun(args.automationId);
+      const active = await args.deps.runStore.hasActiveRun(
+        args.automationId,
+        scopeKey,
+      );
       if (active) {
         args.deps.logger.debug(
           `Skipping trigger for ${args.automationId} — single mode and a run is active`,
@@ -338,7 +512,10 @@ async function respectConcurrencyMode(
       break;
     }
     case "parallel": {
-      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      const count = await args.deps.runStore.countActiveRuns(
+        args.automationId,
+        scopeKey,
+      );
       if (count >= args.maxRuns) {
         args.deps.logger.debug(
           `Skipping trigger for ${args.automationId} — parallel limit reached (${count}/${args.maxRuns})`,
@@ -352,7 +529,10 @@ async function respectConcurrencyMode(
       // queueing requires its own coordination queue, which we add in a
       // follow-up. Behaviour stays correct (no double-fire) under the
       // existing work-queue mode.
-      const count = await args.deps.runStore.countActiveRuns(args.automationId);
+      const count = await args.deps.runStore.countActiveRuns(
+        args.automationId,
+        scopeKey,
+      );
       if (count >= args.maxRuns) return;
       break;
     }
@@ -360,6 +540,7 @@ async function respectConcurrencyMode(
       const cancelled = await args.deps.runStore.cancelActiveRuns(
         args.automationId,
         "restart — superseded by newer trigger",
+        scopeKey,
       );
       if (cancelled.length > 0) {
         args.deps.logger.debug(

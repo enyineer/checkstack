@@ -874,8 +874,8 @@ const strategy = {
 
 ## See Also
 
-- [Plugin Development](/checkstack/developer-guide/backend/notifications/plugins/)
-- [Configuration Service](/checkstack/developer-guide/backend/notifications/config-service/)
-- [Versioned Configs](/checkstack/developer-guide/backend/notifications/versioned-configs/)
-- [Config Schemas (Frontend)](/checkstack/developer-guide/backend/frontend/config-schemas/)
-- [Signals](/checkstack/developer-guide/backend/notifications/signals/)
+- [Plugin Development](/checkstack/developer-guide/backend/plugins/)
+- [Configuration Service](/checkstack/developer-guide/backend/config-service/)
+- [Versioned Configs](/checkstack/developer-guide/backend/versioned-configs/)
+- [Config Schemas (Frontend)](/checkstack/developer-guide/frontend/config-schemas/)
+- [Signals](/checkstack/developer-guide/backend/signals/)

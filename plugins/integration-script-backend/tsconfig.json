@@ -17,6 +17,18 @@
       "path": "../../core/common"
     },
     {
+      "path": "../../core/script-packages-backend"
+    },
+    {
+      "path": "../../core/script-packages-common"
+    },
+    {
+      "path": "../../core/secrets-backend"
+    },
+    {
+      "path": "../../core/secrets-common"
+    },
+    {
       "path": "../../core/test-utils-backend"
     }
   ]

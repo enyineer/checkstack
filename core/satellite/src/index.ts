@@ -7,10 +7,12 @@ import type {
   TransportClient,
   CollectorRunContext,
 } from "@checkstack/backend-api";
+import { resolveScriptPackagesDir } from "@checkstack/script-packages-backend";
 import { SatelliteClient } from "./satellite-client";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
+import { SatelliteScriptPackages } from "./satellite-script-packages";
 
 // =============================================================================
 // Environment validation — fail fast if required vars are missing
@@ -70,8 +72,29 @@ const { healthCheckRegistry, collectorRegistry } = await loadStrategies({
 // 4. Close client and report result
 // =============================================================================
 
+/** Whether a collector config declares a non-empty secretEnv mapping. */
+function declaresSecretEnv(config: Record<string, unknown>): boolean {
+  const se = config.secretEnv;
+  return (
+    typeof se === "object" &&
+    se !== null &&
+    Object.keys(se as Record<string, unknown>).length > 0
+  );
+}
+
 async function executeAssignment(
   assignment: SatelliteAssignment,
+  deps: {
+    /**
+     * Request a collector run's resolved secret env from core (JIT). Throws
+     * on delivery/resolution failure so the collector fails clearly.
+     */
+    requestRunSecrets: (input: {
+      configId: string;
+      collectorId: string;
+      runId: string;
+    }) => Promise<Record<string, string>>;
+  },
 ): Promise<ResultMessage> {
   const strategy = healthCheckRegistry.getStrategy(assignment.strategyId);
   if (!strategy) {
@@ -128,11 +151,26 @@ async function executeAssignment(
         }
 
         try {
+          // JIT secret delivery: if this collector declares a secretEnv,
+          // fetch the resolved values from core over the WS channel just
+          // before running. Held in memory only for this run; never written
+          // to disk and never part of the persisted assignment. A delivery
+          // / resolution failure throws and fails the collector clearly.
+          let secretEnv: Record<string, string> | undefined;
+          if (declaresSecretEnv(collectorEntry.config)) {
+            secretEnv = await deps.requestRunSecrets({
+              configId: assignment.configId,
+              collectorId: collectorEntry.id,
+              runId: crypto.randomUUID(),
+            });
+          }
+
           const collectorResult = await registered.collector.execute({
             config: collectorEntry.config,
             client: connectedClient!.client,
             pluginId: assignment.strategyId,
             runContext,
+            ...(secretEnv ? { secretEnv } : {}),
           });
 
           return {
@@ -251,16 +289,33 @@ const client = new SatelliteClient({
   onAssignments: (assignments: SatelliteAssignment[]) => {
     scheduler.updateAssignments(assignments);
   },
+  onScriptPackagesLockfileHash: (lockfileHash) => {
+    void scriptPackages.reconcile(lockfileHash);
+  },
   onDisconnect: () => {
     scheduler.stop();
   },
+});
+
+// Script-package reconciler: pulls blobs from CORE over the WS channel
+// (never the registry), materializes node_modules, atomically flips
+// `<store>/current`. Triggered on connect (assignment-carried backstop) and
+// on `refresh_script_packages` pushes.
+const scriptPackages = new SatelliteScriptPackages({
+  storeRoot: resolveScriptPackagesDir(),
+  requestManifest: (hash) => client.requestManifest(hash),
+  requestBlob: (integrity) => client.requestBlob(integrity),
+  reportState: (state) => client.reportScriptPackageSyncState(state),
+  logger,
 });
 
 const scheduler = new Scheduler({
   logger,
   onExecute: async (assignment: SatelliteAssignment) => {
     try {
-      const result = await executeAssignment(assignment);
+      const result = await executeAssignment(assignment, {
+        requestRunSecrets: (input) => client.requestRunSecrets(input),
+      });
       client.sendResult(result);
     } catch (error) {
       logger.error(

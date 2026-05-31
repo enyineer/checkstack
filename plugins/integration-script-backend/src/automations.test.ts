@@ -23,6 +23,13 @@ import { createMockLogger } from "@checkstack/test-utils-backend";
 import { SYSTEM_ACTOR } from "@checkstack/common";
 
 import {
+  createSecretResolverService,
+  secretResolverRef,
+  type SecretStore,
+} from "@checkstack/secrets-backend";
+import type { ServiceRef } from "@checkstack/backend-api";
+
+import {
   createScriptRunAction,
   createShellRunAction,
   scriptResultArtifactType,
@@ -30,6 +37,27 @@ import {
   type ScriptResultArtifact,
   type ShellResultArtifact,
 } from "./automations";
+
+/**
+ * Build a `getService` that returns a real resolver service over a fake
+ * SecretStore, so the action's resolve + inject + mask path is exercised
+ * end-to-end. `getService` for any other ref throws (none are used here).
+ */
+function makeGetService(secrets: Record<string, string>) {
+  const store: SecretStore = {
+    resolve: async (name) => {
+      if (!(name in secrets)) throw new Error(`Secret not found: ${name}`);
+      return secrets[name];
+    },
+  };
+  const resolver = createSecretResolverService({ secretStore: store });
+  return <T,>(ref: ServiceRef<T>): Promise<T> => {
+    if (ref.id === secretResolverRef.id) {
+      return Promise.resolve(resolver as unknown as T);
+    }
+    throw new Error(`Unexpected service: ${ref.id}`);
+  };
+}
 
 const logger = createMockLogger() as Logger;
 
@@ -539,5 +567,111 @@ describe("integration-script.run_script", () => {
     expect(result.error).toMatch(/Execution error/);
     expect(result.error).toMatch(/subprocess crashed/);
     expect(result.artifact).toBeUndefined();
+  });
+});
+
+describe("script-action secret env injection + masking (leak guard)", () => {
+  it("injects only declared secrets into run_script env and masks them out of output", async () => {
+    const runner = makeEsmRunner({
+      result: { token: "gh_injectedSecret999" },
+      stdout: "echo gh_injectedSecret999",
+      stderr: "warn gh_injectedSecret999",
+      timedOut: false,
+    });
+    const action = createScriptRunAction({ runner });
+    const result = await action.execute({
+      ...ctxBase,
+      getService: makeGetService({ jira_token: "gh_injectedSecret999" }),
+      consumedArtifacts: {},
+      config: {
+        ...scriptBaseConfig,
+        secretEnv: { API_TOKEN: "${{ secrets.jira_token }}" },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Only the declared secret was injected into the runner env.
+    expect(runner.runMock).toHaveBeenCalledTimes(1);
+    const runArgs = runner.runMock.mock.calls[0][0] as EsmScriptRunOptions;
+    expect(runArgs.env).toEqual({ API_TOKEN: "gh_injectedSecret999" });
+    // Its value is redacted from the captured output + return value.
+    const artifact = result.artifact as ScriptResultArtifact;
+    expect(artifact.stdout).toBe("echo ****");
+    expect(artifact.stderr).toBe("warn ****");
+    expect(artifact.result).toEqual({ token: "****" });
+    expect(JSON.stringify(artifact)).not.toContain("gh_injectedSecret999");
+  });
+
+  it("injects declared secrets into run_shell env and masks them out", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "printing db-password-456",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    const result = await action.execute({
+      ...ctxBase,
+      getService: makeGetService({ db_pass: "db-password-456" }),
+      consumedArtifacts: {},
+      config: {
+        ...shellBaseConfig,
+        secretEnv: { DB_PASSWORD: "${{ secrets.db_pass }}" },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const runArgs = runner.runMock.mock.calls[0][0] as ShellScriptRunOptions;
+    expect(runArgs.env?.DB_PASSWORD).toBe("db-password-456");
+    const artifact = result.artifact as ShellResultArtifact;
+    expect(artifact.stdout).toBe("printing ****");
+    expect(JSON.stringify(artifact)).not.toContain("db-password-456");
+  });
+
+  it("does NOT resolve or inject any secret when none is declared (least-privilege)", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "no secrets here",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    const result = await action.execute({
+      ...ctxBase,
+      // A resolver IS available, but with no secretEnv it must never be
+      // called — an undeclared secret is not reachable by the run.
+      getService: makeGetService({ db_pass: "db-password-456" }),
+      consumedArtifacts: {},
+      config: shellBaseConfig,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const runArgs = runner.runMock.mock.calls[0][0] as ShellScriptRunOptions;
+    expect(runArgs.env?.DB_PASSWORD).toBeUndefined();
+    const artifact = result.artifact as ShellResultArtifact;
+    expect(artifact.stdout).toBe("no secrets here");
+  });
+
+  it("fails the run clearly when a declared secret cannot be resolved", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "should not run",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    const result = await action.execute({
+      ...ctxBase,
+      getService: makeGetService({}), // store has no secrets
+      consumedArtifacts: {},
+      config: {
+        ...shellBaseConfig,
+        secretEnv: { DB_PASSWORD: "${{ secrets.missing }}" },
+      },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toMatch(/Secret error/);
+    expect(runner.runMock).not.toHaveBeenCalled();
   });
 });

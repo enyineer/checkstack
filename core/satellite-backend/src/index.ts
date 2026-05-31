@@ -9,6 +9,10 @@ import {
 } from "@checkstack/satellite-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
+import { ScriptPackagesApi } from "@checkstack/script-packages-common";
+import { scriptPackagesChangedHook } from "@checkstack/script-packages-backend";
+import { secretResolverRef } from "@checkstack/secrets-backend";
+import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
@@ -58,6 +62,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
         wsRegistry: coreServices.wsRegistry,
+        secretResolver: secretResolverRef,
       },
       init: async ({ logger, database, rpc, signalService }) => {
         logger.debug("🛰️ Initializing Satellite Backend...");
@@ -83,6 +88,7 @@ export default createBackendPlugin({
         signalService,
         wsRegistry,
         rpcClient,
+        secretResolver,
         onHook,
         emitHook,
       }) => {
@@ -128,6 +134,50 @@ export default createBackendPlugin({
             emitHook,
             connectedHook: satelliteHooks.connected,
             disconnectedHook: satelliteHooks.disconnected,
+          },
+          {
+            // Script-package distribution: carry the desired lockfile hash in
+            // assignment payloads + persist per-satellite reconcile state.
+            // Satellites pull blobs from CORE (getManifest/downloadBlob),
+            // never the registry.
+            getDesiredLockfileHash: async () => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              const state = await spClient.getInstallState();
+              return state.lockfileHash;
+            },
+            reportSyncState: async (input) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              await spClient.reportSatelliteSyncState(input);
+            },
+            getManifest: async ({ lockfileHash }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              const res = await spClient.getManifest({ lockfileHash });
+              return res.entries;
+            },
+            getBlobBase64: async ({ integrity }) => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              try {
+                const res = await spClient.downloadBlob({ integrity });
+                return res.data;
+              } catch {
+                return null;
+              }
+            },
+          },
+          {
+            // JIT secret delivery: resolve a collector's declared secretEnv
+            // (read from the satellite's own assignment) via the central
+            // resolver. Values are returned over the WS channel per-run and
+            // never persisted.
+            resolveRunSecrets: async ({ satelliteId, configId, collectorId }) =>
+              resolveSatelliteRunSecrets({
+                satelliteId,
+                configId,
+                collectorId,
+                getAssignmentsForSatellite: (id) =>
+                  configRelay.getAssignmentsForSatellite(id),
+                resolver: secretResolver,
+              }),
           },
         );
 
@@ -182,6 +232,18 @@ export default createBackendPlugin({
           async () => {
             await wsHandler.pushConfigUpdateToAll();
           },
+        );
+
+        // Fan the script-packages.changed broadcast out to THIS instance's
+        // connected satellites. Every core instance subscribes in broadcast
+        // mode, so each pushes to its own satellites; offline satellites
+        // converge via the assignment-carried lockfile hash on reconnect.
+        onHook(
+          scriptPackagesChangedHook,
+          async ({ lockfileHash }) => {
+            wsHandler.pushRefreshScriptPackagesToAll(lockfileHash);
+          },
+          { mode: "broadcast" },
         );
 
         logger.debug("✅ Satellite Backend afterPluginsReady complete.");

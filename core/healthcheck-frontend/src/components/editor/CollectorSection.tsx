@@ -10,7 +10,10 @@ import {
   healthcheckScriptContext,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
+import { useScriptPackageTypes } from "@checkstack/script-packages-frontend";
+import { useSecretNames } from "@checkstack/secrets-frontend";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
+import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
 
 interface CollectorSectionProps {
   entry: CollectorConfigEntry;
@@ -29,6 +32,14 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   onValidChange,
   onRemove,
 }) => {
+  const scriptTestRenderer = React.useMemo(
+    () => createCollectorScriptTestRenderer(entry.config),
+    [entry.config],
+  );
+  const { dts: packageTypes } = useScriptPackageTypes();
+  // Secret names (never values) for the secret -> env mapping editor.
+  const { secretNames } = useSecretNames();
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -63,17 +74,31 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
               Configure how this check item behaves.
             </p>
           </div>
-          <DynamicForm
-            schema={collectorDef.configSchema}
-            value={entry.config}
-            onChange={onConfigChange}
-            onValidChange={onValidChange}
-            {...healthcheckScriptContext({
+          {(() => {
+            const ctx = healthcheckScriptContext({
               collectorConfigSchema: collectorDef.configSchema,
               // Surface the user's own `env` keys as `$`-completions.
               customEnv: entry.config.env,
-            })}
-          />
+            });
+            // Append installed npm-package `.d.ts` so collector scripts get
+            // package IntelliSense on top of the `context`/config types.
+            const typeDefinitions =
+              packageTypes.length > 0
+                ? `${ctx.typeDefinitions}\n${packageTypes}`
+                : ctx.typeDefinitions;
+            return (
+              <DynamicForm
+                schema={collectorDef.configSchema}
+                value={entry.config}
+                onChange={onConfigChange}
+                onValidChange={onValidChange}
+                {...ctx}
+                typeDefinitions={typeDefinitions}
+                scriptTestRenderer={scriptTestRenderer}
+                secretNames={secretNames}
+              />
+            );
+          })()}
         </div>
       )}
 

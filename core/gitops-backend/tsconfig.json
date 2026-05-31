@@ -21,6 +21,9 @@
     },
     {
       "path": "../queue-api"
+    },
+    {
+      "path": "../secrets-backend"
     }
   ]
 }

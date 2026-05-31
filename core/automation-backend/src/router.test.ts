@@ -97,6 +97,7 @@ const sampleDefinition: AutomationDefinition = {
   conditions: [],
   actions: [],
   mode: "single",
+  concurrency_scope: "automation",
   max_runs: 10,
 };
 
@@ -239,6 +240,7 @@ interface RouterHarness {
   signalService: MockSignalService;
   automationRows: Map<string, Automation>;
   db: ReturnType<typeof createMockDbForRouter>;
+  dispatchDeps: ReturnType<typeof makeDispatchDeps>["deps"];
 }
 
 function createMockDbForRouter() {
@@ -295,6 +297,7 @@ function makeRouter(): RouterHarness {
     signalService,
     automationRows,
     db,
+    dispatchDeps,
   };
 }
 
@@ -719,6 +722,120 @@ describe("Automation Router", () => {
       expect(res.error?.message).toBeDefined();
       expect(typeof res.error?.line).toBe("number");
       expect(typeof res.error?.column).toBe("number");
+    });
+  });
+
+  describe("testScript", () => {
+    it("runs a shell script against the flattened sample context", async () => {
+      const res = await call(
+        h.router.testScript,
+        {
+          kind: "shell",
+          script: 'echo "$CHECKSTACK_TRIGGER_PAYLOAD_ID"',
+          context: { trigger: { event: "incident.created", payload: { id: "INC-7" } } },
+          timeoutMs: 10_000,
+        },
+        { context: h.context },
+      );
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout).toBe("INC-7");
+      expect(res.error).toBeUndefined();
+      expect(res.timedOut).toBe(false);
+    });
+
+    it("surfaces a non-zero shell exit code as an error", async () => {
+      const res = await call(
+        h.router.testScript,
+        { kind: "shell", script: "exit 3", timeoutMs: 10_000 },
+        { context: h.context },
+      );
+      expect(res.exitCode).toBe(3);
+      expect(res.error).toContain("exited with code 3");
+    });
+
+    it("runs a typescript script and returns its default export", async () => {
+      const res = await call(
+        h.router.testScript,
+        {
+          kind: "typescript",
+          script: "export default { ok: context.trigger.payload.id };",
+          context: { trigger: { event: "e", payload: { id: "INC-9" } } },
+          timeoutMs: 10_000,
+        },
+        { context: h.context },
+      );
+      expect(res.result).toEqual({ ok: "INC-9" });
+      expect(res.error).toBeUndefined();
+    });
+  });
+
+  describe("getRunScopeForReplay", () => {
+    it("reconstructs trigger + artifacts and reports snapshot availability", async () => {
+      // First select() → the run row; second select() → artifact rows.
+      const runRow = {
+        id: "run-1",
+        triggerEventId: "incident.incident.created",
+        triggerPayload: { id: "INC-7" },
+      };
+      const artifactRows = [
+        { artifactType: "jira.issue", actionId: "j", data: { key: "P-1" } },
+      ];
+      h.db.select = mock(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect(artifactRows));
+      h.dispatchDeps.runStateStore.load = mock(async () => ({
+        scopeSnapshot: { vars: { count: 2 } },
+        lastActionPath: null,
+        lastHeartbeatAt: new Date(),
+      }));
+
+      const res = await call(
+        h.router.getRunScopeForReplay,
+        { runId: "run-1" },
+        { context: h.context },
+      );
+
+      expect(res.context.trigger).toEqual({
+        event: "incident.incident.created",
+        payload: { id: "INC-7" },
+      });
+      expect(res.context.artifacts).toEqual({
+        "jira.issue": { key: "P-1" },
+        j: { key: "P-1" },
+      });
+      expect(res.context.var).toEqual({ count: 2 });
+      expect(res.scopeSnapshotAvailable).toBe(true);
+    });
+
+    it("reports scopeSnapshotAvailable=false when the run state is cleared", async () => {
+      const runRow = {
+        id: "run-2",
+        triggerEventId: "e",
+        triggerPayload: {},
+      };
+      h.db.select = mock(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([runRow]))
+        .mockImplementationOnce(() => fluentSelect([]));
+      h.dispatchDeps.runStateStore.load = mock(async () => undefined);
+
+      const res = await call(
+        h.router.getRunScopeForReplay,
+        { runId: "run-2" },
+        { context: h.context },
+      );
+      expect(res.scopeSnapshotAvailable).toBe(false);
+      expect(res.context.var).toEqual({});
+    });
+
+    it("404s on an unknown run id", async () => {
+      h.db.select = mock(() => fluentSelect([]));
+      await expect(
+        call(
+          h.router.getRunScopeForReplay,
+          { runId: "missing" },
+          { context: h.context },
+        ),
+      ).rejects.toThrow(/not found/i);
     });
   });
 });

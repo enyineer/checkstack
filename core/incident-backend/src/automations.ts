@@ -14,6 +14,7 @@ import { z } from "zod";
 import { Versioned } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
+  ArtifactTypeDefinition,
   TriggerDefinition,
 } from "@checkstack/automation-backend";
 import {
@@ -107,6 +108,32 @@ export const incidentTriggers: TriggerDefinition<unknown>[] = [
   incidentResolvedTrigger as TriggerDefinition<unknown>,
 ];
 
+// ─── incident artifact type ────────────────────────────────────────────
+
+/**
+ * The `incident` artifact represents an incident opened by an upstream
+ * action (e.g. `incident.create`). Downstream actions in the same run
+ * (`incident.resolve`, `incident.add_update`, `incident.update_status`)
+ * can consume it to act on that incident without the operator repeating
+ * the id — the open-then-wait-then-resolve flow the default auto-incident
+ * automations rely on.
+ */
+const incidentDataSchema = z.object({
+  incidentId: z.string(),
+  status: z.string(),
+  severity: z.string(),
+  systemIds: z.array(z.string()),
+});
+
+export const incidentArtifactType: ArtifactTypeDefinition<
+  z.infer<typeof incidentDataSchema>
+> = {
+  id: "incident",
+  displayName: "Incident",
+  description: "An incident opened by an upstream automation action",
+  schema: incidentDataSchema,
+};
+
 // ─── Action configs ────────────────────────────────────────────────────
 
 const incidentCreateConfigSchema = z.object({
@@ -116,21 +143,42 @@ const incidentCreateConfigSchema = z.object({
   systemIds: z.array(z.string()).min(1),
   initialMessage: z.string().optional(),
   suppressNotifications: z.boolean().optional().default(false),
+  /**
+   * When true, reuse an existing OPEN incident on the first target
+   * system instead of opening a duplicate (the old auto-incident
+   * `findActiveAutoIncident(systemId)` semantic). The reused incident is
+   * returned as the produced `incident` artifact so downstream
+   * resolve/update actions still work. Default false — existing and
+   * custom automations always create.
+   */
+  dedupe_open_for_system: z.boolean().optional().default(false),
 });
 
+// `incidentId` is optional on the close/update actions: when omitted the
+// action falls back to the upstream `incident` artifact in run scope
+// (config takes priority, else artifact). Mirrors Jira's resolveIssueKey.
 const incidentResolveConfigSchema = z.object({
-  incidentId: z.string().min(1),
+  incidentId: z
+    .string()
+    .optional()
+    .describe("Defaults to the upstream incident artifact in the run."),
   message: z.string().optional(),
 });
 
 const incidentAddUpdateConfigSchema = z.object({
-  incidentId: z.string().min(1),
+  incidentId: z
+    .string()
+    .optional()
+    .describe("Defaults to the upstream incident artifact in the run."),
   message: z.string().min(1),
   statusChange: IncidentStatusEnum.optional(),
 });
 
 const incidentUpdateStatusConfigSchema = z.object({
-  incidentId: z.string().min(1),
+  incidentId: z
+    .string()
+    .optional()
+    .describe("Defaults to the upstream incident artifact in the run."),
   status: IncidentStatusEnum,
   /**
    * Optional accompanying message. Defaults to a generic transition note
@@ -151,6 +199,28 @@ interface IncidentArtifact {
 interface IncidentUpdateArtifact {
   updateId: string;
   incidentId: string;
+}
+
+/**
+ * Resolve an incident id from explicit config or fall back to the
+ * upstream `incident` artifact in the run scope (config takes priority).
+ * Mirrors Jira's `resolveIssueKey` pattern.
+ */
+function resolveIncidentId(
+  configId: string | undefined,
+  consumed: Record<string, unknown>,
+): string | undefined {
+  if (configId && configId.trim().length > 0) return configId;
+  const incident = consumed["incident"];
+  if (
+    incident &&
+    typeof incident === "object" &&
+    "incidentId" in incident &&
+    typeof (incident as { incidentId: unknown }).incidentId === "string"
+  ) {
+    return (incident as { incidentId: string }).incidentId;
+  }
+  return;
 }
 
 // ─── Actions ───────────────────────────────────────────────────────────
@@ -177,15 +247,51 @@ export function createIncidentActions(
       version: 1,
       schema: incidentCreateConfigSchema,
     }),
+    produces: "incident",
     execute: async ({ config, logger }) => {
-      const incident = await service.createIncident({
+      const createInput = {
         title: config.title,
         description: config.description,
         severity: config.severity,
         systemIds: config.systemIds,
         initialMessage: config.initialMessage,
         suppressNotifications: config.suppressNotifications,
-      });
+      };
+
+      // Per-system dedup (opt-in): if an open incident already exists on
+      // the first target system, reuse it instead of opening a duplicate.
+      // Reproduces the old auto-incident `findActiveAutoIncident` semantic
+      // and keeps at most one open auto-incident per system across all the
+      // default sustained/flapping automations. The check + create are
+      // serialized per system inside the service (advisory lock), so two
+      // concurrent triggers (e.g. sustained + flapping) for the same system
+      // can't both find none and both create.
+      if (config.dedupe_open_for_system) {
+        const { incident, reused } =
+          await service.createIncidentDedupedForSystem(
+            createInput,
+            config.systemIds[0]!,
+          );
+        if (reused) {
+          logger.info(
+            `Automation reused open incident ${incident.id} for system ${config.systemIds[0]} (dedupe)`,
+          );
+        } else {
+          logger.info(`Automation created incident ${incident.id}`);
+        }
+        return {
+          success: true,
+          externalId: incident.id,
+          artifact: {
+            incidentId: incident.id,
+            status: incident.status,
+            severity: incident.severity,
+            systemIds: incident.systemIds,
+          },
+        };
+      }
+
+      const incident = await service.createIncident(createInput);
       logger.info(`Automation created incident ${incident.id}`);
       return {
         success: true,
@@ -213,15 +319,20 @@ export function createIncidentActions(
       version: 1,
       schema: incidentResolveConfigSchema,
     }),
-    execute: async ({ config, logger }) => {
-      const incident = await service.resolveIncident(
-        config.incidentId,
-        config.message,
-      );
+    consumes: ["incident"],
+    execute: async ({ config, consumedArtifacts, logger }) => {
+      const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
+      if (!incidentId) {
+        return {
+          success: false,
+          error: "No incidentId given and no upstream incident artifact found",
+        };
+      }
+      const incident = await service.resolveIncident(incidentId, config.message);
       if (!incident) {
         return {
           success: false,
-          error: `Incident ${config.incidentId} not found`,
+          error: `Incident ${incidentId} not found`,
         };
       }
       logger.info(`Automation resolved incident ${incident.id}`);
@@ -251,14 +362,22 @@ export function createIncidentActions(
       version: 1,
       schema: incidentAddUpdateConfigSchema,
     }),
-    execute: async ({ config, logger }) => {
+    consumes: ["incident"],
+    execute: async ({ config, consumedArtifacts, logger }) => {
+      const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
+      if (!incidentId) {
+        return {
+          success: false,
+          error: "No incidentId given and no upstream incident artifact found",
+        };
+      }
       const update = await service.addUpdate({
-        incidentId: config.incidentId,
+        incidentId,
         message: config.message,
         statusChange: config.statusChange,
       });
       logger.info(
-        `Automation added update ${update.id} to incident ${config.incidentId}`,
+        `Automation added update ${update.id} to incident ${incidentId}`,
       );
       return {
         success: true,
@@ -284,14 +403,22 @@ export function createIncidentActions(
       version: 1,
       schema: incidentUpdateStatusConfigSchema,
     }),
-    execute: async ({ config, logger }) => {
+    consumes: ["incident"],
+    execute: async ({ config, consumedArtifacts, logger }) => {
+      const incidentId = resolveIncidentId(config.incidentId, consumedArtifacts);
+      if (!incidentId) {
+        return {
+          success: false,
+          error: "No incidentId given and no upstream incident artifact found",
+        };
+      }
       const update = await service.addUpdate({
-        incidentId: config.incidentId,
+        incidentId,
         message: config.message ?? `Status changed to ${config.status}`,
         statusChange: config.status,
       });
       logger.info(
-        `Automation set incident ${config.incidentId} status → ${config.status}`,
+        `Automation set incident ${incidentId} status → ${config.status}`,
       );
       return {
         success: true,

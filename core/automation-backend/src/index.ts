@@ -1,6 +1,8 @@
 import {
   createBackendPlugin,
   coreServices,
+  withXactLock,
+  type SafeDatabase,
 } from "@checkstack/backend-api";
 import {
   automationAccess,
@@ -12,7 +14,18 @@ import {
 import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import type { PluginMetadata } from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
-import { createDefaultFilterRegistry } from "@checkstack/template-engine";
+import {
+  createDefaultFilterRegistry,
+  type FilterRegistry,
+} from "@checkstack/template-engine";
+import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { CHECKSTACK_API_VERSION } from "@checkstack/gitops-common";
+import {
+  reconcileAutomation,
+  deleteAutomationEntity,
+} from "./gitops-kinds";
+import { AutomationDefinitionSchema } from "@checkstack/automation-common";
 
 import type {
   ActionDefinition,
@@ -29,12 +42,27 @@ import { createArtifactStore } from "./artifact-store";
 import { createAutomationStore } from "./automation-store";
 import { createAutomationRouter } from "./router";
 import { runWebhookSubscriptionMigration } from "./migration/from-webhook-subscriptions";
+import { runAutoIncidentMigration } from "./migration/from-auto-incident-policies";
 import {
   startDelayQueueConsumer,
   type DelayQueueConsumer,
 } from "./dispatch/delay-queue";
+import {
+  startDwellQueueConsumer,
+  type DwellQueueConsumer,
+} from "./dispatch/dwell-queue";
+import {
+  startWaitUntilQueueConsumer,
+  type WaitUntilQueueConsumer,
+} from "./dispatch/wait-until-queue";
+import { createDwellStore } from "./dispatch/dwell-store";
 import { createRunStore } from "./dispatch/run-state";
 import { createRunStateStore } from "./dispatch/run-state-store";
+import { createRunSecretRegistry } from "./dispatch/run-secret-registry";
+import {
+  SECRET_RESOLVER_REF_ID,
+  CONNECTION_STORE_REF_ID,
+} from "./dispatch/secret-ref-ids";
 import {
   startStalledSweeper,
   type StalledSweeper,
@@ -44,10 +72,12 @@ import {
   type TriggerSubscriptions,
 } from "./dispatch/trigger-subscriber";
 import type { DispatchDeps } from "./dispatch/types";
+import { assembleDispatchGetService } from "./dispatch/assemble-get-service";
 import {
   automationActionExtensionPoint,
   automationArtifactStoreRef,
   automationArtifactTypeExtensionPoint,
+  automationFilterExtensionPoint,
   automationRegistriesRef,
   automationTriggerExtensionPoint,
 } from "./extension-points";
@@ -76,15 +106,26 @@ interface EnvStash {
   triggerSubscriptions?: TriggerSubscriptions;
   stalledSweeper?: StalledSweeper;
   delayConsumer?: DelayQueueConsumer;
+  dwellConsumer?: DwellQueueConsumer;
+  waitUntilConsumer?: WaitUntilQueueConsumer;
 }
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
   register(env) {
+    // Mutable DB ref — populated in init(), consumed by the GitOps
+    // reconcile/delete closures (only called during sync, after init).
+    let gitopsDb: SafeDatabase<typeof schema> | undefined;
+
     const triggerRegistry = createTriggerRegistry();
     const actionRegistry = createActionRegistry();
     const artifactTypeRegistry = createArtifactTypeRegistry();
+    // Shared filter registry — seeded with the built-in defaults (incl.
+    // the Wave-2 duration helpers) and extended by plugins via the
+    // filter extension point in Phase 1. The dispatch engine reads from
+    // this same instance, so plugin filters are live by `init()`.
+    const filterRegistry: FilterRegistry = createDefaultFilterRegistry();
 
     env.registerAccessRules(automationAccessRules);
 
@@ -124,6 +165,49 @@ export default createBackendPlugin({
       },
     });
 
+    // Filters registered by plugins in Phase 1 are collected here and
+    // applied (with collision-warning) in `init()` where a logger is
+    // available. Collecting first keeps `register()` logger-free.
+    const pendingFilters: Array<{
+      name: string;
+      filter: Parameters<FilterRegistry["register"]>[1];
+      pluginId: string;
+    }> = [];
+    env.registerExtensionPoint(automationFilterExtensionPoint, {
+      registerFilter: (definition, metadata) => {
+        pendingFilters.push({
+          name: definition.name,
+          filter: definition.filter,
+          pluginId: metadata.pluginId,
+        });
+      },
+    });
+
+    // GitOps `Automation` kind. The DB isn't available until init(), so a
+    // mutable ref is populated there and read by the reconcile closures
+    // (only invoked during sync, well after init) — mirrors catalog-backend.
+    const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
+    kindRegistry.registerKind({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Automation",
+      specSchema: AutomationDefinitionSchema,
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        if (!gitopsDb) throw new Error("Automation database not initialized");
+        return reconcileAutomation(gitopsDb, {
+          entity,
+          existingEntityId,
+          logger: context.logger,
+        });
+      },
+      delete: async ({ entityId, context }) => {
+        if (!gitopsDb) throw new Error("Automation database not initialized");
+        await deleteAutomationEntity(gitopsDb, {
+          entityId,
+          logger: context.logger,
+        });
+      },
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -132,6 +216,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
+        advisoryLock: coreServices.advisoryLock,
       },
       init: async ({
         logger,
@@ -140,12 +225,27 @@ export default createBackendPlugin({
         rpcClient,
         queueManager,
         signalService,
+        advisoryLock,
       }) => {
         logger.debug("⚙️  Initializing Automation Backend...");
 
-        const artifactStore = createArtifactStore(database);
-        const runStore = createRunStore(database);
-        const runStateStore = createRunStateStore(database);
+        // Populate the mutable DB ref the GitOps reconcile closures read.
+        gitopsDb = database as SafeDatabase<typeof schema>;
+
+        // Run-scoped secret registry: accumulates every secret value
+        // resolved during a run so every persistence choke point (run
+        // store step/run output, run-state scope snapshot, artifact data)
+        // masks before write (run-wide leak guard across ALL actions, and
+        // across replay reads).
+        const secretRegistry = createRunSecretRegistry();
+        const artifactStore = createArtifactStore(database, secretRegistry);
+        const runStore = createRunStore(database, logger, secretRegistry);
+        const runStateStore = createRunStateStore(
+          database,
+          advisoryLock,
+          secretRegistry,
+        );
+        const dwellStore = createDwellStore(database);
         const automationStore = createAutomationStore(database);
 
         env.registerService(automationArtifactStoreRef, artifactStore);
@@ -188,9 +288,21 @@ export default createBackendPlugin({
         );
         await registerBuiltinTriggerConsumer({ queueManager, logger });
 
+        // Apply plugin-contributed filters collected in register(),
+        // skipping any that would shadow a built-in (warn, don't clobber).
+        for (const pf of pendingFilters) {
+          if (filterRegistry.has(pf.name)) {
+            logger.warn(
+              `Plugin ${pf.pluginId} tried to register filter "${pf.name}" which already exists; skipping.`,
+            );
+            continue;
+          }
+          filterRegistry.register(pf.name, pf.filter);
+        }
+
         const dispatchDeps: DispatchDeps = {
           logger,
-          filters: createDefaultFilterRegistry(),
+          filters: filterRegistry,
           registries: {
             triggers: triggerRegistry,
             actions: actionRegistry,
@@ -199,12 +311,32 @@ export default createBackendPlugin({
           artifactStore,
           runStore,
           runStateStore,
+          dwellStore,
           queueManager,
-          getService: async () => {
-            throw new Error(
-              "getService not yet wired — automation dispatch invoked too early",
-            );
-          },
+          // Sensing-layer scope pre-resolution reads live health state
+          // through this client. forPlugin is lazy; the actual RPC only
+          // fires at evaluation time.
+          healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
+          // Registry-backed resolution of provider-action deps (connection
+          // store, secret resolver, ...) at execute time. Safe here because
+          // dispatch only runs from afterPluginsReady onward, by which point
+          // every service is registered. `env.getService` resolves through
+          // the real ServiceRegistry and throws clearly on a missing ref.
+          getService: assembleDispatchGetService({
+            envGetService: env.getService,
+          }),
+          // Run-wide secret masking: the engine wraps each run's getService
+          // to register resolved secrets here, and the run store masks step
+          // / run output before persistence.
+          secretRegistry,
+          secretResolverRefId: SECRET_RESOLVER_REF_ID,
+          connectionStoreRefId: CONNECTION_STORE_REF_ID,
+          // Serialize the concurrency-mode check-then-create with a
+          // transaction-scoped advisory lock (blocks until granted,
+          // auto-releases at COMMIT) so racing fires can't double-run a
+          // single-mode automation.
+          withConcurrencyLock: <T>(key: string, fn: () => Promise<T>) =>
+            withXactLock({ db: database, key, fn: () => fn() }),
         };
 
         const stash = env as unknown as EnvStash;
@@ -262,6 +394,8 @@ export default createBackendPlugin({
           await s.triggerSubscriptions?.dispose();
           s.stalledSweeper?.stop();
           await s.delayConsumer?.stop();
+          await s.dwellConsumer?.stop();
+          await s.waitUntilConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
@@ -313,6 +447,22 @@ export default createBackendPlugin({
           logger,
         });
 
+        // `for:` dwell: register the consumer that fires when a dwell's
+        // scheduled job pops, re-confirming state before starting the run.
+        stash.dwellConsumer = await startDwellQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          logger,
+        });
+
+        // `wait_until`: register the consumer that re-checks a suspended
+        // run's condition on each poll tick.
+        stash.waitUntilConsumer = await startWaitUntilQueueConsumer({
+          deps: stash.dispatchDeps,
+          automationStore: stash.automationStore,
+          logger,
+        });
+
         // Restart safety + horizontal scaling: periodically scan for
         // runs whose heartbeat is older than the threshold and resume
         // them under an advisory lock.
@@ -337,6 +487,22 @@ export default createBackendPlugin({
         } catch (error) {
           logger.error(
             `Subscription migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
+          );
+        }
+
+        // One-time migration (Phase 20): replace the removed hardcoded
+        // auto-incident path with default automations seeded per
+        // assignment from each system's NotificationPolicy. Idempotent
+        // (managed_by tagged), so safe on every boot.
+        try {
+          await runAutoIncidentMigration({
+            db: database,
+            rpcClient,
+            logger,
+          });
+        } catch (error) {
+          logger.error(
+            `Auto-incident migration failed unexpectedly: ${extractErrorMessage(error, "unknown error")}`,
           );
         }
 

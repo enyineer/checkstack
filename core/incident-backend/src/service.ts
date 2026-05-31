@@ -1,5 +1,5 @@
 import { eq, and, inArray, ne } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   incidents,
@@ -406,5 +406,71 @@ export class IncidentService {
       .limit(1);
 
     return !!match;
+  }
+
+  /**
+   * Find a single OPEN (not-resolved) incident affecting `systemId`, if
+   * any. Returns the incident with its systems, mirroring the old
+   * auto-incident `findActiveAutoIncident(systemId)` dedup semantic. Used
+   * by `incident.create`'s opt-in `dedupe_open_for_system` flag so a
+   * second trigger for an already-incidented system reuses the open
+   * incident rather than opening a duplicate.
+   */
+  async findActiveIncidentForSystem(
+    systemId: string,
+  ): Promise<IncidentWithSystems | undefined> {
+    const systemIncidents = await this.db
+      .select({ incidentId: incidentSystems.incidentId })
+      .from(incidentSystems)
+      .where(eq(incidentSystems.systemId, systemId));
+
+    const ids = systemIncidents.map((r) => r.incidentId);
+    if (ids.length === 0) return undefined;
+
+    const [match] = await this.db
+      .select({ id: incidents.id })
+      .from(incidents)
+      .where(and(inArray(incidents.id, ids), ne(incidents.status, "resolved")))
+      .limit(1);
+
+    if (!match) return undefined;
+    return this.getIncident(match.id);
+  }
+
+  /**
+   * Dedup-aware create for a single system, used by the `incident.create`
+   * automation action when `dedupe_open_for_system` is set. Serializes the
+   * check-then-create per system with a transaction-scoped advisory lock so
+   * two concurrent triggers for the same system (e.g. sustained + flapping)
+   * can't both observe "no open incident" and both create one. The critical
+   * section is short (a find + an insert), so a transaction-scoped lock is
+   * the right primitive (it auto-releases at COMMIT, no leak possible).
+   *
+   * Returns `{ incident, reused }` — `reused` is true when an already-open
+   * incident for the system was found and returned instead of creating.
+   */
+  async createIncidentDedupedForSystem(
+    input: CreateIncidentInput,
+    dedupeSystemId: string,
+    userId?: string,
+  ): Promise<{ incident: IncidentWithSystems; reused: boolean }> {
+    return withXactLock({
+      db: this.db,
+      key: `incident.dedupe-open-for-system:${dedupeSystemId}`,
+      // The find + create run on `this.db` (the pool), NOT on `tx`. That is
+      // safe here because `pg_advisory_xact_lock` BLOCKS every other holder
+      // of this key until this transaction commits: a racing caller waits
+      // at lock-acquire, so its find can't observe "no open incident" until
+      // ours has already committed the insert. The critical section is thus
+      // serialized by the lock window even though it doesn't ride `tx`.
+      fn: async () => {
+        const existing = await this.findActiveIncidentForSystem(dedupeSystemId);
+        if (existing) {
+          return { incident: existing, reused: true };
+        }
+        const incident = await this.createIncident(input, userId);
+        return { incident, reused: false };
+      },
+    });
   }
 }

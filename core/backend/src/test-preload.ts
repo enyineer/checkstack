@@ -43,11 +43,18 @@ mock.module(loggerPath, () => createMockLoggerModule());
 mock.module(coreServicesPath, () => ({
   registerCoreServices: ({
     registry,
+    pluginRpcRouters,
+    pluginContractRegistry,
   }: {
     registry: {
-      registerFactory: (ref: { id: string }, factory: unknown) => void;
+      registerFactory: (
+        ref: { id: string },
+        factory: (metadata: { pluginId: string }) => unknown,
+      ) => void;
       register: (ref: { id: string }, impl: unknown) => void;
     };
+    pluginRpcRouters?: Map<string, unknown>;
+    pluginContractRegistry?: Map<string, unknown>;
   }) => {
     // Register mock database factory - includes dialect.migrate for migration tests
     registry.registerFactory(coreServices.database, () => ({
@@ -101,9 +108,20 @@ mock.module(coreServicesPath, () => ({
       getAllStrategies: () => [...strategies.values()],
     }));
 
-    // Register mock RPC service factory
-    registry.registerFactory(coreServices.rpc, () => ({
-      registerRouter: () => {},
+    // Register mock RPC service factory.
+    //
+    // This MUST mirror the production factory's router wiring: it keys the
+    // router + contract by the resolving plugin's id into the SAME shared
+    // maps the API route handler reads. A previous version stubbed
+    // `registerRouter` as a no-op, which silently disabled router
+    // registration across the entire core/backend test suite — making oRPC
+    // router reachability impossible to verify (a 404 looked identical to a
+    // wired route to any test that didn't assert hard).
+    registry.registerFactory(coreServices.rpc, (metadata) => ({
+      registerRouter: (router: unknown, contract: unknown): void => {
+        pluginRpcRouters?.set(metadata.pluginId, router);
+        pluginContractRegistry?.set(metadata.pluginId, contract);
+      },
       registerHttpHandler: () => {},
     }));
 

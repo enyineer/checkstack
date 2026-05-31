@@ -36,6 +36,8 @@ import { IncidentApi } from "@checkstack/incident-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import { healthcheckSystemSubscription } from "@checkstack/healthcheck-common";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
+import { secretEnvMappingSchema } from "@checkstack/secrets-common";
+import type { SecretResolverService } from "@checkstack/secrets-backend";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
@@ -45,16 +47,10 @@ import {
   shouldNotifyTransition,
 } from "./notification-policy";
 import {
-  findLastAutoIncidentClose,
-  findUnhealthySince,
-  hasHealthyRunSince,
-  isMaintenanceSuppressed,
+  detectAndEmitFlapping,
   isTransitionToUnhealthy,
-  openAutoIncident,
-  recordUnhealthyTransition,
-  shouldOpenForFlapping,
-  shouldOpenForSustainedUnhealthy,
-} from "./auto-incident";
+} from "./flapping-detector";
+import { recordStateTransition } from "./state-transitions";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -172,40 +168,27 @@ export async function scheduleHealthCheck(props: {
 }
 
 /**
- * After every check run, evaluate the per-check auto-incident
- * triggers. Either trigger can independently open an incident:
+ * After every check run, run flapping DETECTION for the per-check.
  *
- * - **flapping**: this just-completed run was a transition to
- *   unhealthy AND `N` such transitions have happened within the
- *   configured window.
- * - **sustained**: the check is currently unhealthy AND has been so
- *   continuously for at least the configured duration.
+ * The hardcoded incident open/close path was removed in Phase 20 - that
+ * behaviour now ships as user-editable default automations
+ * (`healthcheck.system.degraded` + `for:` -> `incident.create`, the
+ * `healthcheck.flapping_detected` trigger, etc.). What remains here is
+ * the detection that those automations subscribe to: record each
+ * transition-to-unhealthy and emit `healthcheck.flapping_detected` when
+ * the policy's flapping threshold is crossed within the window.
  *
- * Both triggers honour the require-recovery rule: after the most
- * recent auto-incident close (manual or auto), no new auto-incident
- * opens until the check has logged at least one healthy run. This
- * stops a manual close → still-unhealthy → re-open loop.
- *
- * Active maintenance with suppression skips both triggers when the
- * policy opts in.
+ * The flapping emit is now UNCONDITIONAL on a threshold cross (it no
+ * longer depends on `autoOpenIncidentOnUnhealthy`); see
+ * `flapping-detector.ts`. Maintenance suppression / require-recovery /
+ * the sustained-duration decision all move into the automations.
  */
-async function maybeOpenAutoIncidentForCheck(props: {
+async function detectFlappingForCheck(props: {
   db: Db;
   service: HealthCheckService;
-  incidentClient: IncidentClient;
-  maintenanceClient: MaintenanceClient;
   logger: Logger;
   systemId: string;
-  systemName: string;
   configurationId: string;
-  configurationName: string;
-  /**
-   * Same closure-based getter the queue executor uses elsewhere; let
-   * us fire the `flapping_detected` automation hook from inside the
-   * flapping evaluator without re-threading `emitHook` through every
-   * intermediate caller. Optional — when absent, the hook simply
-   * doesn't fire (e.g. in unit tests that don't care about it).
-   */
   getEmitHook?: () => EmitHookFn | undefined;
   previousState: {
     checkStatuses: Array<{
@@ -223,13 +206,9 @@ async function maybeOpenAutoIncidentForCheck(props: {
   const {
     db,
     service,
-    incidentClient,
-    maintenanceClient,
     logger,
     systemId,
-    systemName,
     configurationId,
-    configurationName,
     getEmitHook,
     previousState,
     newState,
@@ -238,14 +217,14 @@ async function maybeOpenAutoIncidentForCheck(props: {
   const next = newState.checkStatuses.find(
     (c) => c.configurationId === configurationId,
   );
-  // Only auto-incident logic applies when the check is currently
-  // unhealthy — both triggers require it.
+  // Flapping detection only triggers on a fresh transition to unhealthy.
   if (!next || next.status !== "unhealthy") return;
 
   const prev = previousState.checkStatuses.find(
     (c) => c.configurationId === configurationId,
   );
   const isTransition = isTransitionToUnhealthy(prev?.status, next.status);
+  if (!isTransition) return;
 
   let policy;
   try {
@@ -255,136 +234,20 @@ async function maybeOpenAutoIncidentForCheck(props: {
     });
   } catch (error) {
     logger.warn(
-      `Failed to load policy for auto-incident decision (${systemId}/${configurationId}):`,
+      `Failed to load policy for flapping detection (${systemId}/${configurationId}):`,
       error,
     );
     return;
   }
 
-  if (!policy.autoOpenIncidentOnUnhealthy) return;
-
-  // Honour active maintenance windows — operators have explicitly
-  // said the system is down on purpose.
-  if (policy.skipDuringMaintenance) {
-    const suppressed = await isMaintenanceSuppressed({
-      maintenanceClient,
-      systemId,
-      logger,
-    });
-    if (suppressed) {
-      logger.debug(
-        `Skipping auto-incident for ${systemId}/${configurationId}: active maintenance`,
-      );
-      return;
-    }
-  }
-
-  // Require-recovery: if there's a prior closed auto-incident for
-  // this assignment, the check must have logged at least one healthy
-  // run since the close before we can open another one. Without this,
-  // an operator's manual close on a still-broken system would loop.
-  const lastCloseAt = await findLastAutoIncidentClose({
+  await detectAndEmitFlapping({
     db,
-    systemId,
     configurationId,
-  });
-  if (lastCloseAt) {
-    const recovered = await hasHealthyRunSince({
-      db,
-      systemId,
-      configurationId,
-      since: lastCloseAt,
-    });
-    if (!recovered) {
-      return;
-    }
-  }
-
-  // Record the transition (if any) and evaluate the flapping trigger
-  // against transitions that happened after the last close window.
-  let flappingOpens = false;
-  if (isTransition) {
-    try {
-      const count = await recordUnhealthyTransition({
-        db,
-        configurationId,
-        systemId,
-        windowMinutes: policy.flappingTrigger.windowMinutes,
-        since: lastCloseAt,
-      });
-      flappingOpens = shouldOpenForFlapping({
-        policy,
-        recentTransitionCount: count,
-      });
-
-      // Fire the informational `flapping_detected` automation hook
-      // independently of the auto-incident decision: an operator may
-      // care about flapping even with the auto-incident pipeline
-      // turned off.
-      if (
-        policy.flappingTrigger.enabled &&
-        count >= policy.flappingTrigger.transitions
-      ) {
-        const emit = getEmitHook?.();
-        if (emit) {
-          try {
-            await emit(healthCheckHooks.flappingDetected, {
-              systemId,
-              configurationId,
-              transitionCount: count,
-              windowMinutes: policy.flappingTrigger.windowMinutes,
-              timestamp: new Date().toISOString(),
-            });
-          } catch (error) {
-            logger.warn(
-              `Failed to emit healthcheck.flapping_detected hook for ${systemId}/${configurationId}:`,
-              error,
-            );
-          }
-        }
-      }
-    } catch (error) {
-      logger.warn(
-        `Failed to record unhealthy transition for ${systemId}/${configurationId}:`,
-        error,
-      );
-    }
-  }
-
-  // Evaluate the sustained-duration trigger on every run while the
-  // check is unhealthy (not just on transition).
-  let sustainedOpens = false;
-  if (policy.sustainedUnhealthyTrigger.enabled) {
-    const unhealthySince = await findUnhealthySince({
-      db,
-      configurationId,
-      systemId,
-      since: lastCloseAt,
-    });
-    if (unhealthySince) {
-      sustainedOpens = shouldOpenForSustainedUnhealthy({
-        policy,
-        unhealthyForMs: Date.now() - unhealthySince.getTime(),
-      });
-    }
-  }
-
-  if (!flappingOpens && !sustainedOpens) return;
-
-  const reason = flappingOpens
-    ? `flapping: ≥${policy.flappingTrigger.transitions} transitions in ${policy.flappingTrigger.windowMinutes} min`
-    : `unhealthy ≥${policy.sustainedUnhealthyTrigger.durationMinutes} min continuously`;
-
-  await openAutoIncident({
-    db,
-    incidentClient,
+    systemId,
+    flappingTrigger: policy.flappingTrigger,
+    isTransition,
+    getEmitHook,
     logger,
-    systemId,
-    systemName,
-    configurationId,
-    configurationName,
-    policy,
-    reason,
   });
 }
 
@@ -575,6 +438,13 @@ async function executeHealthCheckJob(props: {
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
+  /**
+   * Central secret resolver. When set, a collector declaring a `secretEnv`
+   * has it resolved + injected for this centrally-executed run; the
+   * collector masks the values out of its output. Optional for version-skew
+   * / test isolation.
+   */
+  secretResolver?: SecretResolverService;
 }): Promise<void> {
   const {
     payload,
@@ -589,6 +459,7 @@ async function executeHealthCheckJob(props: {
     incidentClient,
     getEmitHook,
     cache,
+    secretResolver,
   } = props;
   const { configId, systemId } = payload;
 
@@ -725,11 +596,31 @@ async function executeHealthCheckJob(props: {
             const storageKey = collectorEntry.id;
 
             try {
+              // Resolve the collector's declared secretEnv for THIS run
+              // (central execution). The collector injects it and masks the
+              // values out of its output. A missing required secret throws
+              // and fails the collector clearly.
+              let secretEnv: Record<string, string> | undefined;
+              const declared = secretEnvMappingSchema.safeParse(
+                (collectorEntry.config as { secretEnv?: unknown }).secretEnv,
+              );
+              if (
+                secretResolver &&
+                declared.success &&
+                Object.keys(declared.data).length > 0
+              ) {
+                const resolved = await secretResolver.resolveForRun({
+                  secretEnv: declared.data,
+                });
+                secretEnv = resolved.env;
+              }
+
               const collectorResult = await registered.collector.execute({
                 config: collectorEntry.config,
                 client: connectedClient!.client,
                 pluginId: configRow.strategyId,
                 runContext,
+                ...(secretEnv ? { secretEnv } : {}),
               });
 
               // Check for collector-level error
@@ -901,6 +792,16 @@ async function executeHealthCheckJob(props: {
 
       const newState = await service.getSystemHealthStatus(systemId);
       if (newState.status !== previousStatus) {
+        // Record the aggregate transition so the sensing layer has a
+        // reliable "in status since" for every status (Wave 2).
+        await recordStateTransition({
+          db,
+          systemId,
+          configurationId: configId,
+          fromStatus: previousStatus,
+          toStatus: newState.status,
+        });
+
         await notifyStateChange({
           notificationClient,
           systemId,
@@ -919,16 +820,12 @@ async function executeHealthCheckJob(props: {
       // Per-check auto-incident: runs whether or not the aggregate
       // changed (a check can transition to unhealthy without flipping
       // the aggregate if another check is already unhealthy).
-      await maybeOpenAutoIncidentForCheck({
+      await detectFlappingForCheck({
         db,
         service,
-        incidentClient,
-        maintenanceClient,
         logger,
         systemId,
-        systemName,
         configurationId: configId,
-        configurationName: configRow.configName,
         getEmitHook,
         previousState,
         newState,
@@ -1016,6 +913,16 @@ async function executeHealthCheckJob(props: {
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
+      // Record the aggregate transition so the sensing layer has a
+      // reliable "in status since" for every status (Wave 2).
+      await recordStateTransition({
+        db,
+        systemId,
+        configurationId: configId,
+        fromStatus: previousStatus,
+        toStatus: newState.status,
+      });
+
       await notifyStateChange({
         notificationClient,
         systemId,
@@ -1092,17 +999,13 @@ async function executeHealthCheckJob(props: {
       }
     }
 
-    // Per-check auto-incident: see comment on the failed-execution path.
-    await maybeOpenAutoIncidentForCheck({
+    // Per-check flapping detection: see comment on the failed-execution path.
+    await detectFlappingForCheck({
       db,
       service,
-      incidentClient,
-      maintenanceClient,
       logger,
       systemId,
-      systemName,
       configurationId: configId,
-      configurationName: configRow.configName,
       getEmitHook,
       previousState,
       newState,
@@ -1182,6 +1085,16 @@ async function executeHealthCheckJob(props: {
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
     if (newState.status !== previousStatus) {
+      // Record the aggregate transition so the sensing layer has a
+      // reliable "in status since" for every status (Wave 2).
+      await recordStateTransition({
+        db,
+        systemId,
+        configurationId: configId,
+        fromStatus: previousStatus,
+        toStatus: newState.status,
+      });
+
       await notifyStateChange({
         notificationClient,
         systemId,
@@ -1258,17 +1171,13 @@ async function executeHealthCheckJob(props: {
       }
     }
 
-    // Per-check auto-incident: see comment on the failed-execution path.
-    await maybeOpenAutoIncidentForCheck({
+    // Per-check flapping detection: see comment on the failed-execution path.
+    await detectFlappingForCheck({
       db,
       service,
-      incidentClient,
-      maintenanceClient,
       logger,
       systemId,
-      systemName,
       configurationId: configId,
-      configurationName: configName,
       getEmitHook,
       previousState,
       newState,
@@ -1291,6 +1200,7 @@ export async function setupHealthCheckWorker(props: {
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
+  secretResolver?: SecretResolverService;
 }): Promise<void> {
   const {
     db,
@@ -1305,6 +1215,7 @@ export async function setupHealthCheckWorker(props: {
     incidentClient,
     getEmitHook,
     cache,
+    secretResolver,
   } = props;
 
   const queue =
@@ -1326,6 +1237,7 @@ export async function setupHealthCheckWorker(props: {
         incidentClient,
         getEmitHook,
         cache,
+        secretResolver,
       });
     },
     {

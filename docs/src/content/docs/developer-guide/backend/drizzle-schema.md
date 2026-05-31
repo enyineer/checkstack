@@ -132,6 +132,61 @@ const [config] = await db
   .limit(1);
 ```
 
+## Advisory locks
+
+Each plugin query runs through the scoped database proxy, which wraps every
+statement in its own short transaction on a connection borrowed from the
+shared pool and returned immediately. That breaks Postgres **session-level**
+advisory locks (`pg_try_advisory_lock` / `pg_advisory_unlock`): the acquire
+and the release run on different pooled connections, so the unlock no-ops and
+the lock leaks. Do NOT call the session-lock functions through the scoped
+`db`.
+
+Use the `coreServices.advisoryLock` service instead. It checks out one
+dedicated client from the pool, acquires the session lock on it, and returns
+a handle whose `release()` runs the unlock on the SAME client before
+returning it to the pool. Use it for locks held for a long time (e.g. an
+election held across a slow background job), where a long-open transaction
+would be unacceptable:
+
+```typescript
+import { coreServices } from "@checkstack/backend-api";
+
+env.registerInit({
+  deps: { advisoryLock: coreServices.advisoryLock },
+  init: async ({ advisoryLock }) => {
+    const lock = await advisoryLock.tryAcquire("my-plugin.some-election");
+    if (!lock) return; // another instance holds it
+    try {
+      await doTheLongRunningWork();
+    } finally {
+      await lock.release();
+    }
+  },
+});
+```
+
+Keys are arbitrary strings hashed into Postgres' global 64-bit lock space, so
+namespace them per plugin (e.g. `"my-plugin.<purpose>"`).
+
+For a SHORT critical section, prefer `withXactLock`, which wraps acquire +
+work + release in a single transaction using `pg_advisory_xact_lock` (it
+auto-releases at COMMIT, so a leak is impossible). Because the scoped DB runs
+a whole `transaction()` callback on one connection, the lock and the work
+share a session:
+
+```typescript
+import { withXactLock } from "@checkstack/backend-api";
+
+await withXactLock({
+  db,
+  key: `my-plugin.dedupe:${someId}`,
+  fn: async () => {
+    // find-then-create, serialized per key
+  },
+});
+```
+
 ## See Also
 
 - [Backend Plugins](/checkstack/developer-guide/backend/plugins/)

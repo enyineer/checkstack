@@ -1,0 +1,42 @@
+{
+  "name": "@checkstack/secrets-frontend",
+  "version": "0.0.1",
+  "description": "Admin Settings -> Secrets management page",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.tsx"
+    }
+  },
+  "checkstack": {
+    "type": "frontend",
+    "pluginId": "secrets"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "lucide-react": "0.562.0",
+    "react": "^18.3.1",
+    "react-router-dom": "^6.20.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "typescript": "^5.7.2",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  }
+}

@@ -86,6 +86,34 @@ export interface EsmScriptRunOptions {
   helperModuleName?: string;
   /** Name of the helper function injected as a global AND exported by the virtual module. */
   helperFunctionName?: string;
+  /**
+   * Optional directory the per-run temp dir is created *inside*, so Node /
+   * Bun module resolution walks up to `<resolutionRoot>/node_modules` and
+   * the user's script can `import` managed npm packages.
+   *
+   * When unset (the default), the per-run dir is created under
+   * `os.tmpdir()` exactly as before - backward-compatible, no node_modules
+   * visible, isolation unchanged. The script-packages reconciler points
+   * this at `<store>/current` (the atomically-flipped symlink to the
+   * active materialized tree).
+   *
+   * Execution isolation is unchanged either way: the subprocess still gets
+   * only `SAFE_ENV_VARS`, so packages cannot read backend secrets.
+   */
+  resolutionRoot?: string;
+  /**
+   * Extra environment variables injected into the subprocess for THIS run
+   * only, merged on top of `SAFE_ENV_VARS`. The Secrets platform uses this
+   * to inject a run's resolved secret -> env allowlist (decision 5,
+   * least-privilege): only the consumer's declared secrets are injected,
+   * memory-only, for the lifetime of this run. It deliberately does NOT
+   * widen the ambient `SAFE_ENV_VARS` whitelist — the values live only in
+   * this options object and the spawned process env.
+   *
+   * The user's script reads these as `process.env.ENV_NAME`. On a key
+   * collision with a safe var, the injected value wins.
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -301,14 +329,22 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     timeoutMs,
     helperModuleName,
     helperFunctionName,
+    resolutionRoot,
+    env: injectedEnv,
   }) {
     const sessionId = randomUUID();
     const markerStart = `##__CS_SCRIPT_RESULT_${sessionId}_START__##`;
     const markerEnd = `##__CS_SCRIPT_RESULT_${sessionId}_END__##`;
 
-    const tmpDir = await mkdtemp(path.join(tmpdir(), "checkstack-script-"));
+    // When a `resolutionRoot` is given, create the per-run dir *inside* it
+    // so module resolution walks up to `<resolutionRoot>/node_modules`.
+    // Otherwise fall back to `os.tmpdir()` (today's behavior - no
+    // node_modules visible, fully backward compatible).
+    const tmpBase = resolutionRoot ?? tmpdir();
+    const tmpDir = await mkdtemp(path.join(tmpBase, "checkstack-script-"));
     const userScriptPath = path.join(tmpDir, "user.mjs");
     const runnerPath = path.join(tmpDir, "runner.mjs");
+    const bunfigPath = path.join(tmpDir, "bunfig.toml");
 
     const hasHelper =
       typeof helperModuleName === "string" &&
@@ -348,6 +384,14 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
             })
           : normalisedSource;
 
+      // Disable Bun auto-install in the per-run dir ALWAYS. Without this,
+      // `import "any-package"` silently fetches from the registry (verified
+      // empirically), defeating the whole managed-allowlist model. With it,
+      // an import resolves ONLY against the reconciled `<resolutionRoot>/
+      // node_modules` (when set) and otherwise fails fast - the clear
+      // degradation the package feature requires.
+      await writeFile(bunfigPath, '[install]\nauto = "disable"\n', "utf8");
+
       await writeFile(userScriptPath, userSource, "utf8");
       await writeFile(
         runnerPath,
@@ -363,7 +407,14 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
 
       proc = spawn({
         cmd: [process.execPath, runnerPath],
-        env: pickSafeEnv(),
+        // CWD = the per-run dir so Bun reads its `bunfig.toml`
+        // (auto-install disabled) and resolves modules from
+        // `<resolutionRoot>/node_modules` when set.
+        cwd: tmpDir,
+        // Per-run injected env wins over the safe-vars whitelist. The
+        // injected secret values live only here + the child process; they
+        // never widen the ambient SAFE_ENV_VARS.
+        env: { ...pickSafeEnv(), ...injectedEnv },
         stdout: "pipe",
         stderr: "pipe",
       });

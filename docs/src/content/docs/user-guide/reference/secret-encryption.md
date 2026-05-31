@@ -5,6 +5,9 @@ description: "Checkstack automatically encrypts sensitive configuration data (li
 
 Checkstack automatically encrypts sensitive configuration data (like OAuth client secrets, API keys, database passwords) using AES-256-GCM encryption before storing them in the database.
 
+> [!NOTE]
+> This page covers the AES-256-GCM encryption used for `x-secret` config fields (integration connections, the Vault auth credential, the local secret backend). For named secrets referenced via `${{ secrets.NAME }}`, backend selection (local or Vault), and the masking guarantee, see the [Secrets platform](/checkstack/developer-guide/backend/secrets/) reference.
+
 ## Required Setup
 
 You **must** set an `ENCRYPTION_MASTER_KEY` environment variable before using any features that store secrets.

@@ -163,7 +163,7 @@ See:
 - [Backend Plugin Guide](/checkstack/developer-guide/backend/plugins/)
 - [Frontend Plugin Guide](/checkstack/developer-guide/frontend/plugins/)
 - [Common Plugin Guidelines](/checkstack/developer-guide/common/plugins/)
-- [Monorepo Tooling Guide](/checkstack/developer-guide/tooling/cli/)
+- Monorepo Tooling Guide
 
 ### 4. Implement Plugin
 

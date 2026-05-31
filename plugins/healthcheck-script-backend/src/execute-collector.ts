@@ -2,6 +2,7 @@ import {
   Versioned,
   z,
   configString,
+  withConfigMeta,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -21,6 +22,10 @@ import {
 } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import type { ScriptTransportClient } from "./transport-client";
+import {
+  secretEnvMappingSchema,
+  maskScriptRunOutput,
+} from "@checkstack/secrets-common";
 
 // ============================================================================
 // RUN-CONTEXT ENV INJECTION
@@ -82,6 +87,7 @@ function shellQuote(arg: string): string {
 const executeConfigSchemaV2 = z.object({
   script: configString({
     "x-editor-types": ["shell"],
+    "x-script-testable": true,
   }).describe(
     "Shell script source. Executed via `sh -c`, so pipes, redirects, `if`/`for`/`while`, variable expansion, command substitution etc. all work. Exit non-zero to fail the check.",
   ),
@@ -94,6 +100,11 @@ const executeConfigSchemaV2 = z.object({
     .optional()
     .describe(
       "Extra environment variables to expose to the script. Merged on top of the safe-vars whitelist (PATH, HOME, ...).",
+    ),
+  secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
+    .optional()
+    .describe(
+      'Secret → env mapping, e.g. { "API_TOKEN": "${{ secrets.token }}" }. Only the named secrets are resolved and injected for this run (read via process.env.API_TOKEN / $API_TOKEN); on a satellite they are delivered just-in-time over the encrypted channel, never persisted. Values are masked out of the collector output.',
     ),
   timeout: z
     .number()
@@ -243,20 +254,25 @@ export class ExecuteCollector implements CollectorStrategy<
     config,
     client,
     runContext,
+    secretEnv,
   }: {
     config: ExecuteConfig;
     client: ScriptTransportClient;
     pluginId: string;
     runContext?: CollectorRunContext;
+    secretEnv?: Record<string, string>;
   }): Promise<CollectorResult<ExecuteResult>> {
     const startTime = Date.now();
 
-    // Merge run-context metadata under the user-supplied env so a user
-    // `config.env` key always wins on collision (matches the runner's
-    // existing merge order against the safe-vars whitelist).
-    const env = runContext
-      ? { ...runContextEnv(runContext), ...config.env }
-      : config.env;
+    // Merge run-context metadata under the user-supplied env, then the
+    // resolved secret env on top (a declared secret env name wins, matching
+    // the central action's layering). User `config.env` still wins over the
+    // run-context vars.
+    const env = {
+      ...(runContext ? runContextEnv(runContext) : {}),
+      ...config.env,
+      ...secretEnv,
+    };
 
     const response = await client.exec({
       script: config.script,
@@ -265,20 +281,33 @@ export class ExecuteCollector implements CollectorStrategy<
       timeout: config.timeout,
     });
 
+    // Source-side masking: redact the delivered secret values from the
+    // captured output BEFORE it leaves the satellite (core masks again on
+    // receipt). A script echoing a secret it was given is masked here.
+    const maskValues = Object.values(secretEnv ?? {});
+    const masked = maskScriptRunOutput({
+      output: {
+        stdout: response.stdout,
+        stderr: response.stderr,
+        error: response.error,
+      },
+      values: maskValues,
+    });
+
     const executionTimeMs = Date.now() - startTime;
     const success = response.exitCode === 0 && !response.timedOut;
 
     return {
       result: {
         exitCode: response.exitCode,
-        stdout: response.stdout,
-        stderr: response.stderr,
+        stdout: masked.stdout,
+        stderr: masked.stderr,
         executionTimeMs,
         success,
         timedOut: response.timedOut,
       },
       error:
-        response.error ??
+        masked.error ??
         (success ? undefined : `Exit code: ${response.exitCode}`),
     };
   }

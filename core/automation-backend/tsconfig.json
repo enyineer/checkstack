@@ -8,6 +8,9 @@
       "path": "../automation-common"
     },
     {
+      "path": "../backend"
+    },
+    {
       "path": "../backend-api"
     },
     {
@@ -20,6 +23,18 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../gitops-backend"
+    },
+    {
+      "path": "../gitops-common"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../integration-backend"
+    },
+    {
       "path": "../integration-common"
     },
     {
@@ -27,6 +42,15 @@
     },
     {
       "path": "../queue-api"
+    },
+    {
+      "path": "../script-packages-backend"
+    },
+    {
+      "path": "../secrets-backend"
+    },
+    {
+      "path": "../secrets-common"
     },
     {
       "path": "../signal-common"

@@ -294,3 +294,71 @@ describe("ExecuteCollector", () => {
     });
   });
 });
+
+describe("ExecuteCollector secret env injection + source-side masking", () => {
+  // Capture the env the collector passes to the transport client. Typed
+  // so we can assert without indexing the loosely-typed mock.calls tuple.
+  const makeRecordingClient = (
+    response: { stdout: string; stderr: string },
+  ): {
+    client: ScriptTransportClient;
+    getEnv: () => Record<string, string> | undefined;
+  } => {
+    let capturedEnv: Record<string, string> | undefined;
+    return {
+      getEnv: () => capturedEnv,
+      client: {
+        exec: async (input) => {
+          capturedEnv = input.env;
+          return {
+            exitCode: 0,
+            stdout: response.stdout,
+            stderr: response.stderr,
+            timedOut: false,
+          };
+        },
+      },
+    };
+  };
+
+  it("injects the delivered secretEnv into the shell exec and masks it from output", async () => {
+    const { client, getEnv } = makeRecordingClient({
+      stdout: "value=sh-secret-987",
+      stderr: "warn sh-secret-987",
+    });
+    const collector = new ExecuteCollector();
+
+    const result = await collector.execute({
+      config: {
+        script: "echo value=$TOKEN",
+        timeout: 5000,
+        secretEnv: { TOKEN: "${{ secrets.tok }}" },
+      },
+      client,
+      pluginId: "test",
+      secretEnv: { TOKEN: "sh-secret-987" },
+    });
+
+    // The exec received the injected env.
+    expect(getEnv()?.TOKEN).toBe("sh-secret-987");
+    // The secret is redacted from stdout/stderr (source-side).
+    expect(result.result.stdout).toBe("value=****");
+    expect(result.result.stderr).toBe("warn ****");
+    expect(JSON.stringify(result)).not.toContain("sh-secret-987");
+  });
+
+  it("does not inject or mask when no secretEnv is delivered", async () => {
+    const { client, getEnv } = makeRecordingClient({
+      stdout: "no secrets",
+      stderr: "",
+    });
+    const collector = new ExecuteCollector();
+    const result = await collector.execute({
+      config: { script: "echo hi", timeout: 5000 },
+      client,
+      pluginId: "test",
+    });
+    expect(getEnv()?.TOKEN).toBeUndefined();
+    expect(result.result.stdout).toBe("no secrets");
+  });
+});

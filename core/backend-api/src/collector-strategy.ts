@@ -89,6 +89,15 @@ export interface CollectorStrategy<
     client: TClient;
     pluginId: string;
     runContext?: CollectorRunContext;
+    /**
+     * Resolved secret env for THIS run (the collector's declared
+     * `secretEnv` mapped to values), delivered just-in-time. Injected into
+     * the collector's script execution env and never persisted. Empty /
+     * absent when the collector declares no secrets. The collector is
+     * responsible for masking these values out of its returned output
+     * (source-side defense in depth).
+     */
+    secretEnv?: Record<string, string>;
   }): Promise<CollectorResult<TResult>>;
 
   /**

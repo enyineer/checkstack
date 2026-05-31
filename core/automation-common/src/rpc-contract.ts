@@ -8,6 +8,12 @@ import {
 import { automationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
+  ReplayScopeInputSchema,
+  ReplayScopeResultSchema,
+  ScriptTestInputSchema,
+  ScriptTestResultSchema,
+} from "./script-test-schemas";
+import {
   ActionInfoSchema,
   ArtifactTypeInfoSchema,
   AutomationArtifactSchema,
@@ -199,6 +205,41 @@ export const automationContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  // ─── Inline script testing ─────────────────────────────────────────────
+
+  /**
+   * Run a `run_script` (TypeScript) or `run_shell` (shell) script against
+   * an editable sample context, using the same sandboxed runner the real
+   * action uses. Lets operators test a script directly in the editor
+   * without dispatching a whole automation.
+   *
+   * Gated by `manage` because authoring + running a script already
+   * executes code on the central backend — this is the same privilege.
+   * The run is time-bounded and always central (real satellite runs may
+   * differ; the UI notes this).
+   */
+  testScript: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [automationAccess.manage],
+  })
+    .input(ScriptTestInputSchema)
+    .output(ScriptTestResultSchema),
+
+  /**
+   * Reconstruct an editable test context from a real automation run, so an
+   * operator can replay a script against the data that run saw. Reads run
+   * data only (trigger + persisted artifacts, plus the durable scope
+   * snapshot when the run is still in-flight), so it's gated by `read`.
+   */
+  getRunScopeForReplay: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [automationAccess.read],
+  })
+    .input(ReplayScopeInputSchema)
+    .output(ReplayScopeResultSchema),
 
   // ─── Template playground ───────────────────────────────────────────────
 

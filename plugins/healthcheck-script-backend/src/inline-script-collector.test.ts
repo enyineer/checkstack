@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   InlineScriptCollector,
   type InlineScriptConfig,
+  type InlineScriptExecutor,
 } from "./inline-script-collector";
 import type { ScriptTransportClient } from "./transport-client";
 
@@ -402,5 +403,57 @@ describe("InlineScriptCollector", () => {
       expect(aggregated.avgExecutionTimeMs.avg).toBe(150);
       expect(aggregated.successRate.rate).toBeCloseTo(67, 0);
     });
+  });
+});
+
+describe("InlineScriptCollector secret env injection + source-side masking", () => {
+  it("injects the delivered secretEnv into the executor and masks it from output", async () => {
+    const calls: Array<{ secretEnv?: Record<string, string> }> = [];
+    const mockExecutor: InlineScriptExecutor = {
+      execute: async (input) => {
+        calls.push({ secretEnv: input.secretEnv });
+        // Simulate a script that echoes its injected secret.
+        return {
+          result: { success: true, message: "token is gh_realSecret123" },
+          stdout: "logged gh_realSecret123",
+          stderr: "",
+          timedOut: false,
+        };
+      },
+    };
+    const collector = new InlineScriptCollector(mockExecutor);
+
+    const result = await collector.execute({
+      config: createConfig({
+        secretEnv: { API_TOKEN: "${{ secrets.tok }}" },
+      }),
+      client: mockClient,
+      pluginId: "script",
+      secretEnv: { API_TOKEN: "gh_realSecret123" },
+    });
+
+    // The executor received the injected env.
+    expect(calls[0]?.secretEnv).toEqual({ API_TOKEN: "gh_realSecret123" });
+    // The secret is redacted from the result message (source-side).
+    expect(result.result.message).toBe("token is ****");
+    expect(JSON.stringify(result)).not.toContain("gh_realSecret123");
+  });
+
+  it("does not mask anything when no secretEnv is delivered", async () => {
+    const mockExecutor: InlineScriptExecutor = {
+      execute: async () => ({
+        result: { success: true, message: "nothing secret" },
+        stdout: "plain output",
+        stderr: "",
+        timedOut: false,
+      }),
+    };
+    const collector = new InlineScriptCollector(mockExecutor);
+    const result = await collector.execute({
+      config: createConfig(),
+      client: mockClient,
+      pluginId: "script",
+    });
+    expect(result.result.message).toBe("nothing secret");
   });
 });

@@ -19,6 +19,45 @@ import { z } from "zod";
  * `automations.definition` column, also round-tripped from YAML in the UI.
  */
 
+// ─── Duration ──────────────────────────────────────────────────────────────
+
+/**
+ * A duration expressed in a single unit, or a template that renders to a
+ * number of seconds. Used by a trigger's `for:` dwell (decision D1). The
+ * object form is preferred for the editor's duration widget; the template
+ * form is the escape hatch for computed durations.
+ */
+export const DurationSchema = z.union([
+  z.object({ seconds: z.number().int().min(1).max(60 * 60 * 24 * 30) }),
+  z.object({ minutes: z.number().int().min(1).max(60 * 24 * 30) }),
+  z.object({ hours: z.number().int().min(1).max(24 * 30) }),
+  z
+    .object({ template: z.string().min(1) })
+    .describe("Template rendering to a number of seconds."),
+]);
+
+export type Duration = z.infer<typeof DurationSchema>;
+
+/**
+ * Resolve a {@link Duration} to milliseconds. The template branch needs a
+ * render context, so callers that may receive a template pass a
+ * `renderSeconds` resolver. Returns null for an unrenderable / invalid
+ * duration.
+ */
+export function durationToMs(
+  duration: Duration,
+  renderSeconds?: (template: string) => number | undefined,
+): number | null {
+  if ("seconds" in duration) return duration.seconds * 1000;
+  if ("minutes" in duration) return duration.minutes * 60_000;
+  if ("hours" in duration) return duration.hours * 3_600_000;
+  const seconds = renderSeconds?.(duration.template);
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+  return Math.floor(seconds) * 1000;
+}
+
 // ─── Trigger ─────────────────────────────────────────────────────────────
 
 /**
@@ -32,6 +71,8 @@ import { z } from "zod";
  *   trigger itself before any action runs.
  * - `config` is the trigger's own configuration — only used by triggers
  *   that need extra setup (cron pattern for `time.cron`, etc.).
+ * - `for` is an optional dwell: fire only if the matched state still holds
+ *   after the duration (re-confirmed at expiry, restart-safe).
  */
 export const TriggerSchema = z.object({
   id: z
@@ -59,6 +100,9 @@ export const TriggerSchema = z.object({
     .describe(
       "Per-trigger configuration (e.g. cron pattern for time.cron, interval seconds for time.interval).",
     ),
+  for: DurationSchema.optional().describe(
+    "Dwell: fire only if the matched state still holds after this duration. Re-confirmed at expiry, restart-safe.",
+  ),
 });
 
 export type Trigger = z.infer<typeof TriggerSchema>;
@@ -66,17 +110,118 @@ export type Trigger = z.infer<typeof TriggerSchema>;
 // ─── Condition (recursive) ────────────────────────────────────────────────
 
 /**
+ * Structured condition variants (Wave 2 Phase 16). Each evaluates over the
+ * pre-resolved scope (Phase 14 `health.*`) plus a FRESH `now` computed per
+ * evaluation (constraint 7 — never the frozen scope `now`).
+ */
+
+/**
+ * `numeric_state` — compare a numeric `value` (a template/path string or a
+ * literal number) against optional `above` / `below` bounds.
+ */
+export const NumericStateConditionSchema = z
+  .object({
+    numeric_state: z.object({
+      value: z
+        .union([z.string().min(1), z.number()])
+        .describe("Template/path string or literal number to compare."),
+      above: z.number().optional(),
+      below: z.number().optional(),
+    }),
+  })
+  .refine(
+    (c) =>
+      c.numeric_state.above !== undefined ||
+      c.numeric_state.below !== undefined,
+    { message: "numeric_state requires at least one of `above` / `below`" },
+  );
+
+export type NumericStateCondition = z.infer<
+  typeof NumericStateConditionSchema
+>;
+
+/**
+ * `time` — on-call / quiet-hours gating. `after` / `before` are `HH:mm`
+ * (24h). `weekday` is a list of 0-6 (Sunday = 0). `timezone` is an IANA
+ * zone (defaults to UTC).
+ */
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const TimeConditionSchema = z
+  .object({
+    time: z.object({
+      after: z
+        .string()
+        .regex(HHMM, "Expected HH:mm (24h)")
+        .optional()
+        .describe("Inclusive lower bound, local to `timezone`."),
+      before: z
+        .string()
+        .regex(HHMM, "Expected HH:mm (24h)")
+        .optional()
+        .describe("Exclusive upper bound, local to `timezone`."),
+      weekday: z
+        .array(z.number().int().min(0).max(6))
+        .min(1)
+        .optional()
+        .describe("Allowed weekdays (0 = Sunday … 6 = Saturday)."),
+      timezone: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("IANA timezone (e.g. `Europe/Berlin`). Defaults to UTC."),
+    }),
+  })
+  .refine(
+    (c) =>
+      c.time.after !== undefined ||
+      c.time.before !== undefined ||
+      c.time.weekday !== undefined,
+    { message: "time requires at least one of `after` / `before` / `weekday`" },
+  );
+
+export type TimeCondition = z.infer<typeof TimeConditionSchema>;
+
+/**
+ * `state` — condition-side dwell. True when `entity` (a system id) has been
+ * in `status` for at least `for` (read from the pre-resolved
+ * `health.*.in_status_for_ms`; NO new timer — it reads, it doesn't time).
+ */
+export const StateConditionSchema = z.object({
+  state: z.object({
+    entity: z
+      .string()
+      .min(1)
+      .describe("System id whose live health state to read."),
+    status: z
+      .enum(["healthy", "degraded", "unhealthy"])
+      .describe("Status the entity must currently be in."),
+    for: DurationSchema.optional().describe(
+      "Optional minimum dwell — the entity must have held `status` at least this long.",
+    ),
+  }),
+});
+
+export type StateCondition = z.infer<typeof StateConditionSchema>;
+
+/**
  * A condition is either:
- *   - A template string that evaluates truthy/falsy, OR
- *   - A `{ and | or | not }` combinator wrapping nested conditions.
+ *   - A template string that evaluates truthy/falsy,
+ *   - A `{ and | or | not }` combinator wrapping nested conditions, OR
+ *   - A structured variant (`numeric_state`, `time`, `state`).
  *
- * Recursive — uses `z.lazy` for the combinator branches.
+ * Recursive — uses `z.lazy` for the combinator branches. The raw template
+ * string stays the escape hatch for anything the structured variants don't
+ * cover.
  */
 export type ConditionInput =
   | string
   | { and: ConditionInput[] }
   | { or: ConditionInput[] }
-  | { not: ConditionInput };
+  | { not: ConditionInput }
+  | NumericStateCondition
+  | TimeCondition
+  | StateCondition;
 
 export const ConditionSchema: z.ZodType<ConditionInput> = z.lazy(() =>
   z.union([
@@ -93,6 +238,9 @@ export const ConditionSchema: z.ZodType<ConditionInput> = z.lazy(() =>
     z.object({
       not: ConditionSchema,
     }),
+    NumericStateConditionSchema,
+    TimeConditionSchema,
+    StateConditionSchema,
   ]),
 );
 
@@ -152,6 +300,7 @@ export type ActionInput =
   | ConditionGuardInput
   | StopInput
   | WaitForTriggerInput
+  | WaitUntilInput
   | SequenceInput;
 
 export interface ChooseInput {
@@ -227,6 +376,21 @@ export interface WaitForTriggerInput {
     filter?: string;
     timeout_seconds?: number;
     context_key?: string;
+  };
+}
+
+export interface WaitUntilInput {
+  id?: string;
+  description?: string;
+  enabled?: boolean;
+  continue_on_error?: boolean;
+  wait_until: {
+    condition: ConditionInput;
+    timeout_seconds?: number;
+    /** Default true (HA semantics): on timeout, continue rather than fail. */
+    continue_on_timeout?: boolean;
+    /** How often to re-check the condition (seconds). Default 30. */
+    poll_seconds?: number;
   };
 }
 
@@ -393,6 +557,36 @@ export const WaitForTriggerActionSchema = z.object({
 });
 
 /**
+ * 11. Wait until — suspend the run until a CONDITION becomes true, with an
+ * optional timeout. Unlike `wait_for_trigger` (wait for an *event*), this
+ * polls the condition on an interval, re-resolving live state each tick.
+ *
+ * `continue_on_timeout` defaults to true (HA's `wait_template` semantics):
+ * on timeout the run continues rather than failing.
+ */
+export const WaitUntilActionSchema: z.ZodType<WaitUntilInput> = z.lazy(() =>
+  z.object({
+    ...ActionBase,
+    wait_until: z.object({
+      condition: ConditionSchema,
+      timeout_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(60 * 60 * 24 * 30) // 30 days
+        .optional(),
+      continue_on_timeout: z.boolean().default(true),
+      poll_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(60 * 60) // 1h max poll interval
+        .default(30),
+    }),
+  }),
+);
+
+/**
  * The discriminated union of all 9 action primitives. Discrimination is by
  * presence of a key (action / choose / parallel / etc.), matching the
  * YAML-friendly authoring style.
@@ -411,6 +605,7 @@ export const ActionSchema: z.ZodType<ActionInput> = z.lazy(() =>
     ConditionGuardActionSchema,
     StopActionSchema,
     WaitForTriggerActionSchema,
+    WaitUntilActionSchema,
     SequenceActionSchema,
   ]),
 );
@@ -434,6 +629,27 @@ export const AutomationModeSchema = z
 
 export type AutomationMode = z.infer<typeof AutomationModeSchema>;
 
+/**
+ * Scope the concurrency `mode` is evaluated over.
+ *
+ *   - `automation` (default): one concurrency bucket for the whole
+ *     automation. `single` allows one in-flight run total; `restart`
+ *     cancels every active run.
+ *   - `context_key`: an independent bucket per `contextKey` (typically
+ *     per system / incident). `single` allows one in-flight run *per
+ *     context key* (system A and system B run concurrently, but a second
+ *     run for system A is deduped); `restart` cancels only the active
+ *     runs sharing the incoming context key.
+ *
+ * Backward-compatible: omitted defaults to `automation`, so existing
+ * automations behave exactly as before.
+ */
+export const ConcurrencyScopeSchema = z
+  .enum(["automation", "context_key"])
+  .default("automation");
+
+export type ConcurrencyScope = z.infer<typeof ConcurrencyScopeSchema>;
+
 // ─── Automation definition (top-level) ────────────────────────────────────
 
 /**
@@ -453,8 +669,40 @@ export const AutomationDefinitionSchema = z.object({
   actions: z.array(ActionSchema).default([]),
   /** Concurrency mode. */
   mode: AutomationModeSchema,
+  /** Scope the concurrency mode is evaluated over (per-automation vs per-context-key). */
+  concurrency_scope: ConcurrencyScopeSchema,
   /** Max parallel runs (only meaningful in parallel/queued modes). */
   max_runs: z.number().int().min(1).max(1000).default(10),
+  /**
+   * Explicit live-state resolution list (sensing layer). By default the
+   * engine resolves the state of the system named by the trigger's
+   * `contextKey` (the common single-system case). Listing system ids here
+   * resolves their state too, surfaced in templates under
+   * `health.systems[<id>]` for cross-system rules. Bounded to keep the
+   * pre-evaluation batch query cheap.
+   */
+  uses_state: z
+    .array(z.string().min(1))
+    .max(50)
+    .optional()
+    .describe(
+      "Extra system ids whose live health state is resolved into scope under health.systems[id].",
+    ),
+  /**
+   * Trailing window (minutes) for the `health.*.transitions_in_window`
+   * count folded into scope. Lets an operator author custom flapping
+   * rules ("N status changes in M minutes") via a numeric_state condition
+   * over that field. Defaults to 60 when omitted.
+   */
+  state_window_minutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 7) // up to a week
+    .optional()
+    .describe(
+      "Window (minutes) for health.*.transitions_in_window. Default 60.",
+    ),
 });
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;

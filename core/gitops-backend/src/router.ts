@@ -1,10 +1,13 @@
 import { implement, ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { autoAuthMiddleware, correlationMiddleware, type RpcContext } from "@checkstack/backend-api";
-import { encrypt, decrypt } from "@checkstack/backend-api";
+import { autoAuthMiddleware, correlationMiddleware, encrypt, type RpcContext } from "@checkstack/backend-api";
 import { gitopsContract, deriveSourceUrl } from "@checkstack/gitops-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
+import type {
+  SecretAdminService,
+  SecretResolverService,
+} from "@checkstack/secrets-backend";
 import type { InternalEntityKindRegistry } from "./kind-registry";
 import { triggerSyncForProvider, scheduleSyncForProvider, cancelSyncForProvider } from "./sync/sync-worker";
 import * as schema from "./schema";
@@ -26,12 +29,18 @@ export interface GitOpsRouterDeps {
   database: SafeDatabase<typeof schema>;
   queueManager: QueueManager;
   kindRegistry: InternalEntityKindRegistry;
+  /** Central Secrets platform admin service (single source of truth). */
+  secretAdmin: SecretAdminService;
+  /** Central Secrets platform resolver (service-only). */
+  secretResolver: SecretResolverService;
 }
 
 export const createGitOpsRouter = ({
   database: db,
   queueManager,
   kindRegistry,
+  secretAdmin,
+  secretResolver,
 }: GitOpsRouterDeps) => {
   // ─── Provenance ──────────────────────────────────────────────────────
 
@@ -312,92 +321,78 @@ export const createGitOpsRouter = ({
 
   // ─── Secret Management ───────────────────────────────────────────────
 
+  // Secret management is delegated to the central Secrets platform via
+  // secretAdminRef so there is a single source of truth. The gitops table
+  // is no longer the home of secrets (rows were migrated to the platform's
+  // local backend); these handlers proxy to keep the existing gitops UI
+  // working until it is retired.
   const listSecrets = os.listSecrets.handler(async () => {
-    const rows = await db.select().from(schema.secrets);
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      description: r.description,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
+    const metadata = await secretAdmin.list();
+    return metadata.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
     }));
   });
 
   const createSecret = os.createSecret.handler(async ({ input }) => {
-    // Check for duplicate name
-    const existing = await db
-      .select()
-      .from(schema.secrets)
-      .where(eq(schema.secrets.name, input.name));
-
-    if (existing[0]) {
+    const existing = await secretAdmin.list();
+    if (existing.some((m) => m.name === input.name)) {
       throw new ORPCError("CONFLICT", {
         message: `Secret with name "${input.name}" already exists`,
       });
     }
-
-    const id = uuidv4();
-    const encryptedValue = encrypt(input.value);
-    await db.insert(schema.secrets).values({
-      id,
+    await secretAdmin.setSecret({
       name: input.name,
-      encryptedValue,
+      value: input.value,
       description: input.description,
     });
-    return { id, name: input.name };
+    const after = await secretAdmin.list();
+    const meta = after.find((m) => m.name === input.name);
+    return { id: meta?.id ?? input.name, name: input.name };
   });
 
   const rotateSecret = os.rotateSecret.handler(async ({ input }) => {
-    const existing = await db
-      .select()
-      .from(schema.secrets)
-      .where(eq(schema.secrets.id, input.id));
-
-    if (!existing[0]) {
+    const existing = await secretAdmin.list();
+    const meta = existing.find((m) => m.id === input.id);
+    if (!meta) {
       throw new ORPCError("NOT_FOUND", {
         message: `Secret not found: ${input.id}`,
       });
     }
 
-    const encryptedValue = encrypt(input.value);
-    await db
-      .update(schema.secrets)
-      .set({ encryptedValue, updatedAt: new Date() })
-      .where(eq(schema.secrets.id, input.id));
+    await secretAdmin.setSecret({ name: meta.name, value: input.value });
 
     // Invalidate provenance for all entities referencing this secret
-    // so the next sync cycle re-reconciles them with the updated value
-    const secretName = existing[0].name;
+    // so the next sync cycle re-reconciles them with the updated value.
     await db
       .update(schema.provenance)
       .set({ lastSyncHash: "" })
-      .where(
-        sql`${secretName} = ANY(${schema.provenance.secretRefs})`,
-      );
+      .where(sql`${meta.name} = ANY(${schema.provenance.secretRefs})`);
 
     return { success: true };
   });
 
   const deleteSecret = os.deleteSecret.handler(async ({ input }) => {
-    await db.delete(schema.secrets).where(eq(schema.secrets.id, input.id));
-
+    const existing = await secretAdmin.list();
+    const meta = existing.find((m) => m.id === input.id);
+    if (meta) {
+      await secretAdmin.deleteSecret({ name: meta.name });
+    }
     return { success: true };
   });
 
   const resolveSecret = os.resolveSecret.handler(async ({ input }) => {
-    const rows = await db
-      .select()
-      .from(schema.secrets)
-      .where(eq(schema.secrets.name, input.name));
-
-    const secret = rows[0];
-    if (!secret) {
+    try {
+      const value = await secretResolver.resolveSecret({ name: input.name });
+      return { value };
+    } catch {
       throw new ORPCError("NOT_FOUND", {
         message: `Secret not found: ${input.name}`,
       });
     }
-
-    return { value: decrypt(secret.encryptedValue) };
   });
 
   const getSecretUsage = os.getSecretUsage.handler(async ({ input }) => {

@@ -14,6 +14,8 @@ import {
   Toggle,
   ColorPicker,
   TemplateValueInput,
+  DurationInput,
+  type DurationValue,
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
@@ -21,6 +23,7 @@ import { getCleanDescription, NONE_SENTINEL } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
 import { MultiTypeEditorField } from "./MultiTypeEditorField";
+import { SecretEnvEditor } from "./SecretEnvEditor";
 
 /**
  * Recursive field renderer that handles all supported JSON Schema types.
@@ -38,6 +41,8 @@ export const FormField: React.FC<FormFieldProps> = ({
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
+  scriptTestRenderer,
+  secretNames,
   onChange,
 }) => {
   const description = propSchema.description || "";
@@ -72,6 +77,34 @@ export const FormField: React.FC<FormFieldProps> = ({
 
   if (isConstField) {
     return <></>;
+  }
+
+  // Duration field — render the DurationInput (single-unit duration
+  // object). Marked via `x-duration: true` or `format: "duration"`. This
+  // branch is intentionally additive and sits before the generic union /
+  // object handlers so a `for:` / threshold-window config renders the
+  // widget rather than the raw oneOf discriminator picker.
+  const isDuration =
+    propSchema["x-duration"] === true || propSchema.format === "duration";
+  if (isDuration) {
+    const cleanDesc = getCleanDescription(description);
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        <DurationInput
+          id={id}
+          value={value as DurationValue | undefined}
+          onChange={(next) => onChange(next)}
+        />
+      </div>
+    );
   }
 
   // Enum handling
@@ -137,6 +170,12 @@ export const FormField: React.FC<FormFieldProps> = ({
           typeDefinitions={typeDefinitions}
           shellEnvVars={shellEnvVars}
           starterTemplates={starterTemplates}
+          scriptTestRenderer={
+            propSchema["x-script-testable"] === true
+              ? scriptTestRenderer
+              : undefined
+          }
+          fieldId={id}
           onChange={onChange as (val: string | undefined) => void}
         />
       );
@@ -331,6 +370,34 @@ export const FormField: React.FC<FormFieldProps> = ({
   }
 
   // Dictionary/Record (headers)
+  // Secret -> env mapping: a dedicated editor (env name + secret-name
+  // picker) instead of the raw JSON record fallback.
+  if (
+    propSchema.type === "object" &&
+    propSchema.additionalProperties &&
+    propSchema["x-secret-env"]
+  ) {
+    const cleanDesc = getCleanDescription(description);
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        <SecretEnvEditor
+          id={id}
+          value={(value as Record<string, string> | undefined) ?? {}}
+          secretNames={secretNames}
+          onChange={(next) => onChange(next)}
+        />
+      </div>
+    );
+  }
+
   if (propSchema.type === "object" && propSchema.additionalProperties) {
     const cleanDesc = getCleanDescription(description);
     return (
@@ -373,6 +440,8 @@ export const FormField: React.FC<FormFieldProps> = ({
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
             starterTemplates={starterTemplates}
+            scriptTestRenderer={scriptTestRenderer}
+            secretNames={secretNames}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
             }
@@ -485,6 +554,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                   typeDefinitions={typeDefinitions}
                   shellEnvVars={shellEnvVars}
                   starterTemplates={starterTemplates}
+                  scriptTestRenderer={scriptTestRenderer}
+                  secretNames={secretNames}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -617,6 +688,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}
+                scriptTestRenderer={scriptTestRenderer}
+                secretNames={secretNames}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
             ))}

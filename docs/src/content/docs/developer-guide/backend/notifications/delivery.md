@@ -120,7 +120,7 @@ export const ListDeliveryAttemptsInputSchema = PaginationInput.extend({
 
 - `limit` (1-100, default 20) and `offset` (>= 0, default 0) match the
   canonical pagination contract documented in
-  [Pagination](/checkstack/architecture/pagination/).
+  [Pagination](/checkstack/developer-guide/architecture/pagination/).
 - `notificationId` is optional. When supplied the result is scoped to
   that notification; otherwise the caller sees every recent attempt
   across the platform (still newest first).

@@ -215,7 +215,7 @@ const schema = z.object({
 - `x-searchable`: When true, renders a searchable dropdown with filter input inside
 
 **Implementation requirements:**
-The provider must implement `getConnectionOptions()` to handle resolver calls. See [Integration Providers](/checkstack/developer-guide/backend/integration-providers/#connection-based-providers-with-dynamic-options) for details.
+The provider must implement `getConnectionOptions()` to handle resolver calls. See [Integration Providers](/checkstack/developer-guide/backend/integrations/providers/#connection-based-providers-with-dynamic-options) for details.
 
 ### `configString({ "x-hidden": true })` - Auto-populated Fields
 
@@ -309,6 +309,65 @@ valid TypeScript and Monaco can't type it:
 > Use the native mechanism instead: a `context` object for TS/JS, `$ENV`
 > vars for shell. This keeps a single, unambiguous way to read context in
 > each editor.
+
+### `configString({ "x-script-testable": true })` - Inline script testing
+
+Mark a code field (one whose `x-editor-types` includes `typescript`,
+`javascript`, or `shell`) as testable. When the owning page passes a
+`scriptTestRenderer` to `DynamicForm`, a `ScriptTestPanel` appears beneath
+the editor so operators can run the script against an editable sample
+context and see the return value, stdout, stderr, exit code, and duration
+without dispatching a whole automation.
+
+```typescript
+import { configString } from "@checkstack/backend-api";
+
+const schema = z.object({
+  // A testable TypeScript action script
+  script: configString({
+    "x-editor-types": ["typescript"],
+    "x-script-testable": true,
+  }).describe("Default-export a function that receives `context`."),
+});
+```
+
+The flag only governs *where* the panel renders; the panel itself is
+inert until the page supplies the renderer. Wire it like the automation
+action editor does:
+
+```tsx
+import { automationScriptTestRenderer } from "./editor/ScriptTestRenderer";
+
+<DynamicForm
+  schema={configSchema}
+  value={formValue}
+  onChange={setFormValue}
+  typeDefinitions={typeDefinitions}
+  shellEnvVars={shellEnvVars}
+  scriptTestRenderer={automationScriptTestRenderer}
+/>
+```
+
+The renderer owns the RPC call (`testScript`) and the sample-context
+state; `@checkstack/ui` stays plugin-agnostic. Tests run on the central
+backend with the same subprocess isolation and `SAFE_ENV_VARS` env as the
+real action, so packages cannot read backend secrets. Real satellite runs
+may differ; the panel notes this.
+
+**Health-check collectors** use the same machinery: the inline-script
+(TypeScript) and shell `script` collector fields are `x-script-testable`,
+and the collector editor passes a renderer wired to `testCollectorScript`.
+The collector test context is `{ config, check?, system? }`, auto-seeded
+from the live collector config plus placeholder check / system metadata.
+
+**Load from run (replay).** The `ContextSampleEditor` accepts an optional
+`runPicker` slot. The automation editor fills it with a "Load from run"
+dropdown that calls `getRunScopeForReplay` to seed the sample context from
+a real run (trigger + persisted artifacts, plus variables / loop state
+when the run's durable scope snapshot is still present). Health-check
+executions do **not** persist the script / config / check / system that
+produced a result, so there is no health-check replay - auto-seed is the
+only context source for collector tests.
 
 **Template autocomplete (text/markup fields).** When the parent
 `DynamicForm` receives `templateProperties`, the text/markup editor types

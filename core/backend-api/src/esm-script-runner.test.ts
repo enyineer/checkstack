@@ -1,5 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
+  defaultEsmScriptRunner,
   normaliseUserScript,
   rewriteHelperImports,
 } from "./esm-script-runner";
@@ -165,5 +169,93 @@ describe("rewriteHelperImports", () => {
       helperUrl: HELPER_URL,
     });
     expect(out).toBe(`import x from "${HELPER_URL}";`);
+  });
+});
+
+describe("defaultEsmScriptRunner resolutionRoot", () => {
+  let root: string;
+
+  beforeAll(async () => {
+    // A throwaway "store" with a node_modules holding one fake package.
+    root = await mkdtemp(path.join(tmpdir(), "cs-resroot-"));
+    const pkgDir = path.join(root, "node_modules", "fake-pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "fake-pkg", version: "1.0.0", main: "index.mjs" }),
+    );
+    await writeFile(
+      path.join(pkgDir, "index.mjs"),
+      "export const greeting = 'hello-from-pkg';\n",
+    );
+  });
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("lets a script import a package from <resolutionRoot>/node_modules", async () => {
+    const res = await defaultEsmScriptRunner.run({
+      script: `import { greeting } from "fake-pkg";\nexport default greeting;`,
+      context: {},
+      timeoutMs: 15_000,
+      resolutionRoot: root,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.result).toBe("hello-from-pkg");
+  });
+
+  it("cannot resolve the package without a resolutionRoot (backward-compatible isolation)", async () => {
+    const res = await defaultEsmScriptRunner.run({
+      script: `import { greeting } from "fake-pkg";\nexport default greeting;`,
+      context: {},
+      timeoutMs: 15_000,
+    });
+    // No resolutionRoot -> runs under os.tmpdir(), no node_modules -> the
+    // import fails. Either an error is surfaced or no result is produced.
+    expect(res.result).toBeUndefined();
+    expect(res.error).toBeDefined();
+  });
+
+  it("does NOT auto-install a missing package from the registry (degradation)", async () => {
+    // A real, installable package name that is NOT in any resolutionRoot.
+    // With auto-install disabled in the per-run bunfig, Bun must error
+    // instead of silently fetching it from the registry.
+    const res = await defaultEsmScriptRunner.run({
+      script: `import isodd from "is-odd";\nexport default typeof isodd;`,
+      context: {},
+      timeoutMs: 20_000,
+    });
+    expect(res.result).toBeUndefined();
+    expect(res.error).toBeDefined();
+  });
+});
+
+describe("defaultEsmScriptRunner injected env", () => {
+  it("exposes injected env vars as process.env in the subprocess", async () => {
+    const res = await defaultEsmScriptRunner.run({
+      script: `export default process.env.API_TOKEN ?? null;`,
+      context: {},
+      timeoutMs: 15_000,
+      env: { API_TOKEN: "injected-secret-value" },
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.result).toBe("injected-secret-value");
+  });
+
+  it("does NOT expose backend env that was not injected (isolation intact)", async () => {
+    // A backend secret present in the parent process must NOT leak through
+    // unless it was explicitly injected for this run.
+    process.env.__CS_TEST_BACKEND_SECRET = "must-not-leak";
+    try {
+      const res = await defaultEsmScriptRunner.run({
+        script: `export default process.env.__CS_TEST_BACKEND_SECRET ?? null;`,
+        context: {},
+        timeoutMs: 15_000,
+      });
+      expect(res.result).toBeNull();
+    } finally {
+      delete process.env.__CS_TEST_BACKEND_SECRET;
+    }
   });
 });

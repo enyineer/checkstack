@@ -119,10 +119,10 @@ export default createBackendPlugin({
 
 ### Creating a Custom Provider
 
-See [Provider Implementation Guide](/checkstack/developer-guide/backend/integrations/integration-providers/).
+See [Provider Implementation Guide](/checkstack/developer-guide/backend/integrations/providers/).
 
 ## Related Documentation
 
-- [Provider Implementation Guide](/checkstack/developer-guide/backend/integrations/integration-providers/)
-- [Hooks and Events](/checkstack/developer-guide/backend/integrations/signals/)
-- [Queue System](/checkstack/developer-guide/backend/integrations/queue-system/)
+- [Provider Implementation Guide](/checkstack/developer-guide/backend/integrations/providers/)
+- [Hooks and Events](/checkstack/developer-guide/backend/signals/)
+- [Queue System](/checkstack/developer-guide/backend/queue-system/)

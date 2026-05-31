@@ -453,5 +453,5 @@ Always:
 ## Next Steps
 
 - [Backend Plugin Development](/checkstack/developer-guide/backend/plugins/)
-- [Health Check System](/checkstack/developer-guide/backend/healthcheck-data-management/)
+- [Health Check System](/checkstack/developer-guide/backend/healthchecks/data-management/)
 - [Contributing Guide](/checkstack/developer-guide/getting-started/contributing/)

@@ -25,6 +25,10 @@ export const TEMPLATE_FILTERS: readonly CompletionFilter[] = [
   { name: "join", signature: "separator", description: 'Join an array (default ", ").', hasArgs: true },
   { name: "replace", signature: "search, replacement", description: "Replace every occurrence.", hasArgs: true },
   { name: "not", description: "Negate truthiness." },
+  { name: "minutes", description: "A number of minutes, as milliseconds (e.g. 30 | minutes)." },
+  { name: "hours", description: "A number of hours, as milliseconds (e.g. 2 | hours)." },
+  { name: "duration_since", description: "Milliseconds elapsed since an ISO timestamp." },
+  { name: "older_than", signature: "thresholdMs", description: "True when an ISO timestamp is at least N ms in the past (e.g. ts | older_than(30 | minutes)).", hasArgs: true },
 ];
 
 /**

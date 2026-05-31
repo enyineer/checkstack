@@ -17,6 +17,12 @@ export interface AutomationDefinitionEditorProps {
   value: AutomationDefinition;
   onChange: (next: AutomationDefinition) => void;
   disabled?: boolean;
+  /**
+   * Id of the automation being edited, if it already exists (omitted for
+   * a brand-new, unsaved automation). Enables the script-test "Load from
+   * run" picker, which lists this automation's prior runs.
+   */
+  automationId?: string;
 }
 
 /**
@@ -31,7 +37,7 @@ export interface AutomationDefinitionEditorProps {
 export const AutomationDefinitionEditor: React.FC<
   AutomationDefinitionEditorProps
 > = (props) => (
-  <AutomationRegistryProvider>
+  <AutomationRegistryProvider automationId={props.automationId}>
     <AutomationDefinitionProvider definition={props.value}>
       <EditorBody {...props} />
     </AutomationDefinitionProvider>

@@ -634,6 +634,12 @@ export class PluginManager {
         registerService: (ref, impl) => {
           this.registry.register(ref, impl);
         },
+        // Registry-backed resolver for arbitrary cross-plugin refs, using
+        // this plugin's identity as the consumer. Mirrors the plugin-loader
+        // `env.getService`; resolves through the real ServiceRegistry and
+        // throws clearly on a missing ref (never silently undefined).
+        getService: <T>(ref: ServiceRef<T>) =>
+          this.registry.get(ref, backendPlugin.metadata),
         registerExtensionPoint: (ref, impl) => {
           this.extensionPointManager.registerExtensionPoint(ref, impl);
         },

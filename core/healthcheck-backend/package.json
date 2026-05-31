@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/script-packages-backend": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/catalog-backend": "workspace:*",
@@ -24,6 +25,8 @@
     "@checkstack/gitops-backend": "workspace:*",
     "@checkstack/gitops-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/secrets-backend": "workspace:*",
     "@checkstack/incident-backend": "workspace:*",
     "@checkstack/incident-common": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",

@@ -142,6 +142,50 @@ export const healthCheckUnhealthyTransitions = pgTable(
 );
 
 /**
+ * Records every *aggregate* health-status transition for a system
+ * (e.g. healthy -> degraded -> unhealthy -> healthy). Unlike
+ * {@link healthCheckUnhealthyTransitions} (unhealthy-only, conditional
+ * on the auto-incident policy, and pruned with raw runs), this table is
+ * unconditional and covers ALL statuses, giving a reliable
+ * "in current status since" timestamp for arbitrary statuses.
+ *
+ * One row is written per aggregate transition at the same point the
+ * `systemHealthChanged` hook fires. `configurationId` is the check that
+ * drove the transition (the just-ran check).
+ *
+ * Retention: pruned alongside raw runs, EXCEPT the single most-recent
+ * row per system is always kept so "in status since" never blanks for
+ * an active streak.
+ */
+export const healthCheckStateTransitions = pgTable(
+  "health_check_state_transitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    systemId: text("system_id").notNull(),
+    /** The check whose run drove this aggregate transition. */
+    configurationId: uuid("configuration_id")
+      .notNull()
+      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
+    fromStatus: healthCheckStatusEnum("from_status"),
+    toStatus: healthCheckStatusEnum("to_status").notNull(),
+    transitionedAt: timestamp("transitioned_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // Powers "most recent transition into status X for this system"
+    // (WHERE system_id = ? AND to_status = ? ORDER BY transitioned_at DESC).
+    lookupIdx: index("health_check_state_transitions_lookup_idx").on(
+      t.systemId,
+      t.toStatus,
+      t.transitionedAt,
+    ),
+    // Powers the retention "keep newest per system" sweep.
+    systemRecentIdx: index(
+      "health_check_state_transitions_system_recent_idx",
+    ).on(t.systemId, t.transitionedAt),
+  }),
+);
+
+/**
  * Mapping of auto-opened incidents back to the system + check that
  * triggered them. `closedAt` stays null while the incident is active;
  * the auto-close worker sets it once the linked system has been
