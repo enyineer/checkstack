@@ -177,3 +177,148 @@ export async function enrichScopeWithState(
     return scope;
   }
 }
+
+// ─── Generic entity scope enrichment (reactive automation engine §3.6) ──────
+//
+// Generalizes `enrichScopeWithState` from the health-specific resolver to a
+// kind-agnostic one: any `state.<kind>.<id>` ref resolves through the
+// entity store's `getMany` resolver and folds into
+// `scope.state.<kind>.<id>.<field>`. The health-specific path above stays
+// for the current release; this is the forward-looking projection the
+// reactive `wait_until` re-eval and condition grammar read.
+
+/** A `{kind, id}` entity reference to pre-resolve into scope. */
+export interface EntityRef {
+  kind: string;
+  id: string;
+}
+
+/**
+ * Batched, per-kind resolver — `getMany(ids)` for a single kind, mirroring
+ * `getBulkHealthState`. Missing ids are simply absent from the result.
+ */
+export type EntityKindResolver = (
+  ids: ReadonlyArray<string>,
+) => Promise<Record<string, Record<string, unknown>>>;
+
+export interface EnrichScopeWithEntitiesArgs {
+  /** The mutable scope to fold `state.<kind>.<id>` into. Returned for convenience. */
+  scope: Record<string, unknown>;
+  logger: Logger;
+  /** The refs to resolve (deduped + bounded internally). */
+  refs: ReadonlyArray<EntityRef>;
+  /** Resolve a `getMany` resolver for a kind, or undefined if unknown. */
+  resolverFor: (kind: string) => EntityKindResolver | undefined;
+}
+
+/** Read the `state` namespace off scope, creating it if absent. */
+function stateNamespace(
+  scope: Record<string, unknown>,
+): Record<string, Record<string, Record<string, unknown>>> {
+  const existing = scope.state;
+  if (
+    typeof existing === "object" &&
+    existing !== null &&
+    !Array.isArray(existing)
+  ) {
+    return existing as Record<
+      string,
+      Record<string, Record<string, unknown>>
+    >;
+  }
+  const fresh: Record<string, Record<string, Record<string, unknown>>> = {};
+  scope.state = fresh;
+  return fresh;
+}
+
+/**
+ * Resolve the given entity refs through their per-kind resolvers and fold
+ * them into `scope.state.<kind>.<id>`. Refs are de-duplicated per kind and
+ * the total resolved set is bounded by {@link MAX_RESOLVED_SYSTEMS} (the
+ * runtime backstop). A kind with no resolver, or a resolver error, is
+ * fail-open: the kind is left absent and a warn is logged — one kind's
+ * outage never wedges unrelated automations.
+ *
+ * After resolution, `scope.health` is set as a back-compat alias
+ * projection of `state.health.*` (the existing `evaluateStateCondition`
+ * reads `health.systems[entity]`) for one release.
+ */
+export async function enrichScopeWithEntities(
+  args: EnrichScopeWithEntitiesArgs,
+): Promise<Record<string, unknown>> {
+  const { scope, logger, refs, resolverFor } = args;
+  const state = stateNamespace(scope);
+
+  // Group de-duplicated ids per kind, bounded overall.
+  const byKind = new Map<string, string[]>();
+  const seen = new Set<string>();
+  let total = 0;
+  let capped = false;
+  for (const { kind, id } of refs) {
+    if (kind.length === 0 || id.length === 0) continue;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) continue;
+    if (total >= MAX_RESOLVED_SYSTEMS) {
+      capped = true;
+      break;
+    }
+    seen.add(key);
+    total += 1;
+    const ids = byKind.get(kind);
+    if (ids) ids.push(id);
+    else byKind.set(kind, [id]);
+  }
+  if (capped) {
+    logger.warn(
+      `enrichScopeWithEntities: resolving only the first ${MAX_RESOLVED_SYSTEMS} refs (cap reached)`,
+    );
+  }
+
+  for (const [kind, ids] of byKind) {
+    const resolver = resolverFor(kind);
+    if (!resolver) {
+      logger.warn(
+        `enrichScopeWithEntities: no resolver for kind "${kind}"; leaving it unresolved`,
+      );
+      continue;
+    }
+    try {
+      const resolved = await resolver(ids);
+      const kindBucket = state[kind] ?? {};
+      for (const [id, entityState] of Object.entries(resolved)) {
+        kindBucket[id] = entityState;
+      }
+      state[kind] = kindBucket;
+    } catch (error) {
+      logger.warn(
+        `enrichScopeWithEntities: failed to resolve kind "${kind}": ${
+          (error as Error).message
+        }`,
+      );
+    }
+  }
+
+  // Back-compat alias: project state.health.* into scope.health so the
+  // existing health-reading condition evaluators keep working.
+  projectHealthAlias(scope, state);
+  return scope;
+}
+
+/**
+ * Project the resolved `state.health.<id>` entities into the legacy
+ * `scope.health` shape (`{ systems: { <id>: ... } }`). Only runs when a
+ * `health` kind was resolved into `state`; otherwise an existing
+ * `scope.health` (set by `enrichScopeWithState`) is left untouched.
+ */
+function projectHealthAlias(
+  scope: Record<string, unknown>,
+  state: Record<string, Record<string, Record<string, unknown>>>,
+): void {
+  const healthEntities = state.health;
+  if (!healthEntities) return;
+  const systems: Record<string, Record<string, unknown>> = {};
+  for (const [id, value] of Object.entries(healthEntities)) {
+    systems[id] = value;
+  }
+  scope.health = { systems };
+}
