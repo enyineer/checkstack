@@ -22,6 +22,10 @@ import type {
   EntityMutationOpts,
   EntityRead,
 } from "@checkstack/automation-backend";
+import {
+  withEntityRemove,
+  withEntityWrite,
+} from "@checkstack/automation-backend";
 
 import type { EntityService } from "./services/entity-service";
 
@@ -231,11 +235,7 @@ export async function writeCatalogSystemEntity(args: {
   apply: () => Promise<CatalogSystemState>;
 }): Promise<void> {
   const { handle, systemId, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.mutate({ id: systemId, opts, apply });
+  await withEntityWrite({ handle, id: systemId, opts, apply });
 }
 
 /**
@@ -250,11 +250,7 @@ export async function writeCatalogGroupEntity(args: {
   apply: () => Promise<CatalogGroupState>;
 }): Promise<void> {
   const { handle, groupId, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.mutate({ id: groupId, opts, apply });
+  await withEntityWrite({ handle, id: groupId, opts, apply });
 }
 
 /**
@@ -274,9 +270,5 @@ export async function removeCatalogEntity<
   apply: () => Promise<void>;
 }): Promise<void> {
   const { handle, id, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.remove({ id, opts, apply });
+  await withEntityRemove({ handle, id, opts, apply });
 }

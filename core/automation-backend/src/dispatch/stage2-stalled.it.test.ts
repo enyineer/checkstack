@@ -71,6 +71,13 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       // Worker A: claims the job, then "dies" — it never resolves its
       // processor (simulating a crash). We force-close it (without letting it
       // finish) so the lock expires and BullMQ marks the job stalled.
+      //
+      // Determinism: with a single job and one healthy worker, starting BOTH
+      // workers up front lets BullMQ hand the job to EITHER one — a healthy B
+      // claim makes the "A dies mid-flight → B redelivers" assertion flaky even
+      // though production is correct. So we start ONLY A, wait until it has
+      // claimed the job, and only THEN start B and kill A. A is the guaranteed
+      // first claimer, and the real stalled-redelivery path is still exercised.
       let aClaimed = false;
       const workerA = new Worker(
         QUEUE,
@@ -82,8 +89,22 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         },
         sharedOpts,
       );
+      workers.push(workerA);
 
-      // Worker B: the healthy worker that should redeliver + complete.
+      await workerA.waitUntilReady();
+
+      await queue.add("dispatch", { reason: "wake", runId: "run-1" });
+
+      // Wait until A has claimed it (A is the only worker, so it WILL claim).
+      const start = Date.now();
+      while (!aClaimed && Date.now() - start < 5000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(aClaimed).toBe(true);
+
+      // Only now start worker B — the healthy worker that should redeliver +
+      // complete the stalled job. Starting it after A claimed guarantees the
+      // job is not handed to B first.
       const workerB = new Worker(
         QUEUE,
         async (job) => {
@@ -92,18 +113,8 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         },
         sharedOpts,
       );
-      workers.push(workerA, workerB);
-
-      await Promise.all([workerA.waitUntilReady(), workerB.waitUntilReady()]);
-
-      await queue.add("dispatch", { reason: "wake", runId: "run-1" });
-
-      // Wait until A has claimed it.
-      const start = Date.now();
-      while (!aClaimed && Date.now() - start < 5000) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      expect(aClaimed).toBe(true);
+      workers.push(workerB);
+      await workerB.waitUntilReady();
 
       // Kill worker A mid-flight (the rug-pull) so its lock can't renew.
       await workerA.close(true);

@@ -8,45 +8,6 @@ import type { AchievementType } from "@checkstack/slo-common";
  */
 export const sloHooks = {
   /**
-   * Emitted when an SLO's error budget consumption exceeds the warning threshold.
-   */
-  sloBudgetWarning: createHook<{
-    systemId: string;
-    objectiveId: string;
-    target: number;
-    budgetRemainingPercent: number;
-  }>("slo.budget.warning"),
-
-  /**
-   * Emitted when an SLO's error budget consumption exceeds the critical threshold.
-   */
-  sloBudgetCritical: createHook<{
-    systemId: string;
-    objectiveId: string;
-    target: number;
-    budgetRemainingPercent: number;
-  }>("slo.budget.critical"),
-
-  /**
-   * Emitted when an SLO's error budget is fully exhausted.
-   */
-  sloBudgetExhausted: createHook<{
-    systemId: string;
-    objectiveId: string;
-    target: number;
-  }>("slo.budget.exhausted"),
-
-  /**
-   * Emitted when a reliability streak is broken.
-   */
-  sloStreakBroken: createHook<{
-    systemId: string;
-    objectiveId: string;
-    streak: number;
-    bestStreak: number;
-  }>("slo.streak.broken"),
-
-  /**
    * Emitted when a system unlocks a new reliability achievement.
    */
   sloAchievementUnlocked: createHook<{

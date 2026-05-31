@@ -20,9 +20,14 @@ import {
 } from "@checkstack/maintenance-common";
 import type {
   EntityChanged,
+  EntityChangePayloadMapper,
   EntityHandle,
   EntityMutationOpts,
   EntityRead,
+} from "@checkstack/automation-backend";
+import {
+  withEntityRemove,
+  withEntityWrite,
 } from "@checkstack/automation-backend";
 
 import type { MaintenanceService } from "./service";
@@ -104,6 +109,36 @@ export function deriveMaintenanceEvents(
 }
 
 /**
+ * Map a `maintenance` entity change to the domain-named `trigger.payload` the
+ * maintenance triggers declare via `payloadSchema` (`maintenanceId`, `status`,
+ * `systemIds`, `startAt`, `endAt`). Restores the keys operators read
+ * (`trigger.payload.maintenanceId`, `.status`, …) that the generic change shape
+ * omits, so an entity-driven maintenance trigger sees the same documented
+ * payload the four migrated lifecycle domains do.
+ *
+ * `maintenanceId` is the entity id; the remaining fields read off `next` (a
+ * tombstone fires no event, so `next` is always present when a trigger fires).
+ * The reactive subset is `{ status, systemIds, startAt, endAt }`, so the
+ * descriptive fields the old hook carried (`title`, `description`) are NOT
+ * derivable from a change and are declared OPTIONAL on the payload schemas.
+ */
+export const maintenanceChangeToPayload: EntityChangePayloadMapper = (
+  changed,
+) => {
+  const next = changed.next;
+  const systemIds = next === null ? undefined : next["systemIds"];
+  const readString = (field: string): unknown =>
+    next === null ? undefined : next[field];
+  return {
+    maintenanceId: changed.id,
+    status: readString("status"),
+    systemIds: Array.isArray(systemIds) ? systemIds : [],
+    startAt: readString("startAt"),
+    endAt: readString("endAt"),
+  };
+};
+
+/**
  * Build the PLUGIN-BACKED `read` accessor for the `maintenance` entity. Routes
  * straight to the service's batched authoritative read — no framework storage.
  */
@@ -131,11 +166,7 @@ export async function writeMaintenanceEntity(args: {
   apply: () => Promise<MaintenanceEntityState>;
 }): Promise<void> {
   const { handle, maintenanceId, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.mutate({ id: maintenanceId, opts, apply });
+  await withEntityWrite({ handle, id: maintenanceId, opts, apply });
 }
 
 /**
@@ -152,9 +183,5 @@ export async function removeMaintenanceEntity(args: {
   apply: () => Promise<void>;
 }): Promise<void> {
   const { handle, maintenanceId, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.remove({ id: maintenanceId, opts, apply });
+  await withEntityRemove({ handle, id: maintenanceId, opts, apply });
 }

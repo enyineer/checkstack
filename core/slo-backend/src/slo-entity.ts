@@ -31,6 +31,7 @@ import type {
   EntityMutationOpts,
   EntityRead,
 } from "@checkstack/automation-backend";
+import { withEntityWrite } from "@checkstack/automation-backend";
 
 import type { SloService } from "./service";
 import type { SloEngine } from "./slo-engine";
@@ -149,8 +150,12 @@ export async function writeSloEntity(args: {
     await apply();
     return;
   }
+  // A wired handle routes through the shared guard; the daily-job caller wants
+  // an entity-layer (mirror/transition) failure to be fail-soft so it never
+  // breaks the streak persist, so errors are routed to `onError` rather than
+  // rethrown (the bespoke SLO behavior the shared guard does not encode).
   try {
-    await handle.mutate({ id: objectiveId, opts, apply });
+    await withEntityWrite({ handle, id: objectiveId, opts, apply });
   } catch (error) {
     onError?.(error);
   }

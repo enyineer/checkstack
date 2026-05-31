@@ -18,12 +18,17 @@ import {
   MAINTENANCE_UPDATED_EVENT,
   createMaintenanceEntityRead,
   deriveMaintenanceEvents,
+  maintenanceChangeToPayload,
   maintenanceEntityStateSchema,
   removeMaintenanceEntity,
   toMaintenanceEntityState,
   writeMaintenanceEntity,
   type MaintenanceEntityState,
 } from "./entity";
+import {
+  maintenanceCreatedTrigger,
+  maintenanceUpdatedTrigger,
+} from "./automations";
 import type { MaintenanceService } from "./service";
 
 function makeChange(over: Partial<EntityChanged>): EntityChanged {
@@ -39,6 +44,52 @@ function makeChange(over: Partial<EntityChanged>): EntityChanged {
     ...over,
   };
 }
+
+describe("maintenanceChangeToPayload — payloadSchema parity", () => {
+  it("a create payload validates against the created trigger's payloadSchema", () => {
+    const parsed = maintenanceCreatedTrigger.payloadSchema.parse(
+      maintenanceChangeToPayload(
+        makeChange({
+          prev: null,
+          next: {
+            status: "scheduled",
+            systemIds: ["sys-1"],
+            startAt: "2026-05-31T00:00:00.000Z",
+            endAt: "2026-05-31T01:00:00.000Z",
+          },
+        }),
+      ),
+    );
+    expect(parsed.maintenanceId).toBe("m-1");
+    expect(parsed.status).toBe("scheduled");
+    expect(parsed.systemIds).toEqual(["sys-1"]);
+    expect(parsed.startAt).toBe("2026-05-31T00:00:00.000Z");
+    expect(parsed.endAt).toBe("2026-05-31T01:00:00.000Z");
+  });
+
+  it("an update payload validates against the updated trigger's payloadSchema", () => {
+    const parsed = maintenanceUpdatedTrigger.payloadSchema.parse(
+      maintenanceChangeToPayload(
+        makeChange({
+          prev: {
+            status: "scheduled",
+            systemIds: ["sys-1"],
+            startAt: "2026-05-31T00:00:00.000Z",
+            endAt: "2026-05-31T01:00:00.000Z",
+          },
+          next: {
+            status: "in_progress",
+            systemIds: ["sys-1"],
+            startAt: "2026-05-31T00:00:00.000Z",
+            endAt: "2026-05-31T01:00:00.000Z",
+          },
+        }),
+      ),
+    );
+    expect(parsed.maintenanceId).toBe("m-1");
+    expect(parsed.status).toBe("in_progress");
+  });
+});
 
 describe("deriveMaintenanceEvents", () => {
   it("maps a create (prev === null) to maintenance.created", () => {

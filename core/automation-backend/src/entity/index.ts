@@ -39,6 +39,7 @@ export type {
   MutateInput,
   RemoveInput,
 } from "./define-entity";
+export { withEntityWrite, withEntityRemove } from "./with-entity-write";
 
 // Internal wiring surface (consumed by automation-backend's index.ts).
 export { createEntityRegistry } from "./registry";

@@ -16,10 +16,16 @@ import {
   SATELLITE_HEARTBEAT_LOST_EVENT,
   createSatelliteConnectionRead,
   deriveSatelliteConnectionEvents,
+  satelliteChangeToPayload,
   satelliteConnectionStateSchema,
   toSatelliteConnectionState,
   type SatelliteConnectionState,
 } from "./entity";
+import {
+  satelliteConnectedTrigger,
+  satelliteDisconnectedTrigger,
+  satelliteHeartbeatLostTrigger,
+} from "./automations";
 import type { SatelliteService } from "./service";
 
 function makeChange(over: Partial<EntityChanged>): EntityChanged {
@@ -41,6 +47,68 @@ function makeChange(over: Partial<EntityChanged>): EntityChanged {
     ...over,
   };
 }
+
+describe("satelliteChangeToPayload — payloadSchema parity", () => {
+  it("a connect payload validates against the connected trigger's payloadSchema", () => {
+    const parsed = satelliteConnectedTrigger.payloadSchema.parse(
+      satelliteChangeToPayload(makeChange({})),
+    );
+    expect(parsed.satelliteId).toBe("sat-1");
+    expect(parsed.name).toBe("edge-eu");
+    expect(parsed.region).toBe("eu");
+    expect(parsed.status).toBe("online");
+    expect(parsed.lastSeenAt).toBe("2026-05-31T00:00:00.000Z");
+  });
+
+  it("a disconnect payload validates (lastSeenAt null after clean disconnect)", () => {
+    const change = makeChange({
+      prev: {
+        status: "online",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: "2026-05-31T00:00:00.000Z",
+        lastEvent: "connected",
+      },
+      next: {
+        status: "offline",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: null,
+        lastEvent: "disconnected",
+      },
+    });
+    const parsed = satelliteDisconnectedTrigger.payloadSchema.parse(
+      satelliteChangeToPayload(change),
+    );
+    expect(parsed.satelliteId).toBe("sat-1");
+    expect(parsed.status).toBe("offline");
+    expect(parsed.lastSeenAt).toBeNull();
+  });
+
+  it("a heartbeat-lost payload validates against the heartbeat_lost trigger's payloadSchema", () => {
+    const change = makeChange({
+      prev: {
+        status: "online",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: "2026-05-31T00:00:00.000Z",
+        lastEvent: "connected",
+      },
+      next: {
+        status: "offline",
+        name: "edge-eu",
+        region: "eu",
+        lastSeenAt: "2026-05-31T00:00:00.000Z",
+        lastEvent: "heartbeat_lost",
+      },
+    });
+    const parsed = satelliteHeartbeatLostTrigger.payloadSchema.parse(
+      satelliteChangeToPayload(change),
+    );
+    expect(parsed.satelliteId).toBe("sat-1");
+    expect(parsed.status).toBe("offline");
+  });
+});
 
 describe("deriveSatelliteConnectionEvents", () => {
   it("maps lastEvent='connected' to satellite.connected", () => {

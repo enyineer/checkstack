@@ -21,16 +21,20 @@ import { ConfigRelay } from "./config-relay";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSatelliteGitOpsKinds } from "./satellite-gitops-kinds";
 import {
+  automationTriggerExtensionPoint,
   entityExtensionPoint,
+  withEntityWrite,
   type EntityHandle,
 } from "@checkstack/automation-backend";
 import {
   SATELLITE_CONNECTION_ENTITY_KIND,
   createSatelliteConnectionRead,
   deriveSatelliteConnectionEvents,
+  satelliteChangeToPayload,
   satelliteConnectionStateSchema,
   type SatelliteConnectionState,
 } from "./entity";
+import { satelliteTriggers } from "./automations";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -60,11 +64,23 @@ export default createBackendPlugin({
     // `entity_transitions`.
     //
     // The `satellite.connected` / `.disconnected` / `.heartbeat_lost` trigger
-    // events are DERIVED from its changes (no hook-backed triggers).
+    // events are DERIVED from its changes (no hook-backed triggers). The
+    // ENTITY-DRIVEN triggers below stay registered so they remain in the
+    // editor's trigger catalog + payload-introspectable, and a `toPayload`
+    // mapper makes the runtime `trigger.payload` match their `payloadSchema`
+    // (mirroring incident / catalog / dependency / healthcheck).
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of satelliteTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
+
     const entity = env.getExtensionPoint(entityExtensionPoint);
     entity.registerChangeDeriver({
       kind: SATELLITE_CONNECTION_ENTITY_KIND,
       derive: deriveSatelliteConnectionEvents,
+      toPayload: satelliteChangeToPayload,
     });
     entity.declareNonReactiveState({
       table: "satellites",
@@ -184,7 +200,8 @@ export default createBackendPlugin({
             // `read`, records the transition (durable history), and emits the
             // change; the deriver re-fires the equivalent trigger events.
             mirror: async ({ satelliteId, lastEvent, lastHeartbeatAt }) => {
-              await satelliteEntityHandle.mutate({
+              await withEntityWrite({
+                handle: satelliteEntityHandle,
                 id: satelliteId,
                 apply: () =>
                   service.applyConnectionState({
@@ -264,7 +281,8 @@ export default createBackendPlugin({
             // without flipping its satellites to offline leaves a stale state
             // only until ANY pod's monitor observes the heartbeat timeout.
             mirror: async (satelliteId) => {
-              await satelliteEntityHandle.mutate({
+              await withEntityWrite({
+                handle: satelliteEntityHandle,
                 id: satelliteId,
                 apply: () =>
                   service.applyConnectionState({

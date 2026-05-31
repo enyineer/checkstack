@@ -38,7 +38,10 @@
  */
 import { z } from "zod";
 import type { EntityChanged } from "@checkstack/automation-common";
-import type { EntityRead } from "@checkstack/automation-backend";
+import type {
+  EntityChangePayloadMapper,
+  EntityRead,
+} from "@checkstack/automation-backend";
 import type { SatelliteService } from "./service";
 import { computeStatus } from "./status";
 
@@ -128,6 +131,39 @@ export function deriveSatelliteConnectionEvents(
     }
   }
 }
+
+function readString(
+  state: Record<string, unknown> | null,
+  field: string,
+): string | undefined {
+  if (state === null) return undefined;
+  const value = state[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Map a `satellite-connection` entity change to the domain-named
+ * `trigger.payload` the connection triggers declare via `payloadSchema`
+ * (`satelliteId`, `name`, `region`, `status`, `lastSeenAt`). Restores the keys
+ * operators read (`trigger.payload.satelliteId`, `.name`, …) that the generic
+ * change shape omits, so an entity-driven connection trigger sees the same
+ * documented payload the four migrated lifecycle domains do.
+ *
+ * `satelliteId` is the entity id; the remaining fields read off `next` (a
+ * tombstone fires no event, so `next` is always present when a trigger fires).
+ * `lastSeenAt` is nullable (`null` after a clean disconnect).
+ */
+export const satelliteChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  const next = changed.next;
+  const lastSeenAt = next === null ? null : next["lastSeenAt"];
+  return {
+    satelliteId: changed.id,
+    name: readString(next, "name"),
+    region: readString(next, "region"),
+    status: readString(next, "status"),
+    lastSeenAt: typeof lastSeenAt === "string" ? lastSeenAt : null,
+  };
+};
 
 /**
  * The durable connection columns of a satellite row, as read from the shared

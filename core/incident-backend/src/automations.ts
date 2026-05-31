@@ -94,7 +94,8 @@ export const incidentUpdatedTrigger: TriggerDefinition<
 > = {
   id: "updated",
   displayName: "Incident Updated",
-  description: "Fires when an incident is updated (info or status change)",
+  description:
+    "Fires when an incident's reactive state changes (status, severity, or affected systems). A comment-only update does not fire this trigger.",
   category: "Incidents",
   icon: "CircleAlert",
   payloadSchema: incidentUpdatedPayloadSchema,

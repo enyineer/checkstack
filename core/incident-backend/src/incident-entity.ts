@@ -24,6 +24,10 @@ import type {
   EntityMutationOpts,
   EntityRead,
 } from "@checkstack/automation-backend";
+import {
+  withEntityRemove,
+  withEntityWrite,
+} from "@checkstack/automation-backend";
 
 import type { IncidentService } from "./service";
 
@@ -168,11 +172,7 @@ export async function writeIncidentEntity(args: {
   apply: () => Promise<IncidentEntityState>;
 }): Promise<void> {
   const { handle, incidentId, opts, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.mutate({ id: incidentId, opts, apply });
+  await withEntityWrite({ handle, id: incidentId, opts, apply });
 }
 
 /**
@@ -188,9 +188,5 @@ export async function removeIncidentEntity(args: {
   apply: () => Promise<void>;
 }): Promise<void> {
   const { handle, incidentId, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.remove({ id: incidentId, apply });
+  await withEntityRemove({ handle, id: incidentId, apply });
 }

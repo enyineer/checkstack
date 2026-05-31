@@ -25,6 +25,10 @@ import type {
   EntityHandle,
   EntityRead,
 } from "@checkstack/automation-backend";
+import {
+  withEntityRemove,
+  withEntityWrite,
+} from "@checkstack/automation-backend";
 
 import type { DependencyService } from "./services/dependency-service";
 
@@ -134,11 +138,7 @@ export async function writeDependencyEdge(args: {
   apply: () => Promise<DependencyEdgeState>;
 }): Promise<void> {
   const { handle, dependencyId, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.mutate({ id: dependencyId, apply });
+  await withEntityWrite({ handle, id: dependencyId, apply });
 }
 
 /**
@@ -153,9 +153,5 @@ export async function removeDependencyEdge(args: {
   apply: () => Promise<void>;
 }): Promise<void> {
   const { handle, dependencyId, apply } = args;
-  if (!handle) {
-    await apply();
-    return;
-  }
-  await handle.remove({ id: dependencyId, apply });
+  await withEntityRemove({ handle, id: dependencyId, apply });
 }

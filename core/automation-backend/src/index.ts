@@ -653,6 +653,7 @@ export {
 // Entity state machine — the typed path to reactive state. The internal
 // ENTITY_CHANGED hook is intentionally NOT re-exported (§6.1).
 export { entityExtensionPoint } from "./entity";
+export { withEntityWrite, withEntityRemove } from "./entity";
 export type {
   EntityExtensionPoint,
   DefineEntity,

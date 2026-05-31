@@ -24,7 +24,12 @@
  */
 import { z } from "zod";
 import { Versioned } from "@checkstack/backend-api";
-import type { ActionDefinition, EntityHandle } from "@checkstack/automation-backend";
+import type {
+  ActionDefinition,
+  EntityHandle,
+  TriggerDefinition,
+} from "@checkstack/automation-backend";
+import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import { SYSTEM_ACTOR } from "@checkstack/common";
 import {
   MaintenanceStatusEnum,
@@ -41,6 +46,80 @@ import {
   writeMaintenanceEntity,
   type MaintenanceEntityState,
 } from "./entity";
+
+// ─── Triggers ──────────────────────────────────────────────────────────
+//
+// These two triggers are ENTITY-DRIVEN (reactive automation engine §10.2): the
+// `maintenance` entity's change deriver fires `maintenance.created` /
+// `maintenance.updated` via Stage-1 routing, so they no longer subscribe to a
+// hook. A no-op `setup` (`makeEntityDrivenTriggerSetup`) keeps them in the
+// editor's trigger catalog (and payload-introspectable) without re-introducing
+// a hook — mirroring how the incident / catalog / dependency / healthcheck
+// domains kept their registrations after migrating. The runtime
+// `trigger.payload` matches these schemas via the `maintenanceChangeToPayload`
+// mapper registered alongside the deriver.
+//
+// The reactive `maintenance` entity state is `{ status, systemIds, startAt,
+// endAt }`. The descriptive fields the old hook carried (`title`,
+// `description`) are NOT derivable from an entity change, so they are OMITTED
+// from the entity-driven payload; the schemas declare only what the mapper
+// produces.
+const maintenanceCreatedPayloadSchema = z.object({
+  maintenanceId: z.string(),
+  status: MaintenanceStatusEnum,
+  systemIds: z.array(z.string()),
+  startAt: z.string(),
+  endAt: z.string(),
+});
+
+const maintenanceUpdatedPayloadSchema = z.object({
+  maintenanceId: z.string(),
+  status: MaintenanceStatusEnum,
+  systemIds: z.array(z.string()),
+  startAt: z.string(),
+  endAt: z.string(),
+});
+
+export const maintenanceCreatedTrigger: TriggerDefinition<
+  z.infer<typeof maintenanceCreatedPayloadSchema>
+> = {
+  id: "created",
+  displayName: "Maintenance Created",
+  description: "Fires when a new maintenance window is scheduled",
+  category: "Maintenance",
+  icon: "Wrench",
+  payloadSchema: maintenanceCreatedPayloadSchema,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof maintenanceCreatedPayloadSchema>
+  >(),
+  contextKey: (p) => p.maintenanceId,
+};
+
+export const maintenanceUpdatedTrigger: TriggerDefinition<
+  z.infer<typeof maintenanceUpdatedPayloadSchema>
+> = {
+  id: "updated",
+  displayName: "Maintenance Updated",
+  description:
+    "Fires when a maintenance window's status, schedule, or affected systems change",
+  category: "Maintenance",
+  icon: "Wrench",
+  payloadSchema: maintenanceUpdatedPayloadSchema,
+  setup: makeEntityDrivenTriggerSetup<
+    z.infer<typeof maintenanceUpdatedPayloadSchema>
+  >(),
+  contextKey: (p) => p.maintenanceId,
+};
+
+/**
+ * All maintenance triggers as a heterogeneous list. Typed as
+ * `TriggerDefinition<unknown>[]` so the array can be iterated in the plugin
+ * entry without TypeScript collapsing the union to a single payload shape.
+ */
+export const maintenanceTriggers: TriggerDefinition<unknown>[] = [
+  maintenanceCreatedTrigger as TriggerDefinition<unknown>,
+  maintenanceUpdatedTrigger as TriggerDefinition<unknown>,
+];
 
 /**
  * Mutation opts for an action-originated entity write: the run id (so

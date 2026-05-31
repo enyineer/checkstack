@@ -101,7 +101,8 @@ export const dependencyUpdatedTrigger: TriggerDefinition<
 > = {
   id: "updated",
   displayName: "Dependency Updated",
-  description: "Fires when an existing dependency's impact-type or label changes",
+  description:
+    "Fires when an existing dependency's reactive state changes (impact type, source, target, or transitivity). A label-only edit does not fire this trigger.",
   category: "Dependencies",
   icon: "Network",
   payloadSchema: dependencyUpdatedPayloadSchema,

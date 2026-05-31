@@ -15,6 +15,7 @@ import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
+  automationTriggerExtensionPoint,
   entityExtensionPoint,
   type EntityHandle,
 } from "@checkstack/automation-backend";
@@ -32,11 +33,13 @@ import { createMaintenanceCache } from "./cache";
 import {
   createMaintenanceActions,
   maintenanceArtifactType,
+  maintenanceTriggers,
 } from "./automations";
 import {
   MAINTENANCE_ENTITY_KIND,
   createMaintenanceEntityRead,
   deriveMaintenanceEvents,
+  maintenanceChangeToPayload,
   maintenanceEntityStateSchema,
   type MaintenanceEntityState,
 } from "./entity";
@@ -66,7 +69,11 @@ export default createBackendPlugin({
     //
     // Reactive entity (reactive automation engine §10.2): the
     // `maintenance.created` / `maintenance.updated` trigger events are now
-    // DERIVED from `maintenance` entity changes (no hook-backed triggers).
+    // DERIVED from `maintenance` entity changes. The triggers stay registered
+    // (ENTITY-DRIVEN, no hook) so they remain in the editor's trigger catalog +
+    // payload-introspectable; a `toPayload` mapper makes the runtime
+    // `trigger.payload` match their `payloadSchema` (mirroring incident /
+    // catalog / dependency / healthcheck).
     //
     // PLUGIN-BACKED (Model B): the `maintenances` + `maintenance_systems`
     // tables ARE the current-state storage. `read` routes straight to the
@@ -100,7 +107,14 @@ export default createBackendPlugin({
     entity.registerChangeDeriver({
       kind: MAINTENANCE_ENTITY_KIND,
       derive: deriveMaintenanceEvents,
+      toPayload: maintenanceChangeToPayload,
     });
+    const automationTriggers = env.getExtensionPoint(
+      automationTriggerExtensionPoint,
+    );
+    for (const trigger of maintenanceTriggers) {
+      automationTriggers.registerTrigger(trigger, pluginMetadata);
+    }
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(maintenanceArtifactType, pluginMetadata);
