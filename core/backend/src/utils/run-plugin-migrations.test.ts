@@ -28,8 +28,11 @@ function makeFakeClient() {
   };
 }
 
+/** A relocation step that does nothing (keeps tests off the filesystem/db). */
+const noopRelocate = async () => {};
+
 describe("runPluginMigrations", () => {
-  it("runs the migrator on a single pinned connection with search_path set first", async () => {
+  it("runs the migrator on a single pinned connection with a strict search_path set first", async () => {
     const { client, queries, isReleased } = makeFakeClient();
 
     let connectCount = 0;
@@ -49,6 +52,7 @@ describe("runPluginMigrations", () => {
       pool,
       migrationsFolder: "/plugins/healthcheck/drizzle",
       migrationsSchema: "plugin_healthcheck",
+      relocateLegacyObjects: noopRelocate,
       createMigrationDb: (c) => {
         clientPassedToFactory = c;
         return fakeDb;
@@ -70,8 +74,9 @@ describe("runPluginMigrations", () => {
     expect(clientPassedToFactory).toBe(client);
     expect(dbPassedToMigrate).toBe(fakeDb);
 
-    // search_path is pointed at the plugin schema (after creating it) BEFORE
-    // the migrator runs.
+    // The plugin schema is created BEFORE search_path points at it (so new
+    // objects can never fall through to `public`), and the search_path is
+    // STRICT - plugin schema only, no `public` fallback.
     expect(queriesBeforeMigrate).toEqual([
       'CREATE SCHEMA IF NOT EXISTS "plugin_healthcheck"',
       'SET search_path = "plugin_healthcheck"',
@@ -80,6 +85,68 @@ describe("runPluginMigrations", () => {
     // Afterwards the connection is reset and returned to the pool.
     expect(queries.at(-1)).toBe("SET search_path = public");
     expect(isReleased()).toBe(true);
+  });
+
+  it("relocates legacy public objects after creating the schema and before setting search_path / migrating", async () => {
+    const { client, queries } = makeFakeClient();
+    const pool = { connect: async () => client };
+
+    const events: string[] = [];
+    let schemaPassedToRelocate: string | undefined;
+    let folderPassedToRelocate: string | undefined;
+    let clientPassedToRelocate: PoolClient | undefined;
+
+    await runPluginMigrations({
+      pool,
+      migrationsFolder: "/plugins/healthcheck/drizzle",
+      migrationsSchema: "plugin_healthcheck",
+      relocateLegacyObjects: async ({ client: c, schema, migrationsFolder }) => {
+        clientPassedToRelocate = c;
+        schemaPassedToRelocate = schema;
+        folderPassedToRelocate = migrationsFolder;
+        events.push(`relocate@${queries.length}`);
+      },
+      createMigrationDb: () => ({}) as unknown as MigrationDb,
+      migrate: async () => {
+        events.push(`migrate@${queries.length}`);
+      },
+    });
+
+    // Relocation runs on the same pinned client, with the plugin schema and
+    // the plugin's own migrations folder.
+    expect(clientPassedToRelocate).toBe(client);
+    expect(schemaPassedToRelocate).toBe("plugin_healthcheck");
+    expect(folderPassedToRelocate).toBe("/plugins/healthcheck/drizzle");
+
+    // Ordering: CREATE SCHEMA, then relocate, then SET search_path, then migrate.
+    // After CREATE SCHEMA only (1 query) relocate runs; after the SET (2
+    // queries) migrate runs.
+    expect(events).toEqual(["relocate@1", "migrate@2"]);
+    expect(queries).toEqual([
+      'CREATE SCHEMA IF NOT EXISTS "plugin_healthcheck"',
+      'SET search_path = "plugin_healthcheck"',
+      "SET search_path = public",
+    ]);
+  });
+
+  it("uses a strict plugin-only search_path with no `public` fallback", async () => {
+    const { client, queries } = makeFakeClient();
+    const pool = { connect: async () => client };
+
+    await runPluginMigrations({
+      pool,
+      migrationsFolder: "/x",
+      migrationsSchema: "plugin_healthcheck",
+      relocateLegacyObjects: noopRelocate,
+      createMigrationDb: () => ({}) as unknown as MigrationDb,
+      migrate: async () => {},
+    });
+
+    const setStatement = queries.find(
+      (q) => q.startsWith("SET search_path =") && q.includes("plugin_healthcheck"),
+    );
+    expect(setStatement).toBe('SET search_path = "plugin_healthcheck"');
+    expect(setStatement).not.toContain("public");
   });
 
   it("resets search_path and releases the connection even when the migrator throws", async () => {
@@ -92,6 +159,7 @@ describe("runPluginMigrations", () => {
         pool,
         migrationsFolder: "/x",
         migrationsSchema: "plugin_x",
+        relocateLegacyObjects: noopRelocate,
         createMigrationDb: () => ({}) as unknown as MigrationDb,
         migrate: async () => {
           throw boom;
@@ -111,14 +179,15 @@ describe("runPluginMigrations", () => {
       pool,
       migrationsFolder: "/x",
       migrationsSchema: "plugin_x",
+      relocateLegacyObjects: noopRelocate,
       createMigrationDb: () => ({}) as unknown as MigrationDb,
       migrate: async () => {},
     });
 
     // The pool surface the helper depends on is exactly `connect`; everything
-    // else (CREATE SCHEMA, SET search_path, the migration itself) happens on
-    // the checked-out client. If this contract ever widens, the regression
-    // that motivated the pinned connection could creep back in.
+    // else (CREATE SCHEMA, relocation, SET search_path, the migration itself)
+    // happens on the checked-out client. If this contract ever widens, the
+    // regression that motivated the pinned connection could creep back in.
     expect(Object.keys(pool)).toEqual(["connect"]);
   });
 });
