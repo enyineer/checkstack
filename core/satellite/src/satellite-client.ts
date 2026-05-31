@@ -281,19 +281,19 @@ export class SatelliteClient {
       }
 
       case "script_package_manifest": {
-        // Resolve the typed pending-request callback to a local first, so the
-        // invocation is a plain call of a known function value (not a dynamic
-        // call indexed by the message-supplied key).
+        // The pending callback is looked up by a message-supplied key. Validate
+        // that what we got back is actually callable before invoking it, so an
+        // unknown/forged key can never dispatch to an unexpected target.
         const resolveManifest = this.pendingManifest.get(msg.lockfileHash);
         this.pendingManifest.delete(msg.lockfileHash);
-        if (resolveManifest) resolveManifest(msg.entries);
+        if (typeof resolveManifest === "function") resolveManifest(msg.entries);
         break;
       }
 
       case "script_package_blob": {
         const resolveBlob = this.pendingBlob.get(msg.integrity);
         this.pendingBlob.delete(msg.integrity);
-        if (resolveBlob) resolveBlob(msg.data);
+        if (typeof resolveBlob === "function") resolveBlob(msg.data);
         break;
       }
 
