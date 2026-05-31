@@ -2,9 +2,6 @@ import { describe, it, expect } from "bun:test";
 import type {
   EntityChanged,
   EntityHandle,
-  EntityKeyedStoreService,
-  EntityTx,
-  KeyedStore,
   MutateInput,
 } from "@checkstack/automation-backend";
 import { SYSTEM_ACTOR } from "@checkstack/common";
@@ -14,11 +11,15 @@ import {
   HEALTH_TRIGGER_EVENTS,
   HealthEntityStateSchema,
   classifyHealthChange,
+  computeHealthEntityState,
+  createHealthEntityRead,
   deriveHealthTriggerEvents,
-  mirrorHealthEntity,
+  writeHealthEntity,
   type HealthEntityState,
-  type HealthEntityWriter,
 } from "./health-entity";
+import type { HealthCheckService } from "./service";
+import type { SafeDatabase } from "@checkstack/backend-api";
+import * as schema from "./schema";
 import {
   systemDegradedTrigger,
   systemHealthyTrigger,
@@ -172,134 +173,286 @@ describe("HealthEntityStateSchema", () => {
   });
 });
 
-describe("mirrorHealthEntity (homeless kind → keyed store via handle.mutate)", () => {
+
+// ──────────────────────────────────────────────────────────────────────────
+// COMPUTE-ON-READ: the `read` accessor derives the view from durable data.
+// ──────────────────────────────────────────────────────────────────────────
+
+type CheckStatus = HealthEntityState["status"];
+
+/**
+ * Extract the bound systemId from a real drizzle `eq(column, value)` predicate.
+ * `eq` returns an opaque `SQL` object whose `queryChunks` array carries the
+ * bound value as a `Param`-like chunk (`{ value: "<systemId>" }`). Walking it
+ * lets the fake db answer the existence gate per-system while still exercising
+ * the REAL `systemHasRuns` query builder.
+ */
+function systemIdFromPredicate(predicate: unknown): string | undefined {
+  const chunks = (predicate as { queryChunks?: unknown[] } | undefined)
+    ?.queryChunks;
+  if (!Array.isArray(chunks)) return undefined;
+  for (const chunk of chunks) {
+    const value = (chunk as { value?: unknown } | null)?.value;
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+/**
+ * A fake db whose run-existence gate answers per systemId. Reproduces the
+ * `systemHasRuns` chain `select().from().where(eq(...)).limit(1)`, resolving to
+ * a row iff `present[systemId]`. The systemId is read off the real drizzle
+ * predicate, so the test drives the production query shape verbatim.
+ */
+function runGateDb(
+  present: Record<string, boolean>,
+): SafeDatabase<typeof schema> {
+  return {
+    select: () => ({
+      from: () => ({
+        where: (predicate: unknown) => ({
+          limit: async () => {
+            const sid = systemIdFromPredicate(predicate);
+            return sid && present[sid] ? [{ id: "run-1" }] : [];
+          },
+        }),
+      }),
+    }),
+  } as unknown as SafeDatabase<typeof schema>;
+}
+
+/** Fake service whose `getSystemHealthStatus` returns canned per-system state. */
+function fakeService(
+  statusBySystem: Record<
+    string,
+    { status: CheckStatus; checkStatuses: Array<{ status: CheckStatus }> }
+  >,
+): HealthCheckService {
+  return {
+    getSystemHealthStatus: async (systemId: string) => {
+      const found = statusBySystem[systemId];
+      return {
+        status: found?.status ?? ("healthy" as CheckStatus),
+        evaluatedAt: new Date(),
+        checkStatuses: (found?.checkStatuses ?? []).map((c, i) => ({
+          configurationId: `cfg-${i}`,
+          configurationName: `Check ${i}`,
+          status: c.status,
+          runsConsidered: 1,
+        })),
+      };
+    },
+  } as unknown as HealthCheckService;
+}
+
+describe("computeHealthEntityState (compute-on-read from durable data)", () => {
+  it("omits a system with no persisted runs (existence gate)", async () => {
+    const db = runGateDb({}); // no runs for any system
+    const service = fakeService({
+      "sys-1": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+    });
+    const state = await computeHealthEntityState({
+      db,
+      service,
+      systemId: "sys-1",
+    });
+    // No runs yet ⇒ no entity (mirrors the old keyed-store first-mirror create).
+    expect(state).toBeUndefined();
+  });
+
+  it("derives { status, healthyChecks, totalChecks } once runs exist", async () => {
+    const db = runGateDb({ "sys-1": true });
+    const service = fakeService({
+      "sys-1": {
+        status: "degraded",
+        checkStatuses: [
+          { status: "healthy" },
+          { status: "degraded" },
+          { status: "healthy" },
+        ],
+      },
+    });
+    const state = await computeHealthEntityState({
+      db,
+      service,
+      systemId: "sys-1",
+    });
+    // status = worst-wins aggregate; healthyChecks = count of "healthy";
+    // totalChecks = number of enabled checks.
+    expect(state).toEqual({
+      status: "degraded",
+      healthyChecks: 2,
+      totalChecks: 3,
+    });
+  });
+});
+
+describe("createHealthEntityRead (batched, omits run-less systems)", () => {
+  it("returns a map keyed by systemId, omitting systems with no runs", async () => {
+    const db = runGateDb({ "sys-a": true, "sys-c": true });
+    const service = fakeService({
+      "sys-a": { status: "healthy", checkStatuses: [{ status: "healthy" }] },
+      "sys-b": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+      "sys-c": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "healthy" }, { status: "unhealthy" }],
+      },
+    });
+    const read = createHealthEntityRead({ db, service });
+    const out = await read(["sys-a", "sys-b", "sys-c"]);
+    expect(out).toEqual({
+      "sys-a": { status: "healthy", healthyChecks: 1, totalChecks: 1 },
+      "sys-c": { status: "unhealthy", healthyChecks: 1, totalChecks: 2 },
+    });
+    // sys-b has status data but no runs ⇒ omitted from the batched read.
+    expect(out["sys-b"]).toBeUndefined();
+  });
+
+  it("returns {} for an empty id list without touching the backing", async () => {
+    const read = createHealthEntityRead({
+      db: runGateDb({}),
+      service: fakeService({}),
+    });
+    expect(await read([])).toEqual({});
+  });
+});
+
+describe("writeHealthEntity (durable write driven through handle.mutate)", () => {
   /**
-   * A fake reactive-write surface for the homeless `health` kind. The keyed
-   * store is an in-memory map standing in for `entity_state` (the SOLE
-   * current-state home — no duplicate domain row). The handle's `mutate`
-   * routes through `apply`, which writes that keyed store inside a fake tx,
-   * exactly as production does.
+   * Fake handle reproducing the Model B pipeline's observable timing: snapshot
+   * `prev` via `read`, run `apply` (the REAL durable write), diff, and emit on
+   * a real change. Records the (prev, next) pair so the test can assert the
+   * framework snapshotted prev BEFORE the durable write committed.
    */
-  function fakeWriter(opts?: { handleThrows?: boolean }): {
-    writer: HealthEntityWriter;
-    rows: Map<string, HealthEntityState>;
-    mutateCalls: Array<{ id: string }>;
-    txOpened: number;
-  } {
-    const rows = new Map<string, HealthEntityState>();
-    const mutateCalls: Array<{ id: string }> = [];
-    let txOpened = 0;
-
-    const keyedStore = {
+  function fakeHandle(args: {
+    read: () => Promise<HealthEntityState | undefined>;
+    onEmit?: (change: {
+      prev: HealthEntityState | undefined;
+      next: HealthEntityState;
+    }) => void;
+    failAfterApply?: boolean;
+  }): EntityHandle<HealthEntityState> {
+    const { read, onEmit, failAfterApply } = args;
+    return {
       kind: HEALTH_ENTITY_KIND,
-      readMany: async (ids: ReadonlyArray<string>) => {
-        const out: Record<string, HealthEntityState> = {};
-        for (const id of ids) {
-          const row = rows.get(id);
-          if (row) out[id] = row;
-        }
-        return out;
-      },
-      read: async (id: string) => rows.get(id),
-      write: async ({
-        id,
-        state,
-      }: {
-        tx: EntityTx;
-        id: string;
-        state: HealthEntityState;
-      }) => {
-        rows.set(id, state);
-        return state;
-      },
-      remove: async ({ id }: { tx: EntityTx; id: string }) => {
-        rows.delete(id);
-      },
-    } as unknown as KeyedStore<HealthEntityState>;
-
-    const keyedStoreService: EntityKeyedStoreService = {
-      // `mirrorHealthEntity` uses the bundled `keyedStore`, not this factory;
-      // the generic signature just has to be satisfiable.
-      keyedStoreFor: <TState extends Record<string, unknown>>() =>
-        keyedStore as unknown as KeyedStore<TState>,
-      // The fake tx is opaque — `write` ignores it; we just count openings to
-      // prove the apply runs inside a transaction.
-      runInTransaction: async <R,>(fn: (tx: EntityTx) => Promise<R>) => {
-        txOpened += 1;
-        return fn({} as EntityTx);
-      },
-    };
-
-    const handle = {
-      kind: HEALTH_ENTITY_KIND,
-      // Production `mutate` snapshots prev via `read`, runs `apply` (the keyed
-      // write), and returns next. The fake reproduces the observable parts:
-      // it runs `apply` (so the keyed store is written) and records the call.
       async mutate(input: MutateInput<HealthEntityState>) {
-        if (opts?.handleThrows) throw new Error("store down");
-        mutateCalls.push({ id: input.id });
-        return input.apply();
+        const prev = await read(); // snapshot BEFORE apply
+        const next = await input.apply(); // the REAL durable write
+        if (failAfterApply) throw new Error("emit failed");
+        // Only emit on a real change (status diff suffices for the test).
+        if (!prev || prev.status !== next.status) onEmit?.({ prev, next });
+        return next;
       },
     } as unknown as EntityHandle<HealthEntityState>;
-
-    return {
-      writer: { handle, keyedStore, keyedStoreService },
-      rows,
-      mutateCalls,
-      get txOpened() {
-        return txOpened;
-      },
-    };
   }
 
-  it("writes the reactive subset into the keyed store via handle.mutate", async () => {
-    const fake = fakeWriter();
-    await mirrorHealthEntity({
-      writer: fake.writer,
-      systemId: "sys-9",
-      status: "unhealthy",
-      healthyChecks: 0,
-      totalChecks: 4,
-    });
-    // The mutation was driven through the handle, keyed by systemId.
-    expect(fake.mutateCalls).toEqual([{ id: "sys-9" }]);
-    // The keyed store (the SOLE current-state home) now holds the aggregate.
-    expect(fake.rows.get("sys-9")).toEqual({
-      status: "unhealthy",
-      healthyChecks: 0,
-      totalChecks: 4,
-    });
-    // The apply ran inside a transaction on the keyed-store DB.
-    expect(fake.txOpened).toBe(1);
-  });
-
-  it("is a no-op when no writer is bound (version skew / tests)", async () => {
-    await mirrorHealthEntity({
-      writer: undefined,
-      systemId: "sys-9",
+  it("snapshots prev BEFORE apply runs the durable write (one correct change)", async () => {
+    // `read` reflects state BEFORE apply; apply flips it. The framework must
+    // capture the pre-write prev, so the change is prev=healthy → next=unhealthy.
+    let persisted: HealthEntityState = {
       status: "healthy",
-      healthyChecks: 1,
-      totalChecks: 1,
+      healthyChecks: 2,
+      totalChecks: 2,
+    };
+    const emitted: Array<{
+      prev: HealthEntityState | undefined;
+      next: HealthEntityState;
+    }> = [];
+    const handle = fakeHandle({
+      read: async () => persisted,
+      onEmit: (c) => emitted.push(c),
     });
-    // No throw is the assertion.
-    expect(true).toBe(true);
+
+    const next = await writeHealthEntity({
+      handle,
+      systemId: "sys-1",
+      apply: async () => {
+        persisted = { status: "unhealthy", healthyChecks: 0, totalChecks: 2 };
+        return persisted;
+      },
+    });
+
+    expect(next).toEqual({
+      status: "unhealthy",
+      healthyChecks: 0,
+      totalChecks: 2,
+    });
+    // Exactly one change, with the pre-write prev and post-write next.
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].prev?.status).toBe("healthy");
+    expect(emitted[0].next.status).toBe("unhealthy");
   });
 
-  it("routes a mutate() failure to onError instead of throwing", async () => {
+  it("runs the durable write even when no handle is bound", async () => {
+    let ran = false;
+    const next = await writeHealthEntity({
+      handle: undefined,
+      systemId: "sys-1",
+      apply: async () => {
+        ran = true;
+        return { status: "healthy", healthyChecks: 1, totalChecks: 1 };
+      },
+    });
+    expect(ran).toBe(true);
+    expect(next.status).toBe("healthy");
+  });
+
+  it("routes a post-commit framework failure to onError (fail-soft)", async () => {
     let captured: unknown;
-    const fake = fakeWriter({ handleThrows: true });
-    await mirrorHealthEntity({
-      writer: fake.writer,
-      systemId: "sys-9",
-      status: "healthy",
-      healthyChecks: 1,
-      totalChecks: 1,
+    const handle = fakeHandle({
+      read: async () => ({
+        status: "healthy",
+        healthyChecks: 1,
+        totalChecks: 1,
+      }),
+      failAfterApply: true,
+    });
+    // apply commits, THEN the handle throws (emit failure). Must not rethrow.
+    const result = await writeHealthEntity({
+      handle,
+      systemId: "sys-1",
+      apply: async () => ({
+        status: "unhealthy",
+        healthyChecks: 0,
+        totalChecks: 1,
+      }),
       onError: (e) => {
         captured = e;
       },
     });
-    expect((captured as Error).message).toBe("store down");
-    // The failing write left the keyed store untouched.
-    expect(fake.rows.size).toBe(0);
+    expect((captured as Error).message).toBe("emit failed");
+    // The committed state is still returned (fail-soft, not lost).
+    expect(result.status).toBe("unhealthy");
+  });
+
+  it("rethrows when the durable write itself fails (executor fallback runs)", async () => {
+    const handle = fakeHandle({
+      read: async () => ({
+        status: "healthy",
+        healthyChecks: 1,
+        totalChecks: 1,
+      }),
+    });
+    let onErrorCalled = false;
+    await expect(
+      writeHealthEntity({
+        handle,
+        systemId: "sys-1",
+        apply: async () => {
+          throw new Error("insert failed");
+        },
+        onError: () => {
+          onErrorCalled = true;
+        },
+      }),
+    ).rejects.toThrow("insert failed");
+    // A durable-write failure must propagate, NOT be swallowed by onError.
+    expect(onErrorCalled).toBe(false);
   });
 });

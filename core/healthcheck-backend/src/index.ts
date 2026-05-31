@@ -31,17 +31,14 @@ import {
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
   entityExtensionPoint,
-  entityKeyedStoreServiceRef,
   type EntityHandle,
-  type EntityKeyedStoreService,
-  type KeyedStore,
 } from "@checkstack/automation-backend";
 import {
   HEALTH_ENTITY_KIND,
   HealthEntityStateSchema,
+  createHealthEntityRead,
   deriveHealthTriggerEvents,
   type HealthEntityState,
-  type HealthEntityWriter,
 } from "./health-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { secretResolverRef } from "@checkstack/secrets-backend";
@@ -68,32 +65,19 @@ let storedEmitHook: EmitHookFn | undefined;
 
 // The reactive `health` entity handle (§10.3). Defined in register() via
 // the entity extension point (buffered until automation-backend registers
-// the impl); mutations only fire from init() onward once the store binds.
+// the impl); mutations only fire from init() onward once the read accessor
+// has its db + service.
 let healthEntity: EntityHandle<HealthEntityState> | undefined;
 
-// HOMELESS kind: the `health` aggregate has no domain table — its current
-// state lives in the framework keyed store (`entity_state`), reached through
-// automation-backend's DB. The keyed store + tx runner are resolved in init()
-// (the service ref is only available then), but the entity `read` accessor
-// must be supplied at `defineEntity` time in register(). These holders bridge
-// the two; init() sets them before any mutation runs (mutations only happen
-// from init() onward, by which point the keyed store is bound).
-let healthKeyedStore: KeyedStore<HealthEntityState> | undefined;
-let healthKeyedStoreService: EntityKeyedStoreService | undefined;
-
-// The bundled reactive-write surface passed to `mirrorHealthEntity`. Resolved
-// once the handle + keyed store are both available (init onward); undefined
-// before that (graceful no-op, e.g. version skew).
-function getHealthEntityWriter(): HealthEntityWriter | undefined {
-  if (!healthEntity || !healthKeyedStore || !healthKeyedStoreService) {
-    return undefined;
-  }
-  return {
-    handle: healthEntity,
-    keyedStore: healthKeyedStore,
-    keyedStoreService: healthKeyedStoreService,
-  };
-}
+// PLUGIN-BACKED + COMPUTED kind: the `health` aggregate has no domain table and
+// no framework `entity_state` row — its current state is COMPUTED on read from
+// the durable `health_check_runs` (via `getSystemHealthStatus`). The db +
+// service are only available in init(), but the entity `read` accessor must be
+// supplied at `defineEntity` time in register(). These holders bridge the two;
+// init() sets them before any mutation runs (the queue worker — the only
+// mutation site — is set up in init() after these are bound).
+let healthEntityDb: SafeDatabase<typeof schema> | undefined;
+let healthEntityService: HealthCheckService | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -119,24 +103,28 @@ export default createBackendPlugin({
       .registerArtifactType(assignmentArtifactType, pluginMetadata);
 
     // ─── Reactive `health` entity (§10.3) ──────────────────────────────
-    // HOMELESS kind: the computed per-system aggregate has no domain table,
-    // so it opts into the framework keyed store (`entity_state`) EXPLICITLY —
-    // `read` routes through the keyed store's batched read (resolved in init,
-    // bridged via the holder). The change → trigger-event deriver keeps the
+    // PLUGIN-BACKED + COMPUTED kind (Model B): the per-system aggregate has no
+    // domain table and NO framework `entity_state` row. `read` COMPUTES each
+    // system's `{ status, healthyChecks, totalChecks }` on demand from the same
+    // durable `health_check_runs` the rest of the plugin reads (via
+    // `getSystemHealthStatus`), gated on the system having at least one run —
+    // see `createHealthEntityRead`. The db + service are resolved in init() and
+    // bridged via the holders. The change → trigger-event deriver keeps the
     // existing `healthcheck.system.degraded` / `.healthy` / `.health_changed`
-    // automations firing off the keyed-store state.
+    // automations firing off the computed state.
     const entityPoint = env.getExtensionPoint(entityExtensionPoint);
     healthEntity = entityPoint.defineEntity<HealthEntityState>({
       kind: HEALTH_ENTITY_KIND,
       state: HealthEntityStateSchema,
       read: (ids) => {
-        const ks = healthKeyedStore;
-        if (!ks) {
+        const db = healthEntityDb;
+        const service = healthEntityService;
+        if (!db || !service) {
           throw new Error(
-            "health entity read before init: keyed store not yet resolved",
+            "health entity read before init: db/service not yet resolved",
           );
         }
-        return ks.readMany(ids);
+        return createHealthEntityRead({ db, service })(ids);
       },
     });
     entityPoint.registerChangeDeriver({
@@ -207,7 +195,6 @@ export default createBackendPlugin({
         cacheManager: coreServices.cacheManager,
         config: coreServices.config,
         secretResolver: secretResolverRef,
-        entityKeyedStore: entityKeyedStoreServiceRef,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -222,23 +209,26 @@ export default createBackendPlugin({
         cacheManager,
         config,
         secretResolver,
-        entityKeyedStore,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
-
-        // Resolve the framework keyed store for the homeless `health` kind.
-        // It is bound to automation-backend's DB (the only path to
-        // `entity_state`); the entity `read` accessor defined in register()
-        // and `mirrorHealthEntity` both route through it from here onward.
-        healthKeyedStoreService = entityKeyedStore;
-        healthKeyedStore =
-          entityKeyedStore.keyedStoreFor<HealthEntityState>(HEALTH_ENTITY_KIND);
 
         // Populate mutable refs for GitOps reconcile closures
         gitopsDb = database;
         gitopsHealthCheckRegistry = healthCheckRegistry;
         gitopsCollectorRegistry = collectorRegistry;
         gitopsQueueManager = queueManager;
+
+        // Bind the COMPUTE-ON-READ accessor's db + service for the `health`
+        // entity (defined in register()). From here onward the entity `read`
+        // computes each system's aggregate from durable `health_check_runs`,
+        // and the queue worker (set up just below — the only mutation site)
+        // drives writes through `handle.mutate`.
+        healthEntityDb = database;
+        healthEntityService = new HealthCheckService(
+          database,
+          healthCheckRegistry,
+          collectorRegistry,
+        );
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);
@@ -275,7 +265,7 @@ export default createBackendPlugin({
           maintenanceClient,
           incidentClient,
           getEmitHook: () => storedEmitHook,
-          getHealthEntityWriter,
+          getHealthEntity: () => healthEntity,
           cache,
           secretResolver,
         });
