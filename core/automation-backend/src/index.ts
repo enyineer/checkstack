@@ -677,7 +677,19 @@ export type {
   EntityHandle,
   EntityIndexSpec,
   EntityMutationOpts,
+  EntityChangeDeriver,
+  RegisterChangeDeriver,
+  OnEntityChanged,
+  OnEntityChangedInput,
+  EntityChangedHandler,
+  EntityChangedDelivery,
+  EntityChangedUnsubscribe,
 } from "./entity";
+
+// The validated entity-change payload (Phase 4 derivers + cross-plugin
+// consumers type against this). Re-exported from automation-common so a
+// domain plugin needs only the automation-backend dependency.
+export type { EntityChanged } from "@checkstack/automation-common";
 
 export type {
   TriggerDefinition,

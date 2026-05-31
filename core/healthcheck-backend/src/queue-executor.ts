@@ -51,6 +51,11 @@ import {
   isTransitionToUnhealthy,
 } from "./flapping-detector";
 import { recordStateTransition } from "./state-transitions";
+import {
+  mirrorHealthEntity,
+  type HealthEntityState,
+} from "./health-entity";
+import type { EntityHandle } from "@checkstack/automation-backend";
 
 type Db = SafeDatabase<typeof schema>;
 type CatalogClient = InferClient<typeof CatalogApi>;
@@ -439,6 +444,12 @@ async function executeHealthCheckJob(props: {
   getEmitHook: () => EmitHookFn | undefined;
   cache: HealthCheckCache;
   /**
+   * Resolver for the reactive `health` entity handle (§10.3). Returns the
+   * handle once automation-backend has bound the store; `undefined` during
+   * version skew / tests. Mirrors the `getEmitHook` closure pattern.
+   */
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  /**
    * Central secret resolver. When set, a collector declaring a `secretEnv`
    * has it resolved + injected for this centrally-executed run; the
    * collector masks the values out of its output. Optional for version-skew
@@ -458,6 +469,7 @@ async function executeHealthCheckJob(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    getHealthEntity,
     cache,
     secretResolver,
   } = props;
@@ -912,6 +924,23 @@ async function executeHealthCheckJob(props: {
 
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
+
+    // Mirror the aggregated health into the reactive `health` entity on
+    // every run (§10.3). The entity store diffs internally, so an unchanged
+    // aggregate is a no-op; a status change drives the directional/umbrella
+    // trigger events via `deriveHealthTriggerEvents`.
+    await mirrorHealthEntity({
+      handle: getHealthEntity?.(),
+      systemId,
+      status: newState.status,
+      healthyChecks: newState.checkStatuses.filter(
+        (c) => c.status === "healthy",
+      ).length,
+      totalChecks: newState.checkStatuses.length,
+      onError: (error) =>
+        logger.warn(`Failed to mirror health entity for ${systemId}`, error),
+    });
+
     if (newState.status !== previousStatus) {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
@@ -1084,6 +1113,21 @@ async function executeHealthCheckJob(props: {
 
     // Check if aggregated state changed and notify subscribers
     const newState = await service.getSystemHealthStatus(systemId);
+
+    // Mirror the aggregated health into the reactive `health` entity on
+    // every run (§10.3). See the success path for the rationale.
+    await mirrorHealthEntity({
+      handle: getHealthEntity?.(),
+      systemId,
+      status: newState.status,
+      healthyChecks: newState.checkStatuses.filter(
+        (c) => c.status === "healthy",
+      ).length,
+      totalChecks: newState.checkStatuses.length,
+      onError: (error) =>
+        logger.warn(`Failed to mirror health entity for ${systemId}`, error),
+    });
+
     if (newState.status !== previousStatus) {
       // Record the aggregate transition so the sensing layer has a
       // reliable "in status since" for every status (Wave 2).
@@ -1199,6 +1243,7 @@ export async function setupHealthCheckWorker(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   getEmitHook: () => EmitHookFn | undefined;
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
 }): Promise<void> {
@@ -1214,6 +1259,7 @@ export async function setupHealthCheckWorker(props: {
     maintenanceClient,
     incidentClient,
     getEmitHook,
+    getHealthEntity,
     cache,
     secretResolver,
   } = props;
@@ -1236,6 +1282,7 @@ export async function setupHealthCheckWorker(props: {
         maintenanceClient,
         incidentClient,
         getEmitHook,
+        getHealthEntity,
         cache,
         secretResolver,
       });

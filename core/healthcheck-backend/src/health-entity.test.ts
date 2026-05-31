@@ -1,0 +1,159 @@
+import { describe, it, expect } from "bun:test";
+import type {
+  EntityChanged,
+  EntityHandle,
+} from "@checkstack/automation-backend";
+import { SYSTEM_ACTOR } from "@checkstack/common";
+
+import {
+  HEALTH_ENTITY_KIND,
+  HEALTH_TRIGGER_EVENTS,
+  HealthEntityStateSchema,
+  deriveHealthTriggerEvents,
+  mirrorHealthEntity,
+  type HealthEntityState,
+} from "./health-entity";
+
+function change(overrides: Partial<EntityChanged> = {}): EntityChanged {
+  return {
+    kind: HEALTH_ENTITY_KIND,
+    id: "sys-1",
+    prev: { status: "healthy", healthyChecks: 2, totalChecks: 2 },
+    next: { status: "unhealthy", healthyChecks: 0, totalChecks: 2 },
+    delta: { status: "unhealthy", healthyChecks: 0 },
+    changedFields: ["status", "healthyChecks"],
+    actor: SYSTEM_ACTOR,
+    occurredAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("deriveHealthTriggerEvents", () => {
+  it("maps a healthy → unhealthy transition to degraded + umbrella", () => {
+    const events = deriveHealthTriggerEvents(change());
+    expect(events).toEqual([
+      HEALTH_TRIGGER_EVENTS.degraded,
+      HEALTH_TRIGGER_EVENTS.healthChanged,
+    ]);
+  });
+
+  it("maps a degraded → healthy recovery to healthy + umbrella", () => {
+    const events = deriveHealthTriggerEvents(
+      change({
+        prev: { status: "degraded", healthyChecks: 1, totalChecks: 2 },
+        next: { status: "healthy", healthyChecks: 2, totalChecks: 2 },
+      }),
+    );
+    expect(events).toEqual([
+      HEALTH_TRIGGER_EVENTS.healthy,
+      HEALTH_TRIGGER_EVENTS.healthChanged,
+    ]);
+  });
+
+  it("maps a degraded → unhealthy transition to umbrella only (no directional)", () => {
+    const events = deriveHealthTriggerEvents(
+      change({
+        prev: { status: "degraded", healthyChecks: 1, totalChecks: 2 },
+        next: { status: "unhealthy", healthyChecks: 0, totalChecks: 2 },
+      }),
+    );
+    // Neither side is "healthy", so only the umbrella fires.
+    expect(events).toEqual([HEALTH_TRIGGER_EVENTS.healthChanged]);
+  });
+
+  it("fires nothing on create (prev === null)", () => {
+    expect(deriveHealthTriggerEvents(change({ prev: null }))).toEqual([]);
+  });
+
+  it("fires nothing on tombstone (next === null)", () => {
+    expect(deriveHealthTriggerEvents(change({ next: null }))).toEqual([]);
+  });
+
+  it("fires nothing when only non-status fields changed", () => {
+    expect(
+      deriveHealthTriggerEvents(
+        change({
+          prev: { status: "healthy", healthyChecks: 2, totalChecks: 2 },
+          next: { status: "healthy", healthyChecks: 1, totalChecks: 2 },
+        }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("HealthEntityStateSchema", () => {
+  it("accepts the reactive subset", () => {
+    const parsed = HealthEntityStateSchema.parse({
+      status: "degraded",
+      healthyChecks: 1,
+      totalChecks: 3,
+    });
+    expect(parsed.status).toBe("degraded");
+  });
+});
+
+describe("mirrorHealthEntity", () => {
+  function fakeHandle(): {
+    handle: EntityHandle<HealthEntityState>;
+    calls: Array<{ id: string; next: HealthEntityState }>;
+  } {
+    const calls: Array<{ id: string; next: HealthEntityState }> = [];
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async set(id: string, next: HealthEntityState) {
+        calls.push({ id, next });
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+    return { handle, calls };
+  }
+
+  it("mirrors the reactive subset keyed by systemId", async () => {
+    const { handle, calls } = fakeHandle();
+    await mirrorHealthEntity({
+      handle,
+      systemId: "sys-9",
+      status: "unhealthy",
+      healthyChecks: 0,
+      totalChecks: 4,
+    });
+    expect(calls).toEqual([
+      {
+        id: "sys-9",
+        next: { status: "unhealthy", healthyChecks: 0, totalChecks: 4 },
+      },
+    ]);
+  });
+
+  it("is a no-op when no handle is bound (version skew / tests)", async () => {
+    await mirrorHealthEntity({
+      handle: undefined,
+      systemId: "sys-9",
+      status: "healthy",
+      healthyChecks: 1,
+      totalChecks: 1,
+    });
+    // No throw is the assertion.
+    expect(true).toBe(true);
+  });
+
+  it("routes a set() failure to onError instead of throwing", async () => {
+    let captured: unknown;
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async set() {
+        throw new Error("store down");
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+    await mirrorHealthEntity({
+      handle,
+      systemId: "sys-9",
+      status: "healthy",
+      healthyChecks: 1,
+      totalChecks: 1,
+      onError: (e) => {
+        captured = e;
+      },
+    });
+    expect((captured as Error).message).toBe("store down");
+  });
+});

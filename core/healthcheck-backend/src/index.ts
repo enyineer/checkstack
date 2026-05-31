@@ -30,7 +30,15 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
+  entityExtensionPoint,
+  type EntityHandle,
 } from "@checkstack/automation-backend";
+import {
+  HEALTH_ENTITY_KIND,
+  HealthEntityStateSchema,
+  deriveHealthTriggerEvents,
+  type HealthEntityState,
+} from "./health-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { secretResolverRef } from "@checkstack/secrets-backend";
 import { createHealthCheckRouter } from "./router";
@@ -54,6 +62,11 @@ import { createHealthCheckCache } from "./cache";
 // Store emitHook reference for use during Phase 2 init
 let storedEmitHook: EmitHookFn | undefined;
 
+// The reactive `health` entity handle (§10.3). Defined in register() via
+// the entity extension point (buffered until automation-backend registers
+// the impl); mutations only fire from init() onward once the store binds.
+let healthEntity: EntityHandle<HealthEntityState> | undefined;
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
@@ -76,6 +89,29 @@ export default createBackendPlugin({
     env
       .getExtensionPoint(automationArtifactTypeExtensionPoint)
       .registerArtifactType(assignmentArtifactType, pluginMetadata);
+
+    // ─── Reactive `health` entity (§10.3) ──────────────────────────────
+    // Define the entity + register the change → trigger-event deriver so
+    // the existing `healthcheck.system.degraded` / `.healthy` /
+    // `.health_changed` automations keep firing off the mirrored state.
+    const entityPoint = env.getExtensionPoint(entityExtensionPoint);
+    healthEntity = entityPoint.defineEntity<HealthEntityState>({
+      kind: HEALTH_ENTITY_KIND,
+      state: HealthEntityStateSchema,
+      indexes: [{ name: "status", fields: ["status"] }],
+    });
+    entityPoint.registerChangeDeriver({
+      kind: HEALTH_ENTITY_KIND,
+      derive: deriveHealthTriggerEvents,
+    });
+    // Raw per-check samples + cursors are intentionally NON-reactive (§5):
+    // a firehose of individual runs would melt the wake-index; the
+    // aggregate is the entity.
+    entityPoint.declareNonReactiveState({
+      table: "health_check_runs",
+      reason: "raw-sample",
+      note: "High-frequency individual check executions. The per-system aggregate is the `health` entity; raw runs stay a numeric_state wake source only.",
+    });
 
     // ─── GitOps Entity Kind Registration ───────────────────────────────
     // Mutable refs — populated during init(), consumed by reconcile closures.
@@ -190,6 +226,7 @@ export default createBackendPlugin({
           maintenanceClient,
           incidentClient,
           getEmitHook: () => storedEmitHook,
+          getHealthEntity: () => healthEntity,
           cache,
           secretResolver,
         });
