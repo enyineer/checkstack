@@ -28,6 +28,9 @@ export function toShellEnvKey(path: string): string {
   const normalized = path
     .toUpperCase()
     .replaceAll(/[^A-Z0-9]+/g, "_")
-    .replaceAll(/^_+|_+$/g, "");
+    // Trim leading/trailing `_`. The negative look-behind on the trailing
+    // alternative anchors where the underscore run may start matching,
+    // avoiding the polynomial-time backtracking of a naive `/^_+|_+$/g`.
+    .replaceAll(/^_+|(?<!_)_+$/g, "");
   return `${SHELL_ENV_PREFIX}${normalized}`;
 }

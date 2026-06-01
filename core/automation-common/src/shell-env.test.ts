@@ -25,4 +25,13 @@ describe("toShellEnvKey", () => {
   it("uses the exported prefix constant", () => {
     expect(toShellEnvKey("x").startsWith(SHELL_ENV_PREFIX)).toBe(true);
   });
+
+  it("handles long runs of separators without polynomial backtracking", () => {
+    // Guards against ReDoS reintroduction in the trim step: a long run of
+    // separator-only input must trim to an empty body quickly.
+    const start = performance.now();
+    expect(toShellEnvKey(`${".".repeat(100_000)}a`)).toBe("CHECKSTACK_A");
+    expect(toShellEnvKey(".".repeat(100_000))).toBe("CHECKSTACK_");
+    expect(performance.now() - start).toBeLessThan(1_000);
+  });
 });
