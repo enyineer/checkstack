@@ -1,5 +1,17 @@
 # @checkstack/maintenance-backend
 
+## 1.3.1
+
+### Patch Changes
+
+- Updated dependencies [a57f7db]
+  - @checkstack/backend-api@0.20.0
+  - @checkstack/automation-backend@0.4.0
+  - @checkstack/cache-api@0.3.8
+  - @checkstack/catalog-backend@1.3.1
+  - @checkstack/command-backend@0.1.33
+  - @checkstack/cache-utils@0.2.13
+
 ## 1.3.0
 
 ### Minor Changes

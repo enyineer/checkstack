@@ -1,5 +1,85 @@
 # @checkstack/healthcheck-backend
 
+## 1.5.0
+
+### Minor Changes
+
+- a57f7db: fix(backend): give advisory locks a dedicated connection pool to prevent pool-starvation deadlock
+
+  Both the session-lock service and `withXactLock` HOLD a Postgres connection for
+  the lock's whole lifetime while the gated work runs on a _different_ connection.
+  Both lock and work were drawing from the single shared `adminPool` (which, with
+  no explicit config, defaulted to `max: 10` and `connectionTimeoutMillis: 0` -
+  wait forever). Under concurrency >= pool size, every slot became a lock-holding
+  connection waiting for a work connection that could never free up: a permanent
+  deadlock. It surfaced as all connections stuck `idle in transaction` on
+  `pg_advisory_xact_lock` and every API request hanging into an upstream 502,
+  only after the server had been running long enough to hit that concurrency
+  (e.g. a burst of health-check evaluations or incident dedups).
+
+  Advisory locks now run on a dedicated `lockPool`, separate from `adminPool`, so
+  the acquire graph is acyclic (`lockPool -> adminPool`, never back) and the
+  deadlock class is impossible. `AdvisoryLockService` gains a pooled
+  `withXactLock({ key, fn })` method (lock on the lock pool, work on the admin
+  pool); healthcheck's per-system serializer, incident's dedup-create, and the
+  automation single-mode concurrency lock now use it. The deadlock-prone
+  standalone `withXactLock({ db, ... })` helper is REMOVED.
+
+  Both pools are explicitly configured with `connectionTimeoutMillis` so any
+  future exhaustion fails fast and self-heals instead of hanging, and both get a
+  pool-level `error` handler (an idle pooled client whose backend dies otherwise
+  crashes the pod). The lock pool additionally sets
+  `idle_in_transaction_session_timeout` and `lock_timeout` so a stalled critical
+  section is reaped server-side (auto-releasing the lock) rather than stranding a
+  key forever. The advisory-lock service also now removes its per-client error
+  listener on release (it previously leaked one listener per acquisition on each
+  reused pooled connection - an unbounded `MaxListenersExceeded` leak).
+
+  New env vars (all optional): `DATABASE_POOL_MAX` (default 20),
+  `DATABASE_LOCK_POOL_MAX` (default 10), `DATABASE_POOL_CONNECTION_TIMEOUT_MS`
+  (default 10000), `DATABASE_POOL_IDLE_TIMEOUT_MS` (default 30000),
+  `DATABASE_LOCK_IDLE_TX_TIMEOUT_MS` (default 30000), `DATABASE_LOCK_TIMEOUT_MS`
+  (default 30000). Size pools off
+  `N_pods * (DATABASE_POOL_MAX + DATABASE_LOCK_POOL_MAX) <= max_connections`.
+
+  BREAKING CHANGE: the standalone `withXactLock({ db, key, fn })` export is
+  removed - use `coreServices.advisoryLock.withXactLock({ key, fn })` instead.
+  `IncidentService`'s constructor now requires an `AdvisoryLockService` as its
+  second argument, and the healthcheck `createHealthEntitySerializer` /
+  `executeHealthCheckJob` / `setupHealthCheckWorker` helpers take `advisoryLock`
+  instead of `db` for the serializer.
+
+- 0d9e5d8: fix: stop a single transient health check failure from escalating to "unhealthy"
+
+  In consecutive threshold mode, when a run failed but the failure streak had
+  not yet reached the configured degraded threshold (and there were not yet
+  enough successes to confirm healthy), the evaluator fell back to the raw
+  status of the latest run. A single failing run (e.g. a check timeout) that
+  recovered on the next run therefore flipped the system to "unhealthy" and
+  fired a spurious "System health critical" notification before the configured
+  consecutive-failure count (default 2 for degraded, 5 for unhealthy) was
+  reached.
+
+  The evaluator now falls back to "healthy" in this case, matching window mode's
+  behaviour and the intent of the thresholds: a transient blip below the
+  degraded threshold no longer escalates the system status.
+
+### Patch Changes
+
+- Updated dependencies [a57f7db]
+  - @checkstack/backend-api@0.20.0
+  - @checkstack/incident-backend@1.5.0
+  - @checkstack/automation-backend@0.4.0
+  - @checkstack/secrets-backend@0.1.1
+  - @checkstack/cache-api@0.3.8
+  - @checkstack/catalog-backend@1.3.1
+  - @checkstack/command-backend@0.1.33
+  - @checkstack/gitops-backend@0.4.1
+  - @checkstack/queue-api@0.3.8
+  - @checkstack/satellite-backend@0.5.1
+  - @checkstack/script-packages-backend@0.2.1
+  - @checkstack/cache-utils@0.2.13
+
 ## 1.4.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-mysql-backend",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

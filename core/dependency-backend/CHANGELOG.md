@@ -1,5 +1,17 @@
 # @checkstack/dependency-backend
 
+## 1.3.1
+
+### Patch Changes
+
+- Updated dependencies [a57f7db]
+- Updated dependencies [0d9e5d8]
+  - @checkstack/backend-api@0.20.0
+  - @checkstack/healthcheck-backend@1.5.0
+  - @checkstack/automation-backend@0.4.0
+  - @checkstack/catalog-backend@1.3.1
+  - @checkstack/gitops-backend@0.4.1
+
 ## 1.3.0
 
 ### Minor Changes

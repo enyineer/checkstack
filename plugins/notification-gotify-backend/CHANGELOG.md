@@ -1,5 +1,13 @@
 # @checkstack/notification-gotify-backend
 
+## 0.1.34
+
+### Patch Changes
+
+- Updated dependencies [a57f7db]
+  - @checkstack/backend-api@0.20.0
+  - @checkstack/notification-backend@1.4.2
+
 ## 0.1.33
 
 ### Patch Changes
