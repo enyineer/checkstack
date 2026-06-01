@@ -663,36 +663,32 @@ describe("per-system serialization (Defect 2 regression)", () => {
     expect(emitted[0].next.status).toBe("unhealthy");
   });
 
-  it("createHealthEntitySerializer keys the advisory lock `health:<systemId>` and runs work in a transaction", async () => {
-    // Intercept `db.transaction` + the advisory-lock SQL the serializer's
-    // `withXactLock` issues. The fake runs `fn(tx)` inline (single connection),
-    // mirroring `withXactLock`'s single-session contract. We assert the
-    // namespaced key flows into `pg_advisory_xact_lock(...)`.
-    const executedKeys: string[] = [];
-    let transactionRan = false;
-    const fakeDb = {
-      transaction: async (
-        cb: (tx: { execute: (q: unknown) => Promise<void> }) => Promise<unknown>,
-      ) => {
-        transactionRan = true;
-        return cb({
-          execute: async (q) => {
-            // The bound key is a plain string chunk in the drizzle template.
-            const chunks = (q as { queryChunks?: unknown[] }).queryChunks ?? [];
-            for (const c of chunks) {
-              if (typeof c === "string") executedKeys.push(c);
-            }
-          },
-        });
+  it("createHealthEntitySerializer routes work through the advisory lock keyed `health:<systemId>`", async () => {
+    // The serializer now delegates to the shared AdvisoryLockService's
+    // `withXactLock` (lock held on the dedicated lock pool, work on the admin
+    // pool). Assert the per-system namespaced key flows through and `fn` runs.
+    const keys: string[] = [];
+    const advisoryLock = {
+      tryAcquire: async () => ({ release: async () => {} }),
+      withXactLock<T>({
+        key,
+        fn,
+      }: {
+        key: string;
+        fn: () => Promise<T>;
+      }): Promise<T> {
+        keys.push(key);
+        return fn();
       },
-    } as unknown as Parameters<typeof createHealthEntitySerializer>[0]["db"];
+    } satisfies Parameters<
+      typeof createHealthEntitySerializer
+    >[0]["advisoryLock"];
 
-    const serializer = createHealthEntitySerializer({ db: fakeDb });
+    const serializer = createHealthEntitySerializer({ advisoryLock });
     const result = await serializer("sys-42")(async () => "ok");
 
     expect(result).toBe("ok");
-    expect(transactionRan).toBe(true);
     // The advisory lock was acquired with the per-system namespaced key.
-    expect(executedKeys).toContain("health:sys-42");
+    expect(keys).toContain("health:sys-42");
   });
 });

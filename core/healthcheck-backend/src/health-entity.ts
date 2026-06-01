@@ -23,7 +23,7 @@
  */
 import { z } from "zod";
 import { HealthCheckStatusSchema } from "@checkstack/healthcheck-common";
-import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
+import type { AdvisoryLockService } from "@checkstack/backend-api";
 import type {
   EntityChangeDeriver,
   EntityChangePayloadMapper,
@@ -31,11 +31,6 @@ import type {
   EntityRead,
 } from "@checkstack/automation-backend";
 import type { HealthCheckService } from "./service";
-import * as schema from "./schema";
-// Re-export the change type through automation-backend's barrel (it
-// re-exports it from automation-common) so this domain needs no extra dep.
-
-type Db = SafeDatabase<typeof schema>;
 
 /** Entity kind id for the per-system aggregated health. */
 export const HEALTH_ENTITY_KIND = "health";
@@ -360,10 +355,13 @@ export function healthSystemLockKey(systemId: string): string {
  * commits.
  */
 export function createHealthEntitySerializer(deps: {
-  db: Db;
+  advisoryLock: AdvisoryLockService;
 }): (systemId: string) => <T>(fn: () => Promise<T>) => Promise<T> {
-  const { db } = deps;
+  const { advisoryLock } = deps;
   return (systemId) =>
     <T>(fn: () => Promise<T>) =>
-      withXactLock({ db, key: healthSystemLockKey(systemId), fn: () => fn() });
+      advisoryLock.withXactLock({
+        key: healthSystemLockKey(systemId),
+        fn: () => fn(),
+      });
 }

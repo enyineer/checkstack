@@ -178,11 +178,11 @@ the lock leaks. Do NOT call the session-lock functions through the scoped
 `db`.
 
 Use the `coreServices.advisoryLock` service instead. It checks out one
-dedicated client from the pool, acquires the session lock on it, and returns
-a handle whose `release()` runs the unlock on the SAME client before
-returning it to the pool. Use it for locks held for a long time (e.g. an
-election held across a slow background job), where a long-open transaction
-would be unacceptable:
+dedicated client from a **separate lock pool** (NOT the shared admin pool),
+acquires the session lock on it, and returns a handle whose `release()` runs
+the unlock on the SAME client before returning it to the pool. Use it for
+locks held for a long time (e.g. an election held across a slow background
+job), where a long-open transaction would be unacceptable:
 
 ```typescript
 import { coreServices } from "@checkstack/backend-api";
@@ -204,23 +204,68 @@ env.registerInit({
 Keys are arbitrary strings hashed into Postgres' global 64-bit lock space, so
 namespace them per plugin (e.g. `"my-plugin.<purpose>"`).
 
-For a SHORT critical section, prefer `withXactLock`, which wraps acquire +
-work + release in a single transaction using `pg_advisory_xact_lock` (it
-auto-releases at COMMIT, so a leak is impossible). Because the scoped DB runs
-a whole `transaction()` callback on one connection, the lock and the work
-share a session:
+For a SHORT critical section, prefer `advisoryLock.withXactLock`, which wraps
+acquire + work + release using `pg_advisory_xact_lock` (it auto-releases at
+COMMIT, so a leak is impossible). The lock transaction runs on the **dedicated
+lock pool**, while `fn` does its work on the admin pool as usual:
 
 ```typescript
-import { withXactLock } from "@checkstack/backend-api";
-
-await withXactLock({
-  db,
+await advisoryLock.withXactLock({
   key: `my-plugin.dedupe:${someId}`,
   fn: async () => {
-    // find-then-create, serialized per key
+    // find-then-create, serialized per key (runs on the admin-pool `db`)
   },
 });
 ```
+
+> [!CAUTION]
+> Why two pools? A held advisory lock keeps its connection checked out for the
+> lock's whole lifetime while the gated work runs on a *different* connection.
+> If both came from one pool, then at concurrency >= pool size every slot
+> becomes a lock-holder waiting for a work connection that can never free up -
+> a self-inflicted deadlock that surfaces as connections stuck `idle in
+> transaction` on `pg_advisory_xact_lock` and every request hanging into a 502.
+> Drawing lock connections from a separate pool makes the acquire graph acyclic
+> (`lockPool -> adminPool`, never back), so that class of deadlock is
+> impossible. Always go through `coreServices.advisoryLock`; never run an
+> advisory lock through a plugin's scoped `db`.
+
+### What if a critical section stalls?
+
+Advisory locks lock **no rows or tables** - other queries against the same
+tables run untouched. Only other callers of the **same key** block. But a
+critical section whose `fn` hangs (an unbounded await) would otherwise hold its
+key, and its lock-pool connection, open forever. Two server-enforced backstops
+on the lock pool bound that (they can't be skipped by a stuck process):
+
+- `idle_in_transaction_session_timeout` (`DATABASE_LOCK_IDLE_TX_TIMEOUT_MS`,
+  default 30s): the lock transaction sits idle-in-transaction for the whole
+  time `fn` runs, so a hang past this aborts the session - auto-releasing the
+  lock and freeing the connection. The stall self-heals.
+- `lock_timeout` (`DATABASE_LOCK_TIMEOUT_MS`, default 30s): a caller blocked
+  waiting on a contended or stalled key aborts with a retryable error instead
+  of blocking (and tying up a connection) indefinitely.
+
+A crash or pod restart also ends the holding transaction, which auto-releases
+the lock - so a stalled lock can never survive the process that held it. Keep
+critical sections SHORT (a read-then-write); never do unbounded external work
+(HTTP, etc.) inside one.
+
+### Connection budget
+
+The platform runs as N pods sharing one Postgres, so size both pools off
+`max_connections`, NOT the plugin count (connections are never pinned
+per-plugin - the scoped proxy borrows and returns one per transaction):
+
+```text
+N_pods * (DATABASE_POOL_MAX + DATABASE_LOCK_POOL_MAX) <= max_connections - headroom
+```
+
+Both pools also set `connectionTimeoutMillis` (`DATABASE_POOL_CONNECTION_TIMEOUT_MS`,
+default 10s) so an exhausted pool fails fast and self-heals instead of hanging
+forever. Tunable env vars: `DATABASE_POOL_MAX` (default 20),
+`DATABASE_LOCK_POOL_MAX` (default 10), `DATABASE_POOL_IDLE_TIMEOUT_MS`
+(default 30s).
 
 ## See Also
 

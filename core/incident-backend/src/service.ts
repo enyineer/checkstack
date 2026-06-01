@@ -1,5 +1,5 @@
 import { eq, and, inArray, ne } from "drizzle-orm";
-import { withXactLock, type SafeDatabase } from "@checkstack/backend-api";
+import type { AdvisoryLockService, SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   incidents,
@@ -27,7 +27,10 @@ function generateId(): string {
 }
 
 export class IncidentService {
-  constructor(private db: Db) {}
+  constructor(
+    private db: Db,
+    private advisoryLock: AdvisoryLockService,
+  ) {}
 
   /**
    * List incidents with optional filters
@@ -528,15 +531,16 @@ export class IncidentService {
       create: () => Promise<IncidentWithSystems>,
     ) => Promise<IncidentWithSystems> = (create) => create(),
   ): Promise<{ incident: IncidentWithSystems; reused: boolean }> {
-    return withXactLock({
-      db: this.db,
+    return this.advisoryLock.withXactLock({
       key: `incident.dedupe-open-for-system:${dedupeSystemId}`,
-      // The find + create run on `this.db` (the pool), NOT on `tx`. That is
-      // safe here because `pg_advisory_xact_lock` BLOCKS every other holder
-      // of this key until this transaction commits: a racing caller waits
-      // at lock-acquire, so its find can't observe "no open incident" until
-      // ours has already committed the insert. The critical section is thus
-      // serialized by the lock window even though it doesn't ride `tx`.
+      // The find + create deliberately run on `this.db` (the admin pool), NOT
+      // on the lock connection. That is safe because `pg_advisory_xact_lock`
+      // BLOCKS every other holder of this key until this lock transaction
+      // commits: a racing caller waits at lock-acquire, so its find can't
+      // observe "no open incident" until ours has already committed the
+      // insert. Crucially, the lock transaction lives on the DEDICATED lock
+      // pool (see `createAdvisoryLockService(lockPool)`), so holding it open
+      // while the work runs on the admin pool cannot starve the admin pool.
       fn: async () => {
         const existing = await this.findActiveIncidentForSystem(dedupeSystemId);
         if (existing) {

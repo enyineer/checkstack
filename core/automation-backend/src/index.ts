@@ -1,7 +1,6 @@
 import {
   createBackendPlugin,
   coreServices,
-  withXactLock,
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import {
@@ -431,9 +430,10 @@ export default createBackendPlugin({
           // Serialize the concurrency-mode check-then-create with a
           // transaction-scoped advisory lock (blocks until granted,
           // auto-releases at COMMIT) so racing fires can't double-run a
-          // single-mode automation.
+          // single-mode automation. Runs on the dedicated lock pool (lock held
+          // there, work on the admin pool) so it can't starve the admin pool.
           withConcurrencyLock: <T>(key: string, fn: () => Promise<T>) =>
-            withXactLock({ db: database, key, fn: () => fn() }),
+            advisoryLock.withXactLock({ key, fn }),
         };
 
         const stash = env as unknown as EnvStash;

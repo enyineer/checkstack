@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import type { AdvisoryLockService } from "@checkstack/backend-api";
 import { IncidentService } from "./service";
 import {
   incidents,
@@ -6,6 +7,40 @@ import {
   incidentUpdates,
   incidentLinks,
 } from "./schema";
+
+/**
+ * In-memory {@link AdvisoryLockService} that faithfully serializes
+ * `withXactLock` calls per key (a racing call on the same key cannot run its
+ * `fn` until the prior call's `fn` settles) — modelling `pg_advisory_xact_lock`
+ * without a real connection. Different keys are independent.
+ */
+function makeFakeAdvisoryLock(): AdvisoryLockService {
+  const tails = new Map<string, Promise<unknown>>();
+  return {
+    tryAcquire: async () => ({ release: async () => {} }),
+    withXactLock<T>({
+      key,
+      fn,
+    }: {
+      key: string;
+      fn: () => Promise<T>;
+    }): Promise<T> {
+      const prior = tails.get(key) ?? Promise.resolve();
+      const result = prior.then(
+        () => fn(),
+        () => fn(),
+      );
+      tails.set(
+        key,
+        result.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
+      return result;
+    },
+  };
+}
 
 /**
  * Programmable mock DB that records each `select(...).from(...).where(...)`
@@ -48,7 +83,7 @@ describe("IncidentService.hasActiveIncidentWithSuppression", () => {
 
   const setup = (resultsByCall: unknown[][]) => {
     dbHelper = createProgrammableSelectDb(resultsByCall);
-    service = new IncidentService(dbHelper.db as never);
+    service = new IncidentService(dbHelper.db as never, makeFakeAdvisoryLock());
   };
 
   beforeEach(() => {
@@ -134,7 +169,7 @@ describe("IncidentService.hasActiveIncidentWithSuppression", () => {
 describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () => {
   it("returns {} for an empty id set without querying", async () => {
     const dbHelper = createProgrammableSelectDb([]);
-    const service = new IncidentService(dbHelper.db as never);
+    const service = new IncidentService(dbHelper.db as never, makeFakeAdvisoryLock());
     expect(await service.getManyEntityStates([])).toEqual({});
     expect(dbHelper.getCallCount()).toBe(0);
   });
@@ -153,7 +188,7 @@ describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () =
         { incidentId: "inc-2", systemId: "sys-c" },
       ],
     ]);
-    const service = new IncidentService(dbHelper.db as never);
+    const service = new IncidentService(dbHelper.db as never, makeFakeAdvisoryLock());
     const out = await service.getManyEntityStates(["inc-1", "inc-2", "inc-x"]);
     expect(out).toEqual({
       "inc-1": {
@@ -172,7 +207,7 @@ describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () =
       // incidents query returns nothing → no second query.
       [],
     ]);
-    const service = new IncidentService(dbHelper.db as never);
+    const service = new IncidentService(dbHelper.db as never, makeFakeAdvisoryLock());
     expect(await service.getManyEntityStates(["ghost"])).toEqual({});
     expect(dbHelper.getCallCount()).toBe(1);
   });
@@ -182,7 +217,7 @@ describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () =
       [{ id: "inc-1", status: "monitoring", severity: "critical" }],
       [], // no junction rows
     ]);
-    const service = new IncidentService(dbHelper.db as never);
+    const service = new IncidentService(dbHelper.db as never, makeFakeAdvisoryLock());
     const out = await service.getManyEntityStates(["inc-1"]);
     expect(out["inc-1"]).toEqual({
       status: "monitoring",
@@ -300,7 +335,7 @@ function createDedupFakeDb() {
 describe("IncidentService.createIncidentDedupedForSystem (M3)", () => {
   it("two concurrent dedupe creates for one system open exactly ONE incident", async () => {
     const { db, store } = createDedupFakeDb();
-    const service = new IncidentService(db as never);
+    const service = new IncidentService(db as never, makeFakeAdvisoryLock());
 
     const input = {
       title: "Down",
