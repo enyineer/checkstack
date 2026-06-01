@@ -75,8 +75,15 @@ function evaluateConsecutive(props: {
     return "healthy";
   }
 
-  // Edge case: not enough history to determine - use latest individual status
-  return runs[0].status;
+  // Not enough consecutive failures to reach the degraded threshold (and not
+  // enough successes to confirm healthy). The thresholds exist precisely so a
+  // transient blip (e.g. a single failing run that recovers on the next run)
+  // does NOT escalate the system status. Returning the raw latest run status
+  // here would let one failure flip the system to "degraded"/"unhealthy" and
+  // fire a spurious "System health critical" notification before the
+  // configured failure count is reached. Fall back to "healthy" — the same
+  // baseline window mode uses when no threshold is met.
+  return "healthy";
 }
 
 /**
