@@ -122,6 +122,35 @@ export default tseslint.config(
       ],
     },
   },
+  // Performance degradation tripwire (.agent/rules/performance.md): animation /
+  // backdrop-blur classes must be gated behind usePerformance().isLowPower.
+  // Scoped to frontend source ONLY (the rule is a no-op elsewhere anyway, but
+  // scoping keeps the intent explicit). Storybook stories and test files are
+  // excluded — stories intentionally showcase effects unguarded, and *.test.ts*
+  // is already in the top-level `ignores`. Severity is intentionally `warn` and
+  // MUST NOT be escalated to `error` (nor forced green via --max-warnings 0):
+  // a sound static proof of a runtime guard is impossible, so this informs
+  // authors rather than blocking CI (see .agent/rules/code-style-guide.md).
+  {
+    files: [
+      "core/*-frontend/src/**/*.{ts,tsx}",
+      "plugins/*-frontend/src/**/*.{ts,tsx}",
+      "core/ui/src/**/*.{ts,tsx}",
+    ],
+    ignores: ["core/ui/stories/**"],
+    rules: {
+      "checkstack/no-unguarded-animation": [
+        "warn",
+        {
+          // Cheap/always-on tokens that never need a guard. Empty by default;
+          // add single-frame entry tokens here only with a measured reason.
+          allowedClasses: [],
+          // Extra guard identifier names beyond the built-in `isLowPower`.
+          additionalGuardIdentifiers: [],
+        },
+      ],
+    },
+  },
   // Frontend packages: ban console.* to enforce proper error handling
   {
     files: [

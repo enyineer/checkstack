@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "../Dialog";
 import { Skeleton } from "../Skeleton";
+import { usePerformance } from "../PerformanceProvider";
 import { cn } from "../../utils";
 
 // Lazy-load the Monaco-backed editor so the entire `@codingame/*` / Monaco
@@ -70,6 +71,7 @@ export const CodeEditor = ({
   title,
 }: CodeEditorProps) => {
   const [popoutOpen, setPopoutOpen] = useState(false);
+  const { isLowPower } = usePerformance();
 
   // CodeEditorProps.minHeight is a CSS length string ("240px"); TypefoxEditor
   // takes a pixel number.
@@ -113,7 +115,8 @@ export const CodeEditor = ({
             // Sits above the editor in the top-right corner. A faint background
             // keeps the muted icon legible over code; hover emphasises it.
             "absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center",
-            "rounded-md bg-background/70 text-muted-foreground backdrop-blur-sm",
+            "rounded-md bg-background/70 text-muted-foreground",
+            !isLowPower && "backdrop-blur-sm",
             "transition-colors hover:bg-accent hover:text-accent-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           )}
