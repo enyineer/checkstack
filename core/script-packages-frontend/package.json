@@ -26,7 +26,7 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/script-packages-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "lucide-react": "0.562.0",
+    "lucide-react": "^1.17.0",
     "react": "^18.3.1",
     "react-router-dom": "^6.20.0"
   },

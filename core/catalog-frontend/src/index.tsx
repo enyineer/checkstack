@@ -12,10 +12,23 @@ import {
 import { Server, FolderTree } from "lucide-react";
 import { registerSubjectKind } from "@checkstack/notification-frontend";
 
-import { CatalogPage } from "./components/CatalogPage";
-import { CatalogConfigPage } from "./components/CatalogConfigPage";
+import { lazy } from "react";
 import { CatalogUserMenuItems } from "./components/UserMenuItems";
-import { SystemDetailPage } from "./components/SystemDetailPage";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const CatalogPage = lazy(() =>
+  import("./components/CatalogPage").then((m) => ({ default: m.CatalogPage })),
+);
+const CatalogConfigPage = lazy(() =>
+  import("./components/CatalogConfigPage").then((m) => ({
+    default: m.CatalogConfigPage,
+  })),
+);
+const SystemDetailPage = lazy(() =>
+  import("./components/SystemDetailPage").then((m) => ({
+    default: m.SystemDetailPage,
+  })),
+);
 
 // Notification subject kinds emitted by catalog (see catalog-common's
 // `createSystemSubject` / `createGroupSubject`). Registered at module load

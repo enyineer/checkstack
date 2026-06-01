@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   usePluginClient,
@@ -17,7 +17,13 @@ import {
 } from "@checkstack/ui";
 import { Heart } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
-import { HealthCheckDrawer } from "./HealthCheckDrawer";
+// Lazy-loaded: the drawer pulls in the recharts-based latency/timeline charts
+// (~300 KB). This component is an eagerly-registered slot extension, so a static
+// import would ship recharts in the initial bundle. The drawer only renders when
+// a check is selected, so deferring it keeps charts out of the initial load.
+const HealthCheckDrawer = lazy(() =>
+  import("./HealthCheckDrawer").then((m) => ({ default: m.HealthCheckDrawer })),
+);
 
 import type {
   StateThresholds,
@@ -206,16 +212,18 @@ export function HealthCheckSystemOverview(props: SlotProps) {
         </CardContent>
       </Card>
 
-      {/* Slide-over Drawer */}
+      {/* Slide-over Drawer (lazy: loads the chart bundle on first open) */}
       {selectedCheck && (
-        <HealthCheckDrawer
-          item={selectedCheck}
-          systemId={systemId}
-          open={!!selectedCheck}
-          onOpenChange={(open) => {
-            if (!open) setSelectedCheck(undefined);
-          }}
-        />
+        <Suspense fallback={null}>
+          <HealthCheckDrawer
+            item={selectedCheck}
+            systemId={systemId}
+            open={!!selectedCheck}
+            onOpenChange={(open) => {
+              if (!open) setSelectedCheck(undefined);
+            }}
+          />
+        </Suspense>
       )}
     </>
   );

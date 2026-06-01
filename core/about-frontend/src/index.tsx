@@ -4,8 +4,13 @@ import {
 } from "@checkstack/frontend-api";
 import { createRoutes } from "@checkstack/common";
 import { pluginMetadata } from "@checkstack/about-common";
-import { AboutPage } from "./AboutPage";
+import { lazy } from "react";
 import { AboutMenuItem } from "./AboutMenuItem";
+
+// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
+const AboutPage = lazy(() =>
+  import("./AboutPage").then((m) => ({ default: m.AboutPage })),
+);
 
 export const aboutRoutes = createRoutes(pluginMetadata.pluginId, {
   page: "/",

@@ -30,7 +30,7 @@
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "^1.17.0",
     "react": "^18.2.0",
     "react-router-dom": "^6.20.0",
     "recharts": "^3.6.0",

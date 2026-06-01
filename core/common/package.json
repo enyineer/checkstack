@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@orpc/contract": "^1.13.14",
-    "lucide-react": "0.562.0",
+    "lucide-react": "^1.17.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {

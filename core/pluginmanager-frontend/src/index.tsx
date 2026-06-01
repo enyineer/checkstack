@@ -7,10 +7,25 @@ import {
   pluginManagerRoutes,
   pluginManagerAccess,
 } from "@checkstack/pluginmanager-common";
-import { InstalledPluginsPage } from "./pages/InstalledPluginsPage";
-import { InstallPluginPage } from "./pages/InstallPluginPage";
-import { PluginEventsPage } from "./pages/PluginEventsPage";
+import { lazy } from "react";
 import { PluginManagerMenuItem } from "./PluginManagerMenuItem";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const InstalledPluginsPage = lazy(() =>
+  import("./pages/InstalledPluginsPage").then((m) => ({
+    default: m.InstalledPluginsPage,
+  })),
+);
+const InstallPluginPage = lazy(() =>
+  import("./pages/InstallPluginPage").then((m) => ({
+    default: m.InstallPluginPage,
+  })),
+);
+const PluginEventsPage = lazy(() =>
+  import("./pages/PluginEventsPage").then((m) => ({
+    default: m.PluginEventsPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

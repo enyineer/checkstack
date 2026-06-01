@@ -103,6 +103,56 @@ export default defineConfig(() => {
       // Don't wipe dist/ — the vendor build (build:vendor) writes to dist/vendor/
       // before this build runs, and we need to preserve those files
       emptyOutDir: false,
+      rollupOptions: {
+        output: {
+          // Split heavy / stable vendor code into dedicated chunks so the
+          // initial (login) load stays small and chunks cache independently.
+          // This complements the `React.lazy(CodeEditor)` split: it does not by
+          // itself keep Monaco off the login page (that's the lazy boundary in
+          // CodeEditor.tsx), but it guarantees the whole `@codingame/*` /
+          // monaco stack lands in ONE chunk that is only fetched when an editor
+          // mounts, rather than smeared across many shared chunks.
+          manualChunks(id) {
+            if (!id.includes("node_modules")) {
+              return;
+            }
+            // NB: do NOT try to hand-group lucide icon modules here. The same
+            // per-icon modules are reached BOTH statically (`import { Plus }
+            // from "lucide-react"` across the app, which must stay eager) and
+            // dynamically (DynamicIcon's lazy icon registry). A manualChunk
+            // keys off module id only, so it can't tell the two apart and ends
+            // up pulling the whole icon set into the eager graph. The lazy
+            // boundary for the data-driven icon set lives in DynamicIcon /
+            // iconRegistry instead (see core/ui).
+            // NOTE: we deliberately do NOT hand-group the Monaco / VS Code
+            // editor stack here. Rollup's natural code-splitting already
+            // isolates it: every `@codingame/*` / `@typefox/*` /
+            // monaco-languageclient module is reachable only through the lazy
+            // `CodeEditor` / `validateScripts` boundaries (see CodeEditor.tsx),
+            // so it lands in dynamically-imported chunks that the initial
+            // (login) load never fetches. A manual `monaco` chunk is actively
+            // harmful: a tiny `@codingame/*` module is pulled in EAGERLY as a
+            // transitive dep of non-editor code, and folding it into one big
+            // chunk with the lazy editor body makes the entire ~10 MB chunk a
+            // static dependency of the entry, re-shipping Monaco to the login
+            // page. Leaving it to natural splitting keeps the heavy editor body
+            // lazy while that tiny eager stub stays inlined where it belongs.
+
+            // The React runtime: one stable chunk shared across the whole app.
+            // `dedupe` above already guarantees a single copy; this only
+            // controls which output file it lands in.
+            if (
+              id.includes("/react/") ||
+              id.includes("/react-dom/") ||
+              id.includes("/react-router") ||
+              id.includes("/scheduler/")
+            ) {
+              return "react-vendor";
+            }
+            return;
+          },
+        },
+      },
     },
     resolve: {
       // Force all monorepo packages to use the same React copy at build time.

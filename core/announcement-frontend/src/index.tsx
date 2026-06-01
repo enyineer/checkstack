@@ -9,9 +9,16 @@ import {
   pluginMetadata,
   announcementAccess,
 } from "@checkstack/announcement-common";
-import { AnnouncementManagePage } from "./pages/AnnouncementManagePage";
+import { lazy } from "react";
 import { AnnouncementMenuItems } from "./components/AnnouncementMenuItems";
 import { DashboardAnnouncements } from "./components/DashboardAnnouncements";
+
+// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
+const AnnouncementManagePage = lazy(() =>
+  import("./pages/AnnouncementManagePage").then((m) => ({
+    default: m.AnnouncementManagePage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

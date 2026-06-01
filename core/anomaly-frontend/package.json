@@ -24,7 +24,7 @@
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "^1.17.0",
     "react": "^18.2.0",
     "react-router-dom": "^7.14.2",
     "zod": "^4.2.1"

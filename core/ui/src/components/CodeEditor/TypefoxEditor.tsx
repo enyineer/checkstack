@@ -26,8 +26,8 @@ import {
   typescriptDefaults,
   javascriptDefaults,
   ensureStandaloneWorkerFactory,
-  markVscodeServicesReady,
 } from "./monacoTsService";
+import { markVscodeServicesReady } from "./vscodeServicesSignal";
 // Named import also triggers the side-effect registration of the REAL VS Code
 // JSON language service (proper highlighting + completion + folding), replacing
 // the hand-rolled `json-template` Monarch grammar. We turn its built-in

@@ -12,12 +12,27 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
-import { MaintenanceConfigPage } from "./pages/MaintenanceConfigPage";
-import { SystemMaintenanceHistoryPage } from "./pages/SystemMaintenanceHistoryPage";
-import { MaintenanceDetailPage } from "./pages/MaintenanceDetailPage";
+import { lazy } from "react";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
 import { MaintenanceMenuItems } from "./components/MaintenanceMenuItems";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const MaintenanceConfigPage = lazy(() =>
+  import("./pages/MaintenanceConfigPage").then((m) => ({
+    default: m.MaintenanceConfigPage,
+  })),
+);
+const SystemMaintenanceHistoryPage = lazy(() =>
+  import("./pages/SystemMaintenanceHistoryPage").then((m) => ({
+    default: m.SystemMaintenanceHistoryPage,
+  })),
+);
+const MaintenanceDetailPage = lazy(() =>
+  import("./pages/MaintenanceDetailPage").then((m) => ({
+    default: m.MaintenanceDetailPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

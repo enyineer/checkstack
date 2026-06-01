@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Info, Github, Mail, Scale, ExternalLink, Package } from "lucide-react";
+import { Info, Mail, Scale, ExternalLink, Package } from "lucide-react";
 import {
   PageLayout,
   Card,
@@ -9,6 +9,8 @@ import {
   CardContent,
   Badge,
   LoadingSpinner,
+  // Brand marks were removed from lucide v1; use the vendored one.
+  GithubIcon as Github,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 

@@ -12,12 +12,27 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
-import { IncidentConfigPage } from "./pages/IncidentConfigPage";
-import { IncidentDetailPage } from "./pages/IncidentDetailPage";
-import { SystemIncidentHistoryPage } from "./pages/SystemIncidentHistoryPage";
+import { lazy } from "react";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
 import { SystemIncidentBadge } from "./components/SystemIncidentBadge";
 import { IncidentMenuItems } from "./components/IncidentMenuItems";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const IncidentConfigPage = lazy(() =>
+  import("./pages/IncidentConfigPage").then((m) => ({
+    default: m.IncidentConfigPage,
+  })),
+);
+const IncidentDetailPage = lazy(() =>
+  import("./pages/IncidentDetailPage").then((m) => ({
+    default: m.IncidentDetailPage,
+  })),
+);
+const SystemIncidentHistoryPage = lazy(() =>
+  import("./pages/SystemIncidentHistoryPage").then((m) => ({
+    default: m.SystemIncidentHistoryPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

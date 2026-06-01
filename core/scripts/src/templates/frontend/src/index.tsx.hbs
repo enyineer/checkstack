@@ -1,6 +1,17 @@
+import { lazy } from "react";
 import { createFrontendPlugin } from "@checkstack/frontend-api";
-import { {{pluginNamePascal}}ListPage } from "./components/{{pluginNamePascal}}ListPage";
 import { {{pluginNameCamel}}Routes, pluginMetadata, {{pluginNameCamel}}Access } from "@checkstack/{{pluginBaseName}}-common";
+
+// Route pages are lazy-loaded so each page's component body is split into a
+// per-route chunk fetched on navigation, not bundled into the initial app
+// load. The app shell renders every route element inside a Suspense boundary,
+// so the plugin only needs to hand it a lazy component. Keep this pattern for
+// new pages; nav/slot extension components stay statically imported.
+const {{pluginNamePascal}}ListPage = lazy(() =>
+  import("./components/{{pluginNamePascal}}ListPage").then((m) => ({
+    default: m.{{pluginNamePascal}}ListPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
