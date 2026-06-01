@@ -38,7 +38,9 @@ export {
 // Subscribe to / query the monaco-vscode "services ready" transition so a
 // consumer (the automation editor's script validator + its hidden services
 // booter) can react the moment the first editor initializes the services.
+// Sourced from the Monaco-free signal module so this barrel re-export does NOT
+// drag the `@codingame/*` stack onto pages that never mount an editor.
 export {
   onVscodeServicesReady,
   areVscodeServicesReady,
-} from "./monacoTsService";
+} from "./vscodeServicesSignal";

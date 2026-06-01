@@ -49,6 +49,7 @@ export * from "./components/StatusUpdateTimeline";
 export * from "./components/LinksEditor";
 export * from "./components/Slider";
 export * from "./components/DynamicIcon";
+export * from "./components/BrandIcon";
 export * from "./components/StrategyConfigCard";
 export * from "./components/Markdown";
 export * from "./components/ColorPicker";

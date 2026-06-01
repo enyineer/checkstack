@@ -4,9 +4,7 @@ import {
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { sloRoutes, pluginMetadata, sloAccess } from "@checkstack/slo-common";
-import { SloOverviewPage } from "./pages/SloOverviewPage";
-import { SloConfigPage } from "./pages/SloConfigPage";
-import { SloDetailPage } from "./pages/SloDetailPage";
+import { lazy } from "react";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
 import { SloMenuItems } from "./components/SloMenuItems";
@@ -14,6 +12,19 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const SloOverviewPage = lazy(() =>
+  import("./pages/SloOverviewPage").then((m) => ({
+    default: m.SloOverviewPage,
+  })),
+);
+const SloConfigPage = lazy(() =>
+  import("./pages/SloConfigPage").then((m) => ({ default: m.SloConfigPage })),
+);
+const SloDetailPage = lazy(() =>
+  import("./pages/SloDetailPage").then((m) => ({ default: m.SloDetailPage })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

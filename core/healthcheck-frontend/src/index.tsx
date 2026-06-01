@@ -3,18 +3,18 @@ import {
   createSlotExtension,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
-import { StrategyPickerPage } from "./pages/StrategyPickerPage";
-import { HealthCheckIDEPage } from "./pages/HealthCheckIDEPage";
-import { AssignmentIDEPage } from "./pages/AssignmentIDEPage";
-import { HealthCheckHistoryPage } from "./pages/HealthCheckHistoryPage";
-import { HealthCheckHistoryDetailPage } from "./pages/HealthCheckHistoryDetailPage";
+import { lazy } from "react";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
 import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOverview";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
-import { autoChartExtension } from "./auto-charts";
+// Import directly from the extension module, NOT the `./auto-charts` barrel:
+// the barrel statically re-exports AutoChartGrid + SingleRunChartGrid (both
+// pull in recharts), so importing the extension through it would drag recharts
+// into this eagerly-loaded plugin entry. The extension itself lazy-loads the
+// chart grid.
+import { autoChartExtension } from "./auto-charts/extension";
 
 import {
   SystemDetailsSlot,
@@ -43,6 +43,38 @@ export {
 // Export hooks for reusable data fetching
 export { useHealthCheckData } from "./hooks";
 export { useStrategySchemas } from "./auto-charts/useStrategySchemas";
+
+// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
+const HealthCheckConfigPage = lazy(() =>
+  import("./pages/HealthCheckConfigPage").then((m) => ({
+    default: m.HealthCheckConfigPage,
+  })),
+);
+const StrategyPickerPage = lazy(() =>
+  import("./pages/StrategyPickerPage").then((m) => ({
+    default: m.StrategyPickerPage,
+  })),
+);
+const HealthCheckIDEPage = lazy(() =>
+  import("./pages/HealthCheckIDEPage").then((m) => ({
+    default: m.HealthCheckIDEPage,
+  })),
+);
+const AssignmentIDEPage = lazy(() =>
+  import("./pages/AssignmentIDEPage").then((m) => ({
+    default: m.AssignmentIDEPage,
+  })),
+);
+const HealthCheckHistoryPage = lazy(() =>
+  import("./pages/HealthCheckHistoryPage").then((m) => ({
+    default: m.HealthCheckHistoryPage,
+  })),
+);
+const HealthCheckHistoryDetailPage = lazy(() =>
+  import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
+    default: m.HealthCheckHistoryDetailPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

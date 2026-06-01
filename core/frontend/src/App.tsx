@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -174,14 +174,27 @@ function AppContent() {
                 </div>
               }
             />
-            {/* Plugin Routes */}
+            {/* Plugin Routes. Most plugins lazy-load their page bodies via
+                `React.lazy` (so the route's component chunk is fetched on
+                navigation, not in the initial load), so each element is wrapped
+                in a Suspense boundary. The fallback mirrors RouteGuard's
+                access-loading state and uses the `usePerformance`-aware
+                LoadingSpinner. */}
             {pluginRegistry.getAllRoutes().map((route) => (
               <Route
                 key={route.path}
                 path={route.path}
                 element={
                   <RouteGuard accessRule={route.accessRule}>
-                    {route.element}
+                    <Suspense
+                      fallback={
+                        <div className="h-full flex items-center justify-center p-8">
+                          <LoadingSpinner />
+                        </div>
+                      }
+                    >
+                      {route.element}
+                    </Suspense>
                   </RouteGuard>
                 }
               />

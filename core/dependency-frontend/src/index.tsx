@@ -14,11 +14,18 @@ import {
   SystemStateBadgesSlot,
   SystemEditorSlot,
 } from "@checkstack/catalog-common";
+import { lazy } from "react";
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
 import { DependencyEditor } from "./components/DependencyEditor";
-import { DependencyMapPage } from "./components/DependencyMapPage";
 import { DependencyMenuItems } from "./components/DependencyMenuItems";
+
+// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
+const DependencyMapPage = lazy(() =>
+  import("./components/DependencyMapPage").then((m) => ({
+    default: m.DependencyMapPage,
+  })),
+);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,

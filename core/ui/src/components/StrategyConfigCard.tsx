@@ -6,7 +6,7 @@ import { Badge, type BadgeProps } from "./Badge";
 import { Toggle } from "./Toggle";
 import { DynamicForm } from "./DynamicForm";
 import type { OptionsResolver } from "./DynamicForm/types";
-import { DynamicIcon, type LucideIconName } from "./DynamicIcon";
+import { DynamicIcon, type IconName } from "./DynamicIcon";
 import { MarkdownBlock } from "./Markdown";
 import { cn } from "../utils";
 
@@ -38,8 +38,8 @@ export interface StrategyConfigCardData {
   displayName: string;
   /** Optional description shown below the title */
   description?: string;
-  /** Lucide icon name in PascalCase (e.g., 'AlertCircle', 'HeartPulse') */
-  icon?: LucideIconName;
+  /** Icon name in PascalCase - a lucide icon or a vendored brand icon. */
+  icon?: IconName;
   /** Whether the strategy is currently enabled */
   enabled: boolean;
 }

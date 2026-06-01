@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Migration } from "./config-versioning";
-import type { LucideIconName } from "@checkstack/common";
+import type { IconName } from "@checkstack/common";
 
 /**
  * Migration chain for auth strategy configurations.
@@ -21,8 +21,11 @@ export interface AuthStrategy<Config = unknown> {
   /** Optional description of the strategy */
   description?: string;
 
-  /** Lucide icon name in PascalCase (e.g., 'Github', 'Chrome', 'Mail') */
-  icon?: LucideIconName;
+  /**
+   * Icon name in PascalCase. A lucide icon (e.g. 'Mail') or a vendored brand
+   * icon (e.g. 'Github') - see `IconName` / `DynamicIcon`.
+   */
+  icon?: IconName;
 
   /** Current version of the configuration schema */
   configVersion: number;

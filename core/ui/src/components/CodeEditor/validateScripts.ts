@@ -15,21 +15,26 @@
 // global to the shared service). Prepending the type defs onto each validated
 // source keeps `context` scoped to that one off-screen file. See
 // `buildValidationSource`.
-import * as monaco from "@codingame/monaco-vscode-editor-api";
-import {
-  getJavaScriptWorker,
-  getTypeScriptWorker,
-} from "@codingame/monaco-vscode-standalone-typescript-language-features";
-import {
-  areVscodeServicesReady,
-  ensureStandaloneStdlib,
-} from "./monacoTsService";
+//
+// The Monaco editor API, the standalone TS worker accessors, and the shared
+// `monacoTsService` setup are imported LAZILY (in-body `await import(...)`)
+// rather than at module scope. This keeps the entire `@codingame/*` stack off
+// the `@checkstack/ui` barrel: `validateTypeScriptSources` is re-exported from
+// the barrel, so a static Monaco import here would ship Monaco to every page
+// that touches the barrel (e.g. the login page). The lazy imports only resolve
+// once an editor has already brought the services up, so they hit an
+// already-loaded chunk and add no extra cost.
+import { areVscodeServicesReady } from "./vscodeServicesSignal";
 import {
   buildValidationSource,
   mapWorkerDiagnostics,
   type RawTsDiagnostic,
   type ScriptDiagnostic,
 } from "./scriptDiagnostics";
+
+type MonacoEditorApi = typeof import("@codingame/monaco-vscode-editor-api");
+type TsLanguageFeatures =
+  typeof import("@codingame/monaco-vscode-standalone-typescript-language-features");
 
 export type { ScriptDiagnostic } from "./scriptDiagnostics";
 
@@ -72,7 +77,26 @@ export async function validateTypeScriptSources({
   if (!areVscodeServicesReady()) {
     return results;
   }
+
+  // Lazy-load the Monaco stack only now that an editor has brought the services
+  // up (keeps these heavy `@codingame/*` modules off the barrel - see the
+  // module header). Because services are ready, these chunks are already
+  // resolved, so the imports are effectively free here.
+  let monaco: MonacoEditorApi;
+  let getJavaScriptWorker: TsLanguageFeatures["getJavaScriptWorker"];
+  let getTypeScriptWorker: TsLanguageFeatures["getTypeScriptWorker"];
   try {
+    const [editorApi, tsLanguageFeatures, { ensureStandaloneStdlib }] =
+      await Promise.all([
+        import("@codingame/monaco-vscode-editor-api"),
+        import(
+          "@codingame/monaco-vscode-standalone-typescript-language-features"
+        ),
+        import("./monacoTsService"),
+      ]);
+    monaco = editorApi;
+    getJavaScriptWorker = tsLanguageFeatures.getJavaScriptWorker;
+    getTypeScriptWorker = tsLanguageFeatures.getTypeScriptWorker;
     await ensureStandaloneStdlib();
   } catch {
     return results;
@@ -80,7 +104,15 @@ export async function validateTypeScriptSources({
 
   for (const input of sources) {
     try {
-      results.set(input.id, await validateOne(input));
+      results.set(
+        input.id,
+        await validateOne({
+          input,
+          monaco,
+          getJavaScriptWorker,
+          getTypeScriptWorker,
+        }),
+      );
     } catch {
       results.set(input.id, []);
     }
@@ -88,9 +120,17 @@ export async function validateTypeScriptSources({
   return results;
 }
 
-async function validateOne(
-  input: ScriptValidationInput,
-): Promise<ScriptDiagnostic[]> {
+async function validateOne({
+  input,
+  monaco,
+  getJavaScriptWorker,
+  getTypeScriptWorker,
+}: {
+  input: ScriptValidationInput;
+  monaco: MonacoEditorApi;
+  getJavaScriptWorker: TsLanguageFeatures["getJavaScriptWorker"];
+  getTypeScriptWorker: TsLanguageFeatures["getTypeScriptWorker"];
+}): Promise<ScriptDiagnostic[]> {
   const { text, prependedLineCount } = buildValidationSource({
     typeDefinitions: input.typeDefinitions,
     source: input.source,
