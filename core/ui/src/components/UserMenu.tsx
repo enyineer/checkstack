@@ -11,6 +11,10 @@ import {
 import { MenuCloseContext, DropdownMenuLabel, DropdownMenuSeparator } from "./Menu";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { cn } from "../utils";
+import {
+  DESKTOP_POPOVER_CONTENT_CLASS,
+  shouldRenderProfileHeaderLink,
+} from "./UserMenu.logic";
 
 interface UserMenuProps {
   user: {
@@ -88,7 +92,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     </div>
   );
 
-  const userInfo = profileHref ? (
+  const userInfo = shouldRenderProfileHeaderLink(profileHref) ? (
     <a
       href={profileHref}
       onClick={() => setIsOpen(false)}
@@ -135,7 +139,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         <PopoverContent
           align="end"
-          className="w-[400px] md:w-[460px] p-2 grid grid-cols-1 sm:grid-cols-2 gap-1 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
+          className={DESKTOP_POPOVER_CONTENT_CLASS}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {userInfo}
