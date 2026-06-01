@@ -3,13 +3,16 @@
 > **Status:** planned (design 2026-06-01, not started)
 > **Branch:** off `main` (suggest `feat/script-process-hardening`)
 > **Issue:** #247
-> **Goal:** put a layered, opt-in OS-level sandbox around the two shared
-> user-script executors (`shell-script-runner.ts`, `esm-script-runner.ts`) so
-> that less-trusted authors can be contained: resource caps, filesystem
-> confinement, network egress control, and privilege dropping — each layer
-> independently toggleable, with capability detection and explicit graceful
-> degradation, enforced uniformly on whichever core pod or remote satellite
-> claims the job.
+> **Goal:** put a layered, **on-by-default (opt-out)** OS-level sandbox around
+> the two shared user-script executors (`shell-script-runner.ts`,
+> `esm-script-runner.ts`) so that less-trusted authors are contained out of the
+> box: resource caps, filesystem confinement, network egress control, and
+> privilege dropping — each layer independently toggleable, with capability
+> detection and explicit graceful degradation, enforced uniformly on whichever
+> core pod or remote satellite claims the job. A permissive **default profile**
+> (§6.1) keeps common existing scripts working on upgrade; hosts lacking the
+> strong primitives degrade-and-surface to the portable subset (never
+> hard-break).
 
 Self-contained handoff. Pick this up from this document alone. Every
 current-state claim carries a verified `file:line` anchor. No feature code is
@@ -34,16 +37,21 @@ written here — this is the spec.
 3. Thread a single optional `sandbox?: SandboxPolicyInput` field through
    `ShellScriptRunOptions` and `EsmScriptRunOptions`, derived by the call sites
    from per-check / per-action config merged over a global default policy.
-4. **Recommended defaults (justify in §6):** off-by-default opt-in for BETA;
-   external-wrapper-first mechanism (`bwrap`/`nsjail` when present, native
-   `setrlimit`+`uid/gid` always, namespaces only via the wrapper); IP/CIDR
-   allowlist for v1 with link-local/metadata denied by default; per-layer
-   `onUnavailable: "degrade" | "fail"` with `degrade` as the default and a
-   surfaced downgrade signal.
-5. Phases are independently shippable: §7. Each phase has its own test matrix.
+4. **Locked decisions (justify in §6):** **on-by-default with opt-out** (D1,
+   LOCKED by the maintainer) shipping the permissive **default profile** in
+   §6.1 so common existing scripts keep working on upgrade; external-wrapper-first
+   mechanism (`bwrap`/`nsjail` when present, native `setrlimit`+`uid/gid`
+   always, namespaces only via the wrapper); IP/CIDR allowlist for v1 with
+   link-local/metadata denied by default; per-layer
+   `onUnavailable: "degrade" | "fail"` with `degrade` as the global default and
+   a surfaced downgrade signal — so on-by-default cannot hard-break hosts
+   lacking the strong primitives.
+5. Phases are independently shippable: §7. Each phase has its own test matrix
+   (incl. an upgrade-compat / default-profile row and a degraded-host row).
 6. Docs: rewrite the `script-health-checks.md` "Security model" section + add a
-   new `developer-guide/security/script-sandbox.md`. Changeset = minor (beta),
-   with a `### BREAKING` note only if a layer ever defaults to on.
+   new `developer-guide/security/script-sandbox.md`. Changeset = **minor (beta)
+   with a `### BREAKING` note** — hardening is now enforced by default; document
+   what the default profile allows/blocks and the per-check + global opt-out.
 
 ---
 
@@ -297,8 +305,16 @@ export const privilegePolicySchema = z.object({
 }).strict();
 
 export const sandboxPolicySchema = z.object({
-  /** Master switch. When false the runner behaves exactly as today. */
-  enabled: z.boolean().default(false),
+  /**
+   * Master switch. Schema default is TRUE (D1: on-by-default with opt-out).
+   * Set `enabled: false` to restore the pre-hardening behavior (the documented
+   * opt-out). The GLOBAL default policy that the runner actually parses against
+   * is the permissive DEFAULT PROFILE in §6.1, not the bare per-field zod
+   * defaults below — the field defaults stay conservative so an explicit
+   * partial override (e.g. just `{ network: { mode: "deny" } }`) doesn't
+   * accidentally widen the other layers.
+   */
+  enabled: z.boolean().default(true),
   onUnavailable: onUnavailableSchema.default("degrade"),
   resources: resourceLimitsSchema.default({}),
   filesystem: filesystemPolicySchema.default({}),
@@ -309,6 +325,18 @@ export const sandboxPolicySchema = z.object({
 export type SandboxPolicy = z.infer<typeof sandboxPolicySchema>;
 export type SandboxPolicyInput = z.input<typeof sandboxPolicySchema>;
 ```
+
+> **Field defaults vs. the shipped default profile.** The bare zod field
+> defaults above are deliberately *minimal* (`filesystem.off`,
+> `network.unrestricted` modulo the metadata block, `privilege.inherit`, no
+> resource caps) so that `mergeSandboxPolicy(globalDefault, partialOverride)`
+> never silently re-widens a layer the operator didn't touch. The actual
+> shipped GLOBAL default — what an install gets on upgrade with no config — is
+> the **permissive default profile (DP)** defined in §6.1: it sets concrete
+> resource caps, `filesystem: scratch-plus-ro`, `network: unrestricted` with
+> the metadata/link-local block on, and `privilege: drop-to-uid` when a UID is
+> available. DP is the value `mergeSandboxPolicy` starts from; per-item config
+> overrides individual fields on top.
 
 > A `drop-to-uid` privilege mode plus `cpuSeconds`/`maxProcesses` is what makes
 > a low-trust author safe; `network.mode` is the exfil control;
@@ -524,23 +552,150 @@ surface to attach this to.
 
 ---
 
-## 6. Open questions — recommended decisions
+## 6. Decisions (LOCKED) + the upgrade-safety story
 
-### D1 — Default posture: **off-by-default opt-in (recommend), needs sign-off**
+### D1 — Default posture: **on-by-default with opt-out (LOCKED by maintainer)**
 
-Ship `enabled: false` as the schema default. Rationale: the platform is in
-**BETA** and the strong layers are Linux-and-capability dependent; turning
-hardening on by default would (a) silently change child behavior for every
-existing install on upgrade, (b) break legitimate scripts that read host files
-or call out to internal services, and (c) on macOS/dev or a restricted container
-either fail-closed (breakage) or degrade to near-nothing (false sense of
-security). Off-by-default means zero upgrade surprise; operators opt in per
-deployment / per check once they understand their host's enforcement matrix. A
-single documented switch (`sandbox.enabled: true` at the global default) flips it
-on cluster-wide. **User must approve** — this is the one decision that changes
-upgrade behavior; the alternative (on-by-default with opt-out for trusted
-single-tenant) is defensible only once the enforcement matrix is mature, which
-argues for revisiting at GA, not in BETA.
+Ship the sandbox **enabled by default** (`enabled: true`), applying the
+permissive **default profile (DP)** in §6.1, with a documented opt-out at two
+granularities:
+
+- **Global opt-out:** set the global default policy to `{ enabled: false }`
+  (the §5.8 settings surface) — restores the exact pre-hardening behavior
+  cluster-wide for a trusted single-tenant deployment.
+- **Per-check / per-action opt-out:** the `sandbox` config field (§4.4) can set
+  `enabled: false` (or loosen individual layers) on one check/action while the
+  rest of the install stays hardened.
+
+Rationale for on-by-default being safe despite BETA:
+
+1. **The default profile is permissive** (§6.1): it allows ordinary outbound
+   `fetch` to external APIs, temp-file writes in the per-run scratch dir, and
+   generous CPU/mem — so the *common* existing script keeps working untouched.
+   It blocks only the genuinely-dangerous defaults (fork-bombs, OOM, disk-fill,
+   metadata/link-local exfil, reading arbitrary host files).
+2. **Degraded hosts cannot hard-break** (§6.2): the global `onUnavailable`
+   default is `degrade`, so a macOS dev satellite or a container without
+   userns/wrapper silently falls back to the portable subset (timeout + ESM
+   memory flags + output truncation + env denylist) and *surfaces* that, rather
+   than refusing to run. On-by-default therefore never turns a working install
+   into a non-working one.
+3. **Secure-by-default is the right BETA posture.** Off-by-default would ship a
+   security feature that the vast majority of installs never turn on, leaving
+   the documented "no sandbox" hole open in practice. Flipping the default later
+   (off → on) would itself be the disruptive change; doing it now, while the
+   surface is small and the default profile is tuned to be non-breaking, is the
+   least-disruptive moment.
+
+The cost is a real but bounded behavior change on upgrade — captured in the
+upgrade notes (§6.3) and the `### BREAKING` changeset note (§10). This decision
+is **LOCKED**; no sign-off pending. (Only the §5.8 settings-surface attachment
+still needs confirmation when reached.)
+
+### D1.1 (§6.1) — The default profile (DP), concrete values
+
+DP is the shipped global default policy. It is permissive-but-safe: tuned so a
+typical existing health check (curl an API, write a temp file, do light
+computation) runs unchanged, while the abuse cases are capped.
+
+```ts
+// The shipped global default. Concrete, not the bare zod field defaults.
+export const DEFAULT_SANDBOX_PROFILE: SandboxPolicy = {
+  enabled: true,
+  onUnavailable: "degrade",            // never hard-break a degraded host
+  resources: {
+    cpuSeconds: 60,                    // generous vs. the wall-clock timeout
+    memoryBytes: 512 * 1024 * 1024,    // 512 MiB address space
+    maxOpenFiles: 1024,                // plenty for fetch + a few files
+    maxProcesses: 256,                 // fork-bomb guard, not a real-work limit
+    maxOutputBytes: 5 * 1024 * 1024,   // 5 MiB captured stdout+stderr, then truncate+flag
+    maxFileSizeBytes: 256 * 1024 * 1024, // 256 MiB single-file write, disk-fill guard
+  },
+  filesystem: {
+    mode: "scratch-plus-ro",           // writable scratch + RO node_modules; host FS hidden
+    // scratchBytes left unset -> mechanism default
+  },
+  network: {
+    mode: "unrestricted",              // outbound fetch to external APIs KEEPS WORKING
+    allow: [],
+    denyLinkLocalAndMetadata: true,    // block 169.254.0.0/16 + cloud metadata + link-local
+  },
+  privilege: {
+    mode: "drop-to-uid",               // drop to the dedicated low-priv UID WHEN available
+    // uid/gid resolved from config/env at startup; absent -> degrades to inherit
+  },
+};
+```
+
+Why these specifics keep common scripts working:
+
+- **Network `unrestricted` (not `deny`).** The single most common thing a check
+  does is call an external HTTP API. Defaulting to `deny` would break the
+  majority of real checks on upgrade. DP keeps egress open but adds the
+  always-on metadata/link-local block — which legitimate checks never rely on —
+  so SSRF-to-metadata exfil is closed without touching ordinary API calls.
+  Operators who want tighter control opt into `deny`/`allowlist` per check.
+- **`filesystem: scratch-plus-ro`.** Temp-file writes (the common case) land in
+  the per-run scratch dir, which is writable; `import` of managed packages
+  still resolves via the RO `node_modules` bind. Only reads of *arbitrary host
+  paths* break — which is exactly the behavior on-by-default intends to stop,
+  and which is rare in legitimate checks. On a host without a namespace wrapper
+  this layer degrades to `off` (full host FS, as today) and surfaces it, so
+  upgrade can't break it there at all.
+- **Resource caps sized for headroom, not as work limits.** 60 CPU-seconds,
+  512 MiB, 256 PIDs, 1024 FDs are well above what a normal check uses but below
+  fork-bomb/OOM territory. A script that legitimately needs more sets a per-item
+  override.
+- **`privilege: drop-to-uid` only when a UID is configured/available.** If the
+  host process isn't privileged to setuid (the common dev/macOS case), this
+  degrades to `inherit` and surfaces it — no breakage.
+
+### D1.2 (§6.2) — Behavior on hosts lacking the strong primitives
+
+On non-Linux (macOS), or a restricted container without unprivileged user
+namespaces / no `bwrap`/`nsjail` / no `prlimit` / non-root euid, the **default
+`onUnavailable: "degrade"`** means each unavailable layer falls back to the
+**portable subset** and is recorded in the surfaced report (§5.7):
+
+| Layer | Portable-subset fallback on a degraded host |
+| --- | --- |
+| Resources | wall-clock timeout (already present) + ESM `--smol`/`--max-old-space-size` + runner-side output truncation; rlimits dropped |
+| Filesystem | `off` (full host FS, exactly as today) |
+| Network | `unrestricted`, and the metadata/link-local block is **not** enforceable without a netns (this gap is surfaced) |
+| Privilege | `inherit` (no UID drop) |
+
+This guarantees enabling-by-default **cannot hard-break** a degraded install: in
+the limit (a macOS dev satellite with no primitives at all), the effective
+behavior collapses to "today + output truncation + env denylist", and the run
+record/startup log states plainly which layers are not enforced. The per-layer
+`onUnavailable` design is unchanged — an operator who *wants* fail-closed on a
+sensitive check sets `onUnavailable: "fail"` on that item, accepting that it
+won't run on a host that can't enforce it.
+
+### D1.3 (§6.3) — Upgrade notes (ship in docs + changeset + release notes)
+
+On upgrade to the version that lands this:
+
+- **Hardening becomes active by default.** No config change is needed to get it;
+  the default profile (§6.1) applies to every script run.
+- **What the default profile allows (so existing checks keep working):** outbound
+  HTTP/socket egress to non-metadata destinations; temp-file writes in the
+  per-run scratch dir; managed-package imports; up to 60 CPU-s / 512 MiB / 256
+  PIDs / 1024 FDs / 5 MiB output / 256 MiB single file.
+- **What it newly blocks (potential behavior changes):** reading/writing
+  *arbitrary host filesystem paths* outside the scratch dir (on hosts with a
+  namespace wrapper); requests to `169.254.169.254` / link-local / cloud
+  metadata; fork-bombs / runaway memory / disk-fill beyond the caps; the
+  forbidden env keys (`LD_PRELOAD`, `NODE_OPTIONS`, ...). A script relying on any
+  of these must be adjusted or scoped with a per-item override.
+- **On macOS / restricted containers:** the strong layers degrade to the
+  portable subset and are surfaced; nothing hard-breaks (§6.2).
+- **How to opt out:**
+  - Globally — set the global default policy to `{ enabled: false }` (§5.8).
+  - Per check/action — set `sandbox: { enabled: false }` on that item, or loosen
+    a single layer (e.g. `sandbox: { resources: { memoryBytes: 2147483648 } }`).
+- **How to verify what your host enforces:** read the startup capability log
+  line, or the per-run `EffectiveSandbox` report (`enforced` + `downgrades`).
 
 ### D2 — Mechanism boundary: **external-wrapper-first (recommend)**
 
@@ -581,58 +736,82 @@ enabled — terrible ergonomics that pushes operators to disable hardening
 entirely. `degrade` keeps scripts running while **loudly surfacing** every
 downgrade (§5.7), so there is no silent pretense — the operator sees exactly
 what is/ isn't enforced and can switch a sensitive check to `fail` deliberately.
-This pairs with D1: off-by-default + degrade-on-opt-in is the least-surprising
-combination. No sign-off needed, but the "degrade surfaces, never hides"
+This is what makes D1 (on-by-default) safe: on-by-default + `degrade` means a
+host that can't enforce a layer keeps running on the portable subset and says
+so, instead of breaking on upgrade. The "degrade surfaces, never hides"
 guarantee is a hard requirement, not a nicety.
 
-> **Summary of sign-off asks:** only **D1** (default posture) strictly needs
-> user approval before Phase 1. D2/D3/D4 are recommended and reversible; confirm
-> the §5.8 settings-surface attachment when reached.
+> **Summary of sign-off asks:** **none outstanding.** D1 (on-by-default with
+> opt-out) is LOCKED by the maintainer; D2/D3/D4 are recommended and reversible.
+> Only operational confirmation remains: the §5.8 settings-surface attachment
+> and the dedicated low-priv UID/GID to ship as the `drop-to-uid` target.
 
 ---
 
 ## 7. Phased breakdown (each shippable)
 
-Each phase is an independent PR. Phase 1 ships value (resource caps + privilege
-drop + env denylist) with zero new external dependency.
+Each phase is an independent PR. **Sequencing note for on-by-default (D1):** the
+*default profile* (§6.1) requests `filesystem: scratch-plus-ro` and the
+metadata/network block, which only become enforceable once Phases 2-3 land. To
+honor "on-by-default cannot break upgrade", the global default profile is
+**activated atomically in Phase 4** alongside the settings surface and docs;
+Phases 1-3 build and ship each capability with the schema default `enabled:true`
+but a still-conservative *global* default (so intermediate releases don't enable
+a half-built layer). Each layer's `degrade` path (§6.2) is implemented in the
+same phase that introduces the layer, so the moment Phase 4 flips the global
+default profile on, every layer either enforces or degrades-and-surfaces — never
+hard-fails by default.
 
 ### Phase 1 — Scaffold + portable resource caps + privilege drop + env denylist
 
-- New `script-sandbox/` module: `policy.ts`, `capabilities.ts`, `env-guard.ts`
+- New `script-sandbox/` module: `policy.ts` (incl. `DEFAULT_SANDBOX_PROFILE`
+  scaffold + `mergeSandboxPolicy`), `capabilities.ts`, `env-guard.ts`
   (move `SAFE_ENV_VARS` here), `report.ts`, `wrapper.ts` (uid/gid + `prlimit`
   prelude + output-truncation hook only — no namespaces yet).
 - Add `sandbox?` to both runner option interfaces; wire `buildSpawnHardening`
   into both `spawn` calls; attach `EffectiveSandbox` to both results.
 - Add `sandboxConfigField()` to the four config schemas; call sites derive +
-  merge global default with per-item override.
+  merge global default with per-item override. Implement the resources/privilege
+  `degrade` fallbacks (§6.2).
 - Forbidden-env-key denylist active when enabled.
-- **Milestone:** on a root Linux host, a check can be capped (CPU/mem/PID/files)
-  and dropped to a low-priv UID; output truncation + the env denylist work
-  everywhere.
+- **Interim global default:** resources + privilege + env denylist only
+  (`filesystem.off`, `network.unrestricted`) so this release enables only
+  fully-built layers.
+- **Milestone:** on a root Linux host, a check is capped (CPU/mem/PID/files) and
+  dropped to a low-priv UID; output truncation + env denylist work everywhere;
+  a macOS host degrades-and-surfaces, runs unchanged.
 
 ### Phase 2 — Wrapper detection + filesystem isolation
 
 - `capabilities.ts` detects `bwrap`/`nsjail`/`firejail` + userns; `wrapper.ts`
-  builds the FS-confinement argv (`scratch-only`, `scratch-plus-ro`).
+  builds the FS-confinement argv (`scratch-only`, `scratch-plus-ro`); implement
+  the FS `degrade`-to-`off` fallback (§6.2).
 - ESM runner passes its `mkdtemp` dir as scratch and `resolutionRoot/node_modules`
   as the RO bind.
 - **Milestone:** with `bwrap` installed, a script can no longer read arbitrary
-  host files; managed-package imports still resolve under `scratch-plus-ro`.
+  host files; managed-package imports still resolve under `scratch-plus-ro`; a
+  no-wrapper host degrades to `off` and surfaces it.
 
 ### Phase 3 — Network egress control
 
 - `network.ts` builds net-namespace + IP/CIDR allowlist / `deny` rules and the
-  always-on metadata/link-local block.
+  always-on metadata/link-local block; implement the network `degrade` fallback
+  (§6.2, incl. surfacing the un-enforceable metadata block).
 - **Milestone:** a `deny` script cannot reach the network; an `allowlist`
-  script reaches only listed CIDRs; metadata IP blocked.
+  script reaches only listed CIDRs; metadata IP blocked; a no-netns host
+  degrades and surfaces.
 
-### Phase 4 — Operator surface + docs + observability
+### Phase 4 — Default profile ON + operator surface + docs + observability
 
+- Land `DEFAULT_SANDBOX_PROFILE` (§6.1) as the **shipped global default** and
+  flip the global default to it (this is the on-by-default activation).
 - Global-default settings surface (§5.8); per-run downgrade surfacing in run
   records; startup capability log line.
-- Full docs (§9). Changeset.
-- **Milestone:** operators can see and configure the effective sandbox; the
-  "no sandbox" doc section is gone.
+- Full docs (§9), incl. the §6.3 upgrade notes. Changeset with the
+  `### BREAKING` note (§10).
+- **Milestone:** every install gets the default profile out of the box; a
+  degraded host runs the portable subset and says so; the "no sandbox" doc
+  section is gone; operators can opt out globally or per item.
 
 ---
 
@@ -642,9 +821,27 @@ All tests use **bun's test runner** (`.agent/rules/testing.md`). Unit/fakes by
 default; the genuinely-OS-dependent assertions are env-gated integration tests
 (skip with a clear message when the capability is absent — never silently pass).
 
+**Cross-cutting (added every phase that touches the default profile)**
+- **Default-profile / upgrade-compat:** with NO per-item config (i.e. an
+  existing check upgraded in place), a representative "ordinary" script —
+  `fetch` to a non-metadata URL, write a temp file in the scratch dir, light CPU
+  — runs **successfully** under `DEFAULT_SANDBOX_PROFILE`. Asserts on-by-default
+  does not break the common case. Add the matching abuse-case assertions:
+  fork-bomb / OOM / disk-fill are capped; `fetch("http://169.254.169.254/...")`
+  is refused (on a netns-capable host); reads outside scratch fail (on a
+  wrapper-capable host).
+- **Degraded-host:** with capabilities forced to "none available" (mock
+  `detectSandboxCapabilities()` → macOS/no-wrapper/non-root) and the default
+  profile, the run **still succeeds** (no hard-break), `result.sandbox.enforced`
+  shows the strong layers `false`, and `downgrades` lists every dropped layer
+  with a reason. Asserts the §6.2 guarantee. A second variant with
+  `onUnavailable:"fail"` on a sensitive item asserts that item refuses to run
+  on the degraded host (clean failure, no spawn).
+
 **Phase 1**
-- `policy.test.ts`: schema parse/defaults/`.strict()` rejects unknown keys;
-  `mergeSandboxPolicy` precedence (per-item over global).
+- `policy.test.ts`: schema parse/defaults (`enabled` defaults `true`)/`.strict()`
+  rejects unknown keys; `mergeSandboxPolicy` precedence (per-item over global);
+  `DEFAULT_SANDBOX_PROFILE` round-trips through `sandboxPolicySchema.parse`.
 - `env-guard.test.ts`: denylist drops `LD_PRELOAD`/`NODE_OPTIONS`/`PATH` override
   when enabled; passes them through when disabled (back-compat); `pickSafeEnv`
   unchanged. Regression for the known env-injection escape (§1).
@@ -684,9 +881,10 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 1. **Rewrite the "Security model" section** of
    `docs/src/content/docs/user-guide/reference/script-health-checks.md:227-242`.
    Remove the "There is **no sandbox**" framing; replace with: the layers, the
-   off-by-default posture, how to enable, the cross-platform enforcement matrix,
-   and the "degrade surfaces, never hides" guarantee. Keep the existing env /
-   concurrency sections.
+   **on-by-default posture + the default profile (§6.1)**, what it allows/blocks
+   (the §6.3 upgrade notes), how to opt out (global + per-item), the
+   cross-platform enforcement matrix, and the "degrade surfaces, never hides"
+   guarantee. Keep the existing env / concurrency sections.
 2. **New page** `docs/src/content/docs/developer-guide/security/script-sandbox.md`
    (the `developer-guide/security/` dir already exists —
    `auth-error-handling.md`, `custom-auth-plugins.md`). Reference page:
@@ -704,11 +902,23 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 
 - **Changeset (required):** minor bump (BETA policy — never major) for
   `@checkstack/backend-api`, `@checkstack/healthcheck-script-backend`,
-  `@checkstack/integration-script-backend`. Summary: "Add an opt-in, layered
-  OS-level sandbox (resource limits, filesystem isolation, network egress
-  control, privilege dropping) around the shared script runners, off by default
-  with capability detection and surfaced graceful degradation." Add a
-  `### BREAKING` note ONLY if D1 is later flipped to on-by-default.
+  `@checkstack/integration-script-backend`. Summary: "Add a layered OS-level
+  sandbox (resource limits, filesystem isolation, network egress control,
+  privilege dropping) around the shared script runners, **enabled by default**
+  via a permissive default profile, with capability detection and surfaced
+  graceful degradation." This bump carries a **`### BREAKING`** note (per beta
+  policy: minor bump, BREAKING described in text — `.agent/rules/changesets.md`):
+  > **BREAKING:** Script and shell health checks / automation actions now run
+  > inside an OS-level sandbox **by default**. The default profile allows
+  > ordinary outbound HTTP, temp-file writes in the per-run scratch dir, and
+  > generous CPU/memory; it newly blocks reads/writes of arbitrary host paths
+  > (on hosts with a namespace wrapper), requests to cloud-metadata/link-local
+  > IPs, fork-bombs/OOM/disk-fill beyond the caps, and the forbidden env keys
+  > (`LD_PRELOAD`, `NODE_OPTIONS`, ...). On macOS / restricted containers the
+  > strong layers degrade to the portable subset and are surfaced — nothing
+  > hard-breaks. Opt out globally with `{ enabled: false }` on the global
+  > sandbox policy, or per check/action via the `sandbox` config field. See the
+  > upgrade notes in the script-sandbox docs.
 - **Scale note (put in the changeset + PR per `.agent/rules/state-and-scale.md`):**
   (1) State lives per-process (cached capability detection, deterministic from
   the host kernel) plus one durable global-default policy in shared settings.
@@ -752,8 +962,9 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 ## 12. How to pick this up cleanly
 
 1. Read this file top to bottom — all context is here.
-2. Confirm **D1 (default posture)** with the user and the §5.8 settings-surface
-   attachment.
+2. **D1 (on-by-default with opt-out) is LOCKED** — no sign-off needed. Confirm
+   only the operational details: the §5.8 settings-surface attachment and the
+   dedicated low-priv UID/GID to ship as the `drop-to-uid` target.
 3. Start Phase 1 (no new external dep, ships value): scaffold `script-sandbox/`,
    move `SAFE_ENV_VARS`, wire `buildSpawnHardening` into both runners, add the
    config field + call-site merge.
@@ -766,5 +977,8 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 
 *Last updated: 2026-06-01. Plan only; no code written. Load-bearing constraints
 (single chokepoint at the two runners, capability-dependent enforcement, per-host
-divergence surfaced not assumed, BETA off-by-default) are documented above;
-decisions D1–D4 are recommended with D1 flagged for user sign-off.*
+divergence surfaced not assumed, **on-by-default via the permissive default
+profile with degrade-not-break on degraded hosts**) are documented above. **D1
+is LOCKED (on-by-default with opt-out)** by the maintainer; D2–D4 recommended
+and reversible; no sign-off outstanding (only the §5.8 settings surface + the
+low-priv UID target need operational confirmation).*

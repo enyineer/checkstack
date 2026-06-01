@@ -50,32 +50,43 @@ These resolve issue #249's open questions. Rationale per item; **user sign-off
 flagged** where the decision changes externally-visible package names or scope.
 
 1. **Package shape — DECIDED: umbrella `@checkstack/sdk` with subpath exports,
-   PLUS two thin compat re-export packages `@checkstack/healthcheck` and
-   `@checkstack/integration`.** ⚠️ **USER SIGN-OFF.**
-   - The umbrella is the home for the full typed client and all helpers:
-     `@checkstack/sdk` (root: typed client + `InferClient` re-exports),
+   with NO compat packages.** ✅ **MAINTAINER-DECIDED (sign-off resolved
+   2026-06-01): rewrite every consumer of the bare names to the subpath
+   form.**
+   - One package, three subpaths:
+     `@checkstack/sdk` (root: typed client + `InferClient` re-exports + the
+     runtime client factory),
      `@checkstack/sdk/healthcheck` (`defineHealthCheck` + context/result types),
      `@checkstack/sdk/integration` (`defineIntegration` + context/result types).
    - The editor and runtime **hard-code the bare names** `@checkstack/healthcheck`
-     and `@checkstack/integration` today (`scriptContext.ts:136`, `:204`;
-     `inline-script-collector.ts:98`; `automations.ts:445`). Two options were
-     considered: (a) rewrite all those call sites to the subpath form, or (b)
-     publish `@checkstack/healthcheck` / `@checkstack/integration` as **two tiny
-     packages that re-export from `@checkstack/sdk`**. We choose **(b)** so the
-     starter templates a user copies (`scriptContext.ts:227`, `:281`) keep
-     working verbatim in an external IDE with a single intuitive install, AND
-     the umbrella exists for full-client consumers. The two compat packages have
-     no independent surface — each is one `export * from "@checkstack/sdk/<sub>"`
-     plus a pinned `@checkstack/sdk` dependency. **Rationale:** preserves the
-     ergonomic bare-import in docs/templates, avoids a breaking rename of the
-     editor/runtime wiring, and still gives external API consumers one umbrella.
-   - **Rejected:** umbrella-only (breaks the copy-paste import in every starter
-     template + forces an editor/runtime rename in the same PR); two-packages-only
-     (no home for the full typed client; issue explicitly wants the umbrella).
+     and `@checkstack/integration` today. **All of those call sites are rewritten
+     to the subpath form** `@checkstack/sdk/healthcheck` /
+     `@checkstack/sdk/integration` — the full enumerated touch-point list is
+     §6.4. The previously-considered thin compat re-export packages are
+     **DROPPED** entirely: no `@checkstack/healthcheck` / `@checkstack/integration`
+     packages are published.
+   - **This is a BREAKING change to the script-author import surface.** Any
+     externally-authored or in-repo script using
+     `import { defineHealthCheck } from "@checkstack/healthcheck"` must migrate to
+     `import { defineHealthCheck } from "@checkstack/sdk/healthcheck"` (same for
+     integration). Documented in the changeset BREAKING note (§10) and the docs
+     (§8 Phase 4); in-repo scripts/docs/templates are migrated in the same PR
+     (§6.4). The runtime helper-function NAMES (`defineHealthCheck`,
+     `defineIntegration`) are unchanged — only the module specifier changes.
+   - **Rationale (maintainer):** one canonical package, no parallel name surface
+     to keep in sync, no risk of a compat package drifting from the umbrella. The
+     subpath form is the single supported way to import helpers, in-app and
+     externally. The one-time break is acceptable in BETA and is mechanically
+     simple (specifier string swap; §6.4).
+   - **Load-bearing consequence:** because external `npm install` resolves
+     `@checkstack/sdk/healthcheck` via the package's `exports` map under
+     `node16`/`nodenext`/`bundler` resolution, the exports map MUST ship a
+     **per-subpath `.d.ts`** (not one shared ambient file) for the `types`
+     condition. See §4.1 (no longer a flagged caveat — now a hard requirement)
+     and the §9 Phase-1 resolution test.
 
-2. **Runtime client vs types-only for v1 — DECIDED: ship BOTH `.d.ts` and a
-   minimal runtime, but the runtime is *helpers-only* + an *optional* thin
-   fetch client.**
+2. **Runtime client vs types-only for v1 — DECIDED/LOCKED: ship TYPES + a THIN
+   RUNTIME CLIENT, in addition to the helper identity-runtime.**
    - The script helpers (`defineHealthCheck`, `defineIntegration`) MUST have a
      runtime body because users `export default defineHealthCheck(...)` and the
      function must exist when executed outside the in-app rewrite. Their body is
@@ -88,20 +99,20 @@ flagged** where the decision changes externally-visible package names or scope.
      cheap (oRPC already generates the client from the contract). **Rationale:**
      "types-only" would leave the issue's stated external-API-consumer use case
      half-done; the runtime factory is a few lines over oRPC. The helpers being
-     real runtime is non-negotiable for external authoring.
+     real runtime is non-negotiable for external authoring. **This decision is
+     LOCKED — v1 ships the runtime client.**
 
-3. **Versioning mechanics — DECIDED: pre-publish stamp, SDK packages are
-   `private`-from-changesets.**
-   - The SDK packages (`@checkstack/sdk` + the two compat packages) are NOT in
-     any changeset and are NOT bumped by `changeset version`. Their
-     `package.json` `version` is **stamped to the `@checkstack/release` version
-     by `scripts/generate-sdk.ts`** as a pre-publish codegen step, and the same
-     value is written to the two compat packages and their pinned
-     `@checkstack/sdk` dep. **Rationale:** issue requires `sdk version ===
-     release version`; changesets bumps each package independently, which would
+3. **Versioning mechanics — DECIDED: pre-publish stamp; the single
+   `@checkstack/sdk` package is excluded from changesets.**
+   - `@checkstack/sdk` is NOT in any changeset and is NOT bumped by
+     `changeset version`. Its `package.json` `version` is **stamped to the
+     `@checkstack/release` version by `scripts/generate-sdk.ts`** as a pre-publish
+     codegen step. **Rationale:** issue requires `sdk version === release
+     version`; changesets bumps each package independently, which would
      immediately desync. The release tracker is already force-injected on every
      release (`inject-release.ts:122`), so reading it is the single source of
-     truth.
+     truth. (With the compat packages dropped, there is exactly ONE package to
+     stamp.)
    - **Rejected:** changeset fixed-group (`.changeset/config.json:11` `fixed:[]`)
      with `@checkstack/release` — a fixed group still bumps via changeset math,
      not "equals release", and the SDK has no hand-authored changesets to drive a
@@ -191,7 +202,10 @@ flagged** where the decision changes externally-visible package names or scope.
   `buildHelperSource`. The injected runtime body is
   `export function ${fn}(value) { return value; }`. The published SDK helper's
   runtime body MUST be the same identity function so a script that imports the
-  real package behaves identically to one that gets the rewrite (§6.3).
+  real package behaves identically to one that gets the rewrite (§6.3). The
+  `helperModuleName` the callers pass changes from the bare names to the subpath
+  form (§6.4); the rewrite logic itself (regex-escaping the specifier,
+  `:206-209`) is specifier-agnostic and needs no change.
 
 ### 3.8 Release / publish flow
 - `package.json:25` `version-packages` = `inject-release.ts && changeset
@@ -219,9 +233,10 @@ flagged** where the decision changes externally-visible package names or scope.
 
 ## 4. The `@checkstack/sdk` package — emitted shape
 
-Codegen target directory: `core/sdk/` (new workspace package, picked up by
-`publish-packages.ts` dir scan at `:48-62`). The codegen ALSO emits the two
-compat packages `core/healthcheck/` and `core/integration/`.
+Codegen target directory: `core/sdk/` (ONE new workspace package, picked up by
+`publish-packages.ts` dir scan at `:48-62`). **No compat packages** — the
+maintainer-decided subpath rewrite (§2.1) means `@checkstack/sdk` is the only
+published artifact.
 
 ### 4.1 `core/sdk/` layout (generated + committed)
 
@@ -235,39 +250,43 @@ core/sdk/
     healthcheck.ts        # defineHealthCheck + HealthCheckScript{Context,Result}
     integration.ts        # defineIntegration + IntegrationScript{Context,Result}
   generated/
-    sdk.d.ts              # GENERATED full ambient .d.ts (editor + diff target)
+    index.d.ts            # GENERATED: root subpath surface (client + types)
+    healthcheck.d.ts      # GENERATED: ./healthcheck subpath surface
+    integration.d.ts      # GENERATED: ./integration subpath surface
+    editor-bundle.d.ts    # GENERATED: combined ambient .d.ts for the EDITOR only
   tsconfig.json           # extends @checkstack/tsconfig/common.json
 ```
 
-`package.json` exports map:
+`package.json` exports map (each subpath's `types` points at ITS OWN `.d.ts`):
 
 ```json
 {
   "name": "@checkstack/sdk",
   "version": "0.0.0-STAMPED",
   "exports": {
-    ".":              { "types": "./generated/sdk.d.ts", "default": "./src/index.ts" },
-    "./healthcheck":  { "types": "./generated/sdk.d.ts", "default": "./src/healthcheck.ts" },
-    "./integration":  { "types": "./generated/sdk.d.ts", "default": "./src/integration.ts" }
+    ".":              { "types": "./generated/index.d.ts",       "default": "./src/index.ts" },
+    "./healthcheck":  { "types": "./generated/healthcheck.d.ts", "default": "./src/healthcheck.ts" },
+    "./integration":  { "types": "./generated/integration.d.ts", "default": "./src/integration.ts" }
   }
 }
 ```
 
-> **⚠️ Subpath `types` resolution caveat (verify in Phase 1).** Pointing all
-> three subpath `types` entries at one ambient `./generated/sdk.d.ts` works for
-> the EDITOR (Monaco mounts the whole ambient bundle and resolves the `declare
-> module` blocks), but a real external `npm install` + `import ... from
-> "@checkstack/sdk/healthcheck"` resolved under `node16`/`nodenext`/`bundler`
-> module resolution normally expects each subpath's `types` to point at a
-> `.d.ts` whose top-level (non-ambient) exports ARE that subpath's surface.
-> A single shared ambient file may resolve the subpath but surface the wrong /
-> all exports. **Phase 1 MUST verify the published exports map against `tsc`
-> module resolution** (a fixture consumer that imports each subpath under
-> `nodenext`) and, if it fails, emit a per-subpath `.d.ts`
-> (`generated/healthcheck.d.ts`, `generated/integration.d.ts`,
-> `generated/index.d.ts`) for the `types` entries while keeping the combined
-> ambient `generated/sdk.d.ts` solely for the editor route. See the Phase-1
-> test matrix (§9).
+> **Per-subpath `.d.ts` is LOAD-BEARING (not optional).** External `npm install`
+> resolves `@checkstack/sdk/healthcheck` through the `exports` map under
+> `node16`/`nodenext`/`bundler` module resolution, which expects each subpath's
+> `types` to point at a `.d.ts` whose top-level exports ARE that subpath's
+> surface. A single shared ambient file would resolve the subpath but expose the
+> wrong / all exports. So the codegen emits THREE per-subpath declaration files
+> (`generated/index.d.ts`, `generated/healthcheck.d.ts`,
+> `generated/integration.d.ts`) for the `types` conditions, PLUS a separate
+> combined ambient `generated/editor-bundle.d.ts` (the `declare module
+> "@checkstack/sdk" / "@checkstack/sdk/healthcheck" / "@checkstack/sdk/integration"`
+> blocks + the `declare function defineHealthCheck/defineIntegration` globals)
+> that ONLY the version-keyed editor route serves and Monaco mounts (§6.1/§6.2).
+> The editor never resolves through `exports`; it mounts the ambient bundle
+> directly. **Phase 1 ships a `tsc`-`nodenext` fixture-consumer resolution test
+> (§9) that imports all three subpaths and asserts each resolves to exactly its
+> own surface** — this is now a hard acceptance criterion, not a caveat.
 
 ### 4.2 The typed client (`client.ts` / `contracts.ts`)
 
@@ -314,37 +333,33 @@ export interface HealthCheckScriptContext { /* generic config: Record<string, un
 export function defineHealthCheck<T extends ...>(value: T): T { return value; }
 ```
 
-The published `generated/sdk.d.ts` is the AMBIENT bundle the editor mounts: it
-declares `module "@checkstack/sdk"`, `module "@checkstack/sdk/healthcheck"`,
-`module "@checkstack/sdk/integration"`, `module "@checkstack/healthcheck"`,
-`module "@checkstack/integration"`, plus the global `declare function
-defineHealthCheck` / `defineIntegration` (mirroring `scriptContext.ts:126-139`,
-`:192-207`) so no-import autocomplete still works.
+The published `generated/editor-bundle.d.ts` is the AMBIENT bundle the editor
+mounts: it declares `module "@checkstack/sdk"`, `module
+"@checkstack/sdk/healthcheck"`, `module "@checkstack/sdk/integration"`, plus the
+global `declare function defineHealthCheck` / `defineIntegration` (mirroring
+`scriptContext.ts:126-139`, `:192-207`) so no-import autocomplete still works.
+It declares ONLY the subpath module names — the dropped bare names
+(`@checkstack/healthcheck` / `@checkstack/integration`) are NOT declared, so the
+editor flags an old bare-name import as unresolved, surfacing the migration to
+the author. The per-subpath `generated/*.d.ts` files (§4.1) are the
+`exports`-resolved declarations for external `npm install`; the editor bundle is
+separate and editor-only.
 
-### 4.4 Compat packages (`core/healthcheck/`, `core/integration/`)
+### 4.4 No compat packages
 
-Each is a 3-file package:
-
-```
-core/healthcheck/
-  package.json   # name "@checkstack/healthcheck", version STAMPED, dep @checkstack/sdk pinned
-  src/index.ts   # export * from "@checkstack/sdk/healthcheck";
-  generated/index.d.ts  # /// <reference> or re-export of sdk's healthcheck slice
-```
-
-⚠️ **Name collision check (USER SIGN-OFF item):** `@checkstack/healthcheck` and
-`@checkstack/integration` are NOT currently published (verified: no such package
-dir; the names exist only as virtual modules). Confirm the npm names are free /
-ownable under the `@checkstack` org before first publish.
+The maintainer dropped the thin compat packages (§2.1). `@checkstack/sdk` is the
+only published package. The bare names `@checkstack/healthcheck` /
+`@checkstack/integration` are NOT published and NOT declared anywhere — every
+consumer is rewritten to the subpath form (§6.4).
 
 ---
 
 ## 5. `scripts/generate-sdk.ts` — codegen design
 
 Sibling to `scripts/generate-tsconfig-references.ts`. Wired as
-`package.json` script `generate:sdk` and into `version-packages` BEFORE
-`changeset version` (so the stamp uses the about-to-be-released value; see §7
-for ordering nuance).
+`package.json` script `generate:sdk` and into `version-packages` AFTER
+`changeset version` (so the stamp reads the just-bumped release version; see §7.1
+for ordering and the §7.1.1 failure mode).
 
 ### 5.1 Inputs (source of truth)
 1. The 21 `*Api` `ClientDefinition`s — imported from each
@@ -362,14 +377,17 @@ for ordering nuance).
 2. **Emit `healthcheck.ts` / `integration.ts`** — runtime identity helpers +
    the generic-config/payload type declarations (reuse `_internals` builders
    with `"Record<string, unknown>"`).
-3. **Emit `generated/sdk.d.ts`** — concatenate the ambient module + global
-   declarations (the published editor bundle). This is the artifact the
-   version-keyed HTTP route serves and the editor mounts.
-4. **Stamp versions** — write `core/release/package.json` `version` into
-   `core/sdk/package.json`, `core/healthcheck/package.json`,
-   `core/integration/package.json`, and the latter two's pinned
-   `@checkstack/sdk` dependency.
-5. **`--check` mode** — like `generate-tsconfig-references.ts --check`
+3. **Emit the per-subpath declaration files** —
+   `generated/index.d.ts` (root: client + `CheckstackClient` + `InferClient`
+   re-exports), `generated/healthcheck.d.ts`, `generated/integration.d.ts`. These
+   are the `exports`-`types` targets for external `npm install` (§4.1).
+4. **Emit `generated/editor-bundle.d.ts`** — concatenate the ambient `declare
+   module "@checkstack/sdk[/sub]"` + global `declare function` declarations
+   (subpath names ONLY; no bare names). This is the EDITOR-only artifact the
+   version-keyed HTTP route serves and Monaco mounts.
+5. **Stamp version** — write `core/release/package.json` `version` into
+   `core/sdk/package.json` (the ONLY package; no compat packages to stamp).
+6. **`--check` mode** — like `generate-tsconfig-references.ts --check`
    (`package.json:16`): regenerate to a temp buffer and diff against the
    committed files; nonzero exit on drift. CI runs this so a contract change
    without a regenerated SDK fails (mirrors `typecheck:references:check`).
@@ -414,8 +432,10 @@ NOT create a new package. Path keyed by release version:
 - Handler: authn + global read check (reuse the `hasReadAccess` shape,
   `type-acquisition-route.ts:52-61`); if `:releaseVersion !== runningVersion`
   → `409` (stale) so the client refetches; else return the committed
-  `core/sdk/generated/sdk.d.ts` content with `Cache-Control: private,
-  max-age=1y, immutable` (`type-acquisition-route.ts:175`).
+  `core/sdk/generated/editor-bundle.d.ts` content with `Cache-Control: private,
+  max-age=1y, immutable` (`type-acquisition-route.ts:175`). It serves the
+  EDITOR bundle (combined ambient declarations), not the per-subpath
+  `exports`-resolved files.
 - The running version is read from `@checkstack/release` at runtime (the value
   baked into the deployed image; `release.yml:119-125` extracts it for Docker).
 
@@ -431,21 +451,85 @@ NOT create a new package. Path keyed by release version:
 - `scriptContext.ts` keeps emitting the **schema-narrowed** `context.config` /
   `context.event.payload` block (its raison d'être — per-collector/per-event
   typing). The generic `@checkstack/healthcheck` / `@checkstack/integration`
-  ambient `declare module` blocks (`:136-139`, `:204-207`) are REMOVED from
-  `scriptContext.ts` and now come from the injected SDK `.d.ts`. Net: schema
-  narrowing stays local; the package-resolving module declarations come from the
-  one published source.
+  ambient `declare module` blocks (`scriptContext.ts:136-139`, `:204-207`) are
+  REMOVED, and the editor now resolves the subpath module names from the
+  injected `editor-bundle.d.ts`. Net: schema narrowing stays local; the
+  package-resolving module declarations come from the one published source under
+  the subpath names. (The bare-name removal here is one of the §6.4
+  touch-points.)
 
-### 6.3 Runtime compatibility (no behavior change)
+### 6.3 Runtime compatibility (helper behavior unchanged; only the specifier changes)
 The in-app runner keeps its rewrite (`esm-script-runner.ts:197-225`): scripts
-run in-app still get the temp `_helpers.mjs` identity function — unchanged. The
-published SDK helper is the SAME identity function (§3.7), so a script authored
-in an external IDE against the real package behaves identically when pasted
-in-app and rewritten. **No change to `inline-script-collector.ts` /
-`automations.ts` runtime wiring is required**; the bare names they pass
-(`@checkstack/healthcheck`, `@checkstack/integration`) now ALSO resolve to a
-real published package for external authoring. This is why decision §2.1 keeps
-the bare-name compat packages.
+run in-app still get the temp `_helpers.mjs` identity function — the runtime
+BODY is unchanged. The published SDK helper is the SAME identity function
+(§3.7), so a script authored in an external IDE against
+`@checkstack/sdk/healthcheck` behaves identically when pasted in-app and
+rewritten. The ONLY change to the runner callers is the `helperModuleName` they
+pass: it moves from the bare names to the subpath names (enumerated in §6.4). No
+change to the rewrite logic itself (specifier-agnostic, §3.7).
+
+### 6.4 Bare-name → subpath rewrite: enumerated touch-points (BREAKING)
+Every consumer of the bare names is rewritten to the subpath form. Verified
+inventory (anchors at the time of writing; re-grep before editing):
+
+**Editor ambient declarations (the module names Monaco resolves):**
+- `core/ui/src/components/CodeEditor/scriptContext.ts:136` — `declare module
+  "@checkstack/healthcheck"` block → REMOVED (now served by `editor-bundle.d.ts`
+  under `@checkstack/sdk/healthcheck`); §6.2.
+- `scriptContext.ts:204` — `declare module "@checkstack/integration"` block →
+  REMOVED (served as `@checkstack/sdk/integration`).
+- `scriptContext.ts:224` — doc-comment naming the bare import form → update to
+  the subpath form.
+
+**Runtime import-rewrite call sites (`helperModuleName` values):**
+- `plugins/healthcheck-script-backend/src/inline-script-collector.ts:98` —
+  `helperModuleName: "@checkstack/healthcheck"` → `"@checkstack/sdk/healthcheck"`.
+  Also update the user-facing description string at `:119` (names the package).
+- `plugins/integration-script-backend/src/automations.ts:445` —
+  `helperModuleName: "@checkstack/integration"` → `"@checkstack/sdk/integration"`.
+- `core/healthcheck-backend/src/collector-script-test.ts:196` —
+  `helperModuleName: "@checkstack/healthcheck"` → subpath (the "test in UI" run
+  path; same rewrite as the collector).
+- `core/automation-backend/src/script-test.ts:233` —
+  `helperModuleName: "@checkstack/integration"` → subpath (the integration
+  "test in UI" run path).
+
+**`esm-script-runner.ts` JSDoc examples (no behavior, keep docs honest):**
+- `core/backend-api/src/esm-script-runner.ts:81` and `:83` — example
+  `helperModuleName` / editor import in the JSDoc → subpath form.
+
+**Tests that assert the bare name (update expectations alongside the rewrite):**
+- `core/ui/src/components/CodeEditor/scriptContext.test.ts:13-14`, `:148` —
+  assert `declare module "@checkstack/healthcheck"` / `integration"` →
+  assert the subpath module name (or assert the block is no longer emitted by
+  `scriptContext`, per §6.2).
+- `core/backend-api/src/esm-script-runner.test.ts:87-88`, `:97`, `:105-106`,
+  `:117`, `:125-126`, `:130`, `:145`, `:156-157` — bare-name imports + expected
+  `helperModuleName` → subpath form.
+- `core/healthcheck-backend/src/collector-script-test.test.ts:97` and
+  `core/automation-backend/src/script-test.test.ts:104` — assert the rewritten
+  `helperModuleName` → subpath.
+- `plugins/healthcheck-script-backend/src/inline-script-collector.test.ts:143-151`
+  and `plugins/integration-script-backend/src/automations.test.ts:512` — bare
+  names in script fixtures + assertion → subpath.
+
+**Docs + in-repo example scripts (migrate verbatim):**
+- `docs/src/content/docs/user-guide/reference/script-health-checks.md:95`, `:130`
+  — `import ... from "@checkstack/healthcheck"` → `@checkstack/sdk/healthcheck`,
+  with a BREAKING migration note.
+- `docs/src/content/docs/user-guide/guides/test-scripts-in-the-ui.md` — update
+  any helper-import mention to the subpath form (verify on edit).
+
+**Starter templates:** the in-editor starters use the GLOBAL helper form (no
+import) — `HEALTHCHECK_INLINE_TS_STARTER` (`scriptContext.ts:227`) and
+`INTEGRATION_INLINE_TS_STARTER` (`:281`) — so they need NO import-string change.
+If any are later changed to the named-import form, they MUST use the subpath.
+
+**Out of scope (do NOT touch):** historical `CHANGELOG.md` entries
+(`core/ui/CHANGELOG.md:627`, `core/healthcheck-frontend/CHANGELOG.md:408`,
+`core/integration-frontend/CHANGELOG.md:268`,
+`plugins/healthcheck-script-backend/CHANGELOG.md:229`) and built artifacts
+(`core/frontend/dist/...`) — these are immutable history / generated output.
 
 ---
 
@@ -490,70 +574,79 @@ changeset always exists, `inject-release.ts` always has a changeset to inject
 the release bump into, so `@checkstack/release` always advances, the stamp
 always increments, and the SDK always republishes. To enforce it mechanically,
 the Phase-1 `generate-sdk.ts --check` CI job ALSO fails when the regenerated
-`generated/sdk.d.ts` differs from the committed copy with NO pending changeset
+SDK declaration files differ from the committed copies with NO pending changeset
 present — i.e. SDK drift without a changeset is a CI error, not a silent skip.
 This reconciles §7.1 (stamp after `changeset version`), §3.8 (release always
 bumps — true precisely *because* every SDK-affecting change carries a
-changeset), and §7.3 (no changeset may name an SDK package itself — the
+changeset), and §7.3 (no changeset may name `@checkstack/sdk` itself — the
 changeset is on the `-common`/platform package, never on the SDK).
 
 ### 7.2 Publish
-`publish-packages.ts` already scans `core/` (`:48`), so `core/sdk`,
-`core/healthcheck`, `core/integration` are auto-discovered. They publish via
-`bun publish --access public` (`:205`) when their stamped version is ahead of
-npm (`determinePackageStatus`, `:94-116`). No publish-script change needed —
-they are NOT `private` (unlike `@checkstack/release`,
-`core/release/package.json:5`), so they are not skipped.
+`publish-packages.ts` already scans `core/` (`:48`), so `core/sdk` is
+auto-discovered. It publishes via `bun publish --access public` (`:205`) when
+its stamped version is ahead of npm (`determinePackageStatus`, `:94-116`). No
+publish-script change needed — `@checkstack/sdk` is NOT `private` (unlike
+`@checkstack/release`, `core/release/package.json:5`), so it is not skipped.
 
 ### 7.3 `@checkstack/sdk` MUST NOT be in changesets
 Because the version is stamped, never let a hand-written changeset reference
-`@checkstack/sdk` / `@checkstack/healthcheck` / `@checkstack/integration` — a
-changeset bump would fight the stamp. Add a guard to `generate-sdk.ts --check`
-(or a tiny lint in `inject-release.ts`) that fails if a pending changeset names
-any SDK package. **Document this in the changeset README.**
+`@checkstack/sdk` — a changeset bump would fight the stamp. Add a guard to
+`generate-sdk.ts --check` (or a tiny lint in `inject-release.ts`) that fails if
+a pending changeset names `@checkstack/sdk`. **Document this in the changeset
+README.**
 
 ---
 
 ## 8. Phasing (each phase shippable)
 
 ### Phase 1 — Codegen + committed SDK package (no publish, no editor change)
-- New `scripts/generate-sdk.ts` (+ `generate:sdk` script). Emit `core/sdk/*`,
-  `core/healthcheck/*`, `core/integration/*` with version stamped from
+- New `scripts/generate-sdk.ts` (+ `generate:sdk` script). Emit `core/sdk/*`
+  (ONE package: `src/`, per-subpath `generated/*.d.ts`, the editor
+  `generated/editor-bundle.d.ts`, exports map) with version stamped from
   `@checkstack/release`.
-- Add `--check` mode + CI job (mirror `typecheck:references:check`).
-- Run `bun run typecheck:references:generate` (3 new workspace packages +
-  `core/sdk` deps on all 21 `*-common`). Commit tsconfig changes.
+- Add `--check` mode + CI job (mirror `typecheck:references:check`), including
+  the SDK-drift-without-changeset guard (§7.1.1).
+- Verify the per-subpath `exports`-`types` resolution with a `tsc`/`nodenext`
+  fixture consumer (§4.1, §9) — drives the per-subpath `.d.ts` shape.
+- Run `bun run typecheck:references:generate` (1 new workspace package; `core/sdk`
+  deps on all 21 `*-common`). Commit tsconfig changes.
 - **Ships:** a real, installable-from-source typed client + helpers; CI guards
   drift. Nothing published yet.
 
 ### Phase 2 — Publish wiring (version = release version)
 - Extend `version-packages` to run `generate-sdk.ts` after `changeset version`
-  (§7.1). Verify `publish-packages.ts` discovers + publishes the 3 packages
-  (no code change expected; add a `publish-packages.test.ts` case asserting an
+  (§7.1). Verify `publish-packages.ts` discovers + publishes `@checkstack/sdk`
+  (no code change expected; add a `publish-packages.test.ts` case asserting the
   SDK package with a stamped-ahead version is classified `update`/`new`).
-- Add the SDK-package-in-changeset guard (§7.3).
-- **Ships:** `@checkstack/sdk@<release>` + compat packages on npm, pinned to the
-  platform release.
+- Add the `@checkstack/sdk`-in-changeset guard (§7.3).
+- **Ships:** `@checkstack/sdk@<release>` on npm, pinned to the platform release.
 
-### Phase 3 — Editor live type injection
+### Phase 3 — Bare-name → subpath rewrite (BREAKING) + editor live injection
+- **Rewrite every bare-name consumer to the subpath form** — all touch-points in
+  §6.4: editor ambient blocks removed (`scriptContext.ts:136`, `:204`), runtime
+  `helperModuleName` call sites (`inline-script-collector.ts:98`,
+  `automations.ts:445`, `collector-script-test.ts:196`, `script-test.ts:233`),
+  JSDoc examples, and all the asserting tests. This is the BREAKING change to the
+  script-author import surface.
 - New version-keyed `/api/script-packages/sdk-types/:releaseVersion` raw handler
   in `script-packages-backend` + pure path module
   `core/script-packages-common/src/sdk-types-path.ts` (§6.1). Serves committed
-  `generated/sdk.d.ts`.
+  `generated/editor-bundle.d.ts`.
 - Frontend fetch + `addExtraLib` mount + reset-on-version effect (§6.2).
-- Remove the generic `declare module "@checkstack/healthcheck"` /
-  `"@checkstack/integration"` blocks from `scriptContext.ts:136-139`,`:204-207`;
-  keep the schema-narrowed `context` block.
-- **Ships:** editor autocomplete backed by the published SDK, never stale after
-  upgrade.
+- **Ships:** editor autocomplete backed by the published `@checkstack/sdk` under
+  the subpath names, never stale after upgrade; bare-name imports now error in
+  the editor, surfacing the migration.
 
-### Phase 4 — Docs
+### Phase 4 — Docs + in-repo migration
 - New developer-guide page `docs/src/content/docs/.../sdk.md` (generation,
-  versioning, `npm install @checkstack/sdk@<release>`, client + helper usage,
-  external-IDE authoring). Starlight frontmatter (`title`, `description`).
-- Update `docs/src/content/docs/user-guide/reference/script-health-checks.md`
-  and `docs/src/content/docs/user-guide/guides/test-scripts-in-the-ui.md` to
-  point at the real `@checkstack/sdk` instead of the virtual modules.
+  versioning, `npm install @checkstack/sdk@<release>`, client + helper usage via
+  subpaths, external-IDE authoring). Starlight frontmatter (`title`,
+  `description`).
+- Migrate `docs/.../script-health-checks.md:95`,`:130` and
+  `docs/.../test-scripts-in-the-ui.md` from the bare names to
+  `@checkstack/sdk/healthcheck` / `@checkstack/sdk/integration`, with a clear
+  **BREAKING migration note** (old `@checkstack/healthcheck` import → new
+  subpath).
 
 ---
 
@@ -564,15 +657,17 @@ any SDK package. **Document this in the changeset README.**
 | 1 | `generate-sdk.test.ts` (bun) | codegen emits expected `CheckstackClient` keys = the 21 plugin ids; emits both helper runtime + types; stamps version from a fixture `release` pkg |
 | 1 | `--check` drift test | mutating a generated file → nonzero exit |
 | 1 | `tsc -b` (typecheck) | generated `client.ts` compiles; `CheckstackClient` resolves `InferClient` per plugin without `any` |
-| 1 | subpath-exports resolution check | a fixture consumer importing `@checkstack/sdk`, `@checkstack/sdk/healthcheck`, `@checkstack/sdk/integration` under `nodenext` resolves each subpath's `types` to the correct surface (drives the per-subpath `.d.ts` decision, §4.1 caveat) |
-| 2 | `publish-packages.test.ts` add-case | a stamped SDK pkg ahead of npm → status `update`/`new`; private `@checkstack/release` still skipped |
-| 2 | stamp test | after `generate-sdk.ts`, all 3 SDK `package.json` versions === `@checkstack/release` version; compat dep pinned to same |
-| 2 | changeset-guard test | pending changeset naming an SDK pkg → `--check` fails |
-| 2 | SDK-drift-without-changeset guard (§7.1.1) | regenerated `sdk.d.ts` differs from committed AND no pending changeset → `--check` fails (prevents the silent no-republish drift) |
-| 3 | path module unit test (mirror `type-acquisition.test.ts`) | `build`/`parse` round-trip; rejects traversal/empty |
+| 1 | subpath-exports resolution check (LOAD-BEARING, §4.1) | a fixture consumer importing `@checkstack/sdk`, `@checkstack/sdk/healthcheck`, `@checkstack/sdk/integration` under `nodenext` resolves each subpath's `types` to exactly its own surface (asserts the per-subpath `.d.ts` is required + correct) |
+| 1 | client runtime smoke test | `createCheckstackClient({ baseUrl })` builds a client; per-plugin keys present + typed (the LOCKED v1 runtime client, §2.2) |
+| 2 | `publish-packages.test.ts` add-case | a stamped `@checkstack/sdk` ahead of npm → status `update`/`new`; private `@checkstack/release` still skipped |
+| 2 | stamp test | after `generate-sdk.ts`, `core/sdk/package.json` version === `@checkstack/release` version (single package) |
+| 2 | changeset-guard test | pending changeset naming `@checkstack/sdk` → `--check` fails |
+| 2 | SDK-drift-without-changeset guard (§7.1.1) | regenerated SDK `.d.ts` differs from committed AND no pending changeset → `--check` fails (prevents the silent no-republish drift) |
+| 3 | bare-name → subpath rewrite tests (§6.4) | every updated `helperModuleName`/ambient-block test asserts the SUBPATH name; no test still asserts a bare name; an old bare-name import is unresolved in the editor bundle |
+| 3 | path module unit test (mirror `type-acquisition.test.ts`) | `buildSdkTypesPath`/`parseSdkTypesPath` round-trip; rejects traversal/empty |
 | 3 | handler test | matching version → 200 + immutable cache header; mismatched → 409; unauthenticated → 401; no read access → 403 |
 | 3 | helper-source parity test | published `defineHealthCheck`/`defineIntegration` runtime body === `esm-script-runner.ts:234` identity body (regression guard for §6.3) |
-| 4 | docs build | Starlight builds; no missing-`title` warning; links resolve |
+| 4 | docs build | Starlight builds; no missing-`title` warning; links resolve; no remaining bare-name imports in docs |
 
 > Frontend `addExtraLib` injection glue is intentionally untested at unit level
 > (no DOM/network in unit tests) — same rationale as the existing ATA glue
@@ -583,13 +678,14 @@ any SDK package. **Document this in the changeset README.**
 ## 10. Cross-cutting (repo rules)
 
 - **Changeset:** feature → `minor` bump for the touched *platform* packages
-  (editor, the new backend handler surface). **BETA: no major** — minor + a
-  BREAKING note if the `scriptContext.ts` module-block removal counts as a
-  contract change for editor consumers (it does not change runtime behavior). The
-  SDK packages themselves are version-stamped and excluded from the changeset
-  (§7.3).
-- **`typecheck:references:generate`:** REQUIRED in Phase 1 — 3 new workspace
-  packages and `core/sdk` adds workspace deps on all 21 `*-common` packages.
+  (editor, the script runners, the new backend handler surface). **BETA: no
+  major** — `minor` + an explicit **BREAKING CHANGES** note in the changeset
+  body: the script-author import surface moves from `@checkstack/healthcheck` /
+  `@checkstack/integration` to `@checkstack/sdk/healthcheck` /
+  `@checkstack/sdk/integration` (§2.1, §6.4). `@checkstack/sdk` itself is
+  version-stamped and excluded from the changeset (§7.3).
+- **`typecheck:references:generate`:** REQUIRED in Phase 1 — ONE new workspace
+  package (`core/sdk`) that adds workspace deps on all 21 `*-common` packages.
   Commit the regenerated `tsconfig.json` reference arrays (do NOT hand-edit, per
   `.agent/rules/typecheck.md`).
 - **Lint/typecheck:** `bun run lint` + `bun run typecheck` after each phase. No
@@ -604,16 +700,20 @@ any SDK package. **Document this in the changeset README.**
 
 ---
 
-## 11. Open items needing USER SIGN-OFF
+## 11. Sign-off status (all resolved)
 
-1. **npm names** `@checkstack/sdk`, `@checkstack/healthcheck`,
-   `@checkstack/integration` — confirm free/ownable under the org (§4.4).
-2. **Compat-package approach** (two thin re-export packages) vs rewriting the
-   editor/runtime to subpath imports (§2.1). Recommended: compat packages.
-3. **Ship the runtime fetch client** (`createCheckstackClient`) in v1, or
-   types-only? Recommended: ship it (cheap over oRPC) (§2.2).
-4. ~~**Home for the SDK-types route**~~ — **RESOLVED in §6.1: reuse
-   `script-packages-backend` for the handler; the pure path module lives in
-   `core/script-packages-common/src/sdk-types-path.ts` (same `-common` package
-   as the existing `type-acquisition.ts`), shared by backend + frontend.** Left
-   here only as a record of the resolved decision; no sign-off needed.
+All prior open items are now decided. Recorded here for traceability:
+
+1. ✅ **Package shape — MAINTAINER-DECIDED: subpath imports, no compat
+   packages** (§2.1). Every bare-name consumer is rewritten to
+   `@checkstack/sdk/{healthcheck,integration}` (§6.4); this is a BREAKING change
+   to the script-author import surface, documented in docs + changeset.
+2. ✅ **v1 runtime — LOCKED: ship types + the thin `createCheckstackClient`
+   runtime client, plus the helper identity-runtime** (§2.2).
+3. ✅ **npm name** — only `@checkstack/sdk` is published; confirm it is
+   free/ownable under the org before first publish (single name, no compat
+   names to reserve).
+4. ✅ **SDK-types route home** — reuse `script-packages-backend` for the handler;
+   the pure path module lives in `core/script-packages-common/src/sdk-types-path.ts`
+   (same `-common` package as the existing `type-acquisition.ts`), shared by
+   backend + frontend (§6.1).

@@ -1,14 +1,15 @@
 # Catalog UX redesign — a navigable system catalog at scale
 
-> **Status:** design-led, awaiting IA sign-off (drafted 2026-06-01, not started)
+> **Status:** IA LOCKED 2026-06-01 — maintainer approved the split browse +
+> manager-gated `/config`, the group-first collapsible IA, and the new
+> `CatalogBrowseHealthSlot` contract; build not started.
 > **Branch:** off `main`
 > **Issue:** #250
 > **Goal:** turn the system catalog from an 18-line placeholder home + an
 > un-filtered management list into a deliberate, **group-first browse experience**
 > that stays legible and navigable at hundreds of systems across many groups.
-> This is **design-led**: the first deliverable is an agreed information
-> architecture (IA) and interaction model (§2-§5); the build (§8) follows once the
-> IA is signed off.
+> This was a **design-led** effort: the IA and interaction model (§2-§5) are now
+> locked (§6); the build (§8) proceeds against them.
 
 Self-contained handoff. Every current-state claim carries a `file:line` anchor so
 the implementer never has to guess. The plan honours `.agent/rules/*` — no `any`,
@@ -19,28 +20,33 @@ changesets, and same-PR docs.
 
 ---
 
-## 0. TL;DR — the recommendation (read this first, then §2 for the design)
+## 0. TL;DR — the locked decisions (read this first, then §2 for the design)
 
-- **Keep browse and management split, but make the split a continuum.** A new
+All four below are **DECIDED** (maintainer-approved 2026-06-01). Rationale and
+rejected alternatives are kept in §6 as the decision record.
+
+- **DECIDED — keep browse and management split, share components.** A new
   read-only **browse** view replaces the `CatalogPage` stub at `home: "/"`; the
   existing manager-gated **management** view stays at `config: "/config"`. They
   share one component vocabulary (the same group-first list, search bar, density
   toggle) so they feel like one product, but they are two routes with two access
   postures. Rationale + the rejected "one converged gated view" in §6.1.
-- **Group-first, collapsible grouped-list is the primary navigation model** (not a
-  sidebar tree, not a board). Rationale + rejected alternatives in §6.2.
-- **Surface health rollups inline on browse**, sourced through the existing
+- **DECIDED — group-first, collapsible grouped-list is the primary navigation
+  model** (not a sidebar tree, not a board). Rationale + rejected alternatives in
+  §6.2.
+- **DECIDED — surface health rollups inline on browse via the new
+  `CatalogBrowseHealthSlot` platform contract** + the existing
   `SystemStateBadgesSlot` extension (the same decoupled mechanism
   `SystemDetailPage` already uses, `core/catalog-frontend/src/components/SystemDetailPage.tsx:110`),
   NOT by adding a `healthcheck`/`incident` dependency to `catalog-frontend`.
   Rationale + the dependency-coupling trap in §6.3.
-- **Ship the three detail-page cleanups in Phase 1** (NotFound, readable metadata,
-  drop hardcoded `en-US`) as a low-risk standalone PR that does not block the IA.
-  Rationale in §6.4.
+- **DECIDED — ship the three detail-page cleanups in Phase 1** (NotFound, readable
+  metadata, drop hardcoded `en-US`) as a low-risk standalone PR that does not block
+  the IA. Rationale in §6.4.
 
-**Needs user sign-off before building:** the IA in §2-§5 (the group-first model,
-the browse/manage split, inline health), and confirmation of §6.1-§6.4. Flagged
-explicitly in §10.
+All four are locked; the build (§8) proceeds against them. The new
+`CatalogBrowseHealthSlot` contract is approved (§4.2, §6.3) — it still ships with
+same-PR docs + a changeset per the platform-contract rules (§9, §10).
 
 ---
 
@@ -171,7 +177,7 @@ not unilaterally add a shared hook this PR per `code-style-guide.md`).
 
 ---
 
-## 2. Information architecture — the recommended design (NEEDS SIGN-OFF)
+## 2. Information architecture — the LOCKED design (approved 2026-06-01)
 
 The catalog answers three operator questions at scale: *what exists*, *where is a
 specific thing*, and *what is its rolling-up health*. The IA is **group-first**:
@@ -459,12 +465,16 @@ noted as a future hook in §9.
 
 ---
 
-## 6. Open questions — resolved with rationale (NEEDS SIGN-OFF)
+## 6. Decision record — LOCKED (maintainer-approved 2026-06-01)
 
-### 6.1 Converge browse + management, or keep split? → **Keep split, share components.**
+These were the design-led open questions; all are now decided. Rationale and
+rejected alternatives retained as the record.
 
-- **Decision:** two routes (`/` read-only browse, `/config` manager-gated
-  management), sharing the toolbar + filtering hook + row vocabulary.
+### 6.1 Converge browse + management, or keep split? → **DECIDED: keep split, share components.**
+
+- **Decision (LOCKED):** two routes (`/` read-only browse, `/config`
+  manager-gated management), sharing the toolbar + filtering hook + row
+  vocabulary.
 - **Rationale:** (a) The access postures genuinely differ — `/config` is gated at
   the route level (`index.tsx:47`) and renders AccessDenied for non-managers
   (`PageLayout allowed`, `CatalogConfigPage.tsx:325-327`); a converged view would
@@ -479,9 +489,10 @@ noted as a future hook in §9.
   complexity, worse default for the read-only majority, diverges from the
   established overview/config sibling pattern.
 
-### 6.2 Primary navigation model? → **Group-first collapsible grouped-list.**
+### 6.2 Primary navigation model? → **DECIDED: group-first collapsible grouped-list.**
 
-- **Decision:** collapsible group sections + a synthetic Ungrouped section.
+- **Decision (LOCKED):** collapsible group sections + a synthetic Ungrouped
+  section.
 - **Rejected — sidebar tree:** groups are a flat, many-to-many membership
   (`Group.systemIds`, a system can be in several groups), not a true hierarchy; a
   tree implies single-parent nesting the data model does not have, and a
@@ -494,12 +505,13 @@ noted as a future hook in §9.
   `Accordion`/`Card`/`SectionHeader` we already have, and (d) keeps mounted DOM
   bounded via collapse (§3.4).
 
-### 6.3 Surface health rollups inline? → **Yes, via the slot/provider, no hard dep.**
+### 6.3 Surface health rollups inline? → **DECIDED: yes, via the new `CatalogBrowseHealthSlot`, no hard dep.**
 
-- **Decision:** per-system badges via the existing `SystemStateBadgesSlot`; group
-  rollups via a new optional `CatalogBrowseHealthSlot` that healthcheck fills with
-  a `SystemBadgeDataProvider`-backed context (§4.2). When healthcheck is absent,
-  show counts only.
+- **Decision (LOCKED):** per-system badges via the existing
+  `SystemStateBadgesSlot`; group rollups via a new optional
+  `CatalogBrowseHealthSlot` (an approved new platform contract) that healthcheck
+  fills with a `SystemBadgeDataProvider`-backed context (§4.2). When healthcheck is
+  absent, show counts only.
 - **Rationale:** health at a glance is the single biggest legibility win for
   operators (the issue calls it out), and the slot mechanism already exists and is
   already used on detail. Adding `healthcheck-common`/`dashboard-frontend` as a
@@ -510,10 +522,10 @@ noted as a future hook in §9.
 - **Rejected — direct `getBulkSystemHealthStatus` call from catalog-frontend:**
   introduces the coupling above for no benefit the slot does not already give.
 
-### 6.4 Detail-page cleanups here or split? → **Ship in Phase 1 as a standalone PR.**
+### 6.4 Detail-page cleanups here or split? → **DECIDED: ship in Phase 1 as a standalone PR.**
 
-- **Decision:** the three cleanups (NotFound, metadata, locale) ship first, as one
-  small low-risk PR, before/independent of the IA build.
+- **Decision (LOCKED):** the three cleanups (NotFound, metadata, locale) ship
+  first, as one small low-risk PR, before/independent of the IA build.
 - **Rationale:** they are independent, low-risk, and high-value-per-line; the
   root-cause note in the issue confirms they are decoupled from the home-page
   direction. Shipping them first de-risks the PR series and gives an immediate
@@ -683,7 +695,7 @@ noted as a future hook in §9.
 
 ---
 
-## 10. Cross-cutting & sign-off
+## 10. Cross-cutting & decision status
 
 - **Repo rules:** no `any`, no `eslint-disable`; zod for the metadata schema; typed
   object args + destructuring; copy (don't unilaterally add) the debounce hook;
@@ -694,13 +706,15 @@ noted as a future hook in §9.
   only Phase 4). Conventional commits; per-package **beta-minor** changesets with
   `BREAKING CHANGES:` notes only if a contract is removed (none here — the new
   slot is additive). Same-PR docs per §9.
-- **Needs user sign-off before any build:**
-  1. The **IA in §2-§5** as a whole (group-first collapsible grouped-list, the
-     browse/manage split, inline health via the slot, density + URL-state model).
-  2. **§6.1** keep split + share components (vs. converge).
-  3. **§6.2** group-first grouped-list (vs. tree / board).
-  4. **§6.3** health via slot/provider, no hard dependency.
-  5. **§6.4** detail cleanups ship first as Phase 1.
-  6. The one **new platform contract**: `CatalogBrowseHealthSlot` (Phase 4).
+- **All design decisions LOCKED (maintainer-approved 2026-06-01)** — no further
+  sign-off needed to build:
+  1. The **IA in §2-§5** (group-first collapsible grouped-list, the browse/manage
+     split, inline health via the slot, density + URL-state model). — APPROVED
+  2. **§6.1** keep split + share components (vs. converge). — APPROVED
+  3. **§6.2** group-first grouped-list (vs. tree / board). — APPROVED
+  4. **§6.3** health via the new slot, no hard dependency. — APPROVED
+  5. **§6.4** detail cleanups ship first as Phase 1. — APPROVED
+  6. The one **new platform contract**, `CatalogBrowseHealthSlot` (Phase 4). —
+     APPROVED (ships with same-PR docs + changeset per §9).
 - Everything else (component names, file layout, test names) is reversible
-  implementation detail and does not need sign-off.
+  implementation detail decided at build time.

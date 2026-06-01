@@ -620,7 +620,7 @@ Everything else in §6/§7/§9 is API-shape-agnostic by construction, so the spi
 only pins names, not architecture. **DECISION (key store):** the `oidcProvider`
 plugin owns the AS signing keys/JWKS; the platform `keyStore` is untouched.
 
-### 12. Scope grammar: raw IDs vs bundles — DECIDED: raw access-rule IDs + a thin optional bundle layer
+### 12. Scope grammar: raw IDs vs bundles — LOCKED (maintainer 2026-06-01): raw access-rule IDs + the `checkstack:read` / `checkstack:write` two-bundle layer
 
 - Scope strings ARE qualified access-rule ids (the same vocabulary
   `autoAuthMiddleware` enforces and `aiAccess`/`automationAccess` define, e.g.
@@ -641,13 +641,14 @@ See §9. Per-item resource reads are derived from existing read procedures so
 they re-use authz and never drift; only the top-level index + the prompt set are
 hand-authored (curation, not data).
 
-### 13.4 Proposal-token TTL + storage — DECIDED: row in `ai_tool_calls`, 10-minute TTL
+### 13.4 Proposal-token TTL + storage — LOCKED (maintainer 2026-06-01): row in `ai_tool_calls`, 10-minute TTL
 
 - **Storage:** the `proposed` audit row IS the token store (no separate ephemeral
   table). Token = `propose:<rowId>.<nonce>` (base64url); `proposalNonce` 32 random
   bytes; `proposalExpiresAt = now + TTL`.
-- **TTL:** 10 minutes. Long enough for a human confirm card; short enough to bound
-  replay. Configurable per-instance later; 10 min is the shipped default.
+- **TTL:** 10 minutes (LOCKED). Long enough for a human confirm card; short
+  enough to bound replay. Configurable per-instance later; 10 min is the shipped
+  default.
 - **Apply check:** fetch by id → `status === "proposed"` AND constant-time nonce
   match AND `proposalExpiresAt > now`; else reject (`409`/`410`). On success,
   transition `proposed → applied` in one `UPDATE … WHERE status='proposed'`
@@ -673,7 +674,8 @@ hand-authored (curation, not data).
   fixed-window table is the shipped v1.)
 - **LLM spend cap (optional, per-org):** a counter keyed `spend:${orgId}` updated
   with token-usage cost after each agent turn; over-cap returns a friendly error.
-  Off by default; opt-in per integration.
+  **Off by default (LOCKED, maintainer 2026-06-01); the config knob exists and is
+  opt-in per integration.**
 
 ### 14.6 Default model + per-integration model UX — DECIDED
 
@@ -837,13 +839,16 @@ env-gated convention (`CHECKSTACK_IT=1`) so the default `bun test` stays fast.
      registry, marked `declareNonReactiveState({ reason: "bookkeeping" })` (never
      a source of truth) — same exception class as the existing WebSocket registry.
 
-## 20. Items the user must personally approve
+## 20. Decision log + the one remaining heads-up
 
+All three previously-open policy knobs are now LOCKED (maintainer 2026-06-01):
+- **Scope grammar (§12):** raw access-rule IDs + the `checkstack:read` /
+  `checkstack:write` two-bundle layer (expanded before intersection, narrow-only).
+- **Proposal-token TTL (§13.4):** 10 minutes.
+- **LLM spend cap (§14.6):** off by default; the config knob exists.
+
+Remaining informational heads-up (not a knob — surfaces from the one scoped spike):
 - **§11 spike outcome may pin the OAuth token as opaque (introspection) rather
   than JWT.** The §6 branch absorbs this, but it changes the verification cost
-  profile (an introspection round-trip per call vs a local JWKS verify). Flag for
+  profile (an introspection round-trip per call vs a local JWKS verify). Note for
   review once the spike lands.
-- **Bundle scopes `checkstack:read` / `checkstack:write` (§12)** are a curated UX
-  surface; confirm the two-bundle set is the desired starting vocabulary.
-- **Proposal-token TTL = 10 minutes (§13.4)** and **LLM spend cap default = off
-  (§14.6)** are policy defaults worth a sign-off.

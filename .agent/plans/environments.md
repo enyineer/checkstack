@@ -450,39 +450,140 @@ for the env-less case). `environment.fields` is the catalog environment's `metad
   test panel UI gains an environment picker (or a manual custom-fields entry) so an
   operator previews a specific environment's render.
 
-### 6.3 Config-field templating (the biggest call — §11.4)
+### 6.3 General config-field templating (DECIDED — committed, non-conditional)
 
-> **RECOMMENDED DECISION (needs user sign-off): general collector-config templating
-> via the existing template engine, gated to fields opted in with `x-templatable`,
-> rendered against `{ environment, check, system }` at execute time.** Rationale and
-> alternatives in §11.4.
+> **MAINTAINER DECISION (locked):** general collector-config templating via the
+> existing template engine, opt-in per field with `x-templatable`, rendered against
+> `{ environment, check, system }` at execute time. This is what makes
+> `{{ environment.baseUrl }}/healthz` work in the HTTP `url`. It is a **committed
+> phase** (Phase 4 in §10), not a conditional one. The script-only fallback is
+> abandoned.
 
-Concretely (assuming the recommended decision):
-- A new config-field meta flag `x-templatable: true` (via the existing
-  `withConfigMeta` precedent used for `x-secret-env` in
-  `execute-collector.ts:104`) marks a string field as eligible. The HTTP collector's
-  `url` becomes
-  `configString({ "x-templatable": true }).describe("Full URL. Supports {{ environment.baseUrl }}.")`
-  (replacing the bare `z.string().url()` at `request-collector.ts:30` — note `.url()`
-  validation moves to *post-render* since the pre-render value contains `{{ }}`).
-- A shared **render pass** runs in `queue-executor.ts` AFTER env resolution and
-  BEFORE `strategy.createClient` / `collector.execute`: walk the strategy config +
-  each collector config, and for every `x-templatable` string field, `render()` it
-  (`core/template-engine/src/renderer.ts:38`) against
-  `{ environment: runContext.environment?.fields ?? {}, check, system }`. Use
-  `strict: false` (missing path → empty string) by default; surface a render error as
-  a clear collector failure when `strict` matters. Secrets stay on the **separate**
-  `${{ secrets.NAME }}` path (resolved by the secrets resolver,
-  `queue-executor.ts:572-585`) — the two syntaxes (`${{ }}` for secrets, `{{ }}` for
-  templating) do not collide and are resolved in separate passes (secrets first or
-  last is a §11.4 sub-decision; recommend **environment-render first, secrets second**
-  so a secret value never gets re-parsed as a template).
-- The render pass is a single shared utility (`renderTemplatableConfig`) so every
-  collector benefits without per-collector code.
+#### 6.3.1 The `x-templatable` field marker
 
-> If user rejects general templating (chooses script-only): drop §6.3 entirely; the
-> HTTP `url` stays static and the feature only parameterizes script collectors via
-> §6.2. This is the smaller, safer scope.
+A new config-field meta flag `x-templatable: true`, attached via the existing
+`withConfigMeta` precedent (used for `x-secret-env` at `execute-collector.ts:104`,
+and the `x-editor-types` / `x-script-testable` / `x-ephemeral` family throughout the
+collectors). Add the flag's type to the config-meta interface in `core/backend-api`
+(same module that defines `withConfigMeta` and `configString`). It marks a **string**
+field whose value is rendered through the template engine before the collector reads
+it. Only `x-templatable` fields are rendered; everything else is passed through
+verbatim (so a literal `{{` in a non-templatable field is never touched).
+
+#### 6.3.2 Which HTTP collector fields are templatable
+
+`plugins/healthcheck-http-backend/src/request-collector.ts` (`requestConfigSchema`,
+`:29-49`):
+- **`url`** (`:30`) — the minimum, the motivating case. Becomes
+  `configString({ "x-templatable": true }).describe("Full URL. Supports {{ environment.baseUrl }} etc.")`.
+  Its `.url()` validation **moves to post-render** (see §6.3.5) because the stored
+  value `{{ environment.baseUrl }}/healthz` is not itself a valid URL.
+- **`headers[].value`** (`:36`) — header values are a natural per-env case (auth
+  hosts, tenant ids). Mark each `value` string `x-templatable`. `name` stays literal.
+- **`body`** (`:39-43`) — already a `configString`; add `x-templatable` so payloads
+  can carry `{{ environment.* }}`.
+- `method` and `timeout` stay non-templatable (enum / number).
+
+Other collectors opt in field-by-field over time; the render pass is collector-
+agnostic (§6.3.3), so no per-collector code is needed beyond marking fields.
+
+#### 6.3.3 The shared render pass — where it runs in the pipeline
+
+A single shared utility `renderTemplatableConfig({ config, schema, context })` lives
+in `core/backend-api` (next to `withConfigMeta`), so every collector and every
+strategy config benefits. It walks a validated config object against its zod schema,
+and for each field carrying `x-templatable: true` whose value is a string, replaces it
+with `render(parse(value), context, { strict: false })`
+(`core/template-engine/src/renderer.ts:38`). Arrays/objects are walked recursively so
+`headers[].value` is reached.
+
+In `core/healthcheck-backend/src/queue-executor.ts`, the render pass runs **per
+environment, after env resolution and the secret pass, and before
+`strategy.createClient` / `collector.execute`**:
+
+```
+for each effectiveEnv (or the single env-less run):
+  runContext = buildRunContext(check, system, env?)
+  templateContext = {
+    environment: runContext.environment?.fields ?? {},   // {{ environment.baseUrl }}
+    check: runContext.check,                              // {{ check.name }}
+    system: runContext.system,                            // {{ system.id }}
+  }
+  // (1) secret pass — UNCHANGED, resolves ${{ secrets.NAME }} in x-secret fields
+  //     (queue-executor.ts:572-585 via the secrets resolver)
+  // (2) environment/templating pass — NEW, renders {{ ... }} in x-templatable fields
+  strategyConfig  = renderTemplatableConfig({ config: strategyConfig,  schema: strategy.config.schema,  context: templateContext })
+  collectorConfig = renderTemplatableConfig({ config: collectorConfig, schema: collector.config.schema, context: templateContext })
+  // (3) post-render validation (§6.3.5), then connect + execute
+```
+
+The render pass is per-environment because the rendered output differs per env; the
+secret pass stays where it is (it does not depend on environment). Note: today
+`strategy.createClient(strategyConfig)` is built ONCE per job
+(`queue-executor.ts:550`); under fan-out it moves INSIDE the per-env loop so each env
+gets its own rendered config + client. The collectors already run inside the loop
+(`:554-593`).
+
+#### 6.3.4 `{{ environment.* }}` vs `${{ secrets.NAME }}` — precedence, escaping, ordering
+
+The two syntaxes are **lexically distinct** and resolved in **separate, ordered
+stages**, so they never compete for the same tokens:
+
+- **`${{ secrets.NAME }}`** — the secrets sigil (`gitops-common`
+  `secretTemplateSchema`, used in `x-secret`/`x-secret-env` fields only). Resolved by
+  the **secrets resolver** (`queue-executor.ts:572-585`). The leading `$`
+  distinguishes it from the templating sigil.
+- **`{{ environment.* }}` / `{{ check.* }}` / `{{ system.* }}`** — the templating
+  sigil, resolved by the **template engine** in `x-templatable` fields only.
+
+**Ordering: secrets FIRST, environment/templating SECOND.** Rationale:
+- A field is either `x-secret`/`x-secret-env` OR `x-templatable` — **not both**
+  (enforced: a field carrying both flags is a load-time config error). So in the
+  common case the two passes touch disjoint fields and order is irrelevant.
+- For the corner case where a rendered template could *produce* text that looks like a
+  secret sigil, running secrets first means the secret pass has already consumed all
+  `${{ }}` tokens before the template engine runs, and the template engine only
+  recognizes `{{ }}` (no `$`), so a resolved secret value containing `{{` is **not**
+  re-interpreted. The reverse order risks a rendered `${{` being seen by a later
+  secret pass — so secrets-first is the safe order.
+- **Escaping:** a literal `{{` in a templatable field is escaped per the template
+  engine's existing escape rule (the engine already handles literal braces in its
+  grammar — no new escape syntax invented here). A literal `${{` in a secret field is
+  out of scope (secret fields are not templatable). Document both in the templating
+  reference page.
+- **Masking interaction:** because secrets resolve BEFORE the template render and the
+  template engine never touches `x-secret` fields, no secret value flows into the
+  templating context, and the existing source-side masking
+  (`maskScriptRunOutput`, `execute-collector.ts:287-295`) is unaffected. The
+  templating context carries only environment custom fields + curated check/system
+  metadata — never secrets (consistent with `CollectorRunContext` being "metadata
+  only, never secrets").
+
+#### 6.3.5 Validation (post-render)
+
+Because a templatable field's stored value can contain `{{ }}`, schema validation that
+inspects the *concrete* value (e.g. `.url()`) cannot run on the stored form. The model:
+- **Store-time:** the field is validated as a plain templatable string
+  (`configString`), NOT with `.url()`. The editor can still preview-render against a
+  sample environment (the template engine's client-side preview, `types.ts:9-11`).
+- **Post-render (run-time):** after `renderTemplatableConfig`, the executor validates
+  the **rendered** value with the field's concrete validator. For the HTTP `url`,
+  re-run a `z.string().url()` parse on the rendered string; a failure becomes a clear
+  collector error ("rendered URL is invalid: <value>"), surfaced as an unhealthy run
+  with a config-error message — never a silent pass. Recommend the simplest v1: the
+  HTTP collector re-parses its own `url` post-render in `execute()`, returning a clear
+  error on failure (no new meta needed; generalize to a declared
+  `x-rendered-validator` later if many collectors need it).
+
+#### 6.3.6 Empty-env-set behavior (already decided, §11.6)
+
+When the effective env set is empty (opt-out `[]`, or `null` with no membership) the
+run is **env-less**: `templateContext.environment = {}`. A `{{ environment.baseUrl }}`
+reference resolves to **empty string** (`strict: false`) and a single `warn` is logged
+("check references environment.* but ran with no environment"). For the HTTP `url`,
+the empty render yields an invalid URL, the post-render `.url()` parse fails, and the
+collector returns a clear config error — the correct, visible signal. The run is
+**not** failed-as-outage and **not** silently skipped.
 
 ---
 
@@ -529,37 +630,148 @@ a slow env doesn't get its own retry isolation — acceptable, since collectors 
 run with a per-execution hard timeout (`queue-executor.ts:532`,`:547`). **Flag for
 sign-off only if per-env independent scheduling/retry is a hard requirement.**
 
-### 7.4 The reactive `health` entity must become env-keyed (the consequential ripple)
+### 7.4 The reactive `health` entity becomes env-keyed (HEAVY — DECIDED)
 
-`health-entity.ts` keys the entity by `systemId` and computes from `getSystemHealthStatus(systemId)`
-(`service.ts:479`), which aggregates runs by `(systemId, configurationId)` IGNORING
-environment. If left as-is, fanned-out per-env runs **collapse** into one system-level
-status — the issue's explicit anti-goal ("stay distinct rather than collapsing across
-environments", #248 Technical notes).
+> **MAINTAINER DECISION (locked):** per-environment health is a **first-class reactive
+> value**. The `health` reactive entity's identity becomes **(system, environment)**,
+> plus a **system-level rollup** entity that keeps every existing system-level consumer
+> working. This is the heavy path; the light "runs-only, system-level health v1" is
+> abandoned. This change reshapes a core reactive entity's id and cardinality →
+> **BREAKING CHANGES** note required (§15, §11.2).
 
-**Decision:** make the `health` entity key `systemId` **or** `systemId:environmentId`,
-and add an env-less rollup. Concretely:
-- `getSystemHealthStatus` gains an optional `environmentId` filter; the per-env read
-  filters `health_check_runs` by `environmentId` too.
-- The entity id becomes `system:<systemId>` for the env-less / rollup view and
-  `system:<systemId>:env:<environmentId>` for a per-env view (or a structured
-  `{ systemId, environmentId }` key — match whatever `HEALTH_ENTITY_KIND` keying the
-  reactive engine expects; the engine keys entities by a single string id, so encode
-  as `<systemId>` / `<systemId>::<environmentId>`).
-- `writeHealthEntity` (`queue-executor.ts:729`,`:842`) is called once per env-run with
-  the env-qualified id; the env-less aggregate (whole-system rollup) is recomputed and
-  written as a SECOND entity write per tick so existing system-level automations keep
-  firing. **This doubles the entity-write surface per tick when envs are present** —
-  call it out; the rollup is computed-on-read so no extra storage, only extra
-  diff/emit work.
+Current state (verified): `health-entity.ts` keys the entity by **`systemId`** (the
+entity id IS the systemId — `createHealthEntityRead`, `:236-246`; the change deriver
+and payload mapper treat `changed` id / payload `systemId` as the systemId,
+`:90-135`). It computes `{ status, healthyChecks, totalChecks }` on read from
+`getSystemHealthStatus(systemId)` (`service.ts:479-529`), which aggregates
+`health_check_runs` by `(systemId, configurationId)` **ignoring environment**. Left
+as-is, fanned-out per-env runs collapse into one system status — the issue's explicit
+anti-goal.
 
-> **This is the single biggest implementation risk and the part most likely to need a
-> design review with the reactive-automation-engine owner.** It changes the cardinality
-> and id-shape of a core reactive entity. See §11.2 and the risk table. If a lighter
-> v1 is acceptable, an alternative is: **store `environmentId` on runs (so history is
-> distinct) but keep the `health` entity system-level for v1** (envs visible in
-> history/charts, but automations still reason at system granularity). Flagged for
-> sign-off in §11.2.
+#### 7.4.1 Entity id-shape: two reactive views
+
+The reactive engine keys entities by a single string id. Encode:
+- **Per-environment view:** id `"<systemId>::<environmentId>"` (double-colon separator;
+  systemIds/envIds are catalog `text` ids without `::`). State unchanged:
+  `{ status, healthyChecks, totalChecks }` computed from runs filtered to that env.
+- **System rollup view:** id `"<systemId>"` (unchanged shape). State unchanged. It is
+  the **worst-status rollup across the system's environments + env-less runs**
+  (degraded if any env degraded, unhealthy if any unhealthy, healthy only if all
+  healthy), computed on read. This preserves the exact id and meaning existing
+  consumers already use, so **system-level automations, dashboards, and badges keep
+  working with zero changes**.
+
+Both are the SAME `HEALTH_ENTITY_KIND = "health"` kind (`health-entity.ts:36`); only
+the id-shape distinguishes them. A consumer that references `state.health.<systemId>`
+gets the rollup; one that references `state.health.<systemId>::<environmentId>` gets
+the per-env view.
+
+#### 7.4.2 Read path (`getSystemHealthStatus` / `health-entity.ts`)
+
+- `getSystemHealthStatus` (`service.ts:479`) gains an optional
+  `environmentId?: string | null` arg. When provided, the inner run query
+  (`:516-529`) adds `eq(healthCheckRuns.environmentId, environmentId)` (or
+  `isNull(...)` for the env-less slice). When omitted, it computes the **rollup** by
+  resolving the system's current environments (cross-plugin read, cached per call) and
+  taking the worst per-env status — OR, simpler and equivalent: aggregate all runs for
+  the system regardless of env, since "any env unhealthy ⇒ at least one unhealthy run
+  in the window" already yields the worst-status semantics for the current window-based
+  evaluator. **Recommend the all-runs aggregate for the rollup** (no extra catalog
+  read; matches today's behavior exactly when no envs exist).
+- `createHealthEntityRead` (`health-entity.ts:232-247`) parses each incoming id: if it
+  contains `::`, split into `(systemId, environmentId)` and call
+  `getSystemHealthStatus(systemId, environmentId)`; else call
+  `getSystemHealthStatus(systemId)` (rollup). `computeHealthEntityState` gains the
+  env-aware path. This is the SINGLE source of truth `handle.mutate` snapshots `prev`
+  from and that scope enrichment / wake re-eval route through — so making it
+  env-aware fixes all three at once.
+- `getBulkHealthState` (`service.ts:619-648`) and `getHealthState` gain the same
+  optional `environmentId`, so the rich `scope.health` snapshot can be resolved per
+  env (§7.4.4).
+
+#### 7.4.3 Write path (`writeHealthEntity`)
+
+`writeHealthEntity` (`queue-executor.ts:729-761`, `:842+`; helper
+`health-entity.ts:294`) is called **once per env-run** with the env-qualified id
+`"<systemId>::<environmentId>"` (or `"<systemId>"` for an env-less run). After all
+env-runs for a tick complete, the executor performs **one additional rollup write** for
+the bare `"<systemId>"` id so the rollup entity diffs/emits its own
+`ENTITY_CHANGED` (system-level automations fire off this). The rollup write's `apply`
+does no new durable insert (the runs are already persisted by the per-env writes); it
+just recomputes + returns the rollup view so the framework diffs prev → next. The
+per-`systemId` serialization lock (`withXactLock`, key `health:<systemId>`,
+`health-entity.ts:269`) is **extended to key on the qualified id**
+(`health:<systemId>::<environmentId>` for per-env, `health:<systemId>` for the rollup)
+so concurrent per-env evals don't double-emit, and the rollup write serializes against
+itself.
+
+> **Write-surface multiplier:** with N effective envs, a tick does N per-env entity
+> writes + 1 rollup write (was 1). The per-env and rollup states are compute-on-read
+> (no current-state storage — Model B), so the cost is extra diff/emit/transition work,
+> not extra rows. Bounded by env count (operator-scale, typically single digits).
+> Called out in the risk table.
+
+#### 7.4.4 Scope enrichment + `wait_until` re-evaluation carry the environment
+
+Two scope projections exist (verified `state-scope.ts:181-207`): the rich
+`scope.health.*` snapshot (`enrichScopeWithState`, `:122-179`, via the healthcheck RPC)
+and the generic `scope.state.<kind>.<id>` view (`enrichScopeWithEntities`, `:266`, via
+the entity `read`/`getMany` resolver). Both key health by the **entity id**, which is
+now env-aware:
+- **Generic path (`scope.state.health.<id>`):** already kind-agnostic and routes through
+  the env-aware `read` (§7.4.2) — so `state.health["<systemId>::<environmentId>"]`
+  resolves the per-env view and `state.health["<systemId>"]` the rollup, for **free**
+  once the read is env-aware. `wait_until` wake re-eval (`reEnrichWaitScope`) resolves
+  through this path, so a wait that referenced an env-qualified health id wakes and
+  re-evaluates against the correct per-env state.
+- **Rich path (`scope.health.systems[id]`):** `enrichScopeWithState` builds its id set
+  from `contextKey` + `uses_state` (`:128-137`) and calls `getBulkHealthState`
+  (`:156`). The id used for the implicit `contextKey` is the trigger's context key
+  (today the systemId). For env-keyed triggers (§7.4.5), `contextKey` becomes the
+  env-qualified id, and `getBulkHealthState` parses `::` per id to filter by env
+  (§7.4.2). `scope.health.system` (the implicit-context shortcut, `:166`) resolves to
+  whichever id the trigger fired for — per-env when an env-keyed trigger fired, the
+  rollup when a system-level trigger fired. The `MAX_RESOLVED_SYSTEMS` cap (`:148`)
+  now counts env-qualified ids; document that a system in many envs consumes more of
+  the cap.
+
+#### 7.4.5 Trigger events, deriver, and payload
+
+`deriveHealthTriggerEvents` (`health-entity.ts:90-107`) and `healthChangeToPayload`
+(`:120+`) run on a change whose id is now the qualified id. Updates:
+- The deriver fires the same `healthcheck.system_degraded` / `_healthy` /
+  `_health_changed` qualified events (`HEALTH_TRIGGER_EVENTS`, `:62-66`) for **both**
+  the per-env and rollup changes — so existing automations subscribed to these events
+  still fire. **`contextKey` is the change's entity id** (the qualified id for per-env,
+  the bare systemId for the rollup), so an automation's per-resource scoping still works
+  for the rollup exactly as today, and gains per-env granularity automatically.
+- `healthChangeToPayload` parses the id: `payload.systemId` = the systemId portion
+  (always), and a NEW optional `payload.environmentId` = the env portion (present only
+  for per-env changes, absent for the rollup). The healthcheck trigger `payloadSchema`
+  gains the optional `environmentId` field. Existing automations reading
+  `trigger.payload.systemId` are unaffected (still the systemId); new automations can
+  filter on `trigger.payload.environmentId`.
+
+#### 7.4.6 Consumer migration (kept-working by construction)
+
+- **Dashboards / badges** that read a system's health by systemId → read the **rollup**
+  entity / `getSystemHealthStatus(systemId)` (no env arg) → unchanged behavior. New
+  per-env UI (run history grouping, §9) reads the per-env views.
+- **Automations referencing health by systemId** (`state.health.<systemId>`,
+  `trigger.payload.systemId`, the `system_*` triggers) → fire off the **rollup** with
+  the same id and payload → **no re-authoring required**. They additionally start
+  seeing per-env triggers fire (same event ids, env-qualified `contextKey`); an
+  automation that wants only system-level behavior is unaffected because the rollup
+  still emits. An automation that wants per-env behavior filters on the new
+  `trigger.payload.environmentId`.
+- **Transition log / "in status since"** (`recordStateTransition`,
+  `healthCheckStateTransitions`, §4.2/§7.5) gains the `environmentId` dimension; the
+  rollup transition is recorded with `environmentId = null`. `inStateSince`-style
+  lookups (`lookupIdx` extended in §4.2) take the env into account.
+
+This design satisfies the "keep existing consumers working" requirement WITHOUT a
+data migration of automations: the bare-`systemId` rollup preserves the old contract,
+and per-env reactivity is purely additive.
 
 ### 7.5 Aggregates + transitions + transition log
 
@@ -661,22 +873,41 @@ UI; match existing component structure and tokens.
    runs/aggregates/transitions + migration; `environmentIds` selector on
    `systemHealthChecks` + `AssociateHealthCheckSchema` + assignment route + assignment
    editor UI; the `effectiveEnvs` resolution + fan-out loop in the executor; aggregate
-   + transition env-keying. **`health` entity env-keying per the §11.2 decision.**
-   Run-history UI grouping by environment. *Touches:*
+   + transition env-keying. Run-history UI grouping by environment. *Touches:*
    `core/healthcheck-backend/*`, `core/healthcheck-common/*`,
-   healthcheck-frontend, healthcheck migration.
-4. **General config-field templating (CONDITIONAL on §11.4 sign-off).** `x-templatable`
-   meta + `renderTemplatableConfig` shared pass in the executor; HTTP `url` becomes
-   templatable with post-render `.url()` validation; render ordering vs secrets.
-   *Touches:* `core/healthcheck-backend/src/queue-executor.ts`,
-   `plugins/healthcheck-http-backend/src/request-collector.ts`, `core/backend-api`
-   (the `x-templatable` meta helper).
-5. **Docs + changesets.** New environments concept page; templating-variable docs;
-   GitOps `Environment` kind docs; assignment-selector docs. Changesets (beta-minor,
-   `BREAKING CHANGES:` only if §11.2 changes the `health` entity id-shape in a way
-   downstream automations must re-author). `bun run typecheck:references:generate`
-   after the new `@checkstack/*` deps (healthcheck-backend → catalog read; any new
-   dep edges).
+   healthcheck-frontend, healthcheck migration. **No `health`-entity reshape yet** —
+   runs are stored with `environmentId`, but the entity stays system-keyed at the end
+   of this phase; per-env reactivity lands in Phase 3b so the storage/fan-out change is
+   shippable on its own.
+3b. **Env-keyed reactive `health` entity (HEAVY — §7.4).** Reshape the `health` entity
+   id to `(system, environment)` + the system rollup view; make
+   `getSystemHealthStatus` / `getBulkHealthState` / `createHealthEntityRead`
+   environment-aware (§7.4.2); per-env + rollup `writeHealthEntity` with the
+   qualified-id serialization lock (§7.4.3); env-qualified `contextKey` and the new
+   optional `trigger.payload.environmentId` (§7.4.5); env in scope enrichment + wait
+   re-eval (§7.4.4). Verify system-level consumers (dashboards, badges, existing
+   automations) are unchanged via the rollup (§7.4.6). *Touches:*
+   `core/healthcheck-backend/src/{health-entity,service,queue-executor,index}.ts`,
+   `core/healthcheck-common/src/schemas.ts` (trigger payload), and (read-path only)
+   `core/automation-backend/src/dispatch/state-scope.ts`. **`BREAKING CHANGES:` in the
+   changeset** — the `health` entity id-shape/cardinality changes (§15).
+4. **General config-field templating (COMMITTED — §6.3, not conditional).**
+   `x-templatable` meta in `core/backend-api` + the shared `renderTemplatableConfig`
+   pass run per-env in the executor (after the secret pass, before connect/execute);
+   HTTP `url`/`headers[].value`/`body` become templatable; the strategy client build
+   moves inside the per-env loop; post-render `.url()` re-validation on the HTTP
+   collector; secrets-first-then-template ordering + the both-flags-forbidden load-time
+   check; editor preview-render. *Touches:*
+   `core/backend-api/src/*` (config-meta + `renderTemplatableConfig`),
+   `core/healthcheck-backend/src/queue-executor.ts`,
+   `plugins/healthcheck-http-backend/src/request-collector.ts`.
+5. **Docs + changesets.** New environments concept page; templating-variable docs
+   (`{{ environment.* }}` + `${{ secrets }}` coexistence/ordering/escaping +
+   `CHECKSTACK_ENV_*`); GitOps `Environment` kind docs; assignment-selector docs; the
+   per-env health + `trigger.payload.environmentId` reference. Changesets (beta-minor;
+   **`BREAKING CHANGES:` on healthcheck-backend** for the `health` entity id-shape
+   change in Phase 3b). `bun run typecheck:references:generate` after the new
+   `@checkstack/*` deps (healthcheck-backend → catalog read; any new dep edges).
 
 ---
 
@@ -688,17 +919,20 @@ M:N join machinery, the GitOps kind/extension pattern, and the catalog's notific
 search surfaces. A dedicated plugin would duplicate all of it for no contract benefit.
 **No sign-off needed** (matches the issue's assumption).
 
-### 11.2 `environmentId` on run storage + the `health` entity — SIGN-OFF REQUIRED
-**Recommended: add `environmentId` to runs/aggregates/transitions (always) AND
-env-key the `health` reactive entity (§7.4) so per-env health is reactive.**
-Rationale: the issue's stated goal is per-env distinctness; collapsing env health into
-a system rollup defeats per-env automations. **But** this changes the cardinality and
-id-shape of a core reactive entity (`health-entity.ts`), with ripple into scope
-enrichment and any automation that references system health. **User must sign off on
-the heavier path vs the lighter v1** (store `environmentId` on runs for distinct
-history/charts, keep the `health` entity system-level, defer per-env reactivity).
-Recommend the heavier path **only if** per-environment alerting is an explicit near-term
-need; otherwise ship the lighter v1 and add env-keyed reactivity as a follow-up.
+### 11.2 `environmentId` on run storage + the `health` entity — DECIDED: HEAVY env-keying
+**MAINTAINER DECISION (locked): add `environmentId` to runs/aggregates/transitions
+AND env-key the `health` reactive entity so per-environment health is a first-class
+reactive value (§7.4).** The light "runs-only, system-level health v1" is abandoned.
+The entity identity becomes **(system, environment)** with id-shape
+`"<systemId>::<environmentId>"`, plus a **system rollup** view keyed by the bare
+`"<systemId>"` that preserves the old contract so dashboards, badges, and existing
+automations that reference health by systemId keep working without re-authoring
+(§7.4.6). The read path (`getSystemHealthStatus` / `getBulkHealthState` /
+`createHealthEntityRead`), scope enrichment, and `wait_until` re-eval all become
+environment-aware (§7.4.2, §7.4.4); the trigger payload gains optional
+`environmentId` (§7.4.5). **This reshapes a core reactive entity's id and
+cardinality → `BREAKING CHANGES:` note on healthcheck-backend per the beta minor-bump
+policy (§15).** Landed in Phase 3b so the storage/fan-out work (Phase 3) ships first.
 
 ### 11.3 Custom-field typing — RECOMMEND free-form for v1
 **Decision: free-form `metadata` key/value (string-ish values), like
@@ -710,17 +944,17 @@ are a clean **follow-up** that can layer on top without a data migration (store 
 `{{ environment.* }}` will be best-effort (keys discovered from existing environments)
 until typing lands.
 
-### 11.4 Templating scope — SIGN-OFF REQUIRED (the biggest call)
-**Recommended: general collector-config templating via the template engine, opt-in
-per field with `x-templatable`, rendered against `{ environment, check, system }`
-(§6.3).** This is what makes `{{ environment.baseUrl }}/healthz` work in the HTTP
-`url` — the primary motivating use case. The alternative (script-only exposure via
-`CHECKSTACK_ENV_*` / `globalThis.context`) is smaller and safer but **does not solve
-the HTTP-collector case**, which is the headline example in the issue. **User must
-decide**: general templating (bigger lift: which fields are templatable, post-render
-validation, secrets/`${{ }}` vs `{{ }}` ordering) vs script-only (HTTP stays static).
-Sub-decisions if general: render env BEFORE secrets (recommended, so secret values are
-never re-parsed); `strict: false` default; `.url()` validation moves post-render.
+### 11.4 Templating scope — DECIDED: GENERAL collector-config templating
+**MAINTAINER DECISION (locked): general collector-config templating via the template
+engine, opt-in per field with `x-templatable`, rendered against
+`{ environment, check, system }` (§6.3).** This is what makes
+`{{ environment.baseUrl }}/healthz` work in the HTTP `url` — the headline use case.
+The script-only fallback is abandoned. It is a **committed phase** (Phase 4).
+Sub-decisions (all settled in §6.3): HTTP `url` + `headers[].value` + `body` are
+templatable; the shared `renderTemplatableConfig` pass runs per-env after the secret
+pass and before connect/execute; **secrets render FIRST, templating SECOND** (a field
+is `x-secret`-or-`x-templatable`, never both — load-time enforced); `strict: false`
+default; `.url()` validation moves post-render with a clear error on failure.
 
 ### 11.5 Namespace key — RECOMMEND `environment`
 **Decision: `environment`** (not `env`). It reads clearly next to `system` and `check`
@@ -749,11 +983,11 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
 
 | Risk | Mitigation |
 |---|---|
-| Env-keying the `health` entity changes a core reactive entity's id-shape | §11.2 sign-off; offer the lighter v1 (env on runs, system-level health); design-review with the automation-engine owner; `BREAKING CHANGES:` in the changeset if id-shape changes |
-| Per-env fan-out multiplies runs/aggregates/entity writes per tick | Fan-out bounded by env count (operator-scale, single digits typically); aggregates are upserts; the env-less rollup write is compute-on-read (no extra storage); document the multiplier |
+| Env-keying the `health` entity changes a core reactive entity's id-shape (DECIDED heavy, §11.2) | System rollup view keeps the bare-`systemId` id + payload so existing consumers are unchanged (§7.4.6); per-env reactivity is purely additive; isolated in Phase 3b behind the shippable Phase 3 storage change; `BREAKING CHANGES:` note on healthcheck-backend; cross-pod-read test for env-keyed health |
+| Per-env fan-out multiplies runs/aggregates/entity writes per tick (N per-env + 1 rollup) | Fan-out bounded by env count (operator-scale, single digits typically); aggregates are upserts; per-env + rollup states are compute-on-read (no extra storage, only diff/emit work); document the multiplier |
 | `null` vs `[]` semantics for `environmentIds` get conflated | Service explicitly distinguishes `=== null` from `length === 0`; unit tests cover all three modes (all/subset/opt-out) |
-| General templating breaks `.url()` validation timing | Move `.url()` to post-render; render pass is a shared utility; render errors surface as clear collector failures |
-| Secrets `${{ }}` and templating `{{ }}` interfere | Distinct syntaxes, separate passes; render environment BEFORE secrets so secret values are never re-parsed; tests assert non-interference |
+| General templating breaks `.url()` validation timing | Move `.url()` to post-render (the HTTP collector re-parses its rendered `url`); render pass is a shared utility; render errors surface as clear collector failures |
+| Secrets `${{ }}` and templating `{{ }}` interfere | Distinct sigils (the leading `$` separates them); separate ordered passes — **secrets FIRST, templating SECOND** — so a resolved secret value containing `{{` is never re-parsed; a field carrying both flags is a load-time config error; tests assert non-interference |
 | Shell env-key collisions after UPPER_SNAKE normalization | Skip + `warn` on collision (no last-write-wins); reuse the hardened `toShellEnvKey` (ReDoS-safe) from automation-common |
 | Cross-plugin env resolution adds latency to every run | Batched `resolveSystemEnvironments`; cache membership per tick; the catalog read is a single indexed join |
 | Stale explicit `environmentIds` after an env is deleted | Intersect with current membership at resolve time (§7.1); `onDelete: cascade` on `systems_environments` drops membership rows; assignment array entries that no longer resolve silently drop |
@@ -775,20 +1009,40 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
   stale-id drop; fan-out writes one run per env with correct `environmentId`; env-less
   case writes one run with `environmentId = null`; aggregate uniqueness per
   `(config, system, env, bucket, source)`; transition rows carry `environmentId`;
-  per-env `getSystemHealthStatus` filters correctly; (if §11.2 heavy) env-keyed
-  `health` entity emits distinct `ENTITY_CHANGED` per env + the system rollup.
-- **Phase 4 (if templating):** `renderTemplatableConfig` renders `{{ environment.baseUrl }}`
-  into the HTTP `url`; post-render `.url()` failure on empty env; env-render-before-secrets
-  ordering (a secret value containing `{{` is not re-parsed); `strict: false` missing
-  path → empty.
+  per-env `getSystemHealthStatus(systemId, environmentId)` filters correctly; the
+  entity stays system-keyed at the end of this phase (no per-env reactivity yet).
+- **Phase 3b (env-keyed health):** `createHealthEntityRead` id-parsing — bare
+  `"<systemId>"` → rollup, `"<systemId>::<envId>"` → per-env; rollup = worst-status
+  across envs (and equals today's status when no envs exist); `writeHealthEntity`
+  emits a distinct `ENTITY_CHANGED` per env-run + one rollup change per tick;
+  qualified-id serialization lock prevents double-emit under concurrent per-env evals;
+  `deriveHealthTriggerEvents` fires `system_*` events for both per-env and rollup
+  changes; `healthChangeToPayload` sets `payload.systemId` always + optional
+  `payload.environmentId` only for per-env; **regression: an existing system-level
+  automation (referencing `state.health.<systemId>` / `trigger.payload.systemId`)
+  fires unchanged off the rollup**; scope enrichment resolves per-env vs rollup ids
+  correctly; wait_until that referenced an env-qualified health id wakes and
+  re-evaluates against the per-env state.
+- **Phase 4 (templating, COMMITTED):** `renderTemplatableConfig` renders
+  `{{ environment.baseUrl }}` into the HTTP `url`, `headers[].value`, and `body`;
+  post-render `.url()` failure on empty env yields a clear collector error;
+  **secrets-first-then-templating** ordering (a resolved secret value containing `{{`
+  is not re-parsed); a field marked both `x-secret` and `x-templatable` fails at load
+  time; `strict: false` missing path → empty string; non-templatable field with a
+  literal `{{` is untouched.
 - **State-and-scale check (per `.agent/rules/state-and-scale.md`):** environment
   membership + custom fields live ONLY in the catalog Postgres tables
   (`environments`, `systems_environments`); the run-time fan-out re-reads them per tick
   via the cross-plugin RPC, so every pod resolves the same effective env set. No
   pod-local environment state. The `environmentId` on runs/aggregates/transitions is
-  durable and globally readable. (The single-process test suite cannot prove this —
-  state physically lives in shared Postgres by construction; called out explicitly per
-  the rule.)
+  durable and globally readable. **Env-keyed health is compute-on-read from
+  `health_check_runs` (filtered by `environmentId`) — there is NO pod-local or
+  materialized per-env health state, so a per-env `read` returns the same answer on
+  every pod** (the §7.4 design preserves the reactive-engine's Model-B
+  compute-on-read invariant; add a deterministic cross-pod-read test mirroring the
+  reactive-engine's `cross-pod-read-consistency` test for the env-qualified id). The
+  single-process suite cannot prove this — state physically lives in shared Postgres by
+  construction; called out explicitly per the rule.
 
 ---
 
@@ -799,14 +1053,18 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
   with systems, the per-assignment fan-out model, the env-less default. Frontmatter
   `title` + `description`; sentence-case headings; one runnable example.
 - **Templating-variable docs:** extend `reference/script-health-checks.md` with
-  `CHECKSTACK_ENV_*` + `globalThis.context.environment`; if §11.4 lands, extend the
-  health-checks concept page with the `{{ environment.* }}` config-templating
-  variables + the HTTP `url` example.
+  `CHECKSTACK_ENV_*` + `globalThis.context.environment`; extend the health-checks
+  concept page with the `{{ environment.* }}` config-templating variables + the HTTP
+  `url` example, and document `{{ }}` vs `${{ secrets }}` coexistence (distinct sigils,
+  secrets-resolved-first ordering, escaping a literal `{{`).
+- **Per-env health reference:** document the `(system, environment)` health identity +
+  the system rollup, and the new optional `trigger.payload.environmentId`, so operators
+  can author per-environment health automations.
 - **GitOps:** `reference/gitops-kinds.md` gains the `Environment` kind +
   `System.spec.environments` extension.
 - These are platform-contract changes (`CollectorRunContext`, a new GitOps kind, new
-  RPC surface, new templating vars) → docs MUST ship in the same PR per
-  `.agent/rules/architecture.md`.
+  RPC surface, new templating vars, the env-keyed `health` entity + payload field) →
+  docs MUST ship in the same PR per `.agent/rules/architecture.md`.
 
 ---
 
@@ -816,8 +1074,13 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
   with destructuring (`.agent/rules/code-style-guide.md`).
 - `bun run typecheck:references:generate` + commit after any new `@checkstack/*` dep
   edge (e.g. healthcheck-backend's catalog read), per `.agent/rules/typecheck.md`.
-- Changesets per touched package: **beta = minor**, `BREAKING CHANGES:` text only if
-  the §11.2 decision reshapes the `health` entity id (`.agent/rules/changesets.md`).
+- Changesets per touched package: **beta = minor** (never major while in beta).
+  **`BREAKING CHANGES:` text REQUIRED on the healthcheck-backend changeset** for the
+  Phase 3b `health` entity id-shape/cardinality change (id becomes
+  `"<systemId>"` rollup + `"<systemId>::<environmentId>"` per-env; trigger payload gains
+  `environmentId`). Note the migration is consumer-transparent (the rollup preserves the
+  old systemId contract), but the contract surface changed, so it is flagged
+  (`.agent/rules/changesets.md`).
 - State-and-scale answered in §13; no pod-local environment state.
 - No em-dashes in new docs/content. Conventional commits. Run
   `bun run typecheck` + `bun run lint` + `bun test` before declaring any phase done.

@@ -75,18 +75,20 @@ Locked in the issue (do not relitigate):
    boot dev server, run `plugin-pack`, assert the plugin loads and serves
    `/api/<pluginId>/*`. First-class deliverable, not a manual walkthrough.
 
-Decisions taken in this plan (rationale in §4 / §6 / §7):
+DECIDED by the maintainer (2026-06-01 — both open sub-questions resolved
+in favor of this plan's recommendations; do not relitigate):
 
-3. **Ship the scaffolder as a separate `create-checkstack-plugin`
-   package** (new package under `core/`), NOT a `--standalone` flag on
-   `@checkstack/scripts create`. (§4 — recommendation + rationale.) The
-   shared, monorepo-decoupled scaffolding engine is extracted into
+3. **DECIDED: ship the scaffolder as a separate `create-checkstack-plugin`
+   package** (new package under `core/`) — NOT a `--standalone` flag on
+   `@checkstack/scripts create`. (Rationale in §4.1.) The shared,
+   monorepo-decoupled scaffolding engine is extracted into
    `@checkstack/scripts` and consumed by both the new package and the
    existing in-monorepo `create` command.
-4. **The integration-test fixture is scaffolded on the fly, in-repo**, not
-   a separate canonical reference repo. (§7 — rationale.) This makes the
-   one test exercise the scaffolder, the published tarballs, the dev
-   server, AND `plugin-pack` in a single lane.
+4. **DECIDED: add the Verdaccio end-to-end integration lane to CI, with the
+   fixture scaffolded on the fly, in-repo** — not a separate canonical
+   reference repo. (Rationale in §7.) This makes the one test exercise the
+   scaffolder, the published tarballs, the dev server, AND `plugin-pack` in
+   a single lane.
 5. **Sensible defaults** for the generated skeleton (§5): dev-auth mode
    (synthetic, the dev server's existing default), a single local Postgres
    (the dev server's existing default `DATABASE_URL`), and one example
@@ -254,9 +256,9 @@ shared version.
 
 ## 4. Design — the standalone scaffolder
 
-### 4.1 Sub-question resolved: separate `create-checkstack-plugin` package
+### 4.1 DECIDED (maintainer, locked): separate `create-checkstack-plugin` package
 
-**Decision: ship a new published package `create-checkstack-plugin`**
+**Decision (locked): ship a new published package `create-checkstack-plugin`**
 (unscoped, so `bunx create-checkstack-plugin` and `bun create
 checkstack-plugin <dir>` both work), with the **scaffolding engine
 extracted into `@checkstack/scripts`** and reused by both it and the
@@ -504,11 +506,12 @@ Resolves the issue's third open sub-question. The generated trio ships:
 
 ## 7. Design — the automated integration test (want #6)
 
-### 7.1 Sub-question resolved: scaffold-on-the-fly, in-repo
+### 7.1 DECIDED (maintainer, locked): Verdaccio e2e lane, scaffold-on-the-fly, in-repo
 
-**Decision: the test scaffolds the fixture on the fly, inside this repo's
-CI**, against **published tarballs served from a local registry**. No
-separate canonical reference repo.
+**Decision (locked): add the Verdaccio end-to-end integration lane to CI;
+the test scaffolds the fixture on the fly, inside this repo's CI**, against
+**published tarballs served from a local registry**. No separate canonical
+reference repo.
 
 Rationale:
 
