@@ -176,9 +176,51 @@ describe("evaluateHealthStatus", () => {
     });
   });
 
+  describe("transient failure (single blip) does not escalate", () => {
+    test("default thresholds: one failure then recovery never leaves healthy", () => {
+      // Reproduces the real-world bug: an assignment fails once (e.g. a check
+      // timeout) and recovers on the next run. Default degraded threshold is 2
+      // consecutive failures, so a single failure must NOT escalate to
+      // degraded/unhealthy (which would fire a "System health critical"
+      // notification).
+
+      // After the single failing run (only one run recorded so far).
+      expect(evaluateHealthStatus({ runs: createRuns(["unhealthy"]) })).toBe(
+        "healthy"
+      );
+
+      // After the next run succeeds.
+      expect(
+        evaluateHealthStatus({ runs: createRuns(["healthy", "unhealthy"]) })
+      ).toBe("healthy");
+    });
+
+    test("single leading failure below degraded threshold stays healthy", () => {
+      const thresholds: ConsecutiveThresholds = {
+        mode: "consecutive",
+        healthy: { minSuccessCount: 1 },
+        degraded: { minFailureCount: 2 },
+        unhealthy: { minFailureCount: 3 },
+      };
+      // Most recent run failed once, then a flicker of success, then failures.
+      // The leading failure streak is only 1 (< degraded threshold of 2), so
+      // consecutive mode must NOT report unhealthy off the single latest
+      // failure.
+      const runs = createRuns([
+        "unhealthy",
+        "healthy",
+        "unhealthy",
+        "unhealthy",
+        "unhealthy",
+      ]);
+      expect(evaluateHealthStatus({ runs, thresholds })).toBe("healthy");
+    });
+  });
+
   describe("flickering scenarios", () => {
-    test("window mode handles flickering better than consecutive", () => {
-      // System that is mostly failing but occasionally succeeds
+    test("window mode catches a mostly-failing system consecutive mode ignores", () => {
+      // System that is mostly failing but occasionally succeeds, with the most
+      // recent run a single failure after a flicker of success.
       const runs = createRuns([
         "unhealthy",
         "healthy", // Flicker
@@ -201,12 +243,15 @@ describe("evaluateHealthStatus", () => {
         unhealthy: { minFailureCount: 4 },
       };
 
-      // Consecutive: sees only 1 failure at start, returns unhealthy (just the first)
+      // Consecutive: only the leading streak counts (1 failure, below the
+      // degraded threshold), so it stays healthy and does not over-react to the
+      // single most-recent failure.
       expect(
         evaluateHealthStatus({ runs, thresholds: consecutiveThresholds })
-      ).toBe("unhealthy");
+      ).toBe("healthy");
 
-      // Window: sees 4 failures in window of 5, returns unhealthy
+      // Window: sees 4 failures in window of 5, returns unhealthy. This is why
+      // window mode is preferable for intermittently-failing systems.
       expect(evaluateHealthStatus({ runs, thresholds: windowThresholds })).toBe(
         "unhealthy"
       );
