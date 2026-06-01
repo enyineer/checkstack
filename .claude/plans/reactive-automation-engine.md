@@ -73,7 +73,7 @@ claim carries a `file:line` anchor so the implementer never has to guess.
 >   state with at most a missing history row (a gap, never a corruption).
 > - **Horizontal-scale read-consistency is now a hard rule + guard.** A reactive
 >   entity's current state MUST be globally readable from shared/durable storage,
->   never process-local memory (`.agent/rules/state-and-scale.md`). It is enforced
+>   never process-local memory (`.claude/rules/state-and-scale.md`). It is enforced
 >   by the `checkstack/no-pod-local-entity-state` ESLint tripwire at the
 >   `defineEntity({ read })` boundary and the deterministic
 >   `cross-pod-read-consistency.it.test.ts` integration test.

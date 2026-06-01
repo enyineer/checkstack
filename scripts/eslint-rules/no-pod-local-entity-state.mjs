@@ -2,7 +2,7 @@
  * Custom ESLint rule: no-pod-local-entity-state
  *
  * Horizontal-scale safety tripwire for the reactive automation engine. It
- * enforces `.agent/rules/state-and-scale.md`: a reactive entity's CURRENT
+ * enforces `.claude/rules/state-and-scale.md`: a reactive entity's CURRENT
  * state must be globally readable from shared/durable storage (the plugin's
  * own Postgres tables, or a derivation of them), NEVER from process-local /
  * pod-local memory. Scope enrichment and `wait_until` re-evaluation run on
@@ -74,7 +74,7 @@
  *   }
  *
  * Severity is wired as `warn` in `eslint.config.mjs`, NEVER `error`, per
- * `.agent/rules/code-style-guide.md` ("do NOT escalate warnings to errors").
+ * `.claude/rules/code-style-guide.md` ("do NOT escalate warnings to errors").
  */
 
 /** Only fire inside a backend plugin's source tree. */
@@ -168,14 +168,14 @@ export const noPodLocalEntityState = {
     type: "suggestion",
     docs: {
       description:
-        "Reactive entity `read` accessors must resolve from shared/durable storage, never process-local memory (.agent/rules/state-and-scale.md).",
+        "Reactive entity `read` accessors must resolve from shared/durable storage, never process-local memory (.claude/rules/state-and-scale.md).",
       recommended: false,
     },
     messages: {
       podLocalRead:
-        "Reactive entity `read` reads process-local (pod-local) memory (a Map/Set or `.get`/`.has` on an in-memory structure). A reactive entity's current state MUST be globally readable from shared/durable storage (the plugin's own Postgres tables) so a write on pod A is visible on pod B — see .agent/rules/state-and-scale.md. Route `read` through the plugin's durable tables (a `createXEntityRead`/`getMany*` accessor), or, for genuinely pod-local bookkeeping that is NOT the source of truth, mark it with declareNonReactiveState and suppress with a reason.",
+        "Reactive entity `read` reads process-local (pod-local) memory (a Map/Set or `.get`/`.has` on an in-memory structure). A reactive entity's current state MUST be globally readable from shared/durable storage (the plugin's own Postgres tables) so a write on pod A is visible on pod B — see .claude/rules/state-and-scale.md. Route `read` through the plugin's durable tables (a `createXEntityRead`/`getMany*` accessor), or, for genuinely pod-local bookkeeping that is NOT the source of truth, mark it with declareNonReactiveState and suppress with a reason.",
       needsAssertion:
-        "Cannot statically confirm this reactive entity `read` resolves to shared/durable storage — it delegates to an opaque accessor not visible in this file. Per .agent/rules/state-and-scale.md the read MUST return the same answer on every pod. Confirm it reads the plugin's durable tables, then either name it like a durable accessor (`createXEntityRead` / `getMany*`), add its name to this rule's `durableAccessors` option, or suppress with `// eslint-disable-next-line checkstack/no-pod-local-entity-state -- <why durable>`.",
+        "Cannot statically confirm this reactive entity `read` resolves to shared/durable storage — it delegates to an opaque accessor not visible in this file. Per .claude/rules/state-and-scale.md the read MUST return the same answer on every pod. Confirm it reads the plugin's durable tables, then either name it like a durable accessor (`createXEntityRead` / `getMany*`), add its name to this rule's `durableAccessors` option, or suppress with `// eslint-disable-next-line checkstack/no-pod-local-entity-state -- <why durable>`.",
     },
     schema: [
       {

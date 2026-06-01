@@ -1,7 +1,7 @@
 /**
  * Integration test (real Postgres): cross-pod heartbeat-lost detection.
  *
- * This is the DETERMINISTIC backstop for `.agent/rules/state-and-scale.md` that
+ * This is the DETERMINISTIC backstop for `.claude/rules/state-and-scale.md` that
  * the single-process unit suite structurally cannot provide for the heartbeat
  * monitor. The prior fix made connection STATUS durable but left the
  * online→offline transition DETECTION pod-local (an in-memory `previousStatuses`

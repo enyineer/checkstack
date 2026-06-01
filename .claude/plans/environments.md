@@ -1030,7 +1030,7 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
   is not re-parsed); a field marked both `x-secret` and `x-templatable` fails at load
   time; `strict: false` missing path → empty string; non-templatable field with a
   literal `{{` is untouched.
-- **State-and-scale check (per `.agent/rules/state-and-scale.md`):** environment
+- **State-and-scale check (per `.claude/rules/state-and-scale.md`):** environment
   membership + custom fields live ONLY in the catalog Postgres tables
   (`environments`, `systems_environments`); the run-time fan-out re-reads them per tick
   via the cross-plugin RPC, so every pod resolves the same effective env set. No
@@ -1064,23 +1064,23 @@ entities exist for change-event propagation, not env. Skip `defineEntity` for
   `System.spec.environments` extension.
 - These are platform-contract changes (`CollectorRunContext`, a new GitOps kind, new
   RPC surface, new templating vars, the env-keyed `health` entity + payload field) →
-  docs MUST ship in the same PR per `.agent/rules/architecture.md`.
+  docs MUST ship in the same PR per `.claude/rules/architecture.md`.
 
 ---
 
 ## 15. Cross-cutting (repo rules)
 
 - No `any`, no `eslint-disable`; zod schemas for all validation; typed object args
-  with destructuring (`.agent/rules/code-style-guide.md`).
+  with destructuring (`.claude/rules/code-style-guide.md`).
 - `bun run typecheck:references:generate` + commit after any new `@checkstack/*` dep
-  edge (e.g. healthcheck-backend's catalog read), per `.agent/rules/typecheck.md`.
+  edge (e.g. healthcheck-backend's catalog read), per `.claude/rules/typecheck.md`.
 - Changesets per touched package: **beta = minor** (never major while in beta).
   **`BREAKING CHANGES:` text REQUIRED on the healthcheck-backend changeset** for the
   Phase 3b `health` entity id-shape/cardinality change (id becomes
   `"<systemId>"` rollup + `"<systemId>::<environmentId>"` per-env; trigger payload gains
   `environmentId`). Note the migration is consumer-transparent (the rollup preserves the
   old systemId contract), but the contract surface changed, so it is flagged
-  (`.agent/rules/changesets.md`).
+  (`.claude/rules/changesets.md`).
 - State-and-scale answered in §13; no pod-local environment state.
 - No em-dashes in new docs/content. Conventional commits. Run
   `bun run typecheck` + `bun run lint` + `bun test` before declaring any phase done.

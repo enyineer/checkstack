@@ -8,8 +8,8 @@
 Self-contained handoff. Pick up from this document alone. Every current-state
 claim carries a `file:line` anchor so the implementer never has to guess. The
 exemplars this plan matches for depth and rigor are
-[`.agent/plans/reactive-automation-engine.md`](./reactive-automation-engine.md)
-and [`.agent/plans/automation-platform.md`](./automation-platform.md).
+[`.claude/plans/reactive-automation-engine.md`](./reactive-automation-engine.md)
+and [`.claude/plans/automation-platform.md`](./automation-platform.md).
 
 ---
 
@@ -57,7 +57,7 @@ and [`.agent/plans/automation-platform.md`](./automation-platform.md).
 - **Access-rule factory:** `access(resource, action, description)` from `@checkstack/common`, used e.g. `automationAccess` at [core/automation-common/src/access.ts:6](../../core/automation-common/src/access.ts#L6) (`read` at `:11`, `manage` at `:19`, array export at `:29`). The `ai.*` rules (§5) follow this shape exactly.
 
 ### Net-new (must build — greenfield)
-- No `core/ai-common`, `core/ai-backend`, or `core/ai-frontend` packages exist (a `core/ai-*` glob matches nothing). **When these land, run `bun run typecheck:references:generate` and commit the generated tsconfig changes** ([.agent/rules/typecheck.md](../rules/typecheck.md)).
+- No `core/ai-common`, `core/ai-backend`, or `core/ai-frontend` packages exist (a `core/ai-*` glob matches nothing). **When these land, run `bun run typecheck:references:generate` and commit the generated tsconfig changes** ([.claude/rules/typecheck.md](../rules/typecheck.md)).
 - No Vercel AI SDK / `@ai-sdk` dependency anywhere in the workspace (grep of every `package.json` for `@ai-sdk` / `"ai":` returns nothing).
 - better-auth `oidcProvider` + `mcp` plugins are **not enabled** (only `checkstackBridge`, [core/auth-backend/src/index.ts:719](../../core/auth-backend/src/index.ts#L719)); no JWT-claims customization hook exists yet. `better-auth` is `^1.4.7` in both [core/auth-backend/package.json](../../core/auth-backend/package.json) and [core/backend/package.json](../../core/backend/package.json).
 - No OAuth scope → (access-rules + teams) narrowing logic.
@@ -80,7 +80,7 @@ and [`.agent/plans/automation-platform.md`](./automation-platform.md).
 > **References reminder:** all four `@checkstack/*` dep edges above (and the
 > better-auth dev/runtime deps) require `bun run typecheck:references:generate`
 > + committed tsconfig changes once the packages exist
-> ([.agent/rules/typecheck.md](../rules/typecheck.md)).
+> ([.claude/rules/typecheck.md](../rules/typecheck.md)).
 
 ### Tool registry (the spine)
 ```ts
@@ -661,7 +661,7 @@ hand-authored (curation, not data).
 
 - **The state-and-scale answer:** rate-limit + budget counters live in Postgres,
   so every pod reads/writes the same counter (decision 9; required by
-  [.agent/rules/state-and-scale.md](../rules/state-and-scale.md)). An in-memory
+  [.claude/rules/state-and-scale.md](../rules/state-and-scale.md)). An in-memory
   per-pod limiter would let N pods each allow the limit → N× the intended cap,
   which a single-process test would never catch — explicitly rejected.
 - **Implementation:** a fixed-window counter table
@@ -704,7 +704,7 @@ A NEW `ai/` section under
 `user-guide`). Each page has Starlight frontmatter (`title:` + one-sentence
 `description:`), sentence-case headings, no in-body H1, slug-based cross-links
 (`/checkstack/developer-guide/ai/<slug>/`), runnable code/contract snippets, and
-no em-dashes (per [.agent/rules/docs-style.md](../rules/docs-style.md)). Shipped
+no em-dashes (per [.claude/rules/docs-style.md](../rules/docs-style.md)). Shipped
 per-phase alongside the code that introduces each surface:
 
 | Page | Ships in | Content |
@@ -717,13 +717,13 @@ per-phase alongside the code that introduces each surface:
 | `ai/chat.md` | Phase 4 | Server-side agent loop; conversation persistence; context seeding; confirm cards; per-integration model UX. |
 
 Architectural changes that touch a public contract MUST ship the matching doc
-page in the SAME PR ([.agent/rules/architecture.md](../rules/architecture.md)).
+page in the SAME PR ([.claude/rules/architecture.md](../rules/architecture.md)).
 
 ---
 
 ## 16. Per-phase test matrix
 
-> TDD throughout (`bun test`, [.agent/rules/testing.md](../rules/testing.md)).
+> TDD throughout (`bun test`, [.claude/rules/testing.md](../rules/testing.md)).
 > The security invariants below are the §1/§3 hardening goals turned into
 > concrete, named assertions. Each is a regression guard.
 
@@ -756,7 +756,7 @@ env-gated convention (`CHECKSTACK_IT=1`) so the default `bun test` stays fast.
 
 > Each phase is an independently shippable PR with its own changeset
 > (beta = **minor** bump; `BREAKING CHANGES:` in the changeset body for any
-> contract move — [.agent/rules/changesets.md](../rules/changesets.md)), tests
+> contract move — [.claude/rules/changesets.md](../rules/changesets.md)), tests
 > (§16), and docs (§15) in the SAME PR. This expanded plan is intended to be
 > trivially spawnable as one tracking issue per phase.
 
@@ -813,22 +813,22 @@ env-gated convention (`CHECKSTACK_IT=1`) so the default `bun test` stays fast.
 ## 19. Cross-cutting (repo rules)
 
 - TDD (`bun test`), no `any`, no `eslint-disable`, zod 4, typed object args
-  ([.agent/rules/code-style-guide.md](../rules/code-style-guide.md)).
+  ([.claude/rules/code-style-guide.md](../rules/code-style-guide.md)).
 - **Run `bun run typecheck:references:generate` and commit the tsconfig changes**
   when the new packages (`core/ai-common`, `core/ai-backend`, `core/ai-frontend`)
   and their `@checkstack/*` / better-auth / `@ai-sdk` deps land — per
-  [.agent/rules/typecheck.md](../rules/typecheck.md). Skipping this fails the
+  [.claude/rules/typecheck.md](../rules/typecheck.md). Skipping this fails the
   `typecheck:references:check` CI job.
 - `bun run lint` + `bun run typecheck` from root before any phase is done.
 - Changesets per package (beta = **minor**, never major; `BREAKING CHANGES:` in
-  the body where contracts move — [.agent/rules/changesets.md](../rules/changesets.md)).
-  No changeset for THIS plan-doc expansion (internal `.agent/` change).
+  the body where contracts move — [.claude/rules/changesets.md](../rules/changesets.md)).
+  No changeset for THIS plan-doc expansion (internal `.claude/` change).
 - Docs under `docs/src/content/docs/developer-guide/ai/` in the SAME phase as the
   code that introduces each surface (§15) — Starlight frontmatter, no em-dashes,
   slug-based links.
 - Storybook story for any new `@checkstack/ui` component (Phase 4 chat UI).
 - **State-and-scale answer (required in each phase's changeset/PR,
-  [.agent/rules/state-and-scale.md](../rules/state-and-scale.md)):**
+  [.claude/rules/state-and-scale.md](../rules/state-and-scale.md)):**
   1. **Where state lives:** conversations, messages, tool-call audit, proposal
      tokens, and rate-limit counters are all Postgres tables in the `ai-backend`
      plugin schema. OAuth client/token state lives in the `oidcProvider`-owned

@@ -8,7 +8,7 @@
  * primary enforcement is structural (the `ENTITY_CHANGED` hook is internal to
  * automation-backend and never exported). It informs, it does NOT block:
  * severity is wired as `warn` in `eslint.config.mjs`, NEVER `error`, per
- * `.agent/rules/code-style-guide.md` and plan §6.4 ("do NOT escalate warnings
+ * `.claude/rules/code-style-guide.md` and plan §6.4 ("do NOT escalate warnings
  * to errors").
  *
  * It flags two shapes inside a backend plugin (`core/*-backend` /

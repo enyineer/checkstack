@@ -196,7 +196,7 @@ process state, no "configure once on pod A" assumption). Capability detection is
 **per-process** (cached at module init on each pod/satellite), and the
 *effective* enforcement level can legitimately differ between a Linux pod and a
 macOS satellite — that divergence MUST be surfaced per run (§5.7), never
-silently assumed uniform. See `.agent/rules/state-and-scale.md`: there is no
+silently assumed uniform. See `.claude/rules/state-and-scale.md`: there is no
 shared current-state to read here, so the rule's three questions resolve as
 "state is per-process capability detection, deterministic from the host kernel,
 not duplicated" — call this out in the changeset.
@@ -219,7 +219,7 @@ not duplicated" — call this out in the changeset.
   `withConfigMeta()`** from `@checkstack/backend-api` for the new policy config
   fields (so the config UI renders them consistently).
 - **zod 4** (repo is on zod 4 — see `automation-platform.md` watch-outs). All
-  validation via zod per `.agent/rules/code-style-guide.md`.
+  validation via zod per `.claude/rules/code-style-guide.md`.
 
 ---
 
@@ -544,7 +544,7 @@ A platform-level setting holds the global default `SandboxPolicy`. **It is NOT
 pod-local state** — it is read from the same durable settings mechanism existing
 platform settings use (verify the concrete table/service before Phase 1; do not
 introduce a new store if one already holds platform settings). Per
-`.agent/rules/state-and-scale.md` Q2: the default must read identically on every
+`.claude/rules/state-and-scale.md` Q2: the default must read identically on every
 pod, so it lives in shared/durable storage, not an env var that could differ
 per pod. (A bootstrap env var MAY seed the initial value, but the runtime read
 is from durable settings.) Flag for user: confirm which existing settings
@@ -817,7 +817,7 @@ hard-fails by default.
 
 ## 8. Per-phase test matrix
 
-All tests use **bun's test runner** (`.agent/rules/testing.md`). Unit/fakes by
+All tests use **bun's test runner** (`.claude/rules/testing.md`). Unit/fakes by
 default; the genuinely-OS-dependent assertions are env-gated integration tests
 (skip with a clear message when the capability is absent — never silently pass).
 
@@ -871,12 +871,12 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 
 **Phase 4**
 - Global-default settings read returns identical value on a simulated second
-  process (scale-correctness guard per `.agent/rules/state-and-scale.md`).
+  process (scale-correctness guard per `.claude/rules/state-and-scale.md`).
 - Downgrade surfaced in the run record; startup capability log asserted.
 
 ---
 
-## 9. Docs deliverables (same PR per `.agent/rules/architecture.md`)
+## 9. Docs deliverables (same PR per `.claude/rules/architecture.md`)
 
 1. **Rewrite the "Security model" section** of
    `docs/src/content/docs/user-guide/reference/script-health-checks.md:227-242`.
@@ -893,7 +893,7 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
    the v1 IP/CIDR-only network note; how to install `bwrap` for full isolation;
    the env denylist. Sentence-case headings, no in-body H1, no em-dashes,
    present-tense impersonal, at least one runnable config example
-   (`.agent/rules/docs-style.md`).
+   (`.claude/rules/docs-style.md`).
 3. Cross-link both pages (slug-based, `/checkstack/...`).
 
 ---
@@ -907,7 +907,7 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
   privilege dropping) around the shared script runners, **enabled by default**
   via a permissive default profile, with capability detection and surfaced
   graceful degradation." This bump carries a **`### BREAKING`** note (per beta
-  policy: minor bump, BREAKING described in text — `.agent/rules/changesets.md`):
+  policy: minor bump, BREAKING described in text — `.claude/rules/changesets.md`):
   > **BREAKING:** Script and shell health checks / automation actions now run
   > inside an OS-level sandbox **by default**. The default profile allows
   > ordinary outbound HTTP, temp-file writes in the per-run scratch dir, and
@@ -919,7 +919,7 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
   > hard-breaks. Opt out globally with `{ enabled: false }` on the global
   > sandbox policy, or per check/action via the `sandbox` config field. See the
   > upgrade notes in the script-sandbox docs.
-- **Scale note (put in the changeset + PR per `.agent/rules/state-and-scale.md`):**
+- **Scale note (put in the changeset + PR per `.claude/rules/state-and-scale.md`):**
   (1) State lives per-process (cached capability detection, deterministic from
   the host kernel) plus one durable global-default policy in shared settings.
   (2) The global default reads identically on every pod (durable settings, not
@@ -933,7 +933,7 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 
 ## 11. Watch-outs / non-obvious things
 
-- **No `any`, no `as`** (`.agent/rules/code-style-guide.md`). The wrapper argv
+- **No `any`, no `as`** (`.claude/rules/code-style-guide.md`). The wrapper argv
   builder and capability probes are easy to get lazy with — model the shapes.
 - **All validation via zod** — the policy schema is the single source of truth;
   do not parse config by hand.
@@ -951,7 +951,7 @@ default; the genuinely-OS-dependent assertions are env-gated integration tests
 - **`typecheck:references:generate`** is only needed if you add a new
   `@checkstack/*` dependency; this plan keeps everything inside `backend-api`,
   so likely no reference change — but run it if you add a dep
-  (`.agent/rules/typecheck.md`).
+  (`.claude/rules/typecheck.md`).
 - **Run `bun run typecheck` + `bun run lint` + `bun test`** for touched files
   before declaring any phase done; fix causes, never disable rules
   (`~/.claude/CLAUDE.md`).

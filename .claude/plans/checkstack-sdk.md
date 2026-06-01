@@ -568,7 +568,7 @@ SDK:
 SDK input surface (i.e. ANY `core/*-common/src/rpc-contract.ts` or the helper
 builders in `scriptContext.ts`) MUST carry a changeset on the underlying
 `-common` package (or another platform package). This is already the norm per
-`.agent/rules/changesets.md` (API changes require a changeset), so the SDK adds
+`.claude/rules/changesets.md` (API changes require a changeset), so the SDK adds
 no new author burden — it only makes the consequence explicit. Because such a
 changeset always exists, `inject-release.ts` always has a changeset to inject
 the release bump into, so `@checkstack/release` always advances, the stamp
@@ -687,7 +687,7 @@ README.**
 - **`typecheck:references:generate`:** REQUIRED in Phase 1 — ONE new workspace
   package (`core/sdk`) that adds workspace deps on all 21 `*-common` packages.
   Commit the regenerated `tsconfig.json` reference arrays (do NOT hand-edit, per
-  `.agent/rules/typecheck.md`).
+  `.claude/rules/typecheck.md`).
 - **Lint/typecheck:** `bun run lint` + `bun run typecheck` after each phase. No
   `any` in generated `client.ts` — `InferClient` is fully typed; if a contract
   type leaks `unknown`, fix the contract, don't cast.
@@ -695,7 +695,7 @@ README.**
   route. The route reads the running version (image-baked, identical on every
   pod), so reads are pod-consistent by construction.
 - **Docs in same PR:** Phase 4 ships with the feature PR per
-  `.agent/rules/architecture.md` (new core package + new platform contract =
+  `.claude/rules/architecture.md` (new core package + new platform contract =
   the SDK route).
 
 ---

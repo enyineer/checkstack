@@ -73,7 +73,7 @@ export default tseslint.config(
       // Reactive automation engine backstop (plan §6.4, §15.6). Severity is
       // intentionally `warn` and MUST NOT be escalated to `error`: it informs
       // authors that entity state should flow through `defineEntity`, it does
-      // not block CI (see .agent/rules/code-style-guide.md). The entity hooks
+      // not block CI (see .claude/rules/code-style-guide.md). The entity hooks
       // it flags are removed in the migration phase (plan §9).
       "checkstack/no-unmanaged-entity-state": [
         "warn",
@@ -102,13 +102,13 @@ export default tseslint.config(
           allowedTables: [],
         },
       ],
-      // Horizontal-scale safety tripwire (.agent/rules/state-and-scale.md). A
+      // Horizontal-scale safety tripwire (.claude/rules/state-and-scale.md). A
       // reactive entity's `read` must resolve from shared/durable storage so a
       // write on pod A is visible on pod B. Severity is intentionally `warn`
       // and MUST NOT be escalated to `error`: it is a single-file forcing
       // function at the `defineEntity` boundary, not a sound cross-module
       // analysis (the deterministic check is the cross-pod IT test). See
-      // .agent/rules/code-style-guide.md ("do NOT escalate warnings to errors").
+      // .claude/rules/code-style-guide.md ("do NOT escalate warnings to errors").
       "checkstack/no-pod-local-entity-state": [
         "warn",
         {

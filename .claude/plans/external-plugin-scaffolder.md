@@ -248,7 +248,7 @@ shared version.
   Its header comment references the **legacy** path
   `docs/architecture/plugin-distribution.md` (line ~13) which no longer
   exists (canonical is `docs/src/content/docs/developer-guide/architecture/
-  plugin-distribution.md`, per `.agent/rules/architecture.md`). Fix the
+  plugin-distribution.md`, per `.claude/rules/architecture.md`). Fix the
   comment in this PR. `docs/examples/` does NOT exist — the issue's path is
   imprecise; the file to touch is under `docs/public/examples/`.
 
@@ -319,7 +319,7 @@ export interface ScaffoldOptions {
   `bun run typecheck:references:generate` call (`create.ts:224-235`)
   moves behind `mode.kind === "monorepo"`. Standalone repos don't use
   TS project references (single-package or local workspace), so per the
-  `.agent/rules/typecheck.md` rule it's a no-op there.
+  `.claude/rules/typecheck.md` rule it's a no-op there.
 - **Version rewriting is a render step, not a post-process.** The engine
   renders `package.json.hbs` then, in standalone mode, **rewrites every
   `workspace:*` range to the concrete version** from `resolveVersion`
@@ -475,7 +475,7 @@ Resolves the issue's third open sub-question. The generated trio ships:
   pointer to the entity docs). Rationale: the default must boot with the
   fewest moving parts; reactive entities add queue/event surface that a
   first-run author shouldn't have to reason about. Per
-  `.agent/rules/state-and-scale.md`, the example `items` table is the
+  `.claude/rules/state-and-scale.md`, the example `items` table is the
   durable source of truth read directly by the service — no pod-local
   state, so the skeleton is scale-correct by construction.
 
@@ -680,7 +680,7 @@ regressions — the rot the issue calls out.
   template change (§4.5).
 - Run `bun run typecheck:references:generate` (new workspace package +
   the new `@checkstack/scripts` workspace dep, per
-  `.agent/rules/typecheck.md`).
+  `.claude/rules/typecheck.md`).
 - **Ship:** `bunx create-checkstack-plugin widget` produces a repo where
   `bun install && bun run dev` works. Changeset: new package minor.
   **In the changeset body, explicitly note** that
@@ -711,7 +711,7 @@ regressions — the rot the issue calls out.
   (D1) — pick the smaller change; recommend fixing the help text since
   `@checkstack/dev-server` is the published, documented entry.
 - New `developer-guide` page (or section) for the scaffolder with a
-  runnable example (per `.agent/rules/docs-style.md`: frontmatter
+  runnable example (per `.claude/rules/docs-style.md`: frontmatter
   `title`+`description`, sentence-case headings, no em-dashes, slug links).
 - **Ship:** docs match reality; every command executes verbatim.
 
@@ -726,8 +726,8 @@ regressions — the rot the issue calls out.
 | 3 | reuse `dev-internals.test.ts`, `dev-deps-resolver.test.ts`, `dev-frontend.test.ts` for fine-grained logic | the one end-to-end lane (§7.2 steps 1–8): boot Verdaccio + publish ~11 `@checkstack/*` + `create-checkstack-plugin` (retargeted `publish-packages.ts`, fallback rewrite-then-`npm publish`) → inject `resolveVersion`→Verdaccio → scaffold → `bun install` (registry-pinned) → `plugin-pack --bundle` (rewrite no-op) → boot dev server → `POST /api/widget/getItems`==200 + frontend Vite up; CI adds a Verdaccio publish step + `CHECKSTACK_SCAFFOLD_REGISTRY` / `BUN_CONFIG_REGISTRY` env + longer timeout | observe CI lane green on a PR |
 | 4 | n/a | re-run §7 to validate doc commands | execute every command in `plugin-development.md` / `plugin-distribution.md` verbatim; Starlight build (`bun run --filter docs build`) clean |
 
-Per `.agent/rules/testing.md`: TDD — write the engine/version-resolver
-unit tests first. Per `.agent/rules/state-and-scale.md`: the scaffolder is
+Per `.claude/rules/testing.md`: TDD — write the engine/version-resolver
+unit tests first. Per `.claude/rules/state-and-scale.md`: the scaffolder is
 **stateless tooling** (no pod-local runtime state); the *generated* plugin
 reads its `items` table directly (durable, globally readable) — no
 scale-correctness concern introduced.
@@ -737,7 +737,7 @@ scale-correctness concern introduced.
 ## 10. Changesets, versioning, references
 
 - **Changesets required** (code/feature changes, per
-  `.agent/rules/changesets.md`):
+  `.claude/rules/changesets.md`):
   - Phase 1: `@checkstack/scripts` **minor** (new engine export + internal
     refactor; `plugin-pack` now imports shared rewrite — note "no behavior
     change" in the changeset body).
@@ -753,8 +753,8 @@ scale-correctness concern introduced.
 - **Project references:** after creating `core/create-checkstack-plugin`
   and adding any new `@checkstack/*` workspace deps, run
   `bun run typecheck:references:generate` and commit the tsconfig changes
-  (`.agent/rules/typecheck.md`). Do NOT hand-edit `references` arrays.
-- **Docs-in-same-PR rule** (`.agent/rules/architecture.md`): the new
+  (`.claude/rules/typecheck.md`). Do NOT hand-edit `references` arrays.
+- **Docs-in-same-PR rule** (`.claude/rules/architecture.md`): the new
   scaffolder is a new tooling surface → docs ship in the Phase 4 PR (or
   alongside Phase 2 if shipped together).
 

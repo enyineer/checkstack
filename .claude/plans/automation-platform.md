@@ -296,7 +296,7 @@ Compiled from a full hook + RPC mutation inventory of all backend plugins. Use t
   - [x] `src/signals.ts` — `AUTOMATION_DEFINITION_CHANGED`, `AUTOMATION_RUN_STARTED`, `AUTOMATION_RUN_COMPLETED`, `AUTOMATION_RUN_STEP_COMPLETED`
   - [x] `src/rpc-contract.ts` — Full oRPC contract with 15 endpoints
 - [x] Workspace wired: `bun install` clean; `bun run typecheck:references:generate` updated 125 packages cleanly
-- [x] Persistent plan written to `.agent/plans/automation-platform.md` (this file)
+- [x] Persistent plan written to `.claude/plans/automation-platform.md` (this file)
 
 ### Phase 1 — automation-backend foundation ✅ COMPLETE
 
@@ -1302,7 +1302,7 @@ core/automation-frontend/
 ├── package.json
 └── tsconfig.json
 
-.agent/plans/automation-platform.md  (this file)
+.claude/plans/automation-platform.md  (this file)
 ```
 
 Also: `tsconfig.json` updated at repo root with the new package references (by `bun run typecheck:references:generate`).
