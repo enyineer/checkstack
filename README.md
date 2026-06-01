@@ -123,10 +123,10 @@ Example of rich notification delivery via Telegram with formatted messages and d
 </details>
 
 <details>
-<summary><strong>🔌 Integrations & Queues</strong></summary>
+<summary><strong>🔌 Automation Actions - Integrations & Queues</strong></summary>
 
 ### Integration Connections
-Configure connections to external systems like Jira, Microsoft Teams, Webex, and custom webhooks, then call them as actions inside your automations.
+Connect to external systems like Jira, Microsoft Teams, Webex, and custom webhooks - each becomes a first-class action you can call from any automation workflow.
 ![Integration Management](assets/screenshots/integration-management.png)
 
 ### Queue Management
