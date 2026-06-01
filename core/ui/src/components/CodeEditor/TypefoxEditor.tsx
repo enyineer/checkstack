@@ -43,6 +43,8 @@ import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-serv
 
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import * as monaco from "@codingame/monaco-vscode-editor-api";
+import { useTheme } from "../ThemeProvider";
+import { MONACO_THEME_MAP, VARIABLE_TOKEN_COLOR } from "./editorTheme";
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
 import { extractBracketKeyGroups } from "./bracketKeyGroups";
 import { validateJsonTemplate } from "./validateJsonTemplate";
@@ -212,20 +214,31 @@ const TEMPLATE_VALIDATORS: Partial<
 // Variable-like tokens (`{{ template }}` expressions, shell `$env` refs) are
 // highlighted via inline decorations rather than per-language grammars: this
 // works for any language (yaml / xml / markdown have no template grammar; shell
-// doesn't color `$VAR` inside strings) and keeps the color consistent. #9cdcfe
-// is the vs-dark `variable` token color, matching json-template's grammar. The
-// CSS class is injected once.
+// doesn't color `$VAR` inside strings) and keeps the color consistent.
+// The style element is injected once and updated whenever the resolved theme
+// changes so the decoration tracks the editor theme.
 const VARIABLE_TOKEN_CLASS = "checkstack-editor-variable";
-let variableTokenStyleInjected = false;
-const ensureVariableTokenStyle = (): void => {
-  if (variableTokenStyleInjected) {
+const VARIABLE_TOKEN_STYLE_ID = "checkstack-editor-variable-style";
+
+const ensureVariableTokenStyle = ({
+  resolvedTheme,
+}: {
+  resolvedTheme: "light" | "dark";
+}): void => {
+  const color = VARIABLE_TOKEN_COLOR[resolvedTheme];
+  const existing = document.querySelector<HTMLStyleElement>(
+    `#${VARIABLE_TOKEN_STYLE_ID}`,
+  );
+  if (existing !== null) {
+    // Update in place so a theme toggle refreshes the color.
+    existing.textContent = `.${VARIABLE_TOKEN_CLASS}{color:${color} !important;}`;
     return;
   }
-  variableTokenStyleInjected = true;
   const style = document.createElement("style");
+  style.id = VARIABLE_TOKEN_STYLE_ID;
   // `!important` so the decoration color always wins over the underlying token
   // color (.mtkN), making `{{ }}` look identical inside and outside strings.
-  style.textContent = `.${VARIABLE_TOKEN_CLASS}{color:#9cdcfe !important;}`;
+  style.textContent = `.${VARIABLE_TOKEN_CLASS}{color:${color} !important;}`;
   document.head.append(style);
 };
 
@@ -241,7 +254,6 @@ const installRegexDecorations = ({
   pattern: RegExp;
   className: string;
 }): monaco.IDisposable => {
-  ensureVariableTokenStyle();
   const compute = (): monaco.editor.IModelDeltaDecoration[] => {
     const text = model.getValue();
     const decorations: monaco.editor.IModelDeltaDecoration[] = [];
@@ -359,7 +371,8 @@ export type TypefoxEditorProps = {
 
 /**
  * Isolated editor used to validate the Typefox/monaco-vscode stack in the
- * browser. Dark theme, no minimap, automatic layout, word-based suggestions
+ * browser. Theme follows `useTheme().resolvedTheme` (`vs` in light mode,
+ * `vs-dark` in dark mode), no minimap, automatic layout, word-based suggestions
  * disabled. For `typescript`/`javascript` it injects the `context` types +
  * bracket completions; for markup/text languages it offers `{{ }}` template
  * completions.
@@ -406,6 +419,11 @@ export const TypefoxEditor = ({
   acquireResetKey,
   importablePackages,
 }: TypefoxEditorProps) => {
+  // Follow the app's resolved theme so the editor uses `vs` (light) or
+  // `vs-dark` (dark) and updates live when the user toggles the theme.
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = MONACO_THEME_MAP[resolvedTheme];
+
   // `MonacoEditorReactComp` captures `onTextChanged` once at editor-start, so
   // the handler it calls would otherwise close over a stale `onChange` (bound
   // to the value/sibling-config at mount time). Routing through a ref that we
@@ -429,6 +447,16 @@ export const TypefoxEditor = ({
   // Set once the wrapper has initialised the VS Code services, so the
   // completion providers below register against a ready languages registry.
   const [apiReady, setApiReady] = useState(false);
+
+  // Keep the Monaco global theme and the variable-token decoration color in
+  // sync whenever the resolved app theme changes. Monaco's theme is a global
+  // imperative setting (not per-editor), so re-deriving `editorAppConfig`
+  // alone is not enough after the editor has started - this effect is what
+  // makes live toggling work.
+  useEffect(() => {
+    monaco.editor.setTheme(monacoTheme);
+    ensureVariableTokenStyle({ resolvedTheme });
+  }, [resolvedTheme, monacoTheme]);
 
   useEffect(() => {
     if (!isTsLike || typeDefinitions === undefined) {
@@ -974,10 +1002,12 @@ export const TypefoxEditor = ({
       },
     },
     editorOptions: {
-      // 'vs-dark' is the builtin classic dark theme. (The VS Code
-      // 'Default Dark Modern' theme would require the extension-host
-      // theme-defaults extension, which the standalone setup omits.)
-      theme: "vs-dark",
+      // Derived from useTheme().resolvedTheme: "vs" for light, "vs-dark" for
+      // dark. These are the two built-in classic themes available in the
+      // standalone setup (the VS Code 'Default Dark Modern' theme requires the
+      // extension-host theme-defaults extension, which the standalone setup
+      // omits).
+      theme: monacoTheme,
       minimap: { enabled: false },
       automaticLayout: true,
       // Force completions to come from the TS language service rather than
