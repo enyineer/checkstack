@@ -8,8 +8,6 @@ import {
   pluginMetadata,
   integrationAccess,
 } from "@checkstack/integration-common";
-import { IntegrationsLandingPage } from "./pages/IntegrationsLandingPage";
-import { ProviderConnectionsPage } from "./pages/ProviderConnectionsPage";
 import { IntegrationMenuItem } from "./components/IntegrationMenuItem";
 
 /**
@@ -24,12 +22,18 @@ export const integrationPlugin = createFrontendPlugin({
   routes: [
     {
       route: integrationRoutes.routes.list,
-      element: <IntegrationsLandingPage />,
+      load: () =>
+        import("./pages/IntegrationsLandingPage").then((m) => ({
+          default: m.IntegrationsLandingPage,
+        })),
       accessRule: integrationAccess.manage,
     },
     {
       route: integrationRoutes.routes.connections,
-      element: <ProviderConnectionsPage />,
+      load: () =>
+        import("./pages/ProviderConnectionsPage").then((m) => ({
+          default: m.ProviderConnectionsPage,
+        })),
       accessRule: integrationAccess.manage,
     },
   ],

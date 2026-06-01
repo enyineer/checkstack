@@ -4,6 +4,7 @@ export * from "./core-apis";
 export * from "./plugin";
 export * from "./plugin-registry";
 export * from "./components/ExtensionSlot";
+export * from "./components/LazyContribution";
 export * from "./use-slot-extensions";
 export * from "./utils";
 export * from "./slots";

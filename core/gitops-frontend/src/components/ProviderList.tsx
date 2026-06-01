@@ -22,15 +22,11 @@ import {
   Badge,
   useToast,
   toastError,
-} from "@checkstack/ui";
-import {
-  Plus,
-  RefreshCw,
-  Trash2,
-  Pencil,
-  Github,
+  // Brand marks were removed from lucide v1; use the vendored ones.
+  GithubIcon as Github,
   GitlabIcon,
-} from "lucide-react";
+} from "@checkstack/ui";
+import { Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
 import { ProviderEditor } from "./ProviderEditor";
 
 const formatInterval = (seconds: number) => {

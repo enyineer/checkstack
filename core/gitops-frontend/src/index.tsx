@@ -9,8 +9,6 @@ import {
   gitopsAccess,
 } from "@checkstack/gitops-common";
 
-import { GitOpsPage } from "./pages/GitOpsPage";
-import { KindRegistryPage } from "./pages/KindRegistryPage";
 import { GitOpsMenuItem } from "./components/GitOpsMenuItem";
 import { KindRegistryMenuItem } from "./components/KindRegistryMenuItem";
 
@@ -20,12 +18,15 @@ export const gitopsPlugin = createFrontendPlugin({
   routes: [
     {
       route: gitopsRoutes.routes.home,
-      element: <GitOpsPage />,
+      load: () => import("./pages/GitOpsPage").then((m) => ({ default: m.GitOpsPage })),
       accessRule: gitopsAccess.provider.read,
     },
     {
       route: gitopsRoutes.routes.kinds,
-      element: <KindRegistryPage />,
+      load: () =>
+        import("./pages/KindRegistryPage").then((m) => ({
+          default: m.KindRegistryPage,
+        })),
       accessRule: gitopsAccess.kinds.read,
     },
   ],

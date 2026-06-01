@@ -9,9 +9,6 @@ import {
   pluginMetadata,
 } from "@checkstack/notification-common";
 import { NotificationBell } from "./components/NotificationBell";
-import { NotificationsPage } from "./pages/NotificationsPage";
-import { NotificationSettingsPage } from "./pages/NotificationSettingsPage";
-import { DeliveryAttemptsPage } from "./pages/DeliveryAttemptsPage";
 import { NotificationUserMenuItems } from "./components/UserMenuItems";
 
 // Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
@@ -42,15 +39,24 @@ export const notificationPlugin = createFrontendPlugin({
   routes: [
     {
       route: notificationRoutes.routes.home,
-      element: <NotificationsPage />,
+      load: () =>
+        import("./pages/NotificationsPage").then((m) => ({
+          default: m.NotificationsPage,
+        })),
     },
     {
       route: notificationRoutes.routes.settings,
-      element: <NotificationSettingsPage />,
+      load: () =>
+        import("./pages/NotificationSettingsPage").then((m) => ({
+          default: m.NotificationSettingsPage,
+        })),
     },
     {
       route: notificationRoutes.routes.deliveryAttempts,
-      element: <DeliveryAttemptsPage />,
+      load: () =>
+        import("./pages/DeliveryAttemptsPage").then((m) => ({
+          default: m.DeliveryAttemptsPage,
+        })),
     },
   ],
   extensions: [

@@ -4,9 +4,6 @@ import {
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { sloRoutes, pluginMetadata, sloAccess } from "@checkstack/slo-common";
-import { SloOverviewPage } from "./pages/SloOverviewPage";
-import { SloConfigPage } from "./pages/SloConfigPage";
-import { SloDetailPage } from "./pages/SloDetailPage";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
 import { SloMenuItems } from "./components/SloMenuItems";
@@ -20,18 +17,27 @@ export default createFrontendPlugin({
   routes: [
     {
       route: sloRoutes.routes.overview,
-      element: <SloOverviewPage />,
+      load: () =>
+        import("./pages/SloOverviewPage").then((m) => ({
+          default: m.SloOverviewPage,
+        })),
       title: "SLO Dashboard",
     },
     {
       route: sloRoutes.routes.config,
-      element: <SloConfigPage />,
+      load: () =>
+        import("./pages/SloConfigPage").then((m) => ({
+          default: m.SloConfigPage,
+        })),
       title: "SLO Management",
       accessRule: sloAccess.slo.manage,
     },
     {
       route: sloRoutes.routes.detail,
-      element: <SloDetailPage />,
+      load: () =>
+        import("./pages/SloDetailPage").then((m) => ({
+          default: m.SloDetailPage,
+        })),
       title: "SLO Detail",
     },
   ],

@@ -3,18 +3,16 @@ import {
   createSlotExtension,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { HealthCheckConfigPage } from "./pages/HealthCheckConfigPage";
-import { StrategyPickerPage } from "./pages/StrategyPickerPage";
-import { HealthCheckIDEPage } from "./pages/HealthCheckIDEPage";
-import { AssignmentIDEPage } from "./pages/AssignmentIDEPage";
-import { HealthCheckHistoryPage } from "./pages/HealthCheckHistoryPage";
-import { HealthCheckHistoryDetailPage } from "./pages/HealthCheckHistoryDetailPage";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
-import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOverview";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
-import { autoChartExtension } from "./auto-charts";
+// Import directly from the extension module, NOT the `./auto-charts` barrel:
+// the barrel statically re-exports AutoChartGrid + SingleRunChartGrid (both
+// pull in recharts), so importing the extension through it would drag recharts
+// into this eagerly-loaded plugin entry. The extension itself lazy-loads the
+// chart grid.
+import { autoChartExtension } from "./auto-charts/extension";
 
 import {
   SystemDetailsSlot,
@@ -49,43 +47,64 @@ export default createFrontendPlugin({
   routes: [
     {
       route: healthcheckRoutes.routes.config,
-      element: <HealthCheckConfigPage />,
+      load: () =>
+        import("./pages/HealthCheckConfigPage").then((m) => ({
+          default: m.HealthCheckConfigPage,
+        })),
       title: "Health Checks",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.create,
-      element: <StrategyPickerPage />,
+      load: () =>
+        import("./pages/StrategyPickerPage").then((m) => ({
+          default: m.StrategyPickerPage,
+        })),
       title: "Create Health Check",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.edit,
-      element: <HealthCheckIDEPage />,
+      load: () =>
+        import("./pages/HealthCheckIDEPage").then((m) => ({
+          default: m.HealthCheckIDEPage,
+        })),
       title: "Edit Health Check",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.assignments,
-      element: <AssignmentIDEPage />,
+      load: () =>
+        import("./pages/AssignmentIDEPage").then((m) => ({
+          default: m.AssignmentIDEPage,
+        })),
       title: "Health Check Assignments",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.history,
-      element: <HealthCheckHistoryPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryPage").then((m) => ({
+          default: m.HealthCheckHistoryPage,
+        })),
       title: "Health Check History",
       accessRule: healthCheckAccess.configuration.read,
     },
     {
       route: healthcheckRoutes.routes.historyDetail,
-      element: <HealthCheckHistoryDetailPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
+          default: m.HealthCheckHistoryDetailPage,
+        })),
       title: "Health Check Detail",
       accessRule: healthCheckAccess.details,
     },
     {
       route: healthcheckRoutes.routes.historyRun,
-      element: <HealthCheckHistoryDetailPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
+          default: m.HealthCheckHistoryDetailPage,
+        })),
       title: "Health Check Run",
       accessRule: healthCheckAccess.details,
     },
@@ -104,7 +123,12 @@ export default createFrontendPlugin({
     }),
     createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.overview",
-      component: HealthCheckSystemOverview,
+      // Heavier overview (drawer pulls recharts) — lazy so it stays out of the
+      // initial bundle and loads when a system-detail page renders.
+      load: () =>
+        import("./components/HealthCheckSystemOverview").then((m) => ({
+          default: m.HealthCheckSystemOverview,
+        })),
     }),
     createSlotExtension(CatalogSystemActionsSlot, {
       id: "healthcheck.catalog.system-actions",

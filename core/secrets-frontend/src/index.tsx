@@ -8,7 +8,6 @@ import {
   secretsAccess,
   pluginMetadata,
 } from "@checkstack/secrets-common";
-import { SecretsSettingsPage } from "./pages/SecretsSettingsPage";
 import { SecretsMenuItems } from "./components/SecretsMenuItems";
 
 /**
@@ -26,7 +25,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: secretsRoutes.routes.home,
-      element: <SecretsSettingsPage />,
+      load: () =>
+        import("./pages/SecretsSettingsPage").then((m) => ({
+          default: m.SecretsSettingsPage,
+        })),
       title: "Secrets",
       accessRule: secretsAccess.secret.manage,
     },

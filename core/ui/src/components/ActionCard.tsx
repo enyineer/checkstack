@@ -10,7 +10,7 @@ import {
 import { Card, CardContent, CardHeader } from "./Card";
 import { Button } from "./Button";
 import { Toggle } from "./Toggle";
-import { DynamicIcon, type LucideIconName } from "./DynamicIcon";
+import { DynamicIcon, type IconName } from "./DynamicIcon";
 import { Badge, type BadgeProps } from "./Badge";
 import { Popover, PopoverContent, PopoverTrigger } from "./Popover";
 import { DropdownMenuItem, MenuCloseContext } from "./Menu";
@@ -23,7 +23,7 @@ import { cn } from "../utils";
  */
 export interface ActionCardMenuItem {
   label: string;
-  icon?: LucideIconName;
+  icon?: IconName;
   onClick: () => void;
   /** `destructive` tints the item red (e.g. Delete). Defaults to neutral. */
   variant?: "default" | "destructive";
@@ -38,8 +38,8 @@ export interface ActionCardProps {
   description?: string;
   /** Plugin/category label rendered as a subdued badge. */
   category?: string;
-  /** Lucide icon (PascalCase) shown to the left of the title. */
-  icon?: LucideIconName;
+  /** Icon (PascalCase) shown to the left of the title - lucide or brand. */
+  icon?: IconName;
   /** Toggle for the action's `enabled` flag. Omit to hide the toggle. */
   enabled?: boolean;
   onEnabledChange?: (enabled: boolean) => void;

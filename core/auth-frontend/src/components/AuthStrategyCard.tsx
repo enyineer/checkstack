@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import {
   StrategyConfigCard,
   type ConfigSection,
-  type LucideIconName,
   type OptionsResolver,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -87,7 +86,7 @@ export function AuthStrategyCard({
         id: strategy.id,
         displayName: strategy.displayName,
         description: strategy.description,
-        icon: strategy.icon as LucideIconName,
+        icon: strategy.icon,
         enabled: strategy.enabled,
       }}
       configSections={configSections}

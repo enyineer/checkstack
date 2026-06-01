@@ -8,7 +8,6 @@ import {
   pluginMetadata,
   satelliteAccess,
 } from "@checkstack/satellite-common";
-import { SatelliteListPage } from "./pages/SatelliteListPage";
 import { SatelliteMenuItems } from "./components/SatelliteMenuItems";
 
 export default createFrontendPlugin({
@@ -16,7 +15,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: satelliteRoutes.routes.list,
-      element: <SatelliteListPage />,
+      load: () =>
+        import("./pages/SatelliteListPage").then((m) => ({
+          default: m.SatelliteListPage,
+        })),
       title: "Satellites",
       accessRule: satelliteAccess.satellite.read,
     },

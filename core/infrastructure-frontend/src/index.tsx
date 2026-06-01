@@ -3,7 +3,6 @@ import {
   createSlotExtension,
   createFrontendPlugin,
 } from "@checkstack/frontend-api";
-import { InfrastructureConfigPage } from "./pages/InfrastructureConfigPage";
 import { InfrastructureUserMenuItems } from "./components/UserMenuItems";
 import {
   pluginMetadata,
@@ -15,7 +14,10 @@ export const infrastructurePlugin = createFrontendPlugin({
   routes: [
     {
       route: infrastructureRoutes.routes.config,
-      element: <InfrastructureConfigPage />,
+      load: () =>
+        import("./pages/InfrastructureConfigPage").then((m) => ({
+          default: m.InfrastructureConfigPage,
+        })),
       // No accessRule here — the page handles per-tab access internally
     },
   ],

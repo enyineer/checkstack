@@ -4,7 +4,6 @@ import {
 } from "@checkstack/frontend-api";
 import { createRoutes } from "@checkstack/common";
 import { pluginMetadata } from "@checkstack/about-common";
-import { AboutPage } from "./AboutPage";
 import { AboutMenuItem } from "./AboutMenuItem";
 
 export const aboutRoutes = createRoutes(pluginMetadata.pluginId, {
@@ -16,7 +15,7 @@ export const aboutPlugin = createFrontendPlugin({
   routes: [
     {
       route: aboutRoutes.routes.page,
-      element: <AboutPage />,
+      load: () => import("./AboutPage").then((m) => ({ default: m.AboutPage })),
     },
   ],
   extensions: [

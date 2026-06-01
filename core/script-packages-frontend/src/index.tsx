@@ -8,7 +8,6 @@ import {
   scriptPackagesAccess,
   pluginMetadata,
 } from "@checkstack/script-packages-common";
-import { ScriptPackagesSettingsPage } from "./pages/ScriptPackagesSettingsPage";
 import { ScriptPackagesMenuItems } from "./components/ScriptPackagesMenuItems";
 
 /**
@@ -28,7 +27,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: scriptPackagesRoutes.routes.settings,
-      element: <ScriptPackagesSettingsPage />,
+      load: () =>
+        import("./pages/ScriptPackagesSettingsPage").then((m) => ({
+          default: m.ScriptPackagesSettingsPage,
+        })),
       title: "Script packages",
       accessRule: scriptPackagesAccess.manage,
     },

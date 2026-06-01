@@ -12,9 +12,6 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
-import { MaintenanceConfigPage } from "./pages/MaintenanceConfigPage";
-import { SystemMaintenanceHistoryPage } from "./pages/SystemMaintenanceHistoryPage";
-import { MaintenanceDetailPage } from "./pages/MaintenanceDetailPage";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
 import { MaintenanceMenuItems } from "./components/MaintenanceMenuItems";
@@ -24,18 +21,27 @@ export default createFrontendPlugin({
   routes: [
     {
       route: maintenanceRoutes.routes.config,
-      element: <MaintenanceConfigPage />,
+      load: () =>
+        import("./pages/MaintenanceConfigPage").then((m) => ({
+          default: m.MaintenanceConfigPage,
+        })),
       title: "Maintenances",
       accessRule: maintenanceAccess.maintenance.manage,
     },
     {
       route: maintenanceRoutes.routes.systemHistory,
-      element: <SystemMaintenanceHistoryPage />,
+      load: () =>
+        import("./pages/SystemMaintenanceHistoryPage").then((m) => ({
+          default: m.SystemMaintenanceHistoryPage,
+        })),
       title: "System Maintenance History",
     },
     {
       route: maintenanceRoutes.routes.detail,
-      element: <MaintenanceDetailPage />,
+      load: () =>
+        import("./pages/MaintenanceDetailPage").then((m) => ({
+          default: m.MaintenanceDetailPage,
+        })),
       title: "Maintenance Details",
     },
   ],

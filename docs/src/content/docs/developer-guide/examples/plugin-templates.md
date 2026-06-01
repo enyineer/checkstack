@@ -97,7 +97,6 @@ export const myFeatureRoutes = createRoutes("my-feature", {
 // plugins/my-feature-frontend/src/index.tsx
 import { createFrontendPlugin, rpcApiRef, type ApiRef } from "@checkstack/frontend-api";
 import { myFeatureApiRef, type MyFeatureApiClient } from "./api";
-import { ItemsPage } from "./components/ItemsPage";
 import { myFeatureRoutes, MyFeatureApi, pluginMetadata, myFeatureAccess } from "@checkstack/my-feature-common";
 
 export default createFrontendPlugin({
@@ -106,7 +105,7 @@ export default createFrontendPlugin({
   routes: [
     {
       route: myFeatureRoutes.routes.home,
-      element: <ItemsPage />,
+      load: () => import("./components/ItemsPage").then((m) => ({ default: m.ItemsPage })),
       title: "Items",
       accessRule: myFeatureAccess.myfeatureRead,
     },

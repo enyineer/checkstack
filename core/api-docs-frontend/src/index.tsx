@@ -5,7 +5,6 @@ import {
 } from "@checkstack/frontend-api";
 import { createRoutes } from "@checkstack/common";
 import { pluginMetadata, apiDocsAccess } from "@checkstack/api-docs-common";
-import { ApiDocsPage } from "./ApiDocsPage";
 import { ApiDocsMenuItem } from "./ApiDocsMenuItem";
 
 export const apiDocsRoutes = createRoutes(pluginMetadata.pluginId, {
@@ -17,7 +16,7 @@ export const apiDocsPlugin = createFrontendPlugin({
   routes: [
     {
       route: apiDocsRoutes.routes.docs,
-      element: <ApiDocsPage />,
+      load: () => import("./ApiDocsPage").then((m) => ({ default: m.ApiDocsPage })),
       accessRule: apiDocsAccess.view,
     },
   ],

@@ -9,7 +9,6 @@ import {
   pluginMetadata,
   announcementAccess,
 } from "@checkstack/announcement-common";
-import { AnnouncementManagePage } from "./pages/AnnouncementManagePage";
 import { AnnouncementMenuItems } from "./components/AnnouncementMenuItems";
 import { DashboardAnnouncements } from "./components/DashboardAnnouncements";
 
@@ -18,7 +17,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: announcementRoutes.routes.manage,
-      element: <AnnouncementManagePage />,
+      load: () =>
+        import("./pages/AnnouncementManagePage").then((m) => ({
+          default: m.AnnouncementManagePage,
+        })),
       title: "Manage Announcements",
       accessRule: announcementAccess.manage,
     },

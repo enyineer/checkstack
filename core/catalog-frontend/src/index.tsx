@@ -12,10 +12,7 @@ import {
 import { Server, FolderTree } from "lucide-react";
 import { registerSubjectKind } from "@checkstack/notification-frontend";
 
-import { CatalogPage } from "./components/CatalogPage";
-import { CatalogConfigPage } from "./components/CatalogConfigPage";
 import { CatalogUserMenuItems } from "./components/UserMenuItems";
-import { SystemDetailPage } from "./components/SystemDetailPage";
 
 // Notification subject kinds emitted by catalog (see catalog-common's
 // `createSystemSubject` / `createGroupSubject`). Registered at module load
@@ -36,16 +33,25 @@ export const catalogPlugin = createFrontendPlugin({
   routes: [
     {
       route: catalogRoutes.routes.home,
-      element: <CatalogPage />,
+      load: () =>
+        import("./components/CatalogPage").then((m) => ({
+          default: m.CatalogPage,
+        })),
     },
     {
       route: catalogRoutes.routes.config,
-      element: <CatalogConfigPage />,
+      load: () =>
+        import("./components/CatalogConfigPage").then((m) => ({
+          default: m.CatalogConfigPage,
+        })),
       accessRule: catalogAccess.system.manage,
     },
     {
       route: catalogRoutes.routes.systemDetail,
-      element: <SystemDetailPage />,
+      load: () =>
+        import("./components/SystemDetailPage").then((m) => ({
+          default: m.SystemDetailPage,
+        })),
     },
   ],
   extensions: [

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { definePluginMetadata } from "@checkstack/common";
 import { FrontendPlugin, createSlotExtension } from "@checkstack/frontend-api";
 import {
@@ -14,13 +15,25 @@ import {
 } from "@checkstack/catalog-common";
 import { registerSubscriptionSubControls } from "@checkstack/notification-frontend";
 import { anomalySystemSubscription } from "@checkstack/anomaly-common";
-import { AnomalyConfigPanel } from "./components/AnomalyConfigPanel";
-import { AnomalyTemplatePanel } from "./components/AnomalyTemplatePanel";
 import { SystemAnomalyBadge } from "./components/SystemAnomalyBadge";
 import { SystemAnomalyWidget } from "./components/SystemAnomalyWidget";
 import { AnomalyFieldMuteList } from "./components/AnomalyFieldMuteList";
 import { IDETreeNode } from "@checkstack/ui";
 import { Activity } from "lucide-react";
+
+// Heavy IDE panels — lazy-loaded so they stay out of the initial bundle and
+// load only when their IDE node is actually selected (the eager guards below
+// decide that), not whenever the IDE panel slot renders.
+const AnomalyTemplatePanel = lazy(() =>
+  import("./components/AnomalyTemplatePanel").then((m) => ({
+    default: m.AnomalyTemplatePanel,
+  })),
+);
+const AnomalyConfigPanel = lazy(() =>
+  import("./components/AnomalyConfigPanel").then((m) => ({
+    default: m.AnomalyConfigPanel,
+  })),
+);
 
 const pluginMetadata = definePluginMetadata({
   pluginId: "anomaly",
@@ -55,7 +68,11 @@ export const plugin: FrontendPlugin = {
         if (!context.selectedNode?.startsWith("anomaly-template:")) {
           return <></>;
         }
-        return <AnomalyTemplatePanel context={context} />;
+        return (
+          <Suspense fallback={null}>
+            <AnomalyTemplatePanel context={context} />
+          </Suspense>
+        );
       },
     }),
     createSlotExtension(AssignmentIDENodeSlot, {
@@ -77,7 +94,11 @@ export const plugin: FrontendPlugin = {
         if (!context.selectedNode?.startsWith("anomaly:")) {
           return <></>;
         }
-        return <AnomalyConfigPanel context={context} />;
+        return (
+          <Suspense fallback={null}>
+            <AnomalyConfigPanel context={context} />
+          </Suspense>
+        );
       },
     }),
   ],

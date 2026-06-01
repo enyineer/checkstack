@@ -7,9 +7,6 @@ import {
   pluginManagerRoutes,
   pluginManagerAccess,
 } from "@checkstack/pluginmanager-common";
-import { InstalledPluginsPage } from "./pages/InstalledPluginsPage";
-import { InstallPluginPage } from "./pages/InstallPluginPage";
-import { PluginEventsPage } from "./pages/PluginEventsPage";
 import { PluginManagerMenuItem } from "./PluginManagerMenuItem";
 
 export default createFrontendPlugin({
@@ -17,19 +14,28 @@ export default createFrontendPlugin({
   routes: [
     {
       route: pluginManagerRoutes.routes.installed,
-      element: <InstalledPluginsPage />,
+      load: () =>
+        import("./pages/InstalledPluginsPage").then((m) => ({
+          default: m.InstalledPluginsPage,
+        })),
       title: "Plugin Manager",
       accessRule: pluginManagerAccess.view,
     },
     {
       route: pluginManagerRoutes.routes.install,
-      element: <InstallPluginPage />,
+      load: () =>
+        import("./pages/InstallPluginPage").then((m) => ({
+          default: m.InstallPluginPage,
+        })),
       title: "Install plugin",
       accessRule: pluginManagerAccess.install,
     },
     {
       route: pluginManagerRoutes.routes.events,
-      element: <PluginEventsPage />,
+      load: () =>
+        import("./pages/PluginEventsPage").then((m) => ({
+          default: m.PluginEventsPage,
+        })),
       title: "Plugin events",
       accessRule: pluginManagerAccess.view,
     },

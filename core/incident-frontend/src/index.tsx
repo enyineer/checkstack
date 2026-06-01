@@ -12,9 +12,6 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
-import { IncidentConfigPage } from "./pages/IncidentConfigPage";
-import { IncidentDetailPage } from "./pages/IncidentDetailPage";
-import { SystemIncidentHistoryPage } from "./pages/SystemIncidentHistoryPage";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
 import { SystemIncidentBadge } from "./components/SystemIncidentBadge";
 import { IncidentMenuItems } from "./components/IncidentMenuItems";
@@ -24,18 +21,27 @@ export default createFrontendPlugin({
   routes: [
     {
       route: incidentRoutes.routes.config,
-      element: <IncidentConfigPage />,
+      load: () =>
+        import("./pages/IncidentConfigPage").then((m) => ({
+          default: m.IncidentConfigPage,
+        })),
       title: "Incidents",
       accessRule: incidentAccess.incident.manage,
     },
     {
       route: incidentRoutes.routes.detail,
-      element: <IncidentDetailPage />,
+      load: () =>
+        import("./pages/IncidentDetailPage").then((m) => ({
+          default: m.IncidentDetailPage,
+        })),
       title: "Incident Details",
     },
     {
       route: incidentRoutes.routes.systemHistory,
-      element: <SystemIncidentHistoryPage />,
+      load: () =>
+        import("./pages/SystemIncidentHistoryPage").then((m) => ({
+          default: m.SystemIncidentHistoryPage,
+        })),
       title: "System Incident History",
     },
   ],
