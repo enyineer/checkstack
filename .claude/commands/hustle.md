@@ -3,7 +3,7 @@ description: Autonomously work a task with focused sub-agents and a code -> revi
 argument-hint: "[free-form task | issue # / URL | board URL | 'all open']"
 ---
 
-# Work
+# Hustle
 
 You are the **orchestrator**. Drive the work below largely autonomously, but
 clear genuine open questions with the user **before** starting the autonomous
