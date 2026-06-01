@@ -121,17 +121,20 @@ export const MyFeaturePage = () => {
 
 ```typescript
 import { createFrontendPlugin } from "@checkstack/frontend-api";
-import { MyFeaturePage } from "./components/MyFeaturePage";
 import { myFeatureRoutes, pluginMetadata } from "@checkstack/myfeature-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
 
-  // Register routes using typed route definitions
+  // Register routes using typed route definitions. `load` lazily imports the
+  // page; the framework code-splits it behind Suspense + an error boundary.
   routes: [
     {
       route: myFeatureRoutes.routes.home,
-      element: <MyFeaturePage />,
+      load: () =>
+        import("./components/MyFeaturePage").then((m) => ({
+          default: m.MyFeaturePage,
+        })),
     },
   ],
 });
@@ -172,6 +175,8 @@ metadata: pluginMetadata
 #### `routes` (optional)
 
 Register pages and their routes using RouteDefinitions from the common package.
+Provide exactly one of `load` (lazy, the default) or `element` (eager). `load`
+is code-split by the framework and fetched on navigation:
 
 ```typescript
 import { myRoutes } from "@checkstack/myplugin-common";
@@ -179,25 +184,43 @@ import { myRoutes } from "@checkstack/myplugin-common";
 routes: [
   {
     route: myRoutes.routes.home,
-    element: <ItemListPage />,
+    load: () =>
+      import("./pages/ItemListPage").then((m) => ({ default: m.ItemListPage })),
     title: "Items", // Optional: page title
     accessRule: access.itemRead.id, // Optional: required access rule
   },
 ]
 ```
 
+Use `element: <Page />` instead of `load` only for a page that must paint
+without a chunk fetch (e.g. a login page on the unauthenticated critical path).
+
 #### `extensions` (optional)
 
-Register components to inject into extension slots.
+Register UI to inject into extension slots. Provide exactly one of:
+
+- `component` — an eagerly-bundled component. Use for LIGHT, always-on
+  contributions (navbar items, user-menu links, badges) where code-splitting
+  would just add a load flash.
+- `load` — a lazy loader (same shape as a route's `load`). Use for HEAVY or
+  page-scoped contributions (dashboards, editors, chart panels); the framework
+  code-splits it behind Suspense + a per-plugin error boundary.
 
 ```typescript
-import { UserMenuItemsSlot } from "@checkstack/frontend-api";
+import { UserMenuItemsSlot, SystemEditorSlot } from "@checkstack/frontend-api";
 
 extensions: [
   {
     id: "myplugin.user-menu.items",
     slot: UserMenuItemsSlot,
-    component: MyUserMenuItems,
+    component: MyUserMenuItems, // light, always rendered → eager
+  },
+  {
+    id: "myplugin.system-editor",
+    slot: SystemEditorSlot,
+    // heavy, page-scoped → lazy
+    load: () =>
+      import("./components/MyEditor").then((m) => ({ default: m.MyEditor })),
   },
 ]
 ```
@@ -394,8 +417,11 @@ import { access } from "@checkstack/myplugin-common";
 
 routes: [
   {
-    path: "/config",
-    element: <ItemConfigPage />,
+    route: myRoutes.routes.config,
+    load: () =>
+      import("./pages/ItemConfigPage").then((m) => ({
+        default: m.ItemConfigPage,
+      })),
     accessRule: access.itemManage.id,
   },
 ]

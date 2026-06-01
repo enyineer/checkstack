@@ -580,6 +580,33 @@ export const MySystemAction: React.FC<Props> = ({ systemId, systemName }) => {
 > [!TIP]
 > Using `SlotContext` and `createSlotExtension` ensures compile-time type checking. If the slot definition changes, TypeScript will immediately flag any component prop mismatches.
 
+#### Eager `component` vs lazy `load`
+
+Every extension provides exactly one of `component` or `load`:
+
+- `component` (eager) — bundled with the plugin and registered at load. Use for
+  LIGHT, always-rendered contributions (navbar items, user-menu links, status
+  badges) where code-splitting would only add a load flash.
+- `load` (lazy) — a `() => import(...).then((m) => ({ default: m.X }))` thunk.
+  The framework renders it through `React.lazy` inside a Suspense boundary and a
+  per-plugin error boundary, so its chunk is fetched on demand and a failed load
+  is contained to that one contribution. Use for HEAVY or page-scoped
+  contributions (dashboards, editors, chart panels).
+
+```typescript
+createSlotExtension(SystemEditorSlot, {
+  id: "myplugin.system-editor",
+  // Heavy editor → lazy; only loads when the editor slot renders.
+  load: () =>
+    import("./components/MyEditor").then((m) => ({ default: m.MyEditor })),
+});
+```
+
+If you read extensions yourself via `useSlotExtensions` (e.g. to build a tab
+bar) instead of `<ExtensionSlot>`, render each one with the `<ExtensionComponent
+extension={ext} context={...} />` helper so both eager and lazy contributions
+are handled uniformly.
+
 #### Typed Metadata on Extensions
 
 Some slots need each extension to declare a static descriptor at registration

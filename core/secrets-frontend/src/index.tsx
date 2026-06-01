@@ -8,15 +8,7 @@ import {
   secretsAccess,
   pluginMetadata,
 } from "@checkstack/secrets-common";
-import { lazy } from "react";
 import { SecretsMenuItems } from "./components/SecretsMenuItems";
-
-// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
-const SecretsSettingsPage = lazy(() =>
-  import("./pages/SecretsSettingsPage").then((m) => ({
-    default: m.SecretsSettingsPage,
-  })),
-);
 
 /**
  * Frontend plugin for the Secrets platform.
@@ -33,7 +25,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: secretsRoutes.routes.home,
-      element: <SecretsSettingsPage />,
+      load: () =>
+        import("./pages/SecretsSettingsPage").then((m) => ({
+          default: m.SecretsSettingsPage,
+        })),
       title: "Secrets",
       accessRule: secretsAccess.secret.manage,
     },

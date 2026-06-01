@@ -8,26 +8,8 @@ import {
   notificationRoutes,
   pluginMetadata,
 } from "@checkstack/notification-common";
-import { lazy } from "react";
 import { NotificationBell } from "./components/NotificationBell";
 import { NotificationUserMenuItems } from "./components/UserMenuItems";
-
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const NotificationsPage = lazy(() =>
-  import("./pages/NotificationsPage").then((m) => ({
-    default: m.NotificationsPage,
-  })),
-);
-const NotificationSettingsPage = lazy(() =>
-  import("./pages/NotificationSettingsPage").then((m) => ({
-    default: m.NotificationSettingsPage,
-  })),
-);
-const DeliveryAttemptsPage = lazy(() =>
-  import("./pages/DeliveryAttemptsPage").then((m) => ({
-    default: m.DeliveryAttemptsPage,
-  })),
-);
 
 // Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
 // at module load to bind their kinds (e.g., "catalog.system") to icon + label.
@@ -57,15 +39,24 @@ export const notificationPlugin = createFrontendPlugin({
   routes: [
     {
       route: notificationRoutes.routes.home,
-      element: <NotificationsPage />,
+      load: () =>
+        import("./pages/NotificationsPage").then((m) => ({
+          default: m.NotificationsPage,
+        })),
     },
     {
       route: notificationRoutes.routes.settings,
-      element: <NotificationSettingsPage />,
+      load: () =>
+        import("./pages/NotificationSettingsPage").then((m) => ({
+          default: m.NotificationSettingsPage,
+        })),
     },
     {
       route: notificationRoutes.routes.deliveryAttempts,
-      element: <DeliveryAttemptsPage />,
+      load: () =>
+        import("./pages/DeliveryAttemptsPage").then((m) => ({
+          default: m.DeliveryAttemptsPage,
+        })),
     },
   ],
   extensions: [

@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -15,6 +15,7 @@ import {
   rpcApiRef,
   useApi,
   ExtensionSlot,
+  getLazyContribution,
   pluginRegistry,
   DashboardSlot,
   NavbarRightSlot,
@@ -80,6 +81,26 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Stable references for `useSyncExternalStore` subscription to the plugin
+// registry (module scope so they don't change identity across renders).
+const subscribePluginRegistry = (onChange: () => void) =>
+  pluginRegistry.subscribe(onChange);
+const getRegisteredPlugins = () => pluginRegistry.getPlugins();
+
+// Shared fallbacks for lazily-loaded plugin route pages. The loading state
+// mirrors RouteGuard's access-loading look (usePerformance-aware spinner); the
+// error state contains a failed page load instead of white-screening the shell.
+const ROUTE_SUSPENSE_FALLBACK = (
+  <div className="h-full flex items-center justify-center p-8">
+    <LoadingSpinner />
+  </div>
+);
+const ROUTE_ERROR_FALLBACK = (
+  <div className="h-full flex items-center justify-center p-8 text-sm text-muted-foreground">
+    This page failed to load. Try reloading.
+  </div>
+);
 
 /**
  * Component that registers global keyboard shortcuts for all commands.
@@ -174,31 +195,39 @@ function AppContent() {
                 </div>
               }
             />
-            {/* Plugin Routes. Most plugins lazy-load their page bodies via
-                `React.lazy` (so the route's component chunk is fetched on
-                navigation, not in the initial load), so each element is wrapped
-                in a Suspense boundary. The fallback mirrors RouteGuard's
-                access-loading state and uses the `usePerformance`-aware
-                LoadingSpinner. */}
-            {pluginRegistry.getAllRoutes().map((route) => (
-              <Route
-                key={route.path}
-                path={route.path}
-                element={
-                  <RouteGuard accessRule={route.accessRule}>
-                    <Suspense
-                      fallback={
-                        <div className="h-full flex items-center justify-center p-8">
-                          <LoadingSpinner />
-                        </div>
-                      }
-                    >
-                      {route.element}
-                    </Suspense>
-                  </RouteGuard>
-                }
-              />
-            ))}
+            {/* Plugin Routes. Each plugin declares its page via a `load` thunk;
+                the framework (`getLazyContribution`) code-splits it and wraps it
+                in Suspense + a per-plugin error boundary, so the page chunk is
+                fetched on navigation (not in the initial load) and a failing
+                page degrades gracefully instead of crashing the shell. */}
+            {pluginRegistry.getAllRoutes().map((route) => {
+              // A route is either lazy (`load`, the default — framework wraps it
+              // in Suspense + error boundary) or eager (`element`, rare — e.g.
+              // the login page on the critical path).
+              let element: React.ReactNode;
+              if (route.load) {
+                const PageElement = getLazyContribution({
+                  id: route.path,
+                  load: route.load,
+                  suspenseFallback: ROUTE_SUSPENSE_FALLBACK,
+                  errorFallback: ROUTE_ERROR_FALLBACK,
+                });
+                element = <PageElement />;
+              } else {
+                element = route.element;
+              }
+              return (
+                <Route
+                  key={route.path}
+                  path={route.path}
+                  element={
+                    <RouteGuard accessRule={route.accessRule}>
+                      {element}
+                    </RouteGuard>
+                  }
+                />
+              );
+            })}
             {/* Catch-all: show Not Found for unmatched routes */}
             <Route path="*" element={<NotFound />} />
           </Routes>
@@ -217,6 +246,15 @@ function AppWithApis() {
     useRuntimeConfigContext();
   const { baseUrl } = useRuntimeConfig();
 
+  // Subscribe to the plugin registry so the API registry below rebuilds when
+  // plugins register/unregister at runtime (e.g. a remotely-installed plugin),
+  // picking up their `apis` factories. `getPlugins()` returns an immutable
+  // snapshot whose reference changes on every registry change.
+  const plugins = useSyncExternalStore(
+    subscribePluginRegistry,
+    getRegisteredPlugins,
+  );
+
   const apiRegistry = useMemo(() => {
     // Initialize API Registry with core apiRefs
     const registryBuilder = new ApiRegistryBuilder()
@@ -232,7 +270,6 @@ function AppWithApis() {
       });
 
     // Register API factories from plugins
-    const plugins = pluginRegistry.getPlugins();
     for (const plugin of plugins) {
       if (plugin.apis) {
         for (const api of plugin.apis) {
@@ -248,7 +285,7 @@ function AppWithApis() {
     }
 
     return registryBuilder.build();
-  }, [baseUrl]);
+  }, [baseUrl, plugins]);
 
   // Show spinner while fetching runtime config and probing baseUrl.
   if (isConfigLoading) {

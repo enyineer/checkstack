@@ -8,15 +8,7 @@ import {
   scriptPackagesAccess,
   pluginMetadata,
 } from "@checkstack/script-packages-common";
-import { lazy } from "react";
 import { ScriptPackagesMenuItems } from "./components/ScriptPackagesMenuItems";
-
-// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
-const ScriptPackagesSettingsPage = lazy(() =>
-  import("./pages/ScriptPackagesSettingsPage").then((m) => ({
-    default: m.ScriptPackagesSettingsPage,
-  })),
-);
 
 /**
  * Frontend plugin for script-package management.
@@ -35,7 +27,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: scriptPackagesRoutes.routes.settings,
-      element: <ScriptPackagesSettingsPage />,
+      load: () =>
+        import("./pages/ScriptPackagesSettingsPage").then((m) => ({
+          default: m.ScriptPackagesSettingsPage,
+        })),
       title: "Script packages",
       accessRule: scriptPackagesAccess.manage,
     },

@@ -8,20 +8,7 @@ import {
   pluginMetadata,
   integrationAccess,
 } from "@checkstack/integration-common";
-import { lazy } from "react";
 import { IntegrationMenuItem } from "./components/IntegrationMenuItem";
-
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const IntegrationsLandingPage = lazy(() =>
-  import("./pages/IntegrationsLandingPage").then((m) => ({
-    default: m.IntegrationsLandingPage,
-  })),
-);
-const ProviderConnectionsPage = lazy(() =>
-  import("./pages/ProviderConnectionsPage").then((m) => ({
-    default: m.ProviderConnectionsPage,
-  })),
-);
 
 /**
  * Integration frontend — now scoped to connection management. The
@@ -35,12 +22,18 @@ export const integrationPlugin = createFrontendPlugin({
   routes: [
     {
       route: integrationRoutes.routes.list,
-      element: <IntegrationsLandingPage />,
+      load: () =>
+        import("./pages/IntegrationsLandingPage").then((m) => ({
+          default: m.IntegrationsLandingPage,
+        })),
       accessRule: integrationAccess.manage,
     },
     {
       route: integrationRoutes.routes.connections,
-      element: <ProviderConnectionsPage />,
+      load: () =>
+        import("./pages/ProviderConnectionsPage").then((m) => ({
+          default: m.ProviderConnectionsPage,
+        })),
       accessRule: integrationAccess.manage,
     },
   ],

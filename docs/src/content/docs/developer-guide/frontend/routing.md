@@ -30,35 +30,43 @@ export { yourPluginRoutes } from "./routes";
 
 ### Using Routes (Frontend Plugin)
 
-Import the routes and use them with the `route` field:
+Each route declares a `load` thunk that imports its page module. The framework
+code-splits the page and wraps it in a Suspense boundary plus a per-plugin error
+boundary, so the page's JavaScript is fetched on navigation (never in the
+initial app load) and a page that fails to load degrades gracefully instead of
+crashing the shell. Plugins do NOT call `React.lazy` themselves.
 
 ```tsx
 // In your-plugin-frontend/src/index.tsx
 import { createFrontendPlugin } from "@checkstack/frontend-api";
-import { yourPluginRoutes, pluginMetadata } from "@checkstack/your-plugin-common";
-import { HomePage } from "./pages/HomePage";
-import { ConfigPage } from "./pages/ConfigPage";
-import { DetailPage } from "./pages/DetailPage";
+import { yourPluginRoutes, pluginMetadata, yourPluginAccess } from "@checkstack/your-plugin-common";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [
     {
       route: yourPluginRoutes.routes.home,
-      element: <HomePage />,
+      // `load` returns the page module. For a named export, map it to `default`:
+      load: () => import("./pages/HomePage").then((m) => ({ default: m.HomePage })),
     },
     {
       route: yourPluginRoutes.routes.config,
-      element: <ConfigPage />,
+      load: () => import("./pages/ConfigPage").then((m) => ({ default: m.ConfigPage })),
       accessRule: yourPluginAccess.manage,
     },
     {
       route: yourPluginRoutes.routes.detail,
-      element: <DetailPage />,
+      load: () => import("./pages/DetailPage").then((m) => ({ default: m.DetailPage })),
     },
   ],
 });
 ```
+
+> [!NOTE]
+> A route may instead provide an eager `element: <Page />` (mutually exclusive
+> with `load`). Reserve this for the rare page that must paint without a chunk
+> fetch - e.g. the login page on the unauthenticated critical path. Everything
+> else should use `load`.
 
 ## Route Resolution
 

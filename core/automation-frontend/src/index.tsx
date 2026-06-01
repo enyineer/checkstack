@@ -8,31 +8,7 @@ import {
   pluginMetadata,
   automationAccess,
 } from "@checkstack/automation-common";
-import { lazy } from "react";
 import { AutomationMenuItems } from "./components/AutomationMenuItems";
-
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const AutomationListPage = lazy(() =>
-  import("./pages/AutomationListPage").then((m) => ({
-    default: m.AutomationListPage,
-  })),
-);
-const AutomationEditPage = lazy(() =>
-  import("./pages/AutomationEditPage").then((m) => ({
-    default: m.AutomationEditPage,
-  })),
-);
-const RunsPage = lazy(() =>
-  import("./pages/RunsPage").then((m) => ({ default: m.RunsPage })),
-);
-const RunDetailPage = lazy(() =>
-  import("./pages/RunDetailPage").then((m) => ({ default: m.RunDetailPage })),
-);
-const TemplatePlaygroundPage = lazy(() =>
-  import("./pages/TemplatePlaygroundPage").then((m) => ({
-    default: m.TemplatePlaygroundPage,
-  })),
-);
 
 export {
   generateAutomationContextTypes,
@@ -71,37 +47,52 @@ export default createFrontendPlugin({
   routes: [
     {
       route: automationRoutes.routes.list,
-      element: <AutomationListPage />,
+      load: () =>
+        import("./pages/AutomationListPage").then((m) => ({
+          default: m.AutomationListPage,
+        })),
       title: "Automations",
       accessRule: automationAccess.read,
     },
     {
       route: automationRoutes.routes.create,
-      element: <AutomationEditPage />,
+      load: () =>
+        import("./pages/AutomationEditPage").then((m) => ({
+          default: m.AutomationEditPage,
+        })),
       title: "New automation",
       accessRule: automationAccess.manage,
     },
     {
       route: automationRoutes.routes.edit,
-      element: <AutomationEditPage />,
+      load: () =>
+        import("./pages/AutomationEditPage").then((m) => ({
+          default: m.AutomationEditPage,
+        })),
       title: "Edit automation",
       accessRule: automationAccess.read,
     },
     {
       route: automationRoutes.routes.runs,
-      element: <RunsPage />,
+      load: () => import("./pages/RunsPage").then((m) => ({ default: m.RunsPage })),
       title: "Run history",
       accessRule: automationAccess.read,
     },
     {
       route: automationRoutes.routes.runDetail,
-      element: <RunDetailPage />,
+      load: () =>
+        import("./pages/RunDetailPage").then((m) => ({
+          default: m.RunDetailPage,
+        })),
       title: "Run details",
       accessRule: automationAccess.read,
     },
     {
       route: automationRoutes.routes.playground,
-      element: <TemplatePlaygroundPage />,
+      load: () =>
+        import("./pages/TemplatePlaygroundPage").then((m) => ({
+          default: m.TemplatePlaygroundPage,
+        })),
       title: "Template playground",
       accessRule: automationAccess.read,
     },
