@@ -13,6 +13,16 @@ const passthroughCache: HealthCheckCache = {
   invalidateAllSystems: async () => 0,
   scope: {} as HealthCheckCache["scope"],
 };
+
+// Pass-through advisory lock: these tests don't exercise cross-pod
+// serialization, so run the critical section directly.
+const mockAdvisoryLock: Parameters<
+  typeof setupHealthCheckWorker
+>[0]["advisoryLock"] = {
+  tryAcquire: async () => ({ release: async () => {} }),
+  withXactLock: <T>({ fn }: { key: string; fn: () => Promise<T> }): Promise<T> =>
+    fn(),
+};
 import {
   createMockLogger,
   createMockQueueManager,
@@ -179,6 +189,7 @@ describe("Queue-Based Health Check Executor", () => {
         db: mockDb as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
         registry: mockRegistry,
         collectorRegistry:
           createMockCollectorRegistry() as unknown as Parameters<
@@ -376,6 +387,7 @@ describe("Queue-Based Health Check Executor", () => {
         db: mockDb as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
         registry: mockRegistry,
         collectorRegistry:
           createMockCollectorRegistry() as unknown as Parameters<
@@ -510,6 +522,7 @@ describe("Queue-Based Health Check Executor", () => {
         db: mockDb as unknown as Parameters<
           typeof setupHealthCheckWorker
         >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
         registry: mockRegistry,
         collectorRegistry: mockCollectorRegistry as unknown as Parameters<
           typeof setupHealthCheckWorker

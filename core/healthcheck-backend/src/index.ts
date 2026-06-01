@@ -198,6 +198,7 @@ export default createBackendPlugin({
         cacheManager: coreServices.cacheManager,
         config: coreServices.config,
         secretResolver: secretResolverRef,
+        advisoryLock: coreServices.advisoryLock,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -212,6 +213,7 @@ export default createBackendPlugin({
         cacheManager,
         config,
         secretResolver,
+        advisoryLock,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
 
@@ -258,6 +260,7 @@ export default createBackendPlugin({
         await setupHealthCheckWorker({
           notificationClient,
           db: database,
+          advisoryLock,
           registry: healthCheckRegistry,
           collectorRegistry,
           logger,

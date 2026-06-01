@@ -127,6 +127,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
         cacheManager: coreServices.cacheManager,
+        advisoryLock: coreServices.advisoryLock,
       },
       init: async ({
         logger,
@@ -135,6 +136,7 @@ export default createBackendPlugin({
         rpcClient,
         signalService,
         cacheManager,
+        advisoryLock,
       }) => {
         logger.debug("🔧 Initializing Incident Backend...");
 
@@ -144,6 +146,7 @@ export default createBackendPlugin({
 
         const service = new IncidentService(
           database as SafeDatabase<typeof schema>,
+          advisoryLock,
         );
         // Publish the service for the PLUGIN-BACKED entity `read` accessor
         // (defined in register()). Mutations only run from here onward.
@@ -208,9 +211,14 @@ export default createBackendPlugin({
       // associations) + register subscription specs. Per-system /
       // per-group notification group lifecycle is fully owned by
       // notification-backend now — incident never touches it.
-      afterPluginsReady: async ({ database, logger, rpcClient }) => {
+      afterPluginsReady: async ({
+        database,
+        logger,
+        rpcClient,
+        advisoryLock,
+      }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
-        const service = new IncidentService(typedDb);
+        const service = new IncidentService(typedDb, advisoryLock);
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         await Promise.all([

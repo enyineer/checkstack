@@ -14,7 +14,7 @@ import {
 import { AuthApi } from "@checkstack/auth-common";
 import type { ServiceRegistry } from "../services/service-registry";
 import { rootLogger } from "../logger";
-import { db } from "../db";
+import { db, lockPool } from "../db";
 import { jwtService } from "../services/jwt";
 import {
   CoreHealthCheckRegistry,
@@ -98,11 +98,14 @@ export function registerCoreServices({
     return createScopedDb(db, assignedSchema);
   });
 
-  // 1b. Advisory Lock Factory (server-global, backed by the shared admin
-  // pool). Session locks need connection affinity, so the service checks
-  // out a dedicated client per acquired lock and releases on the SAME
-  // client — the scoped per-query DB proxy can't provide that.
-  const advisoryLockService = createAdvisoryLockService(adminPool);
+  // 1b. Advisory Lock Factory (server-global, backed by the DEDICATED
+  // `lockPool`, NOT `adminPool`). Both session locks (`tryAcquire`) and the
+  // transaction-scoped `withXactLock` HOLD a connection for the lock's whole
+  // lifetime while the locked work runs on `adminPool`. Drawing the lock
+  // connection from a separate pool keeps the acquire graph acyclic
+  // (lockPool -> adminPool, never back), so a held lock can never starve the
+  // work pool into the `idle in transaction` deadlock. See `db.ts`.
+  const advisoryLockService = createAdvisoryLockService(lockPool);
   registry.registerFactory(
     coreServices.advisoryLock,
     () => advisoryLockService,

@@ -18,19 +18,25 @@
  *     (e.g. an installer election held across a minutes-long `bun install`)
  *     where a long-open transaction would be unacceptable.
  *
- *   - {@link withXactLock} wraps acquire + work + release in a single
- *     transaction using `pg_advisory_xact_lock`, which auto-releases at
- *     COMMIT/ROLLBACK. Use this for SHORT critical sections (e.g. a
- *     find-then-create dedup) where holding a transaction for the duration
- *     is fine and the auto-release removes any chance of a leak.
+ *   - {@link AdvisoryLockService.withXactLock} wraps acquire + work + release
+ *     in a single transaction using `pg_advisory_xact_lock`, which auto-
+ *     releases at COMMIT/ROLLBACK. Use this for SHORT critical sections (e.g. a
+ *     find-then-create dedup) where holding a transaction for the duration is
+ *     fine and the auto-release removes any chance of a leak.
+ *
+ * BOTH run on the service's pool, which MUST be a pool dedicated to advisory
+ * locks (separate from the pool the locked work runs on). A held lock keeps its
+ * connection checked out for the lock's lifetime; if lock and work shared one
+ * pool, concurrency >= pool size would deadlock (every slot a lock-holder
+ * waiting for a work connection). The backend wires this to a dedicated
+ * `lockPool`; that pool also sets `idle_in_transaction_session_timeout` /
+ * `lock_timeout` so a stalled critical section cannot strand a lock forever.
  *
  * Keys are arbitrary strings hashed to Postgres' 64-bit lock space via
  * `hashtextextended(key, 0)`. Callers SHOULD namespace keys (e.g.
  * `"script-packages.installer"`, `"incident.dedupe:<systemId>"`) since the
  * advisory-lock space is global to the database server, not schema-scoped.
  */
-import { sql } from "drizzle-orm";
-import type { SafeDatabase } from "./plugin-system";
 
 /**
  * Minimal pool surface this module needs. Modelled on `pg.Pool` /
@@ -45,13 +51,22 @@ export interface AdvisoryLockPoolClient {
   /** Return the client to the pool. */
   release(): void;
   /**
-   * Subscribe to async client errors. A session-lock client is held for a long
-   * time; if its backend dies (admin termination, failover, network drop) `pg`
-   * emits `'error'` on the client, and an `'error'` with no listener is
-   * re-thrown by the EventEmitter and would crash the pod. We attach a listener
-   * so that loss degrades gracefully instead. Modelled on `pg.Client.on`.
+   * Subscribe to async client errors. A held client (session lock, or an open
+   * xact-lock transaction) is checked out for a while; if its backend dies
+   * (admin termination, failover, network drop) `pg` emits `'error'` on the
+   * client, and an `'error'` with no listener is re-thrown by the EventEmitter
+   * and would crash the pod. We attach a listener so that loss degrades
+   * gracefully instead. Modelled on `pg.Client.on`.
    */
   on(event: "error", listener: (err: Error) => void): void;
+  /**
+   * Detach a previously-attached error listener. MUST be called before
+   * returning the client to the pool: pooled clients are reused, so attaching a
+   * fresh listener on every checkout WITHOUT removing it on release leaks one
+   * listener per acquisition on each long-lived physical connection (an
+   * unbounded `MaxListenersExceeded` leak). Modelled on `pg.Client.off`.
+   */
+  off(event: "error", listener: (err: Error) => void): void;
 }
 
 export interface AdvisoryLockPool {
@@ -76,7 +91,29 @@ export interface AdvisoryLockService {
    * `finally`.
    */
   tryAcquire(key: string): Promise<AdvisoryLockHandle | null>;
+  /**
+   * Run `fn` while holding a transaction-scoped advisory lock for `key`,
+   * acquired with `pg_advisory_xact_lock` (which BLOCKS until granted) on a
+   * dedicated client from THIS service's pool, and auto-released when that
+   * transaction commits/rolls back after `fn` settles.
+   *
+   * The lock transaction runs on this service's (dedicated lock) pool, while
+   * `fn` does its real work on whatever database it already holds (typically
+   * the shared admin pool). Because the held lock connection and the work
+   * connection come from DIFFERENT pools, the nested acquisition can never
+   * deadlock the work pool. Use this for SHORT critical sections that gate a
+   * read-then-write on another connection.
+   */
+  withXactLock<T>(args: { key: string; fn: () => Promise<T> }): Promise<T>;
 }
+
+/**
+ * Shared no-op `'error'` listener for held clients. A single module-level
+ * reference (rather than a fresh closure per acquisition) is what lets `off`
+ * detach exactly the listener `on` attached, and avoids allocating one per
+ * lock. It captures nothing, so sharing it is safe.
+ */
+const swallowClientError = (): void => {};
 
 /**
  * Build an {@link AdvisoryLockService} backed by a pool. The backend
@@ -95,8 +132,13 @@ export function createAdvisoryLockService(
       // here; without a listener the process crashes. Swallow it - the session
       // lock is auto-released server-side when the backend dies, and a stale
       // `release()` is already a no-op-safe `finally`, so the loss surfaces as
-      // the key simply becoming acquirable again.
-      client.on("error", () => {});
+      // the key simply becoming acquirable again. The listener is removed on
+      // release so it does not accumulate on the reused pooled connection.
+      client.on("error", swallowClientError);
+      const releaseClient = () => {
+        client.off("error", swallowClientError);
+        client.release();
+      };
       let acquired = false;
       try {
         const result = await client.query<{ ok: boolean }>(
@@ -105,14 +147,14 @@ export function createAdvisoryLockService(
         );
         acquired = Boolean(result.rows[0]?.ok);
       } catch (error) {
-        client.release();
+        releaseClient();
         throw error;
       }
       if (!acquired) {
         // Did not get the lock — return the client immediately. (A failed
         // pg_try_advisory_lock acquires nothing, so there is nothing to
         // unlock.)
-        client.release();
+        releaseClient();
         return null;
       }
 
@@ -127,48 +169,48 @@ export function createAdvisoryLockService(
               [key],
             );
           } finally {
-            client.release();
+            releaseClient();
           }
         },
       };
     },
-  };
-}
 
-/**
- * Run `fn` while holding a transaction-scoped advisory lock for `key`. The
- * lock is acquired with `pg_advisory_xact_lock` (which BLOCKS until granted)
- * inside a transaction and auto-released at COMMIT/ROLLBACK, so there is no
- * unlock to leak. Use only for SHORT critical sections — the lock is held
- * for the whole transaction.
- *
- * Because the scoped DB runs an entire `transaction()` callback on a single
- * dedicated connection, the lock + the work + the implicit release all share
- * one session, which is exactly the affinity session locks require.
- *
- * `fn` receives the transaction handle `tx` and MUST run its
- * read-then-write critical section on it (not on the outer pool). Running
- * the work on the pool would put it on a DIFFERENT connection than the one
- * holding the lock — so two concurrent callers' critical sections could
- * interleave even though both "hold" the lock. Using `tx` keeps the
- * read-check + write atomic with respect to the lock.
- */
-export async function withXactLock<
-  S extends Record<string, unknown>,
-  T,
->({
-  db,
-  key,
-  fn,
-}: {
-  db: SafeDatabase<S>;
-  key: string;
-  fn: (tx: Parameters<Parameters<SafeDatabase<S>["transaction"]>[0]>[0]) => Promise<T>;
-}): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`,
-    );
-    return fn(tx);
-  });
+    async withXactLock({ key, fn }) {
+      const client = await pool.connect();
+      // Same rationale as tryAcquire: the lock transaction keeps this client
+      // checked out (idle in transaction) while `fn` runs, so attach an error
+      // listener to survive a backend termination instead of crashing the pod.
+      // Removed in the finally so it does not accumulate on the reused client.
+      client.on("error", swallowClientError);
+      try {
+        await client.query("BEGIN");
+        try {
+          // BLOCKS on this dedicated client until the lock is granted; auto-
+          // released by the COMMIT/ROLLBACK below. `fn`'s own work runs on a
+          // DIFFERENT pool, so no same-pool nested-acquisition deadlock.
+          await client.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            [key],
+          );
+          const result = await fn();
+          await client.query("COMMIT");
+          return result;
+        } catch (error) {
+          // Roll back so the xact lock releases and nothing partial lingers on
+          // this connection before it returns to the pool. Best-effort: if the
+          // backend already died, ROLLBACK throws but release() still frees the
+          // slot and the lock is auto-released server-side.
+          try {
+            await client.query("ROLLBACK");
+          } catch (rollbackError) {
+            void rollbackError;
+          }
+          throw error;
+        }
+      } finally {
+        client.off("error", swallowClientError);
+        client.release();
+      }
+    },
+  };
 }

@@ -294,6 +294,9 @@ describe("L2 cross-pod masking — resume on a fresh pod re-seeds the mask set",
     // The scope-snapshot choke point (run-state) is masked too.
     const noopAdvisoryLock: AdvisoryLockService = {
       tryAcquire: async () => ({ release: async () => {} }),
+      withXactLock<T>({ fn }: { key: string; fn: () => Promise<T> }): Promise<T> {
+        return fn();
+      },
     };
     const stateCaptured: Captured = { inserts: [], updates: [] };
     const stateStore = createRunStateStore(

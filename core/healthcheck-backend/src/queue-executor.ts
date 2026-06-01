@@ -9,6 +9,7 @@ import {
   type ConnectedClient,
   type TransportClient,
   type CollectorRunContext,
+  type AdvisoryLockService,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -375,6 +376,7 @@ async function notifyStateChange(props: {
 async function executeHealthCheckJob(props: {
   payload: HealthCheckJobPayload;
   db: Db;
+  advisoryLock: AdvisoryLockService;
   registry: HealthCheckRegistry;
   collectorRegistry: CollectorRegistry;
   logger: Logger;
@@ -404,6 +406,7 @@ async function executeHealthCheckJob(props: {
   const {
     payload,
     db,
+    advisoryLock,
     registry,
     collectorRegistry,
     logger,
@@ -428,7 +431,9 @@ async function executeHealthCheckJob(props: {
   // system (multiple per-config jobs across pods, or at-least-once
   // redelivery) can't double-emit a single logical transition. Bound to this
   // job's systemId below at every `writeHealthEntity` call.
-  const serializeHealthWrite = createHealthEntitySerializer({ db })(systemId);
+  const serializeHealthWrite = createHealthEntitySerializer({ advisoryLock })(
+    systemId,
+  );
 
   // Capture aggregated state BEFORE this run for comparison
   const previousState = await service.getSystemHealthStatus(systemId);
@@ -1073,6 +1078,7 @@ async function executeHealthCheckJob(props: {
 
 export async function setupHealthCheckWorker(props: {
   db: Db;
+  advisoryLock: AdvisoryLockService;
   registry: HealthCheckRegistry;
   collectorRegistry: CollectorRegistry;
   logger: Logger;
@@ -1089,6 +1095,7 @@ export async function setupHealthCheckWorker(props: {
 }): Promise<void> {
   const {
     db,
+    advisoryLock,
     registry,
     collectorRegistry,
     logger,
@@ -1113,6 +1120,7 @@ export async function setupHealthCheckWorker(props: {
       await executeHealthCheckJob({
         payload: job.data,
         db,
+        advisoryLock,
         registry,
         collectorRegistry,
         logger,

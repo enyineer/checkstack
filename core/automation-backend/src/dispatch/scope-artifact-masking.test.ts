@@ -45,6 +45,9 @@ function capturingDb(captured: Captured) {
 
 const noopAdvisoryLock: AdvisoryLockService = {
   tryAcquire: async () => ({ release: async () => {} }),
+  withXactLock<T>({ fn }: { key: string; fn: () => Promise<T> }): Promise<T> {
+    return fn();
+  },
 };
 
 describe("H2 — scope snapshot masking (run-state choke point)", () => {
