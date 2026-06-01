@@ -12,23 +12,7 @@ import {
 import { Server, FolderTree } from "lucide-react";
 import { registerSubjectKind } from "@checkstack/notification-frontend";
 
-import { lazy } from "react";
 import { CatalogUserMenuItems } from "./components/UserMenuItems";
-
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const CatalogPage = lazy(() =>
-  import("./components/CatalogPage").then((m) => ({ default: m.CatalogPage })),
-);
-const CatalogConfigPage = lazy(() =>
-  import("./components/CatalogConfigPage").then((m) => ({
-    default: m.CatalogConfigPage,
-  })),
-);
-const SystemDetailPage = lazy(() =>
-  import("./components/SystemDetailPage").then((m) => ({
-    default: m.SystemDetailPage,
-  })),
-);
 
 // Notification subject kinds emitted by catalog (see catalog-common's
 // `createSystemSubject` / `createGroupSubject`). Registered at module load
@@ -49,16 +33,25 @@ export const catalogPlugin = createFrontendPlugin({
   routes: [
     {
       route: catalogRoutes.routes.home,
-      element: <CatalogPage />,
+      load: () =>
+        import("./components/CatalogPage").then((m) => ({
+          default: m.CatalogPage,
+        })),
     },
     {
       route: catalogRoutes.routes.config,
-      element: <CatalogConfigPage />,
+      load: () =>
+        import("./components/CatalogConfigPage").then((m) => ({
+          default: m.CatalogConfigPage,
+        })),
       accessRule: catalogAccess.system.manage,
     },
     {
       route: catalogRoutes.routes.systemDetail,
-      element: <SystemDetailPage />,
+      load: () =>
+        import("./components/SystemDetailPage").then((m) => ({
+          default: m.SystemDetailPage,
+        })),
     },
   ],
   extensions: [

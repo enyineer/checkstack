@@ -1,4 +1,8 @@
+import type { ComponentType, ReactNode } from "react";
 import { FrontendPlugin, Extension } from "./plugin";
+
+/** Lazy page loader, as declared on a {@link PluginRoute}. */
+type RouteLoader = () => Promise<{ default: ComponentType }>;
 
 /**
  * Listener function for registry changes
@@ -12,13 +16,20 @@ interface ResolvedRoute {
   id: string;
   path: string;
   pluginId: string;
-  element?: React.ReactNode;
+  /** Exactly one of `load` (lazy) / `element` (eager) is set. */
+  load?: RouteLoader;
+  element?: ReactNode;
   title?: string;
   accessRule?: string;
 }
 
 class PluginRegistry {
   private plugins: FrontendPlugin[] = [];
+  // Immutable snapshot of `plugins`, rebuilt on every change. `getPlugins()`
+  // returns this so callers (and `useSyncExternalStore`) get a referentially
+  // stable value between changes and a NEW reference when the set changes —
+  // `plugins` itself is mutated in place, so its reference never changes.
+  private pluginsSnapshot: readonly FrontendPlugin[] = [];
   private extensions = new Map<string, Extension[]>();
   private routeMap = new Map<string, ResolvedRoute>();
 
@@ -59,6 +70,7 @@ class PluginRegistry {
         id: route.route.id,
         path: fullPath,
         pluginId: route.route.pluginId,
+        load: route.load,
         element: route.element,
         title: route.title,
         accessRule: route.accessRule?.id,
@@ -151,8 +163,8 @@ class PluginRegistry {
     return this.plugins.some((p) => p.metadata.pluginId === pluginId);
   }
 
-  getPlugins() {
-    return this.plugins;
+  getPlugins(): readonly FrontendPlugin[] {
+    return this.pluginsSnapshot;
   }
 
   getExtensions(slotId: string): Extension[] {
@@ -173,6 +185,8 @@ class PluginRegistry {
 
         return {
           path: fullPath,
+          pluginId: route.route.pluginId,
+          load: route.load,
           element: route.element,
           title: route.title,
           accessRule: route.accessRule?.id,
@@ -229,6 +243,9 @@ class PluginRegistry {
 
   private incrementVersion() {
     this.version++;
+    // Rebuild the immutable snapshot so external subscribers see a new
+    // reference (required for useSyncExternalStore / useMemo to recompute).
+    this.pluginsSnapshot = [...this.plugins];
     for (const listener of this.listeners) {
       listener();
     }

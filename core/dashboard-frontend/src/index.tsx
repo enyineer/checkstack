@@ -1,5 +1,4 @@
 import { FrontendPlugin, DashboardSlot } from "@checkstack/frontend-api";
-import { Dashboard } from "./Dashboard";
 import { pluginMetadata } from "./pluginMetadata";
 
 export const dashboardPlugin: FrontendPlugin = {
@@ -8,7 +7,12 @@ export const dashboardPlugin: FrontendPlugin = {
     {
       id: "dashboard-main",
       slot: DashboardSlot,
-      component: Dashboard as React.ComponentType<unknown>,
+      // Heavy dashboard (widgets/charts) — lazy so it stays out of the initial
+      // bundle; it renders only on the "/" dashboard route.
+      load: () =>
+        import("./Dashboard").then((m) => ({
+          default: m.Dashboard as React.ComponentType<unknown>,
+        })),
     },
   ],
 };

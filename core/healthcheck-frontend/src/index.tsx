@@ -3,9 +3,7 @@ import {
   createSlotExtension,
   UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { lazy } from "react";
 import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
-import { HealthCheckSystemOverview } from "./components/HealthCheckSystemOverview";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
@@ -44,80 +42,69 @@ export {
 export { useHealthCheckData } from "./hooks";
 export { useStrategySchemas } from "./auto-charts/useStrategySchemas";
 
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const HealthCheckConfigPage = lazy(() =>
-  import("./pages/HealthCheckConfigPage").then((m) => ({
-    default: m.HealthCheckConfigPage,
-  })),
-);
-const StrategyPickerPage = lazy(() =>
-  import("./pages/StrategyPickerPage").then((m) => ({
-    default: m.StrategyPickerPage,
-  })),
-);
-const HealthCheckIDEPage = lazy(() =>
-  import("./pages/HealthCheckIDEPage").then((m) => ({
-    default: m.HealthCheckIDEPage,
-  })),
-);
-const AssignmentIDEPage = lazy(() =>
-  import("./pages/AssignmentIDEPage").then((m) => ({
-    default: m.AssignmentIDEPage,
-  })),
-);
-const HealthCheckHistoryPage = lazy(() =>
-  import("./pages/HealthCheckHistoryPage").then((m) => ({
-    default: m.HealthCheckHistoryPage,
-  })),
-);
-const HealthCheckHistoryDetailPage = lazy(() =>
-  import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
-    default: m.HealthCheckHistoryDetailPage,
-  })),
-);
-
 export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [
     {
       route: healthcheckRoutes.routes.config,
-      element: <HealthCheckConfigPage />,
+      load: () =>
+        import("./pages/HealthCheckConfigPage").then((m) => ({
+          default: m.HealthCheckConfigPage,
+        })),
       title: "Health Checks",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.create,
-      element: <StrategyPickerPage />,
+      load: () =>
+        import("./pages/StrategyPickerPage").then((m) => ({
+          default: m.StrategyPickerPage,
+        })),
       title: "Create Health Check",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.edit,
-      element: <HealthCheckIDEPage />,
+      load: () =>
+        import("./pages/HealthCheckIDEPage").then((m) => ({
+          default: m.HealthCheckIDEPage,
+        })),
       title: "Edit Health Check",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.assignments,
-      element: <AssignmentIDEPage />,
+      load: () =>
+        import("./pages/AssignmentIDEPage").then((m) => ({
+          default: m.AssignmentIDEPage,
+        })),
       title: "Health Check Assignments",
       accessRule: healthCheckAccess.configuration.manage,
     },
     {
       route: healthcheckRoutes.routes.history,
-      element: <HealthCheckHistoryPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryPage").then((m) => ({
+          default: m.HealthCheckHistoryPage,
+        })),
       title: "Health Check History",
       accessRule: healthCheckAccess.configuration.read,
     },
     {
       route: healthcheckRoutes.routes.historyDetail,
-      element: <HealthCheckHistoryDetailPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
+          default: m.HealthCheckHistoryDetailPage,
+        })),
       title: "Health Check Detail",
       accessRule: healthCheckAccess.details,
     },
     {
       route: healthcheckRoutes.routes.historyRun,
-      element: <HealthCheckHistoryDetailPage />,
+      load: () =>
+        import("./pages/HealthCheckHistoryDetailPage").then((m) => ({
+          default: m.HealthCheckHistoryDetailPage,
+        })),
       title: "Health Check Run",
       accessRule: healthCheckAccess.details,
     },
@@ -136,7 +123,12 @@ export default createFrontendPlugin({
     }),
     createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.overview",
-      component: HealthCheckSystemOverview,
+      // Heavier overview (drawer pulls recharts) — lazy so it stays out of the
+      // initial bundle and loads when a system-detail page renders.
+      load: () =>
+        import("./components/HealthCheckSystemOverview").then((m) => ({
+          default: m.HealthCheckSystemOverview,
+        })),
     }),
     createSlotExtension(CatalogSystemActionsSlot, {
       id: "healthcheck.catalog.system-actions",

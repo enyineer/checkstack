@@ -14,18 +14,9 @@ import {
   SystemStateBadgesSlot,
   SystemEditorSlot,
 } from "@checkstack/catalog-common";
-import { lazy } from "react";
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
-import { DependencyEditor } from "./components/DependencyEditor";
 import { DependencyMenuItems } from "./components/DependencyMenuItems";
-
-// Lazy-loaded so the page body is a per-route chunk, not in the initial load.
-const DependencyMapPage = lazy(() =>
-  import("./components/DependencyMapPage").then((m) => ({
-    default: m.DependencyMapPage,
-  })),
-);
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -36,7 +27,10 @@ export default createFrontendPlugin({
   routes: [
     {
       route: dependencyRoutes.routes.map,
-      element: <DependencyMapPage />,
+      load: () =>
+        import("./components/DependencyMapPage").then((m) => ({
+          default: m.DependencyMapPage,
+        })),
       title: "Dependency Map",
       accessRule: dependencyAccess.dependency.read,
     },
@@ -53,7 +47,12 @@ export default createFrontendPlugin({
     }),
     createSlotExtension(SystemEditorSlot, {
       id: "dependency.system-editor",
-      component: DependencyEditor,
+      // Heavy editor form — lazy-loaded so it stays out of the initial bundle
+      // and loads only when a system's editor slot renders.
+      load: () =>
+        import("./components/DependencyEditor").then((m) => ({
+          default: m.DependencyEditor,
+        })),
     }),
     createSlotExtension(UserMenuItemsSlot, {
       id: "dependency.user-menu.map",

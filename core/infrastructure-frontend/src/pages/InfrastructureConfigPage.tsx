@@ -4,6 +4,7 @@ import {
   accessApiRef,
   useApi,
   useSlotExtensions,
+  ExtensionComponent,
 } from "@checkstack/frontend-api";
 import { InfrastructureTabsSlot } from "@checkstack/infrastructure-common";
 import { PageLayout, cn } from "@checkstack/ui";
@@ -108,8 +109,9 @@ const InfrastructureConfigPageContent = () => {
 
         <div className="flex-1 min-w-0">
           {activeTabEntry && (
-            <activeTabEntry.extension.component
-              canUpdate={activeTabEntry.manageResult.allowed}
+            <ExtensionComponent
+              extension={activeTabEntry.extension}
+              context={{ canUpdate: activeTabEntry.manageResult.allowed }}
             />
           )}
         </div>

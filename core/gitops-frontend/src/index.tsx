@@ -9,19 +9,8 @@ import {
   gitopsAccess,
 } from "@checkstack/gitops-common";
 
-import { lazy } from "react";
 import { GitOpsMenuItem } from "./components/GitOpsMenuItem";
 import { KindRegistryMenuItem } from "./components/KindRegistryMenuItem";
-
-// Lazy-loaded so each page body is a per-route chunk, not in the initial load.
-const GitOpsPage = lazy(() =>
-  import("./pages/GitOpsPage").then((m) => ({ default: m.GitOpsPage })),
-);
-const KindRegistryPage = lazy(() =>
-  import("./pages/KindRegistryPage").then((m) => ({
-    default: m.KindRegistryPage,
-  })),
-);
 
 export const gitopsPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -29,12 +18,15 @@ export const gitopsPlugin = createFrontendPlugin({
   routes: [
     {
       route: gitopsRoutes.routes.home,
-      element: <GitOpsPage />,
+      load: () => import("./pages/GitOpsPage").then((m) => ({ default: m.GitOpsPage })),
       accessRule: gitopsAccess.provider.read,
     },
     {
       route: gitopsRoutes.routes.kinds,
-      element: <KindRegistryPage />,
+      load: () =>
+        import("./pages/KindRegistryPage").then((m) => ({
+          default: m.KindRegistryPage,
+        })),
       accessRule: gitopsAccess.kinds.read,
     },
   ],

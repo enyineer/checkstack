@@ -62,7 +62,12 @@ describe("PluginRegistry", () => {
   it("should aggregate all routes from registered plugins", () => {
     const pluginB: FrontendPlugin = {
       metadata: { pluginId: "plugin-b" },
-      routes: [{ route: pluginBRoutes.routes.home }],
+      routes: [
+        {
+          route: pluginBRoutes.routes.home,
+          element: React.createElement("div", null, "Plugin B Route"),
+        },
+      ],
     };
 
     pluginRegistry.register(mockPlugin);
@@ -104,5 +109,57 @@ describe("PluginRegistry", () => {
     expect(extensions).toHaveLength(2);
     expect(extensions.map((e) => e.id)).toContain("ext-a");
     expect(extensions.map((e) => e.id)).toContain("ext-b");
+  });
+
+  it("getAllRoutes preserves both eager (element) and lazy (load) routes", () => {
+    const loader = () =>
+      Promise.resolve({
+        default: () => React.createElement("div", null, "Lazy"),
+      });
+    const plugin: FrontendPlugin = {
+      metadata: { pluginId: "test" },
+      routes: [
+        { route: testRoutes.routes.home, element: React.createElement("div") },
+        { route: testRoutes.routes.config, load: loader },
+      ],
+    };
+    pluginRegistry.register(plugin);
+
+    const routes = pluginRegistry.getAllRoutes();
+    const home = routes.find((r) => r.path === "/test/");
+    const config = routes.find((r) => r.path === "/test/config");
+    expect(home?.element).toBeDefined();
+    expect(home?.load).toBeUndefined();
+    expect(config?.load).toBe(loader);
+    expect(config?.element).toBeUndefined();
+  });
+
+  it("getPlugins returns a NEW snapshot reference on every change", () => {
+    // Required for useSyncExternalStore / useMemo consumers to recompute when
+    // a plugin is added or removed at runtime.
+    const before = pluginRegistry.getPlugins();
+    pluginRegistry.register(mockPlugin);
+    const afterRegister = pluginRegistry.getPlugins();
+    expect(afterRegister).not.toBe(before);
+    expect(afterRegister).toContain(mockPlugin);
+
+    pluginRegistry.unregister("test");
+    const afterUnregister = pluginRegistry.getPlugins();
+    expect(afterUnregister).not.toBe(afterRegister);
+    expect(afterUnregister).not.toContain(mockPlugin);
+  });
+
+  it("notifies subscribers on register and unregister", () => {
+    let calls = 0;
+    const unsubscribe = pluginRegistry.subscribe(() => {
+      calls += 1;
+    });
+    pluginRegistry.register(mockPlugin);
+    pluginRegistry.unregister("test");
+    expect(calls).toBe(2);
+
+    unsubscribe();
+    pluginRegistry.register(mockPlugin);
+    expect(calls).toBe(2); // no longer notified after unsubscribe
   });
 });
