@@ -1,5 +1,13 @@
 # @checkstack/test-utils-backend
 
+## 0.1.33
+
+### Patch Changes
+
+- Updated dependencies [a57f7db]
+  - @checkstack/backend-api@0.20.0
+  - @checkstack/queue-api@0.3.8
+
 ## 0.1.32
 
 ### Patch Changes
