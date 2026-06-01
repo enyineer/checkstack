@@ -29,7 +29,7 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/template-engine": "workspace:*",
-    "@orpc/server": "^1.13.2",
+    "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.0",
     "yaml": "^2.6.1",
     "zod": "^4.2.1"

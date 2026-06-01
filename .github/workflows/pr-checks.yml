@@ -112,6 +112,49 @@ jobs:
             exit 1
           fi
 
+  deps:
+    name: Deps
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      # Guards against the dependency drift cleaned up in issue #245: the same
+      # external dependency declared at divergent ranges across workspace
+      # package.json files (the `react-router-dom` case resolved two majors
+      # into one lockfile). syncpack enforces a single shared range for the
+      # unified set declared in `.syncpackrc.json`. Run `bun run deps:fix`
+      # locally to auto-align, then `bun install`.
+      - name: Check Dependency Alignment
+        id: deps
+        run: |
+          set +e
+          bun run deps:check 2>&1 | tee /tmp/deps-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deps-output
+          path: /tmp/deps-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.deps.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   test:
     name: Test
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
@@ -277,7 +320,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, test, integration, security]
+    needs: [typecheck, lint, deps, test, integration, security]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -295,6 +338,14 @@ jobs:
         with:
           name: lint-output
           path: /tmp/artifacts/lint
+        continue-on-error: true
+
+      - name: Download Deps Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          name: deps-output
+          path: /tmp/artifacts/deps
         continue-on-error: true
 
       - name: Download Test Output
@@ -353,15 +404,17 @@ jobs:
             // Determine results from job outcomes
             const typecheckResult = '${{ needs.typecheck.result }}';
             const lintResult = '${{ needs.lint.result }}';
+            const depsResult = '${{ needs.deps.result }}';
             const testResult = '${{ needs.test.result }}';
             const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
+            const depsPassed = depsResult === 'success' || depsResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && testPassed && integrationPassed && securityPassed;
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed;
 
             // Read output files
             function readOutput(name) {
@@ -396,6 +449,7 @@ jobs:
                 '|-------|--------|',
                 '| Typecheck | ✅ Passed |',
                 '| Lint | ✅ Passed |',
+                '| Deps | ✅ Passed |',
                 '| Test | ✅ Passed |',
                 '| Integration | ✅ Passed |',
                 '| Security | ✅ Passed |',
@@ -440,6 +494,22 @@ jobs:
                   '```',
                   '',
                   '**How to fix:** Run `bun run lint` locally to reproduce these errors. Fix all ESLint violations shown above. Never add `eslint-disable` comments to suppress errors — fix the root cause instead. Follow the project\'s coding standards.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              if (!depsPassed) {
+                const output = readOutput('deps');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Dependency Alignment Errors</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** The same external dependency is declared at divergent ranges across workspace `package.json` files. Run `bun run deps:fix` to auto-align them to the shared range (then `bun install` and commit), or run `bun run deps:check` locally to see the mismatches. The enforced set lives in `.syncpackrc.json`.',
                   '',
                   '</details>',
                 ].join('\n'));
@@ -507,6 +577,7 @@ jobs:
                 '|-------|--------|',
                 `| Typecheck | ${icon(typecheckPassed)} |`,
                 `| Lint | ${icon(lintPassed)} |`,
+                `| Deps | ${icon(depsPassed)} |`,
                 `| Test | ${icon(testPassed)} |`,
                 `| Integration | ${icon(integrationPassed)} |`,
                 `| Security | ${icon(securityPassed)} |`,

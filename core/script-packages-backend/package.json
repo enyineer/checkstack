@@ -19,7 +19,7 @@
     "@checkstack/script-packages-common": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
     "@checkstack/secrets-backend": "workspace:*",
-    "@orpc/server": "^1.13.2",
+    "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.0.0"
   },

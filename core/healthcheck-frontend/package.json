@@ -29,10 +29,10 @@
     "@checkstack/ui": "workspace:*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.2.0",
-    "react-router-dom": "^6.20.0",
+    "react": "^18.3.1",
+    "react-router-dom": "^7.16.0",
     "recharts": "^3.6.0",
     "uuid": "^14.0.0",
     "zod": "^4.2.1"

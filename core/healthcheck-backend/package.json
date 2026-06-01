@@ -37,10 +37,10 @@
     "@checkstack/signal-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.14",
+    "hono": "^4.12.23",
     "tdigest": "^0.1.2",
     "zod": "^4.2.1",
-    "@orpc/server": "^1.13.2"
+    "@orpc/server": "^1.14.4"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
@@ -49,7 +49,7 @@
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
     "@types/tdigest": "^0.1.5",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.4.0",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0"
   }
