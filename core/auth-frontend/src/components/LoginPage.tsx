@@ -496,7 +496,10 @@ export const LoginNavbarAction = () => {
     const groups = groupTopExtensions(topExtensions);
 
     return (
-      <UserMenu user={session.user}>
+      <UserMenu
+        user={session.user}
+        profileHref={resolveRoute(authRoutes.routes.profile)}
+      >
         {groups.map(({ label, items }, groupIndex) => (
           <React.Fragment key={label ?? `__group-${groupIndex}`}>
             {groupIndex > 0 && <DropdownMenuSeparator />}

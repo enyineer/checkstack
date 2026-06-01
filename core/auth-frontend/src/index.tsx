@@ -27,7 +27,7 @@ import { AuthAccessApi } from "./lib/AuthAccessApi";
 import { useSessionContext } from "./lib/SessionProvider";
 
 import { useNavigate } from "react-router-dom";
-import { Settings2, User } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@checkstack/ui";
 import { UserMenuItemsContext } from "@checkstack/frontend-api";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
@@ -194,23 +194,6 @@ export const authPlugin = createFrontendPlugin({
             icon={<Settings2 className="h-4 w-4" />}
           >
             Auth Settings
-          </DropdownMenuItem>
-        );
-      },
-    }),
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "auth.user-menu.profile",
-      metadata: { group: "Account" },
-      component: () => {
-        // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
-        const navigate = useNavigate();
-
-        return (
-          <DropdownMenuItem
-            onClick={() => navigate(resolveRoute(authRoutes.routes.profile))}
-            icon={<User className="h-4 w-4" />}
-          >
-            Profile
           </DropdownMenuItem>
         );
       },
