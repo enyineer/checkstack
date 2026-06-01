@@ -18,6 +18,7 @@
 "@checkstack/script-packages-frontend": minor
 "@checkstack/secrets-frontend": minor
 "@checkstack/slo-frontend": minor
+"@checkstack/scripts": minor
 ---
 
 Lazy-load plugin route pages so their component bodies are fetched on navigation instead of in the initial load.
@@ -25,3 +26,5 @@ Lazy-load plugin route pages so their component bodies are fetched on navigation
 Each plugin's route `element` now references a `React.lazy`-wrapped page component (`const FooPage = lazy(() => import("./pages/FooPage").then((m) => ({ default: m.FooPage })))`) instead of a statically imported one, and `App.tsx` renders every route element inside a shared `<Suspense>` boundary (fallback mirrors `RouteGuard`'s access-loading spinner). The `FrontendPlugin` contract, plugin registry, and plugin loader are unchanged - plugins still register synchronously, so nav, slots, commands, API factories, and `foreignSignals` are all available on first paint.
 
 This moves the 37 route-page chunks (~600 KB raw) out of the entry: the main entry chunk drops from ~2.4 MB to ~190 KB and navigating to a heavy page (e.g. the automation editor) no longer costs that code up front. Auth flow pages (login/register/forgot/reset) are intentionally kept eager so the unauthenticated landing path has no extra chunk fetch.
+
+The `@checkstack/scripts` frontend plugin scaffold template (`bun run create`) now generates its route page as a `React.lazy` component too, so new plugins follow this strategy by default.

@@ -5,6 +5,14 @@
 "@checkstack/about-frontend": minor
 "@checkstack/gitops-frontend": minor
 "@checkstack/healthcheck-frontend": minor
+"@checkstack/anomaly-frontend": minor
+"@checkstack/auth-frontend": minor
+"@checkstack/cache-frontend": minor
+"@checkstack/command-frontend": minor
+"@checkstack/dashboard-frontend": minor
+"@checkstack/queue-frontend": minor
+"@checkstack/theme-frontend": minor
+"@checkstack/tips-frontend": minor
 ---
 
 Upgrade lucide-react to v1 and stop shipping the full icon set / chart libraries in the initial load.
