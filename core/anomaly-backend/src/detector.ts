@@ -7,6 +7,10 @@ import {
   isAnomalous,
   isCategoricalAnomalous,
   resolveEffectiveConfig,
+  appendRecentSample,
+  hasSettledAtNewLevel,
+  hasChangedSinceSuppression,
+  type AnomalyMetadata,
   type FieldBaseline,
 } from "@checkstack/anomaly-common";
 import type { Logger } from "@checkstack/backend-api";
@@ -340,13 +344,112 @@ export async function processCheckCompleted({
             .where(eq(schema.anomalies.id, existingAnomaly.id));
         }
       } else if (existingAnomaly.state === "anomaly") {
-        await db
-          .update(schema.anomalies)
-          .set({
-            observedValue: String(value),
-            deviation,
+        // PART B: a suppressed anomaly auto-unsuppresses once the metric
+        // "changes again" — the observed value moves outside the relative band
+        // around the value it was suppressed at. We detect that here (the only
+        // place fresh samples flow through) before the self-resolution check so
+        // a re-activated anomaly resumes normal lifecycle handling.
+        const suppressedValue = existingAnomaly.suppressedValue;
+        if (
+          existingAnomaly.suppressedAt &&
+          typeof value === "number" &&
+          typeof suppressedValue === "number" &&
+          hasChangedSinceSuppression({
+            observedValue: value,
+            suppressedValue,
           })
-          .where(eq(schema.anomalies.id, existingAnomaly.id));
+        ) {
+          await db
+            .update(schema.anomalies)
+            .set({
+              suppressedAt: null,
+              suppressedValue: null,
+              suppressedBaseline: null,
+              observedValue: String(value),
+              deviation,
+            })
+            .where(eq(schema.anomalies.id, existingAnomaly.id));
+          await routerCache?.invalidateAnomalies();
+          if (signalService) {
+            await signalService.broadcast(ANOMALY_STATE_CHANGED, {
+              systemId,
+              anomalyId: existingAnomaly.id,
+              newState: "anomaly",
+            });
+          }
+          continue;
+        }
+
+        // PART A: self-resolution. The value is still anomalous against the
+        // (stale) baseline, but if the recent healthy samples have settled into
+        // a tight relative band the metric has found a new normal — resolve
+        // independently of the slow baseline analyzer. We keep a rolling window
+        // of recent samples on the row's metadata (shared Postgres, so every
+        // pod sees the same window).
+        if (typeof value === "number") {
+          const metadata = (existingAnomaly.metadata ??
+            {}) as AnomalyMetadata;
+          const recentSamples = appendRecentSample(
+            metadata.recentSamples,
+            value,
+          );
+
+          if (hasSettledAtNewLevel(recentSamples)) {
+            await db
+              .update(schema.anomalies)
+              .set({
+                state: "recovered",
+                recoveredAt: new Date(),
+                observedValue: String(value),
+                deviation,
+                metadata: { ...metadata, recentSamples: [] },
+              })
+              .where(eq(schema.anomalies.id, existingAnomaly.id));
+            logger.info(
+              `Anomaly self-resolved (settled at new level) for ${systemId} on ${path}`,
+            );
+
+            await routerCache?.invalidateAnomalies();
+
+            if (signalService) {
+              await signalService.broadcast(ANOMALY_STATE_CHANGED, {
+                systemId,
+                anomalyId: existingAnomaly.id,
+                newState: "recovered",
+              });
+            }
+
+            await dispatchAnomalyNotification({
+              action: "recovered",
+              systemId,
+              fieldPath: path,
+              observedValue: value,
+              baselineMean: baseline.mean,
+              catalogClient,
+              notificationClient,
+              db,
+              logger,
+            });
+            continue;
+          }
+
+          await db
+            .update(schema.anomalies)
+            .set({
+              observedValue: String(value),
+              deviation,
+              metadata: { ...metadata, recentSamples },
+            })
+            .where(eq(schema.anomalies.id, existingAnomaly.id));
+        } else {
+          await db
+            .update(schema.anomalies)
+            .set({
+              observedValue: String(value),
+              deviation,
+            })
+            .where(eq(schema.anomalies.id, existingAnomaly.id));
+        }
       }
     } else {
       if (existingAnomaly) {
@@ -361,6 +464,11 @@ export async function processCheckCompleted({
               state: "recovered",
               recoveredAt: new Date(),
               observedValue: String(value),
+              // Baseline-relative recovery clears any active suppression and the
+              // rolling self-resolution window — the row is no longer active.
+              suppressedAt: null,
+              suppressedValue: null,
+              suppressedBaseline: null,
             })
             .where(eq(schema.anomalies.id, existingAnomaly.id));
           logger.info(`Anomaly recovered for ${systemId} on ${path}`);

@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { anomalySettingsConfig } from "./config";
@@ -13,6 +13,12 @@ export class AnomalyService {
     configurationId?: string;
     state?: schema.AnomalyState;
     kind?: schema.AnomalyKind;
+    /**
+     * Suppression filter. Defaults to "active": suppressed rows are excluded
+     * from the active view. Pass "suppressed" to list only suppressed rows, or
+     * "all" to ignore the suppression flag entirely.
+     */
+    suppression?: "active" | "suppressed" | "all";
     limit?: number;
   }) {
     const conditions = [];
@@ -32,6 +38,13 @@ export class AnomalyService {
       conditions.push(eq(schema.anomalies.kind, params.kind));
     }
 
+    const suppression = params.suppression ?? "active";
+    if (suppression === "active") {
+      conditions.push(isNull(schema.anomalies.suppressedAt));
+    } else if (suppression === "suppressed") {
+      conditions.push(isNotNull(schema.anomalies.suppressedAt));
+    }
+
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const results = await this.db
@@ -44,11 +57,110 @@ export class AnomalyService {
     return results.map((r) => ({
       ...r,
       startedAt: r.startedAt.toISOString(),
-       
+
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
-       
+
       recoveredAt: r.recoveredAt?.toISOString() ?? null,
+
+      suppressedAt: r.suppressedAt?.toISOString() ?? null,
     }));
+  }
+
+  /**
+   * Globally suppress a single anomaly row. Snapshots the current observed
+   * value and baseline so the inline detector can auto-unsuppress once the
+   * metric "changes again" (moves outside the relative reactivation band).
+   *
+   * The mutation is scoped by BOTH `anomalyId` and `systemId` — the access
+   * gate authorizes the caller on `systemId`, so we must verify the target row
+   * actually belongs to that system, otherwise a user with `feed.manage` on
+   * system A could suppress system B's anomaly by passing B's id (IDOR).
+   *
+   * Only confirmed (`state === "anomaly"`) rows can be suppressed: the
+   * auto-unsuppress re-evaluation lives in the confirmed-anomaly branch of the
+   * detector, and a suppressed suspicious row would otherwise still confirm and
+   * notify. Returns false if no matching confirmed row exists.
+   */
+  async suppressAnomaly({
+    anomalyId,
+    systemId,
+  }: {
+    anomalyId: string;
+    systemId: string;
+  }): Promise<boolean> {
+    const [existing] = await this.db
+      .select()
+      .from(schema.anomalies)
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing || existing.state !== "anomaly") return false;
+
+    const observedNumeric = Number(existing.observedValue);
+
+    await this.db
+      .update(schema.anomalies)
+      .set({
+        suppressedAt: new Date(),
+        suppressedValue: Number.isFinite(observedNumeric)
+          ? observedNumeric
+          : null,
+        suppressedBaseline: existing.baselineValue,
+      })
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      );
+
+    return true;
+  }
+
+  /**
+   * Clear suppression on a single anomaly row. Scoped by both `anomalyId` and
+   * `systemId` for the same IDOR reason as {@link suppressAnomaly}.
+   */
+  async unsuppressAnomaly({
+    anomalyId,
+    systemId,
+  }: {
+    anomalyId: string;
+    systemId: string;
+  }): Promise<boolean> {
+    const [existing] = await this.db
+      .select()
+      .from(schema.anomalies)
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) return false;
+
+    await this.db
+      .update(schema.anomalies)
+      .set({
+        suppressedAt: null,
+        suppressedValue: null,
+        suppressedBaseline: null,
+      })
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      );
+
+    return true;
   }
 
   async getAnomalyBaselines(params: {

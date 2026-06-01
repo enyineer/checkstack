@@ -80,6 +80,28 @@ export function createRouter(
       }
     ),
 
+    suppressAnomaly: os.suppressAnomaly.handler(
+      async ({ input }) => {
+        const success = await service.suppressAnomaly({
+          anomalyId: input.anomalyId,
+          systemId: input.systemId,
+        });
+        await cache.invalidateAnomalies();
+        return { success };
+      },
+    ),
+
+    unsuppressAnomaly: os.unsuppressAnomaly.handler(
+      async ({ input }) => {
+        const success = await service.unsuppressAnomaly({
+          anomalyId: input.anomalyId,
+          systemId: input.systemId,
+        });
+        await cache.invalidateAnomalies();
+        return { success };
+      },
+    ),
+
     listAnomalyNotificationMutes: os.listAnomalyNotificationMutes.handler(
       async ({ input, context }) => {
         const userId = (context.user as RealUser).id;

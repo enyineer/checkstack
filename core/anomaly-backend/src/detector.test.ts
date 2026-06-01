@@ -886,6 +886,167 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     expect(broadcastPayload).toMatchObject({ newState: "recovered" });
   });
 
+  // ─── PART A: self-resolution (settled at a new level) ─────────────────
+
+  test("self-resolves a confirmed anomaly once recent samples settle at a new level", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const catalogClient = createMockCatalogClient();
+    const notificationClient = createMockNotificationClient(["user-1"]);
+    // Four prior healthy samples already sitting at the new stable level (~200);
+    // the fifth (anomalousResult = 200) completes the window → self-resolve.
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-stuck",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+        suspiciousRunCount: 5,
+        confirmationThreshold: 3,
+        baselineValue: 100,
+        observedValue: "200",
+        suppressedAt: null,
+        suppressedValue: null,
+        metadata: { recentSamples: [200, 200, 200, 200] },
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: anomalousResult, // still 10σ above the stale baseline
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: catalogClient as never,
+      notificationClient: notificationClient as never,
+    });
+
+    expect(db._updateCalls.length).toBe(1);
+    expect(db._updateCalls[0]).toMatchObject({ state: "recovered" });
+    // Recovery notification is dispatched.
+    expect(notificationClient.notifyForSubscription).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not self-resolve while the window is still filling", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-filling",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+        suspiciousRunCount: 5,
+        confirmationThreshold: 3,
+        baselineValue: 100,
+        observedValue: "200",
+        suppressedAt: null,
+        suppressedValue: null,
+        metadata: { recentSamples: [200, 200] },
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(db._updateCalls.length).toBe(1);
+    // Still anomalous: only the rolling window/observed value is updated.
+    expect(db._updateCalls[0]).not.toHaveProperty("state");
+    expect(db._updateCalls[0].metadata).toMatchObject({
+      recentSamples: [200, 200, 200],
+    });
+  });
+
+  // ─── PART B: auto-unsuppress ("changes again") ────────────────────────
+
+  test("auto-unsuppresses a suppressed anomaly when the value changes again", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-suppressed",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+        suspiciousRunCount: 5,
+        confirmationThreshold: 3,
+        baselineValue: 100,
+        observedValue: "200",
+        suppressedAt: new Date(),
+        suppressedValue: 200, // suppressed at ~200; new value 200 is unchanged...
+        metadata: {},
+      },
+    });
+
+    // anomalousResult is 200 — within band → must NOT auto-unsuppress.
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+    const unsuppressed = db._updateCalls.find(
+      (c) => c.suppressedAt === null,
+    );
+    expect(unsuppressed).toBeUndefined();
+  });
+
+  test("auto-unsuppresses when the value moves outside the reactivation band", async () => {
+    // Baseline far below so the new high value is still anomalous and reaches
+    // the anomaly branch; suppressed at 50, observed jumps to 200 (>25% move).
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-suppressed-2",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+        suspiciousRunCount: 5,
+        confirmationThreshold: 3,
+        baselineValue: 100,
+        observedValue: "50",
+        suppressedAt: new Date(),
+        suppressedValue: 50,
+        metadata: {},
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: anomalousResult, // 200, far from suppressedValue 50
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(db._updateCalls.length).toBe(1);
+    expect(db._updateCalls[0]).toMatchObject({
+      suppressedAt: null,
+      suppressedValue: null,
+    });
+  });
+
   // ─── Notification resilience ──────────────────────────────────────────
 
   test("does not crash when notification dispatch fails", async () => {

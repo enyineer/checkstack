@@ -23,8 +23,11 @@ export const AnomalyFieldMuteList: React.FC<{
   const anomalyClient = usePluginClient(AnomalyApi);
   const toast = useToast();
 
+  // Notification mute is a per-user concern orthogonal to global suppression,
+  // so the mute-management list must include suppressed rows — otherwise a
+  // field that is both suppressed and muted would lose its unmute affordance.
   const { data: anomalies = [] } = anomalyClient.getAnomalies.useQuery(
-    { systemId, limit: 50 },
+    { systemId, limit: 50, suppression: "all" },
     { staleTime: 30_000 },
   );
 

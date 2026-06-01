@@ -21,6 +21,9 @@ export const AnomalyDtoSchema = z.object({
   startedAt: z.string(),
   confirmedAt: z.string().nullable(),
   recoveredAt: z.string().nullable(),
+  suppressedAt: z.string().nullable(),
+  suppressedValue: z.number().nullable(),
+  suppressedBaseline: z.number().nullable(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
 });
 
@@ -101,6 +104,11 @@ export const anomalyContract = {
       configurationId: z.string().optional(),
       state: AnomalyStateSchema.optional(),
       kind: AnomalyKindSchema.optional(),
+      /**
+       * Suppression filter. "active" (default) hides globally-suppressed rows,
+       * "suppressed" lists only them, "all" ignores the flag.
+       */
+      suppression: z.enum(["active", "suppressed", "all"]).optional(),
       limit: z.number().optional().default(50),
     }))
     .output(z.array(AnomalyDtoSchema)),
@@ -197,6 +205,46 @@ export const anomalyContract = {
       z.object({
         systemId: z.string(),
         fieldPath: z.string().default(""),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Globally suppress an anomaly row so it disappears from the active feed
+   * until the metric "changes again". Suppression is per-row (not per-user)
+   * and lives in shared Postgres so every pod sees the same active set.
+   * Gated by `feed.manage`. Idempotent.
+   */
+  suppressAnomaly: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [anomalyAccess.feed.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemId: z.string(),
+        anomalyId: z.string(),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Manually clear suppression on an anomaly row, returning it to the active
+   * feed. Gated by `feed.manage`. Idempotent.
+   */
+  unsuppressAnomaly: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [anomalyAccess.feed.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemId: z.string(),
+        anomalyId: z.string(),
       }),
     )
     .output(z.object({ success: z.boolean() })),
