@@ -12,7 +12,7 @@
 > locked (§6); the build (§8) proceeds against them.
 
 Self-contained handoff. Every current-state claim carries a `file:line` anchor so
-the implementer never has to guess. The plan honours `.agent/rules/*` — no `any`,
+the implementer never has to guess. The plan honours `.claude/rules/*` — no `any`,
 zod for validation, typed object args, `isLowPower` guards on every animation
 (`performance.md`), look-and-feel parity with sibling pages
 (`code-style-guide.md`, the global frontend rules), per-package beta-minor

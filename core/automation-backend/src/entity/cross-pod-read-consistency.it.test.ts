@@ -1,7 +1,7 @@
 /**
  * Integration test (real Postgres): cross-pod reactive-entity read consistency.
  *
- * This is the DETERMINISTIC backstop for `.agent/rules/state-and-scale.md`
+ * This is the DETERMINISTIC backstop for `.claude/rules/state-and-scale.md`
  * that the single-process unit suite structurally cannot provide: "Does a read
  * return the same answer on every pod?". The unit suite runs in one process, so
  * a value written in that process is trivially visible to the same process —

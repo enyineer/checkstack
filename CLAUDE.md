@@ -1,10 +1,10 @@
 # Project rules
 
-@.agent/rules/architecture.md
-@.agent/rules/changesets.md
-@.agent/rules/code-style-guide.md
-@.agent/rules/docs-style.md
-@.agent/rules/performance.md
-@.agent/rules/state-and-scale.md
-@.agent/rules/testing.md
-@.agent/rules/typecheck.md
+@.claude/rules/architecture.md
+@.claude/rules/changesets.md
+@.claude/rules/code-style-guide.md
+@.claude/rules/docs-style.md
+@.claude/rules/performance.md
+@.claude/rules/state-and-scale.md
+@.claude/rules/testing.md
+@.claude/rules/typecheck.md
