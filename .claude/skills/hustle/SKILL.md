@@ -1,4 +1,5 @@
 ---
+name: hustle
 description: Autonomously work a task with focused sub-agents and a code -> review -> fix loop. Accepts a free-form task, one/many issues, or a whole project board.
 argument-hint: "[free-form task | issue # / URL | board URL | 'all open']"
 disable-model-invocation: true
