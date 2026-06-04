@@ -5,20 +5,29 @@ import {
   timestamp,
   json,
   primaryKey,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // Enums
 export const contactTypeEnum = pgEnum("contact_type", ["user", "mailbox"]);
 
 // Tables use pgTable (schemaless) - runtime schema is set via search_path
-export const systems = pgTable("systems", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  metadata: json("metadata").default({}),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const systems = pgTable(
+  "systems",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    metadata: json("metadata").default({}),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // System names are unique. Enforced at the DB so a concurrent double-create
+    // cannot slip two systems with the same name past the service-layer check.
+    nameUnique: uniqueIndex("systems_name_unique").on(t.name),
+  }),
+);
 
 export const systemContacts = pgTable("system_contacts", {
   id: text("id").primaryKey(),
@@ -56,6 +65,38 @@ export const systemsGroups = pgTable(
   },
   (t) => ({
     pk: primaryKey(t.systemId, t.groupId),
+  }),
+);
+
+/**
+ * Instance-wide environments. A sibling of `groups`: a free-form set of
+ * custom fields (baseUrl, region, tier, ...) that any system can belong to
+ * many-to-many. `metadata` reuses the same json+default({}) precedent as
+ * systems.metadata / groups.metadata; its values surface in templating
+ * verbatim. Unlike `groups`, environments carry a `description` (matching
+ * `systems`).
+ */
+export const environments = pgTable("environments", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  metadata: json("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const systemsEnvironments = pgTable(
+  "systems_environments",
+  {
+    systemId: text("system_id")
+      .notNull()
+      .references(() => systems.id, { onDelete: "cascade" }),
+    environmentId: text("environment_id")
+      .notNull()
+      .references(() => environments.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: primaryKey(t.systemId, t.environmentId),
   }),
 );
 

@@ -139,6 +139,38 @@ export function registerCoreServices({
               pluginId: payload.service as string,
             };
           }
+
+          // App-principal token: minted by `rpcClientAs` so an automation can
+          // run as its configured service account. Resolve the application's
+          // CURRENT rules/teams LIVE (never trust frozen claims) and return an
+          // `application` principal, so it flows through the full access-rule
+          // and team-scope enforcement - NOT the trusted service short-circuit.
+          if (payload && typeof payload.appPrincipal === "string") {
+            try {
+              const rpcClient = await registry.get(coreServices.rpcClient, {
+                pluginId: "core",
+              });
+              const authClient = rpcClient.forPlugin(AuthApi);
+              const enriched = await authClient.enrichApplicationPrincipal({
+                applicationId: payload.appPrincipal,
+              });
+              if (!enriched) return; // app no longer exists -> unauthenticated
+              return {
+                type: "application" as const,
+                id: enriched.id,
+                name: enriched.name,
+                roles: enriched.roles,
+                accessRules: enriched.accessRules,
+                teamIds: enriched.teamIds,
+              };
+            } catch (error) {
+              // SECURITY: Fail-Closed - never fall back to a broader principal.
+              rootLogger.error(
+                `[auth] app-principal enrichment failed for ${payload.appPrincipal}; denying. Error: ${error}`,
+              );
+              return;
+            }
+          }
         }
 
         // Strategy B: User Token (via registered strategy)
@@ -313,6 +345,52 @@ export function registerCoreServices({
     };
 
     return rpcClient;
+  });
+
+  // 5b. Application-scoped RPC Client Factory.
+  // Returns a builder that mints a short-lived app-principal token and returns
+  // a client re-entering the live router AS THAT APPLICATION. The receiving
+  // `authenticate` (Strategy A) resolves the token to an `application`
+  // principal, so the call runs through the full access-rule + team-scope
+  // enforcement - NOT the trusted service short-circuit. The automation
+  // dispatch engine uses this to run an automation as its `runAs` account.
+  registry.registerFactory(coreServices.rpcClientAs, () => {
+    const apiBaseUrl = process.env.INTERNAL_URL || "http://localhost:3000";
+    return async (applicationId: string): Promise<RpcClient> => {
+      // Mint a FRESH short-lived token PER REQUEST (not once at client
+      // construction). An automation run can stay live far longer than the
+      // token TTL within a single un-suspended stretch - a long AI agent loop
+      // making many tool calls, or many sequential actions - and a client that
+      // baked one token would start failing with 401s once it expired. Minting
+      // per request (mirroring the trusted client's `getCredentials`) means the
+      // TTL only has to outlive a single in-flight request. (Across a
+      // suspend/resume the engine rebuilds the client, so waits are unaffected
+      // either way.)
+      const authedFetch = async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const token = await jwtService.sign(
+          { appPrincipal: applicationId },
+          "5m",
+        );
+        const headers = new Headers(init?.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+        return fetch(input, { ...init, headers });
+      };
+      const link = new RPCLink({
+        url: `${apiBaseUrl}/api`,
+        fetch: authedFetch,
+      });
+      const appClient = createORPCClient(link);
+      return {
+        forPlugin(def) {
+          return (appClient as Record<string, unknown>)[
+            def.pluginId
+          ] as never;
+        },
+      };
+    };
   });
 
   // 6. Health Check Registry (Scoped Factory - auto-prefixes strategy IDs with pluginId)

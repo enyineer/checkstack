@@ -31,7 +31,7 @@ import {
   automationTriggerExtensionPoint,
 } from "@checkstack/automation-backend";
 import {
-  createNotificationActions,
+  notificationActions,
   notificationSendArtifactType,
   notificationTriggers,
 } from "./automations";
@@ -255,7 +255,6 @@ export default createBackendPlugin({
         logger,
         onHook,
         emitHook,
-        rpcClient,
       }) => {
         const db = database;
 
@@ -269,14 +268,14 @@ export default createBackendPlugin({
             emitHook(notificationHooks.failed, event),
         };
 
-        // Register automation actions now that `rpcClient` (= the
-        // service-mode caller for `sendTransactional`) is available
-        // and all other plugins have registered their access rules.
-        const automationActions = env.getExtensionPoint(
+        // Register automation actions. The send action calls
+        // `sendTransactional` through the run's `rpcClient` (the automation's
+        // `runAs` service account), so no client is captured here.
+        const automationActionsExt = env.getExtensionPoint(
           automationActionExtensionPoint,
         );
-        for (const action of createNotificationActions({ rpcClient })) {
-          automationActions.registerAction(action, pluginMetadata);
+        for (const action of notificationActions) {
+          automationActionsExt.registerAction(action, pluginMetadata);
         }
 
         // Log registered strategies

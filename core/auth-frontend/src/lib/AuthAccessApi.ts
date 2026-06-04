@@ -1,6 +1,6 @@
 import { AccessApi } from "@checkstack/frontend-api";
 import { useAccessRules } from "../hooks/useAccessRules";
-import type { AccessRule } from "@checkstack/common";
+import { isAccessRuleSatisfied, type AccessRule } from "@checkstack/common";
 
 /**
  * Unified access API implementation.
@@ -20,19 +20,9 @@ export class AuthAccessApi implements AccessApi {
       return { loading: false, allowed: false };
     }
 
-    const accessRuleId = accessRule.id;
-
-    // Check wildcard, exact match, or manage implies read
-    const isWildcard = accessRules.includes("*");
-    const hasExact = accessRules.includes(accessRuleId);
-
-    // For read actions, also check if user has manage access for the same resource
-    const hasManage =
-      accessRule.level === "read"
-        ? accessRules.includes(`${accessRule.resource}.manage`)
-        : false;
-
-    const allowed = isWildcard || hasExact || hasManage;
-    return { loading: false, allowed };
+    return {
+      loading: false,
+      allowed: isAccessRuleSatisfied(accessRules, accessRule),
+    };
   }
 }

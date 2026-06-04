@@ -1,14 +1,10 @@
-import {
-  createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   automationRoutes,
   pluginMetadata,
   automationAccess,
 } from "@checkstack/automation-common";
-import { AutomationMenuItems } from "./components/AutomationMenuItems";
+import { Workflow } from "lucide-react";
 
 export {
   generateAutomationContextTypes,
@@ -53,6 +49,7 @@ export default createFrontendPlugin({
         })),
       title: "Automations",
       accessRule: automationAccess.read,
+      nav: { group: "Automation", icon: Workflow },
     },
     {
       route: automationRoutes.routes.create,
@@ -96,12 +93,5 @@ export default createFrontendPlugin({
       title: "Template playground",
       accessRule: automationAccess.read,
     },
-  ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "automation.user-menu.items",
-      component: AutomationMenuItems,
-      metadata: { group: "Automation" },
-    }),
   ],
 });

@@ -12,8 +12,8 @@
 #
 # The Checkstack platform installs from the GitHub release asset (`.tgz`)
 # directly — no on-platform build is performed. See
-# `docs/architecture/plugin-distribution.md` (in the platform repo) for the
-# install-time convention.
+# `docs/src/content/docs/developer-guide/architecture/plugin-distribution.md`
+# (in the platform repo) for the install-time convention.
 
 name: Release Plugin
 

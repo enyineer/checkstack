@@ -14,6 +14,9 @@
       "path": "../frontend-api"
     },
     {
+      "path": "../template-engine"
+    },
+    {
       "path": "../test-utils-frontend"
     }
   ]

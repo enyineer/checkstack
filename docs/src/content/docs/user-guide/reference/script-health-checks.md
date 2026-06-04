@@ -67,13 +67,32 @@ for:
 - `CHECKSTACK_SYSTEM_ID` - the id of the system being checked.
 - `CHECKSTACK_SYSTEM_NAME` - the system's display name (falls back to the id).
 
+When the run resolved an environment for the system, the satellite also
+injects the environment's id, name, and one variable per custom field:
+
+- `CHECKSTACK_ENV_ID` - the environment id.
+- `CHECKSTACK_ENV_NAME` - the environment's display name.
+- `CHECKSTACK_ENV_<FIELD>` - one variable per custom field, where `<FIELD>`
+  is the field key normalized to `UPPER_SNAKE_CASE`. A camelCase key is split
+  on its boundaries, so `baseUrl` becomes `CHECKSTACK_ENV_BASE_URL` and
+  `region` becomes `CHECKSTACK_ENV_REGION`. Non-string values are stringified
+  (numbers and booleans verbatim, objects and arrays as JSON).
+
+> [!NOTE]
+> If two custom field keys normalize to the same variable name (for example
+> `baseUrl` and `base-url`), the first one wins and the later one is skipped
+> with a warning, rather than silently overwriting. When the run has no
+> environment (the system has none, or the assignment opts out), no
+> `CHECKSTACK_ENV_*` variables are injected.
+
 These are merged on top of the whitelist for that one invocation. A
 user-supplied `env` value with the same name overrides the injected
-one.
+one (including any `CHECKSTACK_ENV_*` variable).
 
 ```sh
 echo "checking ${CHECKSTACK_CHECK_NAME} for system \"$CHECKSTACK_SYSTEM_NAME\""
 echo "next run in ${CHECKSTACK_CHECK_INTERVAL_SECONDS}s"
+echo "base url for this environment: ${CHECKSTACK_ENV_BASE_URL}"
 ```
 
 ### Working directory
@@ -85,14 +104,14 @@ Set it explicitly when your script reads relative paths.
 
 The collector takes a `script` field - a TypeScript/JavaScript module
 source - plus a `timeout`. The runner exposes a `globalThis.context`
-runtime global (`context.config`, `context.check`, `context.system`)
-and otherwise gives you the full Node/Bun stdlib.
+runtime global (`context.config`, `context.check`, `context.system`,
+`context.environment`) and otherwise gives you the full Node/Bun stdlib.
 
 ### Example - load average via `node:os`
 
 ```ts
 import { loadavg } from "node:os";
-import { defineHealthCheck } from "@checkstack/healthcheck";
+import { defineHealthCheck } from "@checkstack/sdk/healthcheck";
 
 const load = loadavg()[0];
 export default defineHealthCheck({
@@ -108,30 +127,44 @@ real ESM module - there's no eval, no `Function` constructor, no
 Web Worker; it's an actual subprocess that can do everything a
 standalone Bun script can.
 
-`defineHealthCheck` from the virtual `@checkstack/healthcheck`
+`defineHealthCheck` from the `@checkstack/sdk/healthcheck`
 module is recommended but optional. It's a runtime identity
 function - its only job is to assert at the type level that you
 return a valid `HealthCheckScriptResult`, so the editor catches
 mistakes like `{ success: "yes" }` before the script ever runs.
 
-### Run context (`context.check` and `context.system`)
+> [!IMPORTANT]
+> **Breaking change:** the helper import moved from the old bare
+> `@checkstack/healthcheck` module to the `@checkstack/sdk/healthcheck`
+> subpath of the published [`@checkstack/sdk`](/checkstack/) package. The old
+> bare-name import no longer resolves - update existing scripts to
+> `import { defineHealthCheck } from "@checkstack/sdk/healthcheck"`. The helper
+> name and behaviour are unchanged; only the module specifier moved.
+
+### Run context (`context.check`, `context.system`, `context.environment`)
 
 Alongside `context.config`, `globalThis.context` exposes the run
-context describing which check and which system the run is for:
+context describing which check, system, and environment the run is for:
 
 - `context.check`: `{ id: string; name: string; intervalSeconds: number }`
   - `name` falls back to the id when no display name is set.
 - `context.system`: `{ id: string; name: string }`
   - `name` falls back to the id when no display name is set.
+- `context.environment`: `{ id: string; name: string; fields: Record<string, unknown> }`
+  - Present only when the run resolved an environment. `fields` holds the
+    environment's custom metadata with the original (non-normalized) keys, so
+    you read `context.environment.fields.baseUrl` directly. When the run has
+    no environment, `context.environment` is `undefined`.
 
 The inline-script editor types these, so they autocomplete.
 
 ```ts
-import { defineHealthCheck } from "@checkstack/healthcheck";
+import { defineHealthCheck } from "@checkstack/sdk/healthcheck";
 
+const baseUrl = context.environment?.fields.baseUrl ?? "http://localhost";
 export default defineHealthCheck({
   success: true,
-  message: `${context.system.name} checked every ${context.check.intervalSeconds}s`,
+  message: `${context.system.name} (${context.environment?.name ?? "no env"}) at ${baseUrl}`,
 });
 ```
 
@@ -177,7 +210,7 @@ The configuration UI uses a VS Code-powered code editor with full TypeScript Int
   the fields you've added to the configuration are autocompletable
   from inside the script. `context.check` and `context.system` are
   typed too, so the run-context fields autocomplete as well.
-- A virtual `@checkstack/healthcheck` module exposes `defineHealthCheck`
+- The `@checkstack/sdk/healthcheck` module exposes `defineHealthCheck`
   and the `HealthCheckScriptResult` interface - when you write
   `export default defineHealthCheck({ ... })`, the editor type-checks the
   object literal against the expected shape and flags mistakes inline.
@@ -226,20 +259,137 @@ doesn't leak an event-loop timer past return.
 
 ## Security model
 
-The plugin assumes you trust the user to write scripts that run on
-the satellite. There is **no sandbox** - `sh -c` runs as the
-satellite process's UID, and the inline-script subprocess inherits
-the same. What we _do_ guarantee:
+Script and shell health checks run inside a layered OS-level sandbox
+that is **enabled by default**. The hardening lives in the shared
+script runners, so it applies on whichever pod or satellite claims the
+run, and what it can enforce depends on the host's capabilities. What
+it always guarantees:
 
 - Only the whitelisted env vars (see above) are forwarded, so secrets
   from the parent process are not visible to the script.
+- Forbidden env keys supplied by a check/action (`LD_PRELOAD`,
+  `LD_LIBRARY_PATH`, `DYLD_*`, `NODE_OPTIONS`, `BUN_INSTALL`,
+  `BUN_CONFIG_*`, and a caller `PATH` override) are dropped before the
+  child starts. The curated safe `PATH` is still forwarded.
+- Captured output is capped (5 MiB by default) and flagged when
+  truncated.
 - The user's `import` statements load files from the satellite's
-  module graph; they do not load anything from the network unless
-  the script itself calls `fetch`.
+  module graph; they do not load anything from the network unless the
+  script itself calls `fetch`.
 
-If you need stronger isolation for less-trusted authors, deploy a
-dedicated satellite with its own UID and resource limits, and bind
-the scripted health checks to that satellite.
+On a capable Linux host (with `prlimit` available, running as root) the
+run is additionally capped on CPU time, address space, open files,
+process count, and single-file write size via `setrlimit`, and can be
+dropped to a dedicated low-privilege UID. On hosts that lack those
+primitives (macOS, restricted containers, non-root), those strong
+layers degrade to the portable subset above and are reported per run
+rather than silently assumed.
+
+When a namespace wrapper (`bwrap` or `nsjail`) is installed, two more
+layers become available:
+
+- **Filesystem isolation.** `filesystem.mode: "scratch-only"` confines
+  the script to its per-run scratch directory (writable) over a
+  read-only minimal base system; `"scratch-plus-ro"` additionally
+  read-only binds the managed `node_modules` tree so package imports
+  still resolve. The language interpreter is bound in automatically, and
+  `$TMPDIR` is pinned to the in-namespace `/tmp`.
+- **Network egress control.** `network.mode: "deny"` drops the script
+  into a fresh network namespace with loopback only - no outbound
+  egress at all, covering `fetch`, raw sockets, and DNS at the kernel
+  level. A fresh namespace is routeless, so "no egress" is the default
+  and any wrapper (`bwrap` or `nsjail`) delivers `deny`.
+  `network.mode: "allowlist"` permits only the listed IPv4/IPv6 CIDRs
+  (v1 is IP/CIDR only; resolve domains yourself or front them with an
+  egress proxy). Because a fresh namespace is routeless, `allowlist`
+  additionally plumbs real egress into it - either a privileged `nsjail`
+  macvlan uplink, or a rootless `slirp4netns` userspace stack on
+  unprivileged hosts - so the allowed destinations are actually
+  reachable, then filters with nftables. When
+  `denyLinkLocalAndMetadata` is on (the default) the
+  link-local and cloud-metadata ranges (`169.254.0.0/16`, `fe80::/10`,
+  `fc00::/7`) are always blocked, so a script cannot reach
+  `169.254.169.254` to exfiltrate instance credentials.
+
+  Reachability matters: `allowlist` and the always-on metadata block
+  only engage when real egress can be plumbed, by one of two paths.
+
+  - **Privileged macvlan** (`nsjail` running as root + a usable host
+    interface): the macvlan interface comes up unaddressed and has no
+    route, so a static address triple is required or the allowlist would
+    blackhole the allowed destinations. Supply it explicitly with the
+    `CHECKSTACK_SANDBOX_MACVLAN_IP`, `CHECKSTACK_SANDBOX_MACVLAN_NM`, and
+    `CHECKSTACK_SANDBOX_MACVLAN_GW` environment variables (deriving a
+    free address and the default gateway from the host automatically is a
+    collision/TOCTOU footgun, so it is taken from the operator).
+  - **Rootless slirp4netns** (`bwrap` + unprivileged user namespaces +
+    `slirp4netns` on PATH): a userspace TCP/IP stack with deterministic
+    built-in addressing - no root, no host interface, and no operator
+    configuration needed. The platform loads the nftables filter
+    fail-closed (default-drop before the device comes up), so there is no
+    unfiltered window. This is the common rootless-container case.
+
+  The privileged path is preferred when available, then the rootless
+  path. On a host that can deliver NEITHER (user namespaces disabled, no
+  wrapper, or non-Linux), `allowlist` and the metadata block do **not**
+  engage a routeless namespace - that would blackhole all traffic,
+  including the allowed destinations. Instead they keep the host network
+  and the gap is reported per run. `deny` (loopback-only) always works
+  wherever a namespace can be created.
+
+The filesystem and network layers compose into a single wrapper
+invocation: enabling network confinement makes the same wrapper take a
+fresh network namespace instead of sharing the host's, so the two
+layers never fight. On a host without a namespace wrapper (or on macOS),
+both layers degrade to "off" and the gap is reported per run. The
+reported `enforced.network` flag always reflects reality - it is never
+true when egress is actually severed or unfiltered.
+
+> [!IMPORTANT]
+> The shipped default profile is **secure by default**: egress is DENIED
+> (network `allowlist` with an empty allow list) until an operator
+> allowlists the destinations a script may reach, and the always-on
+> metadata/link-local block closes SSRF-to-metadata exfil. A script that
+> calls an external HTTP API will not reach it until that destination is
+> allowlisted in the global default.
+
+### Global-only policy and opt-out
+
+The sandbox policy is **global, not per item**. There is no per-check or
+per-action `sandbox` field: a check or automation author cannot weaken
+or disable the sandbox on their own item. The whole sandbox is enabled
+by default (generous CPU/memory headroom, filesystem confined to a
+per-run scratch dir plus read-only managed packages, egress denied, and
+a privilege drop when a dedicated low-privilege UID is configured).
+Configure the dedicated target with `CHECKSTACK_SANDBOX_UID` /
+`CHECKSTACK_SANDBOX_GID`; without it the privilege layer degrades to
+`inherit` and is reported per run.
+
+The policy is read at run time from a durable, cluster-wide setting
+stored in the shared database (not a per-pod value), so it reads the
+same on every pod. To change it for the whole install, store a policy
+under the global sandbox default - for example `{ enabled: false }` to
+opt the entire deployment out, or an egress allowlist that every script
+may use:
+
+```ts
+// Global sandbox default (cluster-wide), e.g. to allow specific egress:
+{
+  network: {
+    mode: "allowlist",
+    allow: ["10.0.0.0/8", "2001:db8::/32"],
+  },
+}
+```
+
+If no policy provider is available at run time the runner **fails
+closed** to the most restrictive safe policy (egress denied, scratch
+filesystem with read-only packages, privilege drop) rather than running
+unsandboxed.
+
+For the full layered model, the per-layer configuration reference, and
+the cross-platform enforcement matrix, see the
+[script sandbox developer reference](/checkstack/developer-guide/security/script-sandbox/).
 
 ## Working with existing checks
 

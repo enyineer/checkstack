@@ -24,6 +24,21 @@ You typically **don't need** a changeset for:
 - ❌ CI/build configuration changes
 - ❌ Development tooling changes
 
+## Never reference `@checkstack/sdk`
+
+`@checkstack/sdk` is auto-generated and **version-stamped** from
+`@checkstack/release` by `scripts/generate-sdk.ts` — it is **never** bumped via
+a changeset. A changeset that names `@checkstack/sdk` would fight the stamp, so
+`bun run generate:sdk:check` (run in CI) fails if any pending changeset
+references it.
+
+Because the SDK surface is generated from the per-plugin `*-common` contracts
+and the script-context helper builders, any change to that surface **must**
+carry a changeset on the underlying `*-common` (or platform) package. That bump
+advances `@checkstack/release`, which re-stamps and republishes the SDK. CI
+enforces this: `generate:sdk:check` fails when the generated SDK surface changes
+relative to `main` with no pending changeset.
+
 ## How to Create a Changeset
 
 Run the following command from the project root:

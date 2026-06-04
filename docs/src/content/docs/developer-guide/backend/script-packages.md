@@ -7,7 +7,7 @@ Script packages let an admin curate a global, pinned allowlist of npm packages t
 
 ## Packages
 
-- `@checkstack/script-packages-common` - schemas, oRPC contract, the `script-packages.manage` / `script-packages.read` access rules, and the `script-packages.changed` hook id/payload.
+- `@checkstack/script-packages-common` - schemas, oRPC contract, the `script-packages.manage` / `script-packages.read` access rules, the `script-packages.changed` hook id/payload, and the `script-packages.changed` / `script-packages.audit-completed` frontend signals.
 - `@checkstack/script-packages-backend` - data model, install/resolve service, elected installer, blob-store extension point, and the per-host reconciler.
 - `@checkstack/script-packages-store-postgres` - default blob store (zero extra infra).
 - `@checkstack/script-packages-store-s3` - S3-compatible blob store (preferred when configured).
@@ -69,6 +69,12 @@ Every user-script execution call site resolves the root per run and passes it to
 
 > [!IMPORTANT]
 > The runner ALWAYS writes a per-run `bunfig.toml` with `[install] auto = "disable"` and runs with that dir as CWD. Without it, Bun silently auto-installs any imported package from the registry (verified), defeating the managed allowlist. With it, an `import` resolves only against the reconciled `current/node_modules` (when set) and otherwise fails fast - the degradation the feature requires, independent of whether a resolution root is set.
+
+### Filesystem isolation and the managed tree
+
+The OS-level script sandbox can confine a run to its per-run scratch dir through a namespace wrapper (`bwrap` or `nsjail`). Its `scratch-plus-ro` filesystem mode read-only binds the reconciled `<resolutionRoot>/node_modules` tree into the namespace, so managed-package imports still resolve while the rest of the host filesystem stays invisible. The runner derives that bind path from the same `resolutionRoot` shown above; when no resolution root is set there is nothing to bind and `scratch-plus-ro` behaves like `scratch-only`.
+
+This layer is **opt-in for now**: the global default keeps `filesystem.mode: "off"`, so out-of-the-box behavior is unchanged. Enable it per item with `sandbox: { filesystem: { mode: "scratch-plus-ro" } }`. On a host without a namespace wrapper or unprivileged user namespaces (macOS, restricted containers, a `firejail`-only host), the layer gracefully degrades to `off` and the dropped layer is surfaced in the run's `EffectiveSandbox` report; set `sandbox.onUnavailable: "fail"` to refuse to run instead.
 
 ## Satellite distribution
 
@@ -162,6 +168,64 @@ After a successful symlink flip (and on every reconcile), each host sweeps its o
 - **Active-run safety via conservative grace.** The runner pins an in-flight run to the tree it started on (its `resolutionRoot` dereferences `current` at run start), so deleting a non-current tree with a live run would break it. There is no robust cross-process refcount available (runs are throwaway Bun subprocesses with no reliable release signal, and a crashed run would leak a refcount), so the sweep uses a grace window (`DEFAULT_TREE_GC_GRACE_MS`, default 1h) chosen to comfortably exceed the longest possible run timeout. A tree only becomes eligible once it has been non-current longer than any run could still be using it.
 - **Grace is keyed on retirement time, not dir mtime.** A tree's mtime reflects when it was materialized, not when it stopped being `current`. A tree that served as `current` for days has an ancient mtime, so keying the grace window on mtime would make it eligible for deletion the instant it is superseded - and the sweep runs right after a flip, so it would delete a tree an in-flight run is still pinned to. Instead, the atomic flip stamps a `.retired-at` sentinel (epoch ms) into the superseded tree's dir, and the grace window is measured from that timestamp. A non-current tree with no marker (for example one superseded before this scheme existed, or where the flip-time write failed) is retained and lazily back-filled with the current time, so it ages out on a later sweep instead of leaking - but is never deleted on a missing signal.
 - **Shared on core and satellites.** The sweep lives in the materialize/flip adapter (`reconcile-fs.ts`), so it applies identically to core pods and satellites. It is best-effort: a sweep failure never fails a reconcile (the new tree is already live).
+
+## Vulnerability auditing
+
+A scheduled pass runs `bun audit --json` against the installed package tree, persists the advisories, and notifies `script-packages.manage` holders about newly-appeared / escalated vulnerabilities. This closes the gap where a CVE published against an already-installed pinned version would otherwise go unnoticed.
+
+### Storage (state-and-scale)
+
+Audit results are cluster-wide state, so they live in two plugin-owned Postgres tables - never in the pod-local on-disk `node_modules` tree:
+
+| Table | Shape | Purpose |
+| --- | --- | --- |
+| `script_package_audit_advisory` | PK `(lockfile_hash, advisory_id, package_name)`; columns `severity`, `title`, `vulnerable_versions`, `url`, `cvss_score`, `notified`, `first_seen_at` | The advisories found for a given lockfile hash. The elected runner replaces the whole row set for the current hash on each pass. `notified` records that holders were already told about the advisory at (at least) its current severity, so the suppression survives a redeploy. |
+| `script_package_audit_state` | Singleton (`id = "singleton"`) | Last-run summary: `last_run_at`, audited `lockfile_hash`, `total`, per-severity counts, and `error_message`. Drives the settings-page badge. |
+
+Both are read via `createAuditStore` in `stores.ts`. A read returns the same advisories on any pod because it reads Postgres, not the pod-local tree.
+
+### Running the audit
+
+The audit reuses the installer's exact scratch / `.npmrc` / registry-config setup (`resolveRegistryRequestConfig`) so audit and install never drift, then runs `bun audit --json` and parses stdout:
+
+```ts
+import { createAuditScanner, parseBunAudit } from "@checkstack/script-packages-backend";
+
+const scanner = createAuditScanner({ scratchDir, registry });
+const { advisories } = await scanner.scan({ packages, ignoreScripts: true });
+```
+
+`bun audit` reports purely from the resolved lockfile against the advisory DB - no package code runs (`--ignore-scripts` is still applied to the install that produces the lockfile). Its exit code is unreliable (non-zero even on a clean tree in some Bun versions), so the runner ignores it and parses stdout; a clean tree emits `{}` (or `[]` with no deps). `parseBunAudit` normalises severities to npm's scale (`low` | `moderate` | `high` | `critical`; `medium` maps to `moderate`, unknown values to `low`) and sorts deterministically.
+
+### Delta, threshold, and notify suppression
+
+`computeAuditDelta` is the pure suppression mechanism (`sendTransactional` has no de-dup of its own):
+
+- **Record all severities** regardless of the notify gate.
+- **Notify** on advisories that are newly-appeared or severity-escalated, at or above `AUDIT_NOTIFY_THRESHOLD` (`moderate` - i.e. medium + high + critical).
+- **Suppress** re-notify on an unchanged set: an advisory unchanged since the previous stored set never re-notifies, and a de-escalation never notifies. The durable `notified` flag carries this across runs/redeploys.
+
+Recipients are resolved by composing service RPCs: `auth.getUsers()` -> `auth.filterUsersByAccessRule({ userIds, accessRule: "script-packages.manage" })` -> `notification.sendTransactional({ userId, notification })` per holder.
+
+### Scheduling + election
+
+The pass mirrors the blob-GC job: a daily recurring queue job (`script-packages-audit`, `intervalSeconds: 24*60*60`) wrapped in `createAuditRunner`, which takes `installerLock.tryInstallerLock()` for single-pod election and mutual exclusion with installs / migrations / blob-GC. If the lock is held it refuses cleanly (`ran: false` + `reason`) and retries on the next tick. An admin-configurable interval is an explicit follow-up.
+
+```ts
+import { createAuditRunner } from "@checkstack/script-packages-backend";
+
+const auditNow = createAuditRunner({
+  installerLock, auditStore, loadCurrent, scan,
+  getUserIds, filterManagers, notifyUser, emitCompleted,
+});
+const summary = await auditNow(); // { ran, lockfileHash, total, notified }
+```
+
+### RPC + signal surface
+
+- `getAuditState` (query, `manage`) - current advisories + last-run summary for the settings UI.
+- `auditNow` (mutation, `manage`) - run an on-demand audit; `ran: false` with a `reason` means the lock was held, retry later.
+- `SCRIPT_PACKAGES_AUDIT_COMPLETED` signal (`{ lockfileHash, total }`) - broadcast on completion so the settings page live-refreshes the advisory list without a reload.
 
 ## Data directory
 

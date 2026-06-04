@@ -132,6 +132,7 @@ async function sweepStalledRuns(
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
       });
     } catch (error) {
@@ -182,6 +183,7 @@ async function sweepExpiredWaitLocks(
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
       });
       continue;
@@ -208,6 +210,7 @@ async function sweepExpiredWaitLocks(
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
         waitedAtPath: lock.actionPath,
       });

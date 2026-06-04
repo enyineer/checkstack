@@ -206,3 +206,30 @@ To add support for new package types (e.g., `*-node`, `*-react`):
 1. Add the type to `PackageType` union in the script
 2. Update `getPackageType()` to recognize the pattern
 3. Add validation rules in `isDependencyAllowed()`
+
+## Version alignment (syncpack)
+
+The architecture linter above governs *which* internal packages may depend on
+each other. A separate check governs *which version range* a shared external
+dependency is declared at across the workspace, so the same dependency does not
+drift to several ranges in different `package.json` files. (A past regression
+declared `react-router-dom` at four ranges, which resolved two router majors
+into one bundle.)
+
+This is enforced with [syncpack](https://syncpack.dev/) and configured in
+[`.syncpackrc.json`](https://github.com/enyineer/checkstack/blob/main/.syncpackrc.json).
+The enforced set is deliberately narrow: only the externally-shared runtime and
+tooling packages that were unified are required to match. Everything else
+(workspace `@checkstack/*` ranges, intentionally loose dev types like
+`@types/bun: latest`, and dependencies whose cross-major upgrade is deferred to
+its own issue) is ignored so the check does not churn on deliberate variance.
+
+```bash
+bun run deps:check   # syncpack lint - fails if an enforced dep diverges
+bun run deps:fix     # auto-align mismatches, then run `bun install`
+```
+
+The check runs in CI as the **Deps** job in
+[`pr-checks.yml`](https://github.com/enyineer/checkstack/blob/main/.github/workflows/pr-checks.yml).
+To widen enforcement to another dependency, add its name to the first version
+group in `.syncpackrc.json`.

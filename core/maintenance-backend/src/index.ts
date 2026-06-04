@@ -13,6 +13,12 @@ import {
 
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
+  aiToolExtensionPoint,
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import { buildMaintenanceAiTools } from "./ai/register-ai-tools";
+import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
@@ -169,6 +175,44 @@ export default createBackendPlugin({
           maintenanceEntityHandle,
         );
         rpc.registerRouter(router, maintenanceContract);
+
+        // Register this plugin's AI tools (create/update/delete/addUpdate/
+        // close/addLink/removeLink) into the AI registry via the extension
+        // point - owned here, not in ai-backend.
+        const aiToolExt = env.getExtensionPoint(aiToolExtensionPoint);
+        for (const tool of buildMaintenanceAiTools()) {
+          aiToolExt.registerTool(tool, pluginMetadata);
+        }
+
+        // Expose this plugin's OWN read-only AI projections of the existing
+        // list/get queries via aiToolProjectionExtensionPoint - owned here,
+        // not in ai-backend. The projected read tools are routed by the
+        // transport (MCP / chat) AS the principal, so each procedure's own
+        // contract access rules gate it; `deferredProjectionExecute` is the
+        // fail-closed net if a transport ever forgot to route.
+        const aiProjectionExt = env.getExtensionPoint(
+          aiToolProjectionExtensionPoint,
+        );
+        aiProjectionExt.expose({
+          procedure: maintenanceContract.listMaintenances,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listMaintenances",
+          name: "maintenance.list",
+          description:
+            "List planned maintenance windows with optional status/system filters. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+        aiProjectionExt.expose({
+          procedure: maintenanceContract.getMaintenance,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getMaintenance",
+          name: "maintenance.get",
+          description:
+            "Get one maintenance window with its updates and links. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
 
         // Register "Create Maintenance" command in the command palette
         registerSearchProvider({

@@ -2,7 +2,8 @@ import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "../api";
-import { HealthBadge } from "@checkstack/ui";
+import { StatusBadge } from "@checkstack/ui";
+import { Activity } from "lucide-react";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
@@ -37,5 +38,9 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   const status = providerStatus ?? localStatus;
 
   if (!status || status === "healthy") return <></>;
-  return <HealthBadge status={status} />;
+  return status === "unhealthy" ? (
+    <StatusBadge tone="error" icon={Activity} label="Unhealthy" />
+  ) : (
+    <StatusBadge tone="warn" icon={Activity} label="Degraded" />
+  );
 };

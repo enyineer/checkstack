@@ -11,10 +11,12 @@
     "typecheck": "tsgo -b",
     "generate": "drizzle-kit generate",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/ai-backend": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/slo-common": "workspace:*",
@@ -32,7 +34,8 @@
     "@checkstack/queue-api": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
-    "@orpc/server": "^1.13.2"
+    "@orpc/contract": "^1.14.4",
+    "@orpc/server": "^1.14.4"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",

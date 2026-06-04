@@ -148,3 +148,55 @@ describe("run-secrets request/reply (Phase 3 JIT delivery)", () => {
     }
   });
 });
+
+describe("sandbox-policy protocol extensions", () => {
+  const policy = {
+    enabled: true,
+    onUnavailable: "degrade" as const,
+    resources: { cpuSeconds: 30 },
+    filesystem: { mode: "scratch-plus-ro" as const },
+    network: {
+      mode: "allowlist" as const,
+      allow: ["10.0.0.1"],
+      denyLinkLocalAndMetadata: true,
+    },
+    privilege: { mode: "drop-to-uid" as const },
+  };
+
+  test("authenticated carries an optional sandboxPolicy that round-trips", () => {
+    const parsed = CoreToSatelliteMessageSchema.parse({
+      type: "authenticated",
+      satelliteId: "sat-1",
+      assignments: [],
+      sandboxPolicy: policy,
+    });
+    if (parsed.type === "authenticated") {
+      expect(parsed.sandboxPolicy?.network.mode).toBe("allowlist");
+      expect(parsed.sandboxPolicy?.network.allow).toEqual(["10.0.0.1"]);
+      expect(parsed.sandboxPolicy?.resources.cpuSeconds).toBe(30);
+    }
+  });
+
+  test("authenticated WITHOUT sandboxPolicy parses (version-skew safety)", () => {
+    const parsed = CoreToSatelliteMessageSchema.parse({
+      type: "authenticated",
+      satelliteId: "sat-1",
+      assignments: [],
+    });
+    if (parsed.type === "authenticated") {
+      expect(parsed.sandboxPolicy).toBeUndefined();
+    }
+  });
+
+  test("sandbox_policy push message round-trips the full policy", () => {
+    const parsed = CoreToSatelliteMessageSchema.parse({
+      type: "sandbox_policy",
+      policy,
+    });
+    expect(parsed.type).toBe("sandbox_policy");
+    if (parsed.type === "sandbox_policy") {
+      expect(parsed.policy.network.mode).toBe("allowlist");
+      expect(parsed.policy.privilege.mode).toBe("drop-to-uid");
+    }
+  });
+});

@@ -39,11 +39,19 @@ export const pingConfigSchema = baseStrategyConfigSchema.extend({});
 
 export type PingConfig = z.infer<typeof pingConfigSchema>;
 
-// Legacy config type for migrations
-interface PingConfigV1 {
-  host: string;
-  count: number;
-  timeout: number;
+// The migrate input is `unknown` per the versioning chain, so narrowing is
+// done with `typeof`/`in` guards (no casts).
+
+/** Type guard: the migrate input is a plain object whose keys can be probed. */
+function isRecord(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object" && data !== null;
+}
+
+/** Read a numeric `timeout` field from a legacy/current config blob. */
+function readTimeout(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const value = data.timeout;
+  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -166,9 +174,14 @@ export class PingHealthCheckStrategy implements HealthCheckStrategy<
         fromVersion: 1,
         toVersion: 2,
         description: "Remove host/count (moved to PingCollector)",
-        migrate: (data: PingConfigV1): PingConfig => ({
-          timeout: data.timeout,
-        }),
+        // IDEMPOTENT: only a genuine v1 blob still carries host/count. An
+        // already-v2 blob (just `{ timeout }`) passes through untouched.
+        migrate: (data: unknown): unknown => {
+          if (isRecord(data) && ("host" in data || "count" in data)) {
+            return { timeout: readTimeout(data) };
+          }
+          return data;
+        },
       },
     ],
   });

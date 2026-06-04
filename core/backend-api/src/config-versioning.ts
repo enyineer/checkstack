@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractErrorMessage } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Storage Interfaces (simple data shapes for DB/API)
@@ -45,6 +46,73 @@ export interface Migration<TFrom = unknown, TTo = unknown> {
   description: string;
   /** Migration function that transforms old data to new format */
   migrate(data: TFrom): TTo | Promise<TTo>;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Migration Chain Validation
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Options for {@link assertMigrationChainFromV1}.
+ */
+export interface AssertMigrationChainOptions {
+  /** Target/current schema version the chain must reach. */
+  version: number;
+  /** The ordered (or unordered) set of migrations covering the chain. */
+  migrations: Migration<unknown, unknown>[];
+}
+
+/**
+ * Standalone, pure structural guard that a migration chain is COMPLETE and
+ * contiguous from version 1 up to the given `version`: every applicable step
+ * increments by exactly 1, there are no gaps, and the chain reaches
+ * `version`. No `migrate()` is ever invoked — this only inspects the
+ * `fromVersion` / `toVersion` discriminators.
+ *
+ * A `version: 1` config with no migrations passes trivially. Any
+ * `version > 1` requires a covering chain; an incomplete chain is a latent
+ * read failure (the read path would only discover it when it first tries to
+ * migrate a genuinely-old stored blob), so callers use this to fail fast at
+ * boot / registration instead.
+ *
+ * This is the single shared implementation behind both {@link Versioned}'s
+ * construction guard and its non-throwing {@link Versioned.validateMigrationChainFromV1}
+ * variant, and is reused by the auth strategy registration guard.
+ *
+ * @throws Error with a descriptive message on the first problem found.
+ */
+export function assertMigrationChainFromV1({
+  version,
+  migrations,
+}: AssertMigrationChainOptions): void {
+  const sorted = migrations.toSorted((a, b) => a.fromVersion - b.fromVersion);
+
+  let expectedVersion = 1;
+  for (const migration of sorted) {
+    if (migration.fromVersion < 1) continue;
+    if (migration.toVersion > version) break;
+
+    if (migration.fromVersion !== expectedVersion) {
+      throw new Error(
+        `Migration chain broken: expected migration from version ${expectedVersion}, ` +
+          `but found migration from version ${migration.fromVersion}`
+      );
+    }
+    if (migration.toVersion !== migration.fromVersion + 1) {
+      throw new Error(
+        `Migration must increment version by 1: migration from ${migration.fromVersion} ` +
+          `to ${migration.toVersion} is invalid`
+      );
+    }
+    expectedVersion = migration.toVersion;
+  }
+
+  if (expectedVersion !== version) {
+    throw new Error(
+      `Migration chain incomplete: reaches version ${expectedVersion}, ` +
+        `but target version is ${version}`
+    );
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -129,6 +197,18 @@ export class Versioned<T> {
     this.version = options.version;
     this.schema = options.schema;
     this._migrations = options.migrations ?? [];
+
+    // Fail fast at construction (i.e. at module import / plugin
+    // registration) if this Versioned's v1->version migration chain is
+    // incomplete or broken. A `version: 1` config with no migrations
+    // passes trivially. Any `version > 1` without a covering chain would
+    // otherwise fail lazily on the first stale `parseAssumingV1` read — we
+    // surface it at boot instead. This single guard covers every Versioned
+    // instance repo-wide.
+    assertMigrationChainFromV1({
+      version: this.version,
+      migrations: this._migrations,
+    });
   }
 
   /**
@@ -177,6 +257,54 @@ export class Versioned<T> {
     return { ...migrated, data: validated };
   }
 
+  /**
+   * Parse raw data that was stored UNVERSIONED, assuming it was written
+   * at version 1.
+   *
+   * Many config blobs predate explicit versioning and live nested in a
+   * larger JSON document (e.g. an automation `definition`) without a
+   * `version` discriminator. Reading them is "assume v1 on read": wrap the
+   * raw value as `{ version: 1, data }`, run the migration chain up to the
+   * current version, then validate.
+   *
+   * For a v1-with-no-migrations config this is just a validate; for a
+   * config whose `version > 1` it runs the full migration chain first, so
+   * removed/renamed fields are migrated away before validation.
+   *
+   * Validation is LENIENT (unknown keys are stripped, not rejected) — use
+   * this on the runtime/read path so a stored config that picked up an
+   * extra key survives schema evolution.
+   *
+   * @throws ZodError on validation failure
+   * @throws Error on migration failure
+   */
+  async parseAssumingV1(rawData: unknown): Promise<T> {
+    return this.parse({ version: 1, data: rawData });
+  }
+
+  /**
+   * Like {@link parseAssumingV1}, but the FINAL validation is STRICT:
+   * unknown keys on a plain-object schema are rejected rather than
+   * stripped.
+   *
+   * Migrate-then-STRICT is the editor/validation path: removed or renamed
+   * fields are migrated away by the chain (so stored configs survive
+   * schema evolution), while genuine typos — keys no migration accounts
+   * for — still surface to the operator.
+   *
+   * Strict handling mirrors the object-vs-non-object split used by the
+   * automation definition validator: only `z.ZodObject` schemas can be
+   * tightened with `.strict()`; unions, records, and primitives fall back
+   * to a normal parse.
+   *
+   * @throws ZodError on validation failure
+   * @throws Error on migration failure
+   */
+  async parseStrictAssumingV1(rawData: unknown): Promise<T> {
+    const migrated = await this.migrateToVersion({ version: 1, data: rawData });
+    return this.strictValidate(migrated.data);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Data Creation (wrap new data)
   // ─────────────────────────────────────────────────────────────────────────
@@ -215,6 +343,34 @@ export class Versioned<T> {
   }
 
   /**
+   * Structural check (no `migrate()` invocation) that this config has a
+   * COMPLETE, contiguous migration chain from version 1 to its current
+   * `version`: every step increments by exactly 1 and the chain reaches
+   * `version` with no gaps or detours.
+   *
+   * For a `version: 1` config this is trivially satisfied (no migrations
+   * needed). For any `version > 1` it requires a covering chain — which is
+   * exactly what {@link parseAssumingV1} relies on, so a missing chain is a
+   * latent read failure. Returns the first problem found, or `undefined`
+   * when the chain is complete.
+   *
+   * Intended for a CI contract test that enumerates every registered config
+   * and fails the build if a future `version` bump ships without a covering
+   * migration — zero per-config upkeep.
+   */
+  validateMigrationChainFromV1(): string | undefined {
+    try {
+      assertMigrationChainFromV1({
+        version: this.version,
+        migrations: this._migrations,
+      });
+      return undefined;
+    } catch (error) {
+      return extractErrorMessage(error);
+    }
+  }
+
+  /**
    * Validate data without migration (schema.parse wrapper).
    * For data already at current version.
    */
@@ -227,6 +383,22 @@ export class Versioned<T> {
    */
   safeValidate(data: unknown): ReturnType<z.ZodType<T>["safeParse"]> {
     return this.schema.safeParse(data);
+  }
+
+  /**
+   * Validate in STRICT mode: when the schema is a plain object, unknown
+   * keys are rejected; otherwise (unions/records/primitives) fall back to
+   * a normal parse. Used by {@link parseStrictAssumingV1}.
+   */
+  private strictValidate(data: unknown): T {
+    if (this.schema instanceof z.ZodObject) {
+      // `.strict()` only narrows accepted keys; the parsed output shape is
+      // identical to the base object schema's, but its inferred type loses
+      // the `T` brand. The cast restores it without changing runtime
+      // behaviour.
+      return this.schema.strict().parse(data) as T;
+    }
+    return this.schema.parse(data);
   }
 
   // ─────────────────────────────────────────────────────────────────────────

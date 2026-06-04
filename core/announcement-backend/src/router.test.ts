@@ -345,6 +345,43 @@ describe("Announcement Router", () => {
       );
     });
 
+    it("invalidates both active and list-all caches after a successful update", async () => {
+      const context = createMockRpcContext({ user: adminUser });
+
+      const invalidateAllActiveSpy = mock(() => Promise.resolve(0));
+      const invalidateListAllSpy = mock(() => Promise.resolve());
+
+      const spyCache: AnnouncementCache = {
+        ...passthroughCache,
+        invalidateAllActive: invalidateAllActiveSpy,
+        invalidateListAll: invalidateListAllSpy,
+      };
+
+      const routerWithSpyCache = createAnnouncementRouter(
+        mockDb as never,
+        mockSignalService,
+        spyCache,
+      );
+
+      const updatedRow = { ...sampleAnnouncement, active: false };
+      mockDb.update.mockReturnValueOnce({
+        set: mock(() => ({
+          where: mock(() => ({
+            returning: mock(() => Promise.resolve([updatedRow])),
+          })),
+        })),
+      } as never);
+
+      await call(
+        routerWithSpyCache.updateAnnouncement,
+        { id: "ann-1", active: false },
+        { context },
+      );
+
+      expect(invalidateAllActiveSpy).toHaveBeenCalledTimes(1);
+      expect(invalidateListAllSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("throws NOT_FOUND for non-existent announcement", async () => {
       const context = createMockRpcContext({ user: adminUser });
 

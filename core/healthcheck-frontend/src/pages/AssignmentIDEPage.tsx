@@ -15,7 +15,12 @@ import type {
 import { PageLayout, IDELayout, useToast, BackLink, Button } from "@checkstack/ui";
 import { Settings, Plus, Bell } from "lucide-react";
 import { extractErrorMessage, resolveRoute } from "@checkstack/common";
-import { catalogRoutes } from "@checkstack/catalog-common";
+import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
+import {
+  environmentIdsForMode,
+  toggleEnvironmentId,
+  type EnvironmentSelectorMode,
+} from "../components/assignments/environment-selector.logic";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import {
   AssignmentTree,
@@ -68,6 +73,7 @@ const AssignmentIDEPageContent = () => {
   const toast = useToast();
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
+  const catalogClient = usePluginClient(CatalogApi);
 
   // --- Data Fetching ---
 
@@ -86,6 +92,14 @@ const AssignmentIDEPageContent = () => {
   });
 
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
+
+  // Environments the system currently belongs to — drives the per-assignment
+  // environment selector (the fan-out set is a subset of these).
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId: systemId ?? "" },
+      { enabled: !!systemId },
+    );
 
   // --- UI State ---
 
@@ -239,6 +253,7 @@ const AssignmentIDEPageContent = () => {
         enabled: !currentEnabled,
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
+        environmentIds: assoc.environmentIds,
         includeLocal: assoc.includeLocal,
         notificationPolicy: assoc.notificationPolicy,
       },
@@ -266,6 +281,7 @@ const AssignmentIDEPageContent = () => {
           enabled: assoc.enabled,
           stateThresholds: thresholds,
           satelliteIds: assoc.satelliteIds,
+          environmentIds: assoc.environmentIds,
           includeLocal: assoc.includeLocal,
           notificationPolicy: assoc.notificationPolicy,
         },
@@ -308,6 +324,7 @@ const AssignmentIDEPageContent = () => {
           enabled: assoc.enabled,
           stateThresholds: assoc.stateThresholds,
           satelliteIds: assoc.satelliteIds,
+          environmentIds: assoc.environmentIds,
           includeLocal: assoc.includeLocal,
           notificationPolicy: policy,
         },
@@ -343,6 +360,7 @@ const AssignmentIDEPageContent = () => {
           enabled: assoc.enabled,
           stateThresholds: assoc.stateThresholds,
           satelliteIds: assoc.satelliteIds,
+          environmentIds: assoc.environmentIds,
           includeLocal: assoc.includeLocal,
           notificationPolicy: undefined,
         },
@@ -391,6 +409,7 @@ const AssignmentIDEPageContent = () => {
         enabled: assoc.enabled,
         stateThresholds: assoc.stateThresholds,
         satelliteIds: newIds,
+        environmentIds: assoc.environmentIds,
         includeLocal: assoc.includeLocal,
         notificationPolicy: assoc.notificationPolicy,
       },
@@ -409,10 +428,67 @@ const AssignmentIDEPageContent = () => {
         enabled: assoc.enabled,
         stateThresholds: assoc.stateThresholds,
         satelliteIds: assoc.satelliteIds,
+        environmentIds: assoc.environmentIds,
         includeLocal: !assoc.includeLocal,
         notificationPolicy: assoc.notificationPolicy,
       },
     });
+  };
+
+  /**
+   * Persist `environmentIds` for an assignment, preserving every other
+   * operator-managed field. Used by both the mode switch and the per-env
+   * toggle in the "specific" mode.
+   */
+  const persistEnvironmentIds = (
+    configId: string,
+    environmentIds: string[] | null,
+  ) => {
+    if (!systemId) return;
+    const assoc = associations.find((a) => a.configurationId === configId);
+    if (!assoc) return;
+
+    associateMutation.mutate({
+      systemId,
+      body: {
+        configurationId: configId,
+        enabled: assoc.enabled,
+        stateThresholds: assoc.stateThresholds,
+        satelliteIds: assoc.satelliteIds,
+        environmentIds,
+        includeLocal: assoc.includeLocal,
+        notificationPolicy: assoc.notificationPolicy,
+      },
+    });
+  };
+
+  const handleSetEnvironmentMode = (
+    configId: string,
+    mode: EnvironmentSelectorMode,
+  ) => {
+    const assoc = associations.find((a) => a.configurationId === configId);
+    // Switching to "specific" seeds with the current explicit set if any,
+    // otherwise all current environment ids (a sensible starting point).
+    const currentSpecific =
+      assoc?.environmentIds && assoc.environmentIds.length > 0
+        ? assoc.environmentIds
+        : systemEnvironments.map((e) => e.id);
+    persistEnvironmentIds(
+      configId,
+      environmentIdsForMode({ mode, selectedIds: currentSpecific }),
+    );
+  };
+
+  const handleToggleEnvironment = (configId: string, environmentId: string) => {
+    const assoc = associations.find((a) => a.configurationId === configId);
+    const currentSpecific =
+      assoc?.environmentIds && assoc.environmentIds.length > 0
+        ? assoc.environmentIds
+        : [];
+    persistEnvironmentIds(
+      configId,
+      toggleEnvironmentId({ selectedIds: currentSpecific, environmentId }),
+    );
   };
 
   const handleSaveRetention = (configId: string) => {
@@ -566,6 +642,17 @@ const AssignmentIDEPageContent = () => {
             onToggleLocal={() => handleToggleLocal(configId)}
             onToggleSatellite={(satId) =>
               handleToggleSatellite(configId, satId)
+            }
+            environmentIds={assoc.environmentIds ?? null}
+            environments={systemEnvironments.map((e) => ({
+              id: e.id,
+              name: e.name,
+            }))}
+            onSetEnvironmentMode={(mode) =>
+              handleSetEnvironmentMode(configId, mode)
+            }
+            onToggleEnvironment={(envId) =>
+              handleToggleEnvironment(configId, envId)
             }
             saving={saving}
             isLocked={isLocked}

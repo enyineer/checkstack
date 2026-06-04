@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { healthCheckStateTransitions } from "./schema";
@@ -16,6 +16,7 @@ export async function recordStateTransition({
   db,
   systemId,
   configurationId,
+  environmentId,
   fromStatus,
   toStatus,
   now = new Date(),
@@ -23,6 +24,12 @@ export async function recordStateTransition({
   db: Db;
   systemId: string;
   configurationId: string;
+  /**
+   * Environment this transition belongs to (per-environment fan-out).
+   * null/undefined = env-less run. Kept distinct so "in status since" is
+   * env-scoped.
+   */
+  environmentId?: string | null;
   fromStatus: HealthCheckStatus | undefined;
   toStatus: HealthCheckStatus;
   now?: Date;
@@ -30,6 +37,7 @@ export async function recordStateTransition({
   await db.insert(healthCheckStateTransitions).values({
     systemId,
     configurationId,
+    environmentId: environmentId ?? null,
     fromStatus: fromStatus ?? null,
     toStatus,
     transitionedAt: now,
@@ -49,11 +57,27 @@ export async function findInStatusSince({
   db,
   systemId,
   status,
+  environmentId,
 }: {
   db: Db;
   systemId: string;
   status: HealthCheckStatus;
+  /**
+   * Environment to scope the lookup to (Phase 3b). `undefined` = system-wide
+   * (rollup; any environment + env-less). `null` = the env-less slice only. A
+   * string = that environment's transitions only. The lookup index leads with
+   * (system_id, environment_id, to_status, transitioned_at) so the env-scoped
+   * query is index-efficient.
+   */
+  environmentId?: string | null;
 }): Promise<Date | null> {
+  const envFilter =
+    environmentId === undefined
+      ? undefined
+      : environmentId === null
+        ? isNull(healthCheckStateTransitions.environmentId)
+        : eq(healthCheckStateTransitions.environmentId, environmentId);
+
   const [row] = await db
     .select({ transitionedAt: healthCheckStateTransitions.transitionedAt })
     .from(healthCheckStateTransitions)
@@ -61,6 +85,7 @@ export async function findInStatusSince({
       and(
         eq(healthCheckStateTransitions.systemId, systemId),
         eq(healthCheckStateTransitions.toStatus, status),
+        ...(envFilter ? [envFilter] : []),
       ),
     )
     .orderBy(desc(healthCheckStateTransitions.transitionedAt))
@@ -86,12 +111,18 @@ export async function countStateTransitionsInWindow({
   systemId,
   windowMinutes,
   toStatus,
+  environmentId,
   now = new Date(),
 }: {
   db: Db;
   systemId: string;
   windowMinutes: number;
   toStatus?: HealthCheckStatus;
+  /**
+   * Environment to scope the count to (Phase 3b). `undefined` = system-wide
+   * (rollup). `null` = env-less slice only. A string = that environment only.
+   */
+  environmentId?: string | null;
   now?: Date;
 }): Promise<number> {
   const windowStart = new Date(now.getTime() - windowMinutes * 60_000);
@@ -101,6 +132,13 @@ export async function countStateTransitionsInWindow({
   ];
   if (toStatus) {
     conditions.push(eq(healthCheckStateTransitions.toStatus, toStatus));
+  }
+  if (environmentId !== undefined) {
+    conditions.push(
+      environmentId === null
+        ? isNull(healthCheckStateTransitions.environmentId)
+        : eq(healthCheckStateTransitions.environmentId, environmentId),
+    );
   }
 
   const [row] = await db

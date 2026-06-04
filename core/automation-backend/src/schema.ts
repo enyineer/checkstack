@@ -34,6 +34,13 @@ export const automations = pgTable(
       .notNull()
       .$type<Record<string, unknown>>(),
     /**
+     * Id of the application (service account) this automation runs as. Every
+     * data-access call an action makes authenticates as this bounded identity.
+     * Nullable for legacy rows predating this column; such an automation fails
+     * to run until a service account is assigned (no fallback to god mode).
+     */
+    runAsApplicationId: text("run_as_application_id"),
+    /**
      * Origin marker. Set to "migrated-subscription:<id>" for rows produced
      * by the webhook-subscription auto-migration, or "gitops:<provider>"
      * for declaratively managed automations.

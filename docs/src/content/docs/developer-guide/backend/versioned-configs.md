@@ -292,6 +292,91 @@ const record = await versioned.parseRecord(storedRecord);
 console.log(record.version, record.data, record.migratedAt);
 ```
 
+### Assume-v1-on-read (unversioned blobs)
+
+Some configs are stored UNVERSIONED - the raw payload is nested inside a
+larger JSON document with no `version` discriminator. Automation action /
+trigger configs live this way inside the `automations.definition` blob, and
+health-check **strategy** + **collector** configs live this way in
+`healthCheckConfigurations.config` and `.collectors[].config`. For those,
+wrap the raw value as `{ version: 1, data }`, run the migration chain, then
+validate. Two helpers do exactly that:
+
+```typescript
+// Runtime / read path: migrate, then validate LENIENTLY (unknown keys are
+// stripped). A stored config that picked up a now-removed key survives.
+const config = await versioned.parseAssumingV1(rawData);
+
+// Editor / validation path: migrate, then validate STRICTLY (unknown keys
+// on a plain-object schema are REJECTED). Removed/renamed fields are
+// migrated away first, so they don't error - but a genuine typo the
+// migration does not account for still surfaces to the operator.
+const config = await versioned.parseStrictAssumingV1(rawData);
+```
+
+For a `version: 1` config with no migrations both are just a validate; for
+a `version > 1` config they run the full chain first. This is how a removed
+field is retired without a data migration: bump the config to the next
+version and add a migration that drops the key. The script plugin's
+`run_script` / `run_shell` actions did exactly this to retire their old
+per-action `sandbox` key (which now lives globally) - see
+[Extending automations](/checkstack/developer-guide/backend/automations/extending/).
+
+Health-check strategy and collector configs use the same approach. Each
+config declares its full v1 -> current migration chain, and both the
+execution path (the queue executor: strategy config once before the
+per-environment render loop, then each collector config before
+render+execute) and the read path (`getConfiguration`) call
+`parseAssumingV1` so a stored, genuinely-v1 blob is migrated, then
+validated, before it is rendered or returned. Because the same config blob
+is read on every tick, each reshaper migration is written to be
+**IDEMPOTENT**: it guards on a legacy discriminator (a field the current
+shape no longer has, e.g. `url`/`method` for HTTP or `command` for the
+script execute collector) and passes already-current data through
+untouched. Without that guard, re-running the chain on an already-migrated
+blob could fabricate junk (e.g. shell-quoting a missing `command` into
+`script: "undefined"`).
+
+> [!IMPORTANT]
+> A `version > 1` config that ships without a complete migration chain back
+> to v1 makes `parseAssumingV1` fail at runtime. Two layers guard against
+> this:
+>
+> 1. **Construction-time guard (fail-fast at boot).** Every `Versioned`
+>    validates its own v1 -> `version` chain in its constructor. A
+>    `version: 1` config with no migrations passes trivially; any
+>    `version > 1` whose chain is incomplete or broken (a gap, or a step
+>    that does not increment by exactly 1) **throws at construction**, which
+>    runs at module import / plugin registration - so the platform fails
+>    fast at boot instead of failing lazily on the first stale read. This
+>    single guard covers every `Versioned` instance repo-wide, including
+>    future plugin types.
+> 2. **Contract tests (CI).** The structural check
+>    `versioned.validateMigrationChainFromV1()` returns the first gap (or
+>    `undefined` when the chain is complete); registry-driven contract tests
+>    enumerate every registered automation config, every health-check
+>    strategy + collector `config` / `result` / `aggregatedResult`, every
+>    integration provider `connectionSchema`, and the anomaly + notification
+>    configs, failing CI if a chain is missing - zero per-config upkeep.
+
+> [!NOTE]
+> **Auth strategies reuse the same boot guard.** Authentication strategies
+> do not wrap their config in `Versioned`; they expose a bespoke shape
+> `{ configVersion, configSchema, migrations }` and read config through the
+> `ConfigService` chokepoint (`configService.get(id, schema, configVersion,
+> migrations)`), which migrates-then-validates. To get the same fail-fast
+> behaviour, the auth-backend's `betterAuthExtensionPoint.addStrategy`
+> registration chokepoint calls the standalone, exported pure helper
+> `assertMigrationChainFromV1({ version, migrations })` (the single shared
+> implementation behind the `Versioned` constructor guard and
+> `validateMigrationChainFromV1`). A strategy declaring `configVersion > 1`
+> with an incomplete or broken chain therefore **throws at registration**
+> (boot) with a message naming the strategy id, rather than failing lazily
+> on the first stale read. A registry-driven contract test
+> (`core/auth-backend/src/migration-chain-contract.test.ts`) pins the guard's
+> contract: it accepts a complete chain and bites on a deliberately-broken
+> one.
+
 ### Creating (Wrap New Data)
 
 ```typescript
@@ -321,6 +406,47 @@ const validated = versioned.validate(rawData);
 // Safe validate
 const result = versioned.safeValidate(rawData);
 ```
+
+## Validate fresh input vs parse stored data
+
+Always go through a `Versioned` method - never reach for the raw zod schema.
+The method you pick encodes whether the data is FRESH (already current
+version) or STORED (possibly an older shape that must be migrated first):
+
+- **FRESH current-version input** (e.g. an RPC payload from a connection /
+  config form the user just submitted): use `validate()` /
+  `safeValidate()`. The data is already shaped for the current version, so
+  there is nothing to migrate - just validate.
+- **STORED data** (a blob loaded from the database / authored gitops YAML
+  that may predate a `version` bump): use `parse()` / `parseRecord()` for a
+  versioned envelope, or `parseAssumingV1()` / `parseStrictAssumingV1()` for
+  an unversioned blob. These run the migration chain first, then validate,
+  so an old-shape blob still applies.
+
+```typescript
+// FRESH: connection form input, already current version.
+const result = provider.connectionSchema.safeValidate(input);
+if (!result.success) throw new ORPCError("BAD_REQUEST", { ... });
+
+// STORED: authored gitops YAML that may use an OLD config shape.
+// Migrate-then-validate-strict so old-shape YAML still applies while a
+// genuine typo (unknown key no migration accounts for) is still rejected.
+const config = await strategy.config.parseStrictAssumingV1(authoredConfig);
+```
+
+> [!CAUTION]
+> Calling a parse method directly on a `Versioned`'s `.schema` member -
+> `versioned.schema.parse(...)` / `.safeParse(...)` / `.parseAsync(...)` /
+> `.strict()...` - **bypasses the migration chain** (for stored data) or the
+> intention-revealing fresh-input path. An ESLint `no-restricted-syntax`
+> rule bans this pattern repo-wide and points you at the right method:
+> `.parse()` / `.parseAssumingV1()` / `.parseStrictAssumingV1()` for STORED
+> data, `.validate()` / `.safeValidate()` for FRESH current-version input.
+> Only the `Versioned` implementation itself (`config-versioning.ts`) is
+> exempt - it is the one place that legitimately calls `this.schema.parse`.
+> Passing a `.schema` to a transport helper that needs the raw zod schema
+> (e.g. `resolveSecretsBySchema({ schema })` for x-secret field discovery)
+> is fine: the ban only triggers on a parse/validate CALL made on `.schema`.
 
 ## Best Practices
 

@@ -35,13 +35,69 @@ interface MockGroup {
   updatedAt: Date;
 }
 
+interface MockEnvironment {
+  id: string;
+  name: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 function createMockEntityService() {
   const systems: MockSystem[] = [];
   const groups: MockGroup[] = [];
+  const environments: MockEnvironment[] = [];
 
   return {
     systems,
     groups,
+    environments,
+    createEnvironment: mock(
+      async (data: {
+        name: string;
+        description?: string;
+        metadata?: Record<string, unknown>;
+      }) => {
+        const environment: MockEnvironment = {
+          id: `env-${environments.length + 1}`,
+          name: data.name,
+          description: data.description,
+          metadata: data.metadata,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        environments.push(environment);
+        return environment;
+      },
+    ),
+    updateEnvironment: mock(
+      async (
+        id: string,
+        data: Partial<{
+          name: string;
+          description?: string;
+          metadata?: Record<string, unknown>;
+        }>,
+      ) => {
+        const environment = environments.find((e) => e.id === id);
+        if (environment) Object.assign(environment, data);
+        return environment;
+      },
+    ),
+    deleteEnvironment: mock(async (id: string) => {
+      const idx = environments.findIndex((e) => e.id === id);
+      if (idx >= 0) environments.splice(idx, 1);
+    }),
+    addSystemToEnvironment: mock(
+      async (_props: { environmentId: string; systemId: string }) => {},
+    ),
+    removeSystemFromEnvironment: mock(
+      async (_props: { environmentId: string; systemId: string }) => {},
+    ),
+    getEnvironmentsForSystem: mock(async (_systemId: string) => {
+      return [] as { environmentId: string; systemId: string }[];
+    }),
     createSystem: mock(async (data: { name: string; description?: string }) => {
       const system: MockSystem = {
         id: `sys-${systems.length + 1}`,
@@ -452,5 +508,237 @@ describe("Catalog GitOps Kind: Group", () => {
 
     expect(mockService.deleteGroup).toHaveBeenCalledWith("grp-del");
     expect(mockService.groups).toHaveLength(0);
+  });
+});
+
+describe("Catalog GitOps Kind: Environment", () => {
+  let mockService: ReturnType<typeof createMockEntityService>;
+
+  const environmentSpecSchema = z.object({
+    fields: z.record(z.string(), z.unknown()).optional(),
+  });
+  type EnvironmentSpec = z.infer<typeof environmentSpecSchema>;
+
+  function buildEnvironmentKind(
+    svc: ReturnType<typeof createMockEntityService>,
+  ): EntityKindDefinition<EnvironmentSpec> {
+    return {
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Environment",
+      specSchema: environmentSpecSchema,
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        const displayName = entity.metadata.title ?? entity.metadata.name;
+        const description = entity.metadata.description;
+        const metadata = entity.spec.fields ?? {};
+
+        if (existingEntityId) {
+          await svc.updateEnvironment(existingEntityId, {
+            name: displayName,
+            description,
+            metadata,
+          });
+          context.logger.info(`Updated environment (id: ${existingEntityId})`);
+          return { entityId: existingEntityId };
+        }
+
+        const environment = await svc.createEnvironment({
+          name: displayName,
+          description,
+          metadata,
+        });
+        context.logger.info(`Created environment (id: ${environment.id})`);
+        return { entityId: environment.id };
+      },
+      delete: async ({ entityId }) => {
+        if (entityId) await svc.deleteEnvironment(entityId);
+      },
+    };
+  }
+
+  beforeEach(() => {
+    mockService = createMockEntityService();
+  });
+
+  it("creates a new environment with free-form custom fields", async () => {
+    const kind = buildEnvironmentKind(mockService);
+
+    const result = await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Environment",
+        metadata: {
+          name: "production",
+          title: "Production",
+          description: "Live traffic",
+        },
+        spec: { fields: { baseUrl: "https://prod.example.com", tier: "1" } },
+      },
+      context: mockContext,
+    });
+
+    expect(result.entityId).toBe("env-1");
+    expect(mockService.createEnvironment).toHaveBeenCalledTimes(1);
+    expect(mockService.environments).toHaveLength(1);
+    expect(mockService.environments[0].name).toBe("Production");
+    expect(mockService.environments[0].description).toBe("Live traffic");
+    expect(mockService.environments[0].metadata).toEqual({
+      baseUrl: "https://prod.example.com",
+      tier: "1",
+    });
+  });
+
+  it("defaults metadata to {} when spec.fields is absent", async () => {
+    const kind = buildEnvironmentKind(mockService);
+
+    await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Environment",
+        metadata: { name: "staging" },
+        spec: {},
+      },
+      context: mockContext,
+    });
+
+    expect(mockService.environments[0].name).toBe("staging");
+    expect(mockService.environments[0].metadata).toEqual({});
+  });
+
+  it("updates an existing environment using existingEntityId", async () => {
+    const kind = buildEnvironmentKind(mockService);
+
+    mockService.environments.push({
+      id: "env-existing",
+      name: "Old",
+      metadata: { region: "eu" },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const result = await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Environment",
+        metadata: { name: "production", title: "Production v2" },
+        spec: { fields: { region: "us" } },
+      },
+      existingEntityId: "env-existing",
+      context: mockContext,
+    });
+
+    expect(result.entityId).toBe("env-existing");
+    expect(mockService.createEnvironment).not.toHaveBeenCalled();
+    expect(mockService.updateEnvironment).toHaveBeenCalledTimes(1);
+    expect(mockService.environments[0].name).toBe("Production v2");
+    expect(mockService.environments[0].metadata).toEqual({ region: "us" });
+  });
+
+  it("deletes an environment by entityId", async () => {
+    const kind = buildEnvironmentKind(mockService);
+
+    mockService.environments.push({
+      id: "env-del",
+      name: "To Delete",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await kind.delete!({
+      entityName: "old-env",
+      entityId: "env-del",
+      context: mockContext,
+    });
+
+    expect(mockService.deleteEnvironment).toHaveBeenCalledWith("env-del");
+    expect(mockService.environments).toHaveLength(0);
+  });
+
+  it("skips delete when entityId is missing", async () => {
+    const kind = buildEnvironmentKind(mockService);
+
+    await kind.delete!({
+      entityName: "unknown-env",
+      context: mockContext,
+    });
+
+    expect(mockService.deleteEnvironment).not.toHaveBeenCalled();
+  });
+});
+
+describe("Catalog GitOps Kind Extension: System -> environments", () => {
+  let mockService: ReturnType<typeof createMockEntityService>;
+
+  beforeEach(() => {
+    mockService = createMockEntityService();
+  });
+
+  it("associates system with environments and removes stale ones", async () => {
+    mockService.getEnvironmentsForSystem.mockResolvedValueOnce([
+      { environmentId: "env-stale", systemId: "sys-1" },
+    ]);
+
+    const mockExtContext: ReconcileContext = {
+      ...mockContext,
+      resolveEntityRef: mock(async ({ entityName }) => {
+        if (entityName === "new-env") return "env-new";
+        return undefined;
+      }),
+    };
+
+    // Simulate the inline reconcile logic from index.ts
+    const reconcileExt = async ({
+      extensionSpec,
+      entityId,
+      context,
+    }: {
+      extensionSpec?: { kind: string; name: string }[];
+      entityId: string;
+      context: ReconcileContext;
+    }) => {
+      if (!extensionSpec || extensionSpec.length === 0) return;
+
+      const desiredEnvironmentIds = new Set<string>();
+
+      for (const entry of extensionSpec) {
+        const environmentId = await context.resolveEntityRef({
+          kind: entry.kind,
+          entityName: entry.name,
+        });
+        if (environmentId) {
+          desiredEnvironmentIds.add(environmentId);
+          await mockService.addSystemToEnvironment({
+            environmentId,
+            systemId: entityId,
+          });
+        }
+      }
+
+      const currentAssociations =
+        await mockService.getEnvironmentsForSystem(entityId);
+      for (const existing of currentAssociations) {
+        if (!desiredEnvironmentIds.has(existing.environmentId)) {
+          await mockService.removeSystemFromEnvironment({
+            environmentId: existing.environmentId,
+            systemId: entityId,
+          });
+        }
+      }
+    };
+
+    await reconcileExt({
+      extensionSpec: [{ kind: "Environment", name: "new-env" }],
+      entityId: "sys-1",
+      context: mockExtContext,
+    });
+
+    expect(mockService.addSystemToEnvironment).toHaveBeenCalledWith({
+      environmentId: "env-new",
+      systemId: "sys-1",
+    });
+
+    expect(mockService.removeSystemFromEnvironment).toHaveBeenCalledWith({
+      environmentId: "env-stale",
+      systemId: "sys-1",
+    });
   });
 });

@@ -64,7 +64,7 @@ function automation(actions: unknown[]): LoadedAutomation {
     mode: "single",
     max_runs: 10,
   });
-  return { id: "auto-1", name: "Test", status: "enabled", definition };
+  return { id: "auto-1", name: "Test", status: "enabled", definition, runAs: "app-test" };
 }
 
 /**

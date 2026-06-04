@@ -24,11 +24,13 @@
   "dependencies": {
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/sdk": "workspace:*",
     "@checkstack/script-packages-common": "workspace:*",
+    "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "lucide-react": "^1.17.0",
     "react": "^18.3.1",
-    "react-router-dom": "^6.20.0"
+    "react-router-dom": "^7.16.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

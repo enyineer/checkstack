@@ -5,6 +5,7 @@
  * `core/automation-backend` cover registration validity.
  */
 import { describe, it, expect, mock } from "bun:test";
+import type { RpcClient } from "@checkstack/backend-api";
 import { SYSTEM_ACTOR } from "@checkstack/common";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
@@ -48,6 +49,7 @@ const actionContext = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 describe("incident automation actions", () => {

@@ -139,14 +139,20 @@ async function resolveRequestContext({
     deps.pluginMetadataRegistry.get(pluginId);
 
   if (!pluginMetadata) {
-    (logger as Logger).error(
+    // No metadata for this pluginId. The common cause is a client requesting an
+    // unknown plugin (typo / probing) - a 404, not a 500. A genuine
+    // misconfiguration (a core router that forgot
+    // pluginManager.registerCorePluginMetadata()) surfaces the same way, so we
+    // log it for diagnosis, but at warn level since the dominant case is a
+    // client error and erroring on every bad path would be noise.
+    (logger as Logger).warn(
       `${pathname}: no plugin metadata registered for pluginId='${pluginId}'. ` +
-        `Regular plugins populate this during register(); core routers must call ` +
-        `pluginManager.registerCorePluginMetadata().`,
+        `Either the plugin id is unknown (client typo / probe), or a core ` +
+        `router did not call pluginManager.registerCorePluginMetadata().`,
     );
     return {
       ok: false,
-      response: c.json({ error: "Plugin metadata not found in registry" }, 500),
+      response: c.json({ error: "Not Found" }, 404),
     };
   }
 
@@ -163,6 +169,11 @@ async function resolveRequestContext({
     cachePluginRegistry: cachePluginRegistry as CachePluginRegistry,
     cacheManager: cacheManager as CacheManager,
     user,
+    // The incoming request's headers, so a handler can forward the caller's OWN
+    // auth (session cookie / bearer) when it re-enters the router as the same
+    // user - e.g. an AI tool's user-scoped rpcClient (proposeTool/applyTool).
+    // Also read by correlationMiddleware for the inbound correlation id.
+    requestHeaders: c.req.raw.headers,
     emitHook,
   };
 

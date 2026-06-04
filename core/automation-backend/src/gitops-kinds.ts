@@ -29,6 +29,14 @@ type Db = SafeDatabase<typeof schema>;
 export const GITOPS_MANAGED_BY = "gitops";
 
 /**
+ * Metadata label carrying the application (service account) id the automation
+ * runs as. GitOps is admin/declarative, so this is trusted (no interactive
+ * bind-authority check). Absent -> the automation has no service account and
+ * will not run until one is set.
+ */
+export const GITOPS_RUNAS_LABEL = "run-as";
+
+/**
  * Metadata label key carrying the automation's grouping label. GitOps has no
  * dedicated `group` metadata field, so a declaratively-managed automation
  * expresses its group via `metadata.labels.group`. Mirrors how `name` /
@@ -62,6 +70,14 @@ function resolveGroup(labels?: Record<string, string>): string | null {
 }
 
 /**
+ * Resolve the service-account id the automation runs as from GitOps metadata.
+ */
+function resolveRunAs(labels?: Record<string, string>): string | null {
+  const raw = labels?.[GITOPS_RUNAS_LABEL]?.trim();
+  return raw && raw.length > 0 ? raw : null;
+}
+
+/**
  * Reconcile an `Automation` descriptor into the `automations` table.
  * Pure of the GitOps registry shape so it can be unit-tested directly.
  * Returns the persisted automation id.
@@ -78,6 +94,7 @@ export async function reconcileAutomation(
   const name = entity.metadata.title ?? entity.metadata.name;
   const description = entity.metadata.description ?? definition.description;
   const group = resolveGroup(entity.metadata.labels);
+  const runAs = resolveRunAs(entity.metadata.labels);
 
   if (existingEntityId) {
     const [row] = await db
@@ -87,6 +104,7 @@ export async function reconcileAutomation(
         description: description ?? null,
         group,
         definition: definition as unknown as Record<string, unknown>,
+        runAsApplicationId: runAs,
         managedBy: GITOPS_MANAGED_BY,
         updatedAt: new Date(),
       })
@@ -107,6 +125,7 @@ export async function reconcileAutomation(
       group,
       status: "enabled",
       definition: definition as unknown as Record<string, unknown>,
+      runAsApplicationId: runAs,
       managedBy: GITOPS_MANAGED_BY,
     })
     .returning({ id: automations.id });

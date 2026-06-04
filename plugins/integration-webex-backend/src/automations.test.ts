@@ -12,7 +12,7 @@ import {
   connectionStoreRef,
   type ConnectionStore,
 } from "@checkstack/integration-backend";
-import type { ServiceRef } from "@checkstack/backend-api";
+import type { RpcClient, ServiceRef } from "@checkstack/backend-api";
 
 import {
   createWebexActions,
@@ -104,6 +104,7 @@ function makeCtx(store: ConnectionStore) {
       }
       throw new Error(`Unstubbed service requested: ${ref.id}`);
     },
+    rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
   };
 }
 

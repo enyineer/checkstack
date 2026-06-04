@@ -43,6 +43,7 @@ describe("automation-store create", () => {
       group: "Alerting",
       status: "enabled",
       definition: DEFINITION as never,
+      runAs: "app-test",
     });
 
     const inserted = values.mock.calls[0]?.[0] as { group: string | null };
@@ -61,6 +62,7 @@ describe("automation-store create", () => {
       name: "A1",
       status: "enabled",
       definition: DEFINITION as never,
+      runAs: "app-test",
     });
 
     const inserted = values.mock.calls[0]?.[0] as { group: string | null };

@@ -14,8 +14,6 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "@checkstack/anomaly-common": "workspace:*",
-    "@checkstack/auth-frontend": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",
     "@checkstack/catalog-frontend": "workspace:*",
     "@checkstack/command-common": "workspace:*",
@@ -25,16 +23,14 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/incident-common": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
-    "@checkstack/notification-common": "workspace:*",
-    "@checkstack/notification-frontend": "workspace:*",
     "@checkstack/queue-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.2.0",
-    "react-router-dom": "^6.22.0"
+    "react": "^18.3.1",
+    "react-router-dom": "^7.16.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

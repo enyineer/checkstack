@@ -1,0 +1,102 @@
+---
+title: AI platform
+description: The Checkstack AI platform exposes one transport-agnostic tool registry to both an in-app chat agent and an external MCP server.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The AI platform builds two surfaces over one shared spine: an in-app chat agent (where the model can call Checkstack tools) and an external MCP server (so third-party tooling can call the same tools). Both are transports over a single tool registry, so no capability is implemented twice.
+
+This page covers the architecture and the package map. The tool registry contract, extension points, and resolver are documented in [Tool registry](/checkstack/developer-guide/ai/tool-registry/).
+
+## One registry, two transports
+
+The core abstraction is a transport-agnostic registry of callable tools. The internal chat agent loop and the external MCP server are both just transports over that one registry.
+
+Tools come from two places:
+
+- Opt-in projection of an existing oRPC procedure. A procedure is explicitly exposed as a tool, and its zod input schema plus its access-rule metadata are read verbatim. Nothing is duplicated.
+- Purpose-built composite tools, hand-authored where the model needs a coarser or curated surface than raw CRUD.
+
+Three rules hold across both transports:
+
+- Authorization is enforced in the handler, never by the model. The model only ever sees tools the resolved principal is already allowed to call, and each handler re-checks. The model is treated as an untrusted caller that happens to be good at picking arguments.
+- Scopes narrow a principal. A token can only ever narrow, never widen, what its bound principal could already do in the UI.
+- Every tool declares an effect (`read`, `mutate`, or `destructive`). Read tools auto-run; mutating and destructive tools use a two-step propose then apply flow.
+
+## Packages
+
+| Package | Role |
+|---|---|
+| `@checkstack/ai-common` | zod schemas (tool descriptor, effect, OpenAI-compatible connection shape), the `ai.*` access rules, the RPC contract, and plugin metadata. Depends on `@checkstack/common`. |
+| `@checkstack/ai-backend` | The tool registry (the spine), the two extension points, the principal-to-allowed-tools resolver, the shared zod-to-JSON-Schema tool serializer, the OpenAI-compatible integration provider, the read-only projected tools, the MCP server, the propose/apply service, and the server-side chat agent loop. |
+| `@checkstack/ai-frontend` | The streaming chat UI: the chat page, the confirm-card component, and the DOM-free stream parser and chat-state reducer. Depends on `@checkstack/ai-common`, `@checkstack/ui`, `@checkstack/frontend-api`. |
+
+## End-to-end architecture
+
+The platform is one spine with the surfaces layered over it:
+
+- The tool registry is the spine. Plugins contribute tools through two extension points (`aiToolExtensionPoint.registerTool` for hand-authored composite tools, `aiToolProjectionExtensionPoint.expose` for opt-in projection of an existing oRPC procedure). The resolver maps a principal to the tools it may see, and one serializer wraps the platform `toJsonSchema()` so there is no second schema serializer to drift. See [Tool registry](/checkstack/developer-guide/ai/tool-registry/).
+- The OpenAI-compatible integration provider registers through the existing integration provider extension point, so credentials are configured in the generic Connections settings UI and the API key is stored in the Secrets Vault, never returned to the browser.
+- Checkstack is its own OAuth 2.1 Authorization Server (the better-auth `oidcProvider` plus `mcp` plugins) with a consent screen and Dynamic Client Registration. A token is bound to a real principal and can only ever narrow that principal, re-evaluated live on every call. See [OAuth and scopes](/checkstack/developer-guide/ai/oauth-and-scopes/).
+- The MCP server over Streamable HTTP at `/api/ai/mcp` exposes the read-only tool surface (plus resources and prompts) to external clients, authorized as the narrowed OAuth principal. See [MCP server](/checkstack/developer-guide/ai/mcp-server/).
+- Mutating and destructive tools never run directly. They go through a two-step propose then apply flow gated by a single-use token and (in chat) a human confirm card, with every invocation written to the `ai_tool_calls` audit log and rate-limited by a shared-Postgres per-principal budget. See [Propose and apply](/checkstack/developer-guide/ai/propose-apply/).
+- The internal chat assistant is a server-side, provider-agnostic agent loop (Vercel AI SDK) on the same registry, with the model provider built on the backend, conversations persisted in shared Postgres (continuable from any pod), and per-integration model selection. See [Internal chat](/checkstack/developer-guide/ai/chat/).
+
+## Security model
+
+Five invariants hold across every surface and are each backed by a named regression guard:
+
+- **Authorization is enforced in the handler, never by the model.** The resolver only surfaces tools the principal may call, and each handler re-checks; a model that picks an out-of-scope tool or passes bad arguments is refused server-side before any execute or dry-run runs (`core/ai-backend/src/hardening/handler-authz.test.ts`, `core/ai-backend/src/mcp/server.test.ts`, `core/ai-backend/src/chat/agent-loop.test.ts`).
+- **Scope narrowing can never widen a principal.** A token's granted scopes are intersected with the principal's live rules; a leaked admin token carries only the granted set, never the bare wildcard (`core/auth-backend/src/scope-narrowing.test.ts`, property/fuzz tested).
+- **No secret crosses an AI surface.** The provider API key (and any `x-secret` field) never appears in a tool descriptor, `listTools`, `listChatIntegrations`, a chat message, a conversation record, or an `ai_tool_calls` row (`core/ai-backend/src/hardening/no-secret-leak.test.ts`).
+- **Mutating tools require a human-or-token gate.** The propose token is single-use, expiry-bounded, and nonce-checked in constant time (`core/ai-backend/src/propose-apply/`); over MCP a bare `tools/call` for a mutating tool is refused by the structural effect-gate.
+- **State is scale-correct.** Conversations, messages, the audit log, proposal tokens, and rate-limit counters are all shared Postgres, so every pod reads the same answer. The only pod-local state is the live MCP connection registry (bookkeeping). Cross-pod readback and the cross-pod rate-limit cap are verified by env-gated integration tests (`*.it.test.ts`, run with `CHECKSTACK_IT=1`).
+
+<CardGrid>
+  <LinkCard
+    title="Tool registry"
+    href="/checkstack/developer-guide/ai/tool-registry/"
+    description="The AiTool contract, the two extension points, effect classification, and the resolver."
+  />
+  <LinkCard
+    title="Registering AI tools from a plugin"
+    href="/checkstack/developer-guide/ai/registering-tools/"
+    description="How any plugin contributes AI tools via the extension points, without ai-backend depending on it."
+  />
+  <LinkCard
+    title="OAuth and scopes"
+    href="/checkstack/developer-guide/ai/oauth-and-scopes/"
+    description="Checkstack as an OAuth AS, the scope grammar and bundles, and the narrow-only introspection model."
+  />
+  <LinkCard
+    title="MCP server"
+    href="/checkstack/developer-guide/ai/mcp-server/"
+    description="The Streamable-HTTP MCP endpoint, the tool surface, and how to connect a client."
+  />
+  <LinkCard
+    title="Propose and apply"
+    href="/checkstack/developer-guide/ai/propose-apply/"
+    description="The two-step token flow that gates mutating tools, the audit log, and rate-limit budgets."
+  />
+  <LinkCard
+    title="Internal chat"
+    href="/checkstack/developer-guide/ai/chat/"
+    description="The server-side agent loop, conversation persistence, confirm cards, and model selection."
+  />
+  <LinkCard
+    title="Context tools"
+    href="/checkstack/developer-guide/ai/context-tools/"
+    description="Read-only tools that ground answers in the bundled docs and give the assistant a script's SDK symbols plus sandboxed testing before it proposes a change."
+  />
+  <LinkCard
+    title="Capability catalog tools"
+    href="/checkstack/developer-guide/ai/capability-catalog/"
+    description="The read-only listCapabilities and getCapabilitySchema tools that discover health-check and automation kinds."
+  />
+  <LinkCard
+    title="Permission mode"
+    href="/checkstack/developer-guide/ai/permission-mode/"
+    description="The per-conversation approve/auto mode, the three gating tiers by tool effect, and why destructive tools can never auto-apply."
+  />
+</CardGrid>

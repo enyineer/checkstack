@@ -106,6 +106,39 @@ export type CreateHealthCheckConfiguration = z.infer<
   typeof CreateHealthCheckConfigurationSchema
 >;
 
+/**
+ * Input for the `validateConfiguration` RPC: a proposed (not-yet-persisted)
+ * health-check configuration. Reuses the create skeleton so the same
+ * name/strategyId/config/intervalSeconds/collectors shape is validated at
+ * propose time as is at apply time.
+ */
+export const ValidateConfigurationInputSchema =
+  CreateHealthCheckConfigurationSchema;
+
+export type ValidateConfigurationInput = z.infer<
+  typeof ValidateConfigurationInputSchema
+>;
+
+/**
+ * Result of `validateConfiguration`: `valid` plus a flat list of structured
+ * issues. `path`s are dot-joinable for display, e.g. `config.url` or
+ * `collectors.0.config.path`. Mirrors automation's `validateDefinition`
+ * result so consumers (the AI propose tool, the UI) handle both identically.
+ */
+export const ValidateConfigurationResultSchema = z.object({
+  valid: z.boolean(),
+  errors: z.array(
+    z.object({
+      path: z.array(z.union([z.string(), z.number()])),
+      message: z.string(),
+    }),
+  ),
+});
+
+export type ValidateConfigurationResult = z.infer<
+  typeof ValidateConfigurationResultSchema
+>;
+
 export const UpdateHealthCheckConfigurationSchema =
   CreateHealthCheckConfigurationSchema.partial();
 
@@ -245,6 +278,14 @@ export const AssociateHealthCheckSchema = z.object({
   stateThresholds: StateThresholdsSchema.optional(),
   /** IDs of satellites assigned to execute this health check */
   satelliteIds: z.array(z.string()).optional(),
+  /**
+   * Per-assignment environment selector for per-environment fan-out.
+   * `null`/omitted = all environments the system currently belongs to;
+   * non-empty array = exactly those (intersected with current membership);
+   * empty array `[]` = opt out (run once with no environment). `null` and
+   * `[]` are semantically distinct.
+   */
+  environmentIds: z.array(z.string()).nullable().optional(),
   /** Whether to also run this check locally on the core instance (default: true) */
   includeLocal: z.boolean().default(true),
   /** Per-association notification policy. Defaults applied when omitted. */
@@ -267,6 +308,11 @@ export const HealthCheckRunSchema = z.object({
   result: z.record(z.string(), z.unknown()),
   timestamp: z.date(),
   latencyMs: z.number().optional(),
+  /**
+   * Environment this run executed for (per-environment fan-out). undefined =
+   * env-less run (the opt-out / no-membership case).
+   */
+  environmentId: z.string().optional(),
   /** Source ID for result attribution (null = local core, UUID = satellite) */
   sourceId: z.string().optional(),
   /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */
@@ -307,6 +353,11 @@ export const HealthCheckRunPublicSchema = z.object({
   status: HealthCheckStatusSchema,
   timestamp: z.date(),
   latencyMs: z.number().optional(),
+  /**
+   * Environment this run executed for (per-environment fan-out). undefined =
+   * env-less run (the opt-out / no-membership case).
+   */
+  environmentId: z.string().optional(),
   /** Source ID for result attribution (null = local core, UUID = satellite) */
   sourceId: z.string().optional(),
   /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */

@@ -2,6 +2,7 @@ import type { PluginMetadata } from "@checkstack/common";
 import {
   HealthCheckRegistry,
   HealthCheckStrategy,
+  assertNoSecretTemplatableConflict,
 } from "@checkstack/backend-api";
 import { rootLogger } from "../logger";
 
@@ -30,6 +31,12 @@ export class CoreHealthCheckRegistry {
     ownerPlugin: PluginMetadata,
   ): void {
     const qualifiedId = `${ownerPlugin.pluginId}.${strategy.id}`;
+    // Load-time guard: secret + templatable on one field is a config error
+    // (the two are resolved in separate ordered passes).
+    assertNoSecretTemplatableConflict({
+      schema: strategy.config.schema,
+      schemaName: `strategy:${qualifiedId}`,
+    });
     if (this.strategies.has(qualifiedId)) {
       rootLogger.warn(
         `HealthCheckStrategy '${qualifiedId}' is already registered. Overwriting.`,

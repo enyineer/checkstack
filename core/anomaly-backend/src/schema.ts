@@ -52,6 +52,21 @@ export const anomalies = pgTable("anomalies", {
   startedAt: timestamp("started_at").defaultNow().notNull(),
   confirmedAt: timestamp("confirmed_at"),
   recoveredAt: timestamp("recovered_at"),
+  /**
+   * Global (per-row) suppression. We model suppression as a flag layered on top
+   * of `state` rather than a new `suppressed` enum value: the existing
+   * suspicious/anomaly/recovered state machine (in both the spike detector and
+   * the drift evaluator) stays intact, and un-suppressing simply reveals the
+   * underlying state again. A NULL `suppressedAt` means "not suppressed".
+   *
+   * Lives on the shared `anomalies` row (Postgres) so every horizontally-scaled
+   * pod reads the same suppressed/active set — see state-and-scale.md. The
+   * snapshot columns capture the value/baseline at suppression time so the
+   * inline detector can auto-unsuppress once the metric "changes again".
+   */
+  suppressedAt: timestamp("suppressed_at"),
+  suppressedValue: doublePrecision("suppressed_value"),
+  suppressedBaseline: doublePrecision("suppressed_baseline"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
 });
 

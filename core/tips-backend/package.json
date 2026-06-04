@@ -21,7 +21,7 @@
     "@checkstack/common": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
-    "@orpc/server": "^1.13.2"
+    "@orpc/server": "^1.14.4"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",

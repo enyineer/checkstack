@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from "bun:test";
 import { createHealthCheckRouter } from "./router";
-import { createMockRpcContext } from "@checkstack/backend-api";
+import { createMockRpcContext, Versioned } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
 import type { HealthCheckCache } from "./cache";
@@ -207,6 +207,125 @@ describe("HealthCheck Router", () => {
       { context },
     );
     expect(result).toHaveLength(0);
+  });
+
+  describe("validateConfiguration", () => {
+    // A strategy whose config requires a URL-typed `url` field. The schema is
+    // strict-validated through the migrate-then-validate path, so a wrong type
+    // or an unknown key is rejected even though the key may be present.
+    const strategyConfigSchema = z.object({ url: z.string().url() });
+    const collectorConfigSchema = z.object({ path: z.string().min(1) });
+
+    const registeredStrategy = {
+      strategy: {
+        id: "http",
+        displayName: "HTTP",
+        config: new Versioned({ version: 1, schema: strategyConfigSchema }),
+        aggregatedResult: { schema: z.object({}) },
+      },
+      qualifiedId: "healthcheck-http.http",
+      ownerPluginId: "healthcheck-http",
+    };
+    const registeredCollector = {
+      qualifiedId: "collector-file.file",
+      collector: {
+        displayName: "File",
+        config: new Versioned({ version: 1, schema: collectorConfigSchema }),
+        result: { schema: z.object({}) },
+        supportedPlugins: [{ pluginId: "healthcheck-http" }],
+      },
+      ownerPlugin: { id: "collector-file" },
+    };
+
+    const validateContext = () =>
+      createMockRpcContext({
+        user: mockUser,
+        healthCheckRegistry: {
+          getStrategiesWithMeta: mock().mockReturnValue([registeredStrategy]),
+          getStrategy: mock().mockReturnValue(registeredStrategy.strategy),
+          getStrategies: mock().mockReturnValue([]),
+        } as never,
+        collectorRegistry: {
+          getCollectors: mock().mockReturnValue([registeredCollector]),
+          getCollector: mock().mockReturnValue(registeredCollector),
+          getCollectorsForPlugin: mock().mockReturnValue([registeredCollector]),
+          register: mock(),
+        } as never,
+      });
+
+    it("returns valid for a well-formed configuration without persisting", async () => {
+      const result = await call(
+        router.validateConfiguration,
+        {
+          name: "ok",
+          strategyId: "healthcheck-http.http",
+          config: { url: "https://example.test" },
+          intervalSeconds: 60,
+          collectors: [
+            {
+              id: "c1",
+              collectorId: "collector-file.file",
+              config: { path: "/tmp/x" },
+            },
+          ],
+        },
+        { context: validateContext() },
+      );
+      expect(result.valid).toBe(true);
+      expect(result.errors).toEqual([]);
+      // No DB insert ran (the insert mock returns []), proving non-persistence.
+    });
+
+    it("rejects an unknown strategy", async () => {
+      const result = await call(
+        router.validateConfiguration,
+        {
+          name: "x",
+          strategyId: "healthcheck-http.ghost",
+          config: { url: "https://example.test" },
+          intervalSeconds: 60,
+        },
+        { context: validateContext() },
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].path).toEqual(["strategyId"]);
+    });
+
+    // Deep-vs-lightweight: `url` IS present (the old presence check passes),
+    // but holds the wrong TYPE. Only the strict migrate-then-validate path
+    // rejects it.
+    it("rejects a deep field/type error a presence check would miss", async () => {
+      const result = await call(
+        router.validateConfiguration,
+        {
+          name: "x",
+          strategyId: "healthcheck-http.http",
+          config: { url: 12345 },
+          intervalSeconds: 60,
+        },
+        { context: validateContext() },
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].path[0]).toBe("config");
+    });
+
+    it("rejects an unknown collector", async () => {
+      const result = await call(
+        router.validateConfiguration,
+        {
+          name: "x",
+          strategyId: "healthcheck-http.http",
+          config: { url: "https://example.test" },
+          intervalSeconds: 60,
+          collectors: [
+            { id: "c1", collectorId: "collector-file.ghost", config: {} },
+          ],
+        },
+        { context: validateContext() },
+      );
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].path).toEqual(["collectors", 0, "collectorId"]);
+    });
   });
 
   describe("GitOps Provenance Enforcement", () => {

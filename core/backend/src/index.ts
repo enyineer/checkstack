@@ -35,7 +35,6 @@ import {
   type WebSocketData,
 } from "@checkstack/signal-backend";
 import type {
-  AuthService,
   BackendPlugin,
   WsConnectionHandlers,
 } from "@checkstack/backend-api";
@@ -294,6 +293,61 @@ app.get("/.well-known/jwks.json", async (c) => {
   const jwks = await keyStore.getPublicJWKS();
   return c.json(jwks);
 });
+
+// Serve the in-app user guide: the SAME Astro Starlight static build deployed
+// to GitHub Pages, mounted same-origin at `/checkstack/*` (the docs build has
+// `base: "/checkstack"` and all cross-links are `/checkstack/...`, so it works
+// verbatim - no rebuild, no link rewriting). Registered BEFORE the SPA
+// catch-all below so doc paths win; gated on the dist existing so a deployment
+// without docs degrades gracefully (the path 404s as before). Note: this is
+// `/checkstack/*`, distinct from the platform's `/.checkstack/*` (leading dot).
+const docsDistPath =
+  process.env.CHECKSTACK_DOCS_DIST ??
+  path.resolve(import.meta.dir, "../../../docs/dist");
+if (fs.existsSync(docsDistPath)) {
+  rootLogger.info(`📚 Serving in-app user guide from: ${docsDistPath}`);
+  const serveDocsFile = async (c: Context, filePath: string) => {
+    const file = Bun.file(filePath);
+    const content = await file.arrayBuffer();
+    c.header("Content-Type", file.type);
+    return c.body(content);
+  };
+  app.get("/checkstack/*", async (c, next) => {
+    // Map `/checkstack/<rest>` -> `<docsDist>/<rest>`, resolving a directory or
+    // trailing-slash/pretty URL to its `index.html` (Starlight emits
+    // `<slug>/index.html`). Fall through on a miss so non-doc `/checkstack/...`
+    // paths aren't swallowed.
+    const rel = c.req.path.replace(/^\/checkstack\/?/, "");
+    if (rel.includes("..")) return next();
+
+    let filePath = path.join(docsDistPath, rel);
+    const isDir =
+      rel === "" ||
+      rel.endsWith("/") ||
+      (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory());
+    if (isDir) {
+      filePath = path.join(docsDistPath, rel, "index.html");
+    } else if (!fs.existsSync(filePath)) {
+      // Pretty URL with no trailing slash (e.g. /checkstack/user-guide).
+      const asIndex = path.join(docsDistPath, rel, "index.html");
+      if (fs.existsSync(asIndex)) filePath = asIndex;
+    }
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return serveDocsFile(c, filePath);
+    }
+    // Unknown `/checkstack/*` path: this namespace IS the docs site (the
+    // platform's own endpoints live under `/.checkstack/`, with a dot), so serve
+    // Starlight's own 404 page with a real 404 status instead of falling through
+    // to the SPA catch-all (which would 200 the app shell for a missing doc).
+    const notFoundPage = path.join(docsDistPath, "404.html");
+    if (fs.existsSync(notFoundPage)) {
+      c.status(404);
+      return serveDocsFile(c, notFoundPage);
+    }
+    return c.text("Not Found", 404);
+  });
+}
 
 // Production: Serve frontend static files when CHECKSTACK_FRONTEND_DIST is set
 // Must be registered at module load time before Hono's router is built
@@ -630,13 +684,35 @@ const init = async () => {
     rootLogger.warn(
       "🛠 Dev auth ENABLED — every access rule is auto-granted. Do NOT use in production.",
     );
-    const devAuthService: AuthService = createDevAuthService({
-      getAllAccessRules: () => pluginManager.getAllAccessRules(),
-    });
-    pluginManager.registerService(coreServices.auth, devAuthService);
+    // Register the dev auth service as a FACTORY, not a plain instance.
+    // `registerCoreServices` already registered the real (token/strategy-
+    // based) auth as a factory for `coreServices.auth`, and
+    // `ServiceRegistry.get()` resolves factories BEFORE instances — so a
+    // plain `registerService(coreServices.auth, devAuthService)` would be
+    // shadowed by the production factory and the dev bypass would never take
+    // effect (every plugin API request would 401 with "Authentication
+    // required"). Registering the dev auth as a factory makes `get()` reach
+    // it. This stays entirely inside the dev-flag-gated path: the production
+    // auth factory is left in place and untouched whenever CHECKSTACK_DEV_AUTH
+    // is not set.
+    // Scoped per plugin (like the production auth factory) so each plugin's
+    // S2S credentials are minted as `{ service: <its pluginId> }`.
+    pluginManager
+      .getRegistry()
+      .registerFactory(coreServices.auth, (metadata) =>
+        createDevAuthService({
+          getAllAccessRules: () => pluginManager.getAllAccessRules(),
+          pluginId: metadata.pluginId,
+        }),
+      );
   }
 
   const manualPlugins: BackendPlugin[] = [];
+  // Maps a manually-loaded plugin's id to its on-disk dir so the loader can
+  // run its Drizzle migrations (in `<dir>/drizzle`). Without this, manual
+  // plugins get `pluginPath: ""` and their migrations are skipped — which is
+  // why a freshly-scaffolded plugin booted with no `items` table.
+  const manualPluginPaths = new Map<string, string>();
   if (devPluginPath) {
     rootLogger.info(`🛠 Dev mode — loading plugin from ${devPluginPath}`);
 
@@ -677,6 +753,9 @@ const init = async () => {
         );
       }
       manualPlugins.push(pluginExport);
+      // `CHECKSTACK_DEV_PLUGIN_PATH` is the plugin's repo dir (the dev server
+      // sets it to the plugin cwd), so its migrations live at `<dir>/drizzle`.
+      manualPluginPaths.set(pluginExport.metadata.pluginId, devPluginPath);
     } catch (error) {
       throw new Error(
         `Failed to import dev plugin from ${devPluginPath}: ${extractErrorMessage(error)}`,
@@ -686,6 +765,7 @@ const init = async () => {
 
   await pluginManager.loadPlugins(app, manualPlugins, {
     skipDiscovery: !!devPluginPath,
+    manualPluginPaths,
   });
 
   // 4. Wire up auth client for access-based signal filtering
@@ -967,8 +1047,24 @@ const fetch = async (
   return app.fetch(req, server);
 };
 
+// Bun closes a connection that stays idle (no bytes sent or received) for
+// `idleTimeout` seconds. The default is 10s, which severs long agentic chat
+// turns: the AI assistant streams an SSE response that can pause >10s between
+// chunks while a slow provider "thinks" or a tool runs, surfacing as
+// "Error in input stream" on the client. Raise it to Bun's maximum (255s) so a
+// multi-step turn is not killed; each streamed chunk resets the idle timer, so
+// only a single >255s silent gap would still time out.
+const IDLE_TIMEOUT_SECONDS = (() => {
+  const raw = Number(process.env.CHECKSTACK_SERVER_IDLE_TIMEOUT_SECONDS);
+  // Bun clamps idleTimeout to [0, 255]; keep within range and fall back to max.
+  return Number.isFinite(raw) && raw >= 0 && raw <= 255 ? raw : 255;
+})();
+
 export default {
-  port: 3000,
+  // Listen port. Defaults to 3000; overridable via PORT so a second instance
+  // (e.g. an isolated E2E stack) can run alongside a dev server on another port.
+  port: Number(process.env.PORT) || 3000,
+  idleTimeout: IDLE_TIMEOUT_SECONDS,
   fetch,
   websocket: {
     // Type template for ws.data

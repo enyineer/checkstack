@@ -73,6 +73,14 @@ const RegistrationStatusSchema = z.object({
   allowRegistration: z.boolean(),
 });
 
+/** AI platform OAuth AS + MCP server settings (admin-managed). */
+const McpOAuthSettingsSchema = z.object({
+  enabled: z.boolean(),
+  allowDynamicClientRegistration: z.boolean(),
+  dcrRateLimitMax: z.number().int().positive(),
+  dcrRateLimitWindowSeconds: z.number().int().positive(),
+});
+
 // Service-to-service schemas
 const FindUserByEmailInputSchema = z.object({
   email: z.string().email(),
@@ -343,6 +351,26 @@ export const authContract = {
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
+  // AI PLATFORM: OAuth AS + MCP server settings (admin-gated)
+  // ==========================================================================
+
+  /** Current OAuth-AS / MCP server settings (enable, DCR toggle, rate-limit). */
+  getMcpOAuthSettings: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.strategies],
+  }).output(McpOAuthSettingsSchema),
+
+  /** Update the OAuth-AS / MCP server settings; reloads better-auth to apply. */
+  setMcpOAuthSettings: proc({
+    operationType: "mutation",
+    userType: "user",
+    access: [authAccess.strategies],
+  })
+    .input(McpOAuthSettingsSchema)
+    .output(z.object({ success: z.boolean() })),
+
+  // ==========================================================================
   // INTERNAL SERVICE ENDPOINTS (userType: "service")
   // ==========================================================================
 
@@ -485,6 +513,52 @@ export const authContract = {
   })
     .input(z.string())
     .output(z.object({ secret: z.string() })),
+
+  /**
+   * S2S: resolve an application's CURRENT roles, access rules, and team
+   * memberships. Used by the core auth service to build an `application`
+   * principal from an app-principal token (automation `runAs` service
+   * accounts) - resolved live on every call, never frozen into the token.
+   * Returns `null` when the application no longer exists.
+   */
+  enrichApplicationPrincipal: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ applicationId: z.string() }))
+    .output(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          roles: z.array(z.string()),
+          accessRules: z.array(z.string()),
+          teamIds: z.array(z.string()),
+        })
+        .nullable(),
+    ),
+
+  /**
+   * List the applications the calling user may BIND as an automation's
+   * service account. An application is bindable only when its resolved
+   * access rules are a subset of the caller's (a user can never grant an
+   * automation more authority than they hold); `*`-holders may bind any
+   * application. Drives the "Run as" picker in the automation editor.
+   */
+  getBindableApplications: proc({
+    operationType: "query",
+    userType: "user",
+    access: [],
+  }).output(
+    z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string().nullable().optional(),
+      }),
+    ),
+  ),
 
   // ==========================================================================
   // TEAM MANAGEMENT (userType: "authenticated" with access)

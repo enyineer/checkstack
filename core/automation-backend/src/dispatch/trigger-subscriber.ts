@@ -299,6 +299,7 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
         name: automation.name,
         status: automation.status,
         definition: automation.definition,
+        runAs: automation.runAs ?? null,
       },
       waitedAtPath: lock.actionPath,
       payload: args.triggerPayload,

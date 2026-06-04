@@ -7,8 +7,13 @@ import {
   boolean,
   timestamp,
   index,
+  doublePrecision,
+  primaryKey,
 } from "drizzle-orm/pg-core";
-import type { ManifestEntry } from "@checkstack/script-packages-common";
+import type {
+  AuditSeverity,
+  ManifestEntry,
+} from "@checkstack/script-packages-common";
 
 /**
  * Drizzle schema for the script-packages plugin.
@@ -151,6 +156,53 @@ export const scriptPackageBlobGcState = pgTable(
       .default(0),
   },
 );
+
+/**
+ * Vulnerability advisories found by the scheduled `bun audit` pass, keyed by
+ * the audited `lockfile_hash` + advisory id. This is the cluster-wide source
+ * of truth for the audit findings (the on-disk node_modules tree is pod-local
+ * and ephemeral; advisories live here so every pod returns the same answer).
+ * The elected runner replaces the whole row set for a given hash on each run.
+ *
+ * `first_seen_at` / `notified` let the delta logic suppress repeat-notify:
+ * `notified` records that holders were already told about this advisory at
+ * (at least) its current severity, so a subsequent unchanged run stays quiet
+ * even across a redeploy.
+ */
+export const scriptPackageAuditAdvisory = pgTable(
+  "script_package_audit_advisory",
+  {
+    lockfileHash: text("lockfile_hash").notNull(),
+    advisoryId: text("advisory_id").notNull(),
+    packageName: text("package_name").notNull(),
+    title: text("title").notNull().default(""),
+    /** "low" | "moderate" | "high" | "critical" */
+    severity: text("severity").$type<AuditSeverity>().notNull(),
+    vulnerableVersions: text("vulnerable_versions").notNull().default(""),
+    url: text("url"),
+    cvssScore: doublePrecision("cvss_score"),
+    /** Whether holders were already notified at the current severity. */
+    notified: boolean("notified").notNull().default(false),
+    firstSeenAt: timestamp("first_seen_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.lockfileHash, t.advisoryId, t.packageName] }),
+    hashIdx: index("script_package_audit_advisory_hash_idx").on(t.lockfileHash),
+  }),
+);
+
+/** Singleton audit last-run summary (for the settings UI). */
+export const scriptPackageAuditState = pgTable("script_package_audit_state", {
+  id: text("id").primaryKey().default("singleton"),
+  lastRunAt: timestamp("last_run_at"),
+  lockfileHash: text("lockfile_hash"),
+  total: integer("total").notNull().default(0),
+  countLow: integer("count_low").notNull().default(0),
+  countModerate: integer("count_moderate").notNull().default(0),
+  countHigh: integer("count_high").notNull().default(0),
+  countCritical: integer("count_critical").notNull().default(0),
+  errorMessage: text("error_message"),
+});
 
 /** Per-satellite reconcile state (satellites are individually addressable). */
 export const scriptPackageSatelliteState = pgTable(

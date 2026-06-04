@@ -15,7 +15,7 @@
  * ones.
  */
 import { z } from "zod";
-import { Versioned, type RpcClient } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   TriggerDefinition,
@@ -127,74 +127,67 @@ export const notificationSendArtifactType = {
   schema: notificationSendArtifactSchema,
 } as const;
 
-// ─── Action factory ────────────────────────────────────────────────────
+// ─── Action: notification.send ─────────────────────────────────────────
 
-export interface NotificationActionDeps {
-  /**
-   * Plugin rpcClient. The action invokes
-   * `sendTransactional` (service-mode) so notification-backend's
-   * existing dispatch loop runs — same strategy fan-out + per-attempt
-   * persistence + (now) delivered/failed hook emission as a
-   * code-driven send.
-   */
-  rpcClient: RpcClient;
-}
-
-export function createNotificationActions(
-  deps: NotificationActionDeps,
-): ActionDefinition<unknown, unknown>[] {
-  const sendAction: ActionDefinition<
-    NotificationSendConfig,
-    NotificationSendArtifact
-  > = {
-    id: "send",
-    displayName: "Send Notification",
-    description:
-      "Send a transactional notification to a specific user via all enabled strategies",
-    category: "Notifications",
-    icon: "BellRing",
-    config: new Versioned({
-      version: 1,
-      schema: notificationSendConfigSchema,
-    }),
-    produces: "notification.send_result",
-    execute: async ({ config, logger }) => {
-      const notificationClient = deps.rpcClient.forPlugin(NotificationApi);
-      const action =
-        config.actionLabel && config.actionUrl
-          ? { label: config.actionLabel, url: config.actionUrl }
-          : undefined;
-      try {
-        const result = await notificationClient.sendTransactional({
+/**
+ * Sends a transactional notification via `sendTransactional` through the run's
+ * `rpcClient` (the automation's `runAs` service account). Same strategy
+ * fan-out + per-attempt persistence + delivered/failed hook emission as a
+ * code-driven send. The service account must hold `notification.send`.
+ */
+export const notificationSendAction: ActionDefinition<
+  NotificationSendConfig,
+  NotificationSendArtifact
+> = {
+  id: "send",
+  displayName: "Send Notification",
+  description:
+    "Send a transactional notification to a specific user via all enabled strategies",
+  category: "Notifications",
+  icon: "BellRing",
+  config: new Versioned({
+    version: 1,
+    schema: notificationSendConfigSchema,
+  }),
+  produces: "notification.send_result",
+  execute: async ({ config, logger, rpcClient }) => {
+    const notificationClient = rpcClient.forPlugin(NotificationApi);
+    const action =
+      config.actionLabel && config.actionUrl
+        ? { label: config.actionLabel, url: config.actionUrl }
+        : undefined;
+    try {
+      const result = await notificationClient.sendTransactional({
+        userId: config.userId,
+        notification: {
+          title: config.title,
+          body: config.body,
+          importance: config.importance,
+          action,
+        },
+      });
+      logger.info(
+        `Automation sent notification to ${config.userId} (${result.deliveredCount} delivered)`,
+      );
+      return {
+        success: result.deliveredCount > 0,
+        // No single externalId — but recording the user keeps the
+        // run-detail UI useful when there are several send steps.
+        externalId: config.userId,
+        artifact: {
           userId: config.userId,
-          notification: {
-            title: config.title,
-            body: config.body,
-            importance: config.importance,
-            action,
-          },
-        });
-        logger.info(
-          `Automation sent notification to ${config.userId} (${result.deliveredCount} delivered)`,
-        );
-        return {
-          success: result.deliveredCount > 0,
-          // No single externalId — but recording the user keeps the
-          // run-detail UI useful when there are several send steps.
-          externalId: config.userId,
-          artifact: {
-            userId: config.userId,
-            deliveredCount: result.deliveredCount,
-            results: result.results,
-          },
-        };
-      } catch (error) {
-        const message = extractErrorMessage(error);
-        logger.error(`Notification send failed: ${message}`);
-        return { success: false, error: message };
-      }
-    },
-  };
+          deliveredCount: result.deliveredCount,
+          results: result.results,
+        },
+      };
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      logger.error(`Notification send failed: ${message}`);
+      return { success: false, error: message };
+    }
+  },
+};
 
-  return [sendAction as ActionDefinition<unknown, unknown>];
-}
+export const notificationActions: ActionDefinition<unknown, unknown>[] = [
+  notificationSendAction as ActionDefinition<unknown, unknown>,
+];

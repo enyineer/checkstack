@@ -4,6 +4,7 @@ import type {
   TransportClient,
   RegisteredCollector,
 } from "@checkstack/backend-api";
+import { assertNoSecretTemplatableConflict } from "@checkstack/backend-api";
 import { rootLogger } from "../logger";
 
 /**
@@ -19,6 +20,14 @@ export class CoreCollectorRegistry {
   ): void {
     // Use fully-qualified ID: ownerPluginId.collectorId
     const qualifiedId = `${ownerPlugin.pluginId}.${collector.id}`;
+    // Load-time guard: a config field must not be both a secret and
+    // templatable (they resolve in separate ordered passes). Fail fast on a
+    // misconfigured collector rather than silently skipping one pass at run
+    // time.
+    assertNoSecretTemplatableConflict({
+      schema: collector.config.schema,
+      schemaName: `collector:${qualifiedId}`,
+    });
     if (this.collectors.has(qualifiedId)) {
       rootLogger.warn(
         `CollectorStrategy '${qualifiedId}' is already registered. Overwriting.`

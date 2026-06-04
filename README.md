@@ -123,10 +123,10 @@ Example of rich notification delivery via Telegram with formatted messages and d
 </details>
 
 <details>
-<summary><strong>🔌 Integrations & Queues</strong></summary>
+<summary><strong>🔌 Automation Actions - Integrations & Queues</strong></summary>
 
 ### Integration Connections
-Configure connections to external systems like Jira, Microsoft Teams, Webex, and custom webhooks, then call them as actions inside your automations.
+Connect to external systems like Jira, Microsoft Teams, Webex, and custom webhooks - each becomes a first-class action you can call from any automation workflow.
 ![Integration Management](assets/screenshots/integration-management.png)
 
 ### Queue Management
@@ -182,7 +182,7 @@ Interactive API documentation. Explore all available endpoints and view response
 - A **reactive automation engine** that turns health, incident, and SLO events into ordered workflows with real control flow - so a flapping system can open an incident, page on-call, file a Jira ticket, and auto-resolve on recovery without a human in the loop.
 - **Dependency-aware SLOs** that know *why* a system was down and stop burning your error budget for an upstream's outage.
 
-On top of that you get a system catalog with a dependency map, incident and maintenance management, multi-channel notifications, a public status page, GitOps, satellite agents, and a plugin architecture you can extend end to end. It runs as N horizontally-scaled pods over one PostgreSQL database.
+On top of that you get a system catalog with a dependency map and per-system **environments**, incident and maintenance management, multi-channel notifications, a public status page, GitOps, satellite agents, a guardrailed **AI assistant**, and a plugin architecture you can extend end to end. It runs as N horizontally-scaled pods over one PostgreSQL database.
 
 ## 🚀 Why Checkstack
 
@@ -234,6 +234,29 @@ Most SLO tools treat every minute of downtime the same. Checkstack's SLO engine 
 ## 🧰 Supporting features
 
 Everything you need around the two pillars.
+
+### 🤖 AI assistant
+> *Ask, propose, apply - a built-in operator copilot that respects your guardrails*
+
+A first-class AI assistant grounded in your platform and your docs. Connect any OpenAI-compatible provider (OpenAI, OpenRouter, DeepSeek, or self-hosted) and chat in a streaming console that can read platform state and propose concrete changes for your approval.
+
+- **Propose / apply with diffs** - the assistant proposes mutating changes (full CRUD for health checks and automations, plus incident / maintenance / catalog tools) as GitHub-style split diffs with word-level highlighting; nothing is applied without approval, with a per-conversation **approve** vs **auto** permission mode.
+- **Grounded and capability-aware** - answers are grounded in the bundled documentation (`searchDocs` / `getDoc`) and a live capability catalog; it can dry-run a script in the sandbox (`testScript`) and probe a URL (SSRF-guarded) before recommending a check.
+- **Safe by construction** - every tool call runs as *you* (your access rules), is audited and replayable, with enforced secret scrubbing, a model allowlist, and a per-integration spend cap.
+- **Automations can use it too** - an **AI automation action** runs a bounded agent inside a workflow, reading platform state through read-only projected tools to summarize, triage, or decide.
+- **Plugin-owned and open** - every plugin contributes its own AI tools and read projections, and the platform exposes a read-only **MCP server** (OAuth, introspect-time scope narrowing) for external agents.
+
+---
+
+### 🧭 Operator console
+> *See what needs attention, and get there fast*
+
+- **Needs-attention dashboard** - the home dashboard surfaces only systems that need you (degraded, unhealthy, breaching an SLO, under an incident or maintenance, anomalous, or with a dependency problem), sorted by severity, each row deep-linking to the source - healthy systems stay out of the way. Plugins contribute new signal types through an extension slot, so the overview is open-ended.
+- **Left sidebar navigation** - grouped, access-filtered navigation across the whole platform; the user menu is now account-only.
+- **Redesigned catalog** - a group-first browse view with inline health rollups and a tabbed management surface (multi-select bulk actions, keyboard drag-and-drop, accessibility).
+- **In-app user guide** - the full documentation is served inside the app (works in air-gapped installs), linked right from the sidebar.
+
+---
 
 ### Health Checks
 > *Know when things break - before your users do*
@@ -291,6 +314,17 @@ A service reachable from your server might be unreachable from your customers. S
 > *Your single source of truth, and how it all connects*
 
 Organize infrastructure into **Systems** and **Groups** with owners and a clear inventory. Define directional dependencies ("A depends on B"), classify each as informational, degraded, or critical, and enable multi-hop propagation so warnings cascade through the chain (with cycle detection). An interactive **dependency map** lets you drag-to-connect, edit edges, and auto-save positions - and the same graph feeds dependency-aware SLO attribution.
+
+---
+
+### Environments
+> *One system, many environments - monitored and templated per environment*
+
+Model **environments** (e.g. `production`, `staging`, `eu-west`) as an instance-wide, many-to-many catalog primitive with custom fields. Health checks run **per environment** with full result fan-out, and any templatable config field can reference the resolved environment context.
+
+- **Per-environment runs** - the same check definition runs against each assigned environment, with results dimensioned by environment and rolled up into the system's overall health.
+- **Config templating** - template URLs, hosts, headers, and script inputs against environment fields, with a **live preview-as-environment** in the health-check and catalog editors.
+- **GitOps + RBAC** - environments are declarable as code and gated on `environment.manage`.
 
 ---
 
@@ -365,9 +399,12 @@ Artifacts produced by one action (a Jira issue key, an incident id) flow to late
 ---
 
 ### Run Script & script packages
-> *Drop into TypeScript when the building blocks aren't enough*
+> *Drop into TypeScript when the building blocks aren't enough - safely*
 
-The **Run Script (TypeScript)** automation action runs an async module in a sandboxed Bun subprocess with a typed `context` (the trigger payload is a discriminated union over the automation's subscribed triggers). Scripts - both automation actions and inline health-check collectors - can `import` from a global, admin-curated **npm allowlist**: packages are pinned to exact versions, bundled by the central server, and distributed to every core instance and satellite so a script runs the same everywhere.
+The **Run Script (TypeScript)** automation action runs an async module in an OS-level **sandboxed** Bun subprocess with a typed `context` (the trigger payload is a discriminated union over the automation's subscribed triggers). Scripts - both automation actions and inline health-check collectors - can `import` from a global, admin-curated **npm allowlist**: packages are pinned to exact versions, bundled by the central server, and distributed to every core instance and satellite so a script runs the same everywhere.
+
+- **Sandboxed by default (fail-closed)** - script and shell health checks and the `run_script` / `run_shell` actions execute inside an OS-level sandbox that is **on by default**: resource caps, privilege drop, an environment denylist, filesystem isolation, per-run fork-bomb containment, a validated seccomp profile, controlled network egress (with a rootless egress path), and an OOM output guard. A single global policy is admin-configurable and relayed to satellites (fail-closed until relayed).
+- **Scheduled vulnerability auditing** - installed script packages are audited on a schedule (`bun audit`); advisories surface in the UI and can drive notifications.
 
 ---
 
@@ -461,6 +498,8 @@ Checkstack is built from the ground up as a **modular plugin system**:
 - 📡 **Notification Strategies** - Deliver alerts through new channels
 - ✅ **Health Check Strategies & Collectors** - Monitor services in custom ways
 - 🗂️ **GitOps Kinds & Secrets Backends** - Register declarative entity kinds and credential stores
+- 📦 **Typed SDK** - script and plugin authors import a versioned, codegen-driven `@checkstack/sdk` (per-domain subpath exports); the in-app editor injects matching types for the running version
+- 🚀 **Standalone scaffolder** - `create-checkstack-plugin` scaffolds an external plugin outside the monorepo - it serves its API and runs its migrations on first boot
 
 Every piece of state is designed for horizontal scale: Checkstack runs as **N pods sharing one PostgreSQL database**, so reads return the same answer on every pod and suspended automation runs survive a restart on any pod.
 

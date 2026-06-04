@@ -73,6 +73,9 @@ function addSchemaMetadata(
       if (meta["x-secret-env"]) {
         jsonField["x-secret-env"] = true;
       }
+      if (meta["x-templatable"]) {
+        jsonField["x-templatable"] = true;
+      }
       if (meta["x-hidden-when"]) {
         jsonField["x-hidden-when"] = meta["x-hidden-when"];
       }

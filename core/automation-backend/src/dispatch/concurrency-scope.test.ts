@@ -35,6 +35,7 @@ function buildAutomation(
     name: "Concurrency test",
     status: "enabled",
     definition,
+    runAs: "app-test",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -46,6 +47,7 @@ function makeStore(auto: Automation): AutomationStore {
     name: auto.name,
     status: auto.status,
     definition: auto.definition,
+    runAs: auto.runAs ?? null,
   };
   return {
     create: async () => {
@@ -66,6 +68,7 @@ function makeStore(auto: Automation): AutomationStore {
             description: undefined,
             status: auto.status,
             definition: auto.definition,
+            runAs: auto.runAs ?? null,
             managedBy: undefined,
             createdAt: new Date(),
             updatedAt: new Date(),

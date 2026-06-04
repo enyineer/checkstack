@@ -22,6 +22,20 @@
       "when": 1777907813247,
       "tag": "0002_harsh_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780354912371,
+      "tag": "0003_tan_spot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780594817551,
+      "tag": "0004_heavy_sharon_carter",
+      "breakpoints": true
     }
   ]
 }

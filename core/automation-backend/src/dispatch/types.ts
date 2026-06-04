@@ -4,7 +4,7 @@
  * These are kept private to `automation-backend` — public API lives in
  * `@checkstack/automation-common` and the package's index re-exports.
  */
-import type { Logger, ServiceRef } from "@checkstack/backend-api";
+import type { Logger, ServiceRef, RpcClient } from "@checkstack/backend-api";
 import type {
   AutomationDefinition,
   Condition,
@@ -38,6 +38,15 @@ export interface DispatchDeps {
   artifactStore: ArtifactStore;
   /** Resolve a platform service ref — passed through to action `execute`. */
   getService: <T>(ref: ServiceRef<T>) => Promise<T>;
+  /**
+   * Build an RPC client that authenticates as the given APPLICATION (service
+   * account). The dispatch engine calls this once per run with the
+   * automation's `runAs` and threads the result into every action's
+   * `execute` as `context.rpcClient`, so all action data access runs as the
+   * bounded service-account principal - never the trusted service client.
+   * Optional so unit harnesses that don't exercise action RPC can omit it.
+   */
+  rpcClientForApplication?: (applicationId: string) => Promise<RpcClient>;
   /** Persistence backend for runs / steps / wait locks. */
   runStore: RunStore;
   /** Per-run scope snapshot + heartbeat + advisory-lock helpers. */
@@ -153,6 +162,12 @@ export interface LoadedAutomation {
   name: string;
   status: "enabled" | "disabled";
   definition: AutomationDefinition;
+  /**
+   * The application (service account) this automation runs as. `null` for
+   * legacy rows with no service account assigned - dispatch refuses to run
+   * such an automation rather than falling back to the trusted client.
+   */
+  runAs: string | null;
 }
 
 /**
@@ -188,6 +203,13 @@ export interface DispatchContext {
   scope: Record<string, unknown>;
   /** When inside `wait_for_trigger`'s resume path, set to true. */
   resuming: boolean;
+  /**
+   * Lazily-resolved RPC client bound to the automation's `runAs` service
+   * account, cached for the lifetime of this context. Built on first action
+   * execution from `deps.rpcClientForApplication`. Do not set directly - use
+   * the engine's `resolveRunRpcClient` helper.
+   */
+  runRpcClient?: RpcClient;
 }
 
 // ─── Run-store interface ─────────────────────────────────────────────────

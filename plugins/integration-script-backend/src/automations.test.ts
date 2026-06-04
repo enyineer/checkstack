@@ -15,6 +15,7 @@ import type {
   EsmScriptRunOptions,
   EsmScriptRunResult,
   Logger,
+  RpcClient,
   ShellScriptRunner,
   ShellScriptRunOptions,
   ShellScriptRunResult,
@@ -27,13 +28,19 @@ import {
   secretResolverRef,
   type SecretStore,
 } from "@checkstack/secrets-backend";
-import type { ServiceRef } from "@checkstack/backend-api";
+import {
+  coreServices,
+  type ConfigService,
+  type ServiceRef,
+} from "@checkstack/backend-api";
 
 import {
   createScriptRunAction,
   createShellRunAction,
   scriptResultArtifactType,
+  scriptRunAction,
   shellResultArtifactType,
+  shellRunAction,
   type ScriptResultArtifact,
   type ShellResultArtifact,
 } from "./automations";
@@ -79,6 +86,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 // ─── Shell action ──────────────────────────────────────────────────────────
@@ -509,7 +517,7 @@ describe("integration-script.run_script", () => {
     const call = runner.runMock.mock.calls[0]![0] as EsmScriptRunOptions;
     expect(call.script).toBe("export default async () => undefined;");
     expect(call.timeoutMs).toBe(7_500);
-    expect(call.helperModuleName).toBe("@checkstack/integration");
+    expect(call.helperModuleName).toBe("@checkstack/sdk/integration");
     expect(call.helperFunctionName).toBe("defineIntegration");
   });
 
@@ -673,5 +681,241 @@ describe("script-action secret env injection + masking (leak guard)", () => {
     if (result.success) return;
     expect(result.error).toMatch(/Secret error/);
     expect(runner.runMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Sandbox global default + downgrade surfacing (Phase 4) ─────────────────
+
+/**
+ * `getService` that serves BOTH the secret resolver and a fake (in-memory,
+ * shared-Postgres-shaped) ConfigService, so the action's global-default read +
+ * merge path is exercised end-to-end.
+ */
+function makeGetServiceWithConfig({
+  secrets = {},
+  store = new Map<string, unknown>(),
+}: {
+  secrets?: Record<string, string>;
+  store?: Map<string, unknown>;
+}) {
+  const secretStore: SecretStore = {
+    resolve: async (name) => {
+      if (!(name in secrets)) throw new Error(`Secret not found: ${name}`);
+      return secrets[name];
+    },
+  };
+  const resolver = createSecretResolverService({ secretStore });
+  const configService: ConfigService = {
+    set: async (configId, _schema, _version, data) => {
+      store.set(configId, data);
+    },
+    get: async (configId) =>
+      store.has(configId) ? store.get(configId) : undefined,
+    getRedacted: async () => undefined,
+    delete: async (configId) => {
+      store.delete(configId);
+    },
+    list: async () => [...store.keys()],
+  } as ConfigService;
+  return <T,>(ref: ServiceRef<T>): Promise<T> => {
+    if (ref.id === secretResolverRef.id) {
+      return Promise.resolve(resolver as unknown as T);
+    }
+    if (ref.id === coreServices.config.id) {
+      return Promise.resolve(configService as unknown as T);
+    }
+    throw new Error(`Unexpected service: ${ref.id}`);
+  };
+}
+
+describe("run_shell — global-only sandbox (no per-item override)", () => {
+  it("never passes a `sandbox` option to the runner (policy is global-only)", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    await action.execute({
+      ...ctxBase,
+      getService: makeGetServiceWithConfig({ store: new Map() }),
+      consumedArtifacts: {},
+      config: shellBaseConfig,
+    });
+    // Read the raw call arg untyped: the runner type no longer HAS a `sandbox`
+    // field (compile-time guarantee), so assert it is absent at runtime too.
+    const passed: Record<string, unknown> = runner.runMock.mock.calls[0]?.[0];
+    // The runner resolves the GLOBAL policy itself; the action must not pass one.
+    expect("sandbox" in passed).toBe(false);
+  });
+
+  it("tolerates a stored stray `config.sandbox` (migration: stripped, no crash)", async () => {
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createShellRunAction({ runner });
+    // Parse an old stored config that still carries a `sandbox` key. The schema
+    // strips unknown keys, so the parsed config has no `sandbox`.
+    const parsed = await action.config.parse({
+      version: 1,
+      data: {
+        ...shellBaseConfig,
+        sandbox: { network: { mode: "unrestricted" } },
+      },
+    });
+    expect(Object.keys(parsed)).not.toContain("sandbox");
+    await action.execute({
+      ...ctxBase,
+      getService: makeGetServiceWithConfig({ store: new Map() }),
+      consumedArtifacts: {},
+      config: parsed,
+    });
+    const passed: Record<string, unknown> = runner.runMock.mock.calls[0]?.[0];
+    expect("sandbox" in passed).toBe(false);
+  });
+
+  it("surfaces a per-run downgrade through the logger (degrade-surfaces-never-hides)", async () => {
+    const warnLogger = createMockLogger() as Logger;
+    const runner = makeShellRunner({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+      timedOut: false,
+      sandbox: {
+        requested: {
+          enabled: true,
+          onUnavailable: "degrade",
+          resources: {},
+          filesystem: { mode: "scratch-plus-ro" },
+          network: { mode: "unrestricted", allow: [], denyLinkLocalAndMetadata: true },
+          privilege: { mode: "inherit" },
+        },
+        enforced: {
+          resources: true,
+          filesystem: false,
+          network: false,
+          privilege: true,
+        },
+        downgrades: [
+          { layer: "filesystem", reason: "no wrapper on this host" },
+        ],
+        notes: [],
+        platform: "darwin",
+      },
+    });
+    const action = createShellRunAction({ runner });
+    await action.execute({
+      ...ctxBase,
+      logger: warnLogger,
+      getService: makeGetServiceWithConfig({ store: new Map() }),
+      consumedArtifacts: {},
+      config: shellBaseConfig,
+    });
+    const warnMock = warnLogger.warn as unknown as ReturnType<typeof mock>;
+    const warned = warnMock.mock.calls.some((c) =>
+      String(c[0]).includes("script sandbox degraded"),
+    );
+    expect(warned).toBe(true);
+  });
+});
+
+describe("run_script — global-only sandbox (no per-item override)", () => {
+  it("never passes a `sandbox` option to the runner (policy is global-only)", async () => {
+    const runner = makeEsmRunner({
+      result: { id: "x" },
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createScriptRunAction({ runner });
+    await action.execute({
+      ...ctxBase,
+      getService: makeGetServiceWithConfig({ store: new Map() }),
+      consumedArtifacts: {},
+      config: scriptBaseConfig,
+    });
+    const passed: Record<string, unknown> = runner.runMock.mock.calls[0]?.[0];
+    expect("sandbox" in passed).toBe(false);
+  });
+
+  it("tolerates a stored stray `config.sandbox` (migration: stripped, no crash)", async () => {
+    const runner = makeEsmRunner({
+      result: { id: "x" },
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    });
+    const action = createScriptRunAction({ runner });
+    const parsed = await action.config.parse({
+      version: 1,
+      data: {
+        ...scriptBaseConfig,
+        sandbox: { enabled: false },
+      },
+    });
+    expect(Object.keys(parsed)).not.toContain("sandbox");
+    await action.execute({
+      ...ctxBase,
+      getService: makeGetServiceWithConfig({ store: new Map() }),
+      consumedArtifacts: {},
+      config: parsed,
+    });
+    const passed: Record<string, unknown> = runner.runMock.mock.calls[0]?.[0];
+    expect("sandbox" in passed).toBe(false);
+  });
+});
+
+// ─── Editor-path migrate-then-validate (the reported bug) ──────────────────
+
+describe("script-action config migrate-then-validate (editor path)", () => {
+  it("run_script: a stored config with a removed `sandbox` key validates clean (no Unrecognized key)", async () => {
+    // `parseStrictAssumingV1` is exactly what the automation editor's
+    // deep validator runs per action. Before the v1->v2 drop migration this
+    // surfaced "config: Unrecognized key: sandbox" in the editor.
+    const stored = { ...scriptBaseConfig, sandbox: { enabled: false } };
+    const result = await scriptRunAction.config.parseStrictAssumingV1(stored);
+    expect(Object.keys(result)).not.toContain("sandbox");
+    expect(result.script).toBe(scriptBaseConfig.script);
+  });
+
+  it("run_shell: a stored config with a removed `sandbox` key validates clean", async () => {
+    const stored = { ...shellBaseConfig, sandbox: { enabled: false } };
+    const result = await shellRunAction.config.parseStrictAssumingV1(stored);
+    expect(Object.keys(result)).not.toContain("sandbox");
+    expect(result.script).toBe(shellBaseConfig.script);
+  });
+
+  it("run_script: a fresh config without `sandbox` is unchanged (idempotent)", async () => {
+    const result = await scriptRunAction.config.parseStrictAssumingV1(
+      scriptBaseConfig,
+    );
+    expect(result.script).toBe(scriptBaseConfig.script);
+  });
+
+  it("run_script: a genuine typo the migration does NOT account for still rejects (strict)", async () => {
+    await expect(
+      scriptRunAction.config.parseStrictAssumingV1({
+        ...scriptBaseConfig,
+        timoeut: 5_000,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+// ─── Migration-chain contract (zero-upkeep guardrail) ──────────────────────
+
+describe("script-action config migration-chain contract", () => {
+  it("run_script + run_shell configs have a complete v1->version chain", () => {
+    for (const action of [scriptRunAction, shellRunAction]) {
+      const problem = action.config.validateMigrationChainFromV1();
+      expect(
+        problem,
+        `Action "${action.id}" config (version ${action.config.version}) has a broken migration chain: ${problem}`,
+      ).toBeUndefined();
+    }
   });
 });

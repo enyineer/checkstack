@@ -1,0 +1,1 @@
+ALTER TABLE "ai_conversations" ADD COLUMN "archived_at" timestamp;

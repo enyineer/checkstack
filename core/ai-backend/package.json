@@ -1,0 +1,42 @@
+{
+  "name": "@checkstack/ai-backend",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "@checkstack/ai-common": "workspace:*",
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/integration-backend": "workspace:*",
+    "@checkstack/sdk": "workspace:*",
+    "@orpc/client": "^1.14.4",
+    "@orpc/contract": "^1.14.4",
+    "@orpc/server": "^1.14.4",
+    "ai": "^6.0.194",
+    "drizzle-orm": "^0.45.0",
+    "yaml": "^2.6.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "pg": "^8.21.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,6 +1,8 @@
-import { eq, ne, desc, sql } from "drizzle-orm";
+import { and, eq, ne, desc, sql } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type {
+  AuditAdvisory,
+  AuditState,
   BlobGcState,
   ManifestEntry,
   PackageSpec,
@@ -23,6 +25,8 @@ import {
   scriptPackageBlobGcState,
   scriptPackageLockfileHistory,
   scriptPackageSatelliteState,
+  scriptPackageAuditAdvisory,
+  scriptPackageAuditState,
 } from "./schema";
 
 const SINGLETON = "singleton";
@@ -531,3 +535,214 @@ export function createSatelliteStateStore(db: SafeDatabase<SatelliteSchema>) {
     },
   };
 }
+
+// ─── Vulnerability-audit store ─────────────────────────────────────────────
+
+type AuditSchema = {
+  scriptPackageAuditAdvisory: typeof scriptPackageAuditAdvisory;
+  scriptPackageAuditState: typeof scriptPackageAuditState;
+};
+
+const DEFAULT_AUDIT_STATE: AuditState = {
+  lastRunAt: null,
+  lockfileHash: null,
+  total: 0,
+  counts: { low: 0, moderate: 0, high: 0, critical: 0 },
+  errorMessage: null,
+};
+
+function auditRowToAdvisory(r: {
+  packageName: string;
+  advisoryId: string;
+  title: string;
+  severity: AuditAdvisory["severity"];
+  vulnerableVersions: string;
+  url: string | null;
+  cvssScore: number | null;
+}): AuditAdvisory {
+  return {
+    packageName: r.packageName,
+    advisoryId: r.advisoryId,
+    title: r.title,
+    severity: r.severity,
+    vulnerableVersions: r.vulnerableVersions,
+    url: r.url,
+    cvssScore: r.cvssScore,
+  };
+}
+
+/**
+ * Persists the audit findings (cluster-wide source of truth) + the singleton
+ * last-run summary. The on-disk node_modules tree is pod-local; advisories
+ * live here so any pod returns the same answer (state-and-scale rule).
+ */
+export function createAuditStore(db: SafeDatabase<AuditSchema>) {
+  return {
+    /** Advisories stored for a given lockfile hash (sorted for stable diffing). */
+    async advisoriesForHash(lockfileHash: string): Promise<AuditAdvisory[]> {
+      const rows = await db
+        .select()
+        .from(scriptPackageAuditAdvisory)
+        .where(eq(scriptPackageAuditAdvisory.lockfileHash, lockfileHash));
+      return rows
+        .map((r) => auditRowToAdvisory(r))
+        .toSorted((a, b) =>
+          a.packageName === b.packageName
+            ? a.advisoryId.localeCompare(b.advisoryId)
+            : a.packageName.localeCompare(b.packageName),
+        );
+    },
+
+    /**
+     * Advisory keys (`<package> <advisoryId>`) already marked notified at
+     * (at least) the given severity, so a redeploy doesn't re-notify an
+     * unchanged set. Returns a map of key -> the severity last notified at.
+     */
+    async notifiedSeverities(
+      lockfileHash: string,
+    ): Promise<Map<string, AuditAdvisory["severity"]>> {
+      const rows = await db
+        .select({
+          packageName: scriptPackageAuditAdvisory.packageName,
+          advisoryId: scriptPackageAuditAdvisory.advisoryId,
+          severity: scriptPackageAuditAdvisory.severity,
+          notified: scriptPackageAuditAdvisory.notified,
+        })
+        .from(scriptPackageAuditAdvisory)
+        .where(eq(scriptPackageAuditAdvisory.lockfileHash, lockfileHash));
+      const map = new Map<string, AuditAdvisory["severity"]>();
+      for (const r of rows) {
+        if (r.notified) map.set(`${r.packageName} ${r.advisoryId}`, r.severity);
+      }
+      return map;
+    },
+
+    /**
+     * Replace the entire advisory set for a hash with `advisories`. `notified`
+     * is carried from `notifiedKeys` so already-notified advisories don't
+     * re-notify on the next pass. Done in one transaction so a reader never
+     * sees a half-written set.
+     */
+    async replaceForHash(input: {
+      lockfileHash: string;
+      advisories: AuditAdvisory[];
+      notifiedKeys: Set<string>;
+    }): Promise<void> {
+      const { lockfileHash, advisories, notifiedKeys } = input;
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(scriptPackageAuditAdvisory)
+          .where(eq(scriptPackageAuditAdvisory.lockfileHash, lockfileHash));
+        if (advisories.length > 0) {
+          await tx.insert(scriptPackageAuditAdvisory).values(
+            advisories.map((a) => ({
+              lockfileHash,
+              advisoryId: a.advisoryId,
+              packageName: a.packageName,
+              title: a.title,
+              severity: a.severity,
+              vulnerableVersions: a.vulnerableVersions,
+              url: a.url,
+              cvssScore: a.cvssScore,
+              notified: notifiedKeys.has(`${a.packageName} ${a.advisoryId}`),
+            })),
+          );
+        }
+      });
+    },
+
+    /** Mark the given advisory keys notified for a hash (post-send). */
+    async markNotified(input: {
+      lockfileHash: string;
+      keys: { packageName: string; advisoryId: string }[];
+    }): Promise<void> {
+      const { lockfileHash, keys } = input;
+      if (keys.length === 0) return;
+      // Each key is (package, advisory); update them in one statement per
+      // package-grouped set is awkward, so update by advisory id within hash
+      // and re-confirm the package in the WHERE.
+      for (const k of keys) {
+        await db
+          .update(scriptPackageAuditAdvisory)
+          .set({ notified: true })
+          .where(
+            and(
+              eq(scriptPackageAuditAdvisory.lockfileHash, lockfileHash),
+              eq(scriptPackageAuditAdvisory.advisoryId, k.advisoryId),
+              eq(scriptPackageAuditAdvisory.packageName, k.packageName),
+            ),
+          );
+      }
+    },
+
+    /** Drop advisories for hashes no longer relevant (housekeeping). */
+    async pruneHashesNotIn(keepHashes: string[]): Promise<void> {
+      if (keepHashes.length === 0) {
+        await db.delete(scriptPackageAuditAdvisory);
+        return;
+      }
+      await db
+        .delete(scriptPackageAuditAdvisory)
+        .where(
+          sql`${scriptPackageAuditAdvisory.lockfileHash} NOT IN (${sql.join(
+            keepHashes.map((h) => sql`${h}`),
+            sql`, `,
+          )})`,
+        );
+    },
+
+    async getState(): Promise<AuditState> {
+      const [row] = await db
+        .select()
+        .from(scriptPackageAuditState)
+        .where(eq(scriptPackageAuditState.id, SINGLETON))
+        .limit(1);
+      if (!row) return DEFAULT_AUDIT_STATE;
+      return {
+        lastRunAt: row.lastRunAt,
+        lockfileHash: row.lockfileHash,
+        total: row.total,
+        counts: {
+          low: row.countLow,
+          moderate: row.countModerate,
+          high: row.countHigh,
+          critical: row.countCritical,
+        },
+        errorMessage: row.errorMessage,
+      };
+    },
+
+    /** Record a successful run summary. */
+    async recordRun(input: {
+      lockfileHash: string | null;
+      total: number;
+      counts: AuditState["counts"];
+    }): Promise<void> {
+      const set = {
+        lastRunAt: new Date(),
+        lockfileHash: input.lockfileHash,
+        total: input.total,
+        countLow: input.counts.low,
+        countModerate: input.counts.moderate,
+        countHigh: input.counts.high,
+        countCritical: input.counts.critical,
+        errorMessage: null,
+      };
+      await db
+        .insert(scriptPackageAuditState)
+        .values({ id: SINGLETON, ...set })
+        .onConflictDoUpdate({ target: scriptPackageAuditState.id, set });
+    },
+
+    /** Record a failed run (keeps prior counts; surfaces the error). */
+    async recordError(message: string): Promise<void> {
+      const set = { lastRunAt: new Date(), errorMessage: message };
+      await db
+        .insert(scriptPackageAuditState)
+        .values({ id: SINGLETON, ...set })
+        .onConflictDoUpdate({ target: scriptPackageAuditState.id, set });
+    },
+  };
+}
+
+export type AuditStore = ReturnType<typeof createAuditStore>;

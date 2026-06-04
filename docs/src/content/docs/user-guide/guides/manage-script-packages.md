@@ -9,7 +9,7 @@ This guide covers the **Script Packages** admin page. You need the `script-packa
 
 ## Open the Script Packages page
 
-From the user menu, open **Script Packages**. The page has four sections: install state, the package allowlist, registry and storage configuration, and per-satellite sync status.
+From the user menu, open **Script Packages**. The page covers install state, vulnerability audit findings, the package allowlist, registry and storage configuration, and per-satellite sync status.
 
 ## Add a package to the allowlist
 
@@ -58,6 +58,17 @@ To move existing blobs from one backend to another, pick a target in **Storage b
 ## Watch per-host sync
 
 After an install, each core instance and satellite reconciles to the new package set by pulling only the blobs it is missing. The **Satellite sync** section shows each satellite's status (`pending`, `syncing`, `ready`, or `error`). A satellite that cannot sync reports an error and its scripts fail clearly on a package import rather than silently using a stale set.
+
+## Watch for vulnerabilities
+
+Because allowlisted packages (and their transitive dependencies) run inside your scripts, a vulnerability published against an already-installed pinned version is a supply-chain risk. The **Vulnerability audit** section keeps an eye on this for you.
+
+- A scheduled audit runs `bun audit` against the installed package tree once a day. It reports purely from the resolved lockfile against the advisory database - it never executes package code.
+- Every finding is recorded and listed in the section, grouped by package with its severity, affected version range, and a link to the advisory. The card badge and the last-run summary show the headline counts by severity.
+- When a new vulnerability appears (or an existing one gets worse) at **moderate, high, or critical** severity, every holder of `script-packages.manage` is notified. An unchanged set never re-notifies, so a daily run does not spam you.
+- Click **Audit now** to run an on-demand audit. The list refreshes automatically when the audit completes. If an install, migration, or storage cleanup is running, the audit waits and retries on its next scheduled run.
+
+When a finding appears, bump the affected package to a fixed version (or toggle it off) in the allowlist and re-run **Install now**, then **Audit now** to confirm the advisory is gone.
 
 ## Reclaim storage
 

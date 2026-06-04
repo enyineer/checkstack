@@ -26,6 +26,7 @@ import {
   LineChart,
   Bell,
   BellOff,
+  EyeOff,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
@@ -114,12 +115,16 @@ function AnomalyRow({
   isMuted,
   onToggleMute,
   isToggling,
+  onSuppress,
+  isSuppressing,
 }: {
   anomaly: AnomalyDto;
   systemId: string;
   isMuted: boolean;
   onToggleMute: (fieldPath: string, isMuted: boolean) => void;
   isToggling: boolean;
+  onSuppress: (anomalyId: string) => void;
+  isSuppressing: boolean;
 }) {
   const isSuspicious = anomaly.state === "suspicious";
   const isDrift = anomaly.kind === "drift";
@@ -237,6 +242,23 @@ function AnomalyRow({
             <Bell className="h-3.5 w-3.5" />
           )}
         </Button>
+        {!isSuspicious && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            disabled={isSuppressing}
+            title="Suppress this anomaly until it changes again"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSuppress(anomaly.id);
+            }}
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+          </Button>
+        )}
         <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
       </div>
     </Link>
@@ -301,6 +323,19 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
     } else {
       muteMutation.mutate({ systemId: system.id, fieldPath });
     }
+  };
+
+  // Suppressing removes the row from the active feed. The mutation invalidates
+  // the anomaly plugin's own queries on success, so the active list (which
+  // defaults to the "active" suppression filter) refetches without the row.
+  const suppressMutation = anomalyClient.suppressAnomaly.useMutation({
+    onError: () => {
+      toast.error("Failed to suppress anomaly");
+    },
+  });
+
+  const handleSuppress = (anomalyId: string) => {
+    suppressMutation.mutate({ systemId: system.id, anomalyId });
   };
 
   const isLoading = loadingConfirmed || loadingSuspicious;
@@ -397,6 +432,8 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
               isMuted={isSystemMuted || mutedFields.has(anomaly.fieldPath)}
               onToggleMute={handleToggleMute}
               isToggling={isToggling}
+              onSuppress={handleSuppress}
+              isSuppressing={suppressMutation.isPending}
             />
           ))}
         </div>

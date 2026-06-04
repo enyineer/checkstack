@@ -14,6 +14,7 @@ import {
   type ResultMessage,
   type SatelliteWithStatus,
 } from "@checkstack/satellite-common";
+import type { SandboxPolicy } from "@checkstack/common";
 
 /**
  * Optional plug-point for driving a satellite connection lifecycle edge into
@@ -91,6 +92,18 @@ export interface SatelliteSecretSink {
 }
 
 /**
+ * Optional plug-point for relaying the GLOBAL script-sandbox policy to
+ * satellites. Wired from `afterPluginsReady` against the script-packages RPC.
+ * When absent, the `authenticated` message omits `sandboxPolicy` (version-skew
+ * safe) and the satellite stays FAIL-CLOSED until a policy arrives, so a
+ * missing sink can never loosen a satellite's sandbox.
+ */
+export interface SatelliteSandboxPolicySink {
+  /** The current resolved global sandbox policy to relay to satellites. */
+  getCurrentPolicy(): Promise<SandboxPolicy>;
+}
+
+/**
  * Active satellite connection tracking.
  */
 interface SatelliteConnection {
@@ -138,6 +151,12 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
      * unset, such a request is answered with an error.
      */
     private secretSink?: SatelliteSecretSink,
+    /**
+     * Optional. When set, the `authenticated` message carries the resolved
+     * global sandbox policy and the handler can push `sandbox_policy` on change.
+     * When unset, the field is omitted and the satellite stays fail-closed.
+     */
+    private sandboxPolicySink?: SatelliteSandboxPolicySink,
   ) {}
 
   /**
@@ -220,6 +239,7 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           await this.configRelay.getAssignmentsForSatellite(satellite.id);
         const scriptPackagesLockfileHash =
           await this.resolveDesiredLockfileHash();
+        const sandboxPolicy = await this.resolveSandboxPolicy();
 
         this.sendMessage(ws, {
           type: "authenticated",
@@ -228,6 +248,7 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           ...(scriptPackagesLockfileHash === undefined
             ? {}
             : { scriptPackagesLockfileHash }),
+          ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
         });
 
         this.logger.info(
@@ -418,6 +439,38 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
     this.logger.debug(
       `Pushed refresh_script_packages (${lockfileHash}) to ${this.connections.size} satellite(s)`,
     );
+  }
+
+  /**
+   * Push the new global sandbox policy to EVERY connected satellite. Called by
+   * the `script-sandbox.policy-changed` broadcast handler so each core instance
+   * fans the change out to its own satellites (push-on-change relay).
+   * Best-effort liveness; the policy carried in `authenticated` on (re)connect
+   * is the durable backstop.
+   */
+  pushSandboxPolicyToAll(policy: SandboxPolicy): void {
+    for (const conn of this.connections.values()) {
+      this.sendMessage(conn.ws, { type: "sandbox_policy", policy });
+    }
+    this.logger.debug(
+      `Pushed sandbox_policy to ${this.connections.size} satellite(s)`,
+    );
+  }
+
+  /**
+   * Resolve the current global sandbox policy for the `authenticated` payload.
+   * Returns `undefined` when the sink isn't wired or its read throws, so the
+   * field is omitted (version-skew safe) and the satellite stays FAIL-CLOSED
+   * (denies egress) - a relay failure must never loosen a satellite's sandbox.
+   */
+  private async resolveSandboxPolicy(): Promise<SandboxPolicy | undefined> {
+    if (!this.sandboxPolicySink) return undefined;
+    try {
+      return await this.sandboxPolicySink.getCurrentPolicy();
+    } catch (error) {
+      this.logger.error("Failed to resolve global sandbox policy:", error);
+      return undefined;
+    }
   }
 
   /**

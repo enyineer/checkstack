@@ -1,6 +1,10 @@
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import {
   dependencyAccessRules,
   pluginMetadata,
   dependencyContract,
@@ -126,6 +130,20 @@ export default createBackendPlugin({
           throw new Error("DependencyService not initialized");
         return gitopsService;
       },
+    });
+
+    // Expose this plugin's read-only AI projection (`dependency.list`) via
+    // the AI projection extension point. ai-backend collects its routing in
+    // afterPluginsReady and never imports dependency-common.
+    env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+      procedure: dependencyContract.getAllDependencies,
+      sourcePluginMetadata: pluginMetadata,
+      procedureKey: "getAllDependencies",
+      name: "dependency.list",
+      description:
+        "List all cross-system dependencies (the dependency graph). Read-only.",
+      effect: "read",
+      execute: deferredProjectionExecute,
     });
 
     env.registerInit({

@@ -41,6 +41,7 @@ function buildAutomation(opts: {
     name: "Dwell test",
     status: opts.status ?? "enabled",
     definition,
+    runAs: "app-test",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -54,6 +55,7 @@ function makeAutomationStore(automations: Automation[]): AutomationStore {
     name: a.name,
     status: a.status,
     definition: a.definition,
+    runAs: a.runAs ?? null,
   });
   return {
     create: async () => {
@@ -652,6 +654,7 @@ describe("numeric_state trigger + for: via handleTriggerFiring", () => {
       name: "Numeric",
       status: "enabled",
       definition,
+      runAs: "app-test",
       createdAt: new Date(),
       updatedAt: new Date(),
     };

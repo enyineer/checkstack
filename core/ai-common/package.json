@@ -1,0 +1,31 @@
+{
+  "name": "@checkstack/ai-common",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@orpc/contract": "^1.14.4",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}

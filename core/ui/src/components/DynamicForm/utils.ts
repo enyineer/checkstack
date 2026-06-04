@@ -70,6 +70,28 @@ export function isValueEmpty(
 }
 
 /**
+ * Whether a nested object's schema-required children should display the
+ * required `*` marker. A REQUIRED nested object always marks its required
+ * children. An OPTIONAL nested object (e.g. an opt-in spend cap) only marks
+ * them once the operator is actually providing the object (any child has a
+ * non-empty value) — while it is empty, supplying it is optional, so its
+ * children must not show `*` (the form is valid without any of them).
+ */
+export function nestedChildrenRequired({
+  objectRequired,
+  objectValue,
+}: {
+  objectRequired: boolean;
+  objectValue: unknown;
+}): boolean {
+  if (objectRequired) return true;
+  if (objectValue === null || typeof objectValue !== "object") return false;
+  return Object.values(objectValue as Record<string, unknown>).some(
+    (entry) => entry !== undefined && entry !== null && entry !== "",
+  );
+}
+
+/**
  * Locate the value of the secret→env mapping field within an object's
  * properties by the `x-secret-env` annotation (NOT by a hard-coded field
  * name), and return it. Used to feed the inline script-test panel the same

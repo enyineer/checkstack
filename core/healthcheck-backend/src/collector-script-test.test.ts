@@ -53,6 +53,36 @@ describe("buildShellRunContextEnv", () => {
       CHECKSTACK_SYSTEM_NAME: "web-1",
     });
   });
+
+  test("emits CHECKSTACK_ENV_* vars mirroring the real shell collector", () => {
+    const env = buildShellRunContextEnv({
+      system: { id: "s1", name: "web-1" },
+      environment: {
+        id: "env-prod",
+        name: "production",
+        fields: { baseUrl: "https://prod.example.com", region: "eu-west-1" },
+      },
+    });
+    expect(env).toEqual({
+      CHECKSTACK_SYSTEM_ID: "s1",
+      CHECKSTACK_SYSTEM_NAME: "web-1",
+      CHECKSTACK_ENV_ID: "env-prod",
+      CHECKSTACK_ENV_NAME: "production",
+      CHECKSTACK_ENV_BASE_URL: "https://prod.example.com",
+      CHECKSTACK_ENV_REGION: "eu-west-1",
+    });
+  });
+
+  test("keeps the first key on a normalized collision (first-wins)", () => {
+    const env = buildShellRunContextEnv({
+      environment: {
+        id: "e",
+        name: "n",
+        fields: { baseUrl: "first", "base-url": "second" },
+      },
+    });
+    expect(env.CHECKSTACK_ENV_BASE_URL).toBe("first");
+  });
 });
 
 describe("buildCollectorContext", () => {
@@ -74,6 +104,28 @@ describe("buildCollectorContext", () => {
   test("defaults config to an empty object", () => {
     expect(buildCollectorContext({})).toEqual({ config: {} });
   });
+
+  test("includes environment when present, mirroring the inline collector", () => {
+    expect(
+      buildCollectorContext({
+        config: {},
+        runContext: {
+          environment: {
+            id: "env-prod",
+            name: "production",
+            fields: { baseUrl: "https://prod.example.com" },
+          },
+        },
+      }),
+    ).toEqual({
+      config: {},
+      environment: {
+        id: "env-prod",
+        name: "production",
+        fields: { baseUrl: "https://prod.example.com" },
+      },
+    });
+  });
 });
 
 describe("runCollectorScriptTest — typescript", () => {
@@ -94,7 +146,7 @@ describe("runCollectorScriptTest — typescript", () => {
       },
       deps: { esmRunner: runner },
     });
-    expect(calls[0]?.helperModuleName).toBe("@checkstack/healthcheck");
+    expect(calls[0]?.helperModuleName).toBe("@checkstack/sdk/healthcheck");
     expect(calls[0]?.helperFunctionName).toBe("defineHealthCheck");
     expect(calls[0]?.context).toEqual({
       config: { threshold: 0.6 },

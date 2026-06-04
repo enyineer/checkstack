@@ -10,6 +10,7 @@ import {
   configBoolean,
   configString,
   type ConfigService,
+  type Migration,
 } from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { NotificationStrategyRegistry } from "@checkstack/backend-api";
@@ -58,6 +59,15 @@ export type UserPreferenceConfig = z.infer<typeof UserPreferenceConfigSchema>;
 
 const USER_PREFERENCE_VERSION = 1;
 
+/**
+ * Migration chain for user-preference records. Empty today (`version: 1`), but
+ * threaded through every {@link ConfigService.get}/`getRedacted` read so a
+ * future reshape only needs to append a step here instead of touching every
+ * call site. Omitting the argument would silently drop the migrate-then-validate
+ * capability and leave reads validate-only.
+ */
+const USER_PREFERENCE_MIGRATIONS: Migration<unknown, unknown>[] = [];
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Strategy Config Schema (admin settings)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -72,6 +82,13 @@ export const StrategyMetaConfigSchema = z.object({
 export type StrategyMetaConfig = z.infer<typeof StrategyMetaConfigSchema>;
 
 const STRATEGY_META_VERSION = 1;
+
+/**
+ * Migration chain for strategy meta-config records. Empty today (`version: 1`),
+ * threaded through the read so future reshapes migrate-then-validate. See
+ * {@link USER_PREFERENCE_MIGRATIONS}.
+ */
+const STRATEGY_META_MIGRATIONS: Migration<unknown, unknown>[] = [];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Service Interface
@@ -224,7 +241,8 @@ export function createStrategyService(
       const meta = await configService.get(
         strategyMetaId(strategyId),
         StrategyMetaConfigSchema,
-        STRATEGY_META_VERSION
+        STRATEGY_META_VERSION,
+        STRATEGY_META_MIGRATIONS
       );
       return meta ?? { enabled: false };
     },
@@ -346,7 +364,8 @@ export function createStrategyService(
       return configService.get(
         userPreferenceId(userId, strategyId),
         UserPreferenceConfigSchema,
-        USER_PREFERENCE_VERSION
+        USER_PREFERENCE_VERSION,
+        USER_PREFERENCE_MIGRATIONS
       );
     },
 
@@ -357,7 +376,8 @@ export function createStrategyService(
       return configService.getRedacted(
         userPreferenceId(userId, strategyId),
         UserPreferenceConfigSchema,
-        USER_PREFERENCE_VERSION
+        USER_PREFERENCE_VERSION,
+        USER_PREFERENCE_MIGRATIONS
       );
     },
 
@@ -402,7 +422,8 @@ export function createStrategyService(
         const pref = await configService.get(
           id,
           UserPreferenceConfigSchema,
-          USER_PREFERENCE_VERSION
+          USER_PREFERENCE_VERSION,
+          USER_PREFERENCE_MIGRATIONS
         );
         if (pref) {
           results.push({ strategyId, preference: pref });
@@ -433,7 +454,8 @@ export function createStrategyService(
         const pref = await configService.getRedacted(
           id,
           UserPreferenceConfigSchema,
-          USER_PREFERENCE_VERSION
+          USER_PREFERENCE_VERSION,
+          USER_PREFERENCE_MIGRATIONS
         );
         if (pref) {
           results.push({ strategyId, preference: pref });

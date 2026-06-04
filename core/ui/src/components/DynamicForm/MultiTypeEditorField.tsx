@@ -5,6 +5,7 @@ import {
   CodeEditor,
   type TemplateProperty,
   type AcquireTypes,
+  type AcquiredTypeFile,
 } from "../CodeEditor";
 import {
   Select,
@@ -76,6 +77,10 @@ export interface MultiTypeEditorFieldProps {
   acquireTypes?: AcquireTypes;
   /** Install identity (lockfile hash); resets acquired types on a new install. */
   acquireResetKey?: string;
+  /** The running release's `@checkstack/sdk` editor bundle (helpers + client). */
+  sdkTypes?: ReadonlyArray<AcquiredTypeFile>;
+  /** Release version; resets the mounted SDK libs on a deployment upgrade. */
+  sdkTypesResetKey?: string;
   /**
    * Importable installed package names (`@types/*`-free), forwarded to the
    * TS/JS `CodeEditor` so the import specifier itself autocompletes.
@@ -113,6 +118,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
   scriptTestRenderer,
   acquireTypes,
   acquireResetKey,
+  sdkTypes,
+  sdkTypesResetKey,
   importablePackages,
   fieldId,
   siblingSecretEnv,
@@ -396,6 +403,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           typeDefinitions={typeDefinitions}
           acquireTypes={acquireTypes}
           acquireResetKey={acquireResetKey}
+          sdkTypes={sdkTypes}
+          sdkTypesResetKey={sdkTypesResetKey}
           importablePackages={importablePackages}
         />
       )}
@@ -410,6 +419,8 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
           typeDefinitions={typeDefinitions}
           acquireTypes={acquireTypes}
           acquireResetKey={acquireResetKey}
+          sdkTypes={sdkTypes}
+          sdkTypesResetKey={sdkTypesResetKey}
           importablePackages={importablePackages}
         />
       )}

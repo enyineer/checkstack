@@ -18,6 +18,8 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import {
   ChevronDown,
@@ -483,6 +485,8 @@ function SpecSchemaDocumentationField({
     });
   }, [docs, selections]);
 
+  const { isLowPower } = usePerformance();
+
   const currentSelection = selections[fieldPath] || "";
   const isValidSelection =
     currentSelection !== "" &&
@@ -534,7 +538,13 @@ function SpecSchemaDocumentationField({
       </div>
 
       {selectedDoc ? (
-        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div
+          className={cn(
+            "space-y-3",
+            !isLowPower &&
+              "animate-in fade-in slide-in-from-top-2 duration-200",
+          )}
+        >
           {selectedDoc.description && (
             <div className="text-sm text-muted-foreground">
               <MarkdownBlock>{selectedDoc.description}</MarkdownBlock>

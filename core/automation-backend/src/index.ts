@@ -19,6 +19,8 @@ import {
 } from "@checkstack/template-engine";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
+import { aiToolExtensionPoint } from "@checkstack/ai-backend";
+import { buildAutomationAiTools } from "./ai/register-ai-tools";
 import { CHECKSTACK_API_VERSION } from "@checkstack/gitops-common";
 import {
   reconcileAutomation,
@@ -108,10 +110,11 @@ import {
 } from "./entity";
 import { ENTITY_CHANGED_HOOK } from "./entity/hook";
 import {
-  createNotifyUserAction,
+  notifyUserAction,
   logAction,
   notifyUserArtifactType,
 } from "./builtin-actions";
+import { aiAnalyzeAction, aiAnalysisArtifactType } from "./ai-action";
 import * as schema from "./schema";
 
 /**
@@ -294,6 +297,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         rpc: coreServices.rpc,
         rpcClient: coreServices.rpcClient,
+        rpcClientAs: coreServices.rpcClientAs,
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
         advisoryLock: coreServices.advisoryLock,
@@ -303,6 +307,7 @@ export default createBackendPlugin({
         database,
         rpc,
         rpcClient,
+        rpcClientAs,
         queueManager,
         signalService,
         advisoryLock,
@@ -364,17 +369,29 @@ export default createBackendPlugin({
           pluginMetadata,
         );
         actionRegistry.register(
-          createNotifyUserAction({ rpcClient }) as ActionDefinition<
-            unknown,
-            unknown
-          >,
+          notifyUserAction as ActionDefinition<unknown, unknown>,
+          pluginMetadata,
+        );
+        actionRegistry.register(
+          aiAnalyzeAction as ActionDefinition<unknown, unknown>,
           pluginMetadata,
         );
         artifactTypeRegistry.register(
           notifyUserArtifactType as ArtifactTypeDefinition<unknown>,
           pluginMetadata,
         );
+        artifactTypeRegistry.register(
+          aiAnalysisArtifactType as ArtifactTypeDefinition<unknown>,
+          pluginMetadata,
+        );
         await registerBuiltinTriggerConsumer({ queueManager, logger });
+
+        // Register this plugin's AI tools (propose/update/delete) into the AI
+        // registry via the extension point - owned here, not in ai-backend.
+        const aiToolExt = env.getExtensionPoint(aiToolExtensionPoint);
+        for (const tool of buildAutomationAiTools()) {
+          aiToolExt.registerTool(tool, pluginMetadata);
+        }
 
         // Apply plugin-contributed filters collected in register(),
         // skipping any that would shadow a built-in (warn, don't clobber).
@@ -404,8 +421,16 @@ export default createBackendPlugin({
           queueManager,
           // Sensing-layer scope pre-resolution reads live health state
           // through this client. forPlugin is lazy; the actual RPC only
-          // fires at evaluation time.
+          // fires at evaluation time. NOTE: this is the trusted client used
+          // for TRIGGER/CONDITION evaluation (event delivery), NOT for action
+          // execution - actions run as the automation's `runAs` service
+          // account via `rpcClientForApplication` below.
           healthCheckClient: rpcClient.forPlugin(HealthCheckApi),
+          // Per-run application-scoped client factory: the engine builds the
+          // run's client from the automation's `runAs` and threads it into
+          // every action's `context.rpcClient`, so ALL action data access
+          // authenticates as the bounded service account (never god mode).
+          rpcClientForApplication: rpcClientAs,
           // Kind-agnostic entity resolver for reactive `wait_until` wake
           // re-evaluation (Model B): the registry routes each kind to its
           // plugin `read` accessor. Unknown kinds
@@ -456,6 +481,7 @@ export default createBackendPlugin({
           dispatchDeps,
           signalService,
           logger,
+          rpcClient,
         });
         rpc.registerRouter(router, automationContract);
 

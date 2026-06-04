@@ -42,13 +42,19 @@ export const scriptConfigSchema = baseStrategyConfigSchema.extend({});
 export type ScriptConfig = z.infer<typeof scriptConfigSchema>;
 export type ScriptConfigInput = z.input<typeof scriptConfigSchema>;
 
-// Legacy config type for migrations
-interface ScriptConfigV1 {
-  command: string;
-  args: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  timeout: number;
+// The migrate input is `unknown` per the versioning chain, so narrowing is
+// done with `typeof`/`in` guards (no casts).
+
+/** Type guard: the migrate input is a plain object whose keys can be probed. */
+function isRecord(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object" && data !== null;
+}
+
+/** Read a numeric `timeout` field from a legacy/current config blob. */
+function readTimeout(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const value = data.timeout;
+  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -201,9 +207,14 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
         fromVersion: 1,
         toVersion: 2,
         description: "Remove command/args/cwd/env (moved to ExecuteCollector)",
-        migrate: (data: ScriptConfigV1): ScriptConfig => ({
-          timeout: data.timeout,
-        }),
+        // IDEMPOTENT: only a genuine v1 blob still carries `command`. An
+        // already-v2 blob (just `{ timeout }`) passes through untouched.
+        migrate: (data: unknown): unknown => {
+          if (isRecord(data) && "command" in data) {
+            return { timeout: readTimeout(data) };
+          }
+          return data;
+        },
       },
     ],
   });

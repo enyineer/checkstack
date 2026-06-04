@@ -11,7 +11,7 @@ The exact names you see in the sidebar depend on which plugins are installed. Co
 
 ### Dashboard
 
-The default landing page once you are signed in. Shows the top-level status of every system you have access to, grouped by system group, with a count of failing health checks and open incidents at the top. Use it as the live operations view - everything else is a drill-down from here.
+The default landing page once you are signed in. It surfaces only the systems that need attention right now - degraded, unhealthy, breaching an SLO, under an incident or maintenance, anomalous, or with a dependency problem - and hides everything that is healthy. A compact header summarises fleet health and lets you filter by severity (critical, degraded, watch), and each problem shows one row per issue that links straight to where it originates (the incident, the SLO, the failing check, and so on). When nothing needs you, the dashboard shows a calm "all clear" state. A live "recent activity" feed of health-check runs sits below, and a "View catalog" link opens the full system list. Use it as the live operations view - everything else is a drill-down from here.
 
 ### System list
 

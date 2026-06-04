@@ -4,12 +4,9 @@ import { LogIn, LogOut, AlertCircle, ArrowLeft } from "lucide-react";
 import {
   useApi,
   ExtensionSlot,
-  pluginRegistry,
   usePluginClient,
-  UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
   UserMenuItemsContext,
-  Extension,
 } from "@checkstack/frontend-api";
 import { AuthApi, authRoutes } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
@@ -25,8 +22,6 @@ import {
   CardFooter,
   UserMenu,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   Alert,
   AlertIcon,
   AlertContent,
@@ -37,6 +32,8 @@ import {
   InfoBannerContent,
   InfoBannerTitle,
   InfoBannerDescription,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { useToast } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
@@ -62,6 +59,7 @@ export const LoginPage = () => {
   const authClient = usePluginClient(AuthApi);
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const toast = useToast();
+  const { isLowPower } = usePerformance();
 
   // Query: Registration status
   const { data: registrationData } = authClient.getRegistrationStatus.useQuery(
@@ -165,10 +163,30 @@ export const LoginPage = () => {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div className="h-4 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
+              <div
+                className={cn(
+                  "h-4 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
             </div>
           </CardContent>
         </Card>
@@ -418,41 +436,6 @@ export const LogoutMenuItem = (_props: UserMenuItemsContext) => {
   );
 };
 
-type UserMenuExtension = Extension<typeof UserMenuItemsSlot>;
-
-function groupTopExtensions(
-  extensions: UserMenuExtension[],
-): Array<{ label: string | undefined; items: UserMenuExtension[] }> {
-  const buckets = new Map<string, UserMenuExtension[]>();
-  const ungrouped: UserMenuExtension[] = [];
-
-  for (const ext of extensions) {
-    const groupName = ext.metadata?.group;
-    if (!groupName) {
-      ungrouped.push(ext);
-      continue;
-    }
-    const list = buckets.get(groupName);
-    if (list) {
-      list.push(ext);
-    } else {
-      buckets.set(groupName, [ext]);
-    }
-  }
-
-  // Groups are displayed alphabetically by label (items keep their order
-  // within a group).
-  const result: Array<{ label: string | undefined; items: UserMenuExtension[] }> =
-    [...buckets.entries()]
-      .toSorted(([a], [b]) => a.localeCompare(b))
-      .map(([name, items]) => ({ label: name, items }));
-  // Untagged extensions go last with no header.
-  if (ungrouped.length > 0) {
-    result.push({ label: undefined, items: ungrouped });
-  }
-  return result;
-}
-
 export const LoginNavbarAction = () => {
   const authApi = useApi(authApiRef);
   const { data: session, isPending } = authApi.useSession();
@@ -460,6 +443,7 @@ export const LoginNavbarAction = () => {
   const [hasCredentialAccount, setHasCredentialAccount] =
     useState<boolean>(false);
   const [credentialLoading, setCredentialLoading] = useState(true);
+  const { isLowPower } = usePerformance();
 
   useEffect(() => {
     if (!session?.user) {
@@ -478,36 +462,30 @@ export const LoginNavbarAction = () => {
   }, [session?.user]);
 
   if (isPending || accessRulesLoading || credentialLoading) {
-    return <div className="w-20 h-9 bg-muted animate-pulse rounded-full" />;
+    return (
+      <div
+        className={cn(
+          "w-20 h-9 bg-muted rounded-full",
+          !isLowPower && "animate-pulse",
+        )}
+      />
+    );
   }
 
   if (session?.user) {
-    const topExtensions = pluginRegistry.getExtensions(
-      UserMenuItemsSlot.id,
-    ) as UserMenuExtension[];
-    const bottomExtensions = pluginRegistry.getExtensions(
-      UserMenuItemsBottomSlot.id,
-    );
-    const hasBottomItems = bottomExtensions.length > 0;
+    // The user menu is account-only now: profile header (rendered by UserMenu)
+    // plus the bottom slot (About, theme, low-power, logout). Feature navigation
+    // lives in the left sidebar (routes that declare `nav` metadata).
     const menuContext: UserMenuItemsContext = {
       accessRules,
       hasCredentialAccount,
     };
-    const groups = groupTopExtensions(topExtensions);
 
     return (
-      <UserMenu user={session.user}>
-        {groups.map(({ label, items }, groupIndex) => (
-          <React.Fragment key={label ?? `__group-${groupIndex}`}>
-            {groupIndex > 0 && <DropdownMenuSeparator />}
-            {label && <DropdownMenuLabel>{label}</DropdownMenuLabel>}
-            {items.map((ext) => {
-              const Component = ext.component as React.ComponentType<UserMenuItemsContext>;
-              return <Component key={ext.id} {...menuContext} />;
-            })}
-          </React.Fragment>
-        ))}
-        {hasBottomItems && <DropdownMenuSeparator />}
+      <UserMenu
+        user={session.user}
+        profileHref={resolveRoute(authRoutes.routes.profile)}
+      >
         <ExtensionSlot slot={UserMenuItemsBottomSlot} context={menuContext} />
       </UserMenu>
     );

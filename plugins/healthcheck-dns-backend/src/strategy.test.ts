@@ -231,4 +231,39 @@ describe("DnsHealthCheckStrategy", () => {
       expect(aggregated.failureCount.count).toBe(2);
     });
   });
+
+  describe("config migration (assume-v1-on-read)", () => {
+    const strategy = new DnsHealthCheckStrategy();
+
+    it("migrates a genuine v1 blob (hostname/recordType/...) to {nameserver?, timeout}", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        hostname: "example.com",
+        recordType: "A",
+        nameserver: "1.1.1.1",
+        timeout: 8000,
+      });
+      expect(migrated).toEqual({ nameserver: "1.1.1.1", timeout: 8000 });
+    });
+
+    it("migrates a v1 blob without a nameserver", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        hostname: "example.com",
+        recordType: "AAAA",
+        timeout: 4000,
+      });
+      expect(migrated).toEqual({ timeout: 4000 });
+    });
+
+    it("is idempotent: an already-current {nameserver, timeout} blob is unchanged", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        nameserver: "8.8.8.8",
+        timeout: 6000,
+      });
+      expect(migrated).toEqual({ nameserver: "8.8.8.8", timeout: 6000 });
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      expect(strategy.config.validateMigrationChainFromV1()).toBeUndefined();
+    });
+  });
 });

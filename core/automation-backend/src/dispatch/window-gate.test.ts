@@ -31,6 +31,7 @@ function buildAutomation(opts: {
     name: "Window test",
     status: "enabled",
     definition,
+    runAs: "app-test",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -43,6 +44,7 @@ function makeAutomationStore(automations: Automation[]): AutomationStore {
     name: a.name,
     status: a.status,
     definition: a.definition,
+    runAs: a.runAs ?? null,
   });
   return {
     create: async () => {

@@ -26,6 +26,8 @@ import {
   AlertContent,
   AlertTitle,
   AlertDescription,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 
 export const ProfilePage = () => {
@@ -40,6 +42,7 @@ export const ProfilePage = () => {
   const [hasCredentialAccount, setHasCredentialAccount] = useState(false);
 
   const authClient = usePluginClient(AuthApi);
+  const { isLowPower } = usePerformance();
 
   // Fetch current user profile
   const { data: profile, isLoading: loadingProfile } =
@@ -104,9 +107,24 @@ export const ProfilePage = () => {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div className="h-4 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
+              <div
+                className={cn(
+                  "h-4 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
             </div>
           </CardContent>
         </Card>

@@ -65,6 +65,7 @@ export default defineConfig({
             { label: "Welcome", link: "/developer-guide/" },
             { label: "Getting started", autogenerate: { directory: "developer-guide/getting-started" } },
             { label: "Architecture",    autogenerate: { directory: "developer-guide/architecture" } },
+            { label: "AI platform", collapsed: true, autogenerate: { directory: "developer-guide/ai" } },
             { label: "Backend",  collapsed: true, autogenerate: { directory: "developer-guide/backend" } },
             { label: "Frontend", collapsed: true, autogenerate: { directory: "developer-guide/frontend" } },
             { label: "Common",   collapsed: true, autogenerate: { directory: "developer-guide/common" } },

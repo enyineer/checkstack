@@ -27,26 +27,49 @@ import type { HttpTransportClient } from "./transport-client";
 // ============================================================================
 
 const requestConfigSchema = z.object({
-  url: z.string().url().describe("Full URL to request"),
+  // Templatable: supports `{{ environment.baseUrl }}` etc. so one config
+  // covers N environments. The `.url()` validation moves to POST-RENDER (see
+  // `execute`) because the stored value `{{ environment.baseUrl }}/healthz` is
+  // not itself a valid URL.
+  url: configString({ "x-templatable": true }).describe(
+    "Full URL to request. Supports templating, e.g. {{ environment.baseUrl }}/healthz",
+  ),
   method: z
     .enum(["GET", "POST", "PUT", "DELETE", "HEAD"])
     .default("GET")
     .describe("HTTP method"),
   headers: z
-    .array(z.object({ name: z.string(), value: z.string() }))
+    .array(
+      z.object({
+        name: z.string(),
+        // Templatable: header values are a natural per-env case (auth hosts,
+        // tenant ids). `name` stays literal.
+        value: configString({ "x-templatable": true }),
+      }),
+    )
     .optional()
     .describe("Request headers"),
   body: configString({
     "x-editor-types": ["none", "raw", "json", "yaml", "xml", "formdata"],
+    "x-templatable": true,
   })
     .optional()
-    .describe("Request body"),
+    .describe("Request body. Supports templating, e.g. {{ environment.* }}"),
   timeout: z
     .number()
     .min(100)
     .default(30_000)
     .describe("Timeout in milliseconds"),
 });
+
+/**
+ * Post-render validator for the HTTP `url`. The stored value is a plain
+ * templatable string (no `.url()`); the executor renders `{{ environment.* }}`
+ * per environment, then this re-validates the CONCRETE rendered URL. A bad
+ * render (e.g. an empty environment yielding `/healthz`) surfaces as a clear
+ * config error instead of a silent pass.
+ */
+const renderedUrlSchema = z.string().url();
 
 export type RequestConfig = z.infer<typeof requestConfigSchema>;
 
@@ -155,6 +178,26 @@ export class RequestCollector implements CollectorStrategy<
     pluginId: string;
   }): Promise<CollectorResult<RequestResult>> {
     const startTime = Date.now();
+
+    // Post-render validation: the stored `url` is a plain templatable string,
+    // so `.url()` cannot run at store time. The executor has already rendered
+    // `{{ environment.* }}` into `config.url` by the time we get here; validate
+    // the CONCRETE rendered value now. A bad render (e.g. an empty environment)
+    // yields a clear config error rather than a confusing fetch failure.
+    const urlValidation = renderedUrlSchema.safeParse(config.url);
+    if (!urlValidation.success) {
+      return {
+        result: {
+          statusCode: 0,
+          statusText: "Invalid URL",
+          responseTimeMs: Date.now() - startTime,
+          body: "",
+          bodyLength: 0,
+          success: false,
+        },
+        error: `Rendered URL is invalid: ${JSON.stringify(config.url)}`,
+      };
+    }
 
     // Convert headers array to record
     const headers: Record<string, string> = {};

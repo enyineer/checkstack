@@ -171,6 +171,36 @@ describe("incrementHourlyAggregate", () => {
     expect(inserted.maxLatencyMs).toBe(150);
   });
 
+  it("writes the environmentId into the aggregate (per-environment fan-out)", async () => {
+    await incrementHourlyAggregate({
+      db: mockDb as never,
+      systemId: "sys-1",
+      configurationId: "config-1",
+      environmentId: "prod",
+      status: "healthy",
+      latencyMs: 150,
+      runTimestamp: new Date("2024-01-15T10:35:00Z"),
+    });
+
+    const inserted = insertedValues[0] as Record<string, unknown>;
+    expect(inserted.environmentId).toBe("prod");
+  });
+
+  it("normalizes an env-less run to environmentId = null", async () => {
+    await incrementHourlyAggregate({
+      db: mockDb as never,
+      systemId: "sys-1",
+      configurationId: "config-1",
+      // environmentId omitted -> env-less run
+      status: "healthy",
+      latencyMs: 150,
+      runTimestamp: new Date("2024-01-15T10:35:00Z"),
+    });
+
+    const inserted = insertedValues[0] as Record<string, unknown>;
+    expect(inserted.environmentId).toBeNull();
+  });
+
   it("increments counts for unhealthy status", async () => {
     await incrementHourlyAggregate({
       db: mockDb as never,

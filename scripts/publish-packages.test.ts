@@ -1,5 +1,13 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { determinePackageStatus, type PackageJson } from "./publish-packages";
+import { describe, test, expect } from "bun:test";
+import path from "node:path";
+import {
+  determinePackageStatus,
+  getPackageDirectories,
+  getPackageJson,
+  type PackageJson,
+} from "./publish-packages";
+
+const ROOT = path.join(import.meta.dirname, "..");
 
 /**
  * Regex used by changesets action to detect published packages
@@ -235,6 +243,57 @@ New tag: @checkstack/backend@0.4.9
       expect(match).not.toBeNull();
       expect(match![1]).toBe(pkg.name);
       expect(match![2]).toBe(pkg.version);
+    });
+  });
+
+  describe("@checkstack/sdk publish discovery (phase 2)", () => {
+    test("core/sdk is auto-discovered by the package dir scan", async () => {
+      const dirs = await getPackageDirectories({ rootDir: ROOT });
+      const sdkDir = path.join(ROOT, "core", "sdk");
+      expect(dirs).toContain(sdkDir);
+    });
+
+    test("@checkstack/sdk is a public package (not skipped as private)", async () => {
+      const pkg = await getPackageJson({ dir: path.join(ROOT, "core", "sdk") });
+      expect(pkg).toBeDefined();
+      expect(pkg!.name).toBe("@checkstack/sdk");
+      expect(pkg!.private).toBeUndefined();
+    });
+
+    test("stamped @checkstack/sdk ahead of npm → status 'update'", async () => {
+      const pkg = await getPackageJson({ dir: path.join(ROOT, "core", "sdk") });
+      // Simulate npm being one minor behind the committed (release-stamped)
+      // version. determinePackageStatus must select it for publish.
+      const status = determinePackageStatus({
+        pkg: pkg!,
+        npmVersion: "0.0.1",
+      });
+      expect(status).toBe("update");
+    });
+
+    test("@checkstack/sdk never published yet → status 'new'", async () => {
+      const pkg = await getPackageJson({ dir: path.join(ROOT, "core", "sdk") });
+      const status = determinePackageStatus({ pkg: pkg!, npmVersion: undefined });
+      expect(status).toBe("new");
+    });
+
+    test("@checkstack/release stays private → skipped", async () => {
+      const release = await getPackageJson({
+        dir: path.join(ROOT, "core", "release"),
+      });
+      expect(release!.private).toBe(true);
+      expect(
+        determinePackageStatus({ pkg: release!, npmVersion: undefined }),
+      ).toBe("private");
+    });
+
+    test("stamped @checkstack/sdk already on npm → status 'up-to-date' (no republish)", async () => {
+      const pkg = await getPackageJson({ dir: path.join(ROOT, "core", "sdk") });
+      const status = determinePackageStatus({
+        pkg: pkg!,
+        npmVersion: pkg!.version,
+      });
+      expect(status).toBe("up-to-date");
     });
   });
 

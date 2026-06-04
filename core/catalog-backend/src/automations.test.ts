@@ -9,7 +9,7 @@
  * failure path.
  */
 import { describe, expect, it, mock } from "bun:test";
-import type { Logger } from "@checkstack/backend-api";
+import type { Logger, RpcClient } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
 import {
@@ -33,6 +33,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 // ─── Triggers ──────────────────────────────────────────────────────────

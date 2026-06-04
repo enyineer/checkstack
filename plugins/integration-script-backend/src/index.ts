@@ -40,6 +40,18 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
       },
       init: async ({ rpcClient }) => {
+        // The GLOBAL sandbox policy is owned by `script-packages` (the single
+        // source of truth). It registers the one process-wide policy provider
+        // that every script runner on this pod resolves through, so this plugin
+        // does NOT register a competing provider (the old per-plugin
+        // registration read a DIFFERENT plugin-scoped row → last-writer-wins).
+        //
+        // The one-time startup capability/readiness log is emitted IN PROCESS
+        // by `script-packages` itself (the single policy owner), so this plugin
+        // no longer makes a `getSandboxPolicy` RPC at init — that self-loop POST
+        // 404'd whenever this plugin initialised before `script-packages`
+        // mounted its router. The runner's enforcement path is unchanged: it
+        // resolves the active policy through `script-packages`' provider.
         const scriptRunAction = createScriptRunAction({
           getResolutionRoot: async () => {
             const state = await rpcClient

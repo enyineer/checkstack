@@ -10,6 +10,7 @@ import { CollectorSection } from "./CollectorSection";
 import { CollectorPicker } from "./CollectorPicker";
 import { SystemsSection } from "./SystemsSection";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import type { Environment } from "@checkstack/catalog-frontend";
 
 // =============================================================================
 // TYPES
@@ -49,6 +50,21 @@ interface EditorPanelProps {
   systemsLoading?: boolean;
   selectedSystemIds?: string[];
   onSystemsChange?: (systemIds: string[]) => void;
+  /**
+   * Environments offered in the collector "Preview as" picker (the system's
+   * environments when a single system is in context, else all). Empty hides
+   * the picker.
+   */
+  previewEnvironments?: ReadonlyArray<Environment>;
+  /** Selected preview environment id (shared across collectors). */
+  previewEnvironmentId?: string | null;
+  /** Called when the author picks (or clears) a preview environment. */
+  onPreviewEnvironmentChange?: (environmentId: string | null) => void;
+  /**
+   * Sample context for previewing the selected collector's `x-templatable`
+   * fields, built from the chosen environment. `undefined` when none chosen.
+   */
+  templatePreviewContext?: Record<string, unknown>;
 }
 
 // =============================================================================
@@ -78,6 +94,10 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   systemsLoading = false,
   selectedSystemIds = [],
   onSystemsChange,
+  previewEnvironments = [],
+  previewEnvironmentId = null,
+  onPreviewEnvironmentChange,
+  templatePreviewContext,
 }) => {
   // --- General Section ---
   if (selectedNode === "general") {
@@ -180,6 +200,12 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           }
           onValidChange={(isValid) => onCollectorValidChange(entryId, isValid)}
           onRemove={() => onCollectorRemove(entryId)}
+          previewEnvironments={previewEnvironments}
+          previewEnvironmentId={previewEnvironmentId}
+          onPreviewEnvironmentChange={(id) =>
+            onPreviewEnvironmentChange?.(id)
+          }
+          templatePreviewContext={templatePreviewContext}
         />
       </div>
     );

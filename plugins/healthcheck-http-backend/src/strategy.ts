@@ -33,16 +33,19 @@ export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({});
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 
-// Legacy config types for migrations
-interface HttpConfigV1 {
-  url: string;
-  method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD";
-  headers?: { name: string; value: string }[];
-  body?: string;
+// The migrate input is `unknown` per the versioning chain, so narrowing is
+// done with `typeof`/`in` guards (no casts).
+
+/** Type guard: the migrate input is a plain object whose keys can be probed. */
+function isRecord(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object" && data !== null;
 }
 
-interface HttpConfigV2 extends HttpConfigV1 {
-  timeout: number;
+/** Read a numeric `timeout` field from a legacy/current config blob. */
+function readTimeout(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const value = data.timeout;
+  return typeof value === "number" ? value : undefined;
 }
 
 /** Per-run result metadata */
@@ -91,19 +94,34 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
         fromVersion: 1,
         toVersion: 2,
         description: "Add timeout field",
-        migrate: (data: HttpConfigV1): HttpConfigV2 => ({
-          ...data,
-          timeout: 30_000,
-        }),
+        // IDEMPOTENT: only a genuine v1 blob carries url/method. If neither is
+        // present the data is already v2+ — pass it through untouched.
+        migrate: (data: unknown): unknown => {
+          if (isRecord(data) && ("url" in data || "method" in data)) {
+            return { ...data, timeout: readTimeout(data) ?? 30_000 };
+          }
+          return data;
+        },
       },
       {
         fromVersion: 2,
         toVersion: 3,
         description:
           "Remove url/method/headers/body (moved to RequestCollector)",
-        migrate: (data: HttpConfigV2): HttpHealthCheckConfig => ({
-          timeout: data.timeout,
-        }),
+        // IDEMPOTENT: only a genuine v2 blob still carries the moved fields. An
+        // already-v3 blob (just `{ timeout }`) passes through untouched.
+        migrate: (data: unknown): unknown => {
+          if (
+            isRecord(data) &&
+            ("url" in data ||
+              "method" in data ||
+              "headers" in data ||
+              "body" in data)
+          ) {
+            return { timeout: readTimeout(data) };
+          }
+          return data;
+        },
       },
     ],
   });
@@ -111,6 +129,25 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   result: Versioned<HttpResultMetadata> = new Versioned({
     version: 3,
     schema: httpResultMetadataSchema,
+    // The result version tracks the strategy version (bumped in lockstep
+    // with the createClient refactor); the result SHAPE never changed, so
+    // these are pass-through migrations. They are required for a COMPLETE
+    // v1->v3 chain (enforced at construction) so a genuinely-v1 stored
+    // result still reads back via assume-v1-on-read.
+    migrations: [
+      {
+        fromVersion: 1,
+        toVersion: 2,
+        description: "Migrate to createClient pattern (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+      {
+        fromVersion: 2,
+        toVersion: 3,
+        description: "Move request params to RequestCollector (no result changes)",
+        migrate: (data: unknown) => data,
+      },
+    ],
   });
 
   aggregatedResult = new VersionedAggregated({

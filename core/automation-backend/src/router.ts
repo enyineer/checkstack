@@ -8,13 +8,14 @@
  */
 import { implement, ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type { SafeDatabase, Logger } from "@checkstack/backend-api";
+import type { SafeDatabase, Logger, RpcClient } from "@checkstack/backend-api";
 import {
   autoAuthMiddleware,
   correlationMiddleware,
   resolveActor,
   type RpcContext,
 } from "@checkstack/backend-api";
+import { AuthApi, isApplicationBindable } from "@checkstack/auth-common";
 import type { SignalService } from "@checkstack/signal-common";
 import { extractErrorMessage } from "@checkstack/common";
 import {
@@ -60,6 +61,12 @@ interface RouterDeps {
   dispatchDeps: DispatchDeps;
   signalService: SignalService;
   logger: Logger;
+  /**
+   * Trusted service client, used ONLY to resolve a candidate `runAs`
+   * application's live access rules for the bind-authority check below. This
+   * is an S2S read of the app's rules, not an automation action.
+   */
+  rpcClient: RpcClient;
 }
 
 /**
@@ -142,6 +149,39 @@ export function createAutomationRouter(deps: RouterDeps) {
     .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
+  /**
+   * Enforce bind authority: the caller may only set an automation's `runAs`
+   * to an application whose access rules are a SUBSET of the caller's, so a
+   * user can never grant an automation more authority than they hold.
+   */
+  async function assertCanBindRunAs(
+    runAs: string,
+    context: RpcContext,
+  ): Promise<void> {
+    const callerRules =
+      context.user && "accessRules" in context.user
+        ? (context.user.accessRules ?? [])
+        : [];
+    const enriched = await deps.rpcClient
+      .forPlugin(AuthApi)
+      .enrichApplicationPrincipal({ applicationId: runAs });
+    if (!enriched) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Service account "${runAs}" does not exist.`,
+      });
+    }
+    if (
+      !isApplicationBindable({
+        appAccessRules: enriched.accessRules,
+        callerAccessRules: callerRules,
+      })
+    ) {
+      throw new ORPCError("FORBIDDEN", {
+        message: `You are not allowed to run an automation as "${enriched.name}": it holds access rules you do not have.`,
+      });
+    }
+  }
+
   return os.router({
     // ─── Automations CRUD ────────────────────────────────────────────────
 
@@ -176,7 +216,8 @@ export function createAutomationRouter(deps: RouterDeps) {
       return automation;
     }),
 
-    createAutomation: os.createAutomation.handler(async ({ input }) => {
+    createAutomation: os.createAutomation.handler(async ({ input, context }) => {
+      await assertCanBindRunAs(input.runAs, context);
       let created: Automation;
       try {
         created = await automationStore.create(input);
@@ -196,12 +237,15 @@ export function createAutomationRouter(deps: RouterDeps) {
       return created;
     }),
 
-    updateAutomation: os.updateAutomation.handler(async ({ input }) => {
+    updateAutomation: os.updateAutomation.handler(async ({ input, context }) => {
       const existing = await automationStore.getById(input.id);
       if (!existing) {
         throw new ORPCError("NOT_FOUND", {
           message: `Automation ${input.id} not found`,
         });
+      }
+      if (input.runAs !== undefined) {
+        await assertCanBindRunAs(input.runAs, context);
       }
       let updated: Automation;
       try {
@@ -259,7 +303,7 @@ export function createAutomationRouter(deps: RouterDeps) {
       // config against its registered schema, trigger configs, and
       // unknown trigger/action ids — so the editor surfaces invalid
       // values / keys, not just malformed structure.
-      const issues = collectDefinitionIssues(input.definition, {
+      const issues = await collectDefinitionIssues(input.definition, {
         triggerRegistry,
         actionRegistry,
       });
@@ -301,6 +345,7 @@ export function createAutomationRouter(deps: RouterDeps) {
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
         triggerId: selectedTrigger.id ?? selectedTrigger.event,
         triggerEventId: selectedTrigger.event,

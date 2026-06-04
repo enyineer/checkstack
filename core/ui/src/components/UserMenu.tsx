@@ -11,6 +11,10 @@ import {
 import { MenuCloseContext, DropdownMenuLabel, DropdownMenuSeparator } from "./Menu";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { cn } from "../utils";
+import {
+  DESKTOP_POPOVER_CONTENT_CLASS,
+  shouldRenderProfileHeaderLink,
+} from "./UserMenu.logic";
 
 interface UserMenuProps {
   user: {
@@ -18,12 +22,21 @@ interface UserMenuProps {
     name?: string;
     image?: string;
   };
+  /**
+   * Optional href for the profile link rendered in the user info header.
+   * When provided, the name/email header becomes a focusable anchor that
+   * navigates to the profile page - supporting middle-click / open-in-new-tab.
+   * UserMenu must NOT import router hooks, so the caller is responsible for
+   * constructing this href (e.g. `resolveRoute(authRoutes.routes.profile)`).
+   */
+  profileHref?: string;
   children?: React.ReactNode;
   className?: string;
 }
 
 export const UserMenu: React.FC<UserMenuProps> = ({
   user,
+  profileHref,
   children,
   className,
 }) => {
@@ -68,17 +81,32 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     </button>
   );
 
-  const userInfo = (
-    <DropdownMenuLabel>
-      <div className="flex flex-col">
-        <span className="text-sm font-bold text-foreground truncate">
-          {user.name || "User"}
-        </span>
-        <span className="text-xs font-normal text-muted-foreground truncate">
-          {user.email}
-        </span>
-      </div>
-    </DropdownMenuLabel>
+  const userInfoContent = (
+    <div className="flex flex-col">
+      <span className="text-sm font-bold text-foreground truncate">
+        {user.name || "User"}
+      </span>
+      <span className="text-xs font-normal text-muted-foreground truncate">
+        {user.email}
+      </span>
+    </div>
+  );
+
+  const userInfo = shouldRenderProfileHeaderLink(profileHref) ? (
+    <a
+      href={profileHref}
+      onClick={() => setIsOpen(false)}
+      className={cn(
+        "col-span-full block px-4 py-2 rounded-sm",
+        "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        "transition-colors",
+      )}
+    >
+      {userInfoContent}
+      <span className="sr-only"> - Go to profile</span>
+    </a>
+  ) : (
+    <DropdownMenuLabel>{userInfoContent}</DropdownMenuLabel>
   );
 
   if (isMobile) {
@@ -111,7 +139,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         <PopoverContent
           align="end"
-          className="w-[400px] md:w-[460px] p-2 grid grid-cols-1 sm:grid-cols-2 gap-1"
+          className={DESKTOP_POPOVER_CONTENT_CLASS}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {userInfo}

@@ -273,6 +273,7 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 | `deviation` | Sigma distance — for drifts, sigmas of projected change. |
 | `suspiciousRunCount` / `confirmationThreshold` | Confirmation-window state. |
 | `startedAt` / `confirmedAt` / `recoveredAt` | Lifecycle timestamps. |
+| `suppressedAt` / `suppressedValue` / `suppressedBaseline` | Global suppression flag + snapshot (see [5.6](#56-global-suppression)). `suppressedAt IS NULL` means not suppressed. |
 
 ### 5.2 State Machine (shared by spike + drift)
 
@@ -298,7 +299,7 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 | `normal → suspicious` | Silent | Transient noise is absorbed without alerting operators. |
 | `suspicious → anomaly` | **Confirmed** notification | Fires after the confirmation window is met (default 3 for spikes, 2 for drifts). |
 | `suspicious → normal` | Silent | The row is deleted — transient spike absorbed. |
-| `anomaly → recovered` | **Recovered** notification | Importance: `info` ("Good news"). |
+| `anomaly → recovered` | **Recovered** notification | Importance: `info` ("Good news"). Fires on either the baseline-relative path or the self-resolution path (see [5.5](#55-self-resolution-new-normal)). |
 | `recovered → archived` | None | Retained for historical analysis (default 30 days). |
 
 ### 5.3 Confirmation Windows
@@ -311,6 +312,29 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 ### 5.4 Cold Start
 
 The engine refuses to evaluate a field until the baseline has at least **24 samples** (`MIN_BASELINE_SAMPLES`). Before that, the field shows as "Learning" in the UI and no anomalies can fire. This prevents storms of false positives on freshly-deployed health checks.
+
+### 5.5 Self-resolution (new normal)
+
+A confirmed anomaly used to be able to stay stuck indefinitely when the metric settled at a *new* level that became the real normal (the classic "broken, then fixed at a clearly different value" case): every fresh sample was still anomalous against the stale baseline, so the baseline-relative recovery branch never ran, and the row only cleared once the slow hourly analyzer dragged the mean across — hours to days later.
+
+Both detectors now carry a baseline-independent escape hatch:
+
+- **Spike** ([detector.ts](../../core/anomaly-backend/src/detector.ts)): each healthy sample for a confirmed anomaly is appended to a rolling window stored on the row's `metadata.recentSamples`. Once `STABLE_RESOLUTION_RUN_COUNT` (5) consecutive samples sit inside a relative band of each other (`STABLE_RESOLUTION_RELATIVE_BAND`, 10%), the row self-resolves to `recovered` — even while still anomalous against the old baseline.
+- **Drift** ([drift-evaluator.ts](../../core/anomaly-backend/src/drift-evaluator.ts)): the slope-based detector keeps reporting drift while the 7-day window straddles both regimes. When the *projected change relative to the new mean* goes flat for `STABLE_DRIFT_RESOLUTION_RUN_COUNT` (2) consecutive analyzer runs (tracked via `metadata.stableDriftRunCount`), the row self-resolves.
+
+The constants live in [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts). The original baseline-relative recovery path is unchanged and still fires first when applicable. The rolling counters live on the shared `anomalies` row (Postgres), so they survive across whichever pod claims the work.
+
+### 5.6 Global suppression
+
+Operators can **suppress** a confirmed anomaly so it disappears from the active feed until it "changes again". Suppression is **global (per row), not per-user** — distinct from the per-user notification mute in [8.2](#82-per-field-and-per-system-mute), which only silences notifications while the row stays active.
+
+Suppression is modelled as a **flag layered on top of `state`** (a nullable `suppressedAt`), not a new enum value: the suspicious/anomaly/recovered state machine stays intact and un-suppressing simply reveals the underlying state again. Suppressing snapshots `suppressedValue` (the observed value) and `suppressedBaseline`.
+
+- `suppressAnomaly` / `unsuppressAnomaly` RPCs (gated by `anomaly_feed.manage`) set and clear the flag. Both are scoped by `(anomalyId, systemId)` so a caller authorized on one system cannot mutate another system's row, and `suppressAnomaly` only acts on rows already in the `anomaly` state.
+- `getAnomalies` takes a `suppression` filter: `"active"` (default, hides suppressed rows), `"suppressed"`, or `"all"`. The dashboard badge and widget use the default, so suppressed rows drop out of the active count.
+- **Auto-unsuppress** ("changes again"): the inline detector clears suppression once a fresh observed value moves more than `SUPPRESSION_REACTIVATION_DELTA` (25%) away from `suppressedValue`. A baseline-relative recovery also clears suppression.
+
+Suppression state lives on the shared `anomalies` row, so every horizontally-scaled pod reads the same suppressed/active set.
 
 ---
 
@@ -387,6 +411,9 @@ Anomaly notifications target a dedicated per-system notification group, namespac
 The `anomaly_notification_mutes` table holds user-scoped mutes. A row's existence means that user has muted notifications for that `(systemId, fieldPath)` pair. An empty `fieldPath` represents a system-wide mute. The dispatcher consults this table after fetching subscribers and filters out muted users before calling `notifyUsers`.
 
 The system anomaly widget on each system detail page exposes a bell icon on every anomaly row (per-field mute) plus a `Mute all` toggle in the card header (per-system mute). Mutes are user-scoped and persist across sessions.
+
+> [!NOTE]
+> A mute only silences notifications — the anomaly row stays active and visible. To hide a row from the active feed entirely, use [global suppression](#56-global-suppression) (the eye-off icon on a confirmed anomaly row), which is per-row rather than per-user.
 
 ---
 
@@ -477,6 +504,9 @@ The statistical core lives in `core/anomaly-common` and has zero database/cache 
 | `isCategoricalAnomalous` | [engine/thresholds.ts](../../core/anomaly-common/src/engine/thresholds.ts) | Dominance trigger math. |
 | `detectDrift` | [engine/drift.ts](../../core/anomaly-common/src/engine/drift.ts) | Drift trigger math. |
 | `resolveEffectiveConfig` | [engine/config.ts](../../core/anomaly-common/src/engine/config.ts) | Three-layer override resolution. |
+| `hasSettledAtNewLevel` / `appendRecentSample` | [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts) | Spike self-resolution: rolling window + tight-band test. |
+| `isDriftFlatRelative` | [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts) | Drift self-resolution: flat-relative-slope test. |
+| `hasChangedSinceSuppression` | [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts) | Auto-unsuppress: relative-move test. |
 
 These are deterministic, side-effect-free functions — ideal for unit tests.
 

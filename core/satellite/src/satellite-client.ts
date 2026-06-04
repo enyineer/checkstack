@@ -10,6 +10,7 @@ import type {
   ResultMessage,
   ScriptPackageSyncStateMessage,
 } from "@checkstack/satellite-common";
+import type { SandboxPolicy } from "@checkstack/backend-api";
 import { ResultBuffer } from "./result-buffer";
 
 interface ManifestEntryWire {
@@ -31,6 +32,13 @@ interface SatelliteClientConfig {
    * `refresh_script_packages` push. The satellite reconciles to it.
    */
   onScriptPackagesLockfileHash?: (lockfileHash: string | null) => void;
+  /**
+   * Called with the relayed GLOBAL sandbox policy - on connect (carried in the
+   * `authenticated` message) and on a `sandbox_policy` push. The satellite
+   * caches it and resolves every script run through it. Until the first call
+   * the satellite FAILS CLOSED (denies egress).
+   */
+  onSandboxPolicy?: (policy: SandboxPolicy) => void;
   logger?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -249,6 +257,12 @@ export class SatelliteClient {
             msg.scriptPackagesLockfileHash,
           );
         }
+        // Sandbox policy relay (durable backstop): cache the policy carried on
+        // (re)connect so runs enforce the operator's cluster-wide policy. Until
+        // this arrives the satellite stays fail-closed (deny egress).
+        if (msg.sandboxPolicy !== undefined) {
+          this.config.onSandboxPolicy?.(msg.sandboxPolicy);
+        }
         break;
       }
 
@@ -277,6 +291,14 @@ export class SatelliteClient {
           `Script packages refresh requested: ${msg.lockfileHash}`,
         );
         this.config.onScriptPackagesLockfileHash?.(msg.lockfileHash);
+        break;
+      }
+
+      case "sandbox_policy": {
+        // Push-on-change: replace the cached global sandbox policy so the next
+        // run enforces it immediately.
+        this.config.logger?.info("Received updated global sandbox policy");
+        this.config.onSandboxPolicy?.(msg.policy);
         break;
       }
 

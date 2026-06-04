@@ -1,14 +1,10 @@
-import {
-  createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   secretsRoutes,
   secretsAccess,
   pluginMetadata,
 } from "@checkstack/secrets-common";
-import { SecretsMenuItems } from "./components/SecretsMenuItems";
+import { KeyRound } from "lucide-react";
 
 /**
  * Frontend plugin for the Secrets platform.
@@ -31,14 +27,11 @@ export default createFrontendPlugin({
         })),
       title: "Secrets",
       accessRule: secretsAccess.secret.manage,
+      nav: {
+        group: "Configuration",
+        icon: KeyRound,
+      },
     },
-  ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "secrets.user-menu.items",
-      component: SecretsMenuItems,
-      metadata: { group: "Configuration" },
-    }),
   ],
 });
 

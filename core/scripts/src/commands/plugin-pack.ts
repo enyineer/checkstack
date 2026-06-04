@@ -10,6 +10,11 @@ import {
   type InstallPackageMetadata,
   type PluginBundleManifest,
 } from "@checkstack/common";
+import {
+  rewriteWorkspaceVersions,
+  type RewritablePackageJson,
+} from "../scaffold/rewrite-workspace-versions";
+import { createWorkspaceMapResolver } from "../scaffold/resolve-versions";
 
 /**
  * `plugin-pack` CLI.
@@ -315,35 +320,19 @@ async function packPackage({
 }): Promise<string> {
   const pkgJsonPath = path.join(pkgDir, "package.json");
   const original = fs.readFileSync(pkgJsonPath, "utf8");
-  const pkg = JSON.parse(original) as InstallPackageMetadata & {
-    devDependencies?: Record<string, string>;
-    peerDependencies?: Record<string, string>;
-  };
+  const pkg = JSON.parse(original) as InstallPackageMetadata &
+    RewritablePackageJson;
 
-  let rewritten = false;
-  for (const section of [
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-  ] as const) {
-    const block = pkg[section];
-    if (!block) continue;
-    for (const [name, range] of Object.entries(block)) {
-      if (range.startsWith("workspace:")) {
-        const targetDir = workspaceMap.get(name);
-        if (!targetDir) {
-          throw new Error(
-            `Cannot resolve workspace dep '${name}' (declared in '${pkg.name}'). ` +
-              `Either move the package into the workspace or replace the workspace range with a concrete version.`,
-          );
-        }
-        const targetPkg = readJson<{ version: string }>(
-          path.join(targetDir, "package.json"),
-        );
-        block[name] = `^${targetPkg.version}`;
-        rewritten = true;
-      }
-    }
+  const { rewritten, unresolved } = await rewriteWorkspaceVersions({
+    pkg,
+    resolveVersion: createWorkspaceMapResolver({ workspaceMap }),
+  });
+  if (unresolved.length > 0) {
+    const name = unresolved[0];
+    throw new Error(
+      `Cannot resolve workspace dep '${name}' (declared in '${pkg.name}'). ` +
+        `Either move the package into the workspace or replace the workspace range with a concrete version.`,
+    );
   }
 
   try {

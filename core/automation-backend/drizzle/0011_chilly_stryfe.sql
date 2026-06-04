@@ -1,0 +1,1 @@
+ALTER TABLE "automations" ADD COLUMN "run_as_application_id" text;

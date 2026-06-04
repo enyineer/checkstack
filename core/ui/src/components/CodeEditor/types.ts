@@ -145,6 +145,18 @@ export interface CodeEditorProps {
    */
   acquireResetKey?: string;
   /**
+   * The running release's `@checkstack/sdk` editor bundle as virtual `.d.ts`
+   * files (TS/JS editors). Makes `import { defineHealthCheck } from
+   * "@checkstack/sdk/healthcheck"` resolve with real, version-matched types.
+   * Fetched live by the consumer so `@checkstack/ui` stays network-agnostic.
+   */
+  sdkTypes?: ReadonlyArray<AcquiredTypeFile>;
+  /**
+   * Release-version reset key for `sdkTypes`. When it changes, the mounted SDK
+   * libs reset so the editor never serves stale SDK types after an upgrade.
+   */
+  sdkTypesResetKey?: string;
+  /**
    * Importable installed package NAMES (TS/JS editors). When provided, the
    * editor suggests these while the cursor is inside an import specifier
    * string (`import {} from "lod"` -> `lodash`), solving the lazy-ATA
@@ -165,4 +177,12 @@ export interface CodeEditorProps {
    * keeping `@checkstack/ui` plugin-agnostic.
    */
   title?: string;
+  /**
+   * When `true`, this editor never CLAIMS the one-time monaco-vscode cold init -
+   * it waits for another (visible) editor to bring the services up, then mounts.
+   * Set this for OFFSCREEN/hidden editors (e.g. the automation
+   * `ScriptServicesBooter`): a hidden editor's init may never complete, so it
+   * must not be the sole initializer. Defaults to `false`.
+   */
+  deferInit?: boolean;
 }

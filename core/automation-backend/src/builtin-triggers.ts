@@ -34,7 +34,7 @@
  * back in place by the time the consumer would dispatch.
  */
 import { z } from "zod";
-import { createHook, type Logger } from "@checkstack/backend-api";
+import { createHook, Versioned, type Logger } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { PluginMetadata } from "@checkstack/common";
 
@@ -135,7 +135,7 @@ export function createTimeCronTrigger(
     category: "Time",
     icon: "Clock",
     payloadSchema: timeTickPayloadSchema,
-    configSchema: cronConfigSchema,
+    config: new Versioned({ version: 1, schema: cronConfigSchema }),
     setup: async ({ config, identity, fire, logger }) => {
       const jobId = buildJobId({
         kind: "cron",
@@ -186,7 +186,7 @@ export function createTimeIntervalTrigger(
     category: "Time",
     icon: "Timer",
     payloadSchema: timeTickPayloadSchema,
-    configSchema: intervalConfigSchema,
+    config: new Versioned({ version: 1, schema: intervalConfigSchema }),
     setup: async ({ config, identity, fire, logger }) => {
       const jobId = buildJobId({
         kind: "interval",
@@ -296,7 +296,7 @@ export function createNumericStateTrigger(): TriggerDefinition<
     category: "Health",
     icon: "Gauge",
     payloadSchema: numericStatePayloadSchema,
-    configSchema: numericStateConfigSchema,
+    config: new Versioned({ version: 1, schema: numericStateConfigSchema }),
     // Rides the healthcheck check-completed hook; the threshold gate below
     // decides whether a given completion fires this automation.
     hook: createHook<NumericStatePayload>(HEALTHCHECK_CHECK_COMPLETED),

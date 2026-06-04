@@ -59,6 +59,11 @@ export default defineConfig(() => {
         // here for dev convenience so e.g.
         // `curl http://localhost:5173/.checkstack/ready` works.
         "/.checkstack": backendUrl,
+        // In-app user guide: the backend serves the Astro docs build at
+        // /checkstack/* (distinct from /.checkstack above). Proxy it so the
+        // dev SPA shows the same docs. Requires the docs to be built once:
+        // `bun run --filter @checkstack/docs build`.
+        "/checkstack": backendUrl,
       },
     },
     // ============================================================

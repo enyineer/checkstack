@@ -2,7 +2,7 @@
 // `@typefox/monaco-editor-react`-backed `TypefoxEditor` (real VS Code language
 // services in the browser). Consumers (DynamicForm, automation, healthcheck)
 // import this and are unaffected by the underlying editor implementation.
-import { lazy, Suspense, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { Maximize2 } from "lucide-react";
 import type { TypefoxEditorProps } from "./TypefoxEditor";
 import { popoutTitle } from "./popoutTitle";
@@ -14,25 +14,48 @@ import {
   DialogTitle,
 } from "../Dialog";
 import { Skeleton } from "../Skeleton";
+import { usePerformance } from "../PerformanceProvider";
 import { cn } from "../../utils";
 
-// Lazy-load the Monaco-backed editor so the entire `@codingame/*` / Monaco
-// stack is split into its own chunk and only fetched when a `<CodeEditor />`
-// actually mounts. This keeps Monaco off pages that merely import primitives
-// from the `@checkstack/ui` barrel (e.g. the login page), which would otherwise
-// statically pull it in via this module. The public `<CodeEditor />` API is
-// unchanged; the laziness lives entirely behind it.
-const TypefoxEditor = lazy(() =>
-  import("./TypefoxEditor").then((module) => ({
-    default: module.TypefoxEditor,
-  })),
-);
+// Load the Monaco-backed editor chunk on demand WITHOUT React.lazy/Suspense.
+//
+// The `import("./TypefoxEditor")` is still dynamic, so the whole `@codingame/*`
+// / Monaco stack stays in its own chunk and off pages that merely import
+// primitives from the `@checkstack/ui` barrel (e.g. the login page) - the
+// bundle-split goal is preserved. But we deliberately do NOT use `React.lazy` +
+// `<Suspense>`: suspending THROUGH `@typefox`'s `MonacoEditorReactComp` makes
+// React (under StrictMode's mount -> unmount -> remount) re-run the wrapper's
+// ONE-SHOT global monaco-vscode init against already-initialized services,
+// throwing "Services are already initialized" so the editor never reaches
+// `onEditorStartDone` and never renders (dev-only; the prod Rollup build is
+// fine). The wrapper expects a stable, non-suspending parent. So we resolve the
+// chunk imperatively and render the wrapper only once it's loaded - a plain,
+// synchronous mount, exactly as the pre-#236 static import behaved.
+let editorModulePromise: Promise<typeof import("./TypefoxEditor")> | undefined;
+const loadEditorModule = (): Promise<typeof import("./TypefoxEditor")> =>
+  (editorModulePromise ??= import("./TypefoxEditor"));
+
+const useTypefoxEditor = (): ComponentType<TypefoxEditorProps> | null => {
+  const [Editor, setEditor] = useState<ComponentType<TypefoxEditorProps> | null>(
+    null,
+  );
+  useEffect(() => {
+    let active = true;
+    void loadEditorModule().then((mod) => {
+      if (active) setEditor(() => mod.TypefoxEditor);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return Editor;
+};
 
 /**
- * Suspense fallback shown while the Monaco chunk loads. A plain `Skeleton`
- * block (which already honours `usePerformance` / `isLowPower`) sized to the
- * editor's height, so the layout doesn't jump and low-power devices avoid a
- * heavy spinner.
+ * Placeholder shown while the Monaco chunk loads. A plain `Skeleton` block
+ * (which already honours `usePerformance` / `isLowPower`) sized to the editor's
+ * height, so the layout doesn't jump and low-power devices avoid a heavy
+ * spinner.
  */
 const EditorLoadingFallback = ({ minHeightPx }: { minHeightPx: number }) => (
   <Skeleton
@@ -65,11 +88,18 @@ export const CodeEditor = ({
   markers,
   acquireTypes,
   acquireResetKey,
+  sdkTypes,
+  sdkTypesResetKey,
   importablePackages,
   allowPopout = true,
   title,
+  deferInit,
 }: CodeEditorProps) => {
   const [popoutOpen, setPopoutOpen] = useState(false);
+  const { isLowPower } = usePerformance();
+  // Resolved Monaco editor component (null until its chunk loads). Loaded
+  // imperatively rather than via React.lazy/Suspense - see loadEditorModule.
+  const TypefoxEditor = useTypefoxEditor();
 
   // CodeEditorProps.minHeight is a CSS length string ("240px"); TypefoxEditor
   // takes a pixel number.
@@ -93,16 +123,21 @@ export const CodeEditor = ({
     markers,
     acquireTypes,
     acquireResetKey,
+    sdkTypes,
+    sdkTypesResetKey,
     importablePackages,
+    deferInit,
   };
 
   const dialogTitle = title ?? popoutTitle({ language });
 
   return (
     <div className="relative">
-      <Suspense fallback={<EditorLoadingFallback minHeightPx={minHeightPx} />}>
+      {TypefoxEditor ? (
         <TypefoxEditor id={editorId} {...sharedEditorProps} />
-      </Suspense>
+      ) : (
+        <EditorLoadingFallback minHeightPx={minHeightPx} />
+      )}
       {allowPopout && (
         <button
           type="button"
@@ -113,7 +148,8 @@ export const CodeEditor = ({
             // Sits above the editor in the top-right corner. A faint background
             // keeps the muted icon legible over code; hover emphasises it.
             "absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center",
-            "rounded-md bg-background/70 text-muted-foreground backdrop-blur-sm",
+            "rounded-md bg-background/70 text-muted-foreground",
+            !isLowPower && "backdrop-blur-sm",
             "transition-colors hover:bg-accent hover:text-accent-foreground",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           )}
@@ -132,20 +168,16 @@ export const CodeEditor = ({
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
-          {/* Lazy: the second Monaco instance only mounts while the dialog is
-              open, so there's no double-editor cost when closed. Distinct
+          {/* The second Monaco instance only mounts while the dialog is open,
+              so there's no double-editor cost when closed. Distinct
               `${id}-popout` id => distinct model URI. */}
-          {popoutOpen && (
+          {popoutOpen && TypefoxEditor && (
             <div className="flex-1 min-h-0">
-              <Suspense
-                fallback={<EditorLoadingFallback minHeightPx={minHeightPx} />}
-              >
-                <TypefoxEditor
-                  id={`${editorId}-popout`}
-                  fillHeight
-                  {...sharedEditorProps}
-                />
-              </Suspense>
+              <TypefoxEditor
+                id={`${editorId}-popout`}
+                fillHeight
+                {...sharedEditorProps}
+              />
             </div>
           )}
         </DialogContent>

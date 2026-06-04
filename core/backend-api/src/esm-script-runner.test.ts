@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +15,35 @@ import {
   normaliseUserScript,
   rewriteHelperImports,
 } from "./esm-script-runner";
+import {
+  registerSandboxPolicyProvider,
+  resetSandboxPolicyProvider,
+} from "./script-sandbox/provider";
+import { resolveDefaultSandboxProfile } from "./script-sandbox/policy";
+
+/**
+ * The spawning suites register the shipped default profile as the active
+ * global policy so the runner's behavior is deterministic (rather than failing
+ * closed). The shipped default is now fail-closed (`onUnavailable: "fail"`),
+ * which on a capability-poor CI/dev host (non-root macOS, no bwrap/prlimit)
+ * would refuse EVERY spawn — defeating these runner-behavior tests (env
+ * injection, script execution). So here we register the default profile with
+ * the opt-in `degrade` mode to exercise the spawn path on any host. The
+ * fail-closed default value is asserted in `policy.test.ts`, and the
+ * fail-closed RUNTIME path (refuse + exitCode -1, no spawn) in
+ * `provider.test.ts` and `shell-script-runner.test.ts`.
+ */
+function useDefaultSandboxPolicy(): void {
+  beforeEach(() => {
+    registerSandboxPolicyProvider(async () => ({
+      ...resolveDefaultSandboxProfile(),
+      onUnavailable: "degrade",
+    }));
+  });
+  afterEach(() => {
+    resetSandboxPolicyProvider();
+  });
+}
 
 /**
  * The shared ESM-script runner applies two text transforms to user
@@ -84,8 +121,8 @@ describe("rewriteHelperImports", () => {
 
   it("rewrites a named import from the helper module", () => {
     const out = rewriteHelperImports({
-      userScript: `import { defineHealthCheck } from "@checkstack/healthcheck";`,
-      helperModuleName: "@checkstack/healthcheck",
+      userScript: `import { defineHealthCheck } from "@checkstack/sdk/healthcheck";`,
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperUrl: HELPER_URL,
     });
     expect(out).toBe(`import { defineHealthCheck } from "${HELPER_URL}";`);
@@ -93,8 +130,8 @@ describe("rewriteHelperImports", () => {
 
   it("works with single-quoted import specs too", () => {
     const out = rewriteHelperImports({
-      userScript: `import { defineHealthCheck } from '@checkstack/healthcheck';`,
-      helperModuleName: "@checkstack/healthcheck",
+      userScript: `import { defineHealthCheck } from '@checkstack/sdk/healthcheck';`,
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperUrl: HELPER_URL,
     });
     expect(out).toBe(`import { defineHealthCheck } from "${HELPER_URL}";`);
@@ -102,8 +139,8 @@ describe("rewriteHelperImports", () => {
 
   it("rewrites a side-effect import too", () => {
     const out = rewriteHelperImports({
-      userScript: `import "@checkstack/healthcheck";`,
-      helperModuleName: "@checkstack/healthcheck",
+      userScript: `import "@checkstack/sdk/healthcheck";`,
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperUrl: HELPER_URL,
     });
     expect(out).toBe(`import "${HELPER_URL}";`);
@@ -114,7 +151,7 @@ describe("rewriteHelperImports", () => {
     expect(
       rewriteHelperImports({
         userScript: src,
-        helperModuleName: "@checkstack/healthcheck",
+        helperModuleName: "@checkstack/sdk/healthcheck",
         helperUrl: HELPER_URL,
       }),
     ).toBe(src);
@@ -122,15 +159,15 @@ describe("rewriteHelperImports", () => {
 
   it("rewrites multiple occurrences", () => {
     const src = `
-      import { defineHealthCheck } from "@checkstack/healthcheck";
-      import type { HealthCheckScriptResult } from "@checkstack/healthcheck";
+      import { defineHealthCheck } from "@checkstack/sdk/healthcheck";
+      import type { HealthCheckScriptResult } from "@checkstack/sdk/healthcheck";
     `;
     const out = rewriteHelperImports({
       userScript: src,
-      helperModuleName: "@checkstack/healthcheck",
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperUrl: HELPER_URL,
     });
-    expect(out.match(/@checkstack\/healthcheck/g)).toBeNull();
+    expect(out.match(/@checkstack\/sdk\/healthcheck/g)).toBeNull();
     expect([...out.matchAll(new RegExp(HELPER_URL, "g"))].length).toBe(2);
   });
 
@@ -138,11 +175,11 @@ describe("rewriteHelperImports", () => {
     // Conservative regex: it only matches the spec position of an import
     // statement (`from "..."` / `import "..."`). A string containing the
     // package name elsewhere must be left alone.
-    const src = `console.log("Look up @checkstack/healthcheck on npm");`;
+    const src = `console.log("Look up @checkstack/sdk/healthcheck on npm");`;
     expect(
       rewriteHelperImports({
         userScript: src,
-        helperModuleName: "@checkstack/healthcheck",
+        helperModuleName: "@checkstack/sdk/healthcheck",
         helperUrl: HELPER_URL,
       }),
     ).toBe(src);
@@ -153,8 +190,8 @@ describe("rewriteHelperImports", () => {
     // plugins; the regex is built from the supplied `helperModuleName`.
     // Sanity check that the integration variant works.
     const out = rewriteHelperImports({
-      userScript: `import { defineIntegration } from "@checkstack/integration";`,
-      helperModuleName: "@checkstack/integration",
+      userScript: `import { defineIntegration } from "@checkstack/sdk/integration";`,
+      helperModuleName: "@checkstack/sdk/integration",
       helperUrl: HELPER_URL,
     });
     expect(out).toBe(`import { defineIntegration } from "${HELPER_URL}";`);
@@ -173,6 +210,7 @@ describe("rewriteHelperImports", () => {
 });
 
 describe("defaultEsmScriptRunner resolutionRoot", () => {
+  useDefaultSandboxPolicy();
   let root: string;
 
   beforeAll(async () => {
@@ -232,6 +270,7 @@ describe("defaultEsmScriptRunner resolutionRoot", () => {
 });
 
 describe("defaultEsmScriptRunner injected env", () => {
+  useDefaultSandboxPolicy();
   it("exposes injected env vars as process.env in the subprocess", async () => {
     const res = await defaultEsmScriptRunner.run({
       script: `export default process.env.API_TOKEN ?? null;`,

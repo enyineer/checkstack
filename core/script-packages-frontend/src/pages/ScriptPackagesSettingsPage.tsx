@@ -1,15 +1,26 @@
 import React from "react";
-import { Package, Trash2, Download, RefreshCw, Recycle } from "lucide-react";
+import {
+  Package,
+  Trash2,
+  Download,
+  RefreshCw,
+  Recycle,
+  ShieldCheck,
+  ShieldAlert,
+} from "lucide-react";
 import {
   usePluginClient,
   accessApiRef,
   useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
+import { useSignal } from "@checkstack/signal-frontend";
 import {
   ScriptPackagesApi,
   scriptPackagesAccess,
   PackageVersionSchema,
+  SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL,
+  type AuditSeverity,
 } from "@checkstack/script-packages-common";
 import { PackageNameCombobox } from "../components/PackageNameCombobox";
 import { PackageVersionCombobox } from "../components/PackageVersionCombobox";
@@ -58,6 +69,15 @@ function mbToBytes(value: number): number {
   return Math.round(value * 1024 * 1024);
 }
 
+/** Badge variant for an advisory severity. */
+function severityVariant(
+  severity: AuditSeverity,
+): "destructive" | "secondary" {
+  return severity === "critical" || severity === "high"
+    ? "destructive"
+    : "secondary";
+}
+
 const SettingsContent: React.FC = () => {
   const client = usePluginClient(ScriptPackagesApi);
   const accessApi = useApi(accessApiRef);
@@ -85,6 +105,13 @@ const SettingsContent: React.FC = () => {
   const backendsQuery = client.listStorageBackends.useQuery();
   const satellitesQuery = client.listSatelliteSyncState.useQuery();
   const blobGcQuery = client.getBlobGcState.useQuery();
+  const auditQuery = client.getAuditState.useQuery();
+
+  // Live-refresh the audit findings when a scheduled or on-demand pass
+  // completes (the runner broadcasts on completion).
+  useSignal(SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL, () => {
+    void auditQuery.refetch();
+  });
 
   const addMutation = client.addPackage.useMutation();
   const removeMutation = client.removePackage.useMutation();
@@ -95,6 +122,7 @@ const SettingsContent: React.FC = () => {
   const setRegistryMutation = client.setRegistryConfig.useMutation();
   const setSizeCapMutation = client.setSizeCapConfig.useMutation();
   const setStorageBackendMutation = client.setStorageBackend.useMutation();
+  const auditMutation = client.auditNow.useMutation();
 
   const { isLowPower } = usePerformance();
   const [name, setName] = React.useState("");
@@ -198,6 +226,16 @@ const SettingsContent: React.FC = () => {
     }
   };
 
+  const handleAudit = async () => {
+    setError(null);
+    try {
+      const res = await auditMutation.mutateAsync({});
+      if (!res.ran && res.reason) setError(res.reason);
+    } catch (error_) {
+      setError(extractErrorMessage(error_));
+    }
+  };
+
   const handleSaveRegistry = async () => {
     setError(null);
     try {
@@ -278,6 +316,9 @@ const SettingsContent: React.FC = () => {
       : false;
 
   const blobGc = blobGcQuery.data;
+  const audit = auditQuery.data;
+  const auditAdvisories = audit?.advisories ?? [];
+  const auditState = audit?.state;
   const availableBackends = backendsQuery.data?.backends ?? [];
   const migrating = storage?.migrationStatus === "migrating";
   const migrationTargets = availableBackends.filter(
@@ -327,6 +368,122 @@ const SettingsContent: React.FC = () => {
             <p className="text-xs text-amber-600">
               Resolved size exceeds the {mb(sizeCap.warnBytes)} warning threshold.
             </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Vulnerability audit */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            {auditAdvisories.length > 0 ? (
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+            ) : (
+              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+            )}
+            Vulnerability audit
+            {auditAdvisories.length > 0 && (
+              <Badge variant="destructive">{auditAdvisories.length}</Badge>
+            )}
+          </CardTitle>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleAudit}
+            disabled={auditMutation.isPending || migrating}
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                auditMutation.isPending && !isLowPower && "animate-spin",
+              )}
+            />
+            {auditMutation.isPending ? "Auditing…" : "Audit now"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Runs <code>bun audit</code> against the installed package tree once
+            a day and notifies managers when a new vulnerability appears.
+            Findings below cover every severity.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground">Last run:</span>
+            <Badge variant="secondary">
+              {auditState?.lastRunAt
+                ? new Date(auditState.lastRunAt).toLocaleString()
+                : "never"}
+            </Badge>
+            {auditState && auditState.total > 0 && (
+              <>
+                {auditState.counts.critical > 0 && (
+                  <Badge variant="destructive">
+                    {auditState.counts.critical} critical
+                  </Badge>
+                )}
+                {auditState.counts.high > 0 && (
+                  <Badge variant="destructive">
+                    {auditState.counts.high} high
+                  </Badge>
+                )}
+                {auditState.counts.moderate > 0 && (
+                  <Badge variant="secondary">
+                    {auditState.counts.moderate} moderate
+                  </Badge>
+                )}
+                {auditState.counts.low > 0 && (
+                  <Badge variant="secondary">
+                    {auditState.counts.low} low
+                  </Badge>
+                )}
+              </>
+            )}
+          </div>
+          {auditState?.errorMessage && (
+            <p className="text-destructive text-xs">
+              Last audit failed: {auditState.errorMessage}
+            </p>
+          )}
+          {auditAdvisories.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic">
+              No known vulnerabilities in the installed tree.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {auditAdvisories.map((a) => (
+                <li
+                  key={`${a.packageName} ${a.advisoryId}`}
+                  className="flex items-center justify-between gap-3 px-3 py-2"
+                >
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="font-mono text-sm truncate">
+                      {a.packageName}{" "}
+                      <span className="text-muted-foreground">
+                        {a.vulnerableVersions}
+                      </span>
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate">
+                      {a.url ? (
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:underline"
+                        >
+                          {a.title || a.advisoryId}
+                        </a>
+                      ) : (
+                        (a.title || a.advisoryId)
+                      )}
+                    </span>
+                  </span>
+                  <Badge variant={severityVariant(a.severity)}>
+                    {a.severity}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

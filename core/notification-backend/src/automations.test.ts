@@ -15,7 +15,7 @@ import type { Logger, RpcClient } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
 import {
-  createNotificationActions,
+  notificationSendAction,
   notificationDeliveredTrigger,
   notificationFailedTrigger,
   notificationSendArtifactType,
@@ -32,6 +32,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 // ─── Triggers ──────────────────────────────────────────────────────────
@@ -126,10 +127,11 @@ describe("notification.send", () => {
         ],
       },
     });
-    const [send] = createNotificationActions({ rpcClient });
+    const send = notificationSendAction;
 
-    const result = await send!.execute({
+    const result = await send.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -169,10 +171,11 @@ describe("notification.send", () => {
         ],
       },
     });
-    const [send] = createNotificationActions({ rpcClient });
+    const send = notificationSendAction;
 
-    const result = await send!.execute({
+    const result = await send.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -192,10 +195,11 @@ describe("notification.send", () => {
       ok: true,
       result: { deliveredCount: 1, results: [] },
     });
-    const [send] = createNotificationActions({ rpcClient });
+    const send = notificationSendAction;
 
-    await send!.execute({
+    await send.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -220,10 +224,11 @@ describe("notification.send", () => {
       ok: true,
       result: { deliveredCount: 1, results: [] },
     });
-    const [send] = createNotificationActions({ rpcClient });
+    const send = notificationSendAction;
 
-    await send!.execute({
+    await send.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -244,10 +249,11 @@ describe("notification.send", () => {
       ok: false,
       error: new Error("rpc unreachable"),
     });
-    const [send] = createNotificationActions({ rpcClient });
+    const send = notificationSendAction;
 
-    const result = await send!.execute({
+    const result = await send.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",

@@ -160,6 +160,33 @@ const schema = z.object({
 - Values are encrypted at rest via `ConfigService`
 - Redacted when returning config to frontend
 
+### `configString({ "x-templatable": true })` - Templatable Fields
+
+Use for string fields whose value is rendered through the template engine at execute time, so authors can reference per-run values like an environment's custom fields:
+
+```typescript
+import { configString } from "@checkstack/backend-api";
+
+const schema = z.object({
+  // Rendered against { environment, check, system } per run, e.g.
+  // "{{ environment.baseUrl }}/healthz". Validation that inspects the
+  // concrete value (such as `.url()`) must run POST-render.
+  url: configString({ "x-templatable": true }).describe(
+    "Full URL. Supports {{ environment.baseUrl }} etc.",
+  ),
+});
+```
+
+**Features:**
+
+- Rendered per environment by the shared `renderTemplatableConfig` pass in the executor, **after** the secret pass and **before** the collector runs. Only `x-templatable` fields are rendered; everything else is passed through verbatim.
+- References `{{ environment.<key> }}`, `{{ check.* }}`, `{{ system.* }}`. Missing paths render to an empty string (`strict: false`).
+- The config editor shows a live **Preview** line beneath the field (pass `templatePreviewContext` to `DynamicForm`). The preview uses `renderTemplatePreview` from `@checkstack/template-engine`, the same logic the executor uses, so the preview never diverges. The health-check collector editor builds that context from an author-picked environment via the reusable `EnvironmentPreviewPicker` from `@checkstack/catalog-frontend`; the picker is shown only when a config schema actually has an `x-templatable` field.
+- **Must not** be combined with `x-secret` / `x-secret-env` on the same field. Secrets and templating are resolved in separate ordered passes (secrets first), and `assertNoSecretTemplatableConflict` rejects a both-marked field when the plugin loads.
+
+> [!IMPORTANT]
+> Because a templatable field's stored value can contain `{{ }}`, schema validation that inspects the concrete value (e.g. `z.string().url()`) cannot run at store time. Store the field as a plain `configString`, then re-validate the **rendered** value in the collector's `execute()` (the HTTP collector re-parses its rendered `url` and returns a clear "Rendered URL is invalid" error on failure).
+
 ### `configString({ "x-color": true })` - Hex Colors
 
 Use for hex color values (e.g., brand colors, theme colors):
@@ -570,6 +597,79 @@ configSchema: toJsonSchema(p.configSchema)
 - [`auth-backend/router.ts`](/plugins/auth-backend/src/router.ts) - Uses `toJsonSchema` and `getRedacted`
 - [`queue-backend/router.ts`](/plugins/queue-backend/src/router.ts) - Uses `toJsonSchema`
 - [`auth-ldap-backend/strategy.ts`](/plugins/auth-ldap-backend/src/strategy.ts) - Uses `secret()` helper
+
+## Inline validation errors
+
+`DynamicForm` can surface validation problems inline on the offending field
+instead of only via a toast. Both behaviors are opt-in, so forms that do not
+pass the new props are visually and behaviorally unchanged.
+
+| Prop | Type | Purpose |
+| --- | --- | --- |
+| `showInlineErrors` | `boolean` | When `true`, renders a per-field error under each touched field for empty required fields. Defaults to `false`. |
+| `fieldErrors` | `Record<string, string>` | Externally-supplied messages keyed by field path (dot-joined for nested object fields, e.g. `spendCap.tokenBudget`). Use it to display SERVER validation errors inline. |
+| `keepExistingSecretFields` | `string[]` | EDIT mode only. `x-secret` field keys whose value is already stored server-side. A blank input on such a field means "keep existing" and counts as valid. |
+
+The validity boolean reported through `onValidChange` derives from the same
+per-field error map that drives the inline messages, so the state that
+disables a submit button always matches what the user sees.
+
+To map a server error onto fields, the backend attaches the structured zod
+issues to the `ORPCError.data` payload under a `CONFIG_VALIDATION`
+discriminator:
+
+```typescript
+import { ORPCError } from "@orpc/server";
+
+const result = schema.safeValidate(config);
+if (!result.success) {
+  throw new ORPCError("BAD_REQUEST", {
+    message: `Invalid config: ${result.error.message}`,
+    data: {
+      code: "CONFIG_VALIDATION",
+      issues: result.error.issues.map((issue) => ({
+        path: issue.path.filter(
+          (s): s is string | number =>
+            typeof s === "string" || typeof s === "number",
+        ),
+        message: issue.message,
+      })),
+    },
+  });
+}
+```
+
+The frontend parses that payload with the pure helpers exported from
+`@checkstack/ui` and falls back to a toast for anything not field-mappable:
+
+```typescript
+import {
+  parseServerValidationData,
+  deriveServerFieldErrors,
+  omitKeepExistingSecrets,
+  listSecretFieldKeys,
+} from "@checkstack/ui";
+
+const parsed = parseServerValidationData(error.data);
+if (parsed) {
+  const { mapped, unmapped } = deriveServerFieldErrors({
+    issues: parsed.issues,
+    schema,
+  });
+  // `mapped` -> DynamicForm `fieldErrors`; surface `unmapped` via a toast.
+}
+```
+
+On edit, strip blank keep-existing secrets before submit so an empty input
+does not clear the stored secret:
+
+```typescript
+const config = omitKeepExistingSecrets({
+  schema,
+  value: formConfig,
+  keepExistingSecretFields: listSecretFieldKeys(schema),
+});
+```
 
 ## Summary
 

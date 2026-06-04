@@ -8,6 +8,8 @@ import {
   HealthCheckConfigurationSchema,
   CreateHealthCheckConfigurationSchema,
   UpdateHealthCheckConfigurationSchema,
+  ValidateConfigurationInputSchema,
+  ValidateConfigurationResultSchema,
   AssociateHealthCheckSchema,
   HealthCheckRunSchema,
   HealthCheckRunPublicSchema,
@@ -182,6 +184,21 @@ export const healthCheckContract = {
     .input(CreateHealthCheckConfigurationSchema)
     .output(HealthCheckConfigurationSchema),
 
+  /**
+   * Deep-validate a proposed health-check configuration WITHOUT persisting it.
+   * Runs the SAME strategy/collector resolution + migrate-then-validate-strict
+   * logic the create / gitops-apply path uses, so propose-time errors match
+   * apply-time errors. Gated by `configuration.manage` (the privilege the
+   * create form requires); the mirror of automation's `validateDefinition`.
+   */
+  validateConfiguration: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
+    .input(ValidateConfigurationInputSchema)
+    .output(ValidateConfigurationResultSchema),
+
   updateConfiguration: proc({
     operationType: "mutation",
     userType: "authenticated",
@@ -248,6 +265,11 @@ export const healthCheckContract = {
           stateThresholds: StateThresholdsSchema.optional(),
           /** IDs of satellites assigned to execute this health check */
           satelliteIds: z.array(z.string()).optional(),
+          /**
+           * Per-assignment environment selector. null = all current
+           * environments; [] = opt out (env-less); non-empty = those ids.
+           */
+          environmentIds: z.array(z.string()).nullable().optional(),
           /** Whether to also run this check locally on the core (default: true) */
           includeLocal: z.boolean(),
           /** Per-association notification policy (omitted = platform defaults) */

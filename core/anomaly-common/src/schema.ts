@@ -33,6 +33,19 @@ export const AnomalyMetadataSchema = z
   .object({
     trendData: z.record(z.string(), z.unknown()).optional(),
     relatedAnomalies: z.array(z.string()).optional(), // UUIDs
+    /**
+     * Rolling window of the most recent healthy numeric samples, used by the
+     * self-resolution path (PART A) to decide that the metric has settled at a
+     * new stable level even while it is still anomalous against the stale
+     * baseline. Oldest-first; capped at {@link STABLE_RESOLUTION_RUN_COUNT}.
+     */
+    recentSamples: z.array(z.number()).optional(),
+    /**
+     * Count of consecutive baseline-analyzer runs in which a confirmed drift
+     * anomaly's slope has been flat relative to the (new) mean. Used by the
+     * drift self-resolution path.
+     */
+    stableDriftRunCount: z.number().optional(),
   })
   .catchall(z.unknown());
 export type AnomalyMetadata = z.infer<typeof AnomalyMetadataSchema>;
@@ -56,3 +69,23 @@ export const AnomalySettingsSchema = z.object({
   fieldOverrides: z.record(z.string(), AnomalyFieldConfigSchema).optional(),
 });
 export type AnomalySettings = z.infer<typeof AnomalySettingsSchema>;
+
+/**
+ * Partial settings schema for assignment-level overrides. Only includes the
+ * fields a user may explicitly override on a per-assignment basis, so every
+ * field is optional. Stored as a versioned record alongside the template
+ * config and migrated/validated on read.
+ */
+export const PartialAnomalySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  sensitivity: z.number().optional(),
+  confirmationWindow: z.number().int().optional(),
+  baselineWindow: z.string().optional(),
+  notify: z.boolean().optional(),
+  driftEnabled: z.boolean().optional(),
+  driftThreshold: z.number().optional(),
+  fieldOverrides: z.record(z.string(), AnomalyFieldConfigSchema).optional(),
+});
+export type PartialAnomalySettings = z.infer<
+  typeof PartialAnomalySettingsSchema
+>;

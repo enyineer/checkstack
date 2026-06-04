@@ -2,7 +2,8 @@ import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
 import { SloApi } from "../api";
-import { Badge } from "@checkstack/ui";
+import { StatusBadge } from "@checkstack/ui";
+import { Target } from "lucide-react";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
 
@@ -30,15 +31,15 @@ export const SystemSloBadge: React.FC<Props> = ({ system }) => {
   );
 
   if (hasBreaching) {
-    return <Badge variant="destructive">SLO Breaching</Badge>;
+    return <StatusBadge tone="error" icon={Target} label="SLO breaching" />;
   }
 
   if (hasDegraded) {
-    return <Badge variant="warning">SLO Degraded</Badge>;
+    return <StatusBadge tone="warn" icon={Target} label="SLO degraded" />;
   }
 
   if (hasAtRisk) {
-    return <Badge variant="warning">SLO At Risk</Badge>;
+    return <StatusBadge tone="warn" icon={Target} label="SLO at risk" />;
   }
 
   return;

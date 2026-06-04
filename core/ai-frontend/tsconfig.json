@@ -1,0 +1,23 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../ai-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../integration-common"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

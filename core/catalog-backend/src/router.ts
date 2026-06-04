@@ -7,6 +7,8 @@ import {
   type SystemContact,
 } from "@checkstack/catalog-common";
 import { EntityService } from "./services/entity-service";
+import { diffSystemEnvironments } from "./services/environment-membership";
+import { isUniqueViolation } from "./services/pg-errors";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { NotificationApi } from "@checkstack/notification-common";
@@ -233,6 +235,16 @@ export const createCatalogRouter = ({
   );
 
   const createSystem = os.createSystem.handler(async ({ input }) => {
+    // Reject duplicate names up front for a clean error on the common path.
+    // The DB also has a unique index on `name` (see migration 0004); the catch
+    // below converts a race-induced unique violation into the same CONFLICT.
+    const nameClash = await entityService.getSystemByName(input.name);
+    if (nameClash) {
+      throw new ORPCError("CONFLICT", {
+        message: `A system named "${input.name}" already exists`,
+      });
+    }
+
     // Drive the create through the reactive `catalog-system` entity (§10.4):
     // `apply` performs the REAL `systems` write (the plugin's own db/tx) and
     // returns the new reactive state; the deriver fires `catalog.created`
@@ -241,18 +253,27 @@ export const createCatalogRouter = ({
     // not-yet-existing row as absent.
     const systemId = crypto.randomUUID();
     let result!: Awaited<ReturnType<typeof entityService.createSystem>>;
-    await writeCatalogSystemEntity({
-      handle: getSystemEntity?.(),
-      systemId,
-      apply: async () => {
-        result = await entityService.createSystem(input, systemId);
-        return toCatalogSystemState({
-          name: result.name,
-          description: result.description,
-          metadata: result.metadata as Record<string, unknown> | null,
+    try {
+      await writeCatalogSystemEntity({
+        handle: getSystemEntity?.(),
+        systemId,
+        apply: async () => {
+          result = await entityService.createSystem(input, systemId);
+          return toCatalogSystemState({
+            name: result.name,
+            description: result.description,
+            metadata: result.metadata as Record<string, unknown> | null,
+          });
+        },
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ORPCError("CONFLICT", {
+          message: `A system named "${input.name}" already exists`,
         });
-      },
-    });
+      }
+      throw error;
+    }
 
     // Push the new system into notification-backend's resource registry.
     // notification-backend handles all per-spec group provisioning from
@@ -297,6 +318,18 @@ export const createCatalogRouter = ({
       });
     }
 
+    // Renaming to a name another system already uses is rejected, so the
+    // create-side uniqueness guard cannot be sidestepped via rename. The DB
+    // unique index + the catch below cover the concurrent-rename race.
+    if (cleanData.name !== undefined) {
+      const nameClash = await entityService.getSystemByName(cleanData.name);
+      if (nameClash && nameClash.id !== input.id) {
+        throw new ORPCError("CONFLICT", {
+          message: `A system named "${cleanData.name}" already exists`,
+        });
+      }
+    }
+
     // Drive the update through the reactive `catalog-system` entity (§10.4).
     // The REAL update runs INSIDE `apply`, so `prev` is snapshotted before
     // the write and the deriver fires `catalog.updated` from the resulting
@@ -306,22 +339,31 @@ export const createCatalogRouter = ({
     let result!: NonNullable<
       Awaited<ReturnType<typeof entityService.updateSystem>>
     >;
-    await writeCatalogSystemEntity({
-      handle: getSystemEntity?.(),
-      systemId: input.id,
-      apply: async () => {
-        const updated = await entityService.updateSystem(input.id, cleanData);
-        if (!updated) {
-          throw new ORPCError("NOT_FOUND", { message: "System not found" });
-        }
-        result = updated;
-        return toCatalogSystemState({
-          name: result.name,
-          description: result.description,
-          metadata: result.metadata as Record<string, unknown> | null,
+    try {
+      await writeCatalogSystemEntity({
+        handle: getSystemEntity?.(),
+        systemId: input.id,
+        apply: async () => {
+          const updated = await entityService.updateSystem(input.id, cleanData);
+          if (!updated) {
+            throw new ORPCError("NOT_FOUND", { message: "System not found" });
+          }
+          result = updated;
+          return toCatalogSystemState({
+            name: result.name,
+            description: result.description,
+            metadata: result.metadata as Record<string, unknown> | null,
+          });
+        },
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ORPCError("CONFLICT", {
+          message: `A system named "${cleanData.name ?? input.data.name}" already exists`,
         });
-      },
-    });
+      }
+      throw error;
+    }
 
     await cache.invalidateTopology();
     // Refresh display label in notification-backend on rename so the
@@ -659,6 +701,129 @@ export const createCatalogRouter = ({
       }),
   );
 
+  // ── Environments ──────────────────────────────────────────────────────
+  // Instance-wide catalog primitive. The drizzle `json()` metadata column is
+  // typed `unknown`; the contract expects `Record<string, unknown> | null`,
+  // so each handler narrows it the same way the system/group handlers do.
+  type EnvironmentRow = Awaited<
+    ReturnType<typeof entityService.getEnvironments>
+  >[number];
+  const toEnvironmentOutput = (environment: EnvironmentRow) =>
+    environment as EnvironmentRow & {
+      metadata: Record<string, unknown> | null;
+    };
+
+  const listEnvironments = os.listEnvironments.handler(async () => {
+    const environments = await entityService.getEnvironments();
+    return environments.map((environment) => toEnvironmentOutput(environment));
+  });
+
+  const getEnvironment = os.getEnvironment.handler(async ({ input }) => {
+    const environment = await entityService.getEnvironment(input.environmentId);
+    if (!environment) return null;
+    return toEnvironmentOutput(environment);
+  });
+
+  const createEnvironment = os.createEnvironment.handler(async ({ input }) => {
+    const created = await entityService.createEnvironment(input);
+    // New environments have no systems yet.
+    return toEnvironmentOutput({ ...created, systemIds: [] });
+  });
+
+  const updateEnvironment = os.updateEnvironment.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("Environment", input.environmentId);
+    const existing = await entityService.getEnvironment(input.environmentId);
+    if (!existing) {
+      throw new ORPCError("NOT_FOUND", { message: "Environment not found" });
+    }
+    const cleanData: Partial<{
+      name: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+    }> = {};
+    if (input.data.name !== undefined) cleanData.name = input.data.name;
+    if (input.data.description !== undefined) {
+      cleanData.description = input.data.description;
+    }
+    if (input.data.metadata !== undefined) {
+      cleanData.metadata = input.data.metadata;
+    }
+    await entityService.updateEnvironment(input.environmentId, cleanData);
+    const updated = await entityService.getEnvironment(input.environmentId);
+    if (!updated) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: "Environment not found after update",
+      });
+    }
+    return toEnvironmentOutput(updated);
+  });
+
+  const deleteEnvironment = os.deleteEnvironment.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("Environment", input.environmentId);
+    await entityService.deleteEnvironment(input.environmentId);
+    return { success: true };
+  });
+
+  const setSystemEnvironments = os.setSystemEnvironments.handler(
+    async ({ input }) => {
+      await enforceNotGitOpsLocked("System", input.systemId);
+      const current = await entityService.getEnvironmentsForSystem(
+        input.systemId,
+      );
+      const { toAdd, toRemove } = diffSystemEnvironments({
+        current: current.map((row) => row.environmentId),
+        desired: input.environmentIds,
+      });
+      for (const environmentId of toAdd) {
+        await entityService.addSystemToEnvironment({
+          environmentId,
+          systemId: input.systemId,
+        });
+      }
+      for (const environmentId of toRemove) {
+        await entityService.removeSystemFromEnvironment({
+          environmentId,
+          systemId: input.systemId,
+        });
+      }
+      return { success: true };
+    },
+  );
+
+  const getSystemEnvironments = os.getSystemEnvironments.handler(
+    async ({ input }) => {
+      const memberships = await entityService.getEnvironmentsForSystem(
+        input.systemId,
+      );
+      const environments = await entityService.getEnvironmentsByIds(
+        memberships.map((m) => m.environmentId),
+      );
+      return environments.map((environment) => toEnvironmentOutput(environment));
+    },
+  );
+
+  // Service-grade cross-plugin reads (healthcheck fan-out resolution).
+  const resolveSystemEnvironments = os.resolveSystemEnvironments.handler(
+    async ({ input }) => {
+      const memberships = await entityService.getEnvironmentsForSystem(
+        input.systemId,
+      );
+      const environments = await entityService.getEnvironmentsByIds(
+        memberships.map((m) => m.environmentId),
+      );
+      return environments.map((environment) => toEnvironmentOutput(environment));
+    },
+  );
+
+  const resolveEnvironments = os.resolveEnvironments.handler(
+    async ({ input }) => {
+      const environments = await entityService.getEnvironmentsByIds(
+        input.environmentIds,
+      );
+      return environments.map((environment) => toEnvironmentOutput(environment));
+    },
+  );
+
   // Build and return the router
   return os.router({
     getEntities,
@@ -683,6 +848,15 @@ export const createCatalogRouter = ({
     getViews,
     createView,
     getSystemGroupIds,
+    listEnvironments,
+    getEnvironment,
+    createEnvironment,
+    updateEnvironment,
+    deleteEnvironment,
+    setSystemEnvironments,
+    getSystemEnvironments,
+    resolveSystemEnvironments,
+    resolveEnvironments,
   });
 };
 

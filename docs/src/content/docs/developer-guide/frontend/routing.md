@@ -68,6 +68,44 @@ export default createFrontendPlugin({
 > fetch - e.g. the login page on the unauthenticated critical path. Everything
 > else should use `load`.
 
+## Sidebar navigation
+
+The left sidebar is the app's primary navigation. A route opts into it by adding
+`nav` metadata - there is no separate nav registry, and the user menu is
+account-only (profile, theme, logout). Routes without `nav` are still reachable
+(deep links, detail pages) but are not listed in the sidebar.
+
+```tsx
+import { Activity } from "lucide-react";
+
+{
+  route: yourPluginRoutes.routes.config,
+  load: () => import("./pages/ConfigPage").then((m) => ({ default: m.ConfigPage })),
+  title: "Health Checks",
+  accessRule: yourPluginAccess.configuration.manage,
+  nav: {
+    group: "Reliability",          // section heading (see canonical groups below)
+    icon: Activity,                // any lucide-react icon (or ComponentType<{className?}>)
+    // label defaults to the route `title`; set to override.
+    // order defaults to 0 (lower sorts first within the group).
+    // accessRule defaults to the route's accessRule; override to show the entry
+    // on a BROADER rule than the page needs (e.g. nav on `read`, page on `manage`).
+    accessRule: yourPluginAccess.configuration.read,
+  },
+},
+```
+
+The sidebar filters entries by the user's access rules (via the same check as
+page guards, so nav visibility matches page accessibility), groups them, and
+highlights the active route. Canonical group order: **Workspace**,
+**Reliability**, **Automation**, **Configuration**, **Documentation**; unknown
+groups are appended alphabetically.
+
+> [!NOTE]
+> `nav.icon` is a component (`React.ComponentType<{ className?: string }>`), so
+> lucide-react icons work directly. Keep it imported in the plugin's
+> `index.tsx`, alongside the route registration.
+
 ## Route Resolution
 
 Routes can be resolved using `resolveRoute` from `@checkstack/common`:

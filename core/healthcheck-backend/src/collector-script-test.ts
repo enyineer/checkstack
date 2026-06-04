@@ -29,10 +29,17 @@ import {
 
 export type CollectorScriptTestKind = "typescript" | "shell";
 
-/** Curated check/system metadata a collector script can read. */
+/** Curated check/system/environment metadata a collector script can read. */
 export interface CollectorTestRunContext {
   check?: { id: string; name: string; intervalSeconds: number };
   system?: { id: string; name: string };
+  /**
+   * The resolved environment for the previewed run. `fields` is the
+   * environment's free-form custom metadata. Mirrors the runtime
+   * `CollectorRunContext.environment` so the test panel previews exactly the
+   * `CHECKSTACK_ENV_*` / `context.environment` surface the real run exposes.
+   */
+  environment?: { id: string; name: string; fields: Record<string, unknown> };
 }
 
 export interface CollectorScriptTestInput {
@@ -77,11 +84,42 @@ export interface CollectorScriptTestDeps {
   resolutionRoot?: string;
 }
 
+const CHECKSTACK_ENV_PREFIX = "CHECKSTACK_ENV_";
+
+/**
+ * Derive the `CHECKSTACK_ENV_<KEY>` shell var name for a custom field key.
+ * Mirrors `toEnvFieldShellKey` in `@checkstack/healthcheck-script-backend`
+ * (kept local - we don't import across plugins) so the test panel and the
+ * real run produce identical var names. Splits camelCase, uppercases,
+ * collapses non-alphanumeric runs to `_`, trims leading/trailing `_` using a
+ * ReDoS-safe negative look-behind.
+ */
+function toEnvFieldShellKey(key: string): string {
+  const normalized = key
+    .replaceAll(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase()
+    .replaceAll(/[^A-Z0-9]+/g, "_")
+    .replaceAll(/^_+|(?<!_)_+$/g, "");
+  return `${CHECKSTACK_ENV_PREFIX}${normalized}`;
+}
+
+/** Stringify a custom-field value for a shell env var. */
+function stringifyFieldValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
 /**
  * Map curated run-context metadata to the reserved `CHECKSTACK_*` env vars
- * the shell collector exposes. Mirrors `runContextEnv` in
- * `@checkstack/healthcheck-script-backend` (kept local - we don't import
- * across plugins). Only emits vars for the parts of the context provided.
+ * the shell collector exposes. Mirrors `runContextEnv` /
+ * `buildEnvironmentShellEnv` in `@checkstack/healthcheck-script-backend`
+ * (kept local - we don't import across plugins). Only emits vars for the
+ * parts of the context provided. Custom-field key collisions keep the first
+ * and skip later ones (first-wins, never last-write-wins).
  */
 export function buildShellRunContextEnv(
   runContext: CollectorTestRunContext | undefined,
@@ -98,13 +136,24 @@ export function buildShellRunContextEnv(
     env.CHECKSTACK_SYSTEM_ID = runContext.system.id;
     env.CHECKSTACK_SYSTEM_NAME = runContext.system.name;
   }
+  if (runContext?.environment) {
+    env.CHECKSTACK_ENV_ID = runContext.environment.id;
+    env.CHECKSTACK_ENV_NAME = runContext.environment.name;
+    const claimed = new Set<string>();
+    for (const [key, value] of Object.entries(runContext.environment.fields)) {
+      const shellKey = toEnvFieldShellKey(key);
+      if (shellKey === CHECKSTACK_ENV_PREFIX || claimed.has(shellKey)) continue;
+      env[shellKey] = stringifyFieldValue(value);
+      claimed.add(shellKey);
+    }
+  }
   return env;
 }
 
 /**
  * Build the `globalThis.context` object the inline-script (TS) collector
- * sees: `{ config, check?, system? }`. Matches the runtime collector so a
- * test mirrors production.
+ * sees: `{ config, check?, system?, environment? }`. Matches the runtime
+ * collector so a test mirrors production.
  */
 export function buildCollectorContext(
   input: Pick<CollectorScriptTestInput, "config" | "runContext">,
@@ -113,6 +162,9 @@ export function buildCollectorContext(
     config: input.config ?? {},
     ...(input.runContext?.check ? { check: input.runContext.check } : {}),
     ...(input.runContext?.system ? { system: input.runContext.system } : {}),
+    ...(input.runContext?.environment
+      ? { environment: input.runContext.environment }
+      : {}),
   };
 }
 
@@ -193,7 +245,7 @@ export async function runCollectorScriptTest({
       script: input.script,
       context: buildCollectorContext(input),
       timeoutMs: input.timeoutMs,
-      helperModuleName: "@checkstack/healthcheck",
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperFunctionName: "defineHealthCheck",
       ...(Object.keys(secretTest.env).length > 0
         ? { env: secretTest.env }

@@ -16,6 +16,7 @@ import {
   resolveScriptPackagesDir,
 } from "@checkstack/script-packages-backend";
 import { HealthCheckService } from "./service";
+import { collectConfigurationIssues } from "./validate-configuration";
 import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
@@ -166,6 +167,24 @@ export const createHealthCheckRouter = (opts: {
       return created;
     }),
 
+    validateConfiguration: os.validateConfiguration.handler(
+      async ({ input, context }) => {
+        // Deep validation WITHOUT persisting: resolve the strategy/collectors
+        // against the live registries and run the same migrate-then-validate-
+        // strict logic the create / gitops-apply path uses, so propose-time
+        // errors match apply-time errors. Strategy/collector config (typed
+        // `z.record(z.unknown())` on the input) is validated against each
+        // registered schema, surfacing wrong types, missing required fields,
+        // and unknown keys - not just missing-field presence.
+        const errors = await collectConfigurationIssues({
+          input,
+          registry: context.healthCheckRegistry,
+          collectorRegistry: context.collectorRegistry,
+        });
+        return { valid: errors.length === 0, errors };
+      },
+    ),
+
     updateConfiguration: os.updateConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input.id);
       const config = await service.updateConfiguration(input.id, input.body);
@@ -217,6 +236,7 @@ export const createHealthCheckRouter = (opts: {
         enabled: input.body.enabled,
         stateThresholds: input.body.stateThresholds,
         satelliteIds: input.body.satelliteIds,
+        environmentIds: input.body.environmentIds,
         includeLocal: input.body.includeLocal,
       });
       await cache.invalidateSystem(input.systemId);

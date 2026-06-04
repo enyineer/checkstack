@@ -3,6 +3,7 @@ export * from "./engine/baseline";
 export * from "./engine/thresholds";
 export * from "./engine/config";
 export * from "./engine/drift";
+export * from "./engine/self-resolution";
 export * from "./access";
 export * from "./rpc-contract";
 export * from "./plugin-metadata";

@@ -76,6 +76,7 @@ export async function startDelayQueueConsumer(
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
         waitedAtPath: lock.actionPath,
       });

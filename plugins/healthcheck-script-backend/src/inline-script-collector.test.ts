@@ -118,7 +118,7 @@ describe("InlineScriptCollector", () => {
 
     it("exposes `defineHealthCheck` as a runtime global (no import required)", async () => {
       // The editor advertises `defineHealthCheck` both as an ambient global
-      // and as a named export from `@checkstack/healthcheck`. The global
+      // and as a named export from `@checkstack/sdk/healthcheck`. The global
       // form lets Monaco autocomplete `defineHea…` on a fresh module
       // without the user typing an import first. This test confirms the
       // runner actually installs the global onto `globalThis` so the
@@ -138,17 +138,17 @@ describe("InlineScriptCollector", () => {
       expect(result.result.message).toBe("via global");
     });
 
-    it("resolves the virtual `@checkstack/healthcheck` defineHealthCheck helper at runtime", async () => {
+    it("resolves the virtual `@checkstack/sdk/healthcheck` defineHealthCheck helper at runtime", async () => {
       // The editor advertises `import { defineHealthCheck } from
-      // "@checkstack/healthcheck"` for IntelliSense + return-shape type
+      // "@checkstack/sdk/healthcheck"` for IntelliSense + return-shape type
       // checking. At runtime, the collector rewrites that import to a
       // sibling helper file. This test verifies the rewrite actually
       // resolves — if it ever regressed (e.g. the regex stopped matching),
-      // the script would throw "Cannot find module @checkstack/healthcheck"
+      // the script would throw "Cannot find module @checkstack/sdk/healthcheck"
       // and we'd catch it here.
       const config = createConfig({
         script: `
-          import { defineHealthCheck } from "@checkstack/healthcheck";
+          import { defineHealthCheck } from "@checkstack/sdk/healthcheck";
           export default defineHealthCheck({ success: true, value: 7, message: "via helper" });
         `,
       });
@@ -364,6 +364,57 @@ describe("InlineScriptCollector", () => {
       expect(result.result.message).toBe("web-02:check-7");
     });
 
+    it("exposes the resolved environment as `context.environment.fields`", async () => {
+      const config = createConfig({
+        script: `
+          // @ts-ignore — context is injected by the runner
+          export default { success: true, message: \`\${context.environment.name}:\${context.environment.fields.baseUrl}\` };
+        `,
+      });
+
+      const result = await collector.execute({
+        config,
+        client: mockClient,
+        pluginId: "script",
+        runContext: {
+          check: { id: "check-7", name: "CPU load", intervalSeconds: 30 },
+          system: { id: "system-3", name: "web-02" },
+          environment: {
+            id: "env-prod",
+            name: "production",
+            fields: { baseUrl: "https://prod.example.com" },
+          },
+        },
+      });
+
+      expect(result.result.success).toBe(true);
+      expect(result.result.message).toBe(
+        "production:https://prod.example.com",
+      );
+    });
+
+    it("leaves `context.environment` undefined when the run has no environment", async () => {
+      const config = createConfig({
+        script: `
+          // @ts-ignore — context is injected by the runner
+          export default { success: true, message: typeof context.environment };
+        `,
+      });
+
+      const result = await collector.execute({
+        config,
+        client: mockClient,
+        pluginId: "script",
+        runContext: {
+          check: { id: "check-7", name: "CPU load", intervalSeconds: 30 },
+          system: { id: "system-3", name: "web-02" },
+        },
+      });
+
+      expect(result.result.success).toBe(true);
+      expect(result.result.message).toBe("undefined");
+    });
+
     it("still exposes `context.config` and does not crash when runContext is absent (back-compat)", async () => {
       const config = createConfig({
         script: `
@@ -455,5 +506,56 @@ describe("InlineScriptCollector secret env injection + source-side masking", () 
       pluginId: "script",
     });
     expect(result.result.message).toBe("nothing secret");
+  });
+});
+
+describe("InlineScriptCollector — global-only sandbox (no per-item override)", () => {
+  const makeRecordingExecutor = (): {
+    executor: InlineScriptExecutor;
+    getInput: () => Record<string, unknown> | undefined;
+  } => {
+    let captured: Record<string, unknown> | undefined;
+    return {
+      getInput: () => captured,
+      executor: {
+        execute: async (input) => {
+          captured = input as unknown as Record<string, unknown>;
+          return {
+            result: { success: true },
+            stdout: "",
+            stderr: "",
+            timedOut: false,
+          };
+        },
+      },
+    };
+  };
+
+  it("never passes a `sandbox` field to the executor (policy is global-only)", async () => {
+    const { executor, getInput } = makeRecordingExecutor();
+    const collector = new InlineScriptCollector(executor);
+    await collector.execute({
+      config: createConfig(),
+      client: mockClient,
+      pluginId: "script",
+    });
+    expect(getInput()?.sandbox).toBeUndefined();
+  });
+
+  it("tolerates a stored stray `config.sandbox` (migration: stripped, no crash)", async () => {
+    const { executor, getInput } = makeRecordingExecutor();
+    const collector = new InlineScriptCollector(executor);
+    const parsed = collector.config.schema.parse({
+      script: "return true;",
+      timeout: 5000,
+      sandbox: { network: { mode: "unrestricted" } },
+    });
+    expect((parsed as Record<string, unknown>).sandbox).toBeUndefined();
+    await collector.execute({
+      config: parsed,
+      client: mockClient,
+      pluginId: "script",
+    });
+    expect(getInput()?.sandbox).toBeUndefined();
   });
 });

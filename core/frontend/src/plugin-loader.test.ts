@@ -1,11 +1,21 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
 import { loadPlugins } from "./plugin-loader";
 
 // Note: We don't mock @checkstack/frontend-api module-wide here because
 // it causes test isolation issues with other tests that use the real pluginRegistry.
 // Instead, we just verify behavior based on the function's outputs.
 
-// Mock fetch
+// Mock fetch. The `typeof url === "string"` guard means a stray non-string
+// argument can never throw (defensive; the override is also scoped to this
+// suite's lifecycle below).
 const mockFetch = mock((url: string) => {
   if (url === "/api/plugins") {
     return Promise.resolve({
@@ -14,21 +24,32 @@ const mockFetch = mock((url: string) => {
     } as unknown as Response);
   }
   // Mock HEAD request for CSS
-  if (url.endsWith(".css")) {
+  if (typeof url === "string" && url.endsWith(".css")) {
     return Promise.resolve({ ok: true } as unknown as Response);
   }
   return Promise.resolve({ ok: false } as unknown as Response);
 });
 
-(global as any).fetch = mockFetch;
+// bun test runs every file in ONE shared process, so leaving these overrides on
+// `global` leaks into other files - e.g. the real-HTTP backend auth tests would
+// hit this mock instead of the real fetch and crash. Scope them to this suite.
+const originalFetch = global.fetch;
+const originalDocument = global.document;
 
-// Mock document
-global.document = {
-  createElement: mock(() => ({})),
-  head: {
-    append: mock(),
-  },
-} as unknown as Document;
+beforeAll(() => {
+  (global as unknown as { fetch: typeof fetch }).fetch = mockFetch as never;
+  global.document = {
+    createElement: mock(() => ({})),
+    head: {
+      append: mock(),
+    },
+  } as unknown as Document;
+});
+
+afterAll(() => {
+  (global as unknown as { fetch: typeof fetch }).fetch = originalFetch;
+  (global as unknown as { document: Document }).document = originalDocument;
+});
 
 describe("frontend loadPlugins", () => {
   beforeEach(() => {

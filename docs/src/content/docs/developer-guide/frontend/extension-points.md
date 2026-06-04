@@ -501,25 +501,142 @@ export const CatalogSystemActionsSlot = createSlot<{
 }>("plugin.catalog.system-actions");
 ```
 
+##### `CatalogBrowseHealthSlot` (bulk health rollup)
+
+The catalog browse view surfaces a group-level health rollup without depending on any health provider. It does this through the optional `CatalogBrowseHealthSlot` contract: catalog only **consumes** the slot, and a health provider plugin **fills** it.
+
+The slot context passes the visible system ids and a callback the filler reports statuses to:
+
+```typescript
+export type CatalogHealthStatus = "healthy" | "degraded" | "unhealthy";
+export type CatalogHealthStatuses = Record<string, CatalogHealthStatus>;
+
+export interface CatalogBrowseHealthSlotContext {
+  systemIds: string[];
+  onStatuses: (statuses: CatalogHealthStatuses) => void;
+}
+
+export const CatalogBrowseHealthSlot =
+  createSlot<CatalogBrowseHealthSlotContext>("plugin.catalog.browse-health");
+```
+
+Contract rules:
+
+- The filler renders nothing visible. It is a headless data boundary that bulk-fetches health for `systemIds` and reports the resolved statuses via `onStatuses`.
+- `CatalogHealthStatus` is catalog's own vocabulary. A filler maps its own status enum into these three values so catalog stays decoupled from the provider's types.
+- A system **absent** from the reported map is treated as `"unknown"` by the catalog rollup, never as healthy. This matters because healthy systems emit no per-system badge, so "all healthy" can only be derived from the reported data, not from rendered output.
+- When the slot is unfilled (no health provider installed), group headers show member counts only and the health filter is disabled. Catalog remains fully functional.
+
+Per-system badges continue to come from `SystemStateBadgesSlot`; this slot exists only to feed the group-level rollup and the health filter from the underlying status data.
+
+Example filler (the health-provider side owns all cross-plugin coupling):
+
+```tsx
+import { createSlotExtension } from "@checkstack/frontend-api";
+import { CatalogBrowseHealthSlot } from "@checkstack/catalog-common";
+
+createSlotExtension(CatalogBrowseHealthSlot, {
+  id: "my-plugin.catalog.browse-health",
+  load: () =>
+    import("./CatalogBrowseHealthFiller").then((m) => ({
+      default: m.CatalogBrowseHealthFiller,
+    })),
+});
+```
+
+##### `SystemSignalsSlot` (dashboard "needs attention" overview)
+
+The dashboard overview lists only the systems that need attention and hides
+healthy ones. It builds that list entirely from signals reported through the
+`SystemSignalsSlot` contract, so it is **agnostic to which plugins contribute**:
+the dashboard only consumes the slot, and any plugin (including third-party
+plugins) fills it to add a new kind of per-system state to the overview. Adding
+a new signal source requires no dashboard change.
+
+A signal carries everything the overview needs to surface, sort, count, and
+deep-link the issue:
+
+```typescript
+export type SystemSignalTone = "error" | "warn" | "info";
+
+export interface SystemSignal {
+  source: string; // stable source id, e.g. "incident" - dedupes re-reports
+  tone: SystemSignalTone; // drives colour, sort order, and the header counts
+  label: string; // short label, e.g. "Critical incident"
+  detail?: string; // optional context, e.g. the incident title
+  href?: string; // deep link to where the issue originates
+  since?: string; // ISO start time - shown as "since" and used as a tie-break
+  iconName?: IconName; // lucide icon name, rendered via DynamicIcon
+}
+
+export type SystemSignalsMap = Record<string, SystemSignal[]>; // keyed by systemId
+
+export interface SystemSignalsSlotContext {
+  systemIds: string[];
+  onSignals: (sourceId: string, signals: SystemSignalsMap) => void;
+}
+
+export const SystemSignalsSlot = createSlot<SystemSignalsSlotContext>(
+  "plugin.catalog.system-signals",
+);
+```
+
+Contract rules:
+
+- The filler renders nothing visible. It is a headless data boundary that
+  bulk-fetches its state for `systemIds` (no N+1) and reports a per-system-id
+  signal map via `onSignals`, tagged with its own stable `sourceId`.
+- Re-reporting with the same `sourceId` **replaces** that source's previous
+  contribution, so a source that reports an empty map clears its signals.
+- A system **absent** from every source's map has no signals and is hidden from
+  the overview (it is healthy). The dashboard derives the "all healthy" state,
+  the severity counts, and the sort order purely from the reported DATA, never
+  from rendered output.
+- Sort order is worst tone first (`error` -> `warn` -> `info`), matching the
+  icon-only `StatusBadge` ordering used elsewhere.
+
+Each core reliability plugin (healthcheck, incident, SLO, maintenance, anomaly,
+dependency) ships a filler for this slot. A third-party plugin adds a new signal
+type the same way:
+
+```tsx
+import { createSlotExtension } from "@checkstack/frontend-api";
+import { SystemSignalsSlot } from "@checkstack/catalog-common";
+
+createSlotExtension(SystemSignalsSlot, {
+  id: "my-plugin.dashboard.signals",
+  load: () =>
+    import("./MySignalsFiller").then((m) => ({
+      default: m.MySignalsFiller,
+    })),
+});
+```
+
 #### Registering Extensions to Slots
 
 Extensions use the `slot:` property with a `SlotDefinition` object:
 
 **To a core slot:**
 ```typescript
-import { UserMenuItemsSlot } from "@checkstack/frontend-api";
+import { UserMenuItemsBottomSlot } from "@checkstack/frontend-api";
 
 export const myPlugin = createFrontendPlugin({
   name: "myplugin-frontend",
   extensions: [
     {
-      id: "myplugin.user-menu.items",
-      slot: UserMenuItemsSlot,
-      component: MyUserMenuItems,
+      id: "myplugin.user-menu.account-item",
+      slot: UserMenuItemsBottomSlot,
+      component: MyAccountMenuItem,
     },
   ],
 });
 ```
+
+> [!NOTE]
+> Primary **navigation** is NOT a user-menu extension. The user menu is
+> account-only (profile, theme, logout); to add a page to the left sidebar, give
+> its route `nav` metadata - see
+> [Frontend Routing](/checkstack/developer-guide/frontend/routing/#sidebar-navigation).
 
 **To a plugin-defined slot:**
 ```typescript

@@ -14,6 +14,7 @@ import {
   passwordSchema,
   authAccess,
   pluginMetadata,
+  isApplicationBindable,
 } from "@checkstack/auth-common";
 import { qualifyAccessRuleId } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
@@ -21,6 +22,7 @@ import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
+import { enrichApplicationPrincipal as resolveApplicationPrincipal } from "./utils/user";
 
 /**
  * Type guard to check if user is a RealUser (not a service).
@@ -37,6 +39,11 @@ import {
   PLATFORM_REGISTRATION_CONFIG_VERSION,
   PLATFORM_REGISTRATION_CONFIG_ID,
 } from "./platform-registration-config";
+import {
+  mcpOAuthConfigV1,
+  MCP_OAUTH_CONFIG_VERSION,
+  MCP_OAUTH_CONFIG_ID,
+} from "./mcp-oauth-config";
 
 export const ADMIN_ROLE_ID = "admin";
 export const USERS_ROLE_ID = "users";
@@ -658,6 +665,41 @@ export const createAuthRouter = (
         { allowRegistration: input.allowRegistration },
       );
       // Trigger auth reload to apply new settings
+      await reloadAuthFn();
+      return { success: true };
+    },
+  );
+
+  const getMcpOAuthSettings = os.getMcpOAuthSettings.handler(async () => {
+    const cfg = await configService.get(
+      MCP_OAUTH_CONFIG_ID,
+      mcpOAuthConfigV1,
+      MCP_OAUTH_CONFIG_VERSION,
+    );
+    // Defaults mirror the schema (off by default).
+    return {
+      enabled: cfg?.enabled ?? false,
+      allowDynamicClientRegistration:
+        cfg?.allowDynamicClientRegistration ?? false,
+      dcrRateLimitMax: cfg?.dcrRateLimitMax ?? 5,
+      dcrRateLimitWindowSeconds: cfg?.dcrRateLimitWindowSeconds ?? 3600,
+    };
+  });
+
+  const setMcpOAuthSettings = os.setMcpOAuthSettings.handler(
+    async ({ input }) => {
+      await configService.set(
+        MCP_OAUTH_CONFIG_ID,
+        mcpOAuthConfigV1,
+        MCP_OAUTH_CONFIG_VERSION,
+        {
+          enabled: input.enabled,
+          allowDynamicClientRegistration: input.allowDynamicClientRegistration,
+          dcrRateLimitMax: input.dcrRateLimitMax,
+          dcrRateLimitWindowSeconds: input.dcrRateLimitWindowSeconds,
+        },
+      );
+      // Enabling/disabling the plugins requires re-initializing better-auth.
       await reloadAuthFn();
       return { success: true };
     },
@@ -1441,6 +1483,62 @@ export const createAuthRouter = (
     },
   );
 
+  // S2S: resolve an application principal live for the app-principal token path.
+  const enrichApplicationPrincipal =
+    os.enrichApplicationPrincipal.handler(async ({ input }) => {
+      const enriched = await resolveApplicationPrincipal(
+        input.applicationId,
+        internalDb,
+      );
+      return enriched ?? null;
+    });
+
+  // List applications the caller may bind as an automation's service account.
+  // An app is bindable only when its access rules are a subset of the caller's
+  // (no privilege escalation); `*`-holders may bind anything.
+  const getBindableApplications = os.getBindableApplications.handler(
+    async ({ context }) => {
+      const callerRules = isRealUser(context.user)
+        ? (context.user.accessRules ?? [])
+        : [];
+
+      const apps = await internalDb.select().from(schema.application);
+      const bindable: {
+        id: string;
+        name: string;
+        description: string | null;
+      }[] = [];
+
+      const callerIsAdmin = callerRules.includes("*");
+      for (const app of apps) {
+        // Admins bind anything without resolving rules; others need the
+        // per-app subset check.
+        if (!callerIsAdmin) {
+          const enriched = await resolveApplicationPrincipal(
+            app.id,
+            internalDb,
+          );
+          if (!enriched) continue;
+          if (
+            !isApplicationBindable({
+              appAccessRules: enriched.accessRules,
+              callerAccessRules: callerRules,
+            })
+          ) {
+            continue;
+          }
+        }
+        bindable.push({
+          id: app.id,
+          name: app.name,
+          description: app.description,
+        });
+      }
+
+      return bindable;
+    },
+  );
+
   // ==========================================================================
   // TEAM MANAGEMENT HANDLERS
   // ==========================================================================
@@ -1962,6 +2060,8 @@ export const createAuthRouter = (
     getRegistrationSchema,
     getRegistrationStatus,
     setRegistrationStatus,
+    getMcpOAuthSettings,
+    setMcpOAuthSettings,
     getOnboardingStatus,
     completeOnboarding,
     validateResetToken,
@@ -1979,6 +2079,8 @@ export const createAuthRouter = (
     updateApplication,
     deleteApplication,
     regenerateApplicationSecret,
+    enrichApplicationPrincipal,
+    getBindableApplications,
     getOwnStrategyConfig,
     // Teams
     getTeams,

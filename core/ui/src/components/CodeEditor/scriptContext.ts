@@ -8,8 +8,9 @@ import { jsonSchemaToTypeScript } from "./generateTypeDefinitions";
  *
  *  - `healthcheckInlineContext` — inline TS/JS health checks.
  *    `context.config` is typed from the collector's own config schema.
- *    A virtual `@checkstack/healthcheck` module exposes the required
- *    return shape so users get a type _error_ when the shape is wrong.
+ *    The `@checkstack/sdk/healthcheck` module (resolved from the injected
+ *    @checkstack/sdk editor bundle) exposes the required return shape so
+ *    users get a type _error_ when the shape is wrong.
  *
  *  - `healthcheckShellContext` — shell health checks. No platform-injected
  *    env vars today (the user supplies `env` themselves), so we surface
@@ -18,7 +19,8 @@ import { jsonSchemaToTypeScript } from "./generateTypeDefinitions";
  *
  *  - `integrationInlineContext` — TS/JS integration scripts.
  *    `context.event.payload` is typed from the event's payload schema.
- *    A virtual `@checkstack/integration` module exposes the result shape.
+ *    The `@checkstack/sdk/integration` module (resolved from the injected
+ *    @checkstack/sdk editor bundle) exposes the result shape.
  *
  *  - `integrationShellContext` — shell integration scripts. The platform
  *    injects `EVENT_ID`, `DELIVERY_ID`, `SUBSCRIPTION_ID`,
@@ -119,9 +121,10 @@ interface HealthCheckScriptContext {
  * to be so mistakes are caught before the script ever runs.
  *
  * Available both as a global (this declaration) and as a named export
- * from \`@checkstack/healthcheck\` (below). The global form means the
- * editor can autocomplete it without the user typing the import first;
- * the module form is for explicit, IDE-style imports.
+ * from \`@checkstack/sdk/healthcheck\`. The global form means the editor
+ * can autocomplete it without the user typing the import first; the
+ * named-export form (resolved from the injected @checkstack/sdk editor
+ * bundle, not declared here) is for explicit, IDE-style imports.
  */
 declare function defineHealthCheck<
   T extends
@@ -132,11 +135,6 @@ declare function defineHealthCheck<
 >(value: T): T;
 
 declare const context: HealthCheckScriptContext;
-
-declare module "@checkstack/healthcheck" {
-  export type { HealthCheckScriptResult, HealthCheckScriptContext };
-  export { defineHealthCheck };
-}
 `;
 }
 
@@ -187,7 +185,8 @@ interface IntegrationScriptContext {
  * Helper that asserts the return shape of an integration script at the
  * type level. See \`defineHealthCheck\` for the analogous health-check
  * helper. Available both as a global and as a named export from
- * \`@checkstack/integration\`.
+ * \`@checkstack/sdk/integration\` (resolved from the injected
+ * @checkstack/sdk editor bundle, not declared here).
  */
 declare function defineIntegration<
   T extends
@@ -200,11 +199,6 @@ declare function defineIntegration<
 >(value: T): T;
 
 declare const context: IntegrationScriptContext;
-
-declare module "@checkstack/integration" {
-  export type { IntegrationScriptResult, IntegrationScriptContext };
-  export { defineIntegration };
-}
 `;
 }
 
@@ -221,7 +215,7 @@ declare module "@checkstack/integration" {
  * `defineHealthCheck` is available without an import (declared as an
  * ambient global in the editor's type defs and injected onto
  * `globalThis` by the runner). The named-import form
- * `import { defineHealthCheck } from "@checkstack/healthcheck"` also
+ * `import { defineHealthCheck } from "@checkstack/sdk/healthcheck"` also
  * works if users prefer it.
  */
 const HEALTHCHECK_INLINE_TS_STARTER = `import { loadavg } from "node:os";

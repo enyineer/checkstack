@@ -245,6 +245,11 @@ export function createAnnouncementRouter(
 
       const announcement = toAnnouncement(row);
 
+      await Promise.all([
+        cache.invalidateAllActive(),
+        cache.invalidateListAll(),
+      ]);
+
       await signalService.broadcast(ANNOUNCEMENT_UPDATED, {
         announcementId: announcement.id,
         action: "updated",

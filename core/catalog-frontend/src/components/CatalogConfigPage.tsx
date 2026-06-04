@@ -1,45 +1,36 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragOverEvent,
-} from "@dnd-kit/core";
 import {
   useApi,
   accessApiRef,
   usePluginClient,
 } from "@checkstack/frontend-api";
-import { System, CatalogApi } from "../api";
-import {
-  catalogAccess,
-  pluginMetadata as catalogPluginMetadata,
-} from "@checkstack/catalog-common";
-import { Tip } from "@checkstack/tips-frontend";
+import { System, Environment, CatalogApi } from "../api";
+import { catalogAccess } from "@checkstack/catalog-common";
+import type { CatalogHealthStatuses } from "@checkstack/catalog-common";
 import {
   PageLayout,
-  Card,
-  CardHeader,
-  CardHeaderRow,
-  CardTitle,
-  CardContent,
-  Button,
-  EmptyState,
+  Tabs,
   ConfirmationModal,
   useToast,
 } from "@checkstack/ui";
-import { Plus, FolderPlus, LayoutGrid, Server } from "lucide-react";
+import { Server, LayoutGrid, Boxes } from "lucide-react";
 import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
-import { DraggableSystem, SystemDragOverlay } from "./DraggableSystem";
-import { DroppableGroup } from "./DroppableGroup";
+import { EnvironmentEditor } from "./EnvironmentEditor";
 import { extractErrorMessage } from "@checkstack/common";
+import { useCatalogBrowseState } from "../hooks/useCatalogBrowseState";
+import { CatalogBrowseToolbar } from "./browse/CatalogBrowseToolbar";
+import { CatalogBrowseHealth } from "./browse/CatalogBrowseHealth";
+import {
+  collectTagOptions,
+  filterManagementLists,
+} from "./browse/filterEntities.logic";
+import { SystemsTab } from "./manage/SystemsTab";
+import { GroupsTab } from "./manage/GroupsTab";
+import { EnvironmentsTab } from "./manage/EnvironmentsTab";
+
+type ManageTab = "systems" | "groups" | "environments";
 
 export const CatalogConfigPage = () => {
   const catalogClient = usePluginClient(CatalogApi);
@@ -49,11 +40,22 @@ export const CatalogConfigPage = () => {
   const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
     catalogAccess.system.manage,
   );
+  // Environment CRUD is gated on its own access rule, independent of the
+  // system-level manage permission that gates the rest of this page.
+  const { allowed: canManageEnvironments } = accessApi.useAccess(
+    catalogAccess.environment.manage,
+  );
+
+  const [activeTab, setActiveTab] = useState<ManageTab>("systems");
 
   // Dialog state
   const [isSystemEditorOpen, setIsSystemEditorOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<System | undefined>();
   const [isGroupEditorOpen, setIsGroupEditorOpen] = useState(false);
+  const [isEnvironmentEditorOpen, setIsEnvironmentEditorOpen] = useState(false);
+  const [editingEnvironment, setEditingEnvironment] = useState<
+    Environment | undefined
+  >();
 
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
@@ -67,12 +69,6 @@ export const CatalogConfigPage = () => {
     message: "",
     onConfirm: () => {},
   });
-
-  // Drag-and-drop state
-  const [activeSystemId, setActiveSystemId] = useState<string | undefined>();
-  const [overGroupId, setOverGroupId] = useState<string | undefined>();
-  // Tracks which system was most recently added to which group (for glow animation)
-  const [recentlyAdded, setRecentlyAdded] = useState<{ systemId: string; groupId: string } | undefined>();
 
   // Fetch systems with useQuery
   const {
@@ -88,31 +84,95 @@ export const CatalogConfigPage = () => {
     refetch: refetchGroups,
   } = catalogClient.getGroups.useQuery({});
 
-  const systems = systemsData?.systems ?? [];
-  const groups = groupsData ?? [];
-  const loading = systemsLoading || groupsLoading;
+  // Fetch environments with useQuery
+  const {
+    data: environmentsData,
+    isLoading: environmentsLoading,
+    refetch: refetchEnvironments,
+  } = catalogClient.listEnvironments.useQuery({});
+
+  const systems = useMemo(() => systemsData?.systems ?? [], [systemsData]);
+  const groups = useMemo(() => groupsData ?? [], [groupsData]);
+  const environments = useMemo(
+    () => environmentsData ?? [],
+    [environmentsData],
+  );
+  const loading = systemsLoading || groupsLoading || environmentsLoading;
+
+  // Shared browse/manage filter state (search + group/health/tag), reusing the
+  // URL-state hook + pure filter logic so the management lists get the same
+  // search/filter/grouping as the browse view.
+  const browse = useCatalogBrowseState();
+  const tagOptions = useMemo(() => collectTagOptions(systems), [systems]);
+
+  // Bulk health reported by the optional CatalogBrowseHealthSlot filler (shared
+  // with the browse view). `null` until/unless a filler reports; powers the
+  // health filter and enables the toolbar's health control.
+  const [healthStatuses, setHealthStatuses] =
+    useState<CatalogHealthStatuses | null>(null);
+  const healthEnabled = healthStatuses !== null;
+  const systemIds = useMemo(() => systems.map((s) => s.id), [systems]);
+
+  const filtered = useMemo(
+    () =>
+      filterManagementLists({
+        systems,
+        groups,
+        // Filter on the debounced query so typing stays smooth on large lists.
+        state: { ...browse.state, query: browse.debouncedQuery },
+        statuses: healthStatuses ?? undefined,
+      }),
+    [systems, groups, browse.state, browse.debouncedQuery, healthStatuses],
+  );
+  const visibleSystems = filtered.systems;
+  const visibleGroups = filtered.groups;
+
+  // Environments aren't part of filterManagementLists; filter by name on the
+  // shared query so the search box works on the Environments tab too.
+  const visibleEnvironments = useMemo(() => {
+    const q = browse.debouncedQuery.trim().toLowerCase();
+    if (!q) return environments;
+    return environments.filter((e) => e.name.toLowerCase().includes(q));
+  }, [environments, browse.debouncedQuery]);
+
+  // systemId -> the group ids it belongs to (built from the full group set so a
+  // filtered-out group still shows membership).
+  const systemGroupMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const group of groups) {
+      for (const sysId of group.systemIds ?? []) {
+        const existing = map.get(sysId) ?? [];
+        existing.push(group.id);
+        map.set(sysId, existing);
+      }
+    }
+    return map;
+  }, [groups]);
+
+  // systemId -> the environment ids it's attached to (environments carry
+  // `systemIds`, mirroring groups).
+  const systemEnvMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const env of environments) {
+      for (const sysId of env.systemIds ?? []) {
+        const existing = map.get(sysId) ?? [];
+        existing.push(env.id);
+        map.set(sysId, existing);
+      }
+    }
+    return map;
+  }, [environments]);
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
     if (searchParams.get("action") === "create" && canManage) {
+      setActiveTab("systems");
       setIsSystemEditorOpen(true);
       // Clear the URL param after opening
       searchParams.delete("action");
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, canManage, setSearchParams]);
-
-  // DnD sensors — pointer for desktop, touch for mobile
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      // 8px movement tolerance prevents accidental drags on clicks
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(TouchSensor, {
-      // 250ms delay for touch to avoid conflicts with scrolling
-      activationConstraint: { delay: 250, tolerance: 8 },
-    }),
-  );
 
   // Mutations
   const createSystemMutation = catalogClient.createSystem.useMutation({
@@ -122,9 +182,7 @@ export const CatalogConfigPage = () => {
       void refetchSystems();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to create system"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to create system"));
     },
   });
 
@@ -136,22 +194,18 @@ export const CatalogConfigPage = () => {
       void refetchSystems();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to update system"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to update system"));
     },
   });
 
   const deleteSystemMutation = catalogClient.deleteSystem.useMutation({
     onSuccess: () => {
       toast.success("System deleted successfully");
-      setConfirmModal({ ...confirmModal, isOpen: false });
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       void refetchSystems();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to delete system"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to delete system"));
     },
   });
 
@@ -162,22 +216,18 @@ export const CatalogConfigPage = () => {
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to create group"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to create group"));
     },
   });
 
   const deleteGroupMutation = catalogClient.deleteGroup.useMutation({
     onSuccess: () => {
       toast.success("Group deleted successfully");
-      setConfirmModal({ ...confirmModal, isOpen: false });
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to delete group"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to delete group"));
     },
   });
 
@@ -187,24 +237,18 @@ export const CatalogConfigPage = () => {
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to update group name"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to update group name"));
       throw error;
     },
   });
 
   const addSystemToGroupMutation = catalogClient.addSystemToGroup.useMutation({
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       toast.success("System added to group successfully");
-      setRecentlyAdded({ systemId: variables.systemId, groupId: variables.groupId });
-      setTimeout(() => setRecentlyAdded(undefined), 1500);
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to add system to group"),
-      );
+      toast.error(extractErrorMessage(error, "Failed to add system to group"));
     },
   });
 
@@ -217,6 +261,52 @@ export const CatalogConfigPage = () => {
       onError: (error) => {
         toast.error(
           extractErrorMessage(error, "Failed to remove system from group"),
+        );
+      },
+    });
+
+  const createEnvironmentMutation = catalogClient.createEnvironment.useMutation({
+    onSuccess: () => {
+      toast.success("Environment created successfully");
+      setIsEnvironmentEditorOpen(false);
+      setEditingEnvironment(undefined);
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to create environment"));
+    },
+  });
+
+  const updateEnvironmentMutation = catalogClient.updateEnvironment.useMutation({
+    onSuccess: () => {
+      toast.success("Environment updated successfully");
+      setIsEnvironmentEditorOpen(false);
+      setEditingEnvironment(undefined);
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to update environment"));
+    },
+  });
+
+  const deleteEnvironmentMutation = catalogClient.deleteEnvironment.useMutation({
+    onSuccess: () => {
+      toast.success("Environment deleted successfully");
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error, "Failed to delete environment"));
+    },
+  });
+
+  // System<->environment membership is a full-set replace; the add/remove
+  // helpers below recompute the set from `systemEnvMap`.
+  const setSystemEnvironmentsMutation =
+    catalogClient.setSystemEnvironments.useMutation({
+      onSuccess: () => {
+        void refetchEnvironments();
+      },
+      onError: (error) => {
+        toast.error(
+          extractErrorMessage(error, "Failed to update system environments"),
         );
       },
     });
@@ -243,8 +333,22 @@ export const CatalogConfigPage = () => {
       isOpen: true,
       title: "Delete System",
       message: `Are you sure you want to delete "${system?.name}"? This will remove the system from all groups as well.`,
+      onConfirm: () => deleteSystemMutation.mutate(id),
+    });
+  };
+
+  const handleBulkDeleteSystems = (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (ids.length === 1) {
+      handleDeleteSystem(ids[0]);
+      return;
+    }
+    setConfirmModal({
+      isOpen: true,
+      title: `Delete ${ids.length} systems`,
+      message: `Are you sure you want to delete these ${ids.length} systems? This will remove them from all groups as well.`,
       onConfirm: () => {
-        deleteSystemMutation.mutate(id);
+        for (const id of ids) deleteSystemMutation.mutate(id);
       },
     });
   };
@@ -255,9 +359,7 @@ export const CatalogConfigPage = () => {
       isOpen: true,
       title: "Delete Group",
       message: `Are you sure you want to delete "${group?.name}"? This action cannot be undone.`,
-      onConfirm: () => {
-        deleteGroupMutation.mutate(id);
-      },
+      onConfirm: () => deleteGroupMutation.mutate(id),
     });
   };
 
@@ -273,216 +375,162 @@ export const CatalogConfigPage = () => {
     updateGroupMutation.mutate({ id, data: { name: newName } });
   };
 
-  // DnD event handlers
-  const handleDragStart = ({ active }: DragStartEvent) => {
-    setActiveSystemId(String(active.id));
-  };
-
-  const handleDragOver = ({ over }: DragOverEvent) => {
-    setOverGroupId(over ? String(over.id) : undefined);
-  };
-
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    setActiveSystemId(undefined);
-    setOverGroupId(undefined);
-
-    if (!over) return;
-
-    const systemId = String(active.id);
-    const groupId = String(over.id);
-    const targetGroup = groups.find((g) => g.id === groupId);
-
-    // Block if already assigned to this group
-    if (targetGroup?.systemIds?.includes(systemId)) return;
-
-    handleAddSystemToGroup(systemId, groupId);
-  };
-
-  const handleDragCancel = () => {
-    setActiveSystemId(undefined);
-    setOverGroupId(undefined);
-  };
-
-  const activeSystem = activeSystemId
-    ? systems.find((s) => s.id === activeSystemId)
-    : undefined;
-
-  // Build a map of systemId → groupIds for quick lookup
-  const systemGroupMap = new Map<string, string[]>();
-  for (const group of groups) {
-    for (const sysId of group.systemIds ?? []) {
-      const existing = systemGroupMap.get(sysId) ?? [];
-      existing.push(group.id);
-      systemGroupMap.set(sysId, existing);
+  const handleSaveEnvironment = async (data: {
+    name: string;
+    description?: string;
+    metadata?: Record<string, string>;
+  }) => {
+    if (editingEnvironment) {
+      updateEnvironmentMutation.mutate({
+        environmentId: editingEnvironment.id,
+        data,
+      });
+    } else {
+      createEnvironmentMutation.mutate(data);
     }
-  }
+  };
+
+  const handleDeleteEnvironment = (id: string) => {
+    const environment = environments.find((e) => e.id === id);
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Environment",
+      message: `Are you sure you want to delete "${environment?.name}"? This will remove it from all systems.`,
+      onConfirm: () => deleteEnvironmentMutation.mutate({ environmentId: id }),
+    });
+  };
+
+  const handleAddSystemEnvironment = (
+    systemId: string,
+    environmentId: string,
+  ) => {
+    const current = systemEnvMap.get(systemId) ?? [];
+    if (current.includes(environmentId)) return;
+    setSystemEnvironmentsMutation.mutate({
+      systemId,
+      environmentIds: [...current, environmentId],
+    });
+  };
+
+  const handleRemoveSystemEnvironment = (
+    systemId: string,
+    environmentId: string,
+  ) => {
+    const current = systemEnvMap.get(systemId) ?? [];
+    setSystemEnvironmentsMutation.mutate({
+      systemId,
+      environmentIds: current.filter((id) => id !== environmentId),
+    });
+  };
+
+  const hasContent = systems.length > 0 || groups.length > 0;
 
   return (
     <PageLayout
       title="Catalog Management"
-      subtitle="Manage systems and logical groups within your infrastructure"
+      subtitle="Manage systems, logical groups, and environments"
       icon={Server}
       loading={loading || accessLoading}
       allowed={canManage}
     >
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Systems Management */}
-          <Card>
-            <CardHeader>
-              <CardHeaderRow>
-                <CardTitle className="flex items-center gap-2">
-                  <Server className="w-5 h-5 text-muted-foreground" />
-                  Systems
-                </CardTitle>
-                <Tip
-                  plugin={catalogPluginMetadata}
-                  id="systems.create"
-                  title="Start here: add a system"
-                  description="A system is anything you want Checkstack to keep an eye on — a service, a host, a job, a database. Almost everything else (health checks, SLOs, incidents, notifications) hangs off systems."
-                  side="bottom"
-                  align="end"
-                >
-                  <Button size="sm" onClick={() => setIsSystemEditorOpen(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add System
-                  </Button>
-                </Tip>
-              </CardHeaderRow>
-              {systems.length > 0 && groups.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Drag a system onto a group, or use the{" "}
-                  <FolderPlus className="w-3 h-3 inline" /> button to assign it.
-                </p>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {systems.length === 0 ? (
-                <EmptyState
-                  icon={<Server className="size-10" />}
-                  title="No systems yet"
-                  description="Systems are the things you monitor. Once you add one, you can attach health checks, SLOs, maintenance windows and incident history to it."
-                  steps={[
-                    "Click “Add System” to register your first service, host or job.",
-                    "Group related systems so dashboards and on-call rotations stay tidy.",
-                    "Wire health checks to a system so its health status reflects reality and subscribers get notified on changes.",
-                  ]}
-                  actions={
-                    <Button onClick={() => setIsSystemEditorOpen(true)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add your first system
-                    </Button>
-                  }
-                />
-              ) : (
-                <div className="space-y-2">
-                  {systems.map((system) => (
-                    <DraggableSystem
-                      key={system.id}
-                      system={system}
-                      groups={groups}
-                      assignedGroupIds={systemGroupMap.get(system.id) ?? []}
-                      onEdit={(s) => {
-                        setEditingSystem(s);
-                        setIsSystemEditorOpen(true);
-                      }}
-                      onDelete={handleDeleteSystem}
-                      onAddToGroup={handleAddSystemToGroup}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Groups Management */}
-          <Card>
-            <CardHeader>
-              <CardHeaderRow>
-                <CardTitle className="flex items-center gap-2">
-                  <LayoutGrid className="w-5 h-5 text-muted-foreground" />
-                  Groups
-                </CardTitle>
-                <Tip
-                  plugin={catalogPluginMetadata}
-                  id="groups.create"
-                  title="Group systems that belong together"
-                  description="Groups are how Checkstack rolls up status: a group is healthy when all of its systems are healthy. Use them per team, per product area, or per environment."
-                  side="bottom"
-                  align="end"
-                >
-                  <Button size="sm" onClick={() => setIsGroupEditorOpen(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Group
-                  </Button>
-                </Tip>
-              </CardHeaderRow>
-              {groups.length > 0 && systems.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Drop systems here to assign them to a group.
-                </p>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {groups.length === 0 ? (
-                <EmptyState
-                  icon={<LayoutGrid className="size-10" />}
-                  title="No groups yet"
-                  description="Groups roll up the health of multiple systems into a single status — useful for teams, products or environments."
-                  steps={[
-                    "Click “Add Group” and give it a meaningful name.",
-                    "Drag systems from the left panel into the group, or use the assign button on each system.",
-                    "Subscribe to the group from the status page to alert your team on any rolled-up incident.",
-                  ]}
-                  actions={
-                    <Button onClick={() => setIsGroupEditorOpen(true)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add your first group
-                    </Button>
-                  }
-                />
-              ) : (
-                <div className="space-y-2">
-                  {groups.map((group) => (
-                    <DroppableGroup
-                      key={group.id}
-                      group={group}
-                      systems={systems}
-                      isOver={overGroupId === group.id}
-                      isDragging={activeSystemId !== undefined}
-                      draggingSystemAlreadyInGroup={
-                        activeSystemId !== undefined &&
-                        (group.systemIds ?? []).includes(activeSystemId)
-                      }
-                      newlyAddedSystemId={
-                        recentlyAdded?.groupId === group.id
-                          ? recentlyAdded.systemId
-                          : undefined
-                      }
-                      onDeleteGroup={handleDeleteGroup}
-                      onUpdateGroupName={handleUpdateGroupName}
-                      onRemoveSystem={handleRemoveSystemFromGroup}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      {hasContent && (
+        <div className="mb-4">
+          {/* Headless health boundary (slot unfilled → renders nothing). */}
+          <CatalogBrowseHealth
+            systemIds={systemIds}
+            onStatuses={setHealthStatuses}
+          />
+          <CatalogBrowseToolbar
+            query={browse.state.query}
+            onQueryChange={browse.setQuery}
+            group={browse.state.group}
+            onGroupChange={browse.setGroup}
+            groups={groups}
+            health={browse.state.health}
+            onHealthChange={browse.setHealth}
+            healthEnabled={healthEnabled}
+            tag={browse.state.tag}
+            onTagChange={browse.setTag}
+            tagOptions={tagOptions}
+          />
         </div>
+      )}
 
-        {/* Drag overlay — the floating ghost shown while dragging */}
-        {/* dropAnimation must be null (not undefined) per @dnd-kit API to disable the fly-back animation */}
-        { }
-        <DragOverlay dropAnimation={null}>
-          {activeSystem ? <SystemDragOverlay system={activeSystem} /> : undefined}
-        </DragOverlay>
-      </DndContext>
+      <Tabs
+        className="mb-4"
+        activeTab={activeTab}
+        onTabChange={(id) => setActiveTab(id as ManageTab)}
+        items={[
+          { id: "systems", label: "Systems", icon: <Server className="h-4 w-4" /> },
+          { id: "groups", label: "Groups", icon: <LayoutGrid className="h-4 w-4" /> },
+          {
+            id: "environments",
+            label: "Environments",
+            icon: <Boxes className="h-4 w-4" />,
+          },
+        ]}
+      />
+
+      {activeTab === "systems" && (
+        <SystemsTab
+          systems={visibleSystems}
+          totalCount={systems.length}
+          allGroups={groups}
+          systemGroupMap={systemGroupMap}
+          allEnvironments={environments}
+          systemEnvMap={systemEnvMap}
+          onAddToEnvironment={handleAddSystemEnvironment}
+          onRemoveFromEnvironment={handleRemoveSystemEnvironment}
+          onAddSystem={() => {
+            setEditingSystem(undefined);
+            setIsSystemEditorOpen(true);
+          }}
+          onEditSystem={(s) => {
+            setEditingSystem(s);
+            setIsSystemEditorOpen(true);
+          }}
+          onDeleteSystem={handleDeleteSystem}
+          onBulkDeleteSystems={handleBulkDeleteSystems}
+          onAddToGroup={handleAddSystemToGroup}
+          onRemoveFromGroup={handleRemoveSystemFromGroup}
+          onClearFilters={browse.clearFilters}
+        />
+      )}
+
+      {activeTab === "groups" && (
+        <GroupsTab
+          groups={visibleGroups}
+          totalCount={groups.length}
+          allSystems={systems}
+          onAddGroup={() => setIsGroupEditorOpen(true)}
+          onDeleteGroup={handleDeleteGroup}
+          onRenameGroup={handleUpdateGroupName}
+          onAddToGroup={handleAddSystemToGroup}
+          onRemoveFromGroup={handleRemoveSystemFromGroup}
+          onClearFilters={browse.clearFilters}
+        />
+      )}
+
+      {activeTab === "environments" && (
+        <EnvironmentsTab
+          environments={visibleEnvironments}
+          totalCount={environments.length}
+          canManage={canManageEnvironments}
+          allSystems={systems}
+          onAddSystemToEnvironment={handleAddSystemEnvironment}
+          onRemoveSystemFromEnvironment={handleRemoveSystemEnvironment}
+          onAddEnvironment={() => {
+            setEditingEnvironment(undefined);
+            setIsEnvironmentEditorOpen(true);
+          }}
+          onEditEnvironment={(env) => {
+            setEditingEnvironment(env);
+            setIsEnvironmentEditorOpen(true);
+          }}
+          onDeleteEnvironment={handleDeleteEnvironment}
+          onClearFilters={browse.clearFilters}
+        />
+      )}
 
       {/* Dialogs */}
       <SystemEditor
@@ -507,6 +555,24 @@ export const CatalogConfigPage = () => {
         open={isGroupEditorOpen}
         onClose={() => setIsGroupEditorOpen(false)}
         onSave={handleCreateGroup}
+      />
+
+      <EnvironmentEditor
+        open={isEnvironmentEditorOpen}
+        onClose={() => {
+          setIsEnvironmentEditorOpen(false);
+          setEditingEnvironment(undefined);
+        }}
+        onSave={handleSaveEnvironment}
+        initialData={
+          editingEnvironment
+            ? {
+                name: editingEnvironment.name,
+                description: editingEnvironment.description ?? undefined,
+                metadata: editingEnvironment.metadata,
+              }
+            : undefined
+        }
       />
 
       <ConfirmationModal

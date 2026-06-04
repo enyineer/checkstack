@@ -2,7 +2,7 @@
  * Behaviour tests for the healthcheck automation triggers + actions.
  */
 import { describe, expect, it, mock } from "bun:test";
-import type { Logger } from "@checkstack/backend-api";
+import type { Logger, RpcClient } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
@@ -28,6 +28,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 describe("healthcheck triggers", () => {

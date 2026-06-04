@@ -28,8 +28,9 @@ import {
   StatusUpdateTimeline,
   LinksEditor,
   toastError,
+  Spinner,
 } from "@checkstack/ui";
-import { Plus, MessageSquare, Loader2, AlertCircle } from "lucide-react";
+import { Plus, MessageSquare, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
 import { TeamAccessEditor } from "@checkstack/auth-frontend";
@@ -342,7 +343,7 @@ export const IncidentEditor: React.FC<Props> = ({
               {/* Updates List */}
               {loadingUpdates ? (
                 <div className="flex justify-center py-4">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <Spinner size="lg" className="text-muted-foreground" />
                 </div>
               ) : updates.length === 0 ? (
                 <div className="flex flex-col items-center py-6 text-muted-foreground">

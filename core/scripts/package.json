@@ -10,6 +10,11 @@
   "bin": {
     "checkstack-scripts": "./src/cli.ts"
   },
+  "exports": {
+    "./scaffold": {
+      "import": "./src/scaffold/index.ts"
+    }
+  },
   "files": [
     "src",
     "README.md"
@@ -23,14 +28,19 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
-    "inquirer": "^13.4.1",
+    "ansi-escapes": "^7.3.0",
     "handlebars": "^4.7.8",
-    "tar": "^7.4.3"
+    "ink": "^7.0.5",
+    "inquirer": "^13.4.1",
+    "react": "^19.2.7",
+    "tar": "^7.5.16",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
-    "@types/inquirer": "^8.2.10",
     "@types/handlebars": "^4.1.0",
+    "@types/inquirer": "^8.2.10",
+    "@types/react": "^19.2.16",
     "typescript": "^5.0.0"
   }
 }

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from "react";
-import { Loader2, ExternalLink, Server } from "lucide-react";
+import { ExternalLink, Server, Layers } from "lucide-react";
 import { Satellite as SatelliteIcon } from "lucide-react";
+import { CatalogApi } from "@checkstack/catalog-common";
 import {
   ExtensionSlot,
   usePluginClient,
@@ -48,6 +49,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  Spinner,
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
 import { useNavigate, Link } from "react-router-dom";
@@ -114,6 +116,18 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
+  const catalogClient = usePluginClient(CatalogApi);
+
+  // Environments the system belongs to - resolves run.environmentId to a
+  // human-readable name in the run-history table (per-environment fan-out).
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId },
+      { enabled: !!systemId },
+    );
+  const envNameById = new Map(
+    systemEnvironments.map((e) => [e.id, e.name]),
+  );
   const navigate = useNavigate();
   const accessApi = useApi(accessApiRef);
   const { allowed: canViewDetails } = accessApi.useAccess(
@@ -339,7 +353,10 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                         </button>
                       )}
                       {chartFetching && (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />
+                        <Spinner
+                          size="sm"
+                          className="text-muted-foreground ml-2"
+                        />
                       )}
                     </div>
 
@@ -453,7 +470,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   Recent Runs
                   {historyLoading && (
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <Spinner size="sm" className="h-3 w-3" />
                   )}
                 </span>
                 <div className="flex-1 h-px bg-border" />
@@ -475,12 +492,13 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     <TableRow>
                       <TableHead className="w-24">Status</TableHead>
                       <TableHead>Time</TableHead>
+                      <TableHead>Environment</TableHead>
                       <TableHead>Source</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {runs.length === 0 && !historyLoading && (
-                      <EmptyRunsTableRow colSpan={3}>
+                      <EmptyRunsTableRow colSpan={4}>
                         No runs match the{" "}
                         <span className="font-medium">{runsStatusFilter}</span>{" "}
                         filter.
@@ -517,6 +535,19 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                           {formatDistanceToNow(new Date(run.timestamp), {
                             addSuffix: true,
                           })}
+                        </TableCell>
+                        <TableCell>
+                          {run.environmentId ? (
+                            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                              <Layers className="h-3 w-3" />
+                              {envNameById.get(run.environmentId) ??
+                                run.environmentId}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              None
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {run.sourceId ? (

@@ -34,7 +34,7 @@ function fakeAutomation(): LoadedAutomation {
     mode: "single",
     max_runs: 10,
   });
-  return { id: "auto-1", name: "A", status: "enabled", definition };
+  return { id: "auto-1", name: "A", status: "enabled", definition, runAs: "app-test" };
 }
 
 function storeWith(autos: LoadedAutomation[]): AutomationStore {
@@ -58,6 +58,7 @@ function storeWith(autos: LoadedAutomation[]): AutomationStore {
             description: undefined,
             status: a.status,
             definition: a.definition,
+            runAs: a.runAs,
             managedBy: undefined,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -144,6 +145,7 @@ describe("Stage-1 routeEntityChange — fresh triggers via deriver", () => {
       name: "B",
       status: "enabled",
       definition: a2def,
+      runAs: "app-test",
     };
 
     const jobs = await routeEntityChange({

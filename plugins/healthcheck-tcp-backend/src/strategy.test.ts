@@ -161,4 +161,42 @@ describe("TcpHealthCheckStrategy", () => {
       expect(aggregated.errorCount.count).toBe(1);
     });
   });
+
+  describe("config migration (assume-v1-on-read)", () => {
+    const strategy = new TcpHealthCheckStrategy();
+
+    it("migrates a genuine v1 blob (readBanner present) to {host, port, timeout}", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        host: "example.com",
+        port: 443,
+        timeout: 5000,
+        readBanner: true,
+      });
+      expect(migrated).toEqual({ host: "example.com", port: 443, timeout: 5000 });
+    });
+
+    it("is idempotent: an already-current {host, port, timeout} blob is unchanged", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        host: "db.internal",
+        port: 5432,
+        timeout: 3000,
+      });
+      expect(migrated).toEqual({ host: "db.internal", port: 5432, timeout: 3000 });
+    });
+
+    it("passes through a v1 row that omitted readBanner (already v2-shaped)", async () => {
+      // A v1 config that never carried readBanner already matches the v2 shape,
+      // so the guard correctly treats it as a no-op passthrough.
+      const migrated = await strategy.config.parseAssumingV1({
+        host: "host.local",
+        port: 22,
+        timeout: 2000,
+      });
+      expect(migrated).toEqual({ host: "host.local", port: 22, timeout: 2000 });
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      expect(strategy.config.validateMigrationChainFromV1()).toBeUndefined();
+    });
+  });
 });

@@ -1,28 +1,53 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
 import {
   extractPluginMetadata,
   discoverLocalPlugins,
   syncPluginsToDatabase,
   type PluginMetadata,
 } from "./plugin-discovery";
+import * as realFs from "node:fs";
 import fs from "node:fs";
 import path from "node:path";
 
-// Mock filesystem for testing
+// Mock filesystem for testing.
+//
+// `mock.module("node:fs", …)` is PROCESS-GLOBAL in bun and is NOT undone by
+// `mock.restore()`, so a partial stub would leak the broken module to every
+// fs-using test that sorts after this file (e.g. the scaffold tests that call
+// `mkdtempSync`/`statSync`/`writeFileSync`). Two safeguards:
+//   1. The stub spreads the REAL module and overrides only the three functions
+//      these tests assert on — so even while active, every other fs API works.
+//   2. `afterAll` re-mocks `node:fs` back to the pristine real module, undoing
+//      the override for subsequently-loaded test files.
+// Named exports (namespace) and the default export, captured before mocking.
+const realFsModule: typeof realFs = { ...realFs };
+const realFsDefault = fs;
+
 const mockExistsSync = mock(() => true);
 const mockReadFileSync = mock(() => "{}");
 const mockReaddirSync = mock(() => []);
 
-mock.module("node:fs", () => {
+function mockFsModule() {
   const exports = {
+    ...realFsModule,
     existsSync: mockExistsSync,
     readFileSync: mockReadFileSync,
     readdirSync: mockReaddirSync,
   };
   return {
     ...exports,
-    default: exports,
+    default: { ...realFsDefault, ...exports },
   };
+}
+
+mock.module("node:fs", mockFsModule);
+
+afterAll(() => {
+  // Restore the pristine fs module so later test files don't inherit the stub.
+  mock.module("node:fs", () => ({
+    ...realFsModule,
+    default: realFsDefault,
+  }));
 });
 
 describe("extractPluginMetadata", () => {

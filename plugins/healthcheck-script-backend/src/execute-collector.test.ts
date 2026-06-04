@@ -148,6 +148,81 @@ describe("ExecuteCollector", () => {
       expect(call.env.CHECKSTACK_SYSTEM_ID).toBe("system-9");
     });
 
+    it("injects CHECKSTACK_ENV_* vars when the run carries an environment", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: { script: "echo hi", timeout: 3000 },
+        client,
+        pluginId: "test",
+        runContext: {
+          check: { id: "check-1", name: "CPU load", intervalSeconds: 60 },
+          system: { id: "system-9", name: "web-01" },
+          environment: {
+            id: "env-prod",
+            name: "production",
+            fields: { baseUrl: "https://prod.example.com", region: "eu-west-1" },
+          },
+        },
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env.CHECKSTACK_ENV_ID).toBe("env-prod");
+      expect(call.env.CHECKSTACK_ENV_NAME).toBe("production");
+      expect(call.env.CHECKSTACK_ENV_BASE_URL).toBe("https://prod.example.com");
+      expect(call.env.CHECKSTACK_ENV_REGION).toBe("eu-west-1");
+    });
+
+    it("omits CHECKSTACK_ENV_* vars when the run has no environment", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: { script: "echo hi", timeout: 3000 },
+        client,
+        pluginId: "test",
+        runContext: {
+          check: { id: "check-1", name: "CPU load", intervalSeconds: 60 },
+          system: { id: "system-9", name: "web-01" },
+        },
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env.CHECKSTACK_ENV_ID).toBeUndefined();
+      expect(call.env.CHECKSTACK_ENV_NAME).toBeUndefined();
+      expect(
+        Object.keys(call.env).some((k) => k.startsWith("CHECKSTACK_ENV_")),
+      ).toBe(false);
+    });
+
+    it("lets a user config.env key win over a CHECKSTACK_ENV_* metadata key", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient();
+
+      await collector.execute({
+        config: {
+          script: "echo hi",
+          env: { CHECKSTACK_ENV_BASE_URL: "user override" },
+          timeout: 3000,
+        },
+        client,
+        pluginId: "test",
+        runContext: {
+          check: { id: "check-1", name: "CPU load", intervalSeconds: 60 },
+          system: { id: "system-9", name: "web-01" },
+          environment: {
+            id: "env-prod",
+            name: "production",
+            fields: { baseUrl: "https://prod.example.com" },
+          },
+        },
+      });
+
+      const call = (client.exec as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(call.env.CHECKSTACK_ENV_BASE_URL).toBe("user override");
+    });
+
     it("leaves env unchanged when no runContext is supplied (back-compat)", async () => {
       const collector = new ExecuteCollector();
       const client = createMockClient();
@@ -195,6 +270,59 @@ describe("ExecuteCollector", () => {
       expect(migrated.script).toContain("-c");
       // The embedded quotes must be preserved (single-quoted form).
       expect(migrated.script).toMatch(/echo/);
+    });
+
+    it("is IDEMPOTENT: an already-{script} blob is returned unchanged (no fabricated script)", async () => {
+      const collector = new ExecuteCollector();
+      // CRITICAL safety property: the highest-risk reshape must NOT run on a
+      // blob that already has `script`. Without the guard it would shell-quote
+      // a missing `command` and fabricate `script: "undefined"`.
+      const alreadyV2 = {
+        script: "echo already-migrated",
+        cwd: "/srv",
+        env: { FOO: "bar" },
+        timeout: 4000,
+      };
+
+      const migrated = await collector.config.parseAssumingV1(alreadyV2);
+
+      expect(migrated.script).toBe("echo already-migrated");
+      expect(migrated.script).not.toContain("undefined");
+      expect(migrated.cwd).toBe("/srv");
+      expect(migrated.env).toEqual({ FOO: "bar" });
+      expect(migrated.timeout).toBe(4000);
+    });
+
+    it("does NOT fabricate a script from a blob carrying both command and script", async () => {
+      const collector = new ExecuteCollector();
+      // Defensive: presence of `script` wins even if a stray `command` lingers.
+      const mixed = {
+        command: "rm",
+        args: ["-rf", "/"],
+        script: "echo safe",
+        timeout: 3000,
+      };
+
+      const migrated = await collector.config.parseAssumingV1(mixed);
+
+      expect(migrated.script).toBe("echo safe");
+      expect(migrated.script).not.toContain("rm");
+    });
+
+    it("reshapes a genuine v1 {command} blob via assume-v1-on-read", async () => {
+      const collector = new ExecuteCollector();
+      const migrated = await collector.config.parseAssumingV1({
+        command: "echo",
+        args: ["Hello", "World"],
+        timeout: 5000,
+      });
+      expect(migrated.script).toBe("echo Hello World");
+      expect(migrated.timeout).toBe(5000);
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      const collector = new ExecuteCollector();
+      expect(collector.config.validateMigrationChainFromV1()).toBeUndefined();
     });
   });
 
@@ -360,5 +488,55 @@ describe("ExecuteCollector secret env injection + source-side masking", () => {
     });
     expect(getEnv()?.TOKEN).toBeUndefined();
     expect(result.result.stdout).toBe("no secrets");
+  });
+});
+
+describe("ExecuteCollector — global-only sandbox (no per-item override)", () => {
+  // Capture what the collector passes to the transport client.
+  const makeRecordingClient = (): {
+    client: ScriptTransportClient;
+    getInput: () => Record<string, unknown> | undefined;
+  } => {
+    let captured: Record<string, unknown> | undefined;
+    return {
+      getInput: () => captured,
+      client: {
+        exec: async (input) => {
+          captured = input as unknown as Record<string, unknown>;
+          return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+        },
+      },
+    };
+  };
+
+  it("never sends a `sandbox` field over the transport (policy is global-only)", async () => {
+    const { client, getInput } = makeRecordingClient();
+    const collector = new ExecuteCollector();
+    await collector.execute({
+      config: { script: "echo hi", timeout: 5000 },
+      client,
+      pluginId: "test",
+    });
+    expect(getInput()?.sandbox).toBeUndefined();
+  });
+
+  it("tolerates a stored stray `config.sandbox` (migration: stripped, no crash)", async () => {
+    const { client, getInput } = makeRecordingClient();
+    const collector = new ExecuteCollector();
+    // An old stored config may still carry a `sandbox` key. The schema strips
+    // unknown keys on parse; even if it reaches `execute`, the collector must
+    // ignore it and never forward it.
+    const parsed = collector.config.schema.parse({
+      script: "echo hi",
+      timeout: 5000,
+      sandbox: { network: { mode: "unrestricted" } },
+    });
+    expect((parsed as Record<string, unknown>).sandbox).toBeUndefined();
+    await collector.execute({
+      config: parsed,
+      client,
+      pluginId: "test",
+    });
+    expect(getInput()?.sandbox).toBeUndefined();
   });
 });

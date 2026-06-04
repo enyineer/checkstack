@@ -12,6 +12,7 @@ import { integrationContract } from "@checkstack/integration-common";
 
 import type { IntegrationProviderRegistry } from "./provider-registry";
 import type { ConnectionStore } from "./connection-store";
+import { buildConfigValidationErrorData } from "./connection-validation-error";
 import * as schema from "./schema";
 
 interface RouterDeps {
@@ -147,17 +148,24 @@ export function createIntegrationRouter(deps: RouterDeps) {
         });
       }
 
-      const parseResult = provider.connectionSchema.schema.safeParse(config);
+      const parseResult = provider.connectionSchema.safeValidate(config);
       if (!parseResult.success) {
+        // Attach the structured zod issues (field path + message) on the
+        // error `data` so the frontend can surface each failure INLINE on the
+        // offending connection field. The `code` discriminator lets the
+        // client distinguish this from any other structured error payload.
         throw new ORPCError("BAD_REQUEST", {
           message: `Invalid connection config: ${parseResult.error.message}`,
+          data: buildConfigValidationErrorData(parseResult.error),
         });
       }
 
-      const validatedConfig = parseResult.data as unknown as Record<
-        string,
-        unknown
-      >;
+      // `connectionSchema` is `Versioned<unknown>` once the provider leaves
+      // the registry (the per-provider `TConnection` generic is erased), so
+      // `safeValidate` yields `unknown`. The connection store stores configs
+      // as `Record<string, unknown>`; this validated value is the provider's
+      // own object config, so the narrowing cast is safe.
+      const validatedConfig = parseResult.data as Record<string, unknown>;
 
       const connection = await connectionStore.createConnection({
         providerId,

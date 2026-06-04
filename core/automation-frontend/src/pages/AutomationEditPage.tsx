@@ -57,6 +57,7 @@ import { assignDefaultTriggerIds } from "../editor/trigger-helpers";
 import { computeYamlMarkers } from "../editor/yaml-markers";
 import { partitionIssues } from "../editor/editor-validation";
 import { AutomationGroupCombobox } from "../components/AutomationGroupCombobox";
+import { RunAsServiceAccountPicker } from "../components/RunAsServiceAccountPicker";
 
 const STARTER_DEFINITION: AutomationDefinition = {
   name: "New Automation",
@@ -133,6 +134,9 @@ const AutomationEditContent: React.FC = () => {
   const [description, setDescription] = React.useState("");
   // Empty string means "Ungrouped" — sent as `null` on save to clear it.
   const [group, setGroup] = React.useState("");
+  // Service account (Application id) the automation runs as. Empty means
+  // "not chosen yet" — save is blocked until one is selected.
+  const [runAsApplicationId, setRunAsApplicationId] = React.useState("");
   const [statusEnabled, setStatusEnabled] = React.useState(true);
 
   // Existing group values for the picker's "pick existing" suggestions.
@@ -172,6 +176,7 @@ const AutomationEditContent: React.FC = () => {
       setName(a.name);
       setDescription(a.description ?? "");
       setGroup(a.group ?? "");
+      setRunAsApplicationId(a.runAs ?? "");
       setStatusEnabled(a.status === "enabled");
       setDefinition(normalized);
       setYamlText(stringifyYaml(normalized));
@@ -337,6 +342,7 @@ const AutomationEditContent: React.FC = () => {
         name,
         description: description || undefined,
         group: trimmedGroup || undefined,
+        runAs: runAsApplicationId,
         status: statusEnabled ? "enabled" : "disabled",
         definition: merged,
       });
@@ -346,6 +352,7 @@ const AutomationEditContent: React.FC = () => {
         name,
         description: description || undefined,
         group: trimmedGroup || null,
+        runAs: runAsApplicationId,
         status: statusEnabled ? "enabled" : "disabled",
         definition: merged,
       });
@@ -393,8 +400,15 @@ const AutomationEditContent: React.FC = () => {
   // "Input validation failed" toast. Validate it here so the Name field can
   // surface the error and Save can be disabled instead.
   const nameError = name.trim().length === 0 ? "Name is required" : undefined;
+  // A service account is required: the automation runs with its permissions,
+  // so the backend rejects a save without one. Block save + hint inline.
+  const runAsError =
+    runAsApplicationId.trim().length === 0
+      ? "A service account is required"
+      : undefined;
   const isSaving = createMutation.isPending || updateMutation.isPending;
-  const canSave = !nameError && validationErrors.length === 0 && !isSaving;
+  const canSave =
+    !nameError && !runAsError && validationErrors.length === 0 && !isSaving;
 
   return (
     <PageLayout
@@ -505,6 +519,12 @@ const AutomationEditContent: React.FC = () => {
                   Optional. Organises the automations list into sections.
                 </p>
               </div>
+              <RunAsServiceAccountPicker
+                value={runAsApplicationId}
+                onValueChange={setRunAsApplicationId}
+                disabled={!canManage}
+                showError={!!runAsError}
+              />
               <div className="flex items-center justify-between">
                 <Label htmlFor="enabled">Enabled</Label>
                 <Toggle

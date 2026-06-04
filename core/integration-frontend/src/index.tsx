@@ -1,14 +1,10 @@
-import {
-  createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   integrationRoutes,
   pluginMetadata,
   integrationAccess,
 } from "@checkstack/integration-common";
-import { IntegrationMenuItem } from "./components/IntegrationMenuItem";
+import { Webhook } from "lucide-react";
 
 /**
  * Integration frontend — now scoped to connection management. The
@@ -27,6 +23,11 @@ export const integrationPlugin = createFrontendPlugin({
           default: m.IntegrationsLandingPage,
         })),
       accessRule: integrationAccess.manage,
+      nav: {
+        group: "Configuration",
+        icon: Webhook,
+        label: "Integrations",
+      },
     },
     {
       route: integrationRoutes.routes.connections,
@@ -36,13 +37,6 @@ export const integrationPlugin = createFrontendPlugin({
         })),
       accessRule: integrationAccess.manage,
     },
-  ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "integration.user-menu.link",
-      component: IntegrationMenuItem,
-      metadata: { group: "Configuration" },
-    }),
   ],
 });
 

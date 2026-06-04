@@ -81,4 +81,32 @@ describe("EntityService", () => {
     await service.deleteSystem("test");
     expect(mockDb.delete).toHaveBeenCalledWith(schema.systems);
   });
+
+  it("getSystemByName returns the matching system", async () => {
+    const row = {
+      id: "s1",
+      name: "Payments",
+      description: null,
+      status: "healthy" as "healthy" | "degraded" | "unhealthy",
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    (mockDb.select as any).mockReturnValue({
+      from: mock(() => ({ where: mock(() => Promise.resolve([row])) })),
+    });
+
+    const result = await service.getSystemByName("Payments");
+    expect(result).toEqual(row);
+    expect(mockDb.select).toHaveBeenCalled();
+  });
+
+  it("getSystemByName returns undefined when the name is free", async () => {
+    (mockDb.select as any).mockReturnValue({
+      from: mock(() => ({ where: mock(() => Promise.resolve([])) })),
+    });
+
+    const result = await service.getSystemByName("Unused Name");
+    expect(result).toBeUndefined();
+  });
 });

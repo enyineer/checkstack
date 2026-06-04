@@ -1,0 +1,12 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "tests",
+    "playwright.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../test-utils-frontend"
+    }
+  ]
+}

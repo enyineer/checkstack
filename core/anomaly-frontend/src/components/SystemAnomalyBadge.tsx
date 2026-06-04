@@ -2,8 +2,8 @@ import React, { useMemo } from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
 import { AnomalyApi, type AnomalyState } from "@checkstack/anomaly-common";
-import { Badge } from "@checkstack/ui";
-import { AlertTriangle, HelpCircle } from "lucide-react";
+import { StatusBadge } from "@checkstack/ui";
+import { ChartSpline } from "lucide-react";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
 
@@ -48,24 +48,8 @@ export const SystemAnomalyBadge: React.FC<Props> = ({ system }) => {
   if (!systemState) return <></>;
 
   if (systemState === "anomaly") {
-    return (
-      <Badge
-        variant="warning"
-        className="flex items-center gap-1 shrink-0 cursor-default"
-      >
-        <AlertTriangle className="h-3 w-3" />
-        Anomaly
-      </Badge>
-    );
+    return <StatusBadge tone="warn" icon={ChartSpline} label="Anomaly detected" />;
   }
 
-  return (
-    <Badge
-      variant="outline"
-      className="flex items-center gap-1 shrink-0 cursor-default border-warning/50 text-warning"
-    >
-      <HelpCircle className="h-3 w-3" />
-      Suspicious
-    </Badge>
-  );
+  return <StatusBadge tone="info" icon={ChartSpline} label="Suspicious behaviour" />;
 };

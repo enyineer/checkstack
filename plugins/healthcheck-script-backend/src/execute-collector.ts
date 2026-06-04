@@ -26,6 +26,11 @@ import {
   secretEnvMappingSchema,
   maskScriptRunOutput,
 } from "@checkstack/secrets-common";
+import {
+  CHECKSTACK_ENV_ID,
+  CHECKSTACK_ENV_NAME,
+  buildEnvironmentShellEnv,
+} from "./shell-env";
 
 // ============================================================================
 // RUN-CONTEXT ENV INJECTION
@@ -44,7 +49,9 @@ const CHECKSTACK_SYSTEM_NAME = "CHECKSTACK_SYSTEM_NAME";
 
 /**
  * Map curated run-context metadata to the reserved `CHECKSTACK_*` env
- * vars exposed to the shell script.
+ * vars exposed to the shell script. When the run carries a resolved
+ * environment (post-fan-out), its id, name, and each custom field are
+ * additionally exposed as `CHECKSTACK_ENV_*` vars.
  */
 function runContextEnv(ctx: CollectorRunContext): Record<string, string> {
   return {
@@ -53,19 +60,61 @@ function runContextEnv(ctx: CollectorRunContext): Record<string, string> {
     [CHECKSTACK_CHECK_INTERVAL_SECONDS]: String(ctx.check.intervalSeconds),
     [CHECKSTACK_SYSTEM_ID]: ctx.system.id,
     [CHECKSTACK_SYSTEM_NAME]: ctx.system.name,
+    ...(ctx.environment
+      ? {
+          [CHECKSTACK_ENV_ID]: ctx.environment.id,
+          [CHECKSTACK_ENV_NAME]: ctx.environment.name,
+          ...buildEnvironmentShellEnv(ctx.environment.fields),
+        }
+      : {}),
   };
 }
 
 // ============================================================================
-// LEGACY CONFIG (v1) — kept for migration
+// LEGACY CONFIG (v1) — migration narrowing helpers
 // ============================================================================
+//
+// The migrate input is `unknown` per the versioning chain, so narrowing is
+// done with `typeof`/`in` guards (no casts).
 
-interface ExecuteConfigV1 {
-  command: string;
-  args: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  timeout: number;
+/** Type guard: the migrate input is a plain object whose keys can be probed. */
+function isRecord(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object" && data !== null;
+}
+
+/** Read the v1 `command` string from a config blob. */
+function readCommand(data: Record<string, unknown>): string {
+  return typeof data.command === "string" ? data.command : "";
+}
+
+/** Read the v1 `args` string[] from a config blob (missing => empty). */
+function readArgs(data: Record<string, unknown>): string[] {
+  const value = data.args;
+  return Array.isArray(value)
+    ? value.filter((arg): arg is string => typeof arg === "string")
+    : [];
+}
+
+/** Read an optional `cwd` string from a config blob. */
+function readCwd(data: Record<string, unknown>): string | undefined {
+  return typeof data.cwd === "string" ? data.cwd : undefined;
+}
+
+/** Read an optional `env` string->string record from a config blob. */
+function readEnv(
+  data: Record<string, unknown>,
+): Record<string, string> | undefined {
+  const value = data.env;
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  return Object.fromEntries(entries);
+}
+
+/** Read a numeric `timeout` field from a config blob (default 30s). */
+function readTimeout(data: Record<string, unknown>): number {
+  return typeof data.timeout === "number" ? data.timeout : 30_000;
 }
 
 /**
@@ -230,16 +279,23 @@ export class ExecuteCollector implements CollectorStrategy<
         toVersion: 2,
         description:
           "Collapse {command, args} into a single shell script executed via `sh -c`",
-        migrate: (data: ExecuteConfigV1): ExecuteConfig => {
-          const parts = [data.command, ...(data.args ?? [])].map((arg) =>
-            shellQuote(arg),
-          );
-          return {
-            script: parts.join(" "),
-            cwd: data.cwd,
-            env: data.env,
-            timeout: data.timeout,
-          };
+        // IDEMPOTENT + HIGHEST RISK: only reshape a genuine v1 blob — one that
+        // has `command` but NO `script`. An already-v2 blob carries `script`,
+        // so this guard prevents fabricating `script: "undefined"` from it by
+        // shell-quoting a missing `command`. Already-v2 data passes through.
+        migrate: (data: unknown): unknown => {
+          if (isRecord(data) && "command" in data && !("script" in data)) {
+            const parts = [readCommand(data), ...readArgs(data)].map((arg) =>
+              shellQuote(arg),
+            );
+            return {
+              script: parts.join(" "),
+              cwd: readCwd(data),
+              env: readEnv(data),
+              timeout: readTimeout(data),
+            };
+          }
+          return data;
         },
       },
     ],
@@ -274,6 +330,9 @@ export class ExecuteCollector implements CollectorStrategy<
       ...secretEnv,
     };
 
+    // The OS-level sandbox is GLOBAL-only and resolved by the runner itself
+    // (durable cluster default on the core pod, or fail-closed). No per-item
+    // override is sent through the transport.
     const response = await client.exec({
       script: config.script,
       cwd: config.cwd,

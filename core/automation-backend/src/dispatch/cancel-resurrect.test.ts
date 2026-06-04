@@ -23,7 +23,7 @@ function automation(actions: unknown[], mode = "single"): LoadedAutomation {
     mode,
     max_runs: 10,
   });
-  return { id: "auto-1", name: "Cancel test", status: "enabled", definition };
+  return { id: "auto-1", name: "Cancel test", status: "enabled", definition, runAs: "app-test" };
 }
 
 function storeFor(auto: LoadedAutomation): AutomationStore {
@@ -46,6 +46,7 @@ function storeFor(auto: LoadedAutomation): AutomationStore {
             description: undefined,
             status: auto.status,
             definition: auto.definition,
+            runAs: auto.runAs,
             managedBy: undefined,
             createdAt: new Date(),
             updatedAt: new Date(),

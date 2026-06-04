@@ -8,7 +8,7 @@
  * maintenance id and `apply` returns the §10.2 entity shape.
  */
 import { describe, expect, it, mock } from "bun:test";
-import type { Logger } from "@checkstack/backend-api";
+import type { Logger, RpcClient } from "@checkstack/backend-api";
 import type {
   EntityHandle,
   EntityMutationOpts,
@@ -32,6 +32,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 interface RecordedMutate {

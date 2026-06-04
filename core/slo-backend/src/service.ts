@@ -1,6 +1,7 @@
-import { eq, and, isNull, desc, gte, lte } from "drizzle-orm";
+import { eq, and, isNull, desc, gte, lte, or } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
+import { aggregateWindowedDowntime } from "./downtime-window";
 import {
   sloObjectives,
   sloDowntimeEvents,
@@ -306,10 +307,19 @@ export class SloService {
     objectiveId,
     windowStart,
     windowEnd,
+    includeOpen,
   }: {
     objectiveId: string;
     windowStart: Date;
     windowEnd: Date;
+    /**
+     * Whether to count still-open events as ongoing downtime (clamped to `now`).
+     * The caller decides this from the system's LIVE health: an open event is
+     * only real ongoing downtime if the system is currently down. When false,
+     * only closed intervals are counted, so a stale/orphaned open event (a
+     * missed-recovery row) has zero effect on the budget.
+     */
+    includeOpen: boolean;
   }): Promise<{
     totalMinutes: number;
     selfMinutes: number;
@@ -321,71 +331,53 @@ export class SloService {
       totalMinutes: number;
     }>;
   }> {
-    // Get closed events within the window
-    const closedEvents = await this.db
-      .select()
-      .from(sloDowntimeEvents)
-      .where(
-        and(
-          eq(sloDowntimeEvents.objectiveId, objectiveId),
-          gte(sloDowntimeEvents.startTime, windowStart),
-          lte(sloDowntimeEvents.startTime, windowEnd),
-        ),
-      );
-
-    // Also include open events (use current time as endTime for running duration)
+    // Closed intervals that OVERLAP the window: started on/before the window end
+    // AND ended on/after the window start. (`endTime >= windowStart` excludes
+    // NULL end times, i.e. open events, in SQL.) An ongoing outage that began
+    // before `windowStart` still consumes its in-window portion - it is not
+    // dropped just because it started earlier.
     const now = new Date();
-    let totalSeconds = 0;
-    let selfSeconds = 0;
-    let upstreamSeconds = 0;
-    const bySource = new Map<
-      string,
-      {
-        attributionType: string;
-        upstreamSystemId: string | null;
-        upstreamSystemName: string | null;
-        totalSeconds: number;
-      }
-    >();
+    const startBound = lte(sloDowntimeEvents.startTime, windowEnd);
+    const closedOverlap = gte(sloDowntimeEvents.endTime, windowStart);
+    const where = includeOpen
+      ? and(
+          eq(sloDowntimeEvents.objectiveId, objectiveId),
+          startBound,
+          or(closedOverlap, isNull(sloDowntimeEvents.endTime)),
+        )
+      : and(
+          eq(sloDowntimeEvents.objectiveId, objectiveId),
+          startBound,
+          closedOverlap,
+        );
 
-    for (const event of closedEvents) {
-      const duration =
-        event.durationSeconds ??
-        (((event.endTime ?? now).getTime() - event.startTime.getTime()) / 1000);
+    const events = await this.db.select().from(sloDowntimeEvents).where(where);
 
-      totalSeconds += duration;
-      if (event.attributionType === "self") {
-        selfSeconds += duration;
-      } else {
-        upstreamSeconds += duration;
-      }
-
-      const key =
-        event.attributionType === "self"
-          ? "self"
-          : `upstream:${event.upstreamSystemId}`;
-      const existing = bySource.get(key);
-      if (existing) {
-        existing.totalSeconds += duration;
-      } else {
-        bySource.set(key, {
-          attributionType: event.attributionType,
-          upstreamSystemId: event.upstreamSystemId,
-          upstreamSystemName: event.upstreamSystemName,
-          totalSeconds: duration,
-        });
-      }
-    }
-
-    return {
-      totalMinutes: totalSeconds / 60,
-      selfMinutes: selfSeconds / 60,
-      upstreamMinutes: upstreamSeconds / 60,
-      entries: [...bySource.values()].map((e) => ({
-        ...e,
-        totalMinutes: e.totalSeconds / 60,
+    // Clamp each event to the window (open events run to `now`) and aggregate.
+    return aggregateWindowedDowntime({
+      events: events.map((event) => ({
+        startTime: event.startTime,
+        endTime: event.endTime,
+        attributionType: event.attributionType,
+        upstreamSystemId: event.upstreamSystemId,
+        upstreamSystemName: event.upstreamSystemName,
       })),
-    };
+      windowStart,
+      windowEnd,
+      now,
+    });
+  }
+
+  /**
+   * Hard-delete a downtime event. Used to VOID a missed-recovery orphan: an
+   * open event on a system that is currently healthy, whose true recovery time
+   * was never recorded. We do not know the real downtime, the system is healthy,
+   * so the unprovable row is removed rather than counted.
+   */
+  async deleteDowntimeEvent({ id }: { id: string }): Promise<void> {
+    await this.db
+      .delete(sloDowntimeEvents)
+      .where(eq(sloDowntimeEvents.id, id));
   }
 
   async getRecentDowntimeEvents({

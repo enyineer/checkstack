@@ -51,7 +51,7 @@ describe("buildAutomationSpecSchemaDocumentation", () => {
     actionRegistry = createActionRegistry();
   });
 
-  it("emits triggers[].config docs only for triggers with a configSchema", () => {
+  it("emits triggers[].config docs only for triggers with a versioned config", () => {
     // Setup-backed trigger WITH config schema.
     triggerRegistry.register(
       {
@@ -59,7 +59,10 @@ describe("buildAutomationSpecSchemaDocumentation", () => {
         displayName: "Cron",
         description: "Runs on a cron schedule.",
         payloadSchema: z.object({ scheduledAt: z.string() }),
-        configSchema: z.object({ pattern: z.string() }),
+        config: new Versioned({
+          version: 1,
+          schema: z.object({ pattern: z.string() }),
+        }),
         setup: async () => async () => {},
       },
       testPlugin,
@@ -91,7 +94,7 @@ describe("buildAutomationSpecSchemaDocumentation", () => {
     expect(cron?.description).toContain("ID: test-plugin.time.cron");
     expect(cron?.description).toContain("Runs on a cron schedule.");
     expect(cron?.schema).toBe(
-      triggerRegistry.getTrigger("test-plugin.time.cron")!.configSchema!,
+      triggerRegistry.getTrigger("test-plugin.time.cron")!.config!.schema,
     );
     // No conditions: the trigger config is a standalone variant the kind
     // browser surfaces directly (mirrors Healthcheck's primary `config`).

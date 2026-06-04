@@ -18,13 +18,10 @@ node_modules
 dist/
 **/dist/
 
-# Documentation (not needed for runtime)
-docs/
-# Exception: docs/package.json must reach the build context so Bun's
-# workspace resolver doesn't fail with "Workspace not found 'docs'".
-# Astro / Starlight live in devDependencies, so --production installs
-# nothing extra from this manifest.
-!docs/package.json
+# Documentation: the SOURCE is required at build time - the image builds the
+# Astro Starlight site to docs/dist and serves it in-app at /checkstack/*. The
+# docs source is re-included at the bottom of this file (after the global *.md /
+# **/dist/ / assets/ rules) so its .md/.mdx content is not stripped.
 assets/
 *.md
 !README.md
@@ -36,3 +33,11 @@ assets/
 
 # Local state
 data/
+
+# Docs (Astro Starlight) source IS needed to build docs/dist (served at
+# /checkstack/*). Re-include it AFTER the global *.md / **/dist/ / assets/
+# rules above, then drop only its build output and local deps. Without this the
+# in-app user guide 404s (docs/dist builds empty from an empty source tree).
+!docs/**
+docs/dist/
+docs/node_modules/

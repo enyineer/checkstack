@@ -4,6 +4,12 @@ import {
 } from "@checkstack/backend-api";
 import { coreServices } from "@checkstack/backend-api";
 import {
+  aiToolExtensionPoint,
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import { buildCatalogAiTools } from "./ai/register-ai-tools";
+import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
   automationTriggerExtensionPoint,
@@ -289,6 +295,109 @@ export default createBackendPlugin({
       },
     });
 
+    // Register kind: Environment (mirror "Group")
+    kindRegistry.registerKind({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "Environment",
+      // Free-form custom fields. `z.record` keeps GitOps in step with the
+      // free-form metadata decision (v1): fields surface in templating verbatim.
+      specSchema: z.object({
+        fields: z.record(z.string(), z.unknown()).optional(),
+      }),
+      reconcile: async ({ entity, existingEntityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        const entityService = new EntityService(gitopsDb);
+        const displayName = entity.metadata.title ?? entity.metadata.name;
+        const description = entity.metadata.description;
+        const metadata = entity.spec.fields ?? {};
+
+        if (existingEntityId) {
+          await entityService.updateEnvironment(existingEntityId, {
+            name: displayName,
+            description,
+            metadata,
+          });
+          context.logger.info(
+            `GitOps: updated Environment "${displayName}" (id: ${existingEntityId})`,
+          );
+          return { entityId: existingEntityId };
+        }
+
+        const environment = await entityService.createEnvironment({
+          name: displayName,
+          description,
+          metadata,
+        });
+        context.logger.info(
+          `GitOps: created Environment "${displayName}" (id: ${environment.id})`,
+        );
+        return { entityId: environment.id };
+      },
+      delete: async ({ entityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        if (!entityId) return;
+        const entityService = new EntityService(gitopsDb);
+        await entityService.deleteEnvironment(entityId);
+        context.logger.info(`GitOps: deleted Environment (id: ${entityId})`);
+      },
+    });
+
+    // Register kind extension: System -> environments (mirror System -> groups)
+    kindRegistry.registerKindExtension({
+      apiVersion: CHECKSTACK_API_VERSION,
+      kind: "System",
+      namespace: "environments",
+      specSchema: z.array(entityRefSchema).optional(),
+      reconcile: async ({ entity, extensionSpec, entityId, context }) => {
+        if (!gitopsDb) throw new Error("Catalog database not initialized");
+        if (!extensionSpec || extensionSpec.length === 0) return;
+
+        const entityService = new EntityService(gitopsDb);
+        const systemEntityId = entityId;
+
+        const desiredEnvironmentIds = new Set<string>();
+
+        for (const entry of extensionSpec) {
+          const environmentId = await context.resolveEntityRef({
+            kind: entry.kind,
+            entityName: entry.name,
+          });
+
+          if (!environmentId) {
+            throw new Error(
+              `Cannot resolve ${entry.kind} ref "${entry.name}" — ensure the entity exists`,
+            );
+          }
+
+          desiredEnvironmentIds.add(environmentId);
+
+          await entityService.addSystemToEnvironment({
+            environmentId,
+            systemId: systemEntityId,
+          });
+
+          context.logger.info(
+            `GitOps: associated System "${entity.metadata.name}" with Environment "${entry.name}" (${environmentId})`,
+          );
+        }
+
+        // Remove stale associations not in the spec
+        const currentAssociations =
+          await entityService.getEnvironmentsForSystem(systemEntityId);
+        for (const existing of currentAssociations) {
+          if (!desiredEnvironmentIds.has(existing.environmentId)) {
+            await entityService.removeSystemFromEnvironment({
+              environmentId: existing.environmentId,
+              systemId: systemEntityId,
+            });
+            context.logger.info(
+              `GitOps: removed stale association ${existing.environmentId} from System "${entity.metadata.name}"`,
+            );
+          }
+        }
+      },
+    });
+
     env.registerInit({
       schema,
       deps: {
@@ -330,6 +439,46 @@ export default createBackendPlugin({
           getGroupEntity: () => groupEntity,
         });
         rpc.registerRouter(catalogRouter, catalogContract);
+
+        // Register this plugin's AI tools (system + group + membership) into
+        // the AI registry via the extension point - owned here, not in
+        // ai-backend. The tools go through the USER-SCOPED client passed at
+        // call time, so handler-side authorization is enforced exactly as a
+        // direct UI/RPC call.
+        const aiToolExt = env.getExtensionPoint(aiToolExtensionPoint);
+        for (const tool of buildCatalogAiTools()) {
+          aiToolExt.registerTool(tool, pluginMetadata);
+        }
+
+        // Expose this plugin's OWN read-only AI projections of the existing
+        // `getSystems` / `getGroups` queries via aiToolProjectionExtensionPoint
+        // - owned here, not in ai-backend. The projected read tools are routed
+        // by the transport (MCP / chat) AS the principal, so the procedures'
+        // own contract access rules gate them; `deferredProjectionExecute` is
+        // the fail-closed net if a transport ever forgot to route.
+        const aiProjectionExt = env.getExtensionPoint(
+          aiToolProjectionExtensionPoint,
+        );
+        aiProjectionExt.expose({
+          procedure: catalogContract.getSystems,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getSystems",
+          name: "catalog.listSystems",
+          description:
+            "List all systems (services/resources) with their ids and names. Read-only. Use this to resolve a system name to its id.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+        aiProjectionExt.expose({
+          procedure: catalogContract.getGroups,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getGroups",
+          name: "catalog.listGroups",
+          description:
+            "List all system groups with ids and names. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
 
         // Register catalog systems as searchable in the command palette
         registerSearchProvider({

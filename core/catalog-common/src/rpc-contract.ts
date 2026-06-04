@@ -8,6 +8,9 @@ import {
   SystemContactSchema,
   ContactTypeSchema,
   SystemLinkSchema,
+  EnvironmentSchema,
+  CreateEnvironmentSchema,
+  UpdateEnvironmentSchema,
 } from "./types";
 import { catalogAccess } from "./access";
 
@@ -268,6 +271,89 @@ export const catalogContract = {
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
+  // ENVIRONMENT MANAGEMENT
+  // Instance-wide catalog primitive: free-form custom fields, M:N with systems.
+  // ==========================================================================
+
+  listEnvironments: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+  }).output(z.array(EnvironmentSchema)),
+
+  getEnvironment: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+  })
+    .input(z.object({ environmentId: z.string() }))
+    .output(EnvironmentSchema.nullable()),
+
+  createEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .input(CreateEnvironmentSchema)
+    .output(EnvironmentSchema),
+
+  updateEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .route({ method: "PATCH" })
+    .input(
+      z.object({
+        environmentId: z.string(),
+        data: UpdateEnvironmentSchema,
+      }),
+    )
+    .output(EnvironmentSchema),
+
+  deleteEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .route({ method: "DELETE" })
+    .input(z.object({ environmentId: z.string() }))
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Desired-set assignment of a system's environments. Diffs the supplied
+   * set against current membership: adds missing links, prunes stale ones
+   * (mirrors the GitOps System->environments reconcile).
+   */
+  setSystemEnvironments: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        environmentIds: z.array(z.string()),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Returns the environments a system currently belongs to (with custom
+   * fields). Used by host plugins to render the per-system environment
+   * picker. Server-side join — no client-side filtering needed.
+   */
+  getSystemEnvironments: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(EnvironmentSchema)),
+
+  // ==========================================================================
   // VIEW MANAGEMENT (userType: "user")
   // ==========================================================================
 
@@ -301,6 +387,32 @@ export const catalogContract = {
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ groupIds: z.array(z.string()) })),
+
+  /**
+   * Service-grade read of a system's current environments (id + name +
+   * custom fields). Called by the healthcheck plugin at run time to resolve
+   * the effective fan-out set. Backend-to-backend only.
+   */
+  resolveSystemEnvironments: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(EnvironmentSchema)),
+
+  /**
+   * Service-grade resolve of an explicit set of environment ids (the
+   * explicit-subset fan-out case). Unknown ids are silently dropped.
+   * Backend-to-backend only.
+   */
+  resolveEnvironments: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ environmentIds: z.array(z.string()) }))
+    .output(z.array(EnvironmentSchema)),
 };
 
 // Export contract type

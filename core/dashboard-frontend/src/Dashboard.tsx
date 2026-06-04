@@ -1,38 +1,23 @@
-import React, { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  useApi,
-  usePluginClient,
-  ExtensionSlot,
-} from "@checkstack/frontend-api";
+import React, { useCallback, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { usePluginClient, ExtensionSlot } from "@checkstack/frontend-api";
 import {
   CatalogApi,
   catalogRoutes,
-  SystemStateBadgesSlot,
-  System,
-  Group,
-  catalogGroupTarget,
+  SystemSignalsSlot,
+  type SystemSignalsMap,
+  type SystemSignalTone,
 } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
 import { TipBanner } from "@checkstack/tips-frontend";
 import { pluginMetadata as dashboardTipMetadata } from "./pluginMetadata";
-import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
-import { IncidentApi } from "@checkstack/incident-common";
-import { MaintenanceApi } from "@checkstack/maintenance-common";
-import { AnomalyApi } from "@checkstack/anomaly-common";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   SectionHeader,
-  StatusCard,
   EmptyState,
   Button,
   LoadingSpinner,
-  AnimatedCounter,
   TerminalFeed,
   type TerminalEntry,
   usePerformance,
@@ -42,25 +27,22 @@ import {
   LayoutGrid,
   Server,
   Activity,
-  ChevronRight,
-  AlertTriangle,
-  Wrench,
   Terminal,
-  ActivitySquare,
   Lightbulb,
+  ArrowRight,
 } from "lucide-react";
-import { authApiRef } from "@checkstack/auth-frontend/api";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
-import { SystemBadgeDataProvider } from "./components/SystemBadgeDataProvider";
-import { IncidentOverviewSheet } from "./components/IncidentOverviewSheet";
-import { MaintenanceOverviewSheet } from "./components/MaintenanceOverviewSheet";
-import { AnomalyOverviewSheet } from "./components/AnomalyOverviewSheet";
+import { FleetHealthHeader } from "./components/FleetHealthHeader";
+import { ProblemSystemCard } from "./components/ProblemSystemCard";
+import { DashboardAllClear } from "./components/DashboardAllClear";
+import {
+  buildProblemSystems,
+  countByTone,
+  mergeSignalsBySystem,
+  type SignalsBySource,
+} from "./logic/systemSignals";
 
 const MAX_TERMINAL_ENTRIES = 8;
-
-interface GroupWithSystems extends Group {
-  systems: System[];
-}
 
 const statusToVariant = (
   status: string,
@@ -84,103 +66,59 @@ const statusToVariant = (
 export const Dashboard: React.FC = () => {
   const { isLowPower } = usePerformance();
   const catalogClient = usePluginClient(CatalogApi);
-  const incidentClient = usePluginClient(IncidentApi);
-  const maintenanceClient = usePluginClient(MaintenanceApi);
-  const anomalyClient = usePluginClient(AnomalyApi);
-
   const navigate = useNavigate();
-  const authApi = useApi(authApiRef);
-  const { data: session } = authApi.useSession();
 
-  // Terminal feed entries from real healthcheck signals
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
+  const [activeTone, setActiveTone] = useState<SystemSignalTone | null>(null);
 
-  const [isIncidentSheetOpen, setIncidentSheetOpen] = useState(false);
-  const [isMaintenanceSheetOpen, setMaintenanceSheetOpen] = useState(false);
-  const [isAnomalySheetOpen, setAnomalySheetOpen] = useState(false);
+  // ----------------------------------------------------------------------- //
+  // DATA
+  // ----------------------------------------------------------------------- //
 
-  // -------------------------------------------------------------------------
-  // DATA QUERIES
-  // -------------------------------------------------------------------------
-
-  // Fetch entities from catalog (groups and systems in one call)
   const { data: entitiesData, isLoading: entitiesLoading } =
     catalogClient.getEntities.useQuery({}, { staleTime: 30_000 });
-  const systems = entitiesData?.systems ?? [];
 
-  // Fetch active incidents
-  const { data: incidentsData, isLoading: incidentsLoading } =
-    incidentClient.listIncidents.useQuery(
-      { includeResolved: false },
-      { staleTime: 30_000 },
-    );
-  const incidents = incidentsData?.incidents ?? [];
+  const systems = useMemo(() => entitiesData?.systems ?? [], [entitiesData]);
+  // Stable across renders (derives from the query's stable data ref) so the
+  // signal fillers don't re-report in a loop.
+  const systemIds = useMemo(() => systems.map((s) => s.id), [systems]);
+  const systemMap = useMemo(
+    () => new Map(systems.map((s) => [s.id, s])),
+    [systems],
+  );
 
-  // Fetch active maintenances
-  const { data: inProgressMaintenancesData, isLoading: inProgressLoading } =
-    maintenanceClient.listMaintenances.useQuery(
-      { status: "in_progress" },
-      { staleTime: 30_000 },
-    );
+  // ----------------------------------------------------------------------- //
+  // SIGNAL AGGREGATION (extensible: any plugin fills SystemSignalsSlot)
+  // ----------------------------------------------------------------------- //
 
-  // Fetch scheduled maintenances
-  const { data: scheduledMaintenancesData, isLoading: scheduledLoading } =
-    maintenanceClient.listMaintenances.useQuery(
-      { status: "scheduled" },
-      { staleTime: 30_000 },
-    );
+  const [signalsBySource, setSignalsBySource] = useState<SignalsBySource>({});
 
-  const maintenances = useMemo(() => {
-    return [
-      ...(inProgressMaintenancesData?.maintenances ?? []),
-      ...(scheduledMaintenancesData?.maintenances ?? []),
-    ].toSorted(
-      (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
-    );
-  }, [inProgressMaintenancesData, scheduledMaintenancesData]);
+  const handleSignals = useCallback(
+    (sourceId: string, signals: SystemSignalsMap) => {
+      setSignalsBySource((prev) =>
+        prev[sourceId] === signals ? prev : { ...prev, [sourceId]: signals },
+      );
+    },
+    [],
+  );
 
-  const maintenancesLoading = inProgressLoading || scheduledLoading;
+  const problems = useMemo(
+    () => buildProblemSystems(mergeSignalsBySystem(signalsBySource)),
+    [signalsBySource],
+  );
+  const counts = useMemo(() => countByTone(problems), [problems]);
 
-  // Fetch active anomalies
-  const { data: anomalies = [], isLoading: anomaliesLoading } =
-    anomalyClient.getAnomalies.useQuery(
-      { limit: 100, state: "anomaly" },
-      { staleTime: 30_000 },
-    );
+  const visibleProblems = useMemo(
+    () =>
+      activeTone
+        ? problems.filter((p) => p.worstTone === activeTone)
+        : problems,
+    [problems, activeTone],
+  );
 
-  // Combined loading state
-  const loading =
-    entitiesLoading ||
-    incidentsLoading ||
-    maintenancesLoading ||
-    anomaliesLoading;
-
-  // -------------------------------------------------------------------------
-  // COMPUTED DATA
-  // -------------------------------------------------------------------------
-
-  // Derived statistics
-  const systemsCount = systems.length;
-  const activeIncidentsCount = incidents.length;
-  const activeMaintenancesCount = maintenances.length;
-  const activeAnomaliesCount = anomalies.length;
-
-  // Map groups to include their systems
-  const groupsWithSystems = useMemo<GroupWithSystems[]>(() => {
-    const groups = entitiesData?.groups ?? [];
-    const systems = entitiesData?.systems ?? [];
-    const systemMap = new Map(systems.map((s) => [s.id, s]));
-    return groups.map((group) => {
-      const groupSystems = (group.systemIds || [])
-        .map((id) => systemMap.get(id))
-        .filter((s): s is System => s !== undefined);
-      return { ...group, systems: groupSystems };
-    });
-  }, [entitiesData]);
-
-  // -------------------------------------------------------------------------
-  // SIGNAL HANDLERS
-  // -------------------------------------------------------------------------
+  // ----------------------------------------------------------------------- //
+  // SIGNALS
+  // ----------------------------------------------------------------------- //
 
   useSignal(
     HEALTH_CHECK_RUN_COMPLETED,
@@ -192,43 +130,40 @@ export const Dashboard: React.FC = () => {
         variant: statusToVariant(status),
         suffix: latencyMs === undefined ? undefined : `${latencyMs}ms`,
       };
-
       setTerminalEntries((prev) =>
         [newEntry, ...prev].slice(0, MAX_TERMINAL_ENTRIES),
       );
     },
   );
 
-  // -------------------------------------------------------------------------
-  // HANDLERS
-  // -------------------------------------------------------------------------
+  const systemsCount = systems.length;
+  const healthyCount = Math.max(systemsCount - problems.length, 0);
+  const catalogHref = resolveRoute(catalogRoutes.routes.home);
 
-  const handleSystemClick = (systemId: string) => {
-    navigate(resolveRoute(catalogRoutes.routes.systemDetail, { systemId }));
-  };
-
-  // -------------------------------------------------------------------------
+  // ----------------------------------------------------------------------- //
   // RENDER
-  // -------------------------------------------------------------------------
+  // ----------------------------------------------------------------------- //
 
-  const renderGroupsContent = () => {
-    if (loading) {
+  const renderOverview = () => {
+    if (entitiesLoading) {
       return <LoadingSpinner />;
     }
 
-    if (groupsWithSystems.length === 0) {
+    if (systemsCount === 0) {
       return (
         <EmptyState
           icon={<Server className="w-12 h-12" />}
           title="Nothing to show on the dashboard yet"
-          description="Once you have systems organised into groups, this is where you'll see their rolled-up health, on a per-team or per-product basis."
+          description="Add the systems you want to monitor and attach health checks. Anything that needs attention will surface here automatically."
           steps={[
             "Open the Catalog and add the systems you want to monitor.",
             "Group related systems together (e.g. one group per team).",
-            "Attach health checks to each system so the dashboard turns green when things are working — and red when they aren't.",
+            "Attach health checks so the dashboard surfaces issues the moment they appear.",
           ]}
           actions={
-            <Button onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}>
+            <Button
+              onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}
+            >
               <LayoutGrid className="w-4 h-4 mr-2" />
               Open Catalog
             </Button>
@@ -237,271 +172,130 @@ export const Dashboard: React.FC = () => {
       );
     }
 
-    // Collect all system IDs for bulk data fetching
-    const allSystemIds = groupsWithSystems.flatMap((g) =>
-      g.systems.map((s) => s.id),
-    );
-
     return (
-      <SystemBadgeDataProvider systemIds={allSystemIds}>
-        <div className="space-y-4">
-          {groupsWithSystems.map((group) => (
-            <Card
-              key={group.id}
-              className={cn(
-                "border-border shadow-sm",
-                !isLowPower && "hover:shadow-md transition-shadow",
-              )}
-            >
-              <CardHeader className="border-b border-border bg-muted/30">
-                <div className="flex items-center gap-2">
-                  <LayoutGrid className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg font-semibold text-foreground">
-                    {group.name}
-                  </CardTitle>
-                  <span className="ml-auto text-sm text-muted-foreground mr-2">
-                    {group.systems.length}{" "}
-                    {group.systems.length === 1 ? "system" : "systems"}
-                  </span>
-                  {session && (
-                    <NotificationSubscriptionsManager
-                      target={catalogGroupTarget}
-                      resource={{
-                        groupId: group.id,
-                        groupName: group.name,
-                      }}
-                    />
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {group.systems.length === 0 ? (
-                  <div className="py-8 text-center">
-                    <p className="text-sm text-muted-foreground">
-                      No systems in this group yet
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col divide-y divide-border">
-                    {group.systems.map((system) => (
-                      <button
-                        key={system.id}
-                        onClick={() => handleSystemClick(system.id)}
-                        className="flex items-center gap-4 px-4 py-3 bg-card hover:bg-muted/50 transition-colors text-left w-full group"
-                      >
-                        <div className="flex items-center gap-3 min-w-32 flex-shrink-0">
-                          <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {system.name}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap flex-1 justify-end min-w-0">
-                          <ExtensionSlot
-                            slot={SystemStateBadgesSlot}
-                            context={{ system }}
-                          />
-                        </div>
-                        <ChevronRight
-                          className={cn(
-                            "h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 flex-shrink-0 ml-2",
-                            !isLowPower && "transition-opacity",
-                          )}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </SystemBadgeDataProvider>
+      <div className="space-y-4">
+        <FleetHealthHeader
+          systemsCount={systemsCount}
+          problemsCount={problems.length}
+          counts={counts}
+          healthyCount={healthyCount}
+          activeTone={activeTone}
+          onToneSelect={setActiveTone}
+          isLowPower={isLowPower}
+        />
+        {problems.length === 0 ? (
+          <DashboardAllClear
+            systemsCount={systemsCount}
+            isLowPower={isLowPower}
+          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {visibleProblems.map((problem) => {
+              const system = systemMap.get(problem.systemId);
+              if (!system) return null;
+              return (
+                <ProblemSystemCard
+                  key={problem.systemId}
+                  system={system}
+                  problem={problem}
+                  isLowPower={isLowPower}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
     );
   };
 
   return (
-    <>
-      <div
-        className={cn(
-          "space-y-8",
-          !isLowPower && "animate-in fade-in duration-500",
-        )}
-      >
-        {/* Queue Lag Warning */}
-        <QueueLagAlert />
+    <div
+      className={cn(
+        "space-y-8",
+        !isLowPower && "animate-in fade-in duration-500",
+      )}
+    >
+      <QueueLagAlert />
 
-        {/* First-run welcome */}
-        <TipBanner
-          plugin={dashboardTipMetadata}
-          id="welcome"
-          title="Welcome to Checkstack"
-          description={
-            <>
-              This is your dashboard — overall health, recent activity, and
-              ongoing maintenances at a glance. To bring it to life, start
-              by adding a system in the <strong>Catalog</strong>, then
-              attach a health check to it.
-            </>
-          }
-          action={{
-            label: "Open Catalog",
-            onClick: () => navigate(resolveRoute(catalogRoutes.routes.config)),
-          }}
-          actionHint={
-            <span className="inline-flex items-center gap-1.5">
-              <Lightbulb
-                className="size-3.5 shrink-0 text-amber-500"
-                aria-hidden="true"
-              />
-              See a small lightbulb next to a button or control? Click it
-              for a short explanation of what that feature does.
+      <TipBanner
+        plugin={dashboardTipMetadata}
+        id="welcome"
+        title="Welcome to Checkstack"
+        description={
+          <>
+            This is your dashboard. It surfaces only the systems that need
+            attention right now - everything healthy stays out of your way. To
+            bring it to life, add a system in the <strong>Catalog</strong>, then
+            attach a health check to it.
+          </>
+        }
+        action={{
+          label: "Open Catalog",
+          onClick: () => navigate(resolveRoute(catalogRoutes.routes.config)),
+        }}
+        actionHint={
+          <span className="inline-flex items-center gap-1.5">
+            <Lightbulb
+              className="size-3.5 shrink-0 text-amber-500"
+              aria-hidden="true"
+            />
+            See a small lightbulb next to a button or control? Click it for a
+            short explanation of what that feature does.
+          </span>
+        }
+      />
+
+      {/*
+        Headless, render-once aggregation boundary. Every plugin fills
+        SystemSignalsSlot with its bulk per-system state; the dashboard merges
+        the reports to drive the overview. The dashboard is agnostic to which
+        plugins contribute - third-party plugins participate the same way.
+      */}
+      <ExtensionSlot
+        slot={SystemSignalsSlot}
+        context={{ systemIds, onSignals: handleSignals }}
+      />
+
+      <section>
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-primary">
+              <Activity className="h-5 w-5" />
             </span>
-          }
-        />
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              System health
+            </h2>
+          </div>
+          {systemsCount > 0 && (
+            <Link
+              to={catalogHref}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline",
+                !isLowPower && "transition-colors",
+              )}
+            >
+              View catalog
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          )}
+        </div>
+        {renderOverview()}
+      </section>
 
-        {/* Overview Section */}
+      {systemsCount > 0 && (
         <section>
           <SectionHeader
-            title="Overview"
-            icon={<Activity className="w-5 h-5" />}
+            title="Recent activity"
+            icon={<Terminal className="w-5 h-5" />}
           />
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <StatusCard
-              title="Total Systems"
-              value={loading ? "..." : <AnimatedCounter value={systemsCount} />}
-              description="Monitored systems in your catalog"
-              icon={<Server className="w-4 h-4" />}
-            />
-
-            <StatusCard
-              variant={activeIncidentsCount > 0 ? "gradient" : "default"}
-              title="Active Incidents"
-              value={
-                loading ? (
-                  "..."
-                ) : (
-                  <AnimatedCounter value={activeIncidentsCount} />
-                )
-              }
-              description={
-                activeIncidentsCount === 0
-                  ? "All systems operating normally"
-                  : "Unresolved issues requiring attention"
-              }
-              icon={<AlertTriangle className="w-4 h-4" />}
-              onClick={
-                activeIncidentsCount > 0
-                  ? () => setIncidentSheetOpen(true)
-                  : undefined
-              }
-              className={cn(
-                activeIncidentsCount > 0 && "cursor-pointer hover:opacity-90",
-                activeIncidentsCount > 0 && !isLowPower && "hover:scale-[1.02]",
-              )}
-            />
-
-            <StatusCard
-              variant={activeMaintenancesCount > 0 ? "gradient" : "default"}
-              title="Active & Scheduled Maintenances"
-              value={
-                loading ? (
-                  "..."
-                ) : (
-                  <AnimatedCounter value={activeMaintenancesCount} />
-                )
-              }
-              description={
-                activeMaintenancesCount === 0
-                  ? "No scheduled maintenance"
-                  : "Ongoing or upcoming maintenance windows"
-              }
-              icon={<Wrench className="w-4 h-4" />}
-              onClick={
-                activeMaintenancesCount > 0
-                  ? () => setMaintenanceSheetOpen(true)
-                  : undefined
-              }
-              className={cn(
-                activeMaintenancesCount > 0 && "cursor-pointer hover:opacity-90",
-                activeMaintenancesCount > 0 &&
-                  !isLowPower &&
-                  "hover:scale-[1.02]",
-              )}
-            />
-
-            <StatusCard
-              variant={activeAnomaliesCount > 0 ? "gradient" : "default"}
-              title="Active Anomalies"
-              value={
-                loading ? (
-                  "..."
-                ) : (
-                  <AnimatedCounter value={activeAnomaliesCount} />
-                )
-              }
-              description="Unusual behavior detected"
-              icon={<ActivitySquare className="w-4 h-4" />}
-              onClick={
-                activeAnomaliesCount > 0
-                  ? () => setAnomalySheetOpen(true)
-                  : undefined
-              }
-              className={cn(
-                activeAnomaliesCount > 0 &&
-                  "cursor-pointer hover:opacity-90 bg-gradient-to-br from-warning/20 to-warning/5 border-warning/30",
-                activeAnomaliesCount > 0 &&
-                  !isLowPower &&
-                  "hover:scale-[1.02]",
-              )}
-            />
-          </div>
+          <TerminalFeed
+            entries={terminalEntries}
+            maxEntries={MAX_TERMINAL_ENTRIES}
+            maxHeight="320px"
+            title="checkstack status --watch"
+          />
         </section>
-
-        {/* Terminal Feed and System Groups - Two Column Layout */}
-        <div className="grid gap-8 lg:grid-cols-3">
-          {/* Terminal Feed */}
-          <section className="lg:col-span-1">
-            <SectionHeader
-              title="Recent Activity"
-              icon={<Terminal className="w-5 h-5" />}
-            />
-            <TerminalFeed
-              entries={terminalEntries}
-              maxEntries={MAX_TERMINAL_ENTRIES}
-              maxHeight="350px"
-              title="checkstack status --watch"
-            />
-          </section>
-
-          {/* System Groups */}
-          <section className="lg:col-span-2">
-            <SectionHeader
-              title="System Groups"
-              icon={<LayoutGrid className="w-5 h-5" />}
-            />
-            {renderGroupsContent()}
-          </section>
-        </div>
-      </div>
-
-      <IncidentOverviewSheet
-        open={isIncidentSheetOpen}
-        onOpenChange={setIncidentSheetOpen}
-        incidents={incidents}
-        systems={systems}
-      />
-      <MaintenanceOverviewSheet
-        open={isMaintenanceSheetOpen}
-        onOpenChange={setMaintenanceSheetOpen}
-        maintenances={maintenances}
-        systems={systems}
-      />
-      <AnomalyOverviewSheet
-        open={isAnomalySheetOpen}
-        onOpenChange={setAnomalySheetOpen}
-        anomalies={anomalies}
-        systems={systems}
-      />
-    </>
+      )}
+    </div>
   );
 };

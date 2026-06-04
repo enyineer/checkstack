@@ -58,64 +58,101 @@ in well under a second for a single plugin, so the loop stays tight.
 
 ## Bootstrap a new plugin repo
 
-A minimal `package.json`:
+Use `create-checkstack-plugin` to scaffold a complete standalone workspace
+(a `common` contract package, a `backend` implementing it, and a `frontend`
+consuming it) in one command:
 
-```jsonc
-{
-  "name": "@my-org/widget-backend",
-  "version": "0.1.0",
-  "description": "Widget tracker for Checkstack",
-  "author": "ACME Corp",
-  "license": "MIT",
-  "type": "module",
-  "main": "src/index.ts",
-  "checkstack": {
-    "type": "backend",
-    "pluginId": "widget"
-  },
-  "scripts": {
-    "dev": "checkstack-dev",
-    "pack": "bunx @checkstack/scripts plugin-pack"
-  },
-  "dependencies": {
-    "@checkstack/backend-api": "^1.0.0",
-    "@checkstack/common": "^1.0.0"
-  },
-  "devDependencies": {
-    "@checkstack/scripts": "^0.1.0",
-    "@checkstack/dev-server": "^0.1.0",
-    "@checkstack/backend": "^1.0.0"
-  }
-}
+```bash
+bunx create-checkstack-plugin widget
+# or with bun create:
+bun create checkstack-plugin widget
 ```
 
-Your `src/index.ts` exports a `BackendPlugin` as the default export — the
-same shape the production runtime expects:
+You will be prompted for an npm scope (e.g. `acme` for `@acme/widget-*`).
+To accept defaults without prompts, pass `--yes`:
 
-```ts
-import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
-import { pluginMetadata } from "./plugin-metadata";
+```bash
+bunx create-checkstack-plugin widget --scope acme --yes
+```
 
-export default createBackendPlugin({
-  metadata: pluginMetadata,
-  register: (env) => {
-    env.registerInit({
-      deps: { logger: coreServices.logger },
-      init: async ({ logger }) => {
-        logger.info("Widget plugin initialized");
-      },
-    });
-  },
-});
+The scaffolder resolves the concrete published `@checkstack/*` versions from
+the registry at scaffold time (each package independently - they are 0.x and
+not lockstepped) and writes them as caret ranges in the generated
+`package.json` files. It then runs `git init` in the new directory.
+
+The result is a Bun workspace ready to boot:
+
+```
+widget/
+  package.json          # private root: workspaces ["packages/*"], forwarding scripts
+  tsconfig.json
+  eslint.config.js
+  .gitignore
+  README.md
+  packages/
+    widget-common/      # shared contract, Zod schemas, access rules
+    widget-backend/     # Drizzle schema, oRPC router, example CRUD procedures
+    widget-frontend/    # React page consuming the typed client
 ```
 
 Then:
 
 ```bash
+cd widget
 bun install
 bun run dev
-# → http://localhost:3000
+# backend: http://localhost:3000
+# frontend: http://localhost:5173
 ```
+
+The backend serves the example `getItems` / `createItem` / ... procedures
+immediately - a `drizzle/0000_init` migration runs automatically on boot to
+create the `items` table. No Redis, no queue, no extra config.
+
+Test the API with curl (auth is synthetic in dev mode):
+
+```bash
+curl -X POST http://localhost:3000/api/widget/getItems \
+  -H 'content-type: application/json' \
+  -d '{"json": {}}'
+# → {"json": []}
+```
+
+Open `http://localhost:5173` to see the frontend list page.
+
+> [!NOTE]
+> **Frontend HMR works from a published install.** The Vite dev server
+> resolves `@checkstack/frontend` (which ships as a dependency of
+> `@checkstack/dev-server`) and the Vite React plugin from the dev server's
+> own install location, so a plugin scaffolded and `bun install`ed from the
+> registry gets HMR without depending on `@checkstack/frontend` directly. A
+> `-frontend` sibling that lives in your workspace (the standalone scaffold
+> layout) is picked up by scanning sibling package directories, so it does
+> not need to be an installed dependency either. The one prerequisite is the
+> obvious one: run `bun install` so your plugin's dev dependencies (including
+> `@checkstack/dev-server`) are present before `bun run dev`.
+
+> [!TIP]
+> **Tailwind styling works in dev from a published install.** Your own
+> custom Tailwind utility classes are compiled into the dev CSS, not just
+> the built-in `@checkstack/ui` components. `@checkstack/frontend` ships the
+> Tailwind toolchain (`tailwindcss`, `autoprefixer`, `tailwindcss-animate`)
+> as runtime dependencies and exports a shared theme preset at
+> `@checkstack/frontend/tailwind-preset`. The dev server applies that preset
+> and injects your plugin's own source globs (`<plugin>/src/**`) into
+> Tailwind's `content`, so classes you write in your `-frontend` components
+> render live with HMR. If you want to reuse the platform theme in your own
+> Tailwind config, add the preset:
+>
+> ```js
+> // tailwind.config.js
+> import checkstackPreset from "@checkstack/frontend/tailwind-preset";
+>
+> export default {
+>   presets: [checkstackPreset],
+>   content: ["./src/**/*.{ts,tsx}"],
+> };
+> ```
 
 Open the URL. The Plugin Manager UI shows your plugin loaded; any
 procedures it exposes are reachable at `/api/<pluginId>/*`.

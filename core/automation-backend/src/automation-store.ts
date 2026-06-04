@@ -65,6 +65,7 @@ function mapToAutomation(
     group: row.group ?? undefined,
     status: row.status === "disabled" ? "disabled" : "enabled",
     definition,
+    runAs: row.runAsApplicationId ?? null,
     managedBy: row.managedBy ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -79,6 +80,7 @@ function mapToLoaded(
     name: row.name,
     status: row.status === "disabled" ? "disabled" : "enabled",
     definition: AutomationDefinitionSchema.parse(row.definition),
+    runAs: row.runAsApplicationId ?? null,
   };
 }
 
@@ -98,6 +100,7 @@ export function createAutomationStore(
           group: input.group ?? null,
           status: input.status,
           definition: parsedDefinition as unknown as Record<string, unknown>,
+          runAsApplicationId: input.runAs,
         })
         .returning();
       if (!row) throw new Error("create: insert returned no rows");
@@ -115,6 +118,7 @@ export function createAutomationStore(
       // `null` clears the group, a string sets it; `undefined` leaves it.
       if (input.group !== undefined) set.group = input.group ?? null;
       if (input.status !== undefined) set.status = input.status;
+      if (input.runAs !== undefined) set.runAsApplicationId = input.runAs;
       if (input.definition !== undefined) {
         const parsed = AutomationDefinitionSchema.parse(input.definition);
         set.definition = parsed as unknown as Record<string, unknown>;
@@ -225,6 +229,7 @@ export function createAutomationStore(
             name: row.name,
             status: "enabled",
             definition: defn,
+            runAs: row.runAsApplicationId ?? null,
           });
         }
       }

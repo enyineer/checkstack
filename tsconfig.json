@@ -13,6 +13,15 @@
       "path": "./core/about-frontend"
     },
     {
+      "path": "./core/ai-backend"
+    },
+    {
+      "path": "./core/ai-common"
+    },
+    {
+      "path": "./core/ai-frontend"
+    },
+    {
       "path": "./core/announcement-backend"
     },
     {
@@ -97,6 +106,9 @@
       "path": "./core/common"
     },
     {
+      "path": "./core/create-checkstack-plugin"
+    },
+    {
       "path": "./core/dashboard-frontend"
     },
     {
@@ -113,6 +125,9 @@
     },
     {
       "path": "./core/drizzle-helper"
+    },
+    {
+      "path": "./core/e2e"
     },
     {
       "path": "./core/frontend"
@@ -224,6 +239,9 @@
     },
     {
       "path": "./core/script-packages-store-s3"
+    },
+    {
+      "path": "./core/sdk"
     },
     {
       "path": "./core/secrets-backend"

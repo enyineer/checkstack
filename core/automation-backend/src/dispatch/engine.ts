@@ -134,6 +134,34 @@ function withRunSecretCapture(
 }
 
 /**
+ * Resolve (and cache on the context) the RPC client bound to this run's
+ * `runAs` SERVICE ACCOUNT. Every action calls plugin procedures through this
+ * client, so all automation data access authenticates as the bounded
+ * service-account principal - never the trusted service client. Throws
+ * (failing the action/run) when no service account is assigned, rather than
+ * silently falling back to god mode.
+ */
+async function resolveRunRpcClient(
+  ctx: DispatchContext,
+): ReturnType<NonNullable<DispatchDeps["rpcClientForApplication"]>> {
+  if (ctx.runRpcClient) return ctx.runRpcClient;
+  const runAs = ctx.run.automation.runAs;
+  if (!runAs) {
+    throw new Error(
+      `Automation "${ctx.run.automation.name}" (${ctx.run.automation.id}) has no service account (runAs) assigned; assign one before it can run.`,
+    );
+  }
+  const factory = ctx.deps.rpcClientForApplication;
+  if (!factory) {
+    throw new Error(
+      "Dispatch is misconfigured: no rpcClientForApplication factory is available to build the run's service-account client.",
+    );
+  }
+  ctx.runRpcClient = await factory(runAs);
+  return ctx.runRpcClient;
+}
+
+/**
  * Re-seed a resuming pod's run mask set from the automation's declared
  * secret refs. The run's masking registry is in-memory and per-process, so
  * a pod that did NOT originally resolve the run's secrets (the resume /
@@ -1113,9 +1141,16 @@ async function executeProviderAction(
     return { kind: "failed", error: message };
   }
 
-  const parsed = registered.config.schema.safeParse(renderedConfig);
-  if (!parsed.success) {
-    const message = `Config validation failed: ${parsed.error.message}`;
+  // Migrate-then-validate (assume-v1-on-read): stored configs are
+  // unversioned, so the runtime migration chain runs before validation —
+  // a config that picked up a now-removed key (e.g. `sandbox`) is migrated
+  // away rather than failing the run. Validation is lenient here (unknown
+  // keys stripped); the editor path uses the strict variant.
+  let parsedConfig: Awaited<ReturnType<typeof registered.config.parse>>;
+  try {
+    parsedConfig = await registered.config.parseAssumingV1(renderedConfig);
+  } catch (error) {
+    const message = `Config validation failed: ${(error as Error).message}`;
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -1132,7 +1167,7 @@ async function executeProviderAction(
   let result: Awaited<ReturnType<typeof registered.execute>>;
   try {
     result = await registered.execute({
-      config: parsed.data,
+      config: parsedConfig,
       consumedArtifacts: consumed,
       scope: actionRunScope(ctx),
       runId: ctx.run.runId,
@@ -1140,6 +1175,8 @@ async function executeProviderAction(
       contextKey: ctx.run.contextKey,
       logger: ctx.deps.logger,
       getService: ctx.deps.getService,
+      rpcClient: await resolveRunRpcClient(ctx),
+      runAs: ctx.run.automation.runAs,
     });
   } catch (error) {
     const message = (error as Error).message;

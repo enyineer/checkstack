@@ -83,6 +83,42 @@ export class SloEngine {
     );
   }
 
+  /**
+   * Void missed-recovery orphans: open downtime events on a system that is
+   * currently healthy. The edge-triggered close (on the health recovery
+   * transition) records real downtime accurately; this is the safety net for
+   * when that transition was never delivered (restart, dropped change, recovery
+   * before the SLO close path existed), which would otherwise leave an event
+   * open forever. `computeStatus` already ignores such rows for the budget
+   * (live health is authoritative), so this is row hygiene: it clears the stale
+   * "ongoing" event so it stops showing in history. We delete rather than close
+   * because the true recovery time is unknown and the system is healthy, so the
+   * unprovable downtime must not be counted.
+   *
+   * Runs in a write context (the daily job), never from a read accessor.
+   */
+  async voidOrphanedDowntime({
+    objective,
+  }: {
+    objective: { id: string; systemId: string };
+  }): Promise<void> {
+    const openEvents = await this.service.getOpenDowntimeEventsForObjective({
+      objectiveId: objective.id,
+    });
+    if (openEvents.length === 0) return;
+    if (!this._getSystemHealthStatus) return;
+
+    const health = await this._getSystemHealthStatus(objective.systemId);
+    if (!health.isHealthy) return; // genuinely down — the open event is real
+
+    for (const event of openEvents) {
+      await this.service.deleteDowntimeEvent({ id: event.id });
+    }
+    this.logger.info(
+      `SLO ${objective.id}: voided ${openEvents.length} orphaned open downtime event(s) — system is healthy but a recovery transition was missed`,
+    );
+  }
+
   // ===========================================================================
   // PERSPECTIVE 1: This system's own SLOs
   // ===========================================================================
@@ -300,10 +336,34 @@ export class SloEngine {
       now.getTime() - objective.windowDays * 24 * 60 * 60 * 1000,
     );
 
+    // LIVE HEALTH IS AUTHORITATIVE for "currently down". A stored open downtime
+    // event is only real ongoing downtime if the system is actually down right
+    // now - never trusted on its own. This makes the SLO numbers immune to a
+    // drifted/orphaned event log: a healthy system can never read breaching or
+    // degraded from a stale open row, by construction. The health check is
+    // gated on there being open events at all, so the common (no-open-event)
+    // path does no extra work. This method stays side-effect-free (the reactive
+    // `slo` entity reads through it); orphan rows are voided by the daily job.
+    const openEvents = await this.service.getOpenDowntimeEventsForObjective({
+      objectiveId: objective.id,
+    });
+    let currentlyDown: boolean;
+    if (openEvents.length === 0) {
+      currentlyDown = false;
+    } else if (this._getSystemHealthStatus) {
+      const health = await this._getSystemHealthStatus(objective.systemId);
+      currentlyDown = !health.isHealthy;
+    } else {
+      // Before afterPluginsReady wires the health callback, fall back to
+      // trusting the stored open state (best effort).
+      currentlyDown = true;
+    }
+
     const downtime = await this.service.getDowntimeForWindow({
       objectiveId: objective.id,
       windowStart,
       windowEnd: now,
+      includeOpen: currentlyDown,
     });
 
     const totalWindowMinutes = objective.windowDays * 24 * 60;
@@ -345,10 +405,16 @@ export class SloEngine {
        
       expectedConsumption > 0 ? consumedMinutes / expectedConsumption : null;
 
-    // Check for open downtime events
-    const openEvents = await this.service.getOpenDowntimeEventsForObjective({
-      objectiveId: objective.id,
-    });
+    // "Degraded" (open downtime) requires BOTH that the system is currently
+    // down AND that an open event counts toward this objective's budget. In
+    // self-only mode an open upstream outage is excluded; and a stale open event
+    // on a now-healthy system (currentlyDown === false) never counts - so the
+    // SLO can never read available-and-degraded at once.
+    const budgetRelevantOpenEvents = currentlyDown
+      ? objective.dependencyExclusion === "strict"
+        ? openEvents
+        : openEvents.filter((event) => event.attributionType === "self")
+      : [];
 
     // Build attribution breakdown
     const attribution = downtime.entries.map((entry) => ({
@@ -376,7 +442,7 @@ export class SloEngine {
       burnRate,
       dependencyExclusion: objective.dependencyExclusion,
       isBreaching: effectiveAvailability !== null && effectiveAvailability < objective.target,
-      hasOpenDowntime: openEvents.length > 0,
+      hasOpenDowntime: budgetRelevantOpenEvents.length > 0,
       attribution,
     };
   }

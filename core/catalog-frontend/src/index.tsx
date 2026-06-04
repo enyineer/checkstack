@@ -1,8 +1,4 @@
-import {
-  UserMenuItemsSlot,
-  createSlotExtension,
-  createFrontendPlugin,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   catalogRoutes,
   pluginMetadata,
@@ -11,8 +7,6 @@ import {
 
 import { Server, FolderTree } from "lucide-react";
 import { registerSubjectKind } from "@checkstack/notification-frontend";
-
-import { CatalogUserMenuItems } from "./components/UserMenuItems";
 
 // Notification subject kinds emitted by catalog (see catalog-common's
 // `createSystemSubject` / `createGroupSubject`). Registered at module load
@@ -37,6 +31,13 @@ export const catalogPlugin = createFrontendPlugin({
         import("./components/CatalogPage").then((m) => ({
           default: m.CatalogPage,
         })),
+      title: "Catalog",
+      nav: {
+        group: "Workspace",
+        icon: Server,
+        // Visible to anyone who can view systems in the catalog.
+        accessRule: catalogAccess.system.read,
+      },
     },
     {
       route: catalogRoutes.routes.config,
@@ -54,13 +55,18 @@ export const catalogPlugin = createFrontendPlugin({
         })),
     },
   ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "catalog.user-menu.items",
-      component: CatalogUserMenuItems,
-      metadata: { group: "Workspace" },
-    }),
-  ],
+  extensions: [],
 });
 
 export * from "./api";
+
+// Reusable "Preview as: <environment>" picker + its DOM-free helpers, so host
+// plugins can let config authors preview `x-templatable` fields against a
+// catalog environment's custom fields.
+export { EnvironmentPreviewPicker } from "./components/EnvironmentPreviewPicker";
+export {
+  toPreviewOptions,
+  environmentToPreviewFields,
+  findSelectedEnvironment,
+  type EnvironmentPreviewOption,
+} from "./components/environment-preview.logic";

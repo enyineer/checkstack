@@ -15,6 +15,7 @@ import type {
 } from "@checkstack/backend-api";
 import { NotificationPolicySchema } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
+import { validateVersionedConfigStrict } from "./validate-configuration";
 import {
   DynamicOperators,
   numericField,
@@ -154,13 +155,25 @@ export function buildHealthcheckKind(
         },
       );
 
-      // Validate resolved config against strategy's Zod schema
-      const configValidation = strategy.config.schema.safeParse(resolvedConfig);
-      if (!configValidation.success) {
+      // Migrate-then-validate-strict: authored gitops YAML may be in an OLD
+      // config shape, so run the migration chain (assume-v1-on-read) before
+      // strict validation. Old-shape YAML still applies; genuine typos
+      // (unknown keys no migration accounts for) are still rejected. Shares the
+      // exact strict-validate path the `validateConfiguration` RPC uses, so the
+      // two agree on what counts as valid. A strategy config is always a plain
+      // object validated by the strategy's own schema, so narrowing the
+      // `unknown` result to the stored `Record` shape is safe.
+      const strategyResult = await validateVersionedConfigStrict({
+        config: strategy.config,
+        value: resolvedConfig,
+        basePath: ["config"],
+      });
+      if (!strategyResult.ok) {
         throw new Error(
-          `Strategy "${spec.strategy}" config validation failed: ${configValidation.error.message}`,
+          `Strategy "${spec.strategy}" config validation failed: ${formatIssues(strategyResult.issues)}`,
         );
       }
+      const migratedConfig = strategyResult.value as Record<string, unknown>;
 
       // Resolve and validate collector configs using their registry schemas
       const resolvedCollectors = spec.collectors
@@ -190,17 +203,30 @@ export function buildHealthcheckKind(
                   schema: registered.collector.config.schema,
                 });
 
-              const collectorConfigValidation =
-                registered.collector.config.schema.safeParse(
-                  resolvedCollectorConfig,
-                );
-              if (!collectorConfigValidation.success) {
+              // Migrate-then-validate-strict: authored gitops YAML may use an
+              // OLD collector config shape. Run the migration chain before
+              // strict validation so old-shape YAML still applies while
+              // genuine typos are still rejected. Shares the exact strict-
+              // validate path the `validateConfiguration` RPC uses. A collector
+              // config is always a plain object validated by the collector's
+              // schema, so narrowing the `unknown` result to the stored
+              // `Record` shape is safe.
+              const collectorResult = await validateVersionedConfigStrict({
+                config: registered.collector.config,
+                value: resolvedCollectorConfig,
+                basePath: ["config"],
+              });
+              if (!collectorResult.ok) {
                 throw new Error(
-                  `Collector "${c.collectorId}" config validation failed: ${collectorConfigValidation.error.message}`,
+                  `Collector "${c.collectorId}" config validation failed: ${formatIssues(collectorResult.issues)}`,
                 );
               }
+              const migratedCollectorConfig = collectorResult.value as Record<
+                string,
+                unknown
+              >;
 
-              return { ...c, config: resolvedCollectorConfig };
+              return { ...c, config: migratedCollectorConfig };
             }),
           )
         : undefined;
@@ -212,7 +238,7 @@ export function buildHealthcheckKind(
         await service.updateConfiguration(existingEntityId, {
           name: displayName,
           strategyId: spec.strategy,
-          config: resolvedConfig,
+          config: migratedConfig,
           intervalSeconds: spec.intervalSeconds,
           collectors: resolvedCollectors?.map((c) => ({
             id: c.collectorId,
@@ -230,7 +256,7 @@ export function buildHealthcheckKind(
       const config = await service.createConfiguration({
         name: displayName,
         strategyId: spec.strategy,
-        config: resolvedConfig,
+        config: migratedConfig,
         intervalSeconds: spec.intervalSeconds,
         collectors: resolvedCollectors?.map((c) => ({
           id: c.collectorId,
@@ -515,6 +541,23 @@ export function registerHealthcheckGitOpsDocumentation({
       });
     }
   }
+}
+
+/**
+ * Render the structured issues from {@link validateVersionedConfigStrict} into
+ * a single human-readable message for the thrown GitOps reconcile error,
+ * preserving the per-field path (e.g. `config.url: Invalid url`).
+ */
+function formatIssues(
+  issues: Array<{ path: Array<string | number>; message: string }>,
+): string {
+  return issues
+    .map((issue) =>
+      issue.path.length > 0
+        ? `${issue.path.join(".")}: ${issue.message}`
+        : issue.message,
+    )
+    .join("; ");
 }
 
 function unwrapZodType(type: z.ZodTypeAny): z.ZodTypeAny {

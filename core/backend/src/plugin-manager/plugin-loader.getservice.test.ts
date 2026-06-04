@@ -63,6 +63,44 @@ function captureEnv(deps: PluginLoaderDeps): BackendPluginRegistry {
   return captured;
 }
 
+describe("registerPlugin pluginPath threading (migrations)", () => {
+  // Regression guard (#251): a manually-loaded plugin (e.g. the dev server's
+  // plugin-under-dev) must carry its on-disk path through to `pendingInits`,
+  // because the loader builds the Drizzle migrations folder as
+  // `<pluginPath>/drizzle`. Manual plugins historically got `pluginPath: ""`,
+  // so their migrations were silently skipped and a scaffolded plugin booted
+  // with no tables. The dev path now supplies the plugin's dir via
+  // `manualPluginPaths`; this asserts the value reaches `pendingInits`.
+  function registerWithPath(pluginPath: string): PendingInit[] {
+    const pendingInits: PendingInit[] = [];
+    const plugin = createBackendPlugin({
+      metadata: { pluginId: "widget" },
+      register: (env) => {
+        env.registerInit({ deps: {}, init: async () => {} });
+      },
+    });
+    registerPlugin({
+      backendPlugin: plugin,
+      pluginPath,
+      pendingInits,
+      providedBy: new Map<string, string>(),
+      deps: makeDeps(new ServiceRegistry()),
+    });
+    return pendingInits;
+  }
+
+  it("threads a supplied pluginPath into the pending init (so migrations run)", () => {
+    const pending = registerWithPath("/repo/packages/widget-backend");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.pluginPath).toBe("/repo/packages/widget-backend");
+  });
+
+  it("keeps an empty pluginPath when none is supplied (migrations skipped)", () => {
+    const pending = registerWithPath("");
+    expect(pending[0]?.pluginPath).toBe("");
+  });
+});
+
 describe("plugin env.getService", () => {
   it("resolves a service registered by another plugin through the real ServiceRegistry", async () => {
     const registry = new ServiceRegistry();

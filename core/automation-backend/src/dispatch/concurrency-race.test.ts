@@ -20,7 +20,7 @@ function buildAutomation(): LoadedAutomation {
     mode: "single",
     max_runs: 10,
   });
-  return { id: "auto-1", name: "Race test", status: "enabled", definition };
+  return { id: "auto-1", name: "Race test", status: "enabled", definition, runAs: "app-test" };
 }
 
 function storeFor(auto: LoadedAutomation): AutomationStore {
@@ -130,7 +130,7 @@ function recoverableAutomation(actionsReg: ReturnType<typeof createActionRegistr
     max_runs: 10,
   });
   return {
-    auto: { id: "auto-1", name: "Recover race", status: "enabled", definition },
+    auto: { id: "auto-1", name: "Recover race", status: "enabled", definition, runAs: "app-test" },
     recorded: () => recording.calls.length,
   };
 }
@@ -195,6 +195,7 @@ describe("M2 — resume-vs-recover same-run race (shared advisory lock)", () => 
       name: "Resume race",
       status: "enabled",
       definition,
+      runAs: "app-test",
     };
     const { deps, runs, state } = makeDispatchDeps({ actions: actionsReg });
 

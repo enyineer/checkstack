@@ -200,6 +200,26 @@ describe("CLI Template Scaffolding", () => {
           expect(pkg.scripts?.dev).toBe("checkstack-dev");
         }
       });
+
+      if (pluginType === "common") {
+        // Regression guard (#251 Phase 3): the common package's
+        // `definePluginMetadata({ pluginId })` MUST be the bare base name —
+        // the same value the backend's `checkstack.pluginId` uses for
+        // `/api/<pluginId>/*` routing. If this drifts to `<base>-common`
+        // (the `pluginName`), the plugin-metadata registry is keyed
+        // differently from the route and every request 500s with
+        // "Plugin metadata not found in registry". The end-to-end
+        // `*.it.test.ts` lane catches it too, but this pins it in the fast
+        // lane so the fix can't silently regress.
+        it("declares the routing pluginId (base name) in plugin-metadata.ts", () => {
+          const metaSrc = readFileSync(
+            path.join(targetDir, "src", "plugin-metadata.ts"),
+            "utf8",
+          );
+          expect(metaSrc).toContain(`pluginId:\n"${TEST_BASE_NAME}"`);
+          expect(metaSrc).not.toContain(`"${TEST_BASE_NAME}-common"`);
+        });
+      }
     });
   }
 });

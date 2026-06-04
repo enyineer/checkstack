@@ -1,13 +1,10 @@
-import {
-  createFrontendPlugin,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { Puzzle } from "lucide-react";
 import {
   pluginMetadata,
   pluginManagerRoutes,
   pluginManagerAccess,
 } from "@checkstack/pluginmanager-common";
-import { PluginManagerMenuItem } from "./PluginManagerMenuItem";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -20,6 +17,10 @@ export default createFrontendPlugin({
         })),
       title: "Plugin Manager",
       accessRule: pluginManagerAccess.view,
+      nav: {
+        group: "Configuration",
+        icon: Puzzle,
+      },
     },
     {
       route: pluginManagerRoutes.routes.install,
@@ -38,14 +39,6 @@ export default createFrontendPlugin({
         })),
       title: "Plugin events",
       accessRule: pluginManagerAccess.view,
-    },
-  ],
-  extensions: [
-    {
-      id: "pluginmanager.user-menu.link",
-      slot: UserMenuItemsSlot,
-      component: PluginManagerMenuItem,
-      metadata: { group: "Configuration" },
     },
   ],
 });

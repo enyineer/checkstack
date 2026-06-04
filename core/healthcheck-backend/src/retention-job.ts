@@ -206,6 +206,143 @@ interface RollupParams {
 }
 
 /**
+ * The ON CONFLICT target for the daily-aggregate upsert. It MUST list exactly
+ * the columns of the `health_check_aggregates_bucket_unique` constraint
+ * (configurationId, systemId, environmentId, bucketStart, bucketSize, sourceId)
+ * - Postgres rejects an ON CONFLICT whose target does not match a real unique
+ * constraint with SQLSTATE 42P10. `retention-rollup.test.ts` asserts this stays
+ * in lock-step with the schema so the rollup can never throw 42P10 again.
+ */
+export const DAILY_AGGREGATE_CONFLICT_TARGET = [
+  healthCheckAggregates.configurationId,
+  healthCheckAggregates.systemId,
+  healthCheckAggregates.environmentId,
+  healthCheckAggregates.bucketStart,
+  healthCheckAggregates.bucketSize,
+  healthCheckAggregates.sourceId,
+] as const;
+
+/** Truncate a timestamp to the start of its (local) day. */
+function dayStartOf(date: Date): Date {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return day;
+}
+
+/** The subset of an hourly aggregate row the rollup math needs. */
+export interface HourlyAggregateRow {
+  bucketStart: Date;
+  environmentId: string | null;
+  sourceId: string | null;
+  sourceLabel: string | null;
+  runCount: number;
+  healthyCount: number;
+  degradedCount: number;
+  unhealthyCount: number;
+  latencySumMs: number | null;
+  avgLatencyMs: number | null;
+  minLatencyMs: number | null;
+  maxLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+/** A computed daily aggregate ready to upsert. */
+export interface DailyAggregateValues {
+  bucketStart: Date;
+  environmentId: string | null;
+  sourceId: string | null;
+  sourceLabel: string | null;
+  runCount: number;
+  healthyCount: number;
+  degradedCount: number;
+  unhealthyCount: number;
+  latencySumMs: number | undefined;
+  avgLatencyMs: number | undefined;
+  minLatencyMs: number | undefined;
+  maxLatencyMs: number | undefined;
+  p95LatencyMs: number | undefined;
+}
+
+/**
+ * Fold hourly aggregates into daily ones. CRITICAL: rows are grouped by
+ * (day, environmentId, sourceId) - the same dimensions as the unique key - so
+ * distinct per-environment / per-source series stay separate instead of being
+ * collapsed into one `environmentId=null` daily row. Counts sum; latency sum
+ * folds (with avg*count fallback); min/max/p95 fold across the group.
+ */
+export function buildDailyAggregates(
+  oldHourly: HourlyAggregateRow[],
+): DailyAggregateValues[] {
+  const groups = new Map<string, HourlyAggregateRow[]>();
+
+  for (const row of oldHourly) {
+    const key = JSON.stringify([
+      dayStartOf(row.bucketStart).toISOString(),
+      row.environmentId,
+      row.sourceId,
+    ]);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
+  }
+
+  const result: DailyAggregateValues[] = [];
+  for (const rows of groups.values()) {
+    let runCount = 0;
+    let healthyCount = 0;
+    let degradedCount = 0;
+    let unhealthyCount = 0;
+    let latencySumMs = 0;
+
+    for (const a of rows) {
+      runCount += a.runCount;
+      healthyCount += a.healthyCount;
+      degradedCount += a.degradedCount;
+      unhealthyCount += a.unhealthyCount;
+      // Use latencySumMs if available, fallback to avg*count approximation.
+      if (a.latencySumMs !== null) {
+        latencySumMs += a.latencySumMs;
+      } else if (a.avgLatencyMs !== null) {
+        latencySumMs += a.avgLatencyMs * a.runCount;
+      }
+    }
+
+    const minValues = rows
+      .map((a) => a.minLatencyMs)
+      .filter((v): v is number => v !== null);
+    const maxValues = rows
+      .map((a) => a.maxLatencyMs)
+      .filter((v): v is number => v !== null);
+    const p95Values = rows
+      .map((a) => a.p95LatencyMs)
+      .filter((v): v is number => v !== null);
+
+    result.push({
+      bucketStart: dayStartOf(rows[0].bucketStart),
+      environmentId: rows[0].environmentId,
+      sourceId: rows[0].sourceId,
+      sourceLabel: rows[0].sourceLabel,
+      runCount,
+      healthyCount,
+      degradedCount,
+      unhealthyCount,
+      latencySumMs: latencySumMs > 0 ? latencySumMs : undefined,
+      avgLatencyMs:
+        runCount > 0 ? Math.round(latencySumMs / runCount) : undefined,
+      minLatencyMs: minValues.length > 0 ? Math.min(...minValues) : undefined,
+      maxLatencyMs: maxValues.length > 0 ? Math.max(...maxValues) : undefined,
+      // Use max of hourly p95s as an upper-bound approximation.
+      p95LatencyMs: p95Values.length > 0 ? Math.max(...p95Values) : undefined,
+    });
+  }
+
+  return result;
+}
+
+/**
  * Rolls up hourly aggregates older than retention period into daily buckets
  */
 async function rollupHourlyAggregates(params: RollupParams) {
@@ -230,128 +367,65 @@ async function rollupHourlyAggregates(params: RollupParams) {
 
   if (oldHourly.length === 0) return;
 
-  // Group by day
-  const dailyBuckets = new Map<
-    string,
-    {
-      bucketStart: Date;
-      aggregates: typeof oldHourly;
-    }
-  >();
-
-  for (const hourly of oldHourly) {
-    const dayStart = new Date(hourly.bucketStart);
-    dayStart.setHours(0, 0, 0, 0);
-    const key = dayStart.toISOString();
-
-    if (!dailyBuckets.has(key)) {
-      dailyBuckets.set(key, { bucketStart: dayStart, aggregates: [] });
-    }
-    dailyBuckets.get(key)!.aggregates.push(hourly);
-  }
-
-  // Create daily aggregates
-  for (const [, bucket] of dailyBuckets) {
-    let runCount = 0;
-    let healthyCount = 0;
-    let degradedCount = 0;
-    let unhealthyCount = 0;
-    let latencySumMs = 0;
-
-    for (const a of bucket.aggregates) {
-      runCount += a.runCount;
-      healthyCount += a.healthyCount;
-      degradedCount += a.degradedCount;
-      unhealthyCount += a.unhealthyCount;
-      // Use latencySumMs if available, fallback to avg*count approximation
-      if (a.latencySumMs !== null) {
-        latencySumMs += a.latencySumMs;
-      } else if (a.avgLatencyMs !== null) {
-        latencySumMs += a.avgLatencyMs * a.runCount;
-      }
-    }
-
-    const avgLatencyMs =
-      runCount > 0 ? Math.round(latencySumMs / runCount) : undefined;
-
-    // Min/max across all hourly buckets
-    const minValues = bucket.aggregates
-      .map((a) => a.minLatencyMs)
-      .filter((v): v is number => v !== null);
-    const maxValues = bucket.aggregates
-      .map((a) => a.maxLatencyMs)
-      .filter((v): v is number => v !== null);
-    const p95Values = bucket.aggregates
-      .map((a) => a.p95LatencyMs)
-      .filter((v): v is number => v !== null);
-    const minLatencyMs =
-      minValues.length > 0 ? Math.min(...minValues) : undefined;
-    const maxLatencyMs =
-      maxValues.length > 0 ? Math.max(...maxValues) : undefined;
-    // Use max of hourly p95s as upper bound approximation
-    const p95LatencyMs =
-      p95Values.length > 0 ? Math.max(...p95Values) : undefined;
-
+  // Fold into daily aggregates, preserving (day, environmentId, sourceId) series.
+  for (const daily of buildDailyAggregates(oldHourly)) {
+    const newLatencySum = daily.latencySumMs;
     // Upsert the daily aggregate. A row may already exist for this
-    // (configurationId, systemId, day, daily, sourceId=null) tuple if a
-    // prior rollup ran and then late-arriving hourly buckets (e.g. from
-    // a satellite that was offline) were rolled up afterwards. Merge in
-    // that case rather than crashing — sums add, min/max/p95 fold.
-    const newLatencySum = latencySumMs > 0 ? latencySumMs : undefined;
+    // (configurationId, systemId, environmentId, day, daily, sourceId) tuple if
+    // a prior rollup ran and then late-arriving hourly buckets (e.g. from a
+    // satellite that was offline) were rolled up afterwards. Merge in that case
+    // rather than crashing — sums add, min/max/p95 fold.
     await db
       .insert(healthCheckAggregates)
       .values({
         configurationId,
         systemId,
-        bucketStart: bucket.bucketStart,
+        environmentId: daily.environmentId,
+        sourceId: daily.sourceId,
+        sourceLabel: daily.sourceLabel,
+        bucketStart: daily.bucketStart,
         bucketSize: "daily",
-        runCount,
-        healthyCount,
-        degradedCount,
-        unhealthyCount,
+        runCount: daily.runCount,
+        healthyCount: daily.healthyCount,
+        degradedCount: daily.degradedCount,
+        unhealthyCount: daily.unhealthyCount,
         latencySumMs: newLatencySum,
-        avgLatencyMs,
-        minLatencyMs,
-        maxLatencyMs,
-        p95LatencyMs,
+        avgLatencyMs: daily.avgLatencyMs,
+        minLatencyMs: daily.minLatencyMs,
+        maxLatencyMs: daily.maxLatencyMs,
+        p95LatencyMs: daily.p95LatencyMs,
         aggregatedResult: undefined, // Cannot combine result across hours
       })
       .onConflictDoUpdate({
-        target: [
-          healthCheckAggregates.configurationId,
-          healthCheckAggregates.systemId,
-          healthCheckAggregates.bucketStart,
-          healthCheckAggregates.bucketSize,
-          healthCheckAggregates.sourceId,
-        ],
+        target: [...DAILY_AGGREGATE_CONFLICT_TARGET],
         set: {
-          runCount: sql`${healthCheckAggregates.runCount} + ${runCount}`,
-          healthyCount: sql`${healthCheckAggregates.healthyCount} + ${healthyCount}`,
-          degradedCount: sql`${healthCheckAggregates.degradedCount} + ${degradedCount}`,
-          unhealthyCount: sql`${healthCheckAggregates.unhealthyCount} + ${unhealthyCount}`,
+          runCount: sql`${healthCheckAggregates.runCount} + ${daily.runCount}`,
+          healthyCount: sql`${healthCheckAggregates.healthyCount} + ${daily.healthyCount}`,
+          degradedCount: sql`${healthCheckAggregates.degradedCount} + ${daily.degradedCount}`,
+          unhealthyCount: sql`${healthCheckAggregates.unhealthyCount} + ${daily.unhealthyCount}`,
           latencySumMs: sql`COALESCE(${healthCheckAggregates.latencySumMs}, 0) + ${newLatencySum ?? 0}`,
-          avgLatencyMs: sql`CASE WHEN (${healthCheckAggregates.runCount} + ${runCount}) > 0 THEN (COALESCE(${healthCheckAggregates.latencySumMs}, 0) + ${newLatencySum ?? 0}) / (${healthCheckAggregates.runCount} + ${runCount}) ELSE ${healthCheckAggregates.avgLatencyMs} END`,
+          avgLatencyMs: sql`CASE WHEN (${healthCheckAggregates.runCount} + ${daily.runCount}) > 0 THEN (COALESCE(${healthCheckAggregates.latencySumMs}, 0) + ${newLatencySum ?? 0}) / (${healthCheckAggregates.runCount} + ${daily.runCount}) ELSE ${healthCheckAggregates.avgLatencyMs} END`,
           minLatencyMs:
-            minLatencyMs === undefined
+            daily.minLatencyMs === undefined
               ? sql`${healthCheckAggregates.minLatencyMs}`
-              : sql`LEAST(COALESCE(${healthCheckAggregates.minLatencyMs}, ${minLatencyMs}), ${minLatencyMs})`,
+              : sql`LEAST(COALESCE(${healthCheckAggregates.minLatencyMs}, ${daily.minLatencyMs}), ${daily.minLatencyMs})`,
           maxLatencyMs:
-            maxLatencyMs === undefined
+            daily.maxLatencyMs === undefined
               ? sql`${healthCheckAggregates.maxLatencyMs}`
-              : sql`GREATEST(COALESCE(${healthCheckAggregates.maxLatencyMs}, ${maxLatencyMs}), ${maxLatencyMs})`,
+              : sql`GREATEST(COALESCE(${healthCheckAggregates.maxLatencyMs}, ${daily.maxLatencyMs}), ${daily.maxLatencyMs})`,
           p95LatencyMs:
-            p95LatencyMs === undefined
+            daily.p95LatencyMs === undefined
               ? sql`${healthCheckAggregates.p95LatencyMs}`
-              : sql`GREATEST(COALESCE(${healthCheckAggregates.p95LatencyMs}, ${p95LatencyMs}), ${p95LatencyMs})`,
+              : sql`GREATEST(COALESCE(${healthCheckAggregates.p95LatencyMs}, ${daily.p95LatencyMs}), ${daily.p95LatencyMs})`,
         },
       });
+  }
 
-    // Delete processed hourly aggregates
-    for (const hourly of bucket.aggregates) {
-      await db
-        .delete(healthCheckAggregates)
-        .where(eq(healthCheckAggregates.id, hourly.id));
-    }
+  // Delete the processed hourly aggregates (all were folded into daily rows).
+  for (const hourly of oldHourly) {
+    await db
+      .delete(healthCheckAggregates)
+      .where(eq(healthCheckAggregates.id, hourly.id));
   }
 }
 

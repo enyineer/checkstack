@@ -17,7 +17,7 @@
  *     plugin hasn't been added.
  */
 import { z } from "zod";
-import { Versioned, type RpcClient } from "@checkstack/backend-api";
+import { Versioned } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import { NotificationApi } from "@checkstack/notification-common";
 
@@ -84,49 +84,52 @@ export const notifyUserArtifactType = {
   schema: notifyUserArtifactSchema,
 } as const;
 
-export interface BuiltinActionDeps {
-  rpcClient: RpcClient;
-}
-
-export function createNotifyUserAction(
-  deps: BuiltinActionDeps,
-): ActionDefinition<NotifyUserConfig, NotifyUserArtifact> {
-  return {
-    id: "notify_user",
-    displayName: "Notify User",
-    description: "Send a transactional notification to a specific user",
-    category: "Built-in",
-    icon: "BellRing",
-    config: new Versioned({ version: 1, schema: notifyUserConfigSchema }),
-    produces: "automation.notify_user_result",
-    execute: async ({ config, logger }) => {
-      const notificationClient = deps.rpcClient.forPlugin(NotificationApi);
-      try {
-        const result = await notificationClient.sendTransactional({
+/**
+ * `notify_user` - send a transactional notification to a specific user.
+ *
+ * Calls `NotificationApi.sendTransactional` through the run's `rpcClient`,
+ * which authenticates as the automation's `runAs` service account. The service
+ * account therefore needs the `notification.send` access rule; without it the
+ * call is refused exactly like any under-privileged caller (no god mode).
+ */
+export const notifyUserAction: ActionDefinition<
+  NotifyUserConfig,
+  NotifyUserArtifact
+> = {
+  id: "notify_user",
+  displayName: "Notify User",
+  description: "Send a transactional notification to a specific user",
+  category: "Built-in",
+  icon: "BellRing",
+  config: new Versioned({ version: 1, schema: notifyUserConfigSchema }),
+  produces: "automation.notify_user_result",
+  execute: async ({ config, logger, rpcClient }) => {
+    const notificationClient = rpcClient.forPlugin(NotificationApi);
+    try {
+      const result = await notificationClient.sendTransactional({
+        userId: config.userId,
+        notification: {
+          title: config.title,
+          body: config.body,
+          importance: config.importance,
+        },
+      });
+      logger.info(
+        `notify_user → ${config.userId} (${result.deliveredCount} delivered)`,
+      );
+      return {
+        success: result.deliveredCount > 0,
+        externalId: config.userId,
+        artifact: {
           userId: config.userId,
-          notification: {
-            title: config.title,
-            body: config.body,
-            importance: config.importance,
-          },
-        });
-        logger.info(
-          `notify_user → ${config.userId} (${result.deliveredCount} delivered)`,
-        );
-        return {
-          success: result.deliveredCount > 0,
-          externalId: config.userId,
-          artifact: {
-            userId: config.userId,
-            deliveredCount: result.deliveredCount,
-            results: result.results,
-          },
-        };
-      } catch (error) {
-        const message = extractErrorMessage(error);
-        logger.error(`notify_user failed: ${message}`);
-        return { success: false, error: message };
-      }
-    },
-  };
-}
+          deliveredCount: result.deliveredCount,
+          results: result.results,
+        },
+      };
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      logger.error(`notify_user failed: ${message}`);
+      return { success: false, error: message };
+    }
+  },
+};

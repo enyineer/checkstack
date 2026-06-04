@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/ai-backend": "workspace:*",
+    "@checkstack/ai-common": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
@@ -26,9 +28,10 @@
     "@checkstack/gitops-backend": "workspace:*",
     "@checkstack/gitops-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
-    "@orpc/server": "^1.13.2",
+    "@orpc/contract": "^1.14.4",
+    "@orpc/server": "^1.14.4",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.14",
+    "hono": "^4.12.23",
     "uuid": "^14.0.0",
     "zod": "^4.2.1",
     "@checkstack/common": "workspace:*"

@@ -17,6 +17,7 @@ import {
   createHook,
   createMockRpcContext,
   Versioned,
+  type RpcClient,
   type RpcContext,
 } from "@checkstack/backend-api";
 import {
@@ -122,6 +123,7 @@ function createInMemoryAutomationStore(): {
         group: input.group,
         status: input.status,
         definition: input.definition,
+        runAs: input.runAs,
         createdAt: now(),
         updatedAt: now(),
       };
@@ -139,6 +141,7 @@ function createInMemoryAutomationStore(): {
         group: input.group === undefined ? existing.group : (input.group ?? undefined),
         status: input.status ?? existing.status,
         definition: input.definition ?? existing.definition,
+        runAs: input.runAs ?? existing.runAs,
         updatedAt: now(),
       };
       rows.set(input.id, next);
@@ -294,6 +297,18 @@ function makeRouter(): RouterHarness {
     dispatchDeps,
     signalService,
     logger: dispatchDeps.logger,
+    // Trusted client used only by the bind-authority check: returns a
+    // service account whose access rules are a subset of the caller's (the
+    // mock RPC context has no access rules), so binding `runAs` is allowed.
+    rpcClient: {
+      forPlugin: () => ({
+        enrichApplicationPrincipal: async ({
+          applicationId,
+        }: {
+          applicationId: string;
+        }) => ({ name: applicationId, accessRules: [] }),
+      }),
+    } as unknown as RpcClient,
   });
 
   const context = createMockRpcContext();
@@ -328,11 +343,13 @@ describe("Automation Router", () => {
         name: "A",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await h.automationStore.create({
         name: "B",
         status: "disabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.listAutomations,
@@ -348,11 +365,13 @@ describe("Automation Router", () => {
         name: "A",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await h.automationStore.create({
         name: "B",
         status: "disabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.listAutomations,
@@ -369,12 +388,14 @@ describe("Automation Router", () => {
         group: "Alerting",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await h.automationStore.create({
         name: "B",
         group: "Networking",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.listAutomations,
@@ -393,17 +414,20 @@ describe("Automation Router", () => {
         group: "Networking",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await h.automationStore.create({
         name: "B",
         group: "Alerting",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await h.automationStore.create({
         name: "C",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.listAutomationGroups,
@@ -420,6 +444,7 @@ describe("Automation Router", () => {
         name: "A",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.getAutomation,
@@ -448,6 +473,7 @@ describe("Automation Router", () => {
           name: "New",
           status: "enabled",
           definition: sampleDefinition,
+          runAs: "app-test",
         },
         { context: h.context },
       );
@@ -471,6 +497,7 @@ describe("Automation Router", () => {
         name: "Old",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.updateAutomation,
@@ -502,6 +529,7 @@ describe("Automation Router", () => {
         name: "Doomed",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.deleteAutomation,
@@ -534,6 +562,7 @@ describe("Automation Router", () => {
         name: "X",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.toggleAutomation,
@@ -634,6 +663,7 @@ describe("Automation Router", () => {
         name: "X",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       await expect(
         call(
@@ -653,6 +683,7 @@ describe("Automation Router", () => {
         name: "X",
         status: "enabled",
         definition: sampleDefinition,
+        runAs: "app-test",
       });
       const res = await call(
         h.router.manualRun,

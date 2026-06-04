@@ -8,6 +8,37 @@ describe("HttpHealthCheckStrategy", () => {
     spyOn(globalThis, "fetch").mockRestore();
   });
 
+  describe("config migration (assume-v1-on-read)", () => {
+    it("migrates a genuine v1 blob (url/method/...) down to {timeout}", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        url: "https://example.com",
+        method: "GET",
+        headers: [{ name: "Accept", value: "application/json" }],
+        body: "payload",
+      });
+      // v1->v2 fabricates the default timeout, v2->v3 strips the moved fields.
+      expect(migrated).toEqual({ timeout: 30_000 });
+    });
+
+    it("carries a v1 timeout through both migration steps", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        url: "https://example.com",
+        method: "POST",
+        timeout: 12_345,
+      });
+      expect(migrated).toEqual({ timeout: 12_345 });
+    });
+
+    it("is idempotent: an already-current {timeout} blob is unchanged", async () => {
+      const migrated = await strategy.config.parseAssumingV1({ timeout: 5000 });
+      expect(migrated).toEqual({ timeout: 5000 });
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      expect(strategy.config.validateMigrationChainFromV1()).toBeUndefined();
+    });
+  });
+
   describe("createClient", () => {
     it("should return a connected client", async () => {
       const connectedClient = await strategy.createClient({ timeout: 5000 });

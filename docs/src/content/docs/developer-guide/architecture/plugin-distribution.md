@@ -242,9 +242,9 @@ loaded core packages.
 ```jsonc
 {
   "dependencies": {
-    "@checkstack/backend-api": "^1.0.0",   // → must match what's loaded
-    "@checkstack/widget-common": "^1.2.0", // → resolved from bundle if present
-    "lodash": "^4.0.0"                      // → ignored (not @checkstack/*)
+    "@checkstack/backend-api": "^0.20.0",  // → must match what's loaded
+    "@checkstack/widget-common": "^0.1.0", // → resolved from bundle if present
+    "lodash": "^4.0.0"                     // → ignored (not @checkstack/*)
   }
 }
 ```
@@ -312,7 +312,7 @@ The 50MB tarball cap applies to all sources.
 ## Recommended release workflow (GitHub Actions)
 
 A copy-paste starting point lives at
-[`docs/examples/plugin-release.yml`](../examples/plugin-release.yml). The
+[`plugin-release.yml`](/checkstack/examples/plugin-release.yml). The
 short version:
 
 ```yaml
@@ -392,5 +392,5 @@ channels easy to audit (signed tags, reproducible builds, public source).
   `-backend` package
 - [Frontend Plugin Development](/checkstack/developer-guide/frontend/plugins/) — writing the
   `-frontend` package
-- [`docs/examples/plugin-release.yml`](../examples/plugin-release.yml) —
+- [`plugin-release.yml`](/checkstack/examples/plugin-release.yml) —
   GitHub Actions release workflow template

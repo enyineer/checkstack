@@ -3,7 +3,8 @@ import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "../api";
 import { type MaintenanceWithSystems } from "@checkstack/maintenance-common";
-import { Badge } from "@checkstack/ui";
+import { StatusBadge } from "@checkstack/ui";
+import { Wrench } from "lucide-react";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
@@ -47,5 +48,5 @@ export const SystemMaintenanceBadge: React.FC<Props> = ({ system }) => {
   const hasActive = badgeData ? providerHasActive : localHasActive;
 
   if (!hasActive) return;
-  return <Badge variant="warning">Under Maintenance</Badge>;
+  return <StatusBadge tone="info" icon={Wrench} label="Under maintenance" />;
 };

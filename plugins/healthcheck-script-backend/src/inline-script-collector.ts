@@ -73,8 +73,8 @@ export interface InlineScriptExecutor {
 
 /**
  * Default executor — delegates to the shared `EsmScriptRunner`. Wires
- * `globalThis.context = { config, check?, system? }` (the inline
- * health-check runtime surface) and the virtual `@checkstack/healthcheck`
+ * `globalThis.context = { config, check?, system?, environment? }` (the
+ * inline health-check runtime surface) and the `@checkstack/sdk/healthcheck`
  * module / global `defineHealthCheck` helper.
  */
 export const defaultInlineScriptExecutor: InlineScriptExecutor = {
@@ -91,11 +91,17 @@ export const defaultInlineScriptExecutor: InlineScriptExecutor = {
       context: {
         config,
         ...(runContext
-          ? { check: runContext.check, system: runContext.system }
+          ? {
+              check: runContext.check,
+              system: runContext.system,
+              ...(runContext.environment
+                ? { environment: runContext.environment }
+                : {}),
+            }
           : {}),
       },
       timeoutMs,
-      helperModuleName: "@checkstack/healthcheck",
+      helperModuleName: "@checkstack/sdk/healthcheck",
       helperFunctionName: "defineHealthCheck",
       ...(resolutionRoot ? { resolutionRoot } : {}),
       // Inject the resolved secrets as process.env for THIS run only.
@@ -116,7 +122,7 @@ const inlineScriptConfigSchema = z.object({
     "x-editor-types": ["typescript"],
     "x-script-testable": true,
   }).describe(
-    "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
+    "TypeScript/JavaScript module. Use `import { ... } from \"node:os\"` to pull in Node built-ins. The recommended pattern is `export default defineHealthCheck({ success, message?, value? })` — `defineHealthCheck` is provided by `@checkstack/sdk/healthcheck` and asserts the return shape at the type level. Throwing also signals failure.",
   ),
   secretEnv: withConfigMeta(secretEnvMappingSchema, { "x-secret-env": true })
     .optional()
@@ -236,8 +242,11 @@ function normaliseScriptReturn(raw: unknown): NormalisedScriptResult {
  * Node built-ins (`node:os`, `node:fs/promises`, `node:child_process`,
  * `node:crypto`, ...), use top-level `await`, and signal its result either
  * via `export default` or — for backwards compatibility — a top-level
- * `return X;`. `globalThis.context` exposes `{ config }` for access to the
- * collector configuration.
+ * `return X;`. `globalThis.context` exposes `{ config, check?, system?,
+ * environment? }` — the collector configuration plus curated run-context
+ * metadata. `context.environment` (when the run resolved one) carries
+ * `{ id, name, fields }`, where `fields` is the environment's custom
+ * metadata, e.g. `globalThis.context.environment.fields.baseUrl`.
  *
  * Subprocess isolation, env scrubbing, temp-dir lifecycle and result
  * marshalling all live in the shared `EsmScriptRunner` in
@@ -325,6 +334,9 @@ export class InlineScriptCollector implements CollectorStrategy<
     // Source-side masking values: the run's delivered secret values.
     const maskValues = Object.values(secretEnv ?? {});
 
+    // The OS-level sandbox is GLOBAL-only and resolved by the runner itself
+    // (durable cluster default on the core pod, or fail-closed). No per-item
+    // override is applied here.
     let exec: InlineScriptExecutionResult;
     try {
       const raw = await this.executor.execute({

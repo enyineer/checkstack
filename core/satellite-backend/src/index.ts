@@ -10,7 +10,10 @@ import {
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { ScriptPackagesApi } from "@checkstack/script-packages-common";
-import { scriptPackagesChangedHook } from "@checkstack/script-packages-backend";
+import {
+  scriptPackagesChangedHook,
+  sandboxPolicyChangedHook,
+} from "@checkstack/script-packages-backend";
 import { secretResolverRef } from "@checkstack/secrets-backend";
 import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
 import { SatelliteService } from "./service";
@@ -256,6 +259,17 @@ export default createBackendPlugin({
                 resolver: secretResolver,
               }),
           },
+          {
+            // Global sandbox-policy relay: carry the resolved cluster-wide
+            // policy in the `authenticated` payload so a satellite enforces it
+            // from its first run, and push it on change. A satellite stays
+            // FAIL-CLOSED (deny egress) until this first relay arrives, so a
+            // read failure here can never loosen its sandbox.
+            getCurrentPolicy: async () => {
+              const spClient = rpcClient.forPlugin(ScriptPackagesApi);
+              return spClient.getSandboxPolicy();
+            },
+          },
         );
 
         // Register satellite WebSocket endpoint via the scoped WS registry
@@ -339,6 +353,18 @@ export default createBackendPlugin({
           scriptPackagesChangedHook,
           async ({ lockfileHash }) => {
             wsHandler.pushRefreshScriptPackagesToAll(lockfileHash);
+          },
+          { mode: "broadcast" },
+        );
+
+        // Fan the global sandbox-policy change out to THIS instance's connected
+        // satellites (push-on-change relay). Broadcast mode so every core pod
+        // pushes to its own satellites; offline satellites converge via the
+        // policy carried in `authenticated` on reconnect.
+        onHook(
+          sandboxPolicyChangedHook,
+          async ({ policy }) => {
+            wsHandler.pushSandboxPolicyToAll(policy);
           },
           { mode: "broadcast" },
         );

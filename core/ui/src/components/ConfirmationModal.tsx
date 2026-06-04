@@ -1,6 +1,7 @@
 import React from "react";
 import { cn } from "../utils";
 import { Button } from "./Button";
+import { usePerformance } from "./PerformanceProvider";
 import { AlertTriangle, X } from "lucide-react";
 
 export interface ConfirmationModalProps {
@@ -26,6 +27,8 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   variant = "danger",
   isLoading = false,
 }) => {
+  const { isLowPower } = usePerformance();
+
   if (!isOpen) return;
 
   const handleConfirm = () => {
@@ -65,7 +68,10 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-background rounded-lg shadow-xl max-w-md w-full mx-4 my-4 max-h-[calc(100dvh-2rem)] overflow-y-auto animate-in fade-in zoom-in duration-200 pointer-events-auto"
+        className={cn(
+          "bg-background rounded-lg shadow-xl max-w-md w-full mx-4 my-4 max-h-[calc(100dvh-2rem)] overflow-y-auto pointer-events-auto",
+          !isLowPower && "animate-in fade-in zoom-in duration-200",
+        )}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

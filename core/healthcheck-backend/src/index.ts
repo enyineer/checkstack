@@ -18,6 +18,12 @@ import {
   specToRegistration,
 } from "@checkstack/notification-common";
 import {
+  aiToolExtensionPoint,
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import { buildHealthcheckAiTools } from "./ai/register-ai-tools";
+import {
   createBackendPlugin,
   coreServices,
   type EmitHookFn,
@@ -233,6 +239,30 @@ export default createBackendPlugin({
           healthCheckRegistry,
           collectorRegistry,
         );
+
+        // Register this plugin's AI tools (propose/update/delete) into the AI
+        // registry via the extension point - owned here, not in ai-backend.
+        const aiToolExt = env.getExtensionPoint(aiToolExtensionPoint);
+        for (const tool of buildHealthcheckAiTools()) {
+          aiToolExt.registerTool(tool, pluginMetadata);
+        }
+
+        // Expose this plugin's OWN read-only AI projection of the existing
+        // `getConfigurations` query via aiToolProjectionExtensionPoint - owned
+        // here, not in ai-backend. The projected read tool is routed by the
+        // transport (MCP / chat) AS the principal, so `getConfigurations`'
+        // own contract access rules gate it; `deferredProjectionExecute` is
+        // the fail-closed net if a transport ever forgot to route.
+        env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+          procedure: healthCheckContract.getConfigurations,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getConfigurations",
+          name: "healthcheck.status",
+          description:
+            "List health-check configurations and their current status. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);

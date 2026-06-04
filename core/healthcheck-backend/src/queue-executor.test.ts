@@ -34,6 +34,7 @@ import {
   Versioned,
   VersionedAggregated,
   aggregatedCounter,
+  configString,
   z,
 } from "@checkstack/backend-api";
 import { mock } from "bun:test";
@@ -499,6 +500,7 @@ describe("Queue-Based Health Check Executor", () => {
           collector: {
             id: "test-collector",
             execute: collectorExecute,
+            config: new Versioned({ version: 1, schema: z.object({}) }),
             mergeResult: mock(() => ({})),
           },
         })),
@@ -563,6 +565,805 @@ describe("Queue-Based Health Check Executor", () => {
         check: { id: "config-1", name: "config-1", intervalSeconds: 45 },
         system: { id: "system-1", name: "web-01" },
       });
+    });
+
+    it("migrates a stored v1 strategy + collector config on the execution path", async () => {
+      const mockDb = createMockDb();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+      const mockSignalService = createMockSignalService();
+
+      // A strategy whose config migrates v1 -> v2 by STRIPPING a moved field
+      // (`endpoint`), mirroring the real health-check reshapers. The stored
+      // config is genuinely v1 (carries `endpoint`); the executor must run the
+      // migration before handing the config to createClient.
+      let capturedStrategyConfig: unknown;
+      const strategyMigratingRegistry: HealthCheckRegistry = {
+        getStrategy: mock(() => ({
+          id: "migrating-strategy",
+          displayName: "Migrating",
+          config: new Versioned({
+            version: 2,
+            schema: z.object({ timeout: z.number() }),
+            migrations: [
+              {
+                fromVersion: 1,
+                toVersion: 2,
+                description: "strip endpoint",
+                migrate: (data: unknown): unknown => {
+                  if (
+                    typeof data === "object" &&
+                    data !== null &&
+                    "endpoint" in data
+                  ) {
+                    const timeout = (data as { timeout?: unknown }).timeout;
+                    return { timeout: typeof timeout === "number" ? timeout : 0 };
+                  }
+                  return data;
+                },
+              },
+            ],
+          }),
+          result: new Versioned({ version: 1, schema: z.object({}) }),
+          aggregatedResult: new VersionedAggregated({
+            version: 1,
+            fields: { count: aggregatedCounter({}) },
+          }),
+          createClient: mock(async (config: unknown) => {
+            capturedStrategyConfig = config;
+            return {
+              client: { exec: mock(async () => ({})) },
+              close: mock(() => {}),
+            };
+          }),
+          mergeResult: mock(() => ({})),
+        })),
+        register: mock(() => {}),
+        getStrategies: mock(() => []),
+        getStrategiesWithMeta: mock(() => []),
+      };
+
+      // A collector whose config migrates v1 -> v2 by renaming `cmd` -> `value`.
+      let capturedCollectorConfig: unknown;
+      const collectorExecute = mock(async (params: { config?: unknown }) => {
+        capturedCollectorConfig = params.config;
+        return { result: {} };
+      });
+      const migratingCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "migrating-collector",
+            execute: collectorExecute,
+            config: new Versioned({
+              version: 2,
+              schema: z.object({ value: z.string() }),
+              migrations: [
+                {
+                  fromVersion: 1,
+                  toVersion: 2,
+                  description: "rename cmd -> value",
+                  migrate: (data: unknown): unknown => {
+                    if (
+                      typeof data === "object" &&
+                      data !== null &&
+                      "cmd" in data &&
+                      !("value" in data)
+                    ) {
+                      const cmd = (data as { cmd?: unknown }).cmd;
+                      return { value: typeof cmd === "string" ? cmd : "" };
+                    }
+                    return data;
+                  },
+                },
+              ],
+            }),
+            result: new Versioned({ version: 1, schema: z.object({}) }),
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock(() => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: "v1 config",
+                      strategyId: "migrating-strategy",
+                      // Stored RAW + genuinely v1 (carries the moved field).
+                      config: { endpoint: "tcp://old", timeout: 1234 },
+                      collectors: [
+                        {
+                          id: "col-1",
+                          collectorId: "migrating-collector",
+                          config: { cmd: "legacy-value" },
+                        },
+                      ],
+                      interval: 30,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() => Promise.resolve([])),
+            })),
+          })),
+        };
+      });
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: strategyMigratingRegistry,
+        collectorRegistry: migratingCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+      });
+
+      if (capturedHandler) {
+        await capturedHandler({
+          data: { configId: "config-1", systemId: "system-1" },
+        }).catch(() => {});
+      }
+
+      // Strategy config reached createClient MIGRATED (endpoint stripped,
+      // timeout preserved) and VALIDATED against the v2 schema.
+      expect(capturedStrategyConfig).toEqual({ timeout: 1234 });
+      // Collector config reached execute MIGRATED (cmd renamed to value).
+      expect(collectorExecute).toHaveBeenCalled();
+      expect(capturedCollectorConfig).toEqual({ value: "legacy-value" });
+    });
+  });
+
+  describe("executeHealthCheckJob - per-environment fan-out", () => {
+    /**
+     * Drive one job with a configurable assignment `environmentIds` + catalog
+     * membership, capturing the run-context handed to the collector on EACH
+     * run. The collector executes once per fanned-out run, so the captured
+     * list is a faithful witness of "one run per effective environment".
+     */
+    async function runFanOut({
+      environmentIds,
+      membership,
+      collectorConfig = {},
+      collectorConfigSchema = z.object({}),
+    }: {
+      environmentIds: string[] | null;
+      membership: Array<{
+        id: string;
+        name: string;
+        metadata: Record<string, unknown> | null;
+      }>;
+      /** Stored (pre-render) collector config for the single collector. */
+      collectorConfig?: Record<string, unknown>;
+      /** Schema used to detect `x-templatable` fields for the render pass. */
+      collectorConfigSchema?: z.ZodType<unknown>;
+    }): Promise<Array<{ environment?: unknown; config?: unknown }>> {
+      const mockDb = createMockDb();
+      const mockRegistry = createMockRegistry();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+      const mockSignalService = createMockSignalService();
+
+      (mockCatalogClient.getSystem as any) = mock(async () => ({
+        id: "system-1",
+        name: "web-01",
+      }));
+      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () =>
+        membership.map((m) => ({
+          ...m,
+          description: null,
+          systemIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })),
+      );
+
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock(() => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: "Check",
+                      strategyId: "test-strategy",
+                      config: { timeout: 5000 },
+                      collectors: [
+                        {
+                          id: "col-1",
+                          collectorId: "test-collector",
+                          config: collectorConfig,
+                        },
+                      ],
+                      interval: 45,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                      environmentIds,
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() => Promise.resolve([])),
+            })),
+          })),
+        };
+      });
+
+      const captured: Array<{ environment?: unknown; config?: unknown }> = [];
+      const collectorExecute = mock(
+        async (params: {
+          runContext?: { environment?: unknown };
+          config?: unknown;
+        }) => {
+          captured.push({
+            environment: params.runContext?.environment,
+            config: params.config,
+          });
+          return { result: {} };
+        },
+      );
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "test-collector",
+            execute: collectorExecute,
+            config: new Versioned({
+              version: 1,
+              schema: collectorConfigSchema,
+            }),
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: mockRegistry,
+        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+      });
+
+      if (capturedHandler) {
+        // Downstream persistence touches DB surfaces the lightweight mock
+        // doesn't fully model; tolerate a later throw — run-contexts are
+        // captured synchronously at collector-execute time, one per run.
+        await capturedHandler({
+          data: { configId: "config-1", systemId: "system-1" },
+        }).catch(() => {});
+      }
+
+      return captured;
+    }
+
+    it("runs once per effective environment with that env in run-context (null selector = all)", async () => {
+      const captured = await runFanOut({
+        environmentIds: null,
+        membership: [
+          { id: "prod", name: "Production", metadata: { baseUrl: "p" } },
+          { id: "staging", name: "Staging", metadata: { baseUrl: "s" } },
+        ],
+      });
+
+      expect(captured).toHaveLength(2);
+      expect(captured[0]?.environment).toEqual({
+        id: "prod",
+        name: "Production",
+        fields: { baseUrl: "p" },
+      });
+      expect(captured[1]?.environment).toEqual({
+        id: "staging",
+        name: "Staging",
+        fields: { baseUrl: "s" },
+      });
+    });
+
+    it("renders x-templatable config fields per environment against environment.*", async () => {
+      const captured = await runFanOut({
+        environmentIds: null,
+        membership: [
+          {
+            id: "prod",
+            name: "Production",
+            metadata: { baseUrl: "https://prod.example.com" },
+          },
+          {
+            id: "staging",
+            name: "Staging",
+            metadata: { baseUrl: "https://staging.example.com" },
+          },
+        ],
+        collectorConfig: { url: "{{ environment.baseUrl }}/healthz" },
+        collectorConfigSchema: z.object({
+          url: configString({ "x-templatable": true }),
+        }),
+      });
+
+      expect(captured).toHaveLength(2);
+      // Each env gets its own rendered config (per-env render pass, §6.3.3).
+      expect((captured[0]?.config as { url: string }).url).toBe(
+        "https://prod.example.com/healthz",
+      );
+      expect((captured[1]?.config as { url: string }).url).toBe(
+        "https://staging.example.com/healthz",
+      );
+    });
+
+    it("renders environment.* to empty string for an env-less run (render-empty, §11.6)", async () => {
+      const captured = await runFanOut({
+        environmentIds: [],
+        membership: [
+          { id: "prod", name: "Production", metadata: { baseUrl: "x" } },
+        ],
+        collectorConfig: { url: "{{ environment.baseUrl }}/healthz" },
+        collectorConfigSchema: z.object({
+          url: configString({ "x-templatable": true }),
+        }),
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.environment).toBeUndefined();
+      // Missing path renders empty (strict: false) — the HTTP collector's
+      // post-render .url() check turns this into a clear config error.
+      expect((captured[0]?.config as { url: string }).url).toBe("/healthz");
+    });
+
+    it("runs only the explicit subset, intersected with membership", async () => {
+      const captured = await runFanOut({
+        environmentIds: ["staging"],
+        membership: [
+          { id: "prod", name: "Production", metadata: {} },
+          { id: "staging", name: "Staging", metadata: {} },
+        ],
+      });
+
+      expect(captured).toHaveLength(1);
+      expect((captured[0]?.environment as { id: string }).id).toBe("staging");
+    });
+
+    it("runs exactly once with no environment when opting out ([] selector)", async () => {
+      const captured = await runFanOut({
+        environmentIds: [],
+        membership: [{ id: "prod", name: "Production", metadata: {} }],
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.environment).toBeUndefined();
+    });
+
+    it("runs exactly once env-less when the system has no environments (null selector, empty membership)", async () => {
+      const captured = await runFanOut({
+        environmentIds: null,
+        membership: [],
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.environment).toBeUndefined();
+    });
+
+    /**
+     * Per-environment ISOLATION regression (§7.2). When the FIRST
+     * environment's run throws (here: its durable persist rejects, which —
+     * with no health-entity handle bound — propagates out of
+     * `writeHealthEntity` to the per-env catch), the loop MUST log and
+     * continue so the SECOND environment still produces a run. One env's
+     * failure must never abort its siblings.
+     */
+    it("continues to the next environment when the first environment's run throws", async () => {
+      const mockDb = createMockDb();
+      const mockRegistry = createMockRegistry();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+      const mockSignalService = createMockSignalService();
+
+      (mockCatalogClient.getSystem as any) = mock(async () => ({
+        id: "system-1",
+        name: "web-01",
+      }));
+      const membership = [
+        { id: "prod", name: "Production", metadata: {} },
+        { id: "staging", name: "Staging", metadata: {} },
+      ];
+      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () =>
+        membership.map((m) => ({
+          ...m,
+          description: null,
+          systemIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })),
+      );
+
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock(() => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: "Check",
+                      strategyId: "test-strategy",
+                      config: { timeout: 5000 },
+                      collectors: [
+                        {
+                          id: "col-1",
+                          collectorId: "test-collector",
+                          config: {},
+                        },
+                      ],
+                      interval: 45,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                      environmentIds: null,
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() => Promise.resolve([])),
+            })),
+          })),
+        };
+      });
+
+      // The first environment's run insert REJECTS; the second succeeds.
+      // With no health-entity handle bound, a failed `apply` propagates out
+      // of `writeHealthEntity`, so this throw reaches the per-env catch.
+      let insertCalls = 0;
+      (mockDb.insert as any) = mock(() => ({
+        values: mock(() => {
+          insertCalls++;
+          if (insertCalls === 1) {
+            return Promise.reject(new Error("env-1 persist failed"));
+          }
+          return Promise.resolve();
+        }),
+      }));
+
+      const envSeen: Array<string | undefined> = [];
+      const collectorExecute = mock(
+        async (params: { runContext?: { environment?: { id?: string } } }) => {
+          envSeen.push(params.runContext?.environment?.id);
+          return { result: {} };
+        },
+      );
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "test-collector",
+            execute: collectorExecute,
+            config: new Versioned({ version: 1, schema: z.object({}) }),
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: mockRegistry,
+        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+      });
+
+      if (capturedHandler) {
+        await capturedHandler({
+          data: { configId: "config-1", systemId: "system-1" },
+        });
+      }
+
+      // BOTH environments' collectors ran — the first env's persist failure
+      // did not abort the loop.
+      expect(envSeen).toEqual(["prod", "staging"]);
+      // The failure was logged (isolated), not propagated.
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    /**
+     * Fail-open OBSERVABILITY (P3 review item 2). When the catalog
+     * `resolveSystemEnvironments` read fails and the executor degrades to a
+     * single env-less run, it MUST emit a counter-style signal (not just a
+     * `logger.warn`) so durable catalog misconfig / outage is observable.
+     */
+    it("broadcasts ENVIRONMENT_RESOLUTION_FAILED and degrades to one env-less run when the catalog read fails", async () => {
+      const mockDb = createMockDb();
+      const mockRegistry = createMockRegistry();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+      const mockSignalService = createMockSignalService();
+
+      (mockCatalogClient.getSystem as any) = mock(async () => ({
+        id: "system-1",
+        name: "web-01",
+      }));
+      // The catalog read REJECTS — the executor must fail open.
+      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => {
+        throw new Error("catalog unavailable");
+      });
+
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock(() => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: "Check",
+                      strategyId: "test-strategy",
+                      config: { timeout: 5000 },
+                      collectors: [
+                        {
+                          id: "col-1",
+                          collectorId: "test-collector",
+                          config: {},
+                        },
+                      ],
+                      interval: 45,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                      environmentIds: null,
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() => Promise.resolve([])),
+            })),
+          })),
+        };
+      });
+
+      const envSeen: Array<string | undefined> = [];
+      const collectorExecute = mock(
+        async (params: { runContext?: { environment?: { id?: string } } }) => {
+          envSeen.push(params.runContext?.environment?.id);
+          return { result: {} };
+        },
+      );
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "test-collector",
+            execute: collectorExecute,
+            config: new Versioned({ version: 1, schema: z.object({}) }),
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: mockRegistry,
+        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService: mockSignalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+      });
+
+      if (capturedHandler) {
+        await capturedHandler({
+          data: { configId: "config-1", systemId: "system-1" },
+        }).catch(() => {});
+      }
+
+      // Degraded to exactly one env-less run.
+      expect(envSeen).toEqual([undefined]);
+      // The observability signal was broadcast with the failure detail.
+      const resolutionFailed = mockSignalService.getRecordedSignalsById(
+        "healthcheck.environment.resolution_failed",
+      );
+      expect(resolutionFailed).toHaveLength(1);
+      expect(
+        (resolutionFailed[0]?.payload as { systemId?: string }).systemId,
+      ).toBe("system-1");
     });
   });
 });

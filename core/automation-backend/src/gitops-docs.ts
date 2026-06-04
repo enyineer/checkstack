@@ -7,7 +7,8 @@
  * discriminator value:
  *
  *   - `triggers[].config` is polymorphic on `triggers[].event` — each
- *     registered trigger declares its own `configSchema`.
+ *     registered trigger declares its own versioned `config` (whose
+ *     `.schema` we document here).
  *   - `actions[].config` is polymorphic on `actions[].action` — each
  *     registered provider action declares its own config schema.
  *
@@ -81,13 +82,13 @@ export function buildAutomationSpecSchemaDocumentation({
 
   // 1. Trigger config docs (fieldPath: "triggers[].config").
   //    A trigger's `config` block is only meaningful when the trigger
-  //    declares a `configSchema` — config-less triggers (most hook-backed
+  //    declares a versioned `config` — config-less triggers (most hook-backed
   //    ones) have no documentable shape, so we skip them. Each entry is a
   //    standalone variant keyed by the trigger id (no `conditions`): the
   //    kind browser surfaces one dropdown of triggers, exactly like
   //    Healthcheck's primary `config` (strategy) field.
   for (const trigger of triggerRegistry.getTriggers()) {
-    if (!trigger.configSchema) continue;
+    if (!trigger.config) continue;
 
     docs.push({
       apiVersion: CHECKSTACK_API_VERSION,
@@ -99,7 +100,7 @@ export function buildAutomationSpecSchemaDocumentation({
         qualifiedId: trigger.qualifiedId,
         description: trigger.description,
       }),
-      schema: trigger.configSchema,
+      schema: trigger.config.schema,
     });
   }
 
