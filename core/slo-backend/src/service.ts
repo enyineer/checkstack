@@ -70,29 +70,35 @@ export class SloService {
     const id = generateId();
     const now = new Date();
 
-    await this.db.insert(sloObjectives).values({
-      id,
-      systemId: input.systemId,
-       
-      healthCheckConfigurationId: input.healthCheckConfigurationId ?? null,
-      target: input.target,
-      windowDays: input.windowDays,
-      dependencyExclusion: input.dependencyExclusion ?? "strict",
-      excludedDependencyIds: input.excludedDependencyIds ?? [],
-      burnRateWarningPercent: input.burnRateThresholds?.warningPercent ?? 50,
-      burnRateCriticalPercent: input.burnRateThresholds?.criticalPercent ?? 80,
-      burnRateFastBurnMultiplier:
-        input.burnRateThresholds?.fastBurnMultiplier ?? 5,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Atomic: the objective row and its 1:1 streak row must commit together.
+    // Without the transaction a failure on the streak insert left a committed
+    // objective with no streak (and the client saw an error for a write that
+    // partially succeeded).
+    await this.db.transaction(async (tx) => {
+      await tx.insert(sloObjectives).values({
+        id,
+        systemId: input.systemId,
 
-    // Create initial streak record
-    await this.db.insert(sloStreaks).values({
-      objectiveId: id,
-      systemId: input.systemId,
-      currentStreak: 0,
-      bestStreak: 0,
+        healthCheckConfigurationId: input.healthCheckConfigurationId ?? null,
+        target: input.target,
+        windowDays: input.windowDays,
+        dependencyExclusion: input.dependencyExclusion ?? "strict",
+        excludedDependencyIds: input.excludedDependencyIds ?? [],
+        burnRateWarningPercent: input.burnRateThresholds?.warningPercent ?? 50,
+        burnRateCriticalPercent: input.burnRateThresholds?.criticalPercent ?? 80,
+        burnRateFastBurnMultiplier:
+          input.burnRateThresholds?.fastBurnMultiplier ?? 5,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Create initial streak record
+      await tx.insert(sloStreaks).values({
+        objectiveId: id,
+        systemId: input.systemId,
+        currentStreak: 0,
+        bestStreak: 0,
+      });
     });
 
     return (await this.getObjective({ id }))!;

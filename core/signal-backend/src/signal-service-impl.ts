@@ -37,6 +37,34 @@ export class SignalServiceImpl implements SignalService {
     this.authClient = client;
   }
 
+  /**
+   * Real-time signals are BEST-EFFORT, by platform contract. They are a UI
+   * convenience (a live push so a client refreshes sooner); the authoritative
+   * data is already committed to the database by the time a mutation broadcasts.
+   * A transient event-bus/queue failure must therefore NEVER turn a successful,
+   * committed write into a client-visible error. Every signal-send routes
+   * through here so that guarantee holds for ALL callers - including future
+   * plugins - without each call site needing its own try/catch (which would
+   * inevitably be forgotten and regress). The mirror of `createCachedScope`,
+   * which already makes cache invalidation non-throwing the same way.
+   *
+   * If a send fails, the client simply misses one live nudge and picks up the
+   * (already-persisted) state on its next fetch/refetch.
+   */
+  private async safeSend(
+    description: string,
+    send: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await send();
+    } catch (error) {
+      this.logger.warn(
+        `Signal delivery failed (${description}) - the write succeeded; clients will reconcile on next fetch.`,
+        { error },
+      );
+    }
+  }
+
   async broadcast<T>(signal: Signal<T>, payload: T): Promise<void> {
     const message: SignalMessage<T> = {
       signalId: signal.id,
@@ -48,7 +76,9 @@ export class SignalServiceImpl implements SignalService {
     this.logger.debug(`Broadcasting signal: ${signal.id}`);
 
     // Emit to EventBus - all backend instances receive and push to their WebSocket clients
-    await this.eventBus.emit(SIGNAL_BROADCAST_HOOK, message);
+    await this.safeSend(`broadcast ${signal.id}`, () =>
+      this.eventBus.emit(SIGNAL_BROADCAST_HOOK, message),
+    );
   }
 
   async sendToUser<T>(
@@ -65,7 +95,9 @@ export class SignalServiceImpl implements SignalService {
 
     this.logger.debug(`Sending signal ${signal.id} to user ${userId}`);
 
-    await this.eventBus.emit(SIGNAL_USER_HOOK, { userId, message });
+    await this.safeSend(`${signal.id} -> user ${userId}`, () =>
+      this.eventBus.emit(SIGNAL_USER_HOOK, { userId, message }),
+    );
   }
 
   async sendToUsers<T>(
@@ -97,11 +129,22 @@ export class SignalServiceImpl implements SignalService {
     // Construct fully-qualified access rule ID: ${pluginMetadata.pluginId}.${accessRule.id}
     const qualifiedAccessRule = qualifyAccessRuleId(pluginMetadata, accessRule);
 
-    // Filter users via auth RPC
-    const authorizedIds = await this.authClient.filterUsersByAccessRule({
-      userIds,
-      accessRule: qualifiedAccessRule,
-    });
+    // Filter users via auth RPC. Best-effort like the send itself: if the auth
+    // lookup transiently fails, skip the live nudge rather than fail the caller's
+    // already-committed write.
+    let authorizedIds: string[];
+    try {
+      authorizedIds = await this.authClient.filterUsersByAccessRule({
+        userIds,
+        accessRule: qualifiedAccessRule,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Signal delivery failed (authz filter for ${signal.id}) - the write succeeded; clients will reconcile on next fetch.`,
+        { error },
+      );
+      return;
+    }
 
     if (authorizedIds.length === 0) {
       this.logger.debug(

@@ -1596,27 +1596,37 @@ export class HealthCheckService {
       ? ({ ...result } as Record<string, unknown>)
       : {};
 
-    await this.db.insert(healthCheckRuns).values({
-      configurationId: configId,
-      systemId,
-      status,
-      latencyMs,
-      result: resultRecord,
-      sourceId,
-      sourceLabel,
-    });
+    // Atomic: the run row and the hourly-aggregate increment it feeds must
+    // commit together. Without the transaction a failure on the (non-idempotent
+    // `runCount + 1`) aggregate left a committed run that the aggregate never
+    // counted - or, on the reverse ordering, an aggregate with no backing run.
+    // NOTE: this guarantees run/aggregate consistency, but does NOT make a
+    // *duplicate satellite delivery* (a re-POST after a committed write)
+    // idempotent - that requires a dedupe key on the high-volume runs table and
+    // is tracked as a separate follow-up.
+    await this.db.transaction(async (tx) => {
+      await tx.insert(healthCheckRuns).values({
+        configurationId: configId,
+        systemId,
+        status,
+        latencyMs,
+        result: resultRecord,
+        sourceId,
+        sourceLabel,
+      });
 
-    // Trigger incremental hourly aggregation — same as local executor
-    await incrementHourlyAggregate({
-      db: this.db,
-      systemId,
-      configurationId: configId,
-      status,
-      latencyMs,
-      runTimestamp: new Date(props.executedAt),
-      result: resultRecord,
-      collectorRegistry: this.collectorRegistry,
-      sourceLabel,
+      // Trigger incremental hourly aggregation — same as local executor
+      await incrementHourlyAggregate({
+        db: tx,
+        systemId,
+        configurationId: configId,
+        status,
+        latencyMs,
+        runTimestamp: new Date(props.executedAt),
+        result: resultRecord,
+        collectorRegistry: this.collectorRegistry,
+        sourceLabel,
+      });
     });
   }
 }

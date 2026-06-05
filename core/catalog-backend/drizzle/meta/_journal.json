@@ -36,6 +36,13 @@
       "when": 1780594817551,
       "tag": "0004_heavy_sharon_carter",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780649274989,
+      "tag": "0005_normal_shaman",
+      "breakpoints": true
     }
   ]
 }

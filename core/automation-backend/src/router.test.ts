@@ -258,11 +258,21 @@ interface RouterHarness {
 }
 
 function createMockDbForRouter() {
-  return {
+  const ops = {
     select: mock(() => fluentSelect([])),
     insert: mock(() => fluentInsertReturning(undefined)),
     update: mock(() => fluentUpdate()),
     delete: mock(() => fluentDelete()),
+  };
+  return {
+    ...ops,
+    // A transaction handle exposes the same query surface as `db`, so handlers
+    // that wrap multi-statement writes in `db.transaction` (e.g. cancelRun, which
+    // now commits the run status + wait-lock/state teardown atomically) work the
+    // same against this mock.
+    transaction: mock(<T>(fn: (tx: typeof ops) => Promise<T>): Promise<T> =>
+      fn(ops),
+    ),
   };
 }
 

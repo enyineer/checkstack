@@ -464,25 +464,31 @@ export function createAutomationRouter(deps: RouterDeps) {
       }
 
       const now = new Date();
-      await db
-        .update(schema.automationRuns)
-        .set({
-          status: "cancelled",
-          errorMessage: "Cancelled by operator",
-          finishedAt: now,
-        })
-        .where(eq(schema.automationRuns.id, input.id));
+      // Atomic: marking the run cancelled and tearing down its wait locks +
+      // durable state must commit together. Without the transaction a failure
+      // after the status update left the wait lock behind, so a later trigger
+      // event could resume a run that is already marked cancelled.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.automationRuns)
+          .set({
+            status: "cancelled",
+            errorMessage: "Cancelled by operator",
+            finishedAt: now,
+          })
+          .where(eq(schema.automationRuns.id, input.id));
 
-      // Tear down any pending wait locks so a future trigger event
-      // doesn't accidentally resume a cancelled run.
-      await db
-        .delete(schema.automationWaitLocks)
-        .where(eq(schema.automationWaitLocks.runId, input.id));
+        // Tear down any pending wait locks so a future trigger event
+        // doesn't accidentally resume a cancelled run.
+        await tx
+          .delete(schema.automationWaitLocks)
+          .where(eq(schema.automationWaitLocks.runId, input.id));
 
-      // Drop the per-run durable state — cancellation is terminal.
-      await db
-        .delete(schema.automationRunState)
-        .where(eq(schema.automationRunState.runId, input.id));
+        // Drop the per-run durable state — cancellation is terminal.
+        await tx
+          .delete(schema.automationRunState)
+          .where(eq(schema.automationRunState.runId, input.id));
+      });
 
       await signalService.broadcast(AUTOMATION_RUN_COMPLETED, {
         runId: input.id,

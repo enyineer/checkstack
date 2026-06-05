@@ -110,25 +110,38 @@ export function createRouter({
     ),
 
     createObjective: os.createObjective.handler(
-      async ({ input }) => {
+      async ({ input, context }) => {
+        // The objective (+ its streak row) is committed atomically here. Once it
+        // returns, the write is durable and the create has SUCCEEDED - the
+        // post-commit steps below are best-effort enrichment/notification and
+        // must never turn a committed create into a client-visible error.
         const objective = await service.createObjective({ input });
 
-        // Reconcile initial state: if system is already down,
-        // open an initial downtime event immediately
-        await engine.reconcileObjective({ objective });
-
-        const status = await engine.computeStatus({ objective });
         // Mutation invariant: db.write → cache.invalidate (await) → signals.emit.
-        await cache.invalidateForMutation({
-          objectiveId: objective.id,
-          systemId: objective.systemId,
-        });
-        await signalService.broadcast(SLO_STATUS_CHANGED, {
-          systemId: objective.systemId,
-          objectiveId: objective.id,
-          budgetRemainingPercent: status.errorBudgetRemainingPercent,
-          isBreaching: status.isBreaching,
-        });
+        // cache.invalidate* and signalService.* are already non-throwing by
+        // platform contract; reconcile/computeStatus are guarded here so a
+        // transient health-read failure can't fail the (already committed) create.
+        try {
+          // Reconcile initial state: if system is already down, open an initial
+          // downtime event immediately.
+          await engine.reconcileObjective({ objective });
+          const status = await engine.computeStatus({ objective });
+          await cache.invalidateForMutation({
+            objectiveId: objective.id,
+            systemId: objective.systemId,
+          });
+          await signalService.broadcast(SLO_STATUS_CHANGED, {
+            systemId: objective.systemId,
+            objectiveId: objective.id,
+            budgetRemainingPercent: status.errorBudgetRemainingPercent,
+            isBreaching: status.isBreaching,
+          });
+        } catch (error) {
+          context.logger.warn(
+            `createObjective: objective ${objective.id} committed, but post-create reconcile/notify failed`,
+            { error },
+          );
+        }
 
         return objective;
       },
