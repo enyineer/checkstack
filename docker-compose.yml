@@ -56,21 +56,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # Optional: Satellite agent for remote health check execution.
-  # Uncomment and configure to deploy satellites alongside the core.
-  #
-  # satellite:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.satellite
-  #   restart: always
-  #   environment:
-  #     CHECKSTACK_CORE_URL: http://checkstack:3000
-  #     CHECKSTACK_SATELLITE_CLIENT_ID: ${SATELLITE_CLIENT_ID}
-  #     CHECKSTACK_SATELLITE_TOKEN: ${SATELLITE_TOKEN}
-  #   depends_on:
-  #     checkstack:
-  #       condition: service_started
+  # Satellites run from a SEPARATE host (a remote vantage point), so they ship
+  # as their own compose file rather than a service here. A satellite EXECUTES
+  # scripts, so it needs the SAME two sandbox relaxations as the core above
+  # (`security_opt`) - without them the fail-closed sandbox refuses every script
+  # check. See `docker-compose-satellite.yml` and the "Connect a satellite"
+  # guide: https://enyineer.github.io/checkstack/user-guide/guides/connect-a-satellite/
 
 volumes:
   postgres_data:

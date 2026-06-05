@@ -88,8 +88,29 @@ export const CreateSatelliteDialog: React.FC<Props> = ({
     }
   };
 
-  // After creation, show credentials
+  // After creation, show credentials + a ready-to-run deploy command.
   if (credentials) {
+    // A satellite executes script checks in a FAIL-CLOSED sandbox, so its
+    // container needs the same two relaxations as the core (`--security-opt`);
+    // without them script checks are refused. The tuned seccomp profile is read
+    // by the Docker daemon from a host file at start, so we extract it from the
+    // image first (works offline / air-gapped - it ships inside the image).
+    const deployCommand = [
+      "# 1. Extract the sandbox seccomp profile from the image (one-time, works offline):",
+      "docker run --rm ghcr.io/enyineer/checkstack-satellite:latest \\",
+      "  print-seccomp > checkstack-userns.json",
+      "",
+      "# 2. Start the satellite:",
+      "docker run -d \\",
+      "  --name checkstack-satellite \\",
+      "  --restart unless-stopped \\",
+      "  --security-opt seccomp=checkstack-userns.json \\",
+      "  --security-opt systempaths=unconfined \\",
+      "  -e CHECKSTACK_CORE_URL=<your-core-url> \\",
+      `  -e CHECKSTACK_SATELLITE_CLIENT_ID=${credentials.clientId} \\`,
+      `  -e CHECKSTACK_SATELLITE_TOKEN=${credentials.token} \\`,
+      "  ghcr.io/enyineer/checkstack-satellite:latest",
+    ].join("\n");
     return (
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent>
@@ -152,10 +173,41 @@ export const CreateSatelliteDialog: React.FC<Props> = ({
             </div>
 
             <div className="grid gap-2 mt-2">
-              <Label>Environment Variables</Label>
-              <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto">
-                {`CHECKSTACK_CORE_URL=<your-core-url>\nCHECKSTACK_SATELLITE_CLIENT_ID=${credentials.clientId}\nCHECKSTACK_SATELLITE_TOKEN=${credentials.token}`}
+              <div className="flex items-center justify-between">
+                <Label>Deploy command</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void copyToClipboard(deployCommand, "Deploy command")
+                  }
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </Button>
+              </div>
+              <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre">
+                {deployCommand}
               </pre>
+              <div className="rounded-md border border-warning/50 bg-warning/10 p-3 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+                <p className="text-sm text-warning">
+                  The two <code>--security-opt</code> flags are required: a
+                  satellite runs script-based health checks in a fail-closed
+                  sandbox and will refuse to execute them without these
+                  relaxations. If you cannot ship the profile file, use{" "}
+                  <code>--security-opt seccomp=unconfined</code> instead.{" "}
+                  <a
+                    href="/checkstack/developer-guide/security/script-sandbox/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    Learn more
+                  </a>
+                  .
+                </p>
+              </div>
             </div>
           </div>
 

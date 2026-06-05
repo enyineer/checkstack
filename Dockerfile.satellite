@@ -64,6 +64,17 @@ COPY --from=production-deps /app/plugins ./plugins
 COPY --from=production-deps /app/package.json ./package.json
 COPY LICENSE.md ./
 
+# Bundle the tuned seccomp profile INTO the image so an operator can extract it
+# on the satellite host before `docker run` - fully offline / air-gapped, no
+# GitHub or core round-trip needed (the profile is version-matched to this
+# agent):  docker run --rm <image> print-seccomp > checkstack-userns.json
+# (The Docker daemon reads `--security-opt seccomp=<file>` from the HOST at
+# create time; a container cannot relax its own seccomp from the inside, so the
+# operator must place the file before starting the satellite - see the helper.)
+COPY deploy/seccomp/checkstack-userns.json /app/deploy/seccomp/checkstack-userns.json
+COPY docker-entrypoint-satellite.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-satellite.sh
+
 # Dedicated low-privilege identity. NON-ROOT SUPERVISOR MODEL: the satellite
 # process itself runs as this uid (see `USER` below), so every sandboxed script
 # INHERITS non-root and can never be host-root. Confinement is delivered by
@@ -83,5 +94,5 @@ HEALTHCHECK NONE
 # /tmp, so no extra chown is required.
 USER 65532:65532
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint-satellite.sh"]
 CMD ["bun", "run", "core/satellite/src/index.ts"]

@@ -51,19 +51,48 @@ docker pull ghcr.io/enyineer/checkstack-satellite:latest
 > [!TIP]
 > Pin the image tag to the same release as your core server in production. Running mismatched versions works in the short term but is not a supported configuration.
 
-## 5. Boot the satellite container
+## 5. Extract the sandbox seccomp profile
 
-Start the container with the three environment variables from step 3:
+A satellite executes script-based health checks inside the same fail-closed
+sandbox as the core, so its container needs two runtime relaxations (see step 6).
+One of them is a tuned seccomp profile that the Docker daemon reads from a file
+on the satellite host. The profile ships inside the satellite image, so extract
+it once next to where you will run the container. This works offline and in
+air-gapped networks - it never touches GitHub or the core:
+
+```bash
+docker run --rm ghcr.io/enyineer/checkstack-satellite:latest \
+  print-seccomp > checkstack-userns.json
+```
+
+> [!IMPORTANT]
+> If you skip the sandbox flags below, the satellite still starts and connects,
+> but it will refuse to run every script-based health check (the sandbox is
+> fail-closed by default). You will see those checks error instead of execute.
+
+## 6. Boot the satellite container
+
+Start the container with the three environment variables from step 3 plus the
+two `--security-opt` flags that enable the script sandbox:
 
 ```bash
 docker run -d \
   --name checkstack-satellite \
   --restart unless-stopped \
+  --security-opt seccomp=checkstack-userns.json \
+  --security-opt systempaths=unconfined \
   -e CHECKSTACK_CORE_URL=https://checkstack.example.com \
   -e CHECKSTACK_SATELLITE_CLIENT_ID=<client-id> \
   -e CHECKSTACK_SATELLITE_TOKEN=<token> \
   ghcr.io/enyineer/checkstack-satellite:latest
 ```
+
+> [!TIP]
+> If your platform cannot mount the profile file, replace the first flag with
+> `--security-opt seccomp=unconfined` (still non-root and namespace-confined,
+> just a looser syscall filter). See
+> [Script sandbox](/checkstack/developer-guide/security/script-sandbox/) for the
+> full security model and the Kubernetes equivalent.
 
 The container fails fast if any of the three variables is missing. Tail the logs to confirm it connected:
 
@@ -83,7 +112,7 @@ You should see lines like:
 
 If you see `WebSocket close` or authentication errors instead, double-check the URL, client ID, and token. The token must match the one the dialog showed in step 3 exactly.
 
-## 6. Confirm the satellite is online
+## 7. Confirm the satellite is online
 
 Back in Checkstack, refresh the **Satellites** page. The new satellite should now show:
 
@@ -92,7 +121,7 @@ Back in Checkstack, refresh the **Satellites** page. The new satellite should no
 
 The status updates in real time via WebSocket signals. If the satellite drops the connection, the badge flips to `offline` within a few seconds.
 
-## 7. Assign a health check to the satellite
+## 8. Assign a health check to the satellite
 
 The point of the satellite is to run checks from its vantage point. Pin a check:
 
@@ -102,7 +131,7 @@ The point of the satellite is to run checks from its vantage point. Pin a check:
 
 The next run executes on the satellite. The result returns through the WebSocket and lands in the check history alongside core-executed runs. The history detail page shows which satellite produced each run.
 
-## 8. Manage the satellite over time
+## 9. Manage the satellite over time
 
 - **Reset token** - the key icon next to the satellite in the list mints a new token and invalidates the old one. Update the running container's env var and restart.
 - **Delete** - the trash icon removes the satellite. Any assignments pointing at it fall back to core execution.

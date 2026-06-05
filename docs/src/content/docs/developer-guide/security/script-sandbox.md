@@ -600,3 +600,47 @@ authenticated WebSocket connection. If the core's policy read fails when
 building the `authenticated` message, the field is simply omitted (version-skew
 safe) and the satellite stays fail-closed - a relay failure can never loosen a
 satellite's sandbox.
+
+### Deploying a satellite (sandbox flags)
+
+A satellite executes the same script checks as the core, so its container needs
+the SAME two runtime relaxations described under
+[Required runtime relaxations](#required-runtime-relaxations-both): a seccomp
+profile that permits the unprivileged user-namespace + `bwrap` syscalls, and
+`systempaths=unconfined`. Without them the fail-closed sandbox refuses every
+script run - the satellite still starts and connects, but script-based health
+checks error instead of executing.
+
+The Docker daemon reads `--security-opt seccomp=<file>` from a file on the
+satellite HOST at container-create time, and a container cannot relax its own
+seccomp from the inside. So the operator must place the profile on the host
+BEFORE `docker run` - the satellite cannot fetch-and-apply it for itself at
+runtime. To make this work offline / in air-gapped networks, the tuned profile
+is bundled INSIDE the satellite image (version-matched to the agent) and the
+image exposes a `print-seccomp` helper that writes it to stdout - no GitHub and
+no core round-trip required:
+
+```bash
+# Extract the profile once on the satellite host:
+docker run --rm ghcr.io/enyineer/checkstack-satellite:latest \
+  print-seccomp > checkstack-userns.json
+
+# Then start the satellite with both relaxations:
+docker run -d \
+  --name checkstack-satellite \
+  --restart unless-stopped \
+  --security-opt seccomp=checkstack-userns.json \
+  --security-opt systempaths=unconfined \
+  -e CHECKSTACK_CORE_URL=https://checkstack.example.com \
+  -e CHECKSTACK_SATELLITE_CLIENT_ID=<client-id> \
+  -e CHECKSTACK_SATELLITE_TOKEN=<token> \
+  ghcr.io/enyineer/checkstack-satellite:latest
+```
+
+A ready-to-edit [`docker-compose-satellite.yml`](https://github.com/enyineer/checkstack/blob/main/docker-compose-satellite.yml)
+ships the same configuration, and the step-by-step
+[Connect a satellite](/checkstack/user-guide/guides/connect-a-satellite/) guide
+walks an operator through it. If the host can mount no profile file at all, the
+fallback is `--security-opt seccomp=unconfined` (still non-root and
+namespace-confined); if it can relax neither seccomp nor `/proc`, set the global
+sandbox policy to `degrade` in the core admin settings.
