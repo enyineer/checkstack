@@ -1,5 +1,16 @@
 # @checkstack/ai-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+  - @checkstack/backend-api@0.21.1
+  - @checkstack/ai-common@0.1.1
+  - @checkstack/integration-backend@0.4.1
+  - @checkstack/sdk@0.95.1
+
 ## 0.1.0
 
 ### Minor Changes

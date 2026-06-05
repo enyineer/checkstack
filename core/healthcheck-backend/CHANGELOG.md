@@ -1,5 +1,35 @@
 # @checkstack/healthcheck-backend
 
+## 1.6.1
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+  - @checkstack/backend-api@0.21.1
+  - @checkstack/cache-api@0.3.10
+  - @checkstack/queue-api@0.3.10
+  - @checkstack/ai-backend@0.1.1
+  - @checkstack/ai-common@0.1.1
+  - @checkstack/automation-backend@0.5.1
+  - @checkstack/catalog-backend@1.4.1
+  - @checkstack/catalog-common@2.3.1
+  - @checkstack/command-backend@0.2.1
+  - @checkstack/gitops-backend@0.5.1
+  - @checkstack/gitops-common@0.6.1
+  - @checkstack/healthcheck-common@1.5.1
+  - @checkstack/incident-backend@1.6.1
+  - @checkstack/incident-common@1.4.1
+  - @checkstack/maintenance-common@1.4.1
+  - @checkstack/notification-common@1.3.1
+  - @checkstack/satellite-backend@0.6.1
+  - @checkstack/script-packages-backend@0.3.1
+  - @checkstack/sdk@0.95.1
+  - @checkstack/secrets-backend@0.2.1
+  - @checkstack/secrets-common@0.2.1
+  - @checkstack/signal-common@0.2.7
+  - @checkstack/cache-utils@0.2.15
+
 ## 1.6.0
 
 ### Minor Changes

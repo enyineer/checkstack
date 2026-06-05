@@ -1,5 +1,14 @@
 # @checkstack/ui
 
+## 1.13.1
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+  - @checkstack/frontend-api@0.7.1
+  - @checkstack/template-engine@0.4.1
+
 ## 1.13.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @checkstack/cache-memory-common
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+
 ## 0.2.6
 
 ### Patch Changes
