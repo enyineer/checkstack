@@ -81,6 +81,10 @@ export function buildVerdaccioConfig({
     "    access: $all",
     "    publish: $anonymous",
     "    proxy: npmjs",
+    // Bundled platform packages (e.g. @checkstack/frontend, @checkstack/ui)
+    // ship large tarballs that blow past Verdaccio's 10mb default body cap and
+    // get rejected with a 413. Raise the ceiling well above the largest pack.
+    "max_body_size: 500mb",
     "log: { type: stdout, format: pretty, level: warn }",
     `listen: 0.0.0.0:${port}`,
     "",
