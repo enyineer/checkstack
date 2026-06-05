@@ -1,5 +1,15 @@
 # @checkstack/secrets-backend-vault
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+  - @checkstack/backend-api@0.21.1
+  - @checkstack/secrets-backend@0.2.1
+  - @checkstack/secrets-common@0.2.1
+
 ## 0.1.2
 
 ### Patch Changes

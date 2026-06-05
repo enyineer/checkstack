@@ -1,5 +1,13 @@
 # @checkstack/integration-common
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [13373ce]
+  - @checkstack/common@0.14.0
+  - @checkstack/signal-common@0.2.7
+
 ## 0.7.0
 
 ### Minor Changes

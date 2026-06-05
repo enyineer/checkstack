@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/command-common",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {
