@@ -378,8 +378,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string().optional(),
         configurationId: z.string().optional(),
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+        startDate: z.coerce.date().optional(),
+        endDate: z.coerce.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
@@ -405,8 +405,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string().optional(),
         configurationId: z.string().optional(),
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+        startDate: z.coerce.date().optional(),
+        endDate: z.coerce.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
@@ -444,8 +444,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string(),
-        startDate: z.date(),
-        endDate: z.date(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
       }),
@@ -467,8 +467,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string(),
-        startDate: z.date(),
-        endDate: z.date(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
@@ -645,7 +645,7 @@ export const healthCheckContract = {
   })
     .input(
       z.object({
-        startDate: z.date(),
+        startDate: z.coerce.date(),
         limitPerAssignment: z.number().optional().default(200),
       }),
     )

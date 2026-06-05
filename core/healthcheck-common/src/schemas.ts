@@ -97,7 +97,9 @@ export const CreateHealthCheckConfigurationSchema = z.object({
   name: z.string().min(1),
   strategyId: z.string().min(1),
   config: z.record(z.string(), z.unknown()),
-  intervalSeconds: z.number().min(1),
+  // Bounded: a non-integer or out-of-range value previously reached the DB and
+  // failed at insert (the column is a 32-bit int). 1 second .. 30 days.
+  intervalSeconds: z.number().int().min(1).max(2_592_000),
   /** Optional collector configurations */
   collectors: z.array(CollectorConfigEntrySchema).optional(),
 });

@@ -185,6 +185,23 @@ export type SloStatus = z.infer<typeof SloStatusSchema>;
 // =============================================================================
 
 /**
+ * SLO rolling-window length in days. Bounded on BOTH ends: at least 1 day, and
+ * at most 10 years. The upper bound is load-bearing - the engine derives window
+ * boundaries with `Date(now - windowDays * 86_400_000)`, so an unbounded value
+ * (the API previously accepted any positive int up to 2^53) overflows past the
+ * max representable Date and produces `Invalid Date`. That row commits fine but
+ * then poisons EVERY read of the system's objectives (the serializer throws
+ * `RangeError: Invalid time value`), a stored cluster-wide DoS. 3650 days keeps
+ * all arithmetic well inside Date and int32 range.
+ */
+export const SLO_MAX_WINDOW_DAYS = 3650;
+export const SloWindowDaysSchema = z
+  .number()
+  .int()
+  .positive("Window must be at least 1 day")
+  .max(SLO_MAX_WINDOW_DAYS, `Window must be at most ${SLO_MAX_WINDOW_DAYS} days`);
+
+/**
  * Input for creating a new SLO objective.
  */
 export const CreateSloObjectiveInputSchema = z.object({
@@ -194,7 +211,7 @@ export const CreateSloObjectiveInputSchema = z.object({
     .number()
     .min(0, "Target must be >= 0")
     .max(100, "Target must be <= 100"),
-  windowDays: z.number().int().positive("Window must be at least 1 day"),
+  windowDays: SloWindowDaysSchema,
   dependencyExclusion: DependencyExclusionModeSchema.optional().default(
     "strict",
   ),
@@ -215,7 +232,7 @@ export type CreateSloObjectiveInput = z.infer<
 export const UpdateSloObjectiveInputSchema = z.object({
   id: z.string(),
   target: z.number().min(0).max(100).optional(),
-  windowDays: z.number().int().positive().optional(),
+  windowDays: SloWindowDaysSchema.optional(),
   dependencyExclusion: DependencyExclusionModeSchema.optional(),
   excludedDependencyIds: z.array(z.string()).optional(),
   burnRateThresholds: BurnRateThresholdsSchema.optional(),

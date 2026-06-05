@@ -78,10 +78,12 @@ export const SystemDetailPage: React.FC = () => {
   const { data: groupsData, isLoading: groupsLoading } =
     catalogClient.getGroups.useQuery({});
 
-  // Fetch contacts for this system
+  // Fetch contacts for this system. Contacts carry PII (name/email), so the
+  // endpoint is authenticated-only; skip the request for anonymous viewers
+  // (it would 401) and fall back to the "No contacts assigned" empty state.
   const { data: contactsData } = catalogClient.getSystemContacts.useQuery(
     { systemId: systemId ?? "" },
-    { enabled: !!systemId },
+    { enabled: !!systemId && !!session },
   );
 
   // Fetch additional links for this system

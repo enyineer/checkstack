@@ -24,6 +24,7 @@ import type { EventBus } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
 import { rootLogger } from "../logger";
 import { extractErrorMessage } from "@checkstack/common";
+import { mapPgErrorToHttp } from "./pg-http-errors";
 
 interface RouteHandlerDeps {
   registry: ServiceRegistry;
@@ -215,6 +216,35 @@ function logHandlerError({
 }
 
 /**
+ * Shared interceptor catch path for both the RPC and REST handlers. A Postgres
+ * driver error caused by bad client input (bad uuid, out-of-range int, over-long
+ * string, constraint violation) is mapped to the correct 4xx `ORPCError` and
+ * logged at warn (it is a client mistake, not a server fault). Everything else
+ * keeps the existing error-level logging + rethrow so genuine 500s stay loud.
+ */
+function rethrowAsHttpError({
+  error,
+  pathname,
+  logger,
+  protocolLabel,
+}: {
+  error: unknown;
+  pathname: string;
+  logger: Logger | undefined;
+  protocolLabel: string;
+}): never {
+  const mapped = mapPgErrorToHttp(error);
+  if (mapped) {
+    (logger ?? rootLogger).warn(
+      `${protocolLabel} ${pathname}: ${mapped.code} (${extractErrorMessage(error)})`,
+    );
+    throw mapped;
+  }
+  logHandlerError({ error, pathname, logger, protocolLabel });
+  throw error;
+}
+
+/**
  * Creates the API route handler for Hono.
  * Serves oRPC's native RPC wire protocol at /api/:pluginId/*.
  */
@@ -253,13 +283,12 @@ export function createApiRouteHandler({
             try {
               return await next(rest);
             } catch (error) {
-              logHandlerError({
+              rethrowAsHttpError({
                 error,
                 pathname,
                 logger,
                 protocolLabel: "RPC",
               });
-              throw error;
             }
           },
         ],
@@ -332,13 +361,12 @@ export function createRestRouteHandler({
             try {
               return await next(rest);
             } catch (error) {
-              logHandlerError({
+              rethrowAsHttpError({
                 error,
                 pathname,
                 logger,
                 protocolLabel: "REST",
               });
-              throw error;
             }
           },
         ],

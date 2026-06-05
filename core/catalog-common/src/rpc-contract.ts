@@ -14,9 +14,20 @@ import {
 } from "./types";
 import { catalogAccess } from "./access";
 
+// Shared catalog display-name validation. Bare `z.string()` previously let
+// empty, whitespace-only, and unbounded (100KB+) names through to the DB - the
+// huge ones surfaced as 500s (parameter binding blew up), the empty ones as
+// confusing rows. Trim first so " " collapses to "" and fails `.min(1)`; cap at
+// 200 chars (well inside the `systems.name` unique btree index limit).
+const NameSchema = z
+  .string()
+  .trim()
+  .min(1, "Name is required")
+  .max(200, "Name must be at most 200 characters");
+
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
-  name: z.string(),
+  name: NameSchema,
   description: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -24,21 +35,21 @@ const CreateSystemInputSchema = z.object({
 const UpdateSystemInputSchema = z.object({
   id: z.string(),
   data: z.object({
-    name: z.string().optional(),
+    name: NameSchema.optional(),
     description: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
 
 const CreateGroupInputSchema = z.object({
-  name: z.string(),
+  name: NameSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const UpdateGroupInputSchema = z.object({
   id: z.string(),
   data: z.object({
-    name: z.string().optional(),
+    name: NameSchema.optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
@@ -136,9 +147,13 @@ export const catalogContract = {
   // SYSTEM CONTACTS MANAGEMENT
   // ==========================================================================
 
+  // Gated to authenticated callers: contacts carry PII (userId, userName,
+  // userEmail). A "public" read leaked those to anonymous status-page visitors.
+  // The detail-page UI renders "No contacts assigned" when this returns empty,
+  // so anonymous viewers degrade gracefully rather than erroring.
   getSystemContacts: proc({
     operationType: "query",
-    userType: "public",
+    userType: "authenticated",
     access: [catalogAccess.system.read],
     instanceAccess: { idParam: "systemId" },
   })

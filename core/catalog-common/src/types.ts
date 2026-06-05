@@ -78,7 +78,7 @@ export const EnvironmentSchema = z.object({
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
 export const CreateEnvironmentSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1).max(200),
   description: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
