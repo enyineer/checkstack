@@ -1,5 +1,23 @@
 # @checkstack/cache-memory-backend
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/backend-api@0.21.0
+  - @checkstack/common@0.13.0
+  - @checkstack/cache-api@0.3.9
+  - @checkstack/cache-memory-common@0.2.6
+
 ## 0.3.8
 
 ### Patch Changes

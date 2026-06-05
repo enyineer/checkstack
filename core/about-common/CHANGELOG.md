@@ -1,5 +1,15 @@
 # @checkstack/about-common
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/common@0.13.0
+
 ## 0.2.7
 
 ### Patch Changes

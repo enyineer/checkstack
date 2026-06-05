@@ -1,5 +1,18 @@
 # @checkstack/cache-api
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/backend-api@0.21.0
+
 ## 0.3.8
 
 ### Patch Changes

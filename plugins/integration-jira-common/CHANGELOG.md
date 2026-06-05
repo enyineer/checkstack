@@ -1,5 +1,15 @@
 # @checkstack/integration-jira-common
 
+## 0.1.18
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/common@0.13.0
+
 ## 0.1.17
 
 ### Patch Changes
