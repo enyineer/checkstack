@@ -82,9 +82,6 @@ export default defineConfig(() => {
         // optimizeDeps.include"). The `require("vscode")` CJS interop is handled
         // by the `vscode` resolve.alias below.
       ],
-      // Keep the editor packages out of pre-bundling so their `?worker&url`
-      // imports resolve from the real package dirs (shared with the dev server).
-      exclude: monaco.optimizeDeps.exclude,
     },
     build: {
       // Use esnext to support top-level await and modern ES features

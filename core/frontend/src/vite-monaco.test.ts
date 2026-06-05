@@ -24,16 +24,6 @@ describe("monacoViteConfig", () => {
     expect(existsSync(vscodeDir)).toBe(true);
   });
 
-  it("excludes the Monaco editor packages from dep pre-bundling", () => {
-    const config = monacoViteConfig({ resolveFrom: [UI_DIR] });
-    // Pre-bundling rewrites these packages' `?worker&url` imports to paths that
-    // break under bun's isolated store, so they must be excluded.
-    expect(config.optimizeDeps.exclude).toContain(
-      "@codingame/monaco-vscode-standalone-typescript-language-features",
-    );
-    expect(config.optimizeDeps.exclude).toContain("@typefox/monaco-editor-react");
-  });
-
   it("throws when the editor stack cannot be resolved", () => {
     expect(() =>
       monacoViteConfig({

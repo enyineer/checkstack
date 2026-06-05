@@ -160,11 +160,11 @@ export async function startFrontendDevServer({
   });
 
   // Monaco / VS Code editor Vite settings (ES-module workers + the `vscode`
-  // alias), from @checkstack/frontend's shared helper. Without these a plugin
-  // using @checkstack/ui's CodeEditor fails to bundle the language workers
-  // (`[UNLOADABLE_DEPENDENCY] ... ts.worker.js?worker&url`). Returns `undefined`
-  // when the editor stack isn't resolvable — the dev server still starts; only
-  // the in-browser editor's language features are unavailable.
+  // alias) from @checkstack/frontend's shared helper, so the dev server matches
+  // the app's config instead of drifting. Without the `vscode` alias,
+  // @checkstack/ui's CodeEditor leaks a runtime `require("vscode")` into the
+  // browser. Returns `undefined` when the editor stack isn't resolvable — the
+  // dev server still starts; the editor just isn't configured.
   const monaco = await loadMonacoViteConfig({ frontendDir, pluginCwd });
 
   const server = await createViteServer({
@@ -216,12 +216,7 @@ export async function startFrontendDevServer({
     // chokes on workspace-resolved peers. Letting Vite skip pre-bundle
     // for our plugin keeps live-edit fast.
     optimizeDeps: {
-      exclude: [
-        "virtual:checkstack-dev-plugin",
-        // Keep the Monaco editor stack out of pre-bundling so its `?worker&url`
-        // worker paths resolve from the real package dirs (see monacoViteConfig).
-        ...(monaco?.optimizeDeps.exclude ?? []),
-      ],
+      exclude: ["virtual:checkstack-dev-plugin"],
     },
   });
 

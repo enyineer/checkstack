@@ -3,12 +3,8 @@
 "@checkstack/dev-server": patch
 ---
 
-Fix the Monaco / VS Code `CodeEditor` (`@checkstack/ui`) failing to bundle in a standalone plugin's dev server.
+Share the Monaco / VS Code editor Vite settings between `@checkstack/frontend` and `@checkstack/dev-server` so they cannot drift.
 
-`@checkstack/dev-server` hand-rolled its Vite config and was missing the Monaco settings that `@checkstack/frontend`'s own `vite.config.ts` carries, so any scaffolded plugin whose frontend pulls in `@checkstack/ui`'s `CodeEditor` failed with `[UNLOADABLE_DEPENDENCY] ... ts.worker.js?worker&url`. Three settings are required, and were drifting:
+`@checkstack/dev-server` hand-rolled its Vite config and was missing the editor settings that `@checkstack/frontend`'s own `vite.config.ts` carries, so a standalone plugin whose frontend uses `@checkstack/ui`'s `CodeEditor` leaked a runtime `require("vscode")` into the browser (and the configs could silently diverge again on any future change).
 
-- `worker.format: "es"` - the `@codingame` language workers are ES-module workers.
-- `resolve.alias.vscode` - resolves the `"vscode": "npm:@codingame/monaco-vscode-extension-api"` alias so `require("vscode")` does not leak into the browser.
-- `optimizeDeps.exclude` of the editor packages - Vite's pre-bundling rewrites their `?worker&url` imports to paths that do not resolve back to the real worker files under bun's isolated `node_modules/.bun/*` store (the standalone-plugin layout).
-
-`@checkstack/frontend` now exports these as a shared `monacoViteConfig` helper (`@checkstack/frontend/vite-monaco`), consumed by BOTH its own `vite.config.ts` and the dev server, so the two configs can no longer drift. The dev server resolves and applies it from the plugin's installed `@checkstack/frontend`/`@checkstack/ui`, degrading gracefully (dev server still starts) when the editor stack is absent.
+`@checkstack/frontend` now exports a shared `monacoViteConfig` helper (`@checkstack/frontend/vite-monaco`) providing the two required settings - `worker.format: "es"` (the `@codingame` language workers are ES-module workers) and the `vscode` resolve alias (resolves `"vscode": "npm:@codingame/monaco-vscode-extension-api"` so `require("vscode")` doesn't leak). Both `vite.config.ts` and the dev server now consume it. The dev server resolves it from the plugin's installed `@checkstack/frontend`/`@checkstack/ui` and degrades gracefully when the editor stack is absent.
