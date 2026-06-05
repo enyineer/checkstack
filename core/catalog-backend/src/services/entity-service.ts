@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import * as schema from "../schema";
 import { SafeDatabase } from "@checkstack/backend-api";
 import { v4 as uuidv4 } from "uuid";
@@ -82,16 +82,18 @@ export class EntityService {
   }
 
   /**
-   * Look up a system by its exact name. Used to enforce name uniqueness on
-   * create/rename (the `systems` table has no unique constraint because runtime
-   * schema is set via search_path; uniqueness is enforced at the service layer).
+   * Look up a system by name, CASE-INSENSITIVELY. Used for the friendly
+   * pre-write uniqueness check on create/rename; the `systems_name_unique`
+   * functional index (`lower(name)`) is the actual race-safe guard, and this
+   * mirrors its case-folding so the pre-check catches "Api" vs "api" too (a
+   * case-sensitive `eq` would miss it and leave only the generic DB conflict).
    * Returns the first match, or undefined when the name is free.
    */
   async getSystemByName(name: string) {
     const result = await this.database
       .select()
       .from(schema.systems)
-      .where(eq(schema.systems.name, name));
+      .where(sql`lower(${schema.systems.name}) = lower(${name})`);
     return result[0];
   }
 

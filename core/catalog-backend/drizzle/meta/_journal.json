@@ -43,6 +43,13 @@
       "when": 1780649274989,
       "tag": "0005_normal_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780651494240,
+      "tag": "0006_optimal_gamora",
+      "breakpoints": true
     }
   ]
 }

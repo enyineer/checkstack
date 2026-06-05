@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -23,9 +24,10 @@ export const systems = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => ({
-    // System names are unique. Enforced at the DB so a concurrent double-create
-    // cannot slip two systems with the same name past the service-layer check.
-    nameUnique: uniqueIndex("systems_name_unique").on(t.name),
+    // System names are unique, CASE-INSENSITIVELY ("Api" and "api" collide).
+    // A functional index on lower(name) enforces this at the DB while the stored
+    // value keeps its original casing.
+    nameUnique: uniqueIndex("systems_name_unique").on(sql`lower(${t.name})`),
   }),
 );
 
@@ -72,10 +74,8 @@ export const groups = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => ({
-    // Group names are unique (consistent with systems.name), enforced at the DB
-    // so a concurrent double-create cannot slip two same-named groups past the
-    // service-layer check.
-    nameUnique: uniqueIndex("groups_name_unique").on(t.name),
+    // Group names are unique, CASE-INSENSITIVELY (consistent with systems.name).
+    nameUnique: uniqueIndex("groups_name_unique").on(sql`lower(${t.name})`),
   }),
 );
 
@@ -113,8 +113,10 @@ export const environments = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => ({
-    // Environment names are unique (consistent with systems.name / groups.name).
-    nameUnique: uniqueIndex("environments_name_unique").on(t.name),
+    // Environment names are unique, CASE-INSENSITIVELY (like systems / groups).
+    nameUnique: uniqueIndex("environments_name_unique").on(
+      sql`lower(${t.name})`,
+    ),
   }),
 );
 
