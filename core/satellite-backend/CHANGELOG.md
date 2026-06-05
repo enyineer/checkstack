@@ -1,5 +1,26 @@
 # @checkstack/satellite-backend
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [1fee9da]
+  - @checkstack/common@0.14.1
+  - @checkstack/automation-backend@0.5.2
+  - @checkstack/automation-common@0.4.2
+  - @checkstack/backend-api@0.21.2
+  - @checkstack/gitops-backend@0.5.2
+  - @checkstack/gitops-common@0.6.2
+  - @checkstack/healthcheck-backend@1.6.2
+  - @checkstack/healthcheck-common@1.5.2
+  - @checkstack/queue-api@0.3.11
+  - @checkstack/satellite-common@0.8.2
+  - @checkstack/script-packages-backend@0.3.2
+  - @checkstack/script-packages-common@0.3.2
+  - @checkstack/secrets-backend@0.2.2
+  - @checkstack/secrets-common@0.2.2
+  - @checkstack/signal-common@0.2.8
+
 ## 0.6.1
 
 ### Patch Changes

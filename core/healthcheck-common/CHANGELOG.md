@@ -1,5 +1,15 @@
 # @checkstack/healthcheck-common
 
+## 1.5.2
+
+### Patch Changes
+
+- Updated dependencies [1fee9da]
+  - @checkstack/common@0.14.1
+  - @checkstack/catalog-common@2.3.2
+  - @checkstack/notification-common@1.3.2
+  - @checkstack/signal-common@0.2.8
+
 ## 1.5.1
 
 ### Patch Changes

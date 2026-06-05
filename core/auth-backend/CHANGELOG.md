@@ -1,5 +1,16 @@
 # @checkstack/auth-backend
 
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [1fee9da]
+  - @checkstack/common@0.14.1
+  - @checkstack/auth-common@0.8.2
+  - @checkstack/backend-api@0.21.2
+  - @checkstack/command-backend@0.2.2
+  - @checkstack/notification-common@1.3.2
+
 ## 0.5.1
 
 ### Patch Changes
