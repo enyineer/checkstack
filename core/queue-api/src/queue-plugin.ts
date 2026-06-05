@@ -6,7 +6,7 @@ import type {
   ListJobsOptions,
   ListJobsResult,
 } from "./queue";
-import type { Migration, Logger } from "@checkstack/backend-api";
+import type { Migration, Logger } from "@checkstack/common";
 
 export interface QueuePlugin<Config = unknown> {
   id: string;
