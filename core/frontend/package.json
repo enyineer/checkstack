@@ -9,6 +9,7 @@
   "exports": {
     "./package.json": "./package.json",
     "./tailwind-preset": "./tailwind-preset.js",
+    "./vite-monaco": "./src/vite-monaco.ts",
     "./*": "./*"
   },
   "scripts": {

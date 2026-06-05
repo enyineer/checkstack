@@ -246,7 +246,15 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       const original = fs.readFileSync(frontendIndex, "utf8");
       fs.writeFileSync(
         frontendIndex,
-        `// e2e Tailwind probe: a custom arbitrary utility class.\n` +
+        // e2e Monaco probe: pull @checkstack/ui's CodeEditor (and its Monaco /
+        // @codingame language-worker stack) into the dev server's module graph,
+        // so the dev server's Vite config is exercised on the `?worker&url`
+        // worker-bundling path. Without the shared monacoViteConfig settings
+        // (worker.format + the `vscode` alias + the editor-package
+        // optimizeDeps.exclude) the dev server logs `[UNLOADABLE_DEPENDENCY] ...
+        // ts.worker.js?worker&url` — asserted in the dev test below.
+        `import { CodeEditor } from "@checkstack/ui";\nvoid CodeEditor;\n` +
+          `// e2e Tailwind probe: a custom arbitrary utility class.\n` +
           `export const __TailwindProbe = () => <div className="${TAILWIND_PROBE_CLASS}" />;\n` +
           original,
       );
@@ -473,6 +481,18 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         compiledCss,
         `dev CSS did not contain the plugin's custom Tailwind class (${TAILWIND_PROBE_CLASS} → "${TAILWIND_PROBE_CSS}"); the dev shell is unstyled.\nboot log:\n${bootLog}`,
       ).toBeDefined();
+
+      // The dev server's Vite config must bundle @checkstack/ui's Monaco editor
+      // stack (the probe import above pulls it into the graph). Its @codingame
+      // language workers are ES-module workers loaded via `?worker&url`; without
+      // the shared monacoViteConfig (worker.format + the `vscode` alias + the
+      // editor-package optimizeDeps.exclude) bundling fails with
+      // `[UNLOADABLE_DEPENDENCY] ... ts.worker.js?worker`. Assert the boot log
+      // is free of that failure.
+      expect(
+        /UNLOADABLE_DEPENDENCY|\.worker\.js\?worker/.test(bootLog),
+        `dev server failed to bundle @checkstack/ui's Monaco editor workers — the dev Vite config is missing the shared monacoViteConfig.\nboot log:\n${bootLog}`,
+      ).toBe(false);
     }, 300_000);
   },
 );
