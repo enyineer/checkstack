@@ -1,5 +1,23 @@
 # @checkstack/queue-memory-backend
 
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/backend-api@0.21.0
+  - @checkstack/common@0.13.0
+  - @checkstack/queue-api@0.3.9
+  - @checkstack/queue-memory-common@0.1.16
+
 ## 0.4.8
 
 ### Patch Changes

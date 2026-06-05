@@ -1,5 +1,24 @@
 # @checkstack/script-packages-store-s3
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+- Updated dependencies [9dcc848]
+  - @checkstack/backend-api@0.21.0
+  - @checkstack/common@0.13.0
+  - @checkstack/script-packages-backend@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

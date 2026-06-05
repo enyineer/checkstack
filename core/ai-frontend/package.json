@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/ai-frontend",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",
