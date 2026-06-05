@@ -5,6 +5,7 @@ import {
   timestamp,
   primaryKey,
   boolean,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -77,12 +78,22 @@ export const incidentUpdates = pgTable("incident_updates", {
  * Hotlinks attached to an incident — e.g. a Jira ticket, runbook, or chat
  * thread. Free-form URL + optional human label.
  */
-export const incidentLinks = pgTable("incident_links", {
-  id: text("id").primaryKey(),
-  incidentId: text("incident_id")
-    .notNull()
-    .references(() => incidents.id, { onDelete: "cascade" }),
-  label: text("label"),
-  url: text("url").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const incidentLinks = pgTable(
+  "incident_links",
+  {
+    id: text("id").primaryKey(),
+    incidentId: text("incident_id")
+      .notNull()
+      .references(() => incidents.id, { onDelete: "cascade" }),
+    label: text("label"),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // The same URL may be attached to an incident only once.
+    incidentUrlUnique: uniqueIndex("incident_links_incident_url_unique").on(
+      t.incidentId,
+      t.url,
+    ),
+  }),
+);

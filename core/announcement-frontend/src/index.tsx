@@ -1,7 +1,5 @@
 import {
   createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
   DashboardSlot,
 } from "@checkstack/frontend-api";
 import {
@@ -9,7 +7,7 @@ import {
   pluginMetadata,
   announcementAccess,
 } from "@checkstack/announcement-common";
-import { AnnouncementMenuItems } from "./components/AnnouncementMenuItems";
+import { Megaphone } from "lucide-react";
 import { DashboardAnnouncements } from "./components/DashboardAnnouncements";
 
 export default createFrontendPlugin({
@@ -23,15 +21,11 @@ export default createFrontendPlugin({
         })),
       title: "Manage Announcements",
       accessRule: announcementAccess.manage,
+      nav: { group: "Workspace", icon: Megaphone, label: "Announcements" },
     },
   ],
   apis: [],
   extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "announcement.user-menu.items",
-      component: AnnouncementMenuItems,
-      metadata: { group: "Workspace" },
-    }),
     {
       id: "announcement.dashboard.cards",
       slot: DashboardSlot,

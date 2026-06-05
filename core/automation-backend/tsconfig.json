@@ -5,6 +5,15 @@
   ],
   "references": [
     {
+      "path": "../ai-backend"
+    },
+    {
+      "path": "../ai-common"
+    },
+    {
+      "path": "../auth-common"
+    },
+    {
       "path": "../automation-common"
     },
     {
@@ -45,6 +54,9 @@
     },
     {
       "path": "../script-packages-backend"
+    },
+    {
+      "path": "../sdk"
     },
     {
       "path": "../secrets-backend"

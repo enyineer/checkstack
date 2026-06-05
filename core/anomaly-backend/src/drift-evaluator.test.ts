@@ -1,7 +1,11 @@
 import { describe, test, expect, mock } from "bun:test";
 import { evaluateDrift } from "./drift-evaluator";
 import * as schema from "./schema";
-import type { AnomalySettings, FieldBaseline } from "@checkstack/anomaly-common";
+import {
+  STABLE_DRIFT_RESOLUTION_RUN_COUNT,
+  type AnomalySettings,
+  type FieldBaseline,
+} from "@checkstack/anomaly-common";
 
 function createBaseline(overrides: Partial<FieldBaseline> = {}): FieldBaseline {
   return {
@@ -355,6 +359,97 @@ describe("evaluateDrift", () => {
       expect(db._updateCalls.length).toBe(1);
       expect(db._updateCalls[0].state).toBe("recovered");
       expect(notification.notifyForSubscription).toHaveBeenCalledTimes(1);
+    });
+
+    // ─── PART A: drift self-resolution (settled at a new level) ──────────
+
+    // Statistically drifting (slope×n = 150 ≫ 2×σ = 20) yet the projected
+    // change is tiny relative to the new mean (150 / 10000 = 1.5% < band) — the
+    // metric has settled at a high new level the 7-day window hasn't caught up to.
+    const flatHighMeanBaseline = createBaseline({
+      mean: 10000,
+      stdDev: 10,
+      trendSlope: 1.5,
+      sampleCount: 100,
+    });
+
+    test("self-resolves a confirmed drift once slope is flat relative to the new mean for N runs", async () => {
+      const existing = {
+        id: "drift-stuck",
+        state: "anomaly",
+        suspiciousRunCount: 2,
+        confirmationThreshold: 2,
+        // One prior flat run already recorded; this run reaches the threshold.
+        metadata: { stableDriftRunCount: STABLE_DRIFT_RESOLUTION_RUN_COUNT - 1 },
+      };
+      const db = createMockDb({ existingAnomaly: existing });
+      const notification = createMockNotificationClient();
+      await evaluateDrift({
+        ...baseProps,
+        baseline: flatHighMeanBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: notification as never,
+        logger: createMockLogger() as never,
+      });
+      expect(db._updateCalls.length).toBe(1);
+      expect(db._updateCalls[0].state).toBe("recovered");
+      expect(notification.notifyForSubscription).toHaveBeenCalledTimes(1);
+    });
+
+    test("accumulates the flat-run counter without resolving prematurely", async () => {
+      const existing = {
+        id: "drift-counting",
+        state: "anomaly",
+        suspiciousRunCount: 2,
+        confirmationThreshold: 2,
+        metadata: {},
+      };
+      const db = createMockDb({ existingAnomaly: existing });
+      await evaluateDrift({
+        ...baseProps,
+        baseline: flatHighMeanBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+      expect(db._updateCalls.length).toBe(1);
+      expect(db._updateCalls[0].state).toBeUndefined();
+      expect(db._updateCalls[0].metadata).toMatchObject({
+        stableDriftRunCount: 1,
+      });
+    });
+
+    test("resets the flat-run counter when drift is steep again", async () => {
+      const existing = {
+        id: "drift-resteepening",
+        state: "anomaly",
+        suspiciousRunCount: 2,
+        confirmationThreshold: 2,
+        metadata: { stableDriftRunCount: 1 },
+      };
+      const db = createMockDb({ existingAnomaly: existing });
+      // driftingBaseline: mean 200, projectedChange 150 → 75% of mean → not flat.
+      await evaluateDrift({
+        ...baseProps,
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+      expect(db._updateCalls.length).toBe(1);
+      expect(db._updateCalls[0].state).toBeUndefined();
+      expect(db._updateCalls[0].metadata).toMatchObject({
+        stableDriftRunCount: 0,
+      });
     });
 
     test("does nothing when no row and no drift (steady state)", async () => {

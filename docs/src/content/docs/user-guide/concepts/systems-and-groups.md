@@ -36,7 +36,10 @@ Groups are flat. Checkstack does not nest groups inside other groups today. A sy
 > [!NOTE]
 > Subscribing to notifications for a group automatically catches every system in that group. When the catalog adds or removes a system from the group, group subscribers update instantly without you re-subscribing per system.
 
-Groups are managed under **Catalog -> Groups** in the UI. You can drag systems between groups, rename groups in place, and delete them when they become empty.
+Groups are managed under **Catalog -> Groups** in the UI. You can drag systems between groups, rename groups in place, and delete them when they become empty. The management page carries the same toolbar as the browse view, so you can search and filter the systems and groups lists while you arrange them.
+
+> [!TIP]
+> Drag-and-drop assignment is keyboard-operable. Focus a system's drag handle, press Space or Enter to pick it up, move between groups with the arrow keys, and press Space or Enter again to drop it (Escape cancels). The assign button on each system row is an equivalent pointer-free alternative.
 
 ## Dependencies
 
@@ -82,10 +85,41 @@ Systems:
 
 A failing Payment DB now drives the derived state for Payment API, Checkout API, and Storefront. A failing Stripe webhook only degrades Payment API. Anyone subscribed to the "Payments team" group sees the relevant notifications; anyone subscribed to "Tier 1" sees the customer-facing ones.
 
+## Browsing the catalog
+
+The catalog home page is a read-only, group-first browse view. It is the landing page for everyone with catalog read access, managers and non-managers alike. It is built to stay legible at hundreds of systems across many groups.
+
+The view organises systems into collapsible **group sections**. Each section header shows the group name and its member count. A synthetic **Ungrouped** section collects systems that belong to no group. Because a system can belong to several groups, it appears under each group it is a member of.
+
+### Inline health rollups
+
+When a health source such as the healthcheck plugin is installed, each group header also shows a **health rollup** pill summarising its members at a glance: "All healthy", "N degraded", or "N unhealthy" (the worst member status wins, with a count). Individual unhealthy or degraded systems still show their own badge on the row; healthy systems show none, so the absence of a badge means healthy or not yet measured.
+
+The rollup drives the default open state: groups where every member is healthy start **collapsed** so your attention goes to the groups that need it, while any group with a degraded, unhealthy, or not-yet-measured member starts **expanded**. You can always toggle a section open or closed yourself, and that choice is captured in the URL. With no health source installed, headers show member counts only and every group starts expanded.
+
+The **Health** filter then lets you narrow to a single state. Selecting `unknown` shows systems with no measured health (no checks wired yet); a system with no reported health is never silently counted as healthy.
+
+A toolbar above the sections lets you narrow what you see:
+
+- **Search** matches systems and groups by name and description, case-insensitively. A match inside a collapsed group auto-expands that group; groups with no match drop out while you are searching.
+- **Group**, **Health**, and **Tag** filters narrow the list further. Filters compose: applying more than one shows only the systems that satisfy all of them. (The Health filter activates once a health source such as the healthcheck plugin is installed.)
+- **Density** switches rows between Comfortable (descriptions shown inline) and Compact (single-line rows, descriptions on hover).
+
+Every part of the view state lives in the URL, so a filtered, searched view is a shareable link. For example:
+
+```text
+/catalog/?q=checkout&group=payments&density=compact
+```
+
+opens the catalog pre-filtered to the Payments group, searching for "checkout", in compact density. Open or closed group sections are captured in the link too, so a teammate opening it sees exactly what you see.
+
+Managers see a **Manage catalog** link in the header that jumps to the management page below.
+
 ## UI tour
 
 | Where to go | What you do there |
 |-------------|-------------------|
+| **Catalog** (home) | Browse, search, and filter every system, grouped by team or domain. Read-only. |
 | **Catalog -> Systems** | Create, edit, and delete systems. Set contacts and hotlinks. |
 | **Catalog -> Groups** | Create groups, drag systems in and out. |
 | **Catalog -> Dependencies** | Visual graph editor. Click a system to connect it to another. |

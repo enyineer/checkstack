@@ -11,6 +11,7 @@ import { z } from "zod";
 import type {
   Hook,
   Logger,
+  RpcClient,
   ServiceRef,
   Versioned,
 } from "@checkstack/backend-api";
@@ -96,7 +97,7 @@ export type TriggerTeardown = () => Promise<void>;
  *   - **Hook-backed:** provide a `hook` reference. The automation backend
  *     subscribes via `onHook` in work-queue mode and routes each emission
  *     through `fire` for any automation that selected this trigger.
- *   - **Setup-backed:** provide `setup` (and optional `configSchema`). The
+ *   - **Setup-backed:** provide `setup` (and optional versioned `config`). The
  *     automation backend invokes `setup` per-automation; the trigger
  *     manages its own emission mechanism (cron schedule, interval, etc.).
  *
@@ -118,10 +119,16 @@ export interface TriggerDefinition<
   /** Zod schema for the trigger's payload. */
   payloadSchema: z.ZodType<TPayload>;
   /**
-   * Optional config schema. Required when `setup` is provided and the
+   * Optional versioned config. Required when `setup` is provided and the
    * trigger needs per-automation configuration (e.g. cron pattern).
+   *
+   * Versioned (parallel to {@link ActionDefinition.config}) so a stored
+   * trigger config survives schema evolution: removed/renamed fields are
+   * migrated away on read instead of erroring in the editor. The
+   * underlying zod schema is still reachable via `config.schema` for
+   * docs / JSON-schema generation.
    */
-  configSchema?: z.ZodType<TConfig>;
+  config?: Versioned<TConfig>;
 
   /**
    * Extract a durable lookup key from the payload — typically the entity
@@ -163,13 +170,11 @@ export interface TriggerDefinition<
 }
 
 export interface RegisteredTrigger<TPayload = unknown, TConfig = unknown>
-  extends Omit<TriggerDefinition<TPayload, TConfig>, "configSchema"> {
+  extends TriggerDefinition<TPayload, TConfig> {
   qualifiedId: string;
   ownerPluginId: string;
   payloadJsonSchema: Record<string, unknown>;
   configJsonSchema?: Record<string, unknown>;
-  /** Preserved here so the dispatch engine can re-validate config on load. */
-  configSchema?: z.ZodType<TConfig>;
 }
 
 // ─── Actions ───────────────────────────────────────────────────────────────
@@ -274,6 +279,14 @@ export interface ActionExecutionContext<TConfig = unknown> {
   automationId: string;
   /** Durable lookup key for the current run (typically `incidentId`). */
   contextKey: string | null;
+  /**
+   * Id of the application (service account) this run executes as (the
+   * automation's `runAs`). Actions that need the run's PRINCIPAL (e.g. the AI
+   * action, to resolve which tools the service account may use) read it here.
+   * Optional only so unit harnesses that exercise `execute` directly may omit
+   * it; the dispatch engine always provides it.
+   */
+  runAs?: string | null;
 
   /** Scoped logger — log lines surface in the run-detail UI. */
   logger: Logger;
@@ -282,6 +295,15 @@ export interface ActionExecutionContext<TConfig = unknown> {
    * actions can use, e.g., the integration connection store.
    */
   getService: <T>(ref: ServiceRef<T>) => Promise<T>;
+  /**
+   * RPC client bound to the automation's `runAs` SERVICE ACCOUNT. Every
+   * plugin procedure an action calls (`rpcClient.forPlugin(X)`) re-enters the
+   * router AS THAT APPLICATION, so the original access-rule and team-scope
+   * checks apply, scoped to the service account. An action MUST use this -
+   * never a captured trusted service client - or it would bypass the
+   * automation's bounded authorization (privilege escalation).
+   */
+  rpcClient: RpcClient;
 }
 
 /**

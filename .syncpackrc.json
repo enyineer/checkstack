@@ -1,0 +1,51 @@
+{
+  "$schema": "https://unpkg.com/syncpack@15.3.1/dist/schema.json",
+  "versionGroups": [
+    {
+      "label": "Dev TUI (ink 7) requires React 19 - exempt from the unified React range",
+      "dependencies": ["react", "@types/react"],
+      "packages": ["@checkstack/scripts"],
+      "isIgnored": true
+    },
+    {
+      "label": "Unified external dependencies (issue #245) - must share one range",
+      "dependencies": [
+        "react",
+        "react-router-dom",
+        "@orpc/contract",
+        "@orpc/server",
+        "@orpc/client",
+        "@orpc/tanstack-query",
+        "@orpc/openapi",
+        "@orpc/zod",
+        "better-auth",
+        "hono",
+        "@tanstack/react-query",
+        "@tanstack/react-query-devtools",
+        "date-fns",
+        "jose",
+        "tar",
+        "semver",
+        "@xyflow/react",
+        "@playwright/test",
+        "vite",
+        "@vitejs/plugin-react",
+        "postcss",
+        "storybook",
+        "@storybook/addon-a11y",
+        "@storybook/addon-docs",
+        "@storybook/addon-themes",
+        "@storybook/react",
+        "@storybook/react-vite"
+      ],
+      "packages": ["**"],
+      "preferVersion": "highestSemver"
+    },
+    {
+      "label": "Everything else - deliberate or deferred variance, not enforced",
+      "dependencies": ["**"],
+      "packages": ["**"],
+      "isIgnored": true
+    }
+  ]
+}

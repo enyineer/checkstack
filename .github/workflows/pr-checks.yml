@@ -21,6 +21,12 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          # Full history so the §7.1.1 SDK-surface-drift guard (run in the
+          # codegen check below) can diff the generated surface against
+          # `origin/main`. A shallow checkout leaves `origin/main` unresolvable
+          # and the guard would degrade to a warn-and-skip.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -29,6 +35,28 @@ jobs:
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      # The committed `@checkstack/sdk` package is generated from the per-plugin
+      # contracts + the script-context helper builders. This guard fails when:
+      #   1. the committed files drift from a fresh generation (a `*-common`
+      #      contract changed without regenerating — mirrors `references:check`);
+      #   2. a pending changeset names `@checkstack/sdk` (its version is stamped
+      #      from @checkstack/release, never bumped via changeset — plan §7.3);
+      #   3. the published SDK surface changed vs `main` with NO pending
+      #      changeset, which would leave the release version (and thus the
+      #      stamped SDK version) unadvanced so the SDK silently fails to
+      #      republish (plan §7.1.1).
+      # Needs full history so the §7.1.1 surface diff can resolve `origin/main`.
+      - name: Check @checkstack/sdk codegen is up to date
+        run: bun run generate:sdk:check
+
+      # The bundled docs index (`ai.searchDocs` / `ai.getDoc`, plan §3.4) is
+      # generated from docs/src/content/docs/**. This guard fails when a docs
+      # page changed without regenerating the index, so the assistant always
+      # cites docs that match the running build. Run
+      # `bun run generate:docs-index` and commit the change.
+      - name: Check bundled docs index is up to date
+        run: bun run generate:docs-index:check
 
       # `tsgo -b` writes incremental artifacts to per-package `.tsbuild/`
       # directories. Caching them lets PRs that don't touch source compile
@@ -112,8 +140,8 @@ jobs:
             exit 1
           fi
 
-  test:
-    name: Test
+  deps:
+    name: Deps
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -128,12 +156,82 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
+      # Guards against the dependency drift cleaned up in issue #245: the same
+      # external dependency declared at divergent ranges across workspace
+      # package.json files (the `react-router-dom` case resolved two majors
+      # into one lockfile). syncpack enforces a single shared range for the
+      # unified set declared in `.syncpackrc.json`. Run `bun run deps:fix`
+      # locally to auto-align, then `bun install`.
+      - name: Check Dependency Alignment
+        id: deps
+        run: |
+          set +e
+          bun run deps:check 2>&1 | tee /tmp/deps-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deps-output
+          path: /tmp/deps-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.deps.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
+  test:
+    name: Test
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          # Full history so the §7.1.1 SDK-surface-drift guard test
+          # (scripts/generate-sdk.test.ts -> resolveSurfaceBaseRef) can resolve
+          # `origin/main`. A shallow checkout leaves it unresolvable and the
+          # test ("resolves a real ref in this repo") fails.
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
       - name: Run Tests
         id: test
         run: |
           set +e
-          bun test 2>&1 | tee /tmp/test-output.txt
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          # Run each workspace package's unit tests in its OWN bun process.
+          # `bun test` loads every matched file's module up front in a single
+          # process, so a process-global `mock.module()` (or global mutation) in
+          # ANY file leaks into ALL others - which made unrelated suites (the
+          # real-HTTP auth tests, the ink/yoga TUI render tests) fail only in the
+          # full run while passing in isolation. Per-package isolation fixes it.
+          # Excluded: the e2e Playwright specs (core/e2e/*.spec.ts, run by
+          # `playwright test`) and the *.it.test.ts integration tests (their own
+          # Integration job, which provisions Postgres/Redis/a registry).
+          : > /tmp/test-output.txt
+          overall=0
+          for d in core/* plugins/* scripts; do
+            [ -d "$d" ] || continue
+            [ "$d" = "core/e2e" ] && continue
+            files=$(git ls-files "$d/*.test.ts" "$d/*.test.tsx" | grep -v '\.it\.test\.')
+            [ -z "$files" ] && continue
+            echo "::group::bun test $d" | tee -a /tmp/test-output.txt
+            bun test $files 2>&1 | tee -a /tmp/test-output.txt
+            rc=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            [ "$rc" != "0" ] && overall=1
+          done
+          echo "exit_code=$overall" >> "$GITHUB_OUTPUT"
 
       - name: Upload Output
         if: always()
@@ -188,6 +286,9 @@ jobs:
       CHECKSTACK_IT: "1"
       CHECKSTACK_IT_PG_URL: postgres://checkstack:checkstack@localhost:5432/checkstack
       CHECKSTACK_IT_REDIS_URL: redis://localhost:6379
+      # The external-plugin-lifecycle e2e test (#251) publishes the current
+      # tree to this throwaway local registry and resolves/installs from it.
+      CHECKSTACK_SCAFFOLD_REGISTRY: http://localhost:4873
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -197,8 +298,89 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      # The external-plugin lifecycle test (#251 Phase 3) needs the CURRENT
+      # tree's @checkstack/* packages served as PUBLISHED tarballs from a
+      # local registry. We run Verdaccio as a step-spawned background process
+      # (not a service container, since it needs a generated config) and
+      # publish via `bun publish --registry` — which resolves workspace:* to
+      # concrete versions, unlike `npm publish`. Publish lives in its own step
+      # so a publish failure is attributed clearly, separate from the test.
+      - name: Boot local registry and publish workspace packages
+        run: |
+          set -e
+          REG=http://localhost:4873
+          mkdir -p /tmp/verdaccio-storage
+          cat > /tmp/verdaccio.yaml <<'YAML'
+          storage: "/tmp/verdaccio-storage"
+          uplinks:
+            npmjs:
+              url: https://registry.npmjs.org/
+          packages:
+            '@checkstack/*':
+              access: $all
+              publish: $anonymous
+              unpublish: $anonymous
+            'create-checkstack-plugin':
+              access: $all
+              publish: $anonymous
+              unpublish: $anonymous
+            '**':
+              access: $all
+              publish: $anonymous
+              proxy: npmjs
+          log: { type: stdout, format: pretty, level: warn }
+          listen: 0.0.0.0:4873
+          YAML
+          npx --yes verdaccio --config /tmp/verdaccio.yaml > /tmp/verdaccio.log 2>&1 &
+          echo "VERDACCIO_PID=$!" >> "$GITHUB_ENV"
+          up=
+          for i in $(seq 1 60); do
+            if curl -sf "$REG/-/ping" >/dev/null 2>&1; then echo "registry up"; up=1; break; fi
+            sleep 1
+          done
+          [ -n "$up" ] || { echo "Verdaccio did not start"; cat /tmp/verdaccio.log 2>/dev/null || true; exit 1; }
+          # `bun publish` reads the registry + auth token together from
+          # bunfig.toml's [install.registry]. Crucially we must NOT pass the
+          # `--registry` flag on publish: it overrides .npmrc/bunfig/env
+          # *including the token*, which is why publish previously failed with
+          # "missing authentication". The frozen install already ran above, so
+          # repointing the registry now is safe (the integration test below also
+          # wants the local registry, which proxies npmjs for everything else).
+          cat >> bunfig.toml <<BUNFIG
+
+          [install.registry]
+          url = "$REG/"
+          token = "fake-checkstack-it-token"
+          BUNFIG
+          echo "BUN_CONFIG_REGISTRY=$REG" >> "$GITHUB_ENV"
+          # npm-based steps (scaffolded-plugin install) read ~/.npmrc.
+          cat > "$HOME/.npmrc" <<NPMRC
+          registry=$REG/
+          @checkstack:registry=$REG/
+          //localhost:4873/:_authToken=fake-checkstack-it-token
+          always-auth=false
+          NPMRC
+          echo "NPM_CONFIG_USERCONFIG=$HOME/.npmrc" >> "$GITHUB_ENV"
+          # Publish every non-private core/* + plugins/* package. bun publish
+          # resolves workspace:* to concrete versions at pack time.
+          for dir in core/* plugins/*; do
+            base=$(basename "$dir")
+            case "$base" in _*) continue;; esac
+            [ -f "$dir/package.json" ] || continue
+            if node -e "process.exit(require('./$dir/package.json').private?1:0)"; then
+              # No --registry flag: it overrides bunfig/.npmrc INCLUDING the auth
+              # token. Registry + token come from bunfig's [install.registry].
+              ( cd "$dir" && bun publish --access public ) || { echo "publish failed: $dir"; exit 1; }
+            fi
+          done
 
       - name: Run Integration Tests
         id: integration
@@ -206,6 +388,12 @@ jobs:
           set +e
           bun test it.test 2>&1 | tee /tmp/integration-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Stop local registry
+        if: always()
+        run: |
+          if [ -n "${VERDACCIO_PID:-}" ]; then kill "$VERDACCIO_PID" 2>/dev/null || true; fi
+          cat /tmp/verdaccio.log 2>/dev/null || true
 
       - name: Upload Output
         if: always()
@@ -228,6 +416,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          # The production image builds the Astro docs (served at /checkstack/*),
+          # whose logo/images are tracked via git-LFS. Without smudged LFS files
+          # the build context carries 128-byte LFS pointers and the docs build
+          # fails with Astro NoImageMetadata. (deploy-docs.yml + release.yml
+          # already check out with lfs: true for the same reason.)
+          lfs: true
 
       - name: Build Production Image
         run: docker build -t checkstack-prod:latest .
@@ -277,7 +472,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, test, integration, security]
+    needs: [typecheck, lint, deps, test, integration, security]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -295,6 +490,14 @@ jobs:
         with:
           name: lint-output
           path: /tmp/artifacts/lint
+        continue-on-error: true
+
+      - name: Download Deps Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          name: deps-output
+          path: /tmp/artifacts/deps
         continue-on-error: true
 
       - name: Download Test Output
@@ -353,15 +556,17 @@ jobs:
             // Determine results from job outcomes
             const typecheckResult = '${{ needs.typecheck.result }}';
             const lintResult = '${{ needs.lint.result }}';
+            const depsResult = '${{ needs.deps.result }}';
             const testResult = '${{ needs.test.result }}';
             const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
+            const depsPassed = depsResult === 'success' || depsResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && testPassed && integrationPassed && securityPassed;
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed;
 
             // Read output files
             function readOutput(name) {
@@ -396,6 +601,7 @@ jobs:
                 '|-------|--------|',
                 '| Typecheck | ✅ Passed |',
                 '| Lint | ✅ Passed |',
+                '| Deps | ✅ Passed |',
                 '| Test | ✅ Passed |',
                 '| Integration | ✅ Passed |',
                 '| Security | ✅ Passed |',
@@ -440,6 +646,22 @@ jobs:
                   '```',
                   '',
                   '**How to fix:** Run `bun run lint` locally to reproduce these errors. Fix all ESLint violations shown above. Never add `eslint-disable` comments to suppress errors — fix the root cause instead. Follow the project\'s coding standards.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              if (!depsPassed) {
+                const output = readOutput('deps');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Dependency Alignment Errors</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** The same external dependency is declared at divergent ranges across workspace `package.json` files. Run `bun run deps:fix` to auto-align them to the shared range (then `bun install` and commit), or run `bun run deps:check` locally to see the mismatches. The enforced set lives in `.syncpackrc.json`.',
                   '',
                   '</details>',
                 ].join('\n'));
@@ -507,6 +729,7 @@ jobs:
                 '|-------|--------|',
                 `| Typecheck | ${icon(typecheckPassed)} |`,
                 `| Lint | ${icon(lintPassed)} |`,
+                `| Deps | ${icon(depsPassed)} |`,
                 `| Test | ${icon(testPassed)} |`,
                 `| Integration | ${icon(integrationPassed)} |`,
                 `| Security | ${icon(securityPassed)} |`,

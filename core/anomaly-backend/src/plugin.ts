@@ -1,4 +1,8 @@
 import { createBackendPlugin, coreServices, type SafeDatabase } from "@checkstack/backend-api";
+import {
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { setupBaselineAnalyzerJob } from "./jobs/baseline-analyzer";
 import { processCheckCompleted } from "./detector";
@@ -13,6 +17,7 @@ import {
   anomalyAccessRules,
   anomalySystemSubscription,
   anomalyGroupSubscription,
+  pluginMetadata,
 } from "@checkstack/anomaly-common";
 import { specToRegistration } from "@checkstack/notification-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
@@ -46,6 +51,20 @@ export const plugin = createBackendPlugin({
     // Mutable ref populated during init(); the reconciler closure pulls
     // the service via the lazy accessor at sync time.
     let gitopsService: AnomalyService | undefined;
+    // Expose anomaly's own read-only AI projection so ai-backend never has
+    // to import @checkstack/anomaly-common. The projection re-uses the
+    // existing getAnomalies contract procedure (read-only, access-gated).
+    env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+      procedure: anomalyContract.getAnomalies,
+      sourcePluginMetadata: pluginMetadata,
+      procedureKey: "getAnomalies",
+      name: "anomaly.explain",
+      description:
+        "List detected anomalies (statistical sigma/drift) for context. Read-only.",
+      effect: "read",
+      execute: deferredProjectionExecute,
+    });
+
     const kindRegistry = env.getExtensionPoint(entityKindExtensionPoint);
     registerAnomalyGitOpsKinds({
       kindRegistry,

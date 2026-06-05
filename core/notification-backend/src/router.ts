@@ -50,6 +50,7 @@ import {
   type StrategyService,
 } from "./strategy-service";
 import { dispatchWithAttempt } from "./delivery-attempts";
+import { resolveStrategyUserConfig } from "./resolve-user-config";
 import { extractErrorMessage } from "@checkstack/common";
 
 /**
@@ -282,6 +283,13 @@ export const createNotificationRouter = (
           type: "notification",
         };
 
+        // Migrate-then-validate the stored per-strategy userConfig against the
+        // strategy's own schema before handing it to send().
+        const userConfig = await resolveStrategyUserConfig({
+          userConfigSchema: strategy.userConfig,
+          storedUserConfig: pref?.userConfig,
+        });
+
         // Build send context
         const sendContext: NotificationSendContext<unknown, unknown, unknown> =
           {
@@ -293,7 +301,7 @@ export const createNotificationRouter = (
             contact,
             notification: payload,
             strategyConfig,
-            userConfig: pref?.userConfig,
+            userConfig,
             layoutConfig,
             logger,
           };
@@ -1014,11 +1022,6 @@ export const createNotificationRouter = (
     notifyForSubscription: os.notifyForSubscription.handler(
       async ({ input, context }) => {
         const caller = context.user as { type: string; pluginId?: string };
-        if (caller.type !== "service" || !caller.pluginId) {
-          throw new ORPCError("FORBIDDEN", {
-            message: "notifyForSubscription is only callable from a service",
-          });
-        }
 
         const [spec] = await database
           .select()
@@ -1030,9 +1033,19 @@ export const createNotificationRouter = (
             message: `Subscription spec ${input.specId} is not registered`,
           });
         }
-        if (spec.ownerPlugin !== caller.pluginId) {
+        // Authorization:
+        // - SERVICE callers are trusted but may dispatch ONLY under their own
+        //   spec (a plugin cannot notify under another plugin's spec).
+        // - USER / APPLICATION callers (e.g. an automation's `runAs` service
+        //   account) are authorized by the `notification.send` access rule,
+        //   enforced by autoAuthMiddleware before this handler runs; the
+        //   spec-ownership rule does not apply to them (they own no specs).
+        if (
+          caller.type === "service" &&
+          (!caller.pluginId || spec.ownerPlugin !== caller.pluginId)
+        ) {
           throw new ORPCError("FORBIDDEN", {
-            message: `Plugin ${caller.pluginId} cannot dispatch under spec ${input.specId} (owned by ${spec.ownerPlugin})`,
+            message: `Plugin ${caller.pluginId ?? "(unknown)"} cannot dispatch under spec ${input.specId} (owned by ${spec.ownerPlugin})`,
           });
         }
 
@@ -1265,6 +1278,13 @@ export const createNotificationRouter = (
           type: "transactional",
         };
 
+        // Migrate-then-validate the stored per-strategy userConfig against the
+        // strategy's own schema before handing it to send().
+        const userConfig = await resolveStrategyUserConfig({
+          userConfigSchema: strategy.userConfig,
+          storedUserConfig: userPref?.userConfig,
+        });
+
         // Build send context
         const sendContext: NotificationSendContext<unknown, unknown, unknown> =
           {
@@ -1276,7 +1296,7 @@ export const createNotificationRouter = (
             contact,
             notification: payload,
             strategyConfig,
-            userConfig: userPref?.userConfig,
+            userConfig,
             layoutConfig,
             logger,
           };
@@ -1666,6 +1686,13 @@ export const createNotificationRouter = (
           }
         }
 
+        // Migrate-then-validate the stored per-strategy userConfig against the
+        // strategy's own schema before handing it to send().
+        const userConfig = await resolveStrategyUserConfig({
+          userConfigSchema: strategy.userConfig,
+          storedUserConfig: pref?.userConfig,
+        });
+
         // Build send context
         const sendContext: NotificationSendContext<unknown, unknown, unknown> =
           {
@@ -1677,7 +1704,7 @@ export const createNotificationRouter = (
             contact,
             notification: testNotification,
             strategyConfig,
-            userConfig: pref?.userConfig,
+            userConfig,
             layoutConfig,
             logger,
           };

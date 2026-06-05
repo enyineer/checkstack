@@ -257,23 +257,28 @@ export class MaintenanceService {
     input: CreateMaintenanceInput,
     id: string = generateId(),
   ): Promise<MaintenanceWithSystems> {
-    await this.db.insert(maintenances).values({
-      id,
-      title: input.title,
-      description: input.description,
-      suppressNotifications: input.suppressNotifications ?? false,
-      status: "scheduled",
-      startAt: input.startAt,
-      endAt: input.endAt,
-    });
-
-    // Insert system associations
-    for (const systemId of input.systemIds) {
-      await this.db.insert(maintenanceSystems).values({
-        maintenanceId: id,
-        systemId,
+    // Atomic: the maintenance row and its system associations must commit
+    // together. Without the transaction a failure mid-loop left a committed
+    // maintenance with only some (or none) of its system links.
+    await this.db.transaction(async (tx) => {
+      await tx.insert(maintenances).values({
+        id,
+        title: input.title,
+        description: input.description,
+        suppressNotifications: input.suppressNotifications ?? false,
+        status: "scheduled",
+        startAt: input.startAt,
+        endAt: input.endAt,
       });
-    }
+
+      // Insert system associations
+      for (const systemId of input.systemIds) {
+        await tx.insert(maintenanceSystems).values({
+          maintenanceId: id,
+          systemId,
+        });
+      }
+    });
 
     return (await this.getMaintenance(id))!;
   }
@@ -303,24 +308,29 @@ export class MaintenanceService {
     if (input.startAt !== undefined) updateData.startAt = input.startAt;
     if (input.endAt !== undefined) updateData.endAt = input.endAt;
 
-    await this.db
-      .update(maintenances)
-      .set(updateData)
-      .where(eq(maintenances.id, input.id));
+    // Atomic: the field update and the delete-then-reinsert of system links must
+    // commit together. Without the transaction a failure after the delete left
+    // the maintenance with ALL system associations wiped.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(maintenances)
+        .set(updateData)
+        .where(eq(maintenances.id, input.id));
 
-    // Update system associations if provided
-    if (input.systemIds !== undefined) {
-      await this.db
-        .delete(maintenanceSystems)
-        .where(eq(maintenanceSystems.maintenanceId, input.id));
+      // Update system associations if provided
+      if (input.systemIds !== undefined) {
+        await tx
+          .delete(maintenanceSystems)
+          .where(eq(maintenanceSystems.maintenanceId, input.id));
 
-      for (const systemId of input.systemIds) {
-        await this.db.insert(maintenanceSystems).values({
-          maintenanceId: input.id,
-          systemId,
-        });
+        for (const systemId of input.systemIds) {
+          await tx.insert(maintenanceSystems).values({
+            maintenanceId: input.id,
+            systemId,
+          });
+        }
       }
-    }
+    });
 
     return (await this.getMaintenance(input.id))!;
   }
@@ -334,20 +344,24 @@ export class MaintenanceService {
   ): Promise<MaintenanceUpdate> {
     const id = generateId();
 
-    // If status change is provided, update the maintenance status
-    if (input.statusChange) {
-      await this.db
-        .update(maintenances)
-        .set({ status: input.statusChange, updatedAt: new Date() })
-        .where(eq(maintenances.id, input.maintenanceId));
-    }
+    // Atomic: the status flip and the timeline entry that records it must commit
+    // together (status/timeline divergence otherwise).
+    await this.db.transaction(async (tx) => {
+      // If status change is provided, update the maintenance status
+      if (input.statusChange) {
+        await tx
+          .update(maintenances)
+          .set({ status: input.statusChange, updatedAt: new Date() })
+          .where(eq(maintenances.id, input.maintenanceId));
+      }
 
-    await this.db.insert(maintenanceUpdates).values({
-      id,
-      maintenanceId: input.maintenanceId,
-      message: input.message,
-      statusChange: input.statusChange,
-      createdBy: userId,
+      await tx.insert(maintenanceUpdates).values({
+        id,
+        maintenanceId: input.maintenanceId,
+        message: input.message,
+        statusChange: input.statusChange,
+        createdBy: userId,
+      });
     });
 
     const [update] = await this.db
@@ -377,18 +391,21 @@ export class MaintenanceService {
 
     if (!existing) return undefined;
 
-    await this.db
-      .update(maintenances)
-      .set({ status: "completed", updatedAt: new Date() })
-      .where(eq(maintenances.id, id));
+    // Atomic: mark completed + write the closing timeline entry together.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(maintenances)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(eq(maintenances.id, id));
 
-    // Add update entry
-    await this.db.insert(maintenanceUpdates).values({
-      id: generateId(),
-      maintenanceId: id,
-      message: message ?? "Maintenance completed early",
-      statusChange: "completed",
-      createdBy: userId,
+      // Add update entry
+      await tx.insert(maintenanceUpdates).values({
+        id: generateId(),
+        maintenanceId: id,
+        message: message ?? "Maintenance completed early",
+        statusChange: "completed",
+        createdBy: userId,
+      });
     });
 
     return (await this.getMaintenance(id))!;

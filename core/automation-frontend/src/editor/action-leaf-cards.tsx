@@ -34,7 +34,10 @@ import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
 import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
 import { automationScriptTestRenderer } from "./ScriptTestRenderer";
-import { useScriptPackageTypeAcquisition } from "@checkstack/script-packages-frontend";
+import {
+  useScriptPackageTypeAcquisition,
+  useSdkTypeInjection,
+} from "@checkstack/script-packages-frontend";
 import { useSecretNames } from "@checkstack/secrets-frontend";
 import { generateSecretEnvTypes, secretEnvEnvNames } from "../script-context";
 
@@ -85,6 +88,8 @@ export const ProviderActionBody: React.FC<{
   // name itself) before any module is registered.
   const { acquireTypes, acquireResetKey, importablePackages } =
     useScriptPackageTypeAcquisition();
+  // SDK editor types so `@checkstack/sdk/integration` imports resolve.
+  const { sdkTypes, sdkTypesResetKey } = useSdkTypeInjection();
   // Secret names (never values) for the secret -> env mapping editor's
   // ${{ secrets.* }} autocomplete.
   const { secretNames } = useSecretNames();
@@ -179,6 +184,8 @@ export const ProviderActionBody: React.FC<{
         secretNames={secretNames}
         acquireTypes={acquireTypes}
         acquireResetKey={acquireResetKey}
+        sdkTypes={sdkTypes}
+        sdkTypesResetKey={sdkTypesResetKey}
         importablePackages={importablePackages}
       />
     </div>

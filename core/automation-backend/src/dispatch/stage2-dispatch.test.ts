@@ -38,7 +38,7 @@ function automationFor(event: string): LoadedAutomation {
     mode: "single",
     max_runs: 10,
   });
-  return { id: "auto-1", name: "A", status: "enabled", definition };
+  return { id: "auto-1", name: "A", status: "enabled", definition, runAs: "app-test" };
 }
 
 function storeFor(auto: LoadedAutomation): AutomationStore {
@@ -61,6 +61,7 @@ function storeFor(auto: LoadedAutomation): AutomationStore {
             description: undefined,
             status: auto.status,
             definition: auto.definition,
+            runAs: auto.runAs,
             managedBy: undefined,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -186,6 +187,7 @@ describe("Stage-2 handleDispatchJob — reason: wake", () => {
       name: "WU",
       status: "enabled",
       definition,
+      runAs: "app-test",
     };
 
     // Suspend the run via the engine so the lock + scope snapshot exist.

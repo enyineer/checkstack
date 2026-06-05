@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { z } from "zod";
 import { createHook, Versioned } from "@checkstack/backend-api";
+import type { RpcClient } from "@checkstack/backend-api";
 import {
   createTriggerRegistry,
   type TriggerRegistry,
@@ -188,7 +189,10 @@ describe("TriggerRegistry", () => {
         id: "time.cron",
         displayName: "Cron",
         payloadSchema: z.object({ scheduledAt: z.string() }),
-        configSchema: z.object({ pattern: z.string() }),
+        config: new Versioned({
+          version: 1,
+          schema: z.object({ pattern: z.string() }),
+        }),
         setup: async () => async () => {
           cleanupCalled = true;
         },
@@ -296,6 +300,7 @@ describe("ActionRegistry", () => {
       getService: async () => {
         throw new Error("no service in test");
       },
+      rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
     });
 
     expect(result?.success).toBe(true);

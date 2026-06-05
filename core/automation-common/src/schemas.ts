@@ -775,6 +775,14 @@ export const AutomationSchema = z.object({
   group: AutomationGroupSchema.optional(),
   status: AutomationStatusSchema,
   definition: AutomationDefinitionSchema,
+  /**
+   * Id of the application (service account) this automation runs as. EVERY
+   * data-access call an action makes authenticates as this bounded identity -
+   * the automation can never exceed what the service account is allowed.
+   * Nullable only for legacy rows created before this field existed; such an
+   * automation fails to run until a service account is assigned.
+   */
+  runAs: z.string().nullable(),
   managedBy: z.string().optional().describe("GitOps provider id when managed declaratively"),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
@@ -888,6 +896,12 @@ export const CreateAutomationInputSchema = z.object({
   group: AutomationGroupSchema.optional(),
   status: AutomationStatusSchema.default("enabled"),
   definition: AutomationDefinitionSchema,
+  /**
+   * Required: the application (service account) the automation runs as. The
+   * caller must be authorized to bind it (its access rules must be a subset of
+   * the caller's). See `isApplicationBindable`.
+   */
+  runAs: z.string().min(1, "A service account is required"),
 });
 
 export type CreateAutomationInput = z.infer<typeof CreateAutomationInputSchema>;
@@ -904,6 +918,11 @@ export const UpdateAutomationInputSchema = z.object({
   group: AutomationGroupSchema.nullish(),
   status: AutomationStatusSchema.optional(),
   definition: AutomationDefinitionSchema.optional(),
+  /**
+   * Change the bound service account. `undefined` leaves it unchanged. When
+   * provided, the caller must be authorized to bind it (subset check).
+   */
+  runAs: z.string().min(1).optional(),
 });
 
 export type UpdateAutomationInput = z.infer<typeof UpdateAutomationInputSchema>;

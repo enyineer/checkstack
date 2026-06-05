@@ -1,7 +1,6 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import {
   incidentRoutes,
@@ -11,10 +10,11 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
+import { AlertTriangle } from "lucide-react";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
 import { SystemIncidentBadge } from "./components/SystemIncidentBadge";
-import { IncidentMenuItems } from "./components/IncidentMenuItems";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -27,6 +27,10 @@ export default createFrontendPlugin({
         })),
       title: "Incidents",
       accessRule: incidentAccess.incident.manage,
+      nav: {
+        group: "Reliability",
+        icon: AlertTriangle,
+      },
     },
     {
       route: incidentRoutes.routes.detail,
@@ -48,11 +52,6 @@ export default createFrontendPlugin({
   // No APIs needed - components use usePluginClient() directly
   apis: [],
   extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "incident.user-menu.items",
-      component: IncidentMenuItems,
-      metadata: { group: "Reliability" },
-    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "incident.system-incident-badge",
       component: SystemIncidentBadge,
@@ -60,6 +59,13 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "incident.system-details-top.panel",
       component: SystemIncidentPanel,
+    }),
+    createSlotExtension(SystemSignalsSlot, {
+      id: "incident.dashboard.signals",
+      load: () =>
+        import("./components/IncidentSignalsFiller").then((m) => ({
+          default: m.IncidentSignalsFiller,
+        })),
     }),
   ],
 });

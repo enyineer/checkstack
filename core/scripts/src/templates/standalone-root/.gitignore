@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tsbuild/
+*.tsbuildinfo
+*.tgz
+.env
+.env.*
+!.env.example
+drizzle/meta/_journal.json.bak
+.DS_Store

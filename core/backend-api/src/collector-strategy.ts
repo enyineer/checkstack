@@ -24,6 +24,15 @@ export interface CollectorResult<TResult> {
 export interface CollectorRunContext {
   check: { id: string; name: string; intervalSeconds: number };
   system: { id: string; name: string };
+  /**
+   * The resolved environment for THIS run, when the check fanned out into
+   * one. Absent when the assignment opts out or the system has no
+   * environments (the env-less run). `fields` is the environment's
+   * free-form custom metadata (verbatim values) - metadata only, never
+   * secrets. Exposed to scripts as `globalThis.context.environment` (inline)
+   * and the `CHECKSTACK_ENV_*` shell vars.
+   */
+  environment?: { id: string; name: string; fields: Record<string, unknown> };
 }
 
 /**

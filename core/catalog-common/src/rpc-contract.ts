@@ -8,12 +8,26 @@ import {
   SystemContactSchema,
   ContactTypeSchema,
   SystemLinkSchema,
+  EnvironmentSchema,
+  CreateEnvironmentSchema,
+  UpdateEnvironmentSchema,
 } from "./types";
 import { catalogAccess } from "./access";
 
+// Shared catalog display-name validation. Bare `z.string()` previously let
+// empty, whitespace-only, and unbounded (100KB+) names through to the DB - the
+// huge ones surfaced as 500s (parameter binding blew up), the empty ones as
+// confusing rows. Trim first so " " collapses to "" and fails `.min(1)`; cap at
+// 200 chars (well inside the `systems.name` unique btree index limit).
+const NameSchema = z
+  .string()
+  .trim()
+  .min(1, "Name is required")
+  .max(200, "Name must be at most 200 characters");
+
 // Input schemas that match the service layer expectations
 const CreateSystemInputSchema = z.object({
-  name: z.string(),
+  name: NameSchema,
   description: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -21,21 +35,21 @@ const CreateSystemInputSchema = z.object({
 const UpdateSystemInputSchema = z.object({
   id: z.string(),
   data: z.object({
-    name: z.string().optional(),
+    name: NameSchema.optional(),
     description: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
 
 const CreateGroupInputSchema = z.object({
-  name: z.string(),
+  name: NameSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const UpdateGroupInputSchema = z.object({
   id: z.string(),
   data: z.object({
-    name: z.string().optional(),
+    name: NameSchema.optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   }),
 });
@@ -133,9 +147,13 @@ export const catalogContract = {
   // SYSTEM CONTACTS MANAGEMENT
   // ==========================================================================
 
+  // Gated to authenticated callers: contacts carry PII (userId, userName,
+  // userEmail). A "public" read leaked those to anonymous status-page visitors.
+  // The detail-page UI renders "No contacts assigned" when this returns empty,
+  // so anonymous viewers degrade gracefully rather than erroring.
   getSystemContacts: proc({
     operationType: "query",
-    userType: "public",
+    userType: "authenticated",
     access: [catalogAccess.system.read],
     instanceAccess: { idParam: "systemId" },
   })
@@ -268,6 +286,89 @@ export const catalogContract = {
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
+  // ENVIRONMENT MANAGEMENT
+  // Instance-wide catalog primitive: free-form custom fields, M:N with systems.
+  // ==========================================================================
+
+  listEnvironments: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+  }).output(z.array(EnvironmentSchema)),
+
+  getEnvironment: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+  })
+    .input(z.object({ environmentId: z.string() }))
+    .output(EnvironmentSchema.nullable()),
+
+  createEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .input(CreateEnvironmentSchema)
+    .output(EnvironmentSchema),
+
+  updateEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .route({ method: "PATCH" })
+    .input(
+      z.object({
+        environmentId: z.string(),
+        data: UpdateEnvironmentSchema,
+      }),
+    )
+    .output(EnvironmentSchema),
+
+  deleteEnvironment: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+  })
+    .route({ method: "DELETE" })
+    .input(z.object({ environmentId: z.string() }))
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Desired-set assignment of a system's environments. Diffs the supplied
+   * set against current membership: adds missing links, prunes stale ones
+   * (mirrors the GitOps System->environments reconcile).
+   */
+  setSystemEnvironments: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.environment.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(
+      z.object({
+        systemId: z.string(),
+        environmentIds: z.array(z.string()),
+      }),
+    )
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Returns the environments a system currently belongs to (with custom
+   * fields). Used by host plugins to render the per-system environment
+   * picker. Server-side join — no client-side filtering needed.
+   */
+  getSystemEnvironments: proc({
+    operationType: "query",
+    userType: "public",
+    access: [catalogAccess.environment.read],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(EnvironmentSchema)),
+
+  // ==========================================================================
   // VIEW MANAGEMENT (userType: "user")
   // ==========================================================================
 
@@ -301,6 +402,32 @@ export const catalogContract = {
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ groupIds: z.array(z.string()) })),
+
+  /**
+   * Service-grade read of a system's current environments (id + name +
+   * custom fields). Called by the healthcheck plugin at run time to resolve
+   * the effective fan-out set. Backend-to-backend only.
+   */
+  resolveSystemEnvironments: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ systemId: z.string() }))
+    .output(z.array(EnvironmentSchema)),
+
+  /**
+   * Service-grade resolve of an explicit set of environment ids (the
+   * explicit-subset fan-out case). Unknown ids are silently dropped.
+   * Backend-to-backend only.
+   */
+  resolveEnvironments: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(z.object({ environmentIds: z.array(z.string()) }))
+    .output(z.array(EnvironmentSchema)),
 };
 
 // Export contract type

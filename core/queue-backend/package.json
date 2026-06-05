@@ -20,10 +20,10 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/queue-common": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
-    "hono": "^4.12.14",
+    "hono": "^4.12.23",
     "zod": "^4.0.0",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.13.2"
+    "@orpc/server": "^1.14.4"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",

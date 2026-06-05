@@ -1,14 +1,10 @@
-import {
-  createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   satelliteRoutes,
   pluginMetadata,
   satelliteAccess,
 } from "@checkstack/satellite-common";
-import { SatelliteMenuItems } from "./components/SatelliteMenuItems";
+import { Satellite } from "lucide-react";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -21,14 +17,9 @@ export default createFrontendPlugin({
         })),
       title: "Satellites",
       accessRule: satelliteAccess.satellite.read,
+      nav: { group: "Reliability", icon: Satellite },
     },
   ],
   apis: [],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "satellite.user-menu.items",
-      component: SatelliteMenuItems,
-      metadata: { group: "Reliability" },
-    }),
-  ],
+  extensions: [],
 });

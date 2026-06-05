@@ -45,6 +45,24 @@ export const catalogAccess = {
   }),
 
   /**
+   * Environment access (global, no team-based filtering).
+   *
+   * Environments are an instance-wide catalog primitive (a sibling of
+   * groups): a free-form set of custom fields that any system can belong
+   * to many-to-many.
+   */
+  environment: accessPair("environment", {
+    read: {
+      description: "View environments",
+      isDefault: true,
+      isPublic: true,
+    },
+    manage: {
+      description: "Create, update, and delete environments",
+    },
+  }),
+
+  /**
    * View access (global, user-only).
    */
   view: accessPair("view", {
@@ -66,6 +84,8 @@ export const catalogAccessRules = [
   catalogAccess.system.manage,
   catalogAccess.group.read,
   catalogAccess.group.manage,
+  catalogAccess.environment.read,
+  catalogAccess.environment.manage,
   catalogAccess.view.read,
   catalogAccess.view.manage,
 ];

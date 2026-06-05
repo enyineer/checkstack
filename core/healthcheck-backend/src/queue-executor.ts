@@ -10,6 +10,7 @@ import {
   type TransportClient,
   type CollectorRunContext,
   type AdvisoryLockService,
+  renderTemplatableConfig,
 } from "@checkstack/backend-api";
 import { QueueManager } from "@checkstack/queue-api";
 import {
@@ -23,6 +24,7 @@ import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
   SYSTEM_STATUS_CHANGED,
+  ENVIRONMENT_RESOLUTION_FAILED,
   type HealthCheckStatus,
   stripEphemeralFields,
 } from "@checkstack/healthcheck-common";
@@ -30,7 +32,12 @@ import {
   CatalogApi,
   catalogRoutes,
   createSystemSubject,
+  type Environment,
 } from "@checkstack/catalog-common";
+import {
+  resolveEffectiveEnvironments,
+  type EffectiveEnvironment,
+} from "./effective-environments";
 import { systemHealthCollapseKey } from "@checkstack/healthcheck-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
@@ -53,6 +60,7 @@ import {
   createHealthEntitySerializer,
   type HealthEntityState,
 } from "./health-entity";
+import { encodeHealthEntityId } from "./health-entity-id";
 import type { EntityHandle } from "@checkstack/automation-backend";
 
 type Db = SafeDatabase<typeof schema>;
@@ -425,19 +433,22 @@ async function executeHealthCheckJob(props: {
   // Create service for aggregated state evaluation
   const service = new HealthCheckService(db, registry, collectorRegistry);
 
-  // Per-system serializer for the reactive health mutate (§10.3): a
-  // transaction-scoped advisory lock keyed `health:<systemId>` wraps the
-  // snapshot-prev + apply + diff + emit so concurrent evaluations of one
-  // system (multiple per-config jobs across pods, or at-least-once
-  // redelivery) can't double-emit a single logical transition. Bound to this
-  // job's systemId below at every `writeHealthEntity` call.
-  const serializeHealthWrite = createHealthEntitySerializer({ advisoryLock })(
-    systemId,
-  );
+  // Per-ENTITY serializer factory for the reactive health mutate (§10.3,
+  // Phase 3b): a transaction-scoped advisory lock keyed `health:<entityId>`
+  // wraps the snapshot-prev + apply + diff + emit so concurrent evaluations
+  // of one (system, environment) — or of the system rollup — can't double-emit
+  // a single logical transition. Bound to the qualified entity id at each
+  // `writeHealthEntity` call so distinct envs / the rollup don't block each
+  // other.
+  const makeHealthSerializer = createHealthEntitySerializer({ advisoryLock });
 
-  // Capture aggregated state BEFORE this run for comparison
-  const previousState = await service.getSystemHealthStatus(systemId);
-  const previousStatus = previousState.status;
+  // The system-rollup status BEFORE this tick (all environments + env-less).
+  // Captured once so the post-loop rollup write (§7.4.3) — and the
+  // catastrophic-failure path — can record a correct prev → next rollup
+  // transition (environmentId = null). This is the system-wide aggregate read
+  // the executor has always taken first.
+  const rollupPreviousState = await service.getSystemHealthStatus(systemId);
+  const rollupPreviousStatus = rollupPreviousState.status;
 
   try {
     // Fetch configuration (including name for signals)
@@ -453,6 +464,7 @@ async function executeHealthCheckJob(props: {
         paused: healthCheckConfigurations.paused,
         includeLocal: systemHealthChecks.includeLocal,
         satelliteIds: systemHealthChecks.satelliteIds,
+        environmentIds: systemHealthChecks.environmentIds,
       })
       .from(systemHealthChecks)
       .innerJoin(
@@ -508,17 +520,6 @@ async function executeHealthCheckJob(props: {
       logger.debug(`Could not fetch system name for ${systemId}, using ID`);
     }
 
-    // Curated, read-only run-context metadata exposed to collectors.
-    // Metadata only - never secrets or config.
-    const runContext: CollectorRunContext = {
-      check: {
-        id: configId,
-        name: configRow.configName || configId,
-        intervalSeconds: configRow.interval,
-      },
-      system: { id: systemId, name: systemName },
-    };
-
     const strategy = registry.getStrategy(configRow.strategyId);
     if (!strategy) {
       logger.warn(
@@ -527,10 +528,158 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
-    // Extract timeout from strategy config for platform-level enforcement
-    const strategyConfig = configRow.config as unknown as BaseStrategyConfig;
+    // Migrate the stored (UNVERSIONED) strategy config ONCE, before the
+    // per-environment render loop, so every env renders from the same
+    // migrated shape. Stored configs predate explicit versioning and may be
+    // genuinely v1 (e.g. an HTTP config still carrying url/method); assume-v1
+    // -on-read runs the declared migration chain, then validates. The
+    // migrations are idempotent, so an already-current config is a no-op.
+    const strategyConfig: BaseStrategyConfig =
+      await strategy.config.parseAssumingV1(configRow.config);
     const executionTimeout = strategyConfig.timeout ?? 60_000;
 
+    // ── Per-environment fan-out (§7) ────────────────────────────────────────
+    // Resolve the effective environment set from the assignment + the
+    // system's current catalog membership, then run ONCE PER environment.
+    // An empty effective set (opt-out `[]`, or `null` with no membership)
+    // collapses to a single env-less run with `environment` unset — exactly
+    // the pre-feature behavior. Membership lives ONLY in the catalog Postgres
+    // tables and is re-read every tick via the cross-plugin RPC, so every pod
+    // resolves the same set (state-and-scale: no pod-local env state).
+    let membership: Environment[] = [];
+    try {
+      membership = await catalogClient.resolveSystemEnvironments({ systemId });
+    } catch (error) {
+      // Fail-open: a catalog read failure must not wedge the check. Degrade
+      // to an env-less run (today's behavior) rather than skipping the tick.
+      logger.warn(
+        `Could not resolve environments for system ${systemId}, running env-less`,
+        error,
+      );
+      // Observability: a `logger.warn` alone is easy to miss when a durable
+      // catalog misconfig (or outage) silently strips per-environment fan-out.
+      // Broadcast a counter-style signal so the degradation is observable.
+      // Best-effort — never let the signal break the (still-running) check.
+      try {
+        await signalService.broadcast(ENVIRONMENT_RESOLUTION_FAILED, {
+          systemId,
+          configurationId: configId,
+          error: extractErrorMessage(error),
+        });
+      } catch (signalError) {
+        logger.warn(
+          `Failed to broadcast environment-resolution-failed signal for ${systemId}`,
+          signalError,
+        );
+      }
+    }
+    const effectiveEnvs = resolveEffectiveEnvironments({
+      environmentIds: configRow.environmentIds,
+      membership,
+    });
+    // `null` env => the single env-less run. Each entry => one run per env.
+    const runEnvironments: (EffectiveEnvironment | null)[] =
+      effectiveEnvs.length > 0 ? effectiveEnvs : [null];
+
+    // Execute one run per effective environment. Runs are independent (own
+    // status / latency / result) and persisted with their own
+    // `environmentId`. Phase 3b: each env-run mutates its OWN env-qualified
+    // `health` entity (`<systemId>::<environmentId>`, or the bare `<systemId>`
+    // for the env-less run) through a per-entity serializer; after the loop a
+    // single ROLLUP write for the bare `<systemId>` recomputes the worst-status
+    // rollup so system-level consumers keep firing off the unchanged id.
+    //
+    // Track whether ANY per-env run persisted (so the rollup write only runs
+    // when there is something to roll up — an all-failed loop still leaves the
+    // durable runs the per-env apply already wrote).
+    let anyEnvRunPersisted = false;
+    // Whether this tick fans out into REAL environments (vs. the single
+    // env-less run). When env-less, the loop's lone write already targets the
+    // bare `<systemId>` entity — which IS the rollup — so no separate rollup
+    // write is needed. With real envs, the loop writes `<systemId>::<env>`
+    // entities and we recompute the bare-`<systemId>` rollup after the loop.
+    const isFannedOut = effectiveEnvs.length > 0;
+    for (const environment of runEnvironments) {
+      const environmentId = environment?.id ?? null;
+      // The env-qualified entity id this run mutates. For the env-less run
+      // (environmentId === null) this is the bare systemId — which is also the
+      // rollup id, so the env-less run IS the rollup (no separate rollup write
+      // is needed when the system has no environments — see below).
+      const envEntityId = encodeHealthEntityId({ systemId, environmentId });
+      const serializeEnvWrite = makeHealthSerializer(envEntityId);
+
+      // Per-env baseline status for the transition log: the env-scoped
+      // aggregate BEFORE this run. Computed per env so a transition row is
+      // recorded against the right (system, environment) streak.
+      const previousState = await service.getSystemHealthStatus(
+        systemId,
+        environmentId,
+      );
+      const previousStatus = previousState.status;
+
+      // Curated, read-only run-context metadata exposed to collectors.
+      // Metadata only - never secrets or config. `environment` carries the
+      // resolved env's verbatim custom fields for this run (Phase 2 surfaces
+      // consume it); absent for the env-less run.
+      const runContext: CollectorRunContext = {
+        check: {
+          id: configId,
+          name: configRow.configName || configId,
+          intervalSeconds: configRow.interval,
+        },
+        system: { id: systemId, name: systemName },
+        ...(environment
+          ? {
+              environment: {
+                id: environment.id,
+                name: environment.name,
+                fields: environment.fields,
+              },
+            }
+          : {}),
+      };
+
+      // Templating context for the per-env config render pass (§6.3.3).
+      // Carries only environment custom fields + curated check/system
+      // metadata - never secrets. `{{ environment.baseUrl }}` resolves from
+      // the resolved env's verbatim fields; an env-less run gets `{}` so a
+      // reference renders to empty string (strict: false); see the debug log
+      // below.
+      const templateContext = {
+        environment: runContext.environment?.fields ?? {},
+        check: runContext.check,
+        system: runContext.system,
+      };
+      if (!runContext.environment) {
+        // §11.6: render-empty when a run has no environment. An env-less run is
+        // a legitimate, documented configuration (the None assignment mode, or
+        // All-environments with no membership), and it recurs every interval -
+        // so this is `debug`, not `warn`, to avoid spamming the log. When an
+        // empty `{{ environment.* }}` render actually matters, the HTTP
+        // post-render `.url()` check already fails the run with a concrete
+        // "Rendered URL is invalid" error; we do not inspect every field here.
+        logger.debug(
+          `Health check ${configId} for system ${systemId} ran with no environment; ` +
+            `any {{ environment.* }} references render to empty string`,
+        );
+      }
+
+      // (2) Environment/templating pass (NEW) - renders `{{ environment.* }}`
+      // etc. in `x-templatable` fields. Runs PER ENVIRONMENT, AFTER the secret
+      // resolution (secrets first, templating second - §6.3.4) and BEFORE the
+      // strategy client build, so each env gets its own rendered strategy
+      // config + client. The collector configs are rendered just before each
+      // collector executes (below) so the secretEnv resolution stays first.
+      const renderedStrategyConfig = renderTemplatableConfig({
+        config: strategyConfig,
+        schema: strategy.config.schema,
+        context: templateContext,
+      }) as BaseStrategyConfig;
+
+    // Per-environment isolation: an unexpected failure persisting ONE
+    // environment's run must not abort the sibling environments' runs.
+    // Each iteration's run is independent (§7.2), so we log and continue.
+    try {
     // Execute health check using createClient pattern with unified hard timeout
     const start = performance.now();
     let connectionTimeMs: number | undefined;
@@ -546,8 +695,11 @@ async function executeHealthCheckJob(props: {
       // Platform-level hard timeout wrapping the entire execution sequence
       await Promise.race([
         (async () => {
-          // 1. Establish connection
-          connectedClient = await strategy.createClient(strategyConfig);
+          // 1. Establish connection. The strategy client build moves INSIDE
+          // the per-env loop (§6.3.3): each env gets its own rendered config +
+          // client, so a single job no longer bakes in one env's rendered
+          // strategy config.
+          connectedClient = await strategy.createClient(renderedStrategyConfig);
           connectionTimeMs = Math.round(performance.now() - start);
 
           // 2. Execute collectors in parallel
@@ -584,8 +736,31 @@ async function executeHealthCheckJob(props: {
                 secretEnv = resolved.env;
               }
 
+              // Migrate the stored (UNVERSIONED) collector config via
+              // assume-v1-on-read: runs the declared migration chain, then
+              // validates. Migrations are idempotent, so an already-current
+              // config is a no-op. This runs BEFORE templating so the render
+              // pass sees the migrated shape; the secretEnv resolution above
+              // reads the raw `secretEnv` mapping (a constant string field
+              // unaffected by the strategy/collector reshapes), keeping the
+              // migrate -> secret resolve -> render -> execute order intact.
+              const migratedCollectorConfig =
+                await registered.collector.config.parseAssumingV1(
+                  collectorEntry.config,
+                );
+
+              // (2) Environment/templating pass for the collector config -
+              // runs AFTER the secretEnv resolution above (secrets first,
+              // templating second) and renders `{{ environment.* }}` in this
+              // collector's `x-templatable` fields against the per-env context.
+              const renderedCollectorConfig = renderTemplatableConfig({
+                config: migratedCollectorConfig,
+                schema: registered.collector.config.schema,
+                context: templateContext,
+              });
+
               const collectorResult = await registered.collector.execute({
-                config: collectorEntry.config,
+                config: renderedCollectorConfig,
                 client: connectedClient!.client,
                 pluginId: configRow.strategyId,
                 runContext,
@@ -728,11 +903,12 @@ async function executeHealthCheckJob(props: {
       let newState!: AggregatedHealth;
       await writeHealthEntity({
         handle: getHealthEntity?.(),
-        systemId,
+        entityId: envEntityId,
         apply: async () => {
           await db.insert(healthCheckRuns).values({
             configurationId: configId,
             systemId,
+            environmentId,
             status: result.status,
             latencyMs: result.latencyMs,
             result: { ...result } as Record<string, unknown>,
@@ -744,6 +920,7 @@ async function executeHealthCheckJob(props: {
             db,
             systemId,
             configurationId: configId,
+            environmentId,
             status: result.status,
             latencyMs: result.latencyMs,
             runTimestamp: new Date(),
@@ -752,13 +929,18 @@ async function executeHealthCheckJob(props: {
             sourceLabel: "Local",
           });
 
-          newState = await service.getSystemHealthStatus(systemId);
+          // Env-scoped view: the per-env entity reflects only this env's runs.
+          newState = await service.getSystemHealthStatus(systemId, environmentId);
           return toHealthEntityView(newState);
         },
-        serialize: serializeHealthWrite,
+        serialize: serializeEnvWrite,
         onError: (error) =>
-          logger.warn(`Failed to mirror health entity for ${systemId}`, error),
+          logger.warn(
+            `Failed to mirror health entity for ${envEntityId}`,
+            error,
+          ),
       });
+      anyEnvRunPersisted = true;
 
       logger.debug(
         `Health check ${configId} for system ${systemId} failed: ${finalError}`,
@@ -784,6 +966,7 @@ async function executeHealthCheckJob(props: {
           db,
           systemId,
           configurationId: configId,
+          environmentId,
           fromStatus: previousStatus,
           toStatus: newState.status,
         });
@@ -803,7 +986,9 @@ async function executeHealthCheckJob(props: {
         });
       }
 
-      return;
+      // This environment's run is done (failed). Continue to the next
+      // effective environment rather than ending the whole job.
+      continue;
     } finally {
       if (connectedClient) {
         try {
@@ -841,12 +1026,13 @@ async function executeHealthCheckJob(props: {
     let newState!: AggregatedHealth;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
-      systemId,
+      entityId: envEntityId,
       apply: async () => {
         // Store result (spread to convert structured type to plain record for jsonb)
         await db.insert(healthCheckRuns).values({
           configurationId: configId,
           systemId,
+          environmentId,
           status: result.status,
           latencyMs: result.latencyMs,
           result: { ...result } as Record<string, unknown>,
@@ -859,6 +1045,7 @@ async function executeHealthCheckJob(props: {
           db,
           systemId,
           configurationId: configId,
+          environmentId,
           status: result.status,
           latencyMs: result.latencyMs,
           runTimestamp: new Date(),
@@ -867,13 +1054,15 @@ async function executeHealthCheckJob(props: {
           sourceLabel: "Local",
         });
 
-        newState = await service.getSystemHealthStatus(systemId);
+        // Env-scoped view: the per-env entity reflects only this env's runs.
+        newState = await service.getSystemHealthStatus(systemId, environmentId);
         return toHealthEntityView(newState);
       },
-      serialize: serializeHealthWrite,
+      serialize: serializeEnvWrite,
       onError: (error) =>
-        logger.warn(`Failed to mirror health entity for ${systemId}`, error),
+        logger.warn(`Failed to mirror health entity for ${envEntityId}`, error),
     });
+    anyEnvRunPersisted = true;
 
     logger.debug(
       `Ran health check ${configId} for system ${systemId}: ${result.status}`,
@@ -909,6 +1098,7 @@ async function executeHealthCheckJob(props: {
         db,
         systemId,
         configurationId: configId,
+        environmentId,
         fromStatus: previousStatus,
         toStatus: newState.status,
       });
@@ -927,18 +1117,110 @@ async function executeHealthCheckJob(props: {
         logger,
       });
 
-      // Broadcast system-level status change signal for frontend reactivity
-      await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
-        systemId,
-        previousStatus: previousStatus as HealthCheckStatus,
-        newStatus: newState.status,
-      });
+      // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
+      // status, not a per-env status. When fanned out, the post-loop rollup
+      // write broadcasts it once with the worst-status rollup; emitting it here
+      // per env would send up to N system-level signals/tick carrying per-env
+      // status. Only the env-less run (which IS the rollup — `!isFannedOut`)
+      // broadcasts the system-level signal from inside the loop.
+      if (!isFannedOut) {
+        await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+          systemId,
+          previousStatus: previousStatus as HealthCheckStatus,
+          newStatus: newState.status,
+        });
+      }
 
       // The directional + umbrella system-health hooks were removed in
       // Phase 4 (§10.3): the `health` entity mirror above is the single
       // source of truth, and its change deriver fires the
       // `healthcheck.system_degraded` / `_healthy` / `_health_changed`
       // trigger events through Stage-1 routing. Nothing to emit here.
+    }
+    } catch (envError) {
+      // Isolate this environment's failure; continue with the next env.
+      logger.error(
+        `Failed to run health check ${configId} for system ${systemId}` +
+          (environmentId ? ` (environment ${environmentId})` : " (env-less)"),
+        envError,
+      );
+    }
+    } // end per-environment fan-out loop (for ... of runEnvironments)
+
+    // ── System rollup write (§7.4.3) ───────────────────────────────────────
+    // With real environments, the per-env writes mutated `<systemId>::<env>`
+    // entities; the bare `<systemId>` ROLLUP entity (the worst-status view
+    // every existing system-level consumer references) must now recompute so
+    // it diffs/emits its OWN `ENTITY_CHANGED`. The rollup `apply` does NO new
+    // durable insert (the runs are already persisted by the per-env writes) —
+    // it just recomputes + returns the all-runs rollup view so the framework
+    // diffs prev → next. Keyed on the bare `health:<systemId>` lock so it
+    // serializes against itself, independent of the per-env locks.
+    //
+    // Skipped when env-less (the loop's lone write already targeted the bare
+    // `<systemId>` entity = the rollup) or when nothing persisted (a fully
+    // isolated-failure loop left no new runs to roll up).
+    if (isFannedOut && anyEnvRunPersisted) {
+      const rollupEntityId = encodeHealthEntityId({ systemId });
+      let rollupState!: AggregatedHealth;
+      try {
+        await writeHealthEntity({
+          handle: getHealthEntity?.(),
+          entityId: rollupEntityId,
+          apply: async () => {
+            // No durable insert — recompute the all-runs (rollup) view.
+            rollupState = await service.getSystemHealthStatus(systemId);
+            return toHealthEntityView(rollupState);
+          },
+          serialize: makeHealthSerializer(rollupEntityId),
+          onError: (error) =>
+            logger.warn(
+              `Failed to mirror rollup health entity for ${systemId}`,
+              error,
+            ),
+        });
+
+        // Record the ROLLUP transition (environmentId = null) so system-level
+        // "in status since" reflects the aggregate, and notify on a real
+        // rollup status change so existing system-level notifications fire.
+        if (rollupState.status !== rollupPreviousStatus) {
+          await recordStateTransition({
+            db,
+            systemId,
+            configurationId: configId,
+            environmentId: null,
+            fromStatus: rollupPreviousStatus,
+            toStatus: rollupState.status,
+          });
+
+          await notifyStateChange({
+            notificationClient,
+            systemId,
+            systemName,
+            configurationId: configId,
+            previousStatus: rollupPreviousStatus,
+            newStatus: rollupState.status,
+            service,
+            catalogClient,
+            maintenanceClient,
+            incidentClient,
+            logger,
+          });
+
+          await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
+            systemId,
+            previousStatus: rollupPreviousStatus as HealthCheckStatus,
+            newStatus: rollupState.status,
+          });
+        }
+      } catch (rollupError) {
+        // The rollup is best-effort reactivity over already-durable runs; a
+        // failure must not wedge the (completed) per-env runs.
+        logger.error(
+          `Failed to write system rollup health for ${systemId}`,
+          rollupError,
+        );
+      }
     }
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
@@ -948,15 +1230,17 @@ async function executeHealthCheckJob(props: {
       error,
     );
 
-    // Persist the failure run + aggregate THROUGH the reactive `health`
-    // entity: `apply` does the durable write and returns the freshly-computed
-    // view. The framework snapshots `prev` via the compute-on-read accessor
-    // BEFORE this insert, so a real status change emits exactly one correct
-    // `ENTITY_CHANGED` (§10.3). See the success path for the full rationale.
+    // Catastrophic job-level failure (e.g. the config fetch / env resolution
+    // threw before the fan-out loop). Persist a single env-less failure run
+    // against the bare `<systemId>` entity — which IS the system rollup — so
+    // the system-level health change still emits. Reuses the pre-tick
+    // rollup status captured before the try block.
+    const rollupEntityId = encodeHealthEntityId({ systemId });
+    const previousStatus = rollupPreviousStatus;
     let newState!: AggregatedHealth;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
-      systemId,
+      entityId: rollupEntityId,
       apply: async () => {
         // Store failure (no latencyMs for failures)
         await db.insert(healthCheckRuns).values({
@@ -984,10 +1268,10 @@ async function executeHealthCheckJob(props: {
         newState = await service.getSystemHealthStatus(systemId);
         return toHealthEntityView(newState);
       },
-      serialize: serializeHealthWrite,
+      serialize: makeHealthSerializer(rollupEntityId),
       onError: (mirrorError) =>
         logger.warn(
-          `Failed to mirror health entity for ${systemId}`,
+          `Failed to mirror health entity for ${rollupEntityId}`,
           mirrorError,
         ),
     });

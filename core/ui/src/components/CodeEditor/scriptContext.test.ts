@@ -7,13 +7,17 @@ import {
 import type { JsonSchemaProperty } from "../DynamicForm/types";
 
 describe("healthcheckScriptContext", () => {
-  it("emits both the global and module-export declarations of defineHealthCheck", () => {
+  it("emits the global helper + context types, but NOT a bare-name module block", () => {
     const ctx = healthcheckScriptContext({});
-    // Module declaration is what `import { defineHealthCheck } from
-    // "@checkstack/healthcheck"` resolves to.
-    expect(ctx.typeDefinitions).toContain('declare module "@checkstack/healthcheck"');
+    // The bare-name `@checkstack/healthcheck` module block is REMOVED (plan
+    // §6.2 / §6.4): the subpath module `@checkstack/sdk/healthcheck` is now
+    // resolved from the injected @checkstack/sdk editor bundle, not from
+    // scriptContext. scriptContext must NOT declare ANY package module block.
+    expect(ctx.typeDefinitions).not.toContain('declare module "@checkstack/healthcheck"');
+    expect(ctx.typeDefinitions).not.toContain('declare module "@checkstack/sdk/healthcheck"');
+    expect(ctx.typeDefinitions).not.toContain("declare module");
     expect(ctx.typeDefinitions).toContain("HealthCheckScriptResult");
-    // Global declaration is what makes Monaco autocomplete `defineHea…`
+    // The global declaration stays — it makes Monaco autocomplete `defineHea…`
     // _without_ requiring the user to type the import first (Monaco 0.55
     // doesn't expose `includeCompletionsForModuleExports`).
     expect(ctx.typeDefinitions).toMatch(/declare function defineHealthCheck/);
@@ -143,9 +147,13 @@ describe("healthcheckScriptContext", () => {
 });
 
 describe("integrationScriptContext", () => {
-  it("emits both the global and module-export declarations of defineIntegration", () => {
+  it("emits the global helper + context types, but NOT a bare-name module block", () => {
     const ctx = integrationScriptContext({});
-    expect(ctx.typeDefinitions).toContain('declare module "@checkstack/integration"');
+    // Bare-name `@checkstack/integration` block removed (§6.2/§6.4); the
+    // subpath module resolves from the injected @checkstack/sdk editor bundle.
+    expect(ctx.typeDefinitions).not.toContain('declare module "@checkstack/integration"');
+    expect(ctx.typeDefinitions).not.toContain('declare module "@checkstack/sdk/integration"');
+    expect(ctx.typeDefinitions).not.toContain("declare module");
     expect(ctx.typeDefinitions).toContain("IntegrationScriptResult");
     // Global form — analogous to defineHealthCheck.
     expect(ctx.typeDefinitions).toMatch(/declare function defineIntegration/);

@@ -26,9 +26,13 @@ import {
   defaultEsmScriptRunner,
   defaultShellScriptRunner,
   requestTimeoutMs,
+  surfaceRunDowngrades,
   Versioned,
   withConfigMeta,
+  type EffectiveSandbox,
+  type Migration,
   type EsmScriptRunner,
+  type Logger,
   type ServiceRef,
   type ShellScriptRunner,
 } from "@checkstack/backend-api";
@@ -77,6 +81,17 @@ async function resolveRunSecrets({
   return resolver.resolveForRun({ secretEnv });
 }
 
+/** Surface any per-run sandbox downgrade through the action's logger (§5.7). */
+function surfaceSandbox({
+  logger,
+  effective,
+}: {
+  logger: Logger;
+  effective: EffectiveSandbox | undefined;
+}): void {
+  surfaceRunDowngrades({ logger, effective });
+}
+
 /**
  * Fallback scope for the (test-only) case where `execute` is invoked
  * without one. At run time the dispatch engine always supplies a real
@@ -119,6 +134,25 @@ const shellRunConfigSchema = z.object({
 
 export type ShellRunConfig = z.infer<typeof shellRunConfigSchema>;
 
+/**
+ * v1 -> v2: drop the removed `sandbox` key.
+ *
+ * Early `run_shell` / `run_script` configs carried a per-action `sandbox`
+ * override; the OS-level sandbox is now GLOBAL-only (the runner resolves
+ * the active policy) so the field was removed from the schema. Stored
+ * configs nested in an automation `definition` are UNVERSIONED, so on read
+ * we assume v1 and run this migration: the stale `sandbox` key is stripped
+ * before validation, fixing the editor's spurious "Unrecognized key:
+ * sandbox" error. The drop is idempotent — a fresh config without the key
+ * is unchanged.
+ */
+const dropSandboxMigration: Migration<Record<string, unknown>, unknown> = {
+  fromVersion: 1,
+  toVersion: 2,
+  description: "Drop the removed per-action `sandbox` override key",
+  migrate: ({ sandbox: _sandbox, ...rest }) => rest,
+};
+
 const shellResultDataSchema = z.object({
   exitCode: z.number().int(),
   stdout: z.string(),
@@ -156,8 +190,9 @@ export function createShellRunAction(
     category: "Script",
     icon: "Terminal",
     config: new Versioned({
-      version: 1,
+      version: 2,
       schema: shellRunConfigSchema,
+      migrations: [dropSandboxMigration],
     }),
     produces: "shell_result",
     execute: async ({ config, logger, scope = EMPTY_SCOPE, getService }) => {
@@ -180,6 +215,9 @@ export function createShellRunAction(
         return { success: false, error: `Secret error: ${message}` };
       }
       try {
+        // The OS-level sandbox is GLOBAL-only: the runner resolves the active
+        // policy itself (durable cluster default, or fail-closed). No per-action
+        // override is accepted; the runner still returns its effective report.
         const raw = await runner.run({
           script: config.script,
           // Run context is exposed as `$CHECKSTACK_*` env vars (not
@@ -194,6 +232,8 @@ export function createShellRunAction(
           cwd: config.workingDirectory,
           timeoutMs: config.timeout,
         });
+        // Surface any per-run sandbox downgrade (degrade-surfaces-never-hides).
+        surfaceSandbox({ logger, effective: raw.sandbox });
         // Mask captured output at the boundary before logging / persisting.
         const result = {
           ...raw,
@@ -389,8 +429,9 @@ export function createScriptRunAction(
     category: "Script",
     icon: "Code",
     config: new Versioned({
-      version: 1,
+      version: 2,
       schema: scriptRunConfigSchema,
+      migrations: [dropSandboxMigration],
     }),
     produces: "script_result",
     execute: async ({
@@ -438,16 +479,21 @@ export function createScriptRunAction(
         return { success: false, error: `Secret error: ${message}` };
       }
       try {
+        // The OS-level sandbox is GLOBAL-only: the runner resolves the active
+        // policy itself (durable cluster default, or fail-closed). No per-action
+        // override is accepted; the runner still returns its effective report.
         const raw = await runner.run({
           script: config.script,
           context: scriptContext,
           timeoutMs: config.timeout,
-          helperModuleName: "@checkstack/integration",
+          helperModuleName: "@checkstack/sdk/integration",
           helperFunctionName: "defineIntegration",
           // Inject the resolved secrets as process.env for THIS run only.
           ...(Object.keys(secretEnv).length > 0 ? { env: secretEnv } : {}),
           ...(resolutionRoot ? { resolutionRoot } : {}),
         });
+        // Surface any per-run sandbox downgrade (degrade-surfaces-never-hides).
+        surfaceSandbox({ logger, effective: raw.sandbox });
         // Mask captured output at the boundary (stdout/stderr go to logs,
         // result + stdout/stderr to the persisted artifact). A script that
         // echoes a secret it was given is redacted here too.

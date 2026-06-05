@@ -1,9 +1,16 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
-import { anomalySettingsConfig } from "./config";
+import {
+  anomalySettingsConfig,
+  anomalyAssignmentConfig,
+  toVersionedRecord,
+} from "./config";
 import type { VersionedRecord } from "@checkstack/backend-api";
-import type { AnomalySettings } from "@checkstack/anomaly-common";
+import type {
+  AnomalySettings,
+  PartialAnomalySettings,
+} from "@checkstack/anomaly-common";
 
 export class AnomalyService {
   constructor(private readonly db: SafeDatabase<typeof schema>) {}
@@ -13,6 +20,12 @@ export class AnomalyService {
     configurationId?: string;
     state?: schema.AnomalyState;
     kind?: schema.AnomalyKind;
+    /**
+     * Suppression filter. Defaults to "active": suppressed rows are excluded
+     * from the active view. Pass "suppressed" to list only suppressed rows, or
+     * "all" to ignore the suppression flag entirely.
+     */
+    suppression?: "active" | "suppressed" | "all";
     limit?: number;
   }) {
     const conditions = [];
@@ -32,6 +45,13 @@ export class AnomalyService {
       conditions.push(eq(schema.anomalies.kind, params.kind));
     }
 
+    const suppression = params.suppression ?? "active";
+    if (suppression === "active") {
+      conditions.push(isNull(schema.anomalies.suppressedAt));
+    } else if (suppression === "suppressed") {
+      conditions.push(isNotNull(schema.anomalies.suppressedAt));
+    }
+
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const results = await this.db
@@ -44,11 +64,110 @@ export class AnomalyService {
     return results.map((r) => ({
       ...r,
       startedAt: r.startedAt.toISOString(),
-       
+
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
-       
+
       recoveredAt: r.recoveredAt?.toISOString() ?? null,
+
+      suppressedAt: r.suppressedAt?.toISOString() ?? null,
     }));
+  }
+
+  /**
+   * Globally suppress a single anomaly row. Snapshots the current observed
+   * value and baseline so the inline detector can auto-unsuppress once the
+   * metric "changes again" (moves outside the relative reactivation band).
+   *
+   * The mutation is scoped by BOTH `anomalyId` and `systemId` — the access
+   * gate authorizes the caller on `systemId`, so we must verify the target row
+   * actually belongs to that system, otherwise a user with `feed.manage` on
+   * system A could suppress system B's anomaly by passing B's id (IDOR).
+   *
+   * Only confirmed (`state === "anomaly"`) rows can be suppressed: the
+   * auto-unsuppress re-evaluation lives in the confirmed-anomaly branch of the
+   * detector, and a suppressed suspicious row would otherwise still confirm and
+   * notify. Returns false if no matching confirmed row exists.
+   */
+  async suppressAnomaly({
+    anomalyId,
+    systemId,
+  }: {
+    anomalyId: string;
+    systemId: string;
+  }): Promise<boolean> {
+    const [existing] = await this.db
+      .select()
+      .from(schema.anomalies)
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing || existing.state !== "anomaly") return false;
+
+    const observedNumeric = Number(existing.observedValue);
+
+    await this.db
+      .update(schema.anomalies)
+      .set({
+        suppressedAt: new Date(),
+        suppressedValue: Number.isFinite(observedNumeric)
+          ? observedNumeric
+          : null,
+        suppressedBaseline: existing.baselineValue,
+      })
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      );
+
+    return true;
+  }
+
+  /**
+   * Clear suppression on a single anomaly row. Scoped by both `anomalyId` and
+   * `systemId` for the same IDOR reason as {@link suppressAnomaly}.
+   */
+  async unsuppressAnomaly({
+    anomalyId,
+    systemId,
+  }: {
+    anomalyId: string;
+    systemId: string;
+  }): Promise<boolean> {
+    const [existing] = await this.db
+      .select()
+      .from(schema.anomalies)
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) return false;
+
+    await this.db
+      .update(schema.anomalies)
+      .set({
+        suppressedAt: null,
+        suppressedValue: null,
+        suppressedBaseline: null,
+      })
+      .where(
+        and(
+          eq(schema.anomalies.id, anomalyId),
+          eq(schema.anomalies.systemId, systemId),
+        ),
+      );
+
+    return true;
   }
 
   async getAnomalyBaselines(params: {
@@ -88,7 +207,10 @@ export class AnomalyService {
       });
     }
 
-    return result.config as VersionedRecord<AnomalySettings>;
+    // Migrate-then-validate the stored record on read. `version: 1` with no
+    // migrations today, so this is behavior-preserving now and stays correct
+    // once a migration is added.
+    return anomalySettingsConfig.parseRecord(toVersionedRecord(result.config));
   }
 
   async updateAnomalyConfig(
@@ -97,7 +219,7 @@ export class AnomalyService {
   ) {
     const newConfigRecord = anomalySettingsConfig.create(configData);
 
-    const [result] = await this.db
+    await this.db
       .insert(schema.anomalyConfigurations)
       .values({
         configurationId,
@@ -106,10 +228,11 @@ export class AnomalyService {
       .onConflictDoUpdate({
         target: [schema.anomalyConfigurations.configurationId],
         set: { config: newConfigRecord },
-      })
-      .returning();
+      });
 
-    return result!.config;
+    // Return the validated record we just persisted (typed), rather than the
+    // untyped jsonb round-trip.
+    return newConfigRecord;
   }
 
   async getAnomalyAssignmentConfig(systemId: string, configurationId: string) {
@@ -123,22 +246,23 @@ export class AnomalyService {
         ),
       );
 
-    return result
-      ? (result.config as VersionedRecord<Partial<AnomalySettings>>)
-      : undefined;
+    if (!result) return;
+
+    // Migrate-then-validate the stored override record on read (see
+    // getAnomalyConfig). `version: 1` no-migrations today.
+    return anomalyAssignmentConfig.parseRecord(
+      toVersionedRecord(result.config),
+    );
   }
 
   async updateAnomalyAssignmentConfig(
     systemId: string,
     configurationId: string,
-    configData: Partial<AnomalySettings>,
+    configData: PartialAnomalySettings,
   ) {
-    const newConfigRecord = {
-      version: anomalySettingsConfig.version,
-      data: configData,
-    };
+    const newConfigRecord = anomalyAssignmentConfig.create(configData);
 
-    const [result] = await this.db
+    await this.db
       .insert(schema.anomalyAssignments)
       .values({
         systemId,
@@ -151,10 +275,10 @@ export class AnomalyService {
           schema.anomalyAssignments.configurationId,
         ],
         set: { config: newConfigRecord },
-      })
-      .returning();
+      });
 
-    return result.config;
+    // Return the validated record we just persisted (typed).
+    return newConfigRecord;
   }
 
   /**

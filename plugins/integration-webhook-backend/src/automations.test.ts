@@ -8,7 +8,7 @@
  * so we don't need to set up a template runtime here.
  */
 import { describe, it, expect, beforeEach } from "bun:test";
-import type { Logger } from "@checkstack/backend-api";
+import type { Logger, RpcClient } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
 import { webhookSendAction, webhookDeliveryArtifactType } from "./automations";
@@ -71,6 +71,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: { forPlugin: () => ({}) } as unknown as RpcClient,
 };
 
 const baseConfig = {

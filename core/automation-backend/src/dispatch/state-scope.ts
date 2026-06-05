@@ -118,6 +118,27 @@ export interface EnrichScopeArgs {
  * `getBulkHealthState` call. Fail-open: a missing client or a provider
  * error yields an empty `health` namespace and a warn-log — a
  * healthcheck outage never wedges unrelated automations.
+ *
+ * Environment-aware (Phase 3b): a `health` id resolved here may be either the
+ * bare `"<systemId>"` (the system ROLLUP) or `"<systemId>::<environmentId>"`
+ * (a PER-ENVIRONMENT view). Whatever id is passed flows OPAQUELY through
+ * `getBulkHealthState`, which parses the `::` and resolves the right slice
+ * server-side, keyed by the same id — so `scope.health.systems["<sys>::<env>"]`
+ * gets the per-env snapshot and `scope.health.systems["<sys>"]` gets the
+ * rollup, with no parsing here.
+ *
+ * Which ids reach here:
+ *  - `contextKey` is supplied by the firing trigger. For the ENTITY-DRIVEN
+ *    health triggers it is the changed entity id — the bare `"<systemId>"` for
+ *    a system-rollup change, the env-qualified `"<systemId>::<env>"` for a
+ *    per-environment change — so the implicit `scope.health.system` resolves
+ *    to the rollup or the per-env view to match the change that fired.
+ *  - Any `uses_state` ref is taken verbatim, so an automation can ALSO read a
+ *    specific environment explicitly via a `"<systemId>::<env>"` ref regardless
+ *    of which id fired.
+ *
+ * NOTE: the `MAX_RESOLVED_SYSTEMS` cap counts these ids, so a system referenced
+ * across many environments consumes more of the cap.
  */
 export async function enrichScopeWithState(
   args: EnrichScopeArgs,

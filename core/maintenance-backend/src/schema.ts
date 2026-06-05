@@ -5,6 +5,7 @@ import {
   timestamp,
   primaryKey,
   boolean,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -68,12 +69,21 @@ export const maintenanceUpdates = pgTable("maintenance_updates", {
  * Hotlinks attached to a maintenance — e.g. a change ticket, runbook, or
  * chat thread. Free-form URL + optional human label.
  */
-export const maintenanceLinks = pgTable("maintenance_links", {
-  id: text("id").primaryKey(),
-  maintenanceId: text("maintenance_id")
-    .notNull()
-    .references(() => maintenances.id, { onDelete: "cascade" }),
-  label: text("label"),
-  url: text("url").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const maintenanceLinks = pgTable(
+  "maintenance_links",
+  {
+    id: text("id").primaryKey(),
+    maintenanceId: text("maintenance_id")
+      .notNull()
+      .references(() => maintenances.id, { onDelete: "cascade" }),
+    label: text("label"),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    // The same URL may be attached to a maintenance only once.
+    maintenanceUrlUnique: uniqueIndex(
+      "maintenance_links_maintenance_url_unique",
+    ).on(t.maintenanceId, t.url),
+  }),
+);

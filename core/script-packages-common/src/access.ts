@@ -37,9 +37,38 @@ export const scriptPackagesAccess = {
 };
 
 /**
+ * Dedicated, admin-only access for the GLOBAL script-sandbox policy settings.
+ *
+ * The global sandbox policy controls how EVERY user-authored script run is
+ * confined cluster-wide (resource caps, filesystem confinement, network egress,
+ * privilege drop). Loosening it - or disabling it - is a privileged,
+ * security-critical operation distinct from managing the package allowlist, so
+ * it gets its OWN grantable permission rather than riding `automationAccess.manage`
+ * or `script-packages.manage`. Per the maintainer it is admin-only for BOTH read
+ * and write: viewing the policy reveals the cluster's exact egress/filesystem
+ * posture, so the read endpoint is gated by the same permission as the write.
+ *
+ * Modeled as a single `manage` level on a dedicated `script-sandbox` resource
+ * (the `access` helper supports `read` | `manage`; one admin-only level is the
+ * right shape here since read and write share the same gate).
+ */
+export const scriptSandboxAccess = {
+  /**
+   * View AND edit the global script-sandbox policy. Admin-only; not granted to
+   * regular authenticated users by default.
+   */
+  manage: access(
+    "script-sandbox",
+    "manage",
+    "View and edit the global script-sandbox policy (resource caps, filesystem, network egress, privilege)",
+  ),
+};
+
+/**
  * All access rules for registration with the plugin system.
  */
 export const scriptPackagesAccessRules = [
   scriptPackagesAccess.read,
   scriptPackagesAccess.manage,
+  scriptSandboxAccess.manage,
 ];

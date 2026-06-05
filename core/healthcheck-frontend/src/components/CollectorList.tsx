@@ -35,6 +35,14 @@ interface CollectorListProps {
   loading?: boolean;
   /** Called when collector form validity changes */
   onValidChange?: (isValid: boolean) => void;
+  /**
+   * Sample context used to preview `x-templatable` config fields (e.g. the
+   * HTTP URL's `{{ environment.baseUrl }}`). Typically the custom fields of a
+   * sample environment the system belongs to, shaped as
+   * `{ environment, check, system }`. Omit it and templatable fields render
+   * without a preview line.
+   */
+  templatePreviewContext?: Record<string, unknown>;
 }
 
 /**
@@ -48,6 +56,7 @@ export const CollectorList: React.FC<CollectorListProps> = ({
   onChange,
   loading,
   onValidChange,
+  templatePreviewContext,
 }) => {
   // Track validity state per collector index
   const [validityMap, setValidityMap] = useState<Record<number, boolean>>({});
@@ -277,6 +286,7 @@ export const CollectorList: React.FC<CollectorListProps> = ({
                           <DynamicForm
                             schema={collector.configSchema}
                             value={entry.config}
+                            templatePreviewContext={templatePreviewContext}
                             onChange={(config) =>
                               handleConfigChange(index, config)
                             }

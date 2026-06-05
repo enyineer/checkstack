@@ -99,6 +99,7 @@ function createMockService(
     closeDowntimeEvent: mock(() =>
       Promise.resolve(createDowntimeEvent({ endTime: new Date(), durationSeconds: 60 })),
     ),
+    deleteDowntimeEvent: mock(() => Promise.resolve()),
     getDowntimeForWindow: mock(() =>
       Promise.resolve({
         totalMinutes: 0,
@@ -564,6 +565,230 @@ describe("SloEngine", () => {
       const status = await engine.computeStatus({ objective });
 
       expect(status.isBreaching).toBe(true);
+    });
+
+    it("should NOT flag hasOpenDowntime for an open upstream event in self-only mode", async () => {
+      // Regression: an open upstream event must not flip a self-only objective
+      // to "degraded" when no self downtime is counted — otherwise the SLO
+      // reads 100% available + degraded at the same time, which must not happen.
+      const objective = createObjective({
+        target: 99.9,
+        windowDays: 30,
+        dependencyExclusion: "self-only",
+      });
+      const openUpstream = createDowntimeEvent({
+        attributionType: "upstream",
+        upstreamSystemId: "up-1",
+      });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openUpstream],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.currentAvailability).toBe(100);
+      expect(status.errorBudgetRemainingPercent).toBe(100);
+      // Self-only: an upstream-attributed open event is excluded from budget,
+      // so it must not report open (budget-relevant) downtime.
+      expect(status.hasOpenDowntime).toBe(false);
+    });
+
+    it("should flag hasOpenDowntime for an open self event in self-only mode", async () => {
+      const objective = createObjective({ dependencyExclusion: "self-only" });
+      const openSelf = createDowntimeEvent({ attributionType: "self" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openSelf],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.hasOpenDowntime).toBe(true);
+    });
+
+    it("should flag hasOpenDowntime for any open event in strict mode", async () => {
+      const objective = createObjective({ dependencyExclusion: "strict" });
+      const openUpstream = createDowntimeEvent({
+        attributionType: "upstream",
+        upstreamSystemId: "up-1",
+      });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openUpstream],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.hasOpenDowntime).toBe(true);
+    });
+
+    it("live health is authoritative: a HEALTHY system with an open event is not degraded and excludes it from the budget", async () => {
+      // The dashboard "ongoing while healthy" regression: an orphaned open
+      // event (missed recovery) must not flip a currently-healthy SLO to
+      // degraded/breaching. computeStatus must ask the open path NOT to count
+      // open downtime when the system is healthy.
+      const objective = createObjective({ dependencyExclusion: "self-only" });
+      const openSelf = createDowntimeEvent({ attributionType: "self" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openSelf],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.hasOpenDowntime).toBe(false);
+      expect(mockService.getDowntimeForWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ includeOpen: false }),
+      );
+    });
+
+    it("live health is authoritative: a DOWN system with an open event counts it and is degraded", async () => {
+      const objective = createObjective({ dependencyExclusion: "self-only" });
+      const openSelf = createDowntimeEvent({ attributionType: "self" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openSelf],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.hasOpenDowntime).toBe(true);
+      expect(mockService.getDowntimeForWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ includeOpen: true }),
+      );
+    });
+
+    it("skips the health check entirely when there are no open events", async () => {
+      const objective = createObjective();
+      mockService = createMockService({ objectives: [objective] });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      const healthCallback = mock(async () => ({ isHealthy: true }));
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(healthCallback);
+
+      await engine.computeStatus({ objective });
+
+      expect(healthCallback).not.toHaveBeenCalled();
+      expect(mockService.getDowntimeForWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ includeOpen: false }),
+      );
+    });
+  });
+
+  describe("voidOrphanedDowntime", () => {
+    it("voids open events when the system is currently healthy (missed-recovery orphan)", async () => {
+      const objective = createObjective();
+      const orphan = createDowntimeEvent({ id: "orphan-1" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [orphan],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+
+      await engine.voidOrphanedDowntime({ objective });
+
+      expect(mockService.deleteDowntimeEvent).toHaveBeenCalledWith({
+        id: "orphan-1",
+      });
+    });
+
+    it("keeps open events when the system is genuinely down", async () => {
+      const objective = createObjective();
+      const openEvent = createDowntimeEvent({ id: "evt-1" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openEvent],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+
+      await engine.voidOrphanedDowntime({ objective });
+
+      expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("does nothing when there are no open events", async () => {
+      const objective = createObjective();
+      mockService = createMockService({ objectives: [objective] });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      const healthCallback = mock(async () => ({ isHealthy: true }));
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(healthCallback);
+
+      await engine.voidOrphanedDowntime({ objective });
+
+      expect(healthCallback).not.toHaveBeenCalled();
+      expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
     });
   });
 

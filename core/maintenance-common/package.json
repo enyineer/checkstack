@@ -14,7 +14,7 @@
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
-    "@orpc/contract": "^1.13.14",
+    "@orpc/contract": "^1.14.4",
     "zod": "^4.2.1"
   },
   "devDependencies": {

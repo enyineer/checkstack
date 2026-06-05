@@ -20,6 +20,11 @@ import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
 import { EditorPanel } from "../components/editor/EditorPanel";
 import { useProvenanceLock, GitOpsLockBanner } from "@checkstack/gitops-frontend";
+import {
+  environmentToPreviewFields,
+  findSelectedEnvironment,
+} from "@checkstack/catalog-frontend";
+import { buildTemplatePreviewContext } from "../components/editor/collector-preview-context.logic";
 
 
 // =============================================================================
@@ -104,6 +109,23 @@ const HealthCheckIDEPageContent = () => {
     [systemsData],
   );
 
+  // Environments for the collector "Preview as" picker. When the editor was
+  // opened from a single system (create-from-system), use that system's
+  // environments; otherwise the config may later be assigned to many systems,
+  // so a global picker over all environments is acceptable.
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId: systemIdFromUrl ?? "" },
+      { enabled: !!systemIdFromUrl },
+    );
+  const { data: allEnvironments = [] } = catalogClient.listEnvironments.useQuery(
+    {},
+    { enabled: !systemIdFromUrl },
+  );
+  const previewEnvironments = systemIdFromUrl
+    ? systemEnvironments
+    : allEnvironments;
+
   // --- Form State ---
 
   const [formState, setFormState] = useState<EditorFormState>({
@@ -122,6 +144,11 @@ const HealthCheckIDEPageContent = () => {
   const [selectedSystemIds, setSelectedSystemIds] = useState<string[]>(
     systemIdFromUrl ? [systemIdFromUrl] : [],
   );
+  // Selected "Preview as" environment id for collector config templating.
+  // Pure editor-local UI state (never persisted) — shared across collectors.
+  const [previewEnvironmentId, setPreviewEnvironmentId] = useState<
+    string | null
+  >(null);
 
   // Initialize form from existing configuration (edit mode).
   //
@@ -281,6 +308,49 @@ const HealthCheckIDEPageContent = () => {
   ]);
 
   const isValid = validationIssues.length === 0;
+
+  // --- Template preview context ---
+
+  // Build the sample `{ environment, check, system }` context fed to the
+  // collector config form so `{{ environment.* }}` previews live. `undefined`
+  // until an environment is picked, so the preview line stays hidden. Shape
+  // mirrors the backend run-time render context (see `queue-executor.ts`).
+  const templatePreviewContext = useMemo<
+    Record<string, unknown> | undefined
+  >(() => {
+    const selectedEnv = findSelectedEnvironment({
+      environments: previewEnvironments,
+      selectedId: previewEnvironmentId,
+    });
+    if (!selectedEnv) return;
+
+    const systemMeta = systemIdFromUrl
+      ? {
+          id: systemIdFromUrl,
+          name:
+            systems.find((s) => s.id === systemIdFromUrl)?.name ??
+            systemIdFromUrl,
+        }
+      : undefined;
+
+    return buildTemplatePreviewContext({
+      environmentFields: environmentToPreviewFields(selectedEnv),
+      check: {
+        id: configId ?? "new",
+        name: formState.name || "Health check",
+        intervalSeconds: formState.intervalSeconds,
+      },
+      system: systemMeta,
+    });
+  }, [
+    previewEnvironments,
+    previewEnvironmentId,
+    systemIdFromUrl,
+    systems,
+    configId,
+    formState.name,
+    formState.intervalSeconds,
+  ]);
 
   // --- Save ---
 
@@ -466,6 +536,10 @@ const HealthCheckIDEPageContent = () => {
                 setSelectedSystemIds(ids);
                 setIsDirty(true);
               }}
+              previewEnvironments={previewEnvironments}
+              previewEnvironmentId={previewEnvironmentId}
+              onPreviewEnvironmentChange={setPreviewEnvironmentId}
+              templatePreviewContext={templatePreviewContext}
             />
             {configId && (
               <ExtensionSlot

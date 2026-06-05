@@ -16,7 +16,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/command-common": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.13.2",
+    "@orpc/server": "^1.14.4",
     "zod": "^4.2.1"
   },
   "devDependencies": {

@@ -8,7 +8,7 @@
  * content, not just structural errors:
  *
  *   - unknown trigger `event` / action `action` ids,
- *   - per-trigger `config` that violates the trigger's `configSchema`,
+ *   - per-trigger `config` that violates the trigger's versioned `config` schema,
  *   - per-action `config` that violates the action's config schema
  *     (wrong enum value, missing required field, wrong type, AND —
  *     because we validate in strict mode — unknown/typo'd keys).
@@ -17,6 +17,8 @@
  * `actions.0.config.level` or `triggers.1.event`.
  */
 import { z } from "zod";
+import type { Versioned } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import {
   AutomationDefinitionSchema,
   type ActionInput,
@@ -43,10 +45,10 @@ export interface ValidateDefinitionDeps {
  * shape is wrong we can't reliably walk the action tree, so we return
  * the structural issues alone and let the operator fix those first.
  */
-export function collectDefinitionIssues(
+export async function collectDefinitionIssues(
   definition: unknown,
   deps: ValidateDefinitionDeps,
-): DefinitionIssue[] {
+): Promise<DefinitionIssue[]> {
   const parsed = AutomationDefinitionSchema.safeParse(definition);
   if (!parsed.success) {
     return parsed.error.issues.map((issue) => ({
@@ -56,8 +58,8 @@ export function collectDefinitionIssues(
   }
 
   const issues: DefinitionIssue[] = [];
-  validateTriggers(parsed.data, deps, issues);
-  validateActionList(parsed.data.actions, ["actions"], deps, issues);
+  await validateTriggers(parsed.data, deps, issues);
+  await validateActionList(parsed.data.actions, ["actions"], deps, issues);
   validateActionIds(parsed.data.actions, ["actions"], deps, issues);
   return issues;
 }
@@ -170,11 +172,11 @@ function walkActionId(
   // action lists and don't produce artifacts — nothing more to walk.
 }
 
-function validateTriggers(
+async function validateTriggers(
   definition: AutomationDefinition,
   deps: ValidateDefinitionDeps,
   issues: DefinitionIssue[],
-): void {
+): Promise<void> {
   for (const [index, trigger] of definition.triggers.entries()) {
     const registered = deps.triggerRegistry.getTrigger(trigger.event);
     if (!registered) {
@@ -184,32 +186,36 @@ function validateTriggers(
       });
       continue;
     }
-    if (registered.configSchema) {
-      const result = strictParse(registered.configSchema, trigger.config ?? {});
-      if (!result.success) {
-        pushZodIssues(result.error, ["triggers", index, "config"], issues);
-      }
+    if (registered.config) {
+      // Migrate-then-STRICT: removed/renamed trigger config fields are
+      // migrated away before validation, but real typos still surface.
+      await collectVersionedIssues({
+        config: registered.config,
+        value: trigger.config ?? {},
+        basePath: ["triggers", index, "config"],
+        issues,
+      });
     }
   }
 }
 
-function validateActionList(
+async function validateActionList(
   actions: ActionInput[],
   basePath: Array<string | number>,
   deps: ValidateDefinitionDeps,
   issues: DefinitionIssue[],
-): void {
+): Promise<void> {
   for (const [index, action] of actions.entries()) {
-    validateAction(action, [...basePath, index], deps, issues);
+    await validateAction(action, [...basePath, index], deps, issues);
   }
 }
 
-function validateAction(
+async function validateAction(
   action: ActionInput,
   path: Array<string | number>,
   deps: ValidateDefinitionDeps,
   issues: DefinitionIssue[],
-): void {
+): Promise<void> {
   if ("action" in action) {
     const registered = deps.actionRegistry.getAction(action.action);
     if (!registered) {
@@ -219,16 +225,23 @@ function validateAction(
       });
       return;
     }
-    const result = strictParse(registered.config.schema, action.config);
-    if (!result.success) {
-      pushZodIssues(result.error, [...path, "config"], issues);
-    }
+    // Migrate-then-STRICT (assume-v1-on-read): a stored config that
+    // carries a now-removed key (e.g. `sandbox`) is migrated away before
+    // validation, so it no longer surfaces as "Unrecognized key" in the
+    // editor — while genuine typos the migration doesn't account for still
+    // do.
+    await collectVersionedIssues({
+      config: registered.config,
+      value: action.config,
+      basePath: [...path, "config"],
+      issues,
+    });
     return;
   }
 
   if ("choose" in action) {
     for (const [branchIndex, branch] of action.choose.entries()) {
-      validateActionList(
+      await validateActionList(
         branch.sequence,
         [...path, "choose", branchIndex, "sequence"],
         deps,
@@ -236,18 +249,23 @@ function validateAction(
       );
     }
     if (action.else) {
-      validateActionList(action.else, [...path, "else"], deps, issues);
+      await validateActionList(action.else, [...path, "else"], deps, issues);
     }
     return;
   }
 
   if ("parallel" in action) {
-    validateActionList(action.parallel, [...path, "parallel"], deps, issues);
+    await validateActionList(
+      action.parallel,
+      [...path, "parallel"],
+      deps,
+      issues,
+    );
     return;
   }
 
   if ("repeat" in action) {
-    validateActionList(
+    await validateActionList(
       action.repeat.sequence,
       [...path, "repeat", "sequence"],
       deps,
@@ -257,7 +275,12 @@ function validateAction(
   }
 
   if ("sequence" in action) {
-    validateActionList(action.sequence, [...path, "sequence"], deps, issues);
+    await validateActionList(
+      action.sequence,
+      [...path, "sequence"],
+      deps,
+      issues,
+    );
     return;
   }
 
@@ -267,16 +290,34 @@ function validateAction(
 }
 
 /**
- * Parse against a schema in strict mode when it's a plain object schema,
- * so unknown / typo'd config keys are reported rather than silently
- * stripped. Non-object schemas (unions, records, primitives) fall back
- * to a normal parse.
+ * Migrate (assuming the stored value was written at v1) then STRICT-parse
+ * a `Versioned` config, pushing any resulting Zod issues. Migration errors
+ * (a broken chain or a throwing `migrate`) are reported as a config issue
+ * rather than thrown, so one bad action can't abort the whole validation.
  */
-function strictParse(schema: z.ZodType<unknown>, value: unknown) {
-  if (schema instanceof z.ZodObject) {
-    return schema.strict().safeParse(value);
+async function collectVersionedIssues({
+  config,
+  value,
+  basePath,
+  issues,
+}: {
+  config: Versioned<unknown>;
+  value: unknown;
+  basePath: Array<string | number>;
+  issues: DefinitionIssue[];
+}): Promise<void> {
+  try {
+    await config.parseStrictAssumingV1(value);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      pushZodIssues(error, basePath, issues);
+      return;
+    }
+    issues.push({
+      path: basePath,
+      message: extractErrorMessage(error),
+    });
   }
-  return schema.safeParse(value);
 }
 
 function pushZodIssues(

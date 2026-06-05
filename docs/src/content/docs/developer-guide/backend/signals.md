@@ -70,6 +70,19 @@ const signalService = await services.get(coreServices.signalService);
 
 The broadcast / sendToUser / sendToUsers / sendToAuthorizedUsers methods all read `signal.pluginId` and put it on the wire envelope automatically. Plugin code does not need to think about it.
 
+> [!IMPORTANT]
+> Signals are best-effort and **never throw**. A signal is a UI convenience (a
+> live nudge so clients refresh sooner); the authoritative data is already in
+> the database by the time a mutation broadcasts. `SignalService` therefore
+> catches and logs any transport failure internally rather than propagating it,
+> so a transient event-bus/queue outage can never turn a committed write into a
+> client-visible error. You do **not** need to wrap a post-write
+> `signalService.*` call in `try/catch`; if a send fails the client simply
+> misses one nudge and reconciles on its next fetch. This mirrors
+> `createCachedScope`, which makes cache invalidation non-throwing the same way.
+> Side effects that must be durable (driving an automation, enqueueing a job)
+> are NOT signals - use the event/hook or queue APIs, which surface failures.
+
 #### Broadcast (All Clients)
 
 ```typescript

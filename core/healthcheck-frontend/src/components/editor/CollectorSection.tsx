@@ -10,10 +10,18 @@ import {
   healthcheckScriptContext,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
-import { useScriptPackageTypeAcquisition } from "@checkstack/script-packages-frontend";
+import {
+  useScriptPackageTypeAcquisition,
+  useSdkTypeInjection,
+} from "@checkstack/script-packages-frontend";
 import { useSecretNames } from "@checkstack/secrets-frontend";
+import {
+  EnvironmentPreviewPicker,
+  type Environment,
+} from "@checkstack/catalog-frontend";
 import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
 import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
+import { schemaHasTemplatableFields } from "./collector-preview-context.logic";
 
 interface CollectorSectionProps {
   entry: CollectorConfigEntry;
@@ -22,6 +30,21 @@ interface CollectorSectionProps {
   onAssertionsChange: (assertions: CollectorConfigEntry["assertions"]) => void;
   onValidChange: (isValid: boolean) => void;
   onRemove: () => void;
+  /**
+   * Environments offered in the "Preview as" picker (the system's when one is
+   * in context, else all). Empty disables the picker.
+   */
+  previewEnvironments: ReadonlyArray<Environment>;
+  /** Currently selected preview environment id (shared across collectors). */
+  previewEnvironmentId: string | null;
+  /** Called when the author picks (or clears) a preview environment. */
+  onPreviewEnvironmentChange: (environmentId: string | null) => void;
+  /**
+   * Sample context for previewing `x-templatable` fields, built from the
+   * selected environment's custom fields plus curated check/system metadata.
+   * `undefined` when no environment is selected (preview line stays hidden).
+   */
+  templatePreviewContext?: Record<string, unknown>;
 }
 
 export const CollectorSection: React.FC<CollectorSectionProps> = ({
@@ -31,6 +54,10 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   onAssertionsChange,
   onValidChange,
   onRemove,
+  previewEnvironments,
+  previewEnvironmentId,
+  onPreviewEnvironmentChange,
+  templatePreviewContext,
 }) => {
   const scriptTestRenderer = React.useMemo(
     () => createCollectorScriptTestRenderer(entry.config),
@@ -41,6 +68,8 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   // drives import-specifier name completion before any module is registered.
   const { acquireTypes, acquireResetKey, importablePackages } =
     useScriptPackageTypeAcquisition();
+  // SDK editor types so `@checkstack/sdk/healthcheck` imports resolve.
+  const { sdkTypes, sdkTypesResetKey } = useSdkTypeInjection();
   // Secret names (never values) for the secret -> env mapping editor.
   const { secretNames } = useSecretNames();
 
@@ -72,11 +101,21 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
       {/* Configuration */}
       {collectorDef?.configSchema && (
         <div className="space-y-3">
-          <div>
-            <Label className="text-sm font-semibold">Configuration</Label>
-            <p className="text-xs text-muted-foreground">
-              Configure how this check item behaves.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Label className="text-sm font-semibold">Configuration</Label>
+              <p className="text-xs text-muted-foreground">
+                Configure how this check item behaves.
+              </p>
+            </div>
+            {/* Only offer the preview picker when a templatable field exists. */}
+            {schemaHasTemplatableFields(collectorDef.configSchema) && (
+              <EnvironmentPreviewPicker
+                environments={previewEnvironments}
+                selectedId={previewEnvironmentId}
+                onSelect={onPreviewEnvironmentChange}
+              />
+            )}
           </div>
           {(() => {
             const ctx = healthcheckScriptContext({
@@ -90,11 +129,14 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 value={entry.config}
                 onChange={onConfigChange}
                 onValidChange={onValidChange}
+                templatePreviewContext={templatePreviewContext}
                 {...ctx}
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
                 acquireTypes={acquireTypes}
                 acquireResetKey={acquireResetKey}
+                sdkTypes={sdkTypes}
+                sdkTypesResetKey={sdkTypesResetKey}
                 importablePackages={importablePackages}
               />
             );

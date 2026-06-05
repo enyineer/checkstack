@@ -8,6 +8,8 @@ import {
   HealthCheckConfigurationSchema,
   CreateHealthCheckConfigurationSchema,
   UpdateHealthCheckConfigurationSchema,
+  ValidateConfigurationInputSchema,
+  ValidateConfigurationResultSchema,
   AssociateHealthCheckSchema,
   HealthCheckRunSchema,
   HealthCheckRunPublicSchema,
@@ -182,6 +184,21 @@ export const healthCheckContract = {
     .input(CreateHealthCheckConfigurationSchema)
     .output(HealthCheckConfigurationSchema),
 
+  /**
+   * Deep-validate a proposed health-check configuration WITHOUT persisting it.
+   * Runs the SAME strategy/collector resolution + migrate-then-validate-strict
+   * logic the create / gitops-apply path uses, so propose-time errors match
+   * apply-time errors. Gated by `configuration.manage` (the privilege the
+   * create form requires); the mirror of automation's `validateDefinition`.
+   */
+  validateConfiguration: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+  })
+    .input(ValidateConfigurationInputSchema)
+    .output(ValidateConfigurationResultSchema),
+
   updateConfiguration: proc({
     operationType: "mutation",
     userType: "authenticated",
@@ -248,6 +265,11 @@ export const healthCheckContract = {
           stateThresholds: StateThresholdsSchema.optional(),
           /** IDs of satellites assigned to execute this health check */
           satelliteIds: z.array(z.string()).optional(),
+          /**
+           * Per-assignment environment selector. null = all current
+           * environments; [] = opt out (env-less); non-empty = those ids.
+           */
+          environmentIds: z.array(z.string()).nullable().optional(),
           /** Whether to also run this check locally on the core (default: true) */
           includeLocal: z.boolean(),
           /** Per-association notification policy (omitted = platform defaults) */
@@ -356,8 +378,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string().optional(),
         configurationId: z.string().optional(),
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+        startDate: z.coerce.date().optional(),
+        endDate: z.coerce.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
@@ -383,8 +405,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string().optional(),
         configurationId: z.string().optional(),
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+        startDate: z.coerce.date().optional(),
+        endDate: z.coerce.date().optional(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
@@ -422,8 +444,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string(),
-        startDate: z.date(),
-        endDate: z.date(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
       }),
@@ -445,8 +467,8 @@ export const healthCheckContract = {
       z.object({
         systemId: z.string(),
         configurationId: z.string(),
-        startDate: z.date(),
-        endDate: z.date(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
         /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
         sourceFilter: z.string().optional(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
@@ -623,7 +645,7 @@ export const healthCheckContract = {
   })
     .input(
       z.object({
-        startDate: z.date(),
+        startDate: z.coerce.date(),
         limitPerAssignment: z.number().optional().default(200),
       }),
     )

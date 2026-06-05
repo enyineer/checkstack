@@ -33,6 +33,7 @@ function automation(actions: unknown[]): LoadedAutomation {
     name: "Test",
     status: "enabled",
     definition,
+    runAs: "app-test",
   };
 }
 

@@ -8,6 +8,7 @@ import {
   Versioned,
   VersionedAggregated,
   aggregatedCounter,
+  configString,
 } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import { z } from "zod";
@@ -78,6 +79,39 @@ describe("CoreHealthCheckRegistry", () => {
       // Should be stored with qualified ID: ownerPluginId.strategyId
       const qualifiedId = `${mockOwner.pluginId}.${mockStrategy1.id}`;
       expect(registry.getStrategy(qualifiedId)).toBe(mockStrategy1);
+    });
+
+    it("throws at register time when a field is both secret and templatable", () => {
+      const conflictingStrategy: HealthCheckStrategy = {
+        id: "conflicting-strategy",
+        displayName: "Conflicting",
+        description: "Has a field that is both secret and templatable",
+        config: new Versioned({
+          version: 1,
+          schema: z.object({
+            timeout: z.number().default(30_000),
+            token: configString({ "x-secret": true, "x-templatable": true }),
+          }),
+        }),
+        result: new Versioned({
+          version: 1,
+          schema: z.record(z.string(), z.unknown()),
+        }),
+        aggregatedResult: new VersionedAggregated({
+          version: 1,
+          fields: { count: aggregatedCounter({}) },
+        }),
+        createClient: mock(() =>
+          Promise.resolve({
+            client: { exec: async () => ({}) },
+            close: () => {},
+          }),
+        ),
+        mergeResult: mock(() => ({})),
+      };
+      expect(() =>
+        registry.registerWithOwner(conflictingStrategy, mockOwner),
+      ).toThrow(/both/);
     });
 
     it("should overwrite an existing strategy with the same qualified ID", () => {

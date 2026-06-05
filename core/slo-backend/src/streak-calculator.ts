@@ -75,6 +75,11 @@ export async function runDailySnapshotJob(deps: {
 
   for (const objective of objectives) {
     try {
+      // Hygiene: clear missed-recovery orphans (open events on healthy systems)
+      // before snapshotting, so the trend reflects reality. computeStatus is
+      // already immune to such rows, but this stops them lingering in history.
+      await engine.voidOrphanedDowntime({ objective });
+
       const status = await engine.computeStatus({ objective });
 
       // 1. Persist daily snapshot

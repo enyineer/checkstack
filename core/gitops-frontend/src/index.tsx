@@ -1,16 +1,10 @@
-import {
-  createFrontendPlugin,
-  createSlotExtension,
-  UserMenuItemsSlot,
-} from "@checkstack/frontend-api";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
 import {
   gitopsRoutes,
   pluginMetadata,
   gitopsAccess,
 } from "@checkstack/gitops-common";
-
-import { GitOpsMenuItem } from "./components/GitOpsMenuItem";
-import { KindRegistryMenuItem } from "./components/KindRegistryMenuItem";
+import { GitBranch, Blocks } from "lucide-react";
 
 export const gitopsPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -20,6 +14,11 @@ export const gitopsPlugin = createFrontendPlugin({
       route: gitopsRoutes.routes.home,
       load: () => import("./pages/GitOpsPage").then((m) => ({ default: m.GitOpsPage })),
       accessRule: gitopsAccess.provider.read,
+      nav: {
+        group: "Configuration",
+        icon: GitBranch,
+        label: "GitOps",
+      },
     },
     {
       route: gitopsRoutes.routes.kinds,
@@ -28,20 +27,14 @@ export const gitopsPlugin = createFrontendPlugin({
           default: m.KindRegistryPage,
         })),
       accessRule: gitopsAccess.kinds.read,
+      nav: {
+        group: "Documentation",
+        icon: Blocks,
+        label: "Kind Registry",
+      },
     },
   ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "gitops.user-menu.link",
-      component: GitOpsMenuItem,
-      metadata: { group: "Configuration" },
-    }),
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "gitops.user-menu.kind-registry",
-      component: KindRegistryMenuItem,
-      metadata: { group: "Documentation" },
-    }),
-  ],
+  extensions: [],
 });
 
 // Public API for other frontend plugins

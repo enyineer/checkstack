@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import * as schema from "../schema";
 import { SafeDatabase } from "@checkstack/backend-api";
 import { v4 as uuidv4 } from "uuid";
@@ -49,6 +49,12 @@ type NewGroup = {
   metadata?: Record<string, unknown>;
 };
 
+type NewEnvironment = {
+  name: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+};
+
 type NewView = {
   name: string;
   type: string;
@@ -72,6 +78,22 @@ export class EntityService {
       .select()
       .from(schema.systems)
       .where(eq(schema.systems.id, id));
+    return result[0];
+  }
+
+  /**
+   * Look up a system by name, CASE-INSENSITIVELY. Used for the friendly
+   * pre-write uniqueness check on create/rename; the `systems_name_unique`
+   * functional index (`lower(name)`) is the actual race-safe guard, and this
+   * mirrors its case-folding so the pre-check catches "Api" vs "api" too (a
+   * case-sensitive `eq` would miss it and leave only the generic DB conflict).
+   * Returns the first match, or undefined when the name is free.
+   */
+  async getSystemByName(name: string) {
+    const result = await this.database
+      .select()
+      .from(schema.systems)
+      .where(sql`lower(${schema.systems.name}) = lower(${name})`);
     return result[0];
   }
 
@@ -300,6 +322,137 @@ export class EntityService {
         and(
           eq(schema.systemsGroups.groupId, groupId),
           eq(schema.systemsGroups.systemId, systemId),
+        ),
+      );
+  }
+
+  // Environments — instance-wide catalog primitive (M:N with systems)
+  async getEnvironments() {
+    const allEnvironments = await this.database
+      .select()
+      .from(schema.environments);
+
+    const associations = await this.database
+      .select()
+      .from(schema.systemsEnvironments);
+
+    const envSystemsMap = new Map<string, string[]>();
+    for (const assoc of associations) {
+      const existing = envSystemsMap.get(assoc.environmentId) ?? [];
+      existing.push(assoc.systemId);
+      envSystemsMap.set(assoc.environmentId, existing);
+    }
+
+    return allEnvironments.map((environment) => ({
+      ...environment,
+      systemIds: envSystemsMap.get(environment.id) ?? [],
+    }));
+  }
+
+  async getEnvironment(id: string) {
+    const rows = await this.database
+      .select()
+      .from(schema.environments)
+      .where(eq(schema.environments.id, id));
+    const environment = rows[0];
+    if (!environment) return;
+    const associations = await this.database
+      .select()
+      .from(schema.systemsEnvironments)
+      .where(eq(schema.systemsEnvironments.environmentId, id));
+    return {
+      ...environment,
+      systemIds: associations.map((a) => a.systemId),
+    };
+  }
+
+  /**
+   * Resolve a set of environment ids to their full records (with systemIds).
+   * Unknown ids are silently dropped. Used by the cross-plugin
+   * `resolveEnvironments` read for the explicit-subset fan-out case.
+   */
+  async getEnvironmentsByIds(ids: ReadonlyArray<string>) {
+    if (ids.length === 0) return [];
+    const rows = await this.database
+      .select()
+      .from(schema.environments)
+      .where(inArray(schema.environments.id, [...ids]));
+    if (rows.length === 0) return [];
+    const associations = await this.database
+      .select()
+      .from(schema.systemsEnvironments)
+      .where(inArray(schema.systemsEnvironments.environmentId, [...ids]));
+    const envSystemsMap = new Map<string, string[]>();
+    for (const assoc of associations) {
+      const existing = envSystemsMap.get(assoc.environmentId) ?? [];
+      existing.push(assoc.systemId);
+      envSystemsMap.set(assoc.environmentId, existing);
+    }
+    return rows.map((environment) => ({
+      ...environment,
+      systemIds: envSystemsMap.get(environment.id) ?? [],
+    }));
+  }
+
+  async createEnvironment(data: NewEnvironment, id: string = uuidv4()) {
+    const result = await this.database
+      .insert(schema.environments)
+      .values({ id, ...data })
+      .returning();
+    return result[0];
+  }
+
+  async updateEnvironment(id: string, data: Partial<NewEnvironment>) {
+    const result = await this.database
+      .update(schema.environments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(schema.environments.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteEnvironment(id: string) {
+    await this.database
+      .delete(schema.environments)
+      .where(eq(schema.environments.id, id));
+  }
+
+  async getEnvironmentsForSystem(systemId: string) {
+    return this.database
+      .select()
+      .from(schema.systemsEnvironments)
+      .where(eq(schema.systemsEnvironments.systemId, systemId));
+  }
+
+  async getSystemsForEnvironment(environmentId: string) {
+    return this.database
+      .select()
+      .from(schema.systemsEnvironments)
+      .where(eq(schema.systemsEnvironments.environmentId, environmentId));
+  }
+
+  async addSystemToEnvironment(props: {
+    environmentId: string;
+    systemId: string;
+  }) {
+    const { environmentId, systemId } = props;
+    await this.database
+      .insert(schema.systemsEnvironments)
+      .values({ environmentId, systemId })
+      .onConflictDoNothing();
+  }
+
+  async removeSystemFromEnvironment(props: {
+    environmentId: string;
+    systemId: string;
+  }) {
+    const { environmentId, systemId } = props;
+    await this.database
+      .delete(schema.systemsEnvironments)
+      .where(
+        and(
+          eq(schema.systemsEnvironments.environmentId, environmentId),
+          eq(schema.systemsEnvironments.systemId, systemId),
         ),
       );
   }

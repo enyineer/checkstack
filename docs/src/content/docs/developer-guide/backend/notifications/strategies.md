@@ -738,6 +738,16 @@ CREATE TABLE user_notification_preferences (
 );
 ```
 
+### User config validation
+
+The stored per-user `config` blob is migrate-then-validated against the
+strategy's own `userConfig` schema before it reaches `send()`. The stored
+value is treated as a `version: 1` record and run through
+`strategy.userConfig.parseAssumingV1(...)`, so it is migrated forward (once the
+strategy adds migrations) and validated on every read. A strategy that does not
+declare a `userConfig` schema receives `undefined`, matching the previous
+pass-through behaviour.
+
 ### Contact Resolution Flow
 
 1. Strategy declares `contactResolution` type

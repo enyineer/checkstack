@@ -215,4 +215,28 @@ describe("ScriptHealthCheckStrategy", () => {
       expect(aggregated.successRate.rate).toBe(0);
     });
   });
+
+  describe("config migration (assume-v1-on-read)", () => {
+    const strategy = new ScriptHealthCheckStrategy();
+
+    it("migrates a genuine v1 blob (command/args/...) down to {timeout}", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        command: "/usr/bin/uptime",
+        args: ["-p"],
+        cwd: "/tmp",
+        env: { FOO: "bar" },
+        timeout: 9000,
+      });
+      expect(migrated).toEqual({ timeout: 9000 });
+    });
+
+    it("is idempotent: an already-current {timeout} blob is unchanged", async () => {
+      const migrated = await strategy.config.parseAssumingV1({ timeout: 2500 });
+      expect(migrated).toEqual({ timeout: 2500 });
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      expect(strategy.config.validateMigrationChainFromV1()).toBeUndefined();
+    });
+  });
 });

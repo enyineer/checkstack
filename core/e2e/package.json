@@ -1,0 +1,26 @@
+{
+  "name": "@checkstack/e2e",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "private": true,
+  "checkstack": {
+    "type": "tooling"
+  },
+  "type": "module",
+  "scripts": {
+    "pretest:e2e": "bun run --filter @checkstack/frontend build && bun run --filter @checkstack/docs build",
+    "test:e2e": "bun --env-file=../../.env scripts/run-all.ts",
+    "test:e2e:file": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "devDependencies": {
+    "@checkstack/test-utils-frontend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@playwright/test": "^1.60.0",
+    "typescript": "^5.0.0"
+  }
+}

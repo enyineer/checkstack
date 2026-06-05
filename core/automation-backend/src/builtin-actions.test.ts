@@ -6,14 +6,18 @@ import type { Logger, RpcClient } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 
 import {
-  createNotifyUserAction,
   logAction,
+  notifyUserAction,
   notifyUserArtifactType,
   type NotifyUserArtifact,
 } from "./builtin-actions";
 
 const baseLogger = createMockLogger();
 const logger = baseLogger as Logger;
+
+const noopRpcClient = {
+  forPlugin: () => ({}),
+} as unknown as RpcClient;
 
 const ctxBase = {
   runId: "run-1",
@@ -23,6 +27,7 @@ const ctxBase = {
   getService: async <T,>(): Promise<T> => {
     throw new Error("not used");
   },
+  rpcClient: noopRpcClient,
 };
 
 describe("automation.log", () => {
@@ -97,9 +102,9 @@ describe("automation.notify_user", () => {
         results: [{ strategyId: "email.smtp", success: true }],
       },
     });
-    const action = createNotifyUserAction({ rpcClient });
-    const result = await action.execute({
+    const result = await notifyUserAction.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -129,9 +134,9 @@ describe("automation.notify_user", () => {
       ok: true,
       result: { deliveredCount: 0, results: [] },
     });
-    const action = createNotifyUserAction({ rpcClient });
-    const result = await action.execute({
+    const result = await notifyUserAction.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",
@@ -149,9 +154,9 @@ describe("automation.notify_user", () => {
       ok: false,
       error: new Error("rpc down"),
     });
-    const action = createNotifyUserAction({ rpcClient });
-    const result = await action.execute({
+    const result = await notifyUserAction.execute({
       ...ctxBase,
+      rpcClient,
       consumedArtifacts: {},
       config: {
         userId: "user-1",

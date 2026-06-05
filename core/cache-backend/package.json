@@ -17,7 +17,7 @@
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-common": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "@orpc/server": "^1.13.2",
+    "@orpc/server": "^1.14.4",
     "zod": "^4.0.0"
   },
   "devDependencies": {

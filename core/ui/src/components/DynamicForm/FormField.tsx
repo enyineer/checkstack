@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { renderTemplatePreview } from "@checkstack/template-engine";
 
 import {
   Input,
@@ -23,6 +24,7 @@ import {
   getCleanDescription,
   NONE_SENTINEL,
   findSecretEnvSibling,
+  nestedChildrenRequired,
 } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
@@ -49,7 +51,10 @@ export const FormField: React.FC<FormFieldProps> = ({
   secretNames,
   acquireTypes,
   acquireResetKey,
+  sdkTypes,
+  sdkTypesResetKey,
   importablePackages,
+  templatePreviewContext,
   siblingSecretEnv,
   onChange,
 }) => {
@@ -167,29 +172,39 @@ export const FormField: React.FC<FormFieldProps> = ({
     const editorTypes = propSchema["x-editor-types"];
     if (editorTypes && editorTypes.length > 0) {
       return (
-        <MultiTypeEditorField
-          id={id}
-          label={label}
-          description={cleanDesc}
-          value={value as string | undefined}
-          isRequired={isRequired}
-          editorTypes={editorTypes}
-          templateProperties={templateProperties}
-          typeDefinitions={typeDefinitions}
-          shellEnvVars={shellEnvVars}
-          starterTemplates={starterTemplates}
-          scriptTestRenderer={
-            propSchema["x-script-testable"] === true
-              ? scriptTestRenderer
-              : undefined
-          }
-          acquireTypes={acquireTypes}
-          acquireResetKey={acquireResetKey}
-          importablePackages={importablePackages}
-          fieldId={id}
-          siblingSecretEnv={siblingSecretEnv}
-          onChange={onChange as (val: string | undefined) => void}
-        />
+        <div className="space-y-2">
+          <MultiTypeEditorField
+            id={id}
+            label={label}
+            description={cleanDesc}
+            value={value as string | undefined}
+            isRequired={isRequired}
+            editorTypes={editorTypes}
+            templateProperties={templateProperties}
+            typeDefinitions={typeDefinitions}
+            shellEnvVars={shellEnvVars}
+            starterTemplates={starterTemplates}
+            scriptTestRenderer={
+              propSchema["x-script-testable"] === true
+                ? scriptTestRenderer
+                : undefined
+            }
+            acquireTypes={acquireTypes}
+            acquireResetKey={acquireResetKey}
+            sdkTypes={sdkTypes}
+            sdkTypesResetKey={sdkTypesResetKey}
+            importablePackages={importablePackages}
+            fieldId={id}
+            siblingSecretEnv={siblingSecretEnv}
+            onChange={onChange as (val: string | undefined) => void}
+          />
+          {propSchema["x-templatable"] && templatePreviewContext && (
+            <TemplatePreviewLine
+              value={(value as string) || ""}
+              context={templatePreviewContext}
+            />
+          )}
+        </div>
       );
     }
 
@@ -319,6 +334,12 @@ export const FormField: React.FC<FormFieldProps> = ({
             placeholder={placeholder}
           />
         )}
+        {propSchema["x-templatable"] && templatePreviewContext && (
+          <TemplatePreviewLine
+            value={(value as string) || ""}
+            context={templatePreviewContext}
+          />
+        )}
       </div>
     );
   }
@@ -440,6 +461,14 @@ export const FormField: React.FC<FormFieldProps> = ({
       properties: propSchema.properties,
       values: value as Record<string, unknown> | undefined,
     });
+    // An OPTIONAL nested object (e.g. an opt-in spend cap) only marks its
+    // schema-required children with `*` once the operator starts providing the
+    // object; while empty, supplying it is optional. A required object always
+    // marks them. (See nestedChildrenRequired.)
+    const childrenRequired = nestedChildrenRequired({
+      objectRequired: isRequired ?? false,
+      objectValue: value,
+    });
     return (
       <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
         <p className="text-sm font-semibold">{label}</p>
@@ -450,7 +479,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             label={key.charAt(0).toUpperCase() + key.slice(1)}
             propSchema={subSchema}
             value={(value as Record<string, unknown>)?.[key]}
-            isRequired={propSchema.required?.includes(key)}
+            isRequired={childrenRequired && (propSchema.required?.includes(key) ?? false)}
             formValues={formValues}
             optionsResolvers={optionsResolvers}
             templateProperties={templateProperties}
@@ -462,7 +491,10 @@ export const FormField: React.FC<FormFieldProps> = ({
             secretNames={secretNames}
             acquireTypes={acquireTypes}
             acquireResetKey={acquireResetKey}
+            sdkTypes={sdkTypes}
+            sdkTypesResetKey={sdkTypesResetKey}
             importablePackages={importablePackages}
+            templatePreviewContext={templatePreviewContext}
             siblingSecretEnv={nestedSecretEnv}
             onChange={(val) =>
               onChange({ ...(value as Record<string, unknown>), [key]: val })
@@ -580,7 +612,10 @@ export const FormField: React.FC<FormFieldProps> = ({
                   secretNames={secretNames}
                   acquireTypes={acquireTypes}
                   acquireResetKey={acquireResetKey}
+                  sdkTypes={sdkTypes}
+                  sdkTypesResetKey={sdkTypesResetKey}
                   importablePackages={importablePackages}
+                  templatePreviewContext={templatePreviewContext}
                   onChange={(val) => {
                     const next = [...(items as unknown[])];
                     next[index] = val;
@@ -723,7 +758,10 @@ export const FormField: React.FC<FormFieldProps> = ({
                 secretNames={secretNames}
                 acquireTypes={acquireTypes}
                 acquireResetKey={acquireResetKey}
+                sdkTypes={sdkTypes}
+                sdkTypesResetKey={sdkTypesResetKey}
                 importablePackages={importablePackages}
+                templatePreviewContext={templatePreviewContext}
                 siblingSecretEnv={variantSecretEnv}
                 onChange={(val) => onChange({ ...currentValue, [key]: val })}
               />
@@ -733,6 +771,28 @@ export const FormField: React.FC<FormFieldProps> = ({
   }
 
   return <></>;
+};
+
+/**
+ * Inline preview of a templatable field's rendered output against a sample
+ * context. Shown below `x-templatable` string fields when the owning form
+ * supplies a `templatePreviewContext`. Pure render (no DOM/Monaco), so it
+ * matches the run-time `x-templatable` pass exactly.
+ */
+const TemplatePreviewLine: React.FC<{
+  value: string;
+  context: Record<string, unknown>;
+}> = ({ value, context }) => {
+  if (!value || !value.includes("{{")) return null;
+  const rendered = renderTemplatePreview({ value, context });
+  return (
+    <p className="text-xs text-muted-foreground">
+      Preview:{" "}
+      <span className="font-mono break-all text-foreground">
+        {rendered || "(empty)"}
+      </span>
+    </p>
+  );
 };
 
 /**

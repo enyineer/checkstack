@@ -1,8 +1,8 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
+import { GitBranch } from "lucide-react";
 import {
   pluginMetadata,
   dependencyRoutes,
@@ -13,10 +13,10 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemEditorSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
-import { DependencyMenuItems } from "./components/DependencyMenuItems";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -33,6 +33,7 @@ export default createFrontendPlugin({
         })),
       title: "Dependency Map",
       accessRule: dependencyAccess.dependency.read,
+      nav: { group: "Workspace", icon: GitBranch },
     },
   ],
   apis: [],
@@ -54,10 +55,12 @@ export default createFrontendPlugin({
           default: m.DependencyEditor,
         })),
     }),
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "dependency.user-menu.map",
-      component: DependencyMenuItems,
-      metadata: { group: "Workspace" },
+    createSlotExtension(SystemSignalsSlot, {
+      id: "dependency.dashboard.signals",
+      load: () =>
+        import("./components/DependencySignalsFiller").then((m) => ({
+          default: m.DependencySignalsFiller,
+        })),
     }),
   ],
 });

@@ -1,9 +1,5 @@
-import {
-  UserMenuItemsSlot,
-  createSlotExtension,
-  createFrontendPlugin,
-} from "@checkstack/frontend-api";
-import { InfrastructureUserMenuItems } from "./components/UserMenuItems";
+import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { Server } from "lucide-react";
 import {
   pluginMetadata,
   infrastructureRoutes,
@@ -18,14 +14,15 @@ export const infrastructurePlugin = createFrontendPlugin({
         import("./pages/InfrastructureConfigPage").then((m) => ({
           default: m.InfrastructureConfigPage,
         })),
+      title: "Infrastructure",
       // No accessRule here — the page handles per-tab access internally
+      nav: {
+        group: "Configuration",
+        icon: Server,
+        // Per-tab access is gated inside the page (tabs are contributed by
+        // other plugins), so there is no single static rule to gate the
+        // sidebar entry on.
+      },
     },
-  ],
-  extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "infrastructure.user-menu.items",
-      component: InfrastructureUserMenuItems,
-      metadata: { group: "Configuration" },
-    }),
   ],
 });

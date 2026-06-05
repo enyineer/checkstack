@@ -11,3 +11,8 @@ plugins/_test-scaffolds/
 reports/
 storybook-static/
 docs/.astro/
+.data/
+**/test-results/
+**/playwright-report/
+**/playwright/.cache/
+**/playwright/.auth/

@@ -30,3 +30,17 @@ export {
   EDITOR_TYPE_LABELS,
   findSecretEnvSibling,
 } from "./utils";
+
+// Validation logic (pure, DOM-free) for inline field errors and the
+// keep-existing-secret rule. Consumers map server zod issues to fields and
+// strip blank keep-existing secrets before submit.
+export {
+  deriveClientFieldErrors,
+  deriveServerFieldErrors,
+  parseServerValidationData,
+  omitKeepExistingSecrets,
+  listSecretFieldKeys,
+  serverValidationDataSchema,
+  type FieldErrorMap,
+  type ServerValidationData,
+} from "./validation.logic";

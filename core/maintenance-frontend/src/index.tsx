@@ -1,8 +1,8 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
+import { Wrench } from "lucide-react";
 import {
   maintenanceRoutes,
   pluginMetadata,
@@ -11,10 +11,10 @@ import {
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
-import { MaintenanceMenuItems } from "./components/MaintenanceMenuItems";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -27,6 +27,7 @@ export default createFrontendPlugin({
         })),
       title: "Maintenances",
       accessRule: maintenanceAccess.maintenance.manage,
+      nav: { group: "Reliability", icon: Wrench },
     },
     {
       route: maintenanceRoutes.routes.systemHistory,
@@ -48,11 +49,6 @@ export default createFrontendPlugin({
   // No APIs needed - components use usePluginClient() directly
   apis: [],
   extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "maintenance.user-menu.items",
-      component: MaintenanceMenuItems,
-      metadata: { group: "Reliability" },
-    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "maintenance.system-maintenance-badge",
       component: SystemMaintenanceBadge,
@@ -60,6 +56,13 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "maintenance.system-details-top.panel",
       component: SystemMaintenancePanel,
+    }),
+    createSlotExtension(SystemSignalsSlot, {
+      id: "maintenance.dashboard.signals",
+      load: () =>
+        import("./components/MaintenanceSignalsFiller").then((m) => ({
+          default: m.MaintenanceSignalsFiller,
+        })),
     }),
   ],
 });

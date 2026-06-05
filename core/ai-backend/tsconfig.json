@@ -1,0 +1,26 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../ai-common"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../integration-backend"
+    },
+    {
+      "path": "../sdk"
+    }
+  ]
+}

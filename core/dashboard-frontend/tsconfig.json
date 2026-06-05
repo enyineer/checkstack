@@ -5,12 +5,6 @@
   ],
   "references": [
     {
-      "path": "../anomaly-common"
-    },
-    {
-      "path": "../auth-frontend"
-    },
-    {
       "path": "../catalog-common"
     },
     {
@@ -36,12 +30,6 @@
     },
     {
       "path": "../maintenance-common"
-    },
-    {
-      "path": "../notification-common"
-    },
-    {
-      "path": "../notification-frontend"
     },
     {
       "path": "../queue-frontend"

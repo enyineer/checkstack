@@ -93,6 +93,26 @@ describe("RequestCollector", () => {
       );
     });
 
+    it("returns a clear config error when the rendered URL is invalid", async () => {
+      // The executor renders `{{ environment.* }}` into `config.url` before
+      // execute. An empty environment can produce a non-URL (e.g. "/healthz"
+      // when baseUrl is missing). The collector must surface this as a clear
+      // config error, not attempt the request.
+      const collector = new RequestCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { url: "/healthz", method: "GET", timeout: 5000 },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.result.success).toBe(false);
+      expect(result.result.statusCode).toBe(0);
+      expect(result.error).toContain("Rendered URL is invalid");
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
     it("should pass body to client", async () => {
       const collector = new RequestCollector();
       const client = createMockClient();

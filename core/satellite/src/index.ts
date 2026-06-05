@@ -2,13 +2,15 @@ import type {
   SatelliteAssignment,
   ResultMessage,
 } from "@checkstack/satellite-common";
-import type {
-  ConnectedClient,
-  TransportClient,
-  CollectorRunContext,
+import {
+  registerSandboxPolicyProvider,
+  type ConnectedClient,
+  type TransportClient,
+  type CollectorRunContext,
 } from "@checkstack/backend-api";
 import { resolveScriptPackagesDir } from "@checkstack/script-packages-backend";
 import { SatelliteClient } from "./satellite-client";
+import { SatelliteSandboxPolicyCache } from "./sandbox-policy-cache";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
@@ -58,6 +60,27 @@ const logger = {
 // =============================================================================
 
 logger.info(`Starting Checkstack Satellite v${VERSION}`);
+
+// Wire the process-wide GLOBAL sandbox policy provider for the satellite
+// runtime. The script runners (shell + ESM) resolve the active policy through
+// this provider and FAIL CLOSED if none is registered, so it MUST be set before
+// any health-check script runs.
+//
+// The satellite has no ConfigService, so it cannot read the durable cluster
+// policy directly. Instead the core RELAYS the resolved global policy over the
+// already-authenticated WS channel: on connect (carried in the `authenticated`
+// message) and on change (a `sandbox_policy` push). The cache holds the last
+// relayed policy and the provider resolves through it.
+//
+// FAIL CLOSED UNTIL RELAY: before the first policy is received, the cache's
+// provider returns the FAIL_CLOSED profile (deny egress, scratch filesystem +
+// read-only managed packages, privilege drop) - NEVER the permissive shipped
+// default. A satellite must never run a script with a looser policy than core
+// relayed; before the first relay there is none, so it denies. Trust is
+// established by the authenticated WS connection.
+const sandboxPolicyCache = new SatelliteSandboxPolicyCache();
+registerSandboxPolicyProvider(sandboxPolicyCache.toProvider());
+
 logger.info("Loading health check strategies...");
 
 const { healthCheckRegistry, collectorRegistry } = await loadStrategies({
@@ -291,6 +314,12 @@ const client = new SatelliteClient({
   },
   onScriptPackagesLockfileHash: (lockfileHash) => {
     void scriptPackages.reconcile(lockfileHash);
+  },
+  onSandboxPolicy: (policy) => {
+    // Cache the relayed cluster-wide policy; the runner's provider resolves
+    // through this cache. Fail-closed until the first relay arrives.
+    sandboxPolicyCache.set(policy);
+    logger.info("Applied relayed global sandbox policy");
   },
   onDisconnect: () => {
     scheduler.stop();

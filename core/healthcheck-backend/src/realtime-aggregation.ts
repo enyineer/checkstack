@@ -60,6 +60,12 @@ interface IncrementHourlyAggregateParams {
   db: Db;
   systemId: string;
   configurationId: string;
+  /**
+   * Environment this run was for (per-environment fan-out). null/undefined =
+   * env-less run. Part of the aggregate uniqueness key so per-environment
+   * buckets stay separate.
+   */
+  environmentId?: string | null;
   status: "healthy" | "unhealthy" | "degraded";
   latencyMs: number | undefined;
   runTimestamp: Date;
@@ -87,6 +93,7 @@ export async function incrementHourlyAggregate(
     db,
     systemId,
     configurationId,
+    environmentId,
     status,
     latencyMs,
     runTimestamp,
@@ -95,6 +102,10 @@ export async function incrementHourlyAggregate(
     sourceId,
     sourceLabel,
   } = params;
+
+  // Normalize undefined -> null so the env-less slice is one stable key
+  // (NULLS NOT DISTINCT matches on it via the IS NULL predicate below).
+  const envId = environmentId ?? null;
 
   const bucketStart = getHourBucketStart(runTimestamp);
 
@@ -111,6 +122,9 @@ export async function incrementHourlyAggregate(
       and(
         eq(healthCheckAggregates.systemId, systemId),
         eq(healthCheckAggregates.configurationId, configurationId),
+        envId
+          ? eq(healthCheckAggregates.environmentId, envId)
+          : sql`${healthCheckAggregates.environmentId} IS NULL`,
         eq(healthCheckAggregates.bucketStart, bucketStart),
         eq(healthCheckAggregates.bucketSize, "hourly"),
         sourceId
@@ -177,6 +191,7 @@ export async function incrementHourlyAggregate(
     .values({
       configurationId,
       systemId,
+      environmentId: envId,
       bucketStart,
       bucketSize: "hourly",
       runCount: 1,
@@ -197,6 +212,7 @@ export async function incrementHourlyAggregate(
       target: [
         healthCheckAggregates.configurationId,
         healthCheckAggregates.systemId,
+        healthCheckAggregates.environmentId,
         healthCheckAggregates.bucketStart,
         healthCheckAggregates.bucketSize,
         healthCheckAggregates.sourceId,

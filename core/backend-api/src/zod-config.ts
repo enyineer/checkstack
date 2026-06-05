@@ -54,6 +54,20 @@ export interface ConfigMeta {
    * to the plain JSON editor.
    */
   "x-secret-env"?: boolean;
+  /**
+   * Mark a string field as templatable. Its value is rendered through the
+   * template engine (`{{ environment.* }}` / `{{ check.* }}` /
+   * `{{ system.* }}`) at execute time, per resolved environment, BEFORE the
+   * collector reads it. ONLY `x-templatable` fields are rendered; every other
+   * field is passed through verbatim (so a literal `{{` in a non-templatable
+   * field is never touched).
+   *
+   * A field MUST NOT carry both `x-secret` (or `x-secret-env`) and
+   * `x-templatable` — secrets and templating are resolved in separate ordered
+   * passes (secrets first) and must never combine. This is enforced at load
+   * time via {@link assertNoSecretTemplatableConflict}.
+   */
+  "x-templatable"?: boolean;
 }
 
 /**
@@ -71,23 +85,25 @@ export const configRegistry = z.registry<ConfigMeta>();
  * - ZodOptional
  * - ZodDefault
  * - ZodNullable
+ *
+ * Loops so that multi-level wrappers (e.g. `.optional().default()`) are fully
+ * peeled — a single-pass strip misses the inner wrapper and causes
+ * `getConfigMeta` to return `undefined` for deeply-wrapped `x-templatable`
+ * fields.
  */
 function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let unwrapped = schema;
-
-  if (unwrapped instanceof z.ZodOptional) {
-    unwrapped = unwrapped.unwrap() as z.ZodTypeAny;
+  let current = schema;
+  for (;;) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+      current = current.unwrap() as z.ZodTypeAny;
+      continue;
+    }
+    if (current instanceof z.ZodDefault) {
+      current = current.def.innerType as z.ZodTypeAny;
+      continue;
+    }
+    return current;
   }
-
-  if (unwrapped instanceof z.ZodDefault) {
-    unwrapped = unwrapped.def.innerType as z.ZodTypeAny;
-  }
-
-  if (unwrapped instanceof z.ZodNullable) {
-    unwrapped = unwrapped.unwrap() as z.ZodTypeAny;
-  }
-
-  return unwrapped;
 }
 
 /**
@@ -117,6 +133,14 @@ export function isColorSchema(schema: z.ZodTypeAny): boolean {
  */
 export function isHiddenSchema(schema: z.ZodTypeAny): boolean {
   return getConfigMeta(schema)?.["x-hidden"] === true;
+}
+
+/**
+ * Check if a schema is marked templatable (its string value is rendered
+ * through the template engine before the collector reads it).
+ */
+export function isTemplatableSchema(schema: z.ZodTypeAny): boolean {
+  return getConfigMeta(schema)?.["x-templatable"] === true;
 }
 
 /**

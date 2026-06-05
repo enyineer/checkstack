@@ -1,21 +1,18 @@
 #!/usr/bin/env bun
 import inquirer from "inquirer";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import {
   validatePluginName,
   pluginExists,
   packageExists,
   extractBaseName,
 } from "../utils/validation";
+import { registerHelpers, prepareTemplateData } from "../utils/template";
 import {
-  registerHelpers,
-  copyTemplate,
-  prepareTemplateData,
-} from "../utils/template";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  scaffoldPlugin,
+  refreshMonorepoReferences,
+  type ScaffoldMode,
+} from "../scaffold/scaffold-plugin";
 
 interface PluginTypeChoice {
   name: string;
@@ -191,18 +188,18 @@ export async function createCommand() {
     `\n📦 Creating ${pluginType} ${locationLabel}: ${templateData.pluginName}`
   );
 
-  const templateDir = path.join(__dirname, "..", "templates", pluginType);
-  const targetDir = path.join(
+  const mode: ScaffoldMode = {
+    kind: "monorepo",
     rootDir,
-    packageLocation,
-    templateData.pluginName
-  );
+    location: packageLocation,
+  };
 
   try {
-    const createdFiles = copyTemplate({
-      templateDir,
-      targetDir,
-      data: templateData,
+    const { targetDir, createdFiles } = await scaffoldPlugin({
+      mode,
+      baseName: pluginBaseName,
+      description,
+      pluginType,
     });
 
     console.log(
@@ -222,12 +219,8 @@ export async function createCommand() {
     // solution tsconfig so the new package is wired into the typecheck
     // graph. Affects only tsconfig.json files; safe to rerun any time.
     console.log("\n🔗 Refreshing TypeScript project references...");
-    const refResult = spawnSync(
-      "bun",
-      ["run", "typecheck:references:generate"],
-      { stdio: "inherit" },
-    );
-    if (refResult.status !== 0) {
+    const refStatus = refreshMonorepoReferences({ mode });
+    if (refStatus !== 0) {
       console.warn(
         "⚠️  Failed to refresh references automatically. " +
           "Run `bun run typecheck:references:generate` manually before typechecking.",

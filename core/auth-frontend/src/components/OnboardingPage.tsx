@@ -19,6 +19,8 @@ import {
   AlertContent,
   AlertTitle,
   AlertDescription,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { getAuthClientLazy } from "../lib/auth-client";
 
@@ -37,6 +39,7 @@ export const OnboardingPage = () => {
   const completeOnboardingMutation =
     authClient.completeOnboarding.useMutation();
   const betterAuthClient = getAuthClientLazy();
+  const { isLowPower } = usePerformance();
 
   // Check if onboarding is needed
   const { data: onboardingStatus, isLoading: checkingStatus } =
@@ -125,9 +128,24 @@ export const OnboardingPage = () => {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div className="h-4 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
+              <div
+                className={cn(
+                  "h-4 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
             </div>
           </CardContent>
         </Card>

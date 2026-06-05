@@ -10,9 +10,12 @@ import {
 import type { RegistryTokenStore } from "./registry-token";
 import {
   scriptPackagesContract,
+  type AuditRunSummary,
   type BlobGcSummary,
 } from "@checkstack/script-packages-common";
 import type { BlobStoreRegistry } from "./blob-store-registry";
+import type { SandboxPolicyService } from "./sandbox-policy";
+import type { SandboxPolicy } from "@checkstack/common";
 import {
   createPackageStore,
   createRegistryConfigStore,
@@ -20,6 +23,7 @@ import {
   createStorageConfigStore,
   createSatelliteStateStore,
   createBlobGcStateStore,
+  createAuditStore,
 } from "./stores";
 import { createInstallStateStore } from "./install-state-store";
 import { resolveRegistryRequestConfig } from "./registry-request-config";
@@ -51,10 +55,27 @@ export interface ScriptPackagesRouterDeps {
    */
   triggerBlobGc(): Promise<BlobGcSummary>;
   /**
+   * Run a vulnerability-audit pass on demand (elected via the installer
+   * advisory lock; refuses while an install / migration / GC is in flight).
+   * Provided by the plugin (wires the scanner + notification path).
+   */
+  triggerAudit(): Promise<AuditRunSummary>;
+  /**
    * Registry auth-token store, backed by the secrets platform's internal
    * secrets. Provided by the plugin (which injects `internalSecretsRef`).
    */
   registryToken: RegistryTokenStore;
+  /**
+   * The GLOBAL script-sandbox policy service (single owning row). Powers the
+   * admin `getSandboxPolicy` / `setSandboxPolicy` endpoints.
+   */
+  sandboxPolicy: SandboxPolicyService;
+  /**
+   * Called after a successful `setSandboxPolicy` with the resolved policy, so
+   * the plugin can broadcast it to all connected satellites (push-on-change).
+   * Provided by the plugin (wires the broadcast hook).
+   */
+  onSandboxPolicyChanged(policy: SandboxPolicy): Promise<void>;
 }
 
 export function createScriptPackagesRouter({
@@ -64,7 +85,10 @@ export function createScriptPackagesRouter({
   triggerInstall,
   triggerMigration,
   triggerBlobGc,
+  triggerAudit,
   registryToken,
+  sandboxPolicy,
+  onSandboxPolicyChanged,
 }: ScriptPackagesRouterDeps) {
   const packages = createPackageStore(db);
   const registry = createRegistryConfigStore(db);
@@ -73,6 +97,7 @@ export function createScriptPackagesRouter({
   const satellites = createSatelliteStateStore(db);
   const installState = createInstallStateStore(db);
   const blobGcState = createBlobGcStateStore(db);
+  const auditStore = createAuditStore(db);
 
   const os = implement(scriptPackagesContract)
     .$context<RpcContext>()
@@ -221,6 +246,17 @@ export function createScriptPackagesRouter({
 
     getBlobGcState: os.getBlobGcState.handler(async () => blobGcState.get()),
 
+    // ─── Vulnerability audit ──────────────────────────────────────────────
+    getAuditState: os.getAuditState.handler(async () => {
+      const state = await auditStore.getState();
+      const advisories = state.lockfileHash
+        ? await auditStore.advisoriesForHash(state.lockfileHash)
+        : [];
+      return { state, advisories };
+    }),
+
+    auditNow: os.auditNow.handler(async () => triggerAudit()),
+
     // ─── Per-host status ──────────────────────────────────────────────────
     listSatelliteSyncState: os.listSatelliteSyncState.handler(async () => ({
       items: await satellites.list(),
@@ -232,6 +268,19 @@ export function createScriptPackagesRouter({
         return { success: true };
       },
     ),
+
+    // ─── Global sandbox policy (admin-only) ───────────────────────────────
+    getSandboxPolicy: os.getSandboxPolicy.handler(async () =>
+      sandboxPolicy.read(),
+    ),
+
+    setSandboxPolicy: os.setSandboxPolicy.handler(async ({ input }) => {
+      const resolved = await sandboxPolicy.write(input);
+      // Push-on-change: relay the new policy to all connected satellites. The
+      // broadcast is best-effort liveness; satellites re-pull on (re)connect.
+      await onSandboxPolicyChanged(resolved);
+      return resolved;
+    }),
 
     // ─── Authoring / runtime ──────────────────────────────────────────────
     getInstallState: os.getInstallState.handler(async () => installState.load()),

@@ -8,10 +8,16 @@ import {
 } from "./registry-token";
 import {
   pluginMetadata,
+  scriptPackagesAccess,
   scriptPackagesAccessRules,
   scriptPackagesContract,
+  SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL,
+  type AuditRunSummary,
   type BlobGcSummary,
 } from "@checkstack/script-packages-common";
+import type { SandboxPolicy } from "@checkstack/common";
+import { AuthApi } from "@checkstack/auth-common";
+import { NotificationApi } from "@checkstack/notification-common";
 import type { PluginMetadata } from "@checkstack/common";
 import { extractErrorMessage } from "@checkstack/common";
 import { blobStoreExtensionPoint, type BlobStore } from "./blob-store";
@@ -28,8 +34,11 @@ import {
   createBlobIndexStore,
   createBlobGcStateStore,
   createLockfileHistoryStore,
+  createAuditStore,
 } from "./stores";
 import { createBlobGcTrigger } from "./blob-gc-runner";
+import { createAuditRunner } from "./audit-runner";
+import { createAuditScanner } from "./audit-scanner";
 import {
   createInstallStateStore,
   createInstallerLock,
@@ -43,10 +52,23 @@ import { createCentralResolver } from "./resolver";
 import { resolveRegistryRequestConfig } from "./registry-request-config";
 import { createReconcileFsDeps } from "./reconcile-fs";
 import { reconcileToHash } from "./reconciler";
-import { scriptPackagesChangedHook } from "./hooks";
+import { scriptPackagesChangedHook, sandboxPolicyChangedHook } from "./hooks";
+import {
+  createSandboxPolicyService,
+  registerScriptPackagesSandboxProvider,
+} from "./sandbox-policy";
+import { logSandboxStartupReadiness } from "./sandbox-startup-log";
 import { createScriptPackagesRouter } from "./router";
 import { createTypeClosureHttpHandler } from "./type-acquisition-route";
-import { TYPE_ACQUISITION_PATH_PREFIX } from "@checkstack/script-packages-common";
+import { createSdkTypesHttpHandler } from "./sdk-types-route";
+import {
+  TYPE_ACQUISITION_PATH_PREFIX,
+  SDK_TYPES_PATH_PREFIX,
+} from "@checkstack/script-packages-common";
+import {
+  SDK_EDITOR_BUNDLE_DTS,
+  SDK_RELEASE_VERSION,
+} from "@checkstack/sdk/editor-bundle";
 import * as schema from "./schema";
 
 interface EnvStash {
@@ -57,6 +79,14 @@ interface EnvStash {
    * Undefined until `afterPluginsReady` runs.
    */
   emitChanged?: (lockfileHash: string) => Promise<void>;
+  /**
+   * Set in `afterPluginsReady` (where `emitHook` exists) and called by the
+   * `setSandboxPolicy` handler (wired in `init`) after a successful policy
+   * write, so core instances broadcast the new policy to their satellites.
+   * Undefined until `afterPluginsReady` runs (a write before then still
+   * persists durably; satellites pick it up on next connect).
+   */
+  emitSandboxPolicyChanged?: (policy: SandboxPolicy) => Promise<void>;
   /** Registry token store (internal secrets), set in `init`. */
   registryToken?: RegistryTokenStore;
   /**
@@ -64,6 +94,12 @@ interface EnvStash {
    * Reused by the scheduled recurring job registered in `afterPluginsReady`.
    */
   triggerBlobGc?: () => Promise<BlobGcSummary>;
+  /**
+   * Vulnerability-audit trigger built in `init` (wires the scanner, stores,
+   * installer lock, and notification path). Reused by the scheduled recurring
+   * job registered in `afterPluginsReady`.
+   */
+  triggerAudit?: () => Promise<AuditRunSummary>;
 }
 
 export default createBackendPlugin({
@@ -86,17 +122,23 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        rpcClient: coreServices.rpcClient,
+        signalService: coreServices.signalService,
         auth: coreServices.auth,
         advisoryLock: coreServices.advisoryLock,
         queueManager: coreServices.queueManager,
+        config: coreServices.config,
         internalSecrets: internalSecretsRef,
       },
       init: async ({
         logger,
         database,
         rpc,
+        rpcClient,
+        signalService,
         auth,
         advisoryLock,
+        config,
         internalSecrets,
       }) => {
         logger.debug("📦 Initializing Script Packages Backend...");
@@ -147,6 +189,89 @@ export default createBackendPlugin({
           logger,
         });
         (env as unknown as EnvStash).triggerBlobGc = triggerBlobGc;
+
+        // Vulnerability-audit trigger: shared by the admin `auditNow` RPC and
+        // the scheduled recurring job. Holds the installer lock for the pass
+        // (mutually exclusive with installs / migrations / GC). Reuses the
+        // installer's registry/`.npmrc` resolution so audit + install never
+        // drift, and records advisories to the plugin's own Postgres tables
+        // (cluster-wide source of truth; the on-disk tree is pod-local).
+        const auditStore = createAuditStore(database);
+        const authClient = rpcClient.forPlugin(AuthApi);
+        const notificationClient = rpcClient.forPlugin(NotificationApi);
+        const triggerAudit = createAuditRunner({
+          installerLock,
+          auditStore,
+          loadCurrent: async () => {
+            const state = await installState.load();
+            const reg = await registry.get();
+            const list = await packages.list();
+            return {
+              lockfileHash: state.lockfileHash,
+              packages: list.map((p) => ({
+                name: p.name,
+                version: p.version,
+                enabled: p.enabled,
+              })),
+              ignoreScripts: reg.ignoreScripts,
+            };
+          },
+          scan: async ({ packages: pkgs, ignoreScripts }) => {
+            const reqConfig = await resolveRegistryRequestConfig({
+              registry,
+              registryToken,
+              logger,
+            });
+            const paths = storePaths(storeRoot);
+            const scanner = createAuditScanner({
+              scratchDir: path.join(paths.root, ".audit-scratch"),
+              // Same shared cache the installer's resolver uses, so the audit
+              // reuses already-fetched packages instead of re-downloading.
+              cacheDir: paths.cache,
+              registry: {
+                registryUrl: reqConfig.registryUrl,
+                scopedRegistries: reqConfig.scopedRegistries,
+                authToken: reqConfig.authToken,
+              },
+            });
+            return scanner.scan({
+              packages: pkgs.map((p) => ({
+                name: p.name,
+                version: p.version,
+                enabled: p.enabled,
+              })),
+              ignoreScripts,
+            });
+          },
+          getUserIds: async () => {
+            const users = await authClient.getUsers();
+            return users.map((u) => u.id);
+          },
+          filterManagers: (userIds) =>
+            authClient.filterUsersByAccessRule({
+              userIds,
+              accessRule: scriptPackagesAccess.manage.id,
+            }),
+          notifyUser: async ({ userId, title, body, importance, action }) => {
+            // sendTransactional's importance vocabulary is info|warning|critical.
+            const notification: {
+              title: string;
+              body: string;
+              importance: "info" | "warning" | "critical";
+              action?: { label: string; url: string };
+            } = { title, body, importance };
+            if (action) notification.action = action;
+            await notificationClient.sendTransactional({ userId, notification });
+          },
+          emitCompleted: async ({ lockfileHash, total }) => {
+            await signalService.broadcast(
+              SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL,
+              { lockfileHash, total },
+            );
+          },
+          logger,
+        });
+        (env as unknown as EnvStash).triggerAudit = triggerAudit;
 
         // Build the install orchestration. The resolver + active blob store
         // are resolved lazily at install time so config/registry changes
@@ -254,6 +379,31 @@ export default createBackendPlugin({
           return { started: true };
         };
 
+        // GLOBAL sandbox policy: the single owning row lives in THIS plugin's
+        // ConfigService (shared Postgres, NOT pod-local). script-packages is
+        // the single source of truth — it registers the one process-wide policy
+        // provider that every script runner on this pod resolves through, so
+        // both script plugins read the identical value (no more last-writer-wins
+        // across two plugin-scoped rows). The runners FAIL CLOSED if this read
+        // throws, so a transient DB error never widens the sandbox.
+        const sandboxPolicy = createSandboxPolicyService({
+          configService: config,
+        });
+        registerScriptPackagesSandboxProvider({ service: sandboxPolicy });
+
+        // One-time, per-pod startup observability for the script sandbox: the
+        // host readiness banner AND the capability/effective-enforcement line
+        // for the configured global default. Both surfaces are emitted here, in
+        // process, by the single policy owner — the policy is read through the
+        // in-process `sandboxPolicy.read()` closure with NO RPC. This replaces
+        // the old per-script-plugin `getSandboxPolicy` RPC log, which 404'd when
+        // a script plugin's init ran before this plugin had mounted its router.
+        // Best-effort: never throws, never relaxes enforcement.
+        await logSandboxStartupReadiness({
+          logger,
+          readPolicy: () => sandboxPolicy.read(),
+        });
+
         const router = createScriptPackagesRouter({
           db: database,
           blobStores,
@@ -261,7 +411,18 @@ export default createBackendPlugin({
           triggerInstall,
           triggerMigration,
           triggerBlobGc,
+          triggerAudit,
           registryToken,
+          sandboxPolicy,
+          // Push-on-change: broadcast the new policy to all connected
+          // satellites via the cluster-wide hook (each pod fans it out to its
+          // own satellites). No-op until `afterPluginsReady` wires `emitHook`;
+          // the durable row + connect-time relay are the backstop.
+          onSandboxPolicyChanged: async (policy) => {
+            await (env as unknown as EnvStash).emitSandboxPolicyChanged?.(
+              policy,
+            );
+          },
         });
         rpc.registerRouter(router, scriptPackagesContract);
 
@@ -280,6 +441,21 @@ export default createBackendPlugin({
             logger,
           }),
           TYPE_ACQUISITION_PATH_PREFIX,
+        );
+
+        // Raw, HTTP-cacheable route serving the running release's generated
+        // @checkstack/sdk editor bundle for the in-app script editor. Keyed by
+        // the running release version so a deployment upgrade refreshes the
+        // editor's SDK types (never stale); mismatched version -> 409.
+        // Mounted at `/api/script-packages/sdk-types/:releaseVersion`.
+        rpc.registerHttpHandler(
+          createSdkTypesHttpHandler({
+            auth,
+            getReleaseVersion: () => SDK_RELEASE_VERSION,
+            getSdkBundle: () => SDK_EDITOR_BUNDLE_DTS,
+            logger,
+          }),
+          SDK_TYPES_PATH_PREFIX,
         );
 
         logger.debug("✅ Script Packages Backend initialized.");
@@ -377,6 +553,13 @@ export default createBackendPlugin({
         // Let the installer (in init's triggerInstall) emit the hook.
         stash.emitChanged = async (lockfileHash: string) => {
           await emitHook(scriptPackagesChangedHook, { lockfileHash });
+        };
+
+        // Let the `setSandboxPolicy` handler (in init's router) broadcast the
+        // new global policy cluster-wide; each core pod's broadcast subscriber
+        // (in satellite-backend) pushes it to its own connected satellites.
+        stash.emitSandboxPolicyChanged = async (policy) => {
+          await emitHook(sandboxPolicyChangedHook, { policy });
         };
 
         // Reconcile this instance to a desired hash using the shared blob
@@ -483,6 +666,49 @@ export default createBackendPlugin({
           }
         }
 
+        // Scheduled recurring vulnerability audit: run `bun audit` against the
+        // installed tree, persist advisories (cluster-wide source of truth),
+        // and notify `script-packages.manage` holders about newly-appeared /
+        // escalated advisories. The trigger (built in `init`) holds the
+        // installer advisory lock for the pass, so exactly one pod audits at a
+        // time and it is mutually exclusive with installs / migrations / GC.
+        // Runs daily (an admin-configurable interval is a follow-up).
+        const triggerAudit = stash.triggerAudit;
+        if (triggerAudit) {
+          try {
+            const auditQueue = queueManager.getQueue<Record<string, never>>(
+              "script-packages-audit",
+            );
+            await auditQueue.consume(
+              async () => {
+                const summary = await triggerAudit();
+                if (summary.ran) {
+                  logger.debug(
+                    `Scheduled audit: ${summary.total} advisor(ies), ${summary.notified} notified.`,
+                  );
+                } else {
+                  logger.debug(
+                    `Scheduled audit skipped: ${summary.reason ?? "unknown"}.`,
+                  );
+                }
+              },
+              { consumerGroup: "script-packages-audit-worker", maxRetries: 0 },
+            );
+            await auditQueue.scheduleRecurring(
+              {},
+              {
+                jobId: "script-packages-audit-daily",
+                intervalSeconds: 24 * 60 * 60,
+              },
+            );
+            logger.debug("🛡️ Script-packages vulnerability audit scheduled (daily).");
+          } catch (error) {
+            logger.error(
+              `Failed to schedule vulnerability audit: ${extractErrorMessage(error)}`,
+            );
+          }
+        }
+
         logger.debug("✅ Script Packages Backend afterPluginsReady complete.");
       },
     });
@@ -548,7 +774,16 @@ export {
   type ReconcileDeps,
   type ReconcileResult,
 } from "./reconciler";
-export { scriptPackagesChangedHook } from "./hooks";
+export { scriptPackagesChangedHook, sandboxPolicyChangedHook } from "./hooks";
+export {
+  createSandboxPolicyService,
+  registerScriptPackagesSandboxProvider,
+  type SandboxPolicyService,
+} from "./sandbox-policy";
+export {
+  logSandboxStartupReadiness,
+  type SandboxStartupLogger,
+} from "./sandbox-startup-log";
 export {
   createCentralResolver,
   type CentralResolverOptions,
@@ -561,6 +796,10 @@ export {
   extractReferences,
 } from "./package-types";
 export { createTypeClosureHttpHandler } from "./type-acquisition-route";
+export {
+  createSdkTypesHttpHandler,
+  SDK_BUNDLE_VIRTUAL_PATH,
+} from "./sdk-types-route";
 export {
   resolveResolutionRoot,
   resolveResolutionRootForHost,
@@ -590,5 +829,27 @@ export { sweepTreeGc, type TreeGcResult } from "./tree-gc";
 export {
   createLockfileHistoryStore,
   createBlobGcStateStore,
+  createAuditStore,
+  type AuditStore,
 } from "./stores";
+export {
+  parseBunAudit,
+  countBySeverity,
+  meetsThreshold,
+  type ParseAuditResult,
+} from "./audit-parse";
+export {
+  computeAuditDelta,
+  advisoryKey,
+  type AuditDeltaInput,
+  type AuditDeltaResult,
+} from "./audit-delta";
+export {
+  createAuditScanner,
+  type AuditScanner,
+  type AuditScannerOptions,
+  type AuditScanResult,
+  type SpawnFn,
+} from "./audit-scanner";
+export { createAuditRunner, type AuditRunnerDeps } from "./audit-runner";
 export * as schema from "./schema";

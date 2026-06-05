@@ -42,12 +42,26 @@ export const tcpConfigSchema = baseStrategyConfigSchema.extend({
 
 export type TcpConfig = z.infer<typeof tcpConfigSchema>;
 
-// Legacy config type for migrations
-interface TcpConfigV1 {
-  host: string;
-  port: number;
-  timeout: number;
-  readBanner: boolean;
+// The migrate input is `unknown` per the versioning chain, so narrowing is
+// done with `typeof`/`in` guards (no casts).
+
+/** Type guard: the migrate input is a plain object whose keys can be probed. */
+function isRecord(data: unknown): data is Record<string, unknown> {
+  return typeof data === "object" && data !== null;
+}
+
+/** Read a string field from a config blob. */
+function readString(data: unknown, key: string): string | undefined {
+  if (!isRecord(data)) return undefined;
+  const value = data[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Read a numeric field from a config blob. */
+function readNumber(data: unknown, key: string): number | undefined {
+  if (!isRecord(data)) return undefined;
+  const value = data[key];
+  return typeof value === "number" ? value : undefined;
 }
 
 /**
@@ -203,11 +217,19 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
         fromVersion: 1,
         toVersion: 2,
         description: "Remove readBanner (moved to BannerCollector)",
-        migrate: (data: TcpConfigV1): TcpConfig => ({
-          host: data.host,
-          port: data.port,
-          timeout: data.timeout,
-        }),
+        // IDEMPOTENT: only a genuine v1 blob still carries `readBanner`. A v1
+        // row that happened to omit `readBanner` already matches the v2 shape
+        // (`{ host, port, timeout }`), so passthrough is correct there too.
+        migrate: (data: unknown): unknown => {
+          if (isRecord(data) && "readBanner" in data) {
+            return {
+              host: readString(data, "host"),
+              port: readNumber(data, "port"),
+              timeout: readNumber(data, "timeout"),
+            };
+          }
+          return data;
+        },
       },
     ],
   });

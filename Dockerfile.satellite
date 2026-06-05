@@ -39,7 +39,23 @@ RUN rm -rf core/scripts core/test-utils-backend core/test-utils-frontend \
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
 
-RUN apk update && apk upgrade --no-cache && apk add --no-cache tini
+# Sandbox runtime packages (scripts can run ON a satellite, so it needs the
+# same enforcement primitives as the core image for the secure FAIL-CLOSED
+# default to work out of the box):
+#  - bubblewrap: `bwrap` launcher (FS confinement + net namespaces) via
+#    UNPRIVILEGED user namespaces (rootless bwrap) - no root needed.
+#  - slirp4netns: rootless userspace egress (allowlist + metadata block without
+#    CAP_NET_ADMIN / a host uplink).
+#  - util-linux: `prlimit` (rlimits) + `unshare` (userns probe).
+#  - nftables: `nft` CLI for the fail-closed rootless egress filter.
+# The container RUNTIME must apply the SAME two relaxations as the core image
+# (see the script-sandbox docs + docker-compose.yml + deploy/k8s): the bundled
+# tuned seccomp profile (permits the unprivileged userns + bwrap syscalls) AND a
+# /proc unmask (`--security-opt systempaths=unconfined` / k8s `procMount:
+# Unmasked`) so bwrap can mount a fresh /proc inside the namespace. The
+# combination is VALIDATED in-container against a real syscall trace.
+RUN apk update && apk upgrade --no-cache && \
+  apk add --no-cache tini bubblewrap slirp4netns util-linux nftables
 
 # Copy production node_modules + all remaining packages
 COPY --from=production-deps /app/node_modules ./node_modules
@@ -48,9 +64,35 @@ COPY --from=production-deps /app/plugins ./plugins
 COPY --from=production-deps /app/package.json ./package.json
 COPY LICENSE.md ./
 
+# Bundle the tuned seccomp profile INTO the image so an operator can extract it
+# on the satellite host before `docker run` - fully offline / air-gapped, no
+# GitHub or core round-trip needed (the profile is version-matched to this
+# agent):  docker run --rm <image> print-seccomp > checkstack-userns.json
+# (The Docker daemon reads `--security-opt seccomp=<file>` from the HOST at
+# create time; a container cannot relax its own seccomp from the inside, so the
+# operator must place the file before starting the satellite - see the helper.)
+COPY deploy/seccomp/checkstack-userns.json /app/deploy/seccomp/checkstack-userns.json
+COPY docker-entrypoint-satellite.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-satellite.sh
+
+# Dedicated low-privilege identity. NON-ROOT SUPERVISOR MODEL: the satellite
+# process itself runs as this uid (see `USER` below), so every sandboxed script
+# INHERITS non-root and can never be host-root. Confinement is delivered by
+# rootless bwrap via unprivileged user namespaces (in-namespace root maps back
+# to this unprivileged host uid). No root-mapped `--uid` drop is needed.
+RUN addgroup -g 65532 checkstack && adduser -D -u 65532 -G checkstack checkstack
+
 ENV NODE_ENV=production
+# NOTE: CHECKSTACK_SANDBOX_UID/GID are intentionally NOT set - see the core
+# Dockerfile. Under the non-root supervisor the script inherits non-root and a
+# drop to a different id is neither possible (rootless) nor needed.
 
 HEALTHCHECK NONE
 
-ENTRYPOINT ["/sbin/tini", "--"]
+# NON-ROOT supervisor (see the core Dockerfile rationale). The satellite has no
+# data/plugins dirs to own; per-run script scratch lives under world-writable
+# /tmp, so no extra chown is required.
+USER 65532:65532
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint-satellite.sh"]
 CMD ["bun", "run", "core/satellite/src/index.ts"]

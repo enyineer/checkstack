@@ -1,5 +1,10 @@
 import type React from "react";
-import type { TemplateProperty, ShellEnvVar, AcquireTypes } from "../CodeEditor";
+import type {
+  TemplateProperty,
+  ShellEnvVar,
+  AcquireTypes,
+  AcquiredTypeFile,
+} from "../CodeEditor";
 import type { TemplateCompletionProvider } from "../TemplateValueInput";
 import type { EditorType } from "@checkstack/common";
 
@@ -12,6 +17,7 @@ import type {
   JsonSchemaPropertyCore,
   JsonSchemaBase,
 } from "@checkstack/common";
+import type { FieldErrorMap } from "./validation.logic";
 
 /**
  * JSON Schema property with DynamicForm-specific x-* extensions for config rendering.
@@ -30,7 +36,18 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-duration"?: boolean; // Render a DurationInput (single-unit duration object)
   "x-script-testable"?: boolean; // Field is an inline script that can be tested in-UI
   "x-secret-env"?: boolean; // Record field is a secret -> env mapping (SecretEnvEditor)
+  "x-templatable"?: boolean; // String value is rendered through the template engine at run time
 }
+
+/**
+ * Sample context used to preview the rendered output of `x-templatable`
+ * string fields in the editor (e.g. `{ environment: { baseUrl: "..." } }`).
+ * When supplied to DynamicForm, a "Preview" line appears below each
+ * templatable field showing `renderTemplatePreview(value, context)` so authors
+ * see the resolved value while editing. Shares the run-time render semantics
+ * (see `@checkstack/template-engine`), so the preview never diverges.
+ */
+export type TemplatePreviewContext = Record<string, unknown>;
 
 /**
  * Renders the inline script-test UI beneath a testable script field. The
@@ -153,11 +170,52 @@ export interface DynamicFormProps {
   /** Install identity (lockfile hash); resets acquired types on a new install. */
   acquireResetKey?: string;
   /**
+   * The running release's `@checkstack/sdk` editor bundle, forwarded to TS/JS
+   * editors so `import { defineHealthCheck } from "@checkstack/sdk/healthcheck"`
+   * resolves with real, version-matched types.
+   */
+  sdkTypes?: ReadonlyArray<AcquiredTypeFile>;
+  /** Release version; resets the mounted SDK libs on a deployment upgrade. */
+  sdkTypesResetKey?: string;
+  /**
    * Importable installed package names (already `@types/*`-free), forwarded to
    * TS/JS editors so the import specifier itself autocompletes
    * (`import {} from "lod"` -> `lodash`).
    */
   importablePackages?: string[];
+  /**
+   * Optional sample context for previewing `x-templatable` fields. When
+   * supplied, a "Preview" line appears below each templatable string field
+   * showing the rendered output against this context (e.g. a sample
+   * environment's custom fields). Omit it and templatable fields render
+   * normally with no preview.
+   */
+  templatePreviewContext?: TemplatePreviewContext;
+  /**
+   * Opt-in. When `true`, the form shows inline per-field validation messages
+   * (for empty required fields) REACTIVELY once a field has been touched and
+   * blurred, so the user can see WHY the submit button is disabled without
+   * the form nagging while they are still typing. Defaults to `false`, so
+   * every existing consumer is visually unchanged unless it opts in.
+   */
+  showInlineErrors?: boolean;
+  /**
+   * Optional externally-supplied per-field error messages, keyed by field
+   * path (dot-joined for nested object fields, e.g. `spendCap.tokenBudget`).
+   * Use this to surface SERVER validation failures inline on the offending
+   * field. These render whenever present, independent of the touched-state
+   * gate. Omit it (the default) and no external errors show.
+   */
+  fieldErrors?: FieldErrorMap;
+  /**
+   * Optional list of `x-secret` field keys whose value is already stored
+   * server-side (EDIT mode). A blank input on such a field means "keep the
+   * existing secret" and is therefore VALID, not missing-required - the
+   * redacted preview never returns the value, so the input is expected to be
+   * empty. CREATE mode omits this (or passes `[]`) so blank required secrets
+   * stay invalid. Drives both the validity boolean and the inline errors.
+   */
+  keepExistingSecretFields?: string[];
 }
 
 /** Props for the FormField component */
@@ -178,7 +236,11 @@ export interface FormFieldProps {
   secretNames?: string[];
   acquireTypes?: AcquireTypes;
   acquireResetKey?: string;
+  sdkTypes?: ReadonlyArray<AcquiredTypeFile>;
+  sdkTypesResetKey?: string;
   importablePackages?: string[];
+  /** Sample context for previewing `x-templatable` fields. */
+  templatePreviewContext?: TemplatePreviewContext;
   /**
    * Current value of the sibling `x-secret-env` mapping field within the
    * SAME config object as this field, located by annotation. Threaded down

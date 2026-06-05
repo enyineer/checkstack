@@ -190,6 +190,18 @@ class PluginRegistry {
           element: route.element,
           title: route.title,
           accessRule: route.accessRule?.id,
+          // Resolved sidebar entry (defaults applied) for routes that opt in.
+          // `accessRule` here is the EFFECTIVE rule object (nav override, else
+          // the route's own rule) the sidebar gates visibility on.
+          nav: route.nav
+            ? {
+                group: route.nav.group,
+                icon: route.nav.icon,
+                label: route.nav.label ?? route.title ?? route.route.id,
+                order: route.nav.order ?? 0,
+                accessRule: route.nav.accessRule ?? route.accessRule,
+              }
+            : undefined,
         };
       });
     });

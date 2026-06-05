@@ -34,7 +34,11 @@ The platform executor handles:
 The `createClient` method signature uses `unknown` instead of `TConfig` due to **TypeScript's contravariance rules** for function parameters. When strategies are stored in a heterogeneous registry, TypeScript cannot guarantee the caller will pass the correct specialized config type.
 
 > [!NOTE]
-> This is a compile-time constraint only. At runtime, the config was already validated when stored in the database, so it will always match the strategy's expected schema.
+> This is a compile-time constraint only. At runtime the executor migrates the
+> stored (unversioned) config via `parseAssumingV1` - running the declared
+> migration chain, then validating - before calling `createClient`, so the
+> value always matches the strategy's current schema. See
+> [Versioned data system](/checkstack/developer-guide/backend/versioned-configs/).
 
 **How to implement it:**
 

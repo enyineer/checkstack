@@ -1,6 +1,6 @@
 import { User } from "better-auth/types";
 import { SafeDatabase } from "@checkstack/backend-api";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { RealUser } from "@checkstack/backend-api";
 import * as schema from "../schema";
 
@@ -66,5 +66,69 @@ export const enrichUser = async (
     roles,
     accessRules: [...accessRulesSet],
     teamIds,
+  };
+};
+
+/**
+ * The fields of an `ApplicationUser` resolved from the database.
+ */
+export interface ApplicationPrincipalEnrichment {
+  id: string;
+  name: string;
+  roles: string[];
+  accessRules: string[];
+  teamIds: string[];
+}
+
+/**
+ * Resolve an application's CURRENT roles, access rules, and team memberships
+ * into the fields of an `ApplicationUser`.
+ *
+ * Shared by the API-key (`ck_`) authentication branch and the app-principal
+ * token verify path (automation `runAs` service accounts), so both resolve
+ * identically and LIVE - the principal is never frozen into a token. Mirrors
+ * {@link enrichUser}'s admin -> `*` expansion. Returns `undefined` when the
+ * application does not exist.
+ */
+export const enrichApplicationPrincipal = async (
+  applicationId: string,
+  db: SafeDatabase<typeof schema>,
+): Promise<ApplicationPrincipalEnrichment | undefined> => {
+  const apps = await db
+    .select()
+    .from(schema.application)
+    .where(eq(schema.application.id, applicationId))
+    .limit(1);
+  const app = apps[0];
+  if (!app) return undefined;
+
+  const appRoles = await db
+    .select({ roleId: schema.applicationRole.roleId })
+    .from(schema.applicationRole)
+    .where(eq(schema.applicationRole.applicationId, applicationId));
+  const roleIds = appRoles.map((r) => r.roleId);
+
+  const accessRulesSet = new Set<string>();
+  if (roleIds.includes("admin")) accessRulesSet.add("*");
+  const nonAdminRoleIds = roleIds.filter((r) => r !== "admin");
+  if (nonAdminRoleIds.length > 0) {
+    const rolePerms = await db
+      .select({ accessRuleId: schema.roleAccessRule.accessRuleId })
+      .from(schema.roleAccessRule)
+      .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
+    for (const rp of rolePerms) accessRulesSet.add(rp.accessRuleId);
+  }
+
+  const appTeams = await db
+    .select({ teamId: schema.applicationTeam.teamId })
+    .from(schema.applicationTeam)
+    .where(eq(schema.applicationTeam.applicationId, applicationId));
+
+  return {
+    id: app.id,
+    name: app.name,
+    roles: roleIds,
+    accessRules: [...accessRulesSet],
+    teamIds: appTeams.map((t) => t.teamId),
   };
 };

@@ -26,6 +26,7 @@ function make({
     id,
     name: `Automation ${id}`,
     group,
+    runAs: null,
     status: "enabled",
     definition: DEFINITION,
     createdAt: new Date("2026-01-01T00:00:00Z"),

@@ -4,6 +4,8 @@ import {
   boolean,
   timestamp,
   primaryKey,
+  integer,
+  index,
 } from "drizzle-orm/pg-core";
 
 // --- Better Auth Schema ---
@@ -277,4 +279,74 @@ export const resourceTeamAccess = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.resourceType, t.resourceId, t.teamId] }),
   })
+);
+
+// --- AI platform: OAuth Authorization Server (better-auth oidcProvider/mcp) ---
+//
+// These three tables are OWNED by the better-auth `oidcProvider` + `mcp`
+// plugins (Phase 2). The plugins' Drizzle adapter resolves them by the camelCase
+// model keys below (`oauthApplication`, `oauthAccessToken`, `oauthConsent`) and
+// the camelCase field keys; column names are snake_case to match repo
+// convention. Field shapes mirror the plugin schema exactly (see
+// SPIKE-findings.md). Access tokens are OPAQUE random strings persisted here —
+// validation is an introspection lookup, not a JWKS verify (decision §11).
+
+/** Registered OAuth clients (incl. dynamically-registered MCP clients). */
+export const oauthApplication = pgTable("oauth_application", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  icon: text("icon"),
+  metadata: text("metadata"),
+  clientId: text("client_id").unique(),
+  clientSecret: text("client_secret"),
+  redirectUrls: text("redirect_urls"),
+  type: text("type"),
+  disabled: boolean("disabled").default(false),
+  userId: text("user_id"),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+});
+
+/** Issued opaque access/refresh tokens + their granted scopes. */
+export const oauthAccessToken = pgTable("oauth_access_token", {
+  id: text("id").primaryKey(),
+  accessToken: text("access_token").unique(),
+  refreshToken: text("refresh_token").unique(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at"),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  clientId: text("client_id"),
+  userId: text("user_id"),
+  scopes: text("scopes"),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+});
+
+/** Per-(client,user) consent record for the consent screen. */
+export const oauthConsent = pgTable("oauth_consent", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id"),
+  userId: text("user_id"),
+  scopes: text("scopes"),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+  consentGiven: boolean("consent_given"),
+});
+
+// --- AI platform: shared-Postgres rate-limit counter (state-and-scale §14.5) ---
+//
+// Fixed-window counter so a limit holds across ALL pods (an in-memory per-pod
+// limiter would let N pods each allow the cap = N x the intended limit). Used
+// today for the DCR endpoint throttle (`dcr:<ip>`); per-principal tool budgets
+// (Phase 3) reuse the same table with a different key.
+export const aiRateLimit = pgTable(
+  "ai_rate_limit",
+  {
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.key, t.windowStart] }),
+    keyIdx: index("ai_rate_limit_key_idx").on(t.key, t.windowStart),
+  }),
 );

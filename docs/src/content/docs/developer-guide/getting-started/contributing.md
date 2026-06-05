@@ -115,6 +115,9 @@ bun test:watch           # Watch mode
 # Tooling (Standardized via @checkstack/scripts)
 bun run sync             # Synchronize project configurations
 bun run lint             # Run all linters
+bun run deps:check       # Verify unified external deps share one range
+                         # (syncpack; CI runs this as the "Deps" check)
+bun run deps:fix         # Auto-align mismatched ranges, then `bun install`
 bun run typecheck        # TypeScript type checking — single `tsgo -b`
                          # across the whole repo via project references.
                          # Cold ~12s, warm/incremental ~0.3s.

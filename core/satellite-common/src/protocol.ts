@@ -3,6 +3,7 @@ import {
   HealthCheckStatusSchema,
   HealthCheckRunResultSchema,
 } from "@checkstack/healthcheck-common";
+import { sandboxPolicySchema } from "@checkstack/common";
 
 // =============================================================================
 // SATELLITE ASSIGNMENT (Core → Satellite configuration payload)
@@ -187,6 +188,16 @@ const AuthenticatedMessageSchema = z.object({
    * Optional for version-skew safety; null means "no packages installed".
    */
   scriptPackagesLockfileHash: z.string().nullable().optional(),
+  /**
+   * The resolved GLOBAL script-sandbox policy, pushed at auth time so the
+   * satellite enforces the operator's cluster-wide policy from its very first
+   * script run. The satellite caches it and resolves every run through it;
+   * until this arrives it FAILS CLOSED (denies egress) rather than using the
+   * permissive shipped default. Optional for version-skew safety: an older
+   * core omits it, and the satellite then stays fail-closed until a
+   * `sandbox_policy` push or a reconnect against a newer core delivers it.
+   */
+  sandboxPolicy: sandboxPolicySchema.optional(),
 });
 
 const AuthFailedMessageSchema = z.object({
@@ -216,6 +227,19 @@ const ShutdownMessageSchema = z.object({
 const RefreshScriptPackagesMessageSchema = z.object({
   type: z.literal("refresh_script_packages"),
   lockfileHash: z.string(),
+});
+
+/**
+ * Push the new GLOBAL script-sandbox policy to a connected satellite when an
+ * admin changes it (the push-on-change relay). Sent by each core instance's
+ * `script-sandbox.policy-changed` broadcast handler to its currently-connected
+ * satellites. The satellite replaces its cached policy so subsequent runs
+ * enforce it immediately. Best-effort liveness; the policy carried in the
+ * `authenticated` message on (re)connect is the durable backstop.
+ */
+const SandboxPolicyMessageSchema = z.object({
+  type: z.literal("sandbox_policy"),
+  policy: sandboxPolicySchema,
 });
 
 /** One resolved package in a manifest reply. */
@@ -269,6 +293,7 @@ export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
   ConfigUpdatedMessageSchema,
   ShutdownMessageSchema,
   RefreshScriptPackagesMessageSchema,
+  SandboxPolicyMessageSchema,
   ScriptPackageManifestMessageSchema,
   ScriptPackageBlobMessageSchema,
   RunSecretsMessageSchema,
@@ -286,6 +311,7 @@ export type ShutdownMessage = z.infer<typeof ShutdownMessageSchema>;
 export type RefreshScriptPackagesMessage = z.infer<
   typeof RefreshScriptPackagesMessageSchema
 >;
+export type SandboxPolicyMessage = z.infer<typeof SandboxPolicyMessageSchema>;
 export type ScriptPackageManifestMessage = z.infer<
   typeof ScriptPackageManifestMessageSchema
 >;

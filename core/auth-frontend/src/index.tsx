@@ -1,11 +1,9 @@
-import React from "react";
 import {
   ApiRef,
   accessApiRef,
   createFrontendPlugin,
   createSlotExtension,
   NavbarRightSlot,
-  UserMenuItemsSlot,
   UserMenuItemsBottomSlot,
   NavbarLeftSlot,
 } from "@checkstack/frontend-api";
@@ -21,15 +19,13 @@ import { ResetPasswordPage } from "./components/ResetPasswordPage";
 import { ChangePasswordPage } from "./components/ChangePasswordPage";
 import { OnboardingPage } from "./components/OnboardingPage";
 import { ProfilePage } from "./components/ProfilePage";
+import { OAuthConsentPage } from "./components/OAuthConsentPage";
 import { authApiRef, AuthApi, AuthSession } from "./api";
 import { getAuthClientLazy } from "./lib/auth-client";
 import { AuthAccessApi } from "./lib/AuthAccessApi";
 import { useSessionContext } from "./lib/SessionProvider";
 
-import { useNavigate } from "react-router-dom";
-import { Settings2, User } from "lucide-react";
-import { DropdownMenuItem } from "@checkstack/ui";
-import { UserMenuItemsContext } from "@checkstack/frontend-api";
+import { Settings2 } from "lucide-react";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
 import {
   authAccess,
@@ -120,6 +116,10 @@ export type { TeamAccessEditorProps } from "./components/TeamAccessEditor";
 // Re-export SessionProvider for App.tsx to wrap the component tree
 export { SessionProvider } from "./lib/SessionProvider";
 
+// Re-export the access-rules hook so the app shell (sidebar) can resolve
+// nav visibility from the granted rules in one place.
+export { useAccessRules } from "./hooks/useAccessRules";
+
 export const authPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
   apis: [
@@ -148,6 +148,12 @@ export const authPlugin = createFrontendPlugin({
     {
       route: authRoutes.routes.settings,
       element: <AuthSettingsPage />,
+      nav: {
+        group: "Configuration",
+        icon: Settings2,
+        label: "Auth Settings",
+        accessRule: authAccess.strategies,
+      },
     },
     {
       route: authRoutes.routes.forgotPassword,
@@ -169,6 +175,10 @@ export const authPlugin = createFrontendPlugin({
       route: authRoutes.routes.onboarding,
       element: <OnboardingPage />,
     },
+    {
+      route: authRoutes.routes.oauthConsent,
+      element: <OAuthConsentPage />,
+    },
   ],
   extensions: [
     {
@@ -176,45 +186,6 @@ export const authPlugin = createFrontendPlugin({
       slot: NavbarRightSlot,
       component: LoginNavbarAction,
     },
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "auth.user-menu.settings",
-      metadata: { group: "Configuration" },
-      component: ({ accessRules: userPerms }: UserMenuItemsContext) => {
-        // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
-        const navigate = useNavigate();
-        const qualifiedId = `${pluginMetadata.pluginId}.${authAccess.strategies.id}`;
-        const canManage =
-          userPerms.includes("*") || userPerms.includes(qualifiedId);
-
-        if (!canManage) return <React.Fragment />;
-
-        return (
-          <DropdownMenuItem
-            onClick={() => navigate(resolveRoute(authRoutes.routes.settings))}
-            icon={<Settings2 className="h-4 w-4" />}
-          >
-            Auth Settings
-          </DropdownMenuItem>
-        );
-      },
-    }),
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "auth.user-menu.profile",
-      metadata: { group: "Account" },
-      component: () => {
-        // eslint-disable-next-line react-hooks/rules-of-hooks -- Inline component used via createSlotExtension
-        const navigate = useNavigate();
-
-        return (
-          <DropdownMenuItem
-            onClick={() => navigate(resolveRoute(authRoutes.routes.profile))}
-            icon={<User className="h-4 w-4" />}
-          >
-            Profile
-          </DropdownMenuItem>
-        );
-      },
-    }),
     createSlotExtension(UserMenuItemsBottomSlot, {
       id: "auth.user-menu.logout",
       component: LogoutMenuItem,

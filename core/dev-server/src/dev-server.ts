@@ -165,13 +165,17 @@ export async function runDevServer(rawArgs: string[]): Promise<number> {
 }
 
 function printHelp(): void {
-  console.log(String.raw`Usage: checkstack-scripts dev [options]
+  console.log(String.raw`Usage: checkstack-dev [options]
 
 Spins up a local Checkstack dev server with the current directory's
 plugin loaded. Same boot code as production — the only differences are:
   * filesystem discovery is skipped (only your plugin loads)
   * a synthetic dev auth grants every access rule (no login)
   * the backend restarts on changes under ./src
+
+This binary ships in the @checkstack/dev-server package. Add it as a
+devDependency and wire "dev": "checkstack-dev" in your package.json, or
+run it directly via: bunx @checkstack/dev-server
 
 Options:
   --cwd <dir>             Plugin directory (default: process.cwd())

@@ -14,6 +14,8 @@
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
+    "@checkstack/ai-backend": "workspace:*",
+    "@checkstack/ai-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
@@ -31,7 +33,8 @@
     "@checkstack/common": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
-    "@orpc/server": "^1.13.2"
+    "@orpc/contract": "^1.14.4",
+    "@orpc/server": "^1.14.4"
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",

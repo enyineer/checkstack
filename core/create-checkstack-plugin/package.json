@@ -1,0 +1,33 @@
+{
+  "name": "create-checkstack-plugin",
+  "version": "0.0.0",
+  "description": "Scaffold a standalone Checkstack plugin workspace (common + backend + frontend) with concrete published versions, ready to `bun install && bun run dev`.",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "checkstack": {
+    "type": "tooling"
+  },
+  "bin": {
+    "create-checkstack-plugin": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b"
+  },
+  "dependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "inquirer": "^13.4.1",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/inquirer": "^8.2.10",
+    "typescript": "^5.0.0"
+  }
+}

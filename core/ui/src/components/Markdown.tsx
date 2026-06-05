@@ -1,6 +1,35 @@
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { cn } from "../utils";
+
+/**
+ * Allow a SAFE subset of raw HTML in rendered markdown so model output that uses
+ * native disclosure widgets (`<details>` / `<summary>` for a foldable diff) and
+ * other plain formatting renders as intended instead of leaking the literal
+ * tags as text. `rehype-raw` parses the embedded HTML; `rehype-sanitize` then
+ * strips anything unsafe (scripts, event handlers, `javascript:` URLs, ...) - its
+ * default schema already allow-lists `details`/`summary` plus the usual markdown
+ * elements, so the XSS surface stays closed even though chat content is
+ * model-generated. Order matters: raw MUST run before sanitize.
+ */
+const rehypePlugins = [rehypeRaw, rehypeSanitize];
+
+/** Shared `<details>`/`<summary>` renderers: a styled, click-to-expand fold. */
+const disclosureComponents: Pick<Components, "details" | "summary"> = {
+  details: ({ children }) => (
+    <details className="my-2 rounded-md border border-border bg-muted/40 px-3 py-2 [&[open]>summary]:mb-2">
+      {children}
+    </details>
+  ),
+  summary: ({ children }) => (
+    <summary className="cursor-pointer select-none font-medium text-foreground marker:text-muted-foreground">
+      {children}
+    </summary>
+  ),
+};
 
 export interface MarkdownProps {
   /** The markdown content to render */
@@ -69,11 +98,20 @@ export function Markdown({
     del: ({ children }) => (
       <del className="line-through text-muted-foreground">{children}</del>
     ),
+
+    // Collapsible disclosure (e.g. a model-emitted "view diff" fold)
+    ...disclosureComponents,
   };
 
   return (
     <span className={cn(sizeClasses[size], className)}>
-      <ReactMarkdown components={components}>{children}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={rehypePlugins}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
     </span>
   );
 }
@@ -190,6 +228,28 @@ export function MarkdownBlock({
     del: ({ children }) => (
       <del className="line-through text-muted-foreground">{children}</del>
     ),
+
+    // GFM tables (enabled via remark-gfm). Styled to the design tokens; the
+    // wrapper scrolls horizontally so a wide table never overflows its bubble.
+    table: ({ children }) => (
+      <div className="mb-4 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
+    tbody: ({ children }) => <tbody>{children}</tbody>,
+    tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
+    th: ({ children }) => (
+      <th className="border border-border px-2 py-1 text-left font-semibold text-foreground">
+        {children}
+      </th>
+    ),
+    td: ({ children }) => (
+      <td className="border border-border px-2 py-1 align-top">{children}</td>
+    ),
+
+    // Collapsible disclosure (e.g. a model-emitted "view diff" fold)
+    ...disclosureComponents,
   };
 
   return (
@@ -200,7 +260,13 @@ export function MarkdownBlock({
         className
       )}
     >
-      <ReactMarkdown components={components}>{children}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={rehypePlugins}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }

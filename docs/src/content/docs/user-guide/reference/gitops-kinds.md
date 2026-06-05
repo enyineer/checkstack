@@ -157,9 +157,67 @@ spec:
 
 The `spec` accepts every automation field: `triggers` (with optional `for:` dwells), structured `conditions`, the full action catalog, `mode`, `concurrency_scope`, `max_runs`, `uses_state`, and `state_window_minutes`. Validation is the same `AutomationDefinitionSchema` the editor uses, so a definition that round-trips in the UI is a valid descriptor.
 
+#### Conditions
+
+`conditions` is an array; every entry must pass (logical AND across the array) before the actions run. Each entry is one of: a template string, an `and` / `or` / `not` combinator, or a structured variant (`numeric_state`, `time`, `state`).
+
+```yaml
+conditions:
+  # Combinator: and / or / not (recursive, nest any condition)
+  - and:
+      - "health.system.status == 'unhealthy'"
+      - or:
+          - "trigger.payload.severity == 'critical'"
+          - not: "health.system.in_maintenance"
+
+  # numeric_state: compare a numeric value (literal or scope path) to above / below bounds
+  - numeric_state:
+      value: "health.system.p95_latency_ms"
+      above: 500
+
+  # time: on-call / quiet-hours gating via HH:mm bounds and weekday list
+  # after > before = overnight window wrapping midnight
+  - time:
+      after: "22:00"
+      before: "06:00"
+      weekday: [1, 2, 3, 4, 5]
+      timezone: "Europe/Berlin"
+
+  # state: true when the named system entity has been in status for at least `for`
+  - state:
+      entity: "payments-api"
+      status: unhealthy
+      for: { minutes: 30 }
+```
+
+> [!NOTE]
+> The system referenced by a `state` condition's `entity` (and any system a `numeric_state` path reads via `health.systems[id]`) must be resolved into scope. It is the trigger's context system by default; list additional system ids in `spec.uses_state` for cross-system rules.
+
+For full per-variant semantics - including overnight window wrapping, scope path resolution, and dwell behaviour - see the [Automation primitives reference](/checkstack/developer-guide/backend/automations/primitives/) (Conditions section).
+
 The polymorphic config blocks document themselves in the editor: each `triggers[].config` shows the schema for the chosen `triggers[].event`, and each `actions[].config` shows the schema for the chosen `actions[].action`. The same per-variant docs appear in the Kind Registry Browser, so you can discover the exact fields a trigger or provider action expects without leaving the UI.
 
 The optional `metadata.labels.group` label sets the automation's grouping label (the same field as the UI group picker), which organises the automations list into collapsible sections. It is a row-level field, not part of the `spec` definition. Omit it (or leave it blank) to keep the automation in the implicit "Ungrouped" bucket.
+
+### `kind: Environment` (catalog)
+
+An instance-wide environment: a free-form set of custom fields (baseUrl, region, tier, ...) that any system can belong to. The custom fields live under `spec.fields` as arbitrary key/value pairs.
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: Environment
+metadata:
+  name: production
+  title: Production
+  description: Live production traffic
+spec:
+  fields:
+    baseUrl: https://api.example.com
+    region: eu-west-1
+    tier: "1"
+```
+
+On reconcile the environment is upserted by provenance entity ID, so renames preserve identity. `spec.fields` replaces the environment's custom-field set on every reconcile (GitOps is the source of truth; manual edits to a managed environment are blocked). Omit `spec.fields` to clear all custom fields.
 
 ## Built-in extensions
 
@@ -252,6 +310,22 @@ spec:
       fieldOverrides:
         latencyMs: { sensitivity: 0.3 }
 ```
+
+### `System.environments` (catalog)
+
+Attach a system to one or more environments. When the spec lists at least one ref, the reconciler resolves each ref to an environment, associates the system, then prunes any associations not in the spec (desired-set reconcile). An empty or omitted `environments: []` is a no-op that leaves the system's current membership untouched, never pruning to empty (the same shape as `System.groups`).
+
+```yaml
+apiVersion: checkstack.io/v1alpha1
+kind: System
+metadata: { name: payment-api }
+spec:
+  environments:
+    - { kind: Environment, name: production }
+    - { kind: Environment, name: staging }
+```
+
+A ref that does not resolve to an existing environment fails the reconcile. Omitting the `environments` namespace (or supplying an empty list) leaves the system's current membership untouched; to detach a system from every environment, manage it from the catalog UI rather than via an empty GitOps spec.
 
 ## Kind Registry Browser
 

@@ -249,4 +249,26 @@ describe("PingHealthCheckStrategy", () => {
       connectedClient.close();
     });
   });
+
+  describe("config migration (assume-v1-on-read)", () => {
+    const strategy = new PingHealthCheckStrategy();
+
+    it("migrates a genuine v1 blob (host/count/...) down to {timeout}", async () => {
+      const migrated = await strategy.config.parseAssumingV1({
+        host: "8.8.8.8",
+        count: 4,
+        timeout: 7000,
+      });
+      expect(migrated).toEqual({ timeout: 7000 });
+    });
+
+    it("is idempotent: an already-current {timeout} blob is unchanged", async () => {
+      const migrated = await strategy.config.parseAssumingV1({ timeout: 3000 });
+      expect(migrated).toEqual({ timeout: 3000 });
+    });
+
+    it("has a complete v1->version migration chain", () => {
+      expect(strategy.config.validateMigrationChainFromV1()).toBeUndefined();
+    });
+  });
 });

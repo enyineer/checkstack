@@ -5,19 +5,18 @@ import {
   DependencyApi,
   type DerivedState,
 } from "@checkstack/dependency-common";
-import { Badge } from "@checkstack/ui";
+import { StatusBadge, type StatusTone } from "@checkstack/ui";
+import { GitBranch } from "lucide-react";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
 
-function getBadgeVariant(
-  state: DerivedState,
-): "info" | "warning" | "destructive" {
+function getBadgeTone(state: DerivedState): StatusTone {
   switch (state) {
     case "down": {
-      return "destructive";
+      return "error";
     }
     case "degraded": {
-      return "warning";
+      return "warn";
     }
     default: {
       return "info";
@@ -28,13 +27,13 @@ function getBadgeVariant(
 function getBadgeLabel(state: DerivedState): string {
   switch (state) {
     case "down": {
-      return "Upstream Down";
+      return "Upstream down";
     }
     case "degraded": {
-      return "Upstream Degraded";
+      return "Upstream degraded";
     }
     default: {
-      return "Dep. Info";
+      return "Dependency info";
     }
   }
 }
@@ -58,8 +57,10 @@ export const DependencyBadge: React.FC<Props> = ({ system }) => {
   if (!data) return;
 
   return (
-    <Badge variant={getBadgeVariant(data.derivedState)}>
-      {getBadgeLabel(data.derivedState)}
-    </Badge>
+    <StatusBadge
+      tone={getBadgeTone(data.derivedState)}
+      icon={GitBranch}
+      label={getBadgeLabel(data.derivedState)}
+    />
   );
 };

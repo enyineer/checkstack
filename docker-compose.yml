@@ -9,6 +9,37 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-checkstack}:${POSTGRES_PASSWORD:-checkstack}@postgres:5432/${POSTGRES_DB:-checkstack}
+    # Script sandbox: the container runs as a NON-ROOT supervisor (uid 65532)
+    # and confines user scripts via ROOTLESS bubblewrap (unprivileged user
+    # namespaces). Two runtime relaxations are required for the secure
+    # fail-closed default to WORK out of the box (without them the sandbox
+    # correctly REFUSES every run rather than running unsafely):
+    #
+    #  1. seccomp: the runtime default profile blocks the unprivileged
+    #     clone(CLONE_NEW*) / unshare / mount / pivot_root syscalls bwrap needs.
+    #     The bundled TUNED profile (tighter than unconfined - it still denies
+    #     kernel-module load, reboot, kexec, raw bpf/perf, ptrace, ...) permits
+    #     exactly that namespace set. Validated in-container against a real
+    #     syscall trace of the full flow (see deploy/seccomp/checkstack-userns.json).
+    #  2. systempaths=unconfined: Docker masks /proc paths by default, so bwrap
+    #     cannot mount the FRESH /proc it needs inside the namespace
+    #     ("bwrap: Can't mount proc on /newroot/proc"). Unmasking is safe here:
+    #     the sandboxed script runs in a fresh PID+mount namespace as non-root
+    #     and never sees the host /proc; the unmask only lets bwrap mount its own.
+    #
+    # If your platform cannot mount the profile file, the fallback is
+    # `seccomp=unconfined` + `systempaths=unconfined`; if it can relax NEITHER,
+    # set the global sandbox policy to `degrade` in the admin settings (an
+    # explicit, audited operator decision) so runs use the portable subset.
+    security_opt:
+      - seccomp=deploy/seccomp/checkstack-userns.json
+      - systempaths=unconfined
+    # Optional hard memory + fork ceilings. The per-run fork-bomb cap
+    # (RLIMIT_NPROC) IS enforced per run inside the bwrap user namespace; the
+    # cgroup `pids` limit is an additional cluster-wide backstop. Shell scripts
+    # have no per-run memory cap, so a cgroup memory limit bounds them.
+    # mem_limit: 1g
+    # pids_limit: 512
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,21 +56,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # Optional: Satellite agent for remote health check execution.
-  # Uncomment and configure to deploy satellites alongside the core.
-  #
-  # satellite:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.satellite
-  #   restart: always
-  #   environment:
-  #     CHECKSTACK_CORE_URL: http://checkstack:3000
-  #     CHECKSTACK_SATELLITE_CLIENT_ID: ${SATELLITE_CLIENT_ID}
-  #     CHECKSTACK_SATELLITE_TOKEN: ${SATELLITE_TOKEN}
-  #   depends_on:
-  #     checkstack:
-  #       condition: service_started
+  # Satellites run from a SEPARATE host (a remote vantage point), so they ship
+  # as their own compose file rather than a service here. A satellite EXECUTES
+  # scripts, so it needs the SAME two sandbox relaxations as the core above
+  # (`security_opt`) - without them the fail-closed sandbox refuses every script
+  # check. See `docker-compose-satellite.yml` and the "Connect a satellite"
+  # guide: https://enyineer.github.io/checkstack/user-guide/guides/connect-a-satellite/
 
 volumes:
   postgres_data:

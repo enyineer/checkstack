@@ -9,20 +9,27 @@
     "docs"
   ],
   "scripts": {
-    "dev": "docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
+    "dev": "bun run core/scripts/src/dev-tui/cli.tsx",
+    "dev:plain": "docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
     "typecheck": "bun run typecheck:references:check && tsgo -b",
     "typecheck:clean": "find . -name '.tsbuild' -not -path '*/node_modules/*' -prune -exec rm -rf {} + ; find . -name 'tsconfig.tsbuildinfo' -not -path '*/node_modules/*' -delete",
     "typecheck:references:generate": "bun run scripts/generate-tsconfig-references.ts",
     "typecheck:references:check": "bun run scripts/generate-tsconfig-references.ts --check",
+    "generate:sdk": "bun run scripts/generate-sdk.ts",
+    "generate:sdk:check": "bun run scripts/generate-sdk.ts --check",
+    "generate:docs-index": "bun run scripts/generate-docs-index.ts",
+    "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
     "lint": "bun run lint:code",
     "lint:code": "eslint .",
+    "deps:check": "syncpack lint",
+    "deps:fix": "syncpack fix",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
     "docker:stop": "docker compose -f docker-compose-dev.yml down",
     "docker:build": "docker build -t checkstack-prod:latest .",
     "audit:security": "bun run scripts/audit-trivy.ts fs",
     "audit:image": "bun run scripts/audit-trivy.ts image",
     "changeset": "changeset",
-    "version-packages": "bun run scripts/inject-release.ts && changeset version",
+    "version-packages": "bun run scripts/inject-release.ts && changeset version && bun run scripts/generate-sdk.ts && bun run scripts/generate-docs-index.ts",
     "publish-packages": "bun run scripts/publish-packages.ts",
     "create": "bun run core/scripts/src/commands/create.ts"
   },
@@ -37,12 +44,13 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-unicorn": "^62.0.0",
-    "semver": "^7.8.0",
+    "semver": "^7.8.1",
+    "syncpack": "^15.3.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.3"
   },
   "dependencies": {
-    "@orpc/contract": "^1.14.3"
+    "@orpc/contract": "^1.14.4"
   },
   "overrides": {
     "drizzle-orm": "^0.45.0",

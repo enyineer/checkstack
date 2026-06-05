@@ -7,9 +7,7 @@ import {
   type Logger,
   type RealUser,
   type RpcContext,
-  type VersionedRecord,
 } from "@checkstack/backend-api";
-import type { AnomalySettings } from "@checkstack/anomaly-common";
 import type { AnomalyRouterCache } from "./router-cache";
 
 export function createRouter(
@@ -57,15 +55,14 @@ export function createRouter(
           cache.invalidateAnomalies(),
           cache.invalidateBaselines(),
         ]);
-        return result as VersionedRecord<AnomalySettings>;
+        return result;
       }
     ),
 
     getAnomalyAssignmentConfig: os.getAnomalyAssignmentConfig.handler(
       async ({ input }) => {
         const result = await service.getAnomalyAssignmentConfig(input.systemId, input.configurationId);
-         
-        return (result as VersionedRecord<Partial<AnomalySettings>>) ?? null;
+        return result ?? null;
       }
     ),
 
@@ -76,8 +73,30 @@ export function createRouter(
           cache.invalidateAnomalies(),
           cache.invalidateBaselines(),
         ]);
-        return result as VersionedRecord<Partial<AnomalySettings>>;
+        return result;
       }
+    ),
+
+    suppressAnomaly: os.suppressAnomaly.handler(
+      async ({ input }) => {
+        const success = await service.suppressAnomaly({
+          anomalyId: input.anomalyId,
+          systemId: input.systemId,
+        });
+        await cache.invalidateAnomalies();
+        return { success };
+      },
+    ),
+
+    unsuppressAnomaly: os.unsuppressAnomaly.handler(
+      async ({ input }) => {
+        const success = await service.unsuppressAnomaly({
+          anomalyId: input.anomalyId,
+          systemId: input.systemId,
+        });
+        await cache.invalidateAnomalies();
+        return { success };
+      },
     ),
 
     listAnomalyNotificationMutes: os.listAnomalyNotificationMutes.handler(

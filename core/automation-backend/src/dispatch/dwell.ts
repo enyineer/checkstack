@@ -210,6 +210,7 @@ export async function fireDwell(args: FireDwellArgs): Promise<void> {
       name: automation.name,
       status: automation.status,
       definition: automation.definition,
+      runAs: automation.runAs ?? null,
     },
     trigger,
     triggerId: dwell.triggerId,

@@ -3,7 +3,8 @@ import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
 import { IncidentApi } from "../api";
 import { type IncidentWithSystems } from "@checkstack/incident-common";
-import { Badge } from "@checkstack/ui";
+import { StatusBadge } from "@checkstack/ui";
+import { AlertTriangle } from "lucide-react";
 import { useSystemBadgeDataOptional } from "@checkstack/dashboard-frontend";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
@@ -60,12 +61,17 @@ export const SystemIncidentBadge: React.FC<Props> = ({ system }) => {
 
   if (!activeIncident) return;
 
-  const variant =
-    activeIncident.severity === "critical"
-      ? "destructive"
-      : activeIncident.severity === "major"
-      ? "warning"
-      : "info";
+  if (activeIncident.severity === "critical") {
+    return (
+      <StatusBadge tone="error" icon={AlertTriangle} label="Critical incident" />
+    );
+  }
 
-  return <Badge variant={variant}>Incident</Badge>;
+  if (activeIncident.severity === "major") {
+    return (
+      <StatusBadge tone="warn" icon={AlertTriangle} label="Major incident" />
+    );
+  }
+
+  return <StatusBadge tone="info" icon={AlertTriangle} label="Incident" />;
 };

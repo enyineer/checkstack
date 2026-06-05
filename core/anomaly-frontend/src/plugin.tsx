@@ -12,6 +12,7 @@ import {
 import {
   SystemStateBadgesSlot,
   SystemDetailsSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
 import { registerSubscriptionSubControls } from "@checkstack/notification-frontend";
 import { anomalySystemSubscription } from "@checkstack/anomaly-common";
@@ -45,6 +46,13 @@ export const plugin: FrontendPlugin = {
     createSlotExtension(SystemStateBadgesSlot, {
       id: "anomaly.system-badge",
       component: SystemAnomalyBadge,
+    }),
+    createSlotExtension(SystemSignalsSlot, {
+      id: "anomaly.dashboard.signals",
+      load: () =>
+        import("./components/AnomalySignalsFiller").then((m) => ({
+          default: m.AnomalySignalsFiller,
+        })),
     }),
     createSlotExtension(SystemDetailsSlot, {
       id: "anomaly.system-details.widget",

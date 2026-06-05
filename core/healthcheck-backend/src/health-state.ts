@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull } from "drizzle-orm";
 import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
@@ -122,14 +122,27 @@ export async function findLatestRun({
   db,
   systemId,
   configurationId,
+  environmentId,
 }: {
   db: Db;
   systemId: string;
   configurationId?: string;
+  /**
+   * Environment to scope the run lookup to (Phase 3b). `undefined` = any
+   * environment (rollup). `null` = env-less runs only. A string = that env.
+   */
+  environmentId?: string | null;
 }): Promise<{ latencyMs?: number; lastRunAt?: Date }> {
   const conditions = [eq(healthCheckRuns.systemId, systemId)];
   if (configurationId) {
     conditions.push(eq(healthCheckRuns.configurationId, configurationId));
+  }
+  if (environmentId !== undefined) {
+    conditions.push(
+      environmentId === null
+        ? isNull(healthCheckRuns.environmentId)
+        : eq(healthCheckRuns.environmentId, environmentId),
+    );
   }
 
   const [row] = await db
@@ -161,12 +174,19 @@ export async function computeWindowedMetrics({
   db,
   systemId,
   configurationId,
+  environmentId,
   now = new Date(),
   windowHours = DEFAULT_METRICS_WINDOW_HOURS,
 }: {
   db: Db;
   systemId: string;
   configurationId?: string;
+  /**
+   * Environment to scope the windowed metrics to (Phase 3b). `undefined` =
+   * any environment (rollup). `null` = env-less aggregates only. A string =
+   * that environment's aggregate buckets only.
+   */
+  environmentId?: string | null;
   now?: Date;
   windowHours?: number;
 }): Promise<{
@@ -183,6 +203,13 @@ export async function computeWindowedMetrics({
   if (configurationId) {
     conditions.push(
       eq(healthCheckAggregates.configurationId, configurationId),
+    );
+  }
+  if (environmentId !== undefined) {
+    conditions.push(
+      environmentId === null
+        ? isNull(healthCheckAggregates.environmentId)
+        : eq(healthCheckAggregates.environmentId, environmentId),
     );
   }
 
@@ -284,6 +311,7 @@ export async function computeHealthState({
   db,
   systemId,
   configurationId,
+  environmentId,
   resolveStatus,
   maintenanceClient,
   logger,
@@ -293,6 +321,14 @@ export async function computeHealthState({
   db: Db;
   systemId: string;
   configurationId?: string;
+  /**
+   * Environment to scope EVERY durable read to (Phase 3b). `undefined` = the
+   * system rollup (all environments + env-less). `null` = the env-less slice.
+   * A string = that environment. `inStatusSince`, latest run, windowed
+   * metrics, and the transition count all narrow to this env so a per-env
+   * health snapshot reflects only that environment's runs/transitions.
+   */
+  environmentId?: string | null;
   /** Returns the aggregate status for the system (per-check when scoped). */
   resolveStatus: () => Promise<HealthCheckStatus>;
   maintenanceClient?: MaintenanceClient;
@@ -305,14 +341,15 @@ export async function computeHealthState({
 
   const [inStatusSince, latest, windowed, inMaintenance, transitionsInWindow] =
     await Promise.all([
-      findInStatusSince({ db, systemId, status }),
-      findLatestRun({ db, systemId, configurationId }),
-      computeWindowedMetrics({ db, systemId, configurationId, now }),
+      findInStatusSince({ db, systemId, status, environmentId }),
+      findLatestRun({ db, systemId, configurationId, environmentId }),
+      computeWindowedMetrics({ db, systemId, configurationId, environmentId, now }),
       resolveInMaintenance({ maintenanceClient, systemId, logger }),
       countStateTransitionsInWindow({
         db,
         systemId,
         windowMinutes: transitionWindowMinutes,
+        environmentId,
         now,
       }),
     ]);

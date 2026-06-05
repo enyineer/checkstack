@@ -102,6 +102,28 @@ export function createSlotExtension<
  * Route configuration for a frontend plugin.
  * Uses RouteDefinition from the plugin's common package.
  */
+/**
+ * Sidebar navigation metadata. A route opts into the left sidebar by setting
+ * `nav` on its registration; routes without `nav` are reachable (deep links,
+ * detail pages) but are not listed in the sidebar.
+ */
+export interface NavEntry {
+  /** Sidebar section heading, e.g. "Workspace" / "Reliability" / "Configuration". */
+  group: string;
+  /** Icon component for the entry (lucide-react icons satisfy this shape). */
+  icon: React.ComponentType<{ className?: string }>;
+  /** Sidebar label; defaults to the route's `title`. */
+  label?: string;
+  /** Sort order within the group (lower first; defaults to 0). */
+  order?: number;
+  /**
+   * Access rule gating sidebar VISIBILITY. Defaults to the route's `accessRule`.
+   * Override to surface the entry on a broader rule than the page requires
+   * (e.g. show on `read` while the page itself needs `manage`).
+   */
+  accessRule?: AccessRule;
+}
+
 /** Fields common to every route, regardless of eager/lazy. */
 interface PluginRouteBase {
   /** Route definition from common package */
@@ -110,6 +132,8 @@ interface PluginRouteBase {
   title?: string;
   /** Access rule required to access this route (use access object from common package) */
   accessRule?: AccessRule;
+  /** Optional sidebar navigation entry for this route. */
+  nav?: NavEntry;
 }
 
 /**

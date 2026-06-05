@@ -230,7 +230,7 @@ export async function runScriptTest({
       script: input.script,
       context: buildScriptContext(input.context),
       timeoutMs: input.timeoutMs,
-      helperModuleName: "@checkstack/integration",
+      helperModuleName: "@checkstack/sdk/integration",
       helperFunctionName: "defineIntegration",
       ...(Object.keys(secretTest.env).length > 0
         ? { env: secretTest.env }

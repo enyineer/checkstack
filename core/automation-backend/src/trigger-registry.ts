@@ -49,8 +49,8 @@ export function createTriggerRegistry(): TriggerRegistry {
       }
 
       const payloadJsonSchema = toJsonSchema(definition.payloadSchema);
-      const configJsonSchema = definition.configSchema
-        ? toJsonSchema(definition.configSchema)
+      const configJsonSchema = definition.config
+        ? toJsonSchema(definition.config.schema)
         : undefined;
 
       const registered: RegisteredTrigger<TPayload, TConfig> = {
@@ -60,7 +60,7 @@ export function createTriggerRegistry(): TriggerRegistry {
         category: definition.category ?? "Uncategorized",
         icon: definition.icon,
         payloadSchema: definition.payloadSchema,
-        configSchema: definition.configSchema,
+        config: definition.config,
         contextKey: definition.contextKey,
         contextKeyLabel: definition.contextKeyLabel,
         hook: definition.hook,

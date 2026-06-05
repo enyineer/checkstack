@@ -161,6 +161,79 @@ describe("SignalServiceImpl", () => {
   });
 });
 
+describe("resilience: a signal failure never fails the caller's committed write", () => {
+  let throwingService: SignalServiceImpl;
+  let throwingLogger: Logger;
+  let warnCalls: number;
+
+  beforeEach(() => {
+    warnCalls = 0;
+    const throwingEventBus = {
+      // Simulate a transient event-bus/queue outage on emit.
+      emit: mock(async () => {
+        throw new Error("event bus unavailable");
+      }),
+      subscribe: mock(async () => {}),
+      shutdown: mock(async () => {}),
+    } as unknown as EventBus;
+    throwingLogger = {
+      debug: mock(() => {}),
+      info: mock(() => {}),
+      warn: mock(() => {
+        warnCalls += 1;
+      }),
+      error: mock(() => {}),
+      child: mock(() => throwingLogger),
+    } as unknown as Logger;
+    throwingService = new SignalServiceImpl(throwingEventBus, throwingLogger);
+  });
+
+  it("broadcast resolves (does not throw) when the event bus emit fails, and logs a warning", async () => {
+    await expect(
+      throwingService.broadcast(TEST_BROADCAST_SIGNAL, { message: "hi" }),
+    ).resolves.toBeUndefined();
+    expect(warnCalls).toBe(1);
+  });
+
+  it("sendToUser resolves when the event bus emit fails", async () => {
+    await expect(
+      throwingService.sendToUser(TEST_USER_SIGNAL, "u1", {
+        notification: "n",
+        count: 1,
+      }),
+    ).resolves.toBeUndefined();
+    expect(warnCalls).toBe(1);
+  });
+
+  it("sendToUsers resolves when every per-user emit fails", async () => {
+    await expect(
+      throwingService.sendToUsers(TEST_USER_SIGNAL, ["u1", "u2"], {
+        notification: "n",
+        count: 1,
+      }),
+    ).resolves.toBeUndefined();
+    expect(warnCalls).toBe(2);
+  });
+
+  it("sendToAuthorizedUsers resolves when the auth-filter RPC fails", async () => {
+    throwingService.setAuthClient({
+      filterUsersByAccessRule: mock(async () => {
+        throw new Error("auth rpc down");
+      }),
+    });
+    await expect(
+      throwingService.sendToAuthorizedUsers(
+        TEST_USER_SIGNAL,
+        ["u1"],
+        { notification: "n", count: 1 },
+        testPluginMetadata,
+        { id: "thing.read" },
+      ),
+    ).resolves.toBeUndefined();
+    expect(warnCalls).toBe(1);
+  });
+});
+
 describe("Signal Hooks", () => {
   it("should have correct hook IDs", () => {
     expect(SIGNAL_BROADCAST_HOOK.id).toBe("signal.internal.broadcast");

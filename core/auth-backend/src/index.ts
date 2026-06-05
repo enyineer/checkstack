@@ -3,12 +3,14 @@ import * as socialProviderFactories from "better-auth/social-providers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
+import { mcp } from "better-auth/plugins";
 import { z } from "zod";
 import {
   createBackendPlugin,
   coreServices,
   coreHooks,
   authenticationStrategyServiceRef,
+  assertMigrationChainFromV1,
   type AuthStrategy,
 } from "@checkstack/backend-api";
 import {
@@ -20,12 +22,12 @@ import {
 } from "@checkstack/auth-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { SafeDatabase } from "@checkstack/backend-api";
 import { BetterAuthOptions, User } from "better-auth/types";
 import { verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkstack/backend-api";
-import { enrichUser } from "./utils/user";
+import { enrichUser, enrichApplicationPrincipal } from "./utils/user";
 import { ADMIN_ROLE_ID, createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
 import {
@@ -37,8 +39,28 @@ import {
   PLATFORM_REGISTRATION_CONFIG_VERSION,
   PLATFORM_REGISTRATION_CONFIG_ID,
 } from "./platform-registration-config";
+import {
+  mcpOAuthConfigV1,
+  MCP_OAUTH_CONFIG_VERSION,
+  MCP_OAUTH_CONFIG_ID,
+} from "./mcp-oauth-config";
+import {
+  narrowedPrincipalFromSession,
+  introspectOpaqueToken,
+  opaqueBearerToken,
+} from "./oauth-branch";
+import { checkRateLimit } from "./rate-limit";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+
+/** Best-effort client IP for the DCR rate-limit key (proxy headers first). */
+function clientIpOf(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
 
 export interface BetterAuthExtensionPoint {
   addStrategy(strategy: AuthStrategy<unknown>): void;
@@ -316,6 +338,19 @@ export default createBackendPlugin({
         // Validate that the strategy schema doesn't have required fields without defaults
         try {
           validateStrategySchema(s.configSchema, s.id);
+          // Fail fast at registration (boot) if the strategy's
+          // v1->configVersion migration chain is incomplete or broken.
+          // Auth's read path migrates-then-validates via
+          // `configService.get(id, schema, configVersion, migrations)`, so a
+          // missing covering migration would otherwise only surface LAZILY
+          // on the first stale read. This guard surfaces it at boot for
+          // every registered strategy exactly once — `addStrategy` is the
+          // single canonical registration chokepoint (all read sites in
+          // index.ts/router.ts only consume the already-registered list).
+          assertMigrationChainFromV1({
+            version: s.configVersion,
+            migrations: s.migrations ?? [],
+          });
         } catch (error) {
           const message =
             extractErrorMessage(error);
@@ -388,54 +423,62 @@ export default createBackendPlugin({
                       // Ignore errors from lastUsedAt update
                     });
 
-                  // Fetch roles and compute access rules for the application
-                  const appRoles = await db
-                    .select({ roleId: schema.applicationRole.roleId })
-                    .from(schema.applicationRole)
-                    .where(
-                      eq(schema.applicationRole.applicationId, applicationId),
-                    );
-
-                  const roleIds = appRoles.map((r) => r.roleId);
-
-                  // Get access rules for these roles
-                  let accessRulesArray: string[] = [];
-                  if (roleIds.length > 0) {
-                    const rolePerms = await db
-                      .select({
-                        accessRuleId: schema.roleAccessRule.accessRuleId,
-                      })
-                      .from(schema.roleAccessRule)
-                      .where(inArray(schema.roleAccessRule.roleId, roleIds));
-
-                    accessRulesArray = [
-                      ...new Set(rolePerms.map((rp) => rp.accessRuleId)),
-                    ];
-                  }
-
-                  // Get team memberships for this application
-                  const appTeams = await db
-                    .select({ teamId: schema.applicationTeam.teamId })
-                    .from(schema.applicationTeam)
-                    .where(
-                      eq(schema.applicationTeam.applicationId, applicationId),
-                    );
-                  const teamIds = appTeams.map((t) => t.teamId);
+                  // Resolve roles, access rules, and teams via the shared
+                  // helper (same path as the app-principal token branch).
+                  const enriched = await enrichApplicationPrincipal(
+                    applicationId,
+                    db,
+                  );
+                  if (!enriched) return;
 
                   // Return ApplicationUser
                   return {
                     type: "application" as const,
-                    id: app.id,
-                    name: app.name,
-                    roles: roleIds,
-                    accessRules: accessRulesArray,
-                    teamIds,
+                    id: enriched.id,
+                    name: enriched.name,
+                    roles: enriched.roles,
+                    accessRules: enriched.accessRules,
+                    teamIds: enriched.teamIds,
                   };
                 }
               }
             }
           }
           return; // Invalid API key
+        }
+
+        // Bearer OAuth-access-token branch (AI platform MCP / OAuth AS).
+        //
+        // Tokens are OPAQUE (decision §11): introspect the token against the
+        // oidcProvider-owned token table, then build a principal whose access
+        // rules are the token's GRANTED scopes intersected with the bound
+        // user's LIVE access rules. Narrow-only, re-evaluated live every call.
+        // autoAuthMiddleware remains the single enforcement point; this branch
+        // only PRODUCES the narrowed principal. A miss falls through to session.
+        const opaqueToken = opaqueBearerToken(request);
+        if (opaqueToken) {
+          const session = await introspectOpaqueToken({
+            db,
+            token: opaqueToken,
+          });
+          if (session) {
+            const userRow = await db
+              .select()
+              .from(schema.user)
+              .where(eq(schema.user.id, session.userId))
+              .limit(1);
+            if (userRow.length > 0) {
+              const base = await enrichUser(userRow[0], db);
+              const catalogRows = await db
+                .select({ id: schema.accessRule.id })
+                .from(schema.accessRule);
+              const narrowed = narrowedPrincipalFromSession({
+                session,
+                principal: { base, catalog: catalogRows.map((r) => r.id) },
+              });
+              if (narrowed) return narrowed;
+            }
+          }
         }
 
         // Fall back to session-based authentication (better-auth)
@@ -628,6 +671,39 @@ export default createBackendPlugin({
           const registrationAllowed =
             platformRegistrationConfig?.allowRegistration ?? true;
 
+          // AI platform OAuth AS + MCP server settings (off by default).
+          const mcpOAuthConfig = await config.get(
+            MCP_OAUTH_CONFIG_ID,
+            mcpOAuthConfigV1,
+            MCP_OAUTH_CONFIG_VERSION,
+          );
+          const mcpEnabled = mcpOAuthConfig?.enabled ?? false;
+
+          // The OAuth AS + MCP plugin. Enabled only when an operator opts in.
+          //
+          // The `mcp` plugin internally instantiates `oidcProvider` from its
+          // `oidcConfig`, so we add ONLY `mcp` here (adding `oidcProvider`
+          // separately would double-register its endpoints). oidcProvider
+          // issues OPAQUE access tokens and owns the token / client / consent
+          // tables (added to the Drizzle schema). The DCR endpoint
+          // (`/mcp/register`) is gated by `allowDynamicClientRegistration`; the
+          // per-IP DCR rate-limit is a separate shared-Postgres counter
+          // enforced in the API route handler below.
+          const aiOAuthPlugins = mcpEnabled
+            ? [
+                mcp({
+                  loginPage: "/auth/login",
+                  resource: `${baseUrl}/api/ai/mcp`,
+                  oidcConfig: {
+                    loginPage: "/auth/login",
+                    consentPage: "/auth/oauth-consent",
+                    allowDynamicClientRegistration:
+                      mcpOAuthConfig?.allowDynamicClientRegistration ?? false,
+                  },
+                }),
+              ]
+            : [];
+
           logger.debug(
             `[auth-backend] Initializing Better Auth with ${
               Object.keys(socialProviders).length
@@ -716,7 +792,7 @@ export default createBackendPlugin({
                 },
               },
             },
-            plugins: [checkstackBridge],
+            plugins: [checkstackBridge, ...aiOAuthPlugins],
           };
 
           return betterAuth(authOptions);
@@ -808,8 +884,44 @@ export default createBackendPlugin({
         );
         rpc.registerRouter(authRouter, authContract);
 
-        // 5. Register Better Auth native handler
-        rpc.registerHttpHandler((req: Request) => auth!.handler(req));
+        // 5. Register Better Auth native handler.
+        //
+        // The Dynamic Client Registration endpoint (`/api/auth/mcp/register`)
+        // is throttled per client IP by a SHARED-POSTGRES fixed-window counter
+        // (state-and-scale §14.5 — never in-memory, so the cap holds across all
+        // pods) BEFORE delegating to better-auth. Every other auth route passes
+        // straight through.
+        rpc.registerHttpHandler(async (req: Request) => {
+          const url = new URL(req.url);
+          if (
+            req.method === "POST" &&
+            url.pathname.endsWith("/mcp/register")
+          ) {
+            const cfg = await config.get(
+              MCP_OAUTH_CONFIG_ID,
+              mcpOAuthConfigV1,
+              MCP_OAUTH_CONFIG_VERSION,
+            );
+            const ip = clientIpOf(req);
+            const result = await checkRateLimit({
+              db: database as SafeDatabase<typeof schema>,
+              key: `dcr:${ip}`,
+              max: cfg?.dcrRateLimitMax ?? 5,
+              windowSeconds: cfg?.dcrRateLimitWindowSeconds ?? 3600,
+            });
+            if (!result.allowed) {
+              return Response.json(
+                {
+                  error: "rate_limit_exceeded",
+                  error_description:
+                    "Too many client registrations from this IP. Try again later.",
+                },
+                { status: 429 },
+              );
+            }
+          }
+          return auth!.handler(req);
+        });
 
         // All auth management endpoints are now via oRPC (see ./router.ts)
         // Note: Admin user seeding removed - handled via onboarding flow
@@ -943,3 +1055,30 @@ export * from "./utils/auth-error-redirect";
 
 // Re-export hooks for cross-plugin communication
 export { authHooks } from "./hooks";
+
+// AI platform OAuth AS surface: scope narrowing, the introspect-time branch,
+// and the shared-Postgres rate limiter (reused/tested by ai-backend + docs).
+export {
+  narrowScopes,
+  expandBundles,
+  SCOPE_BUNDLE,
+  type ScopeBundle,
+} from "./scope-narrowing";
+export {
+  narrowedPrincipalFromSession,
+  introspectOpaqueToken,
+  opaqueBearerToken,
+  type IntrospectedOAuthSession,
+  type LivePrincipal,
+} from "./oauth-branch";
+export {
+  checkRateLimit,
+  windowStartFor,
+  type RateLimitResult,
+} from "./rate-limit";
+export {
+  mcpOAuthConfigV1,
+  MCP_OAUTH_CONFIG_ID,
+  MCP_OAUTH_CONFIG_VERSION,
+  type McpOAuthConfig,
+} from "./mcp-oauth-config";

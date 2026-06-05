@@ -72,26 +72,71 @@ export interface PluginLoaderDeps {
 }
 
 /**
+ * Resolves a human-identifiable name for a plugin module so diagnostics never
+ * render the opaque literal "unknown". Prefers the declared `pluginId`, then
+ * the package name from the database/discovery row, then the on-disk path.
+ */
+function resolvePluginIdentifier({
+  backendPlugin,
+  pluginName,
+  pluginPath,
+}: {
+  backendPlugin: BackendPlugin | undefined;
+  pluginName?: string;
+  pluginPath: string;
+}): string {
+  const pluginId = backendPlugin?.metadata?.pluginId;
+  if (pluginId) {
+    return pluginId;
+  }
+  if (pluginName) {
+    return pluginName;
+  }
+  if (pluginPath) {
+    return pluginPath;
+  }
+  return "unknown";
+}
+
+/**
  * Registers a single plugin - called during Phase 1.
  */
 export function registerPlugin({
   backendPlugin,
   pluginPath,
+  pluginName,
   pendingInits,
   providedBy,
   deps,
 }: {
-  backendPlugin: BackendPlugin;
+  /**
+   * The plugin module's default export. Typed as possibly `undefined` because
+   * a package mis-typed as `checkstack.type: "backend"` may have no default
+   * export at all (`pluginModule.default` is `undefined` at runtime); the guard
+   * below handles that case explicitly.
+   */
+  backendPlugin: BackendPlugin | undefined;
   pluginPath: string;
+  /**
+   * Package name of the plugin from its database/discovery row. Used so the
+   * "no register() export" diagnostic can name the offending package even when
+   * its module has no default export carrying `metadata.pluginId`.
+   */
+  pluginName?: string;
   pendingInits: PendingInit[];
   providedBy: Map<string, string>;
   deps: PluginLoaderDeps;
 }) {
   if (!backendPlugin || typeof backendPlugin.register !== "function") {
+    const identifier = resolvePluginIdentifier({
+      backendPlugin,
+      pluginName,
+      pluginPath,
+    });
     rootLogger.warn(
-      `Plugin ${
-        backendPlugin?.metadata?.pluginId || "unknown"
-      } is not using new API. Skipping.`,
+      `Plugin '${identifier}' has no backend register() export and was skipped. ` +
+        `If this package is a host-consumed library rather than a runtime plugin, ` +
+        `set its package.json "checkstack.type" to "tooling" so it is not discovered as a backend plugin.`,
     );
     return;
   }
@@ -201,11 +246,21 @@ export function registerPlugin({
 export async function loadPlugins({
   rootRouter,
   manualPlugins = [],
+  manualPluginPaths,
   skipDiscovery = false,
   deps,
 }: {
   rootRouter: Hono;
   manualPlugins?: BackendPlugin[];
+  /**
+   * Optional `pluginId -> on-disk plugin dir` map for manually-loaded
+   * plugins. When a manual plugin has an entry here, its Drizzle migrations
+   * (in `<dir>/drizzle`) are applied just like a discovered plugin's. The
+   * dev server passes the plugin's `CHECKSTACK_DEV_PLUGIN_PATH` here so a
+   * scaffolded plugin's tables exist on first boot; without it, manual
+   * plugins keep their historical `pluginPath: ""` (migrations skipped).
+   */
+  manualPluginPaths?: Map<string, string>;
   /** When true, skip filesystem plugin discovery (for testing) */
   skipDiscovery?: boolean;
   deps: PluginLoaderDeps;
@@ -286,6 +341,7 @@ export async function loadPlugins({
       registerPlugin({
         backendPlugin,
         pluginPath: plugin.path,
+        pluginName: plugin.name,
         pendingInits,
         providedBy,
         deps,
@@ -301,7 +357,10 @@ export async function loadPlugins({
   for (const backendPlugin of manualPlugins) {
     registerPlugin({
       backendPlugin,
-      pluginPath: "",
+      // Use the supplied dir (dev server passes the plugin's path so its
+      // migrations run); fall back to "" for manual plugins without one.
+      pluginPath:
+        manualPluginPaths?.get(backendPlugin.metadata.pluginId) ?? "",
       pendingInits,
       providedBy,
       deps,

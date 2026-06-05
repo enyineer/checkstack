@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -6,6 +6,7 @@ import {
   Link,
   useNavigate,
 } from "react-router-dom";
+import { Menu } from "lucide-react";
 import {
   ApiProvider,
   ApiRegistryBuilder,
@@ -45,6 +46,7 @@ import {
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { SignalAutoInvalidator } from "./components/SignalAutoInvalidator";
 import { SessionProvider } from "@checkstack/auth-frontend";
+import { Sidebar } from "./components/Sidebar";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
 import { AnnouncementBanner } from "@checkstack/announcement-frontend";
@@ -153,40 +155,61 @@ function AppContent() {
   // Enable dynamic plugin loading/unloading via signals
   const { isLowPower } = usePerformance();
   usePluginLifecycle();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <BrowserRouter>
       {/* Global keyboard shortcuts for commands */}
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
-        <AnnouncementBanner />
-        <header className={cn(
-          "p-4 shadow-sm border-b border-border z-50 relative",
-          isLowPower ? "bg-card" : "bg-card/80 backdrop-blur-sm"
-        )}>
-          <div className="flex items-center justify-between gap-4">
-            {/* Left: Logo and main navigation */}
-            <div className="flex items-center gap-8 flex-shrink-0">
-              <Link to="/" className="flex items-center gap-2">
-                <img src="/favicon.svg" alt="" className="w-7 h-7" />
-                <h1 className="text-xl font-bold text-primary">Checkstack</h1>
-              </Link>
-              <nav className="hidden md:flex gap-1">
-                <ExtensionSlot slot={NavbarLeftSlot} />
-              </nav>
-            </div>
-            {/* Center: Search (flexible width, centered) */}
-            <div className="flex-1 flex justify-center max-w-md">
-              <ExtensionSlot slot={NavbarCenterSlot} />
-            </div>
-            {/* Right: Other navbar items */}
-            <div className="flex gap-2 flex-shrink-0">
-              <ExtensionSlot slot={NavbarRightSlot} />
-            </div>
-          </div>
-        </header>
-        <main className="px-3 py-4 md:p-8 max-w-7xl mx-auto">
-          <Routes>
+        {/* App shell: a full-height column - the header spans the FULL width on
+            top, and below it a row holds the left nav (persistent on desktop,
+            drawer on mobile) beside the scrollable content. */}
+        <div className="flex flex-col h-screen overflow-hidden">
+          <AnnouncementBanner />
+          <header
+            className={cn(
+              "shrink-0 p-4 shadow-sm border-b border-border z-40 relative",
+              isLowPower ? "bg-card" : "bg-card/80 backdrop-blur-sm",
+            )}
+          >
+              <div className="flex items-center justify-between gap-4">
+                {/* Left: hamburger (mobile), logo, optional navbar-left slot */}
+                <div className="flex items-center gap-4 md:gap-8 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setMobileNavOpen(true)}
+                    aria-label="Open navigation"
+                    className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </button>
+                  <Link to="/" className="flex items-center gap-2">
+                    <img src="/favicon.svg" alt="" className="w-7 h-7" />
+                    <h1 className="text-xl font-bold text-primary">Checkstack</h1>
+                  </Link>
+                  <nav className="hidden md:flex gap-1">
+                    <ExtensionSlot slot={NavbarLeftSlot} />
+                  </nav>
+                </div>
+                {/* Center: Search (flexible width, centered) */}
+                <div className="flex-1 flex justify-center max-w-md">
+                  <ExtensionSlot slot={NavbarCenterSlot} />
+                </div>
+                {/* Right: Other navbar items */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <ExtensionSlot slot={NavbarRightSlot} />
+                </div>
+              </div>
+          </header>
+          <div className="flex flex-1 min-h-0">
+            <Sidebar
+              mobileOpen={mobileNavOpen}
+              onMobileOpenChange={setMobileNavOpen}
+            />
+            <main className="flex-1 min-w-0 overflow-y-auto">
+              <div className="px-3 py-4 md:p-8 w-full max-w-7xl mx-auto">
+                <Routes>
             <Route
               path="/"
               element={
@@ -228,10 +251,13 @@ function AppContent() {
                 />
               );
             })}
-            {/* Catch-all: show Not Found for unmatched routes */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
+                  {/* Catch-all: show Not Found for unmatched routes */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </div>
+            </main>
+          </div>
+        </div>
       </AmbientBackground>
     </BrowserRouter>
   );

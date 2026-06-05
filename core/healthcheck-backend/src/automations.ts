@@ -42,8 +42,14 @@ import type { HealthCheckService } from "./service";
 
 // ─── Payload schemas — match the hook payloads exactly ─────────────────
 
+// Phase 3b: the optional `environmentId` is present only for a PER-ENVIRONMENT
+// health change (the env-qualified `health` entity id); it is ABSENT for the
+// system-rollup change. Existing automations reading `systemId` are unaffected
+// (the rollup carries the bare systemId); new automations can filter on
+// `environmentId` to react to a specific environment's health.
 const systemDegradedPayloadSchema = z.object({
   systemId: z.string(),
+  environmentId: z.string().optional(),
   systemName: z.string().optional(),
   previousStatus: HealthCheckStatusSchema,
   newStatus: HealthCheckStatusSchema,
@@ -54,6 +60,7 @@ const systemDegradedPayloadSchema = z.object({
 
 const systemHealthyPayloadSchema = z.object({
   systemId: z.string(),
+  environmentId: z.string().optional(),
   systemName: z.string().optional(),
   previousStatus: HealthCheckStatusSchema,
   healthyChecks: z.number(),
@@ -63,6 +70,7 @@ const systemHealthyPayloadSchema = z.object({
 
 const systemHealthChangedPayloadSchema = z.object({
   systemId: z.string(),
+  environmentId: z.string().optional(),
   systemName: z.string().optional(),
   previousStatus: HealthCheckStatusSchema,
   newStatus: HealthCheckStatusSchema,
@@ -158,7 +166,7 @@ export const checkFailedTrigger: TriggerDefinition<
 
 // Triggers carry heterogeneous config types (all healthcheck triggers are
 // currently config-less). The registry accepts the `<unknown, unknown>` shape
-// and re-validates config against each trigger's own `configSchema` at load,
+// and re-validates config against each trigger's own versioned `config` at load,
 // so the registration array is widened here — mirroring
 // `registerBuiltinTriggers` in automation-backend.
 export const healthCheckTriggers: TriggerDefinition<unknown, unknown>[] = [

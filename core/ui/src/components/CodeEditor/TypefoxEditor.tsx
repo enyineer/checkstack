@@ -27,7 +27,13 @@ import {
   javascriptDefaults,
   ensureStandaloneWorkerFactory,
 } from "./monacoTsService";
-import { markVscodeServicesReady } from "./vscodeServicesSignal";
+import {
+  areVscodeServicesReady,
+  claimColdInit,
+  markVscodeServicesReady,
+  onVscodeServicesReady,
+  releaseColdInit,
+} from "./vscodeServicesSignal";
 // Named import also triggers the side-effect registration of the REAL VS Code
 // JSON language service (proper highlighting + completion + folding), replacing
 // the hand-rolled `json-template` Monarch grammar. We turn its built-in
@@ -41,8 +47,24 @@ import { jsonDefaults } from "@codingame/monaco-vscode-standalone-json-language-
 import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-service-override";
 
 
-import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
-import * as monaco from "@codingame/monaco-vscode-editor-api";
+import {
+  type CSSProperties,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+// Types come from the package directly (type-only, so it pulls no runtime code
+// and the lint rule allows it). RUNTIME monaco access goes through the guarded
+// accessor (`monacoRuntime`, see monacoGuard.ts): in dev it throws if a
+// `monaco.editor.*` / `monaco.languages.*` function runs before the services
+// are initialized, preventing the "Services are already initialized" regression
+// class. `no-restricted-imports` forbids importing the raw editor-api value.
+import type * as monaco from "@codingame/monaco-vscode-editor-api";
+import { monaco as monacoRuntime } from "./monacoGuard";
+import { useTheme } from "../ThemeProvider";
+import { MONACO_THEME_MAP, VARIABLE_TOKEN_COLOR } from "./editorTheme";
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
 import { extractBracketKeyGroups } from "./bracketKeyGroups";
 import { validateJsonTemplate } from "./validateJsonTemplate";
@@ -123,6 +145,44 @@ const registerAcquiredFiles = (
     const uri = `file:///${file.path}`;
     if (acquiredFilePaths.has(uri)) continue;
     acquiredFilePaths.add(uri);
+    for (const defaults of [typescriptDefaults, javascriptDefaults]) {
+      defaults.addExtraLib(file.content, uri);
+    }
+  }
+};
+
+// ─── @checkstack/sdk editor-type injection ──────────────────────────────────
+//
+// The running release's SDK editor bundle (ambient `.d.ts` for the script
+// helpers + typed client) is mounted ONCE into the shared TS/JS services,
+// keyed by release version. A deployment upgrade changes the key, so the libs
+// reset and the editor never serves stale SDK types (plan §6.2).
+const sdkMountedPaths = new Set<string>();
+let currentSdkResetKey: string | undefined;
+
+/**
+ * Mount the SDK bundle files, resetting on a release-version change. addExtraLib
+ * overwrites by path, so a version bump re-mounts the same virtual paths with
+ * fresh content; the mounted-path set just dedupes within a version so two
+ * editors don't double-register.
+ */
+const mountSdkTypes = ({
+  files,
+  resetKey,
+}: {
+  files: ReadonlyArray<{ path: string; content: string }>;
+  resetKey: string | undefined;
+}): void => {
+  if (resetKey !== currentSdkResetKey) {
+    currentSdkResetKey = resetKey;
+    sdkMountedPaths.clear();
+  }
+  for (const file of files) {
+    const uri = `file:///${file.path}`;
+    // On a fresh version we re-mount (overwrite) even if the path was seen
+    // under a prior key; within a version, skip an already-mounted path.
+    if (sdkMountedPaths.has(uri)) continue;
+    sdkMountedPaths.add(uri);
     for (const defaults of [typescriptDefaults, javascriptDefaults]) {
       defaults.addExtraLib(file.content, uri);
     }
@@ -212,20 +272,31 @@ const TEMPLATE_VALIDATORS: Partial<
 // Variable-like tokens (`{{ template }}` expressions, shell `$env` refs) are
 // highlighted via inline decorations rather than per-language grammars: this
 // works for any language (yaml / xml / markdown have no template grammar; shell
-// doesn't color `$VAR` inside strings) and keeps the color consistent. #9cdcfe
-// is the vs-dark `variable` token color, matching json-template's grammar. The
-// CSS class is injected once.
+// doesn't color `$VAR` inside strings) and keeps the color consistent.
+// The style element is injected once and updated whenever the resolved theme
+// changes so the decoration tracks the editor theme.
 const VARIABLE_TOKEN_CLASS = "checkstack-editor-variable";
-let variableTokenStyleInjected = false;
-const ensureVariableTokenStyle = (): void => {
-  if (variableTokenStyleInjected) {
+const VARIABLE_TOKEN_STYLE_ID = "checkstack-editor-variable-style";
+
+const ensureVariableTokenStyle = ({
+  resolvedTheme,
+}: {
+  resolvedTheme: "light" | "dark";
+}): void => {
+  const color = VARIABLE_TOKEN_COLOR[resolvedTheme];
+  const existing = document.querySelector<HTMLStyleElement>(
+    `#${VARIABLE_TOKEN_STYLE_ID}`,
+  );
+  if (existing !== null) {
+    // Update in place so a theme toggle refreshes the color.
+    existing.textContent = `.${VARIABLE_TOKEN_CLASS}{color:${color} !important;}`;
     return;
   }
-  variableTokenStyleInjected = true;
   const style = document.createElement("style");
+  style.id = VARIABLE_TOKEN_STYLE_ID;
   // `!important` so the decoration color always wins over the underlying token
   // color (.mtkN), making `{{ }}` look identical inside and outside strings.
-  style.textContent = `.${VARIABLE_TOKEN_CLASS}{color:#9cdcfe !important;}`;
+  style.textContent = `.${VARIABLE_TOKEN_CLASS}{color:${color} !important;}`;
   document.head.append(style);
 };
 
@@ -241,7 +312,6 @@ const installRegexDecorations = ({
   pattern: RegExp;
   className: string;
 }): monaco.IDisposable => {
-  ensureVariableTokenStyle();
   const compute = (): monaco.editor.IModelDeltaDecoration[] => {
     const text = model.getValue();
     const decorations: monaco.editor.IModelDeltaDecoration[] = [];
@@ -251,7 +321,7 @@ const installRegexDecorations = ({
       const start = model.getPositionAt(match.index);
       const end = model.getPositionAt(match.index + match[0].length);
       decorations.push({
-        range: new monaco.Range(
+        range: new monacoRuntime.Range(
           start.lineNumber,
           start.column,
           end.lineNumber,
@@ -282,7 +352,7 @@ const installRegexDecorations = ({
 const findModelById = (
   modelId: string,
 ): monaco.editor.ITextModel | undefined =>
-  monaco.editor
+  monacoRuntime.editor
     .getModels()
     .find((candidate) => candidate.uri.toString().includes(modelId));
 
@@ -347,6 +417,20 @@ export type TypefoxEditorProps = {
    */
   acquireResetKey?: string;
   /**
+   * The running release's `@checkstack/sdk` editor bundle, as virtual `.d.ts`
+   * files to mount (TS/JS editors). Makes `import { defineHealthCheck } from
+   * "@checkstack/sdk/healthcheck"` resolve with real, version-matched types.
+   * Each file mounts at `file:///<path>` via `addExtraLib`. Fetched live by the
+   * consumer (so this component stays network-agnostic + DOM-test-free).
+   */
+  sdkTypes?: ReadonlyArray<{ path: string; content: string }>;
+  /**
+   * Release-version reset key for `sdkTypes`. When it changes, the previously
+   * mounted SDK libs are reset so the editor never serves stale SDK types after
+   * a deployment upgrade.
+   */
+  sdkTypesResetKey?: string;
+  /**
    * Importable installed package NAMES (TS/JS editors). When provided, the
    * editor suggests these as completions while the cursor is inside an import
    * specifier string (`import {} from "lod"` -> `lodash`) - solving the
@@ -355,11 +439,20 @@ export type TypefoxEditorProps = {
    * Injected by the consumer so this component stays plugin-agnostic.
    */
   importablePackages?: string[];
+  /**
+   * When `true`, this editor never CLAIMS the one-time global cold init - it
+   * always waits for another (visible) editor to bring the monaco-vscode
+   * services up, then mounts. Set this for OFFSCREEN/hidden editors (the
+   * automation `ScriptServicesBooter`): a hidden editor's init may never
+   * complete, so it must not be the sole initializer. Defaults to `false`.
+   */
+  deferInit?: boolean;
 };
 
 /**
  * Isolated editor used to validate the Typefox/monaco-vscode stack in the
- * browser. Dark theme, no minimap, automatic layout, word-based suggestions
+ * browser. Theme follows `useTheme().resolvedTheme` (`vs` in light mode,
+ * `vs-dark` in dark mode), no minimap, automatic layout, word-based suggestions
  * disabled. For `typescript`/`javascript` it injects the `context` types +
  * bracket completions; for markup/text languages it offers `{{ }}` template
  * completions.
@@ -381,6 +474,41 @@ const languageStatusServiceOverride: monaco.editor.IEditorOverrideServices =
       : {};
   })();
 
+// The monaco-vscode global API config. Hoisted to module scope (it has no
+// per-editor state) so it can drive a single, app-lifetime global init below.
+const vscodeApiConfig: MonacoVscodeApiConfig = {
+  // 'classic' is the standalone axis (no extension host); 'extended' is the
+  // extension-host axis we deliberately avoid in this migration.
+  $type: "classic",
+  // Register the missing ILanguageStatusService (see the override above) so
+  // focusing a JSON editor doesn't throw "addStatus is not supported".
+  serviceOverrides: { ...languageStatusServiceOverride },
+  // Plain editor, no workbench views.
+  viewsConfig: { $type: "EditorService" },
+  monacoWorkerFactory: ensureStandaloneWorkerFactory,
+};
+
+// ─── How the global monaco-vscode init is serialized ────────────────────────
+//
+// `@codingame/monaco-vscode-api`'s global `initialize()` is ONE-SHOT and can
+// never be torn down or re-run. `@typefox/monaco-editor-react` performs that
+// init itself when a `MonacoEditorReactComp` is given a `vscodeApiConfig`, and
+// that is StrictMode-safe FOR A SINGLE EDITOR (upstream tests cover exactly
+// that). The breakage is two editors on one page (e.g. an open script-action
+// editor PLUS the hidden `ScriptServicesBooter`): both wrappers race the init
+// guard (only set inside an async `start()`), both call `initialize()`, the
+// second throws "Services are already initialized", and the global state is
+// corrupted so NO editor starts. StrictMode (dev only) makes the race
+// deterministic via mount -> unmount -> remount; production works because
+// StrictMode is a no-op there.
+//
+// Fix (per the maintainers' single-editor-init guidance): exactly ONE editor
+// claims the cold init and mounts WITH `vscodeApiConfig` (the proven path);
+// every other editor waits for `areVscodeServicesReady()` and only then mounts
+// (it still passes `vscodeApiConfig`, but @typefox no-ops since the services
+// are already initialized). The hidden booter sets `deferInit` so it never
+// claims - the claimer must be a real, visible editor whose init can complete.
+
 // Always-available runtime built-in import specifiers (Node + Bun), derived at
 // build time from the bundled stdlib types. These are importable in the script
 // sandbox regardless of the installed-package allowlist (the sandbox is a Bun
@@ -388,6 +516,13 @@ const languageStatusServiceOverride: monaco.editor.IEditorOverrideServices =
 // types are already loaded ambiently via the stdlib bundle - so completing one
 // needs no lazy acquisition. The JSON is a plain `string[]`.
 const BUILTIN_MODULE_SPECIFIERS: readonly string[] = builtinModulesJson;
+
+// Passed as the wrapper's `onError` so a wrapper failure is surfaced here
+// instead of becoming an uncaught promise rejection (and so @typefox doesn't
+// reset its internal run-queue lock + re-throw).
+const handleEditorError = (error: Error): void => {
+  console.error("[CodeEditor] monaco editor error:", error);
+};
 
 export const TypefoxEditor = ({
   id,
@@ -404,8 +539,16 @@ export const TypefoxEditor = ({
   placeholder,
   acquireTypes,
   acquireResetKey,
+  sdkTypes,
+  sdkTypesResetKey,
   importablePackages,
+  deferInit = false,
 }: TypefoxEditorProps) => {
+  // Follow the app's resolved theme so the editor uses `vs` (light) or
+  // `vs-dark` (dark) and updates live when the user toggles the theme.
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = MONACO_THEME_MAP[resolvedTheme];
+
   // `MonacoEditorReactComp` captures `onTextChanged` once at editor-start, so
   // the handler it calls would otherwise close over a stale `onChange` (bound
   // to the value/sibling-config at mount time). Routing through a ref that we
@@ -430,8 +573,62 @@ export const TypefoxEditor = ({
   // completion providers below register against a ready languages registry.
   const [apiReady, setApiReady] = useState(false);
 
+  // Cold-init serialization (see the block comment above). Tracks whether the
+  // global services are up yet, and whether THIS editor is the designated
+  // initializer (the one that mounts first, with `vscodeApiConfig`).
+  const [servicesReady, setServicesReady] = useState(() =>
+    areVscodeServicesReady(),
+  );
+  const [isInitializer, setIsInitializer] = useState(false);
   useEffect(() => {
-    if (!isTsLike || typeDefinitions === undefined) {
+    if (servicesReady) return;
+    return onVscodeServicesReady(() => setServicesReady(true));
+  }, [servicesReady]);
+  // Decide the initializer role in a layout effect (NOT during render) so it is
+  // StrictMode-safe: StrictMode runs setup -> cleanup -> setup, and the cleanup
+  // releases the claim, so exactly one editor ends up the stable holder. A
+  // `deferInit` editor (the hidden booter) never claims - the initializer must
+  // be a real, visible editor whose @typefox init can actually complete.
+  useLayoutEffect(() => {
+    if (areVscodeServicesReady() || deferInit) return;
+    const claimed = claimColdInit();
+    setIsInitializer(claimed);
+    return () => {
+      if (claimed) releaseColdInit();
+    };
+  }, [deferInit]);
+
+  // Mount the wrapper when the services are ready (we attach to them) OR when we
+  // are the initializer (we bring them up, passing `vscodeApiConfig`). Until
+  // then, a sized, non-animated placeholder so the layout doesn't jump.
+  const canMountWrapper = servicesReady || isInitializer;
+
+  // Keep the Monaco global theme and the variable-token decoration color in
+  // sync whenever the resolved app theme changes. Monaco's theme is a global
+  // imperative setting (not per-editor), so re-deriving `editorAppConfig`
+  // alone is not enough after the editor has started - this effect is what
+  // makes live toggling work.
+  //
+  // GATED on `apiReady`: `monaco.editor.setTheme()` resolves a service via
+  // `StandaloneServices.get()`, which AUTO-INITIALIZES the monaco-vscode
+  // services if they aren't up yet (CodinGame standaloneServices.js:963). If
+  // this ran before the wrapper's own init (e.g. on the deferred booter, which
+  // mounts but never gets `apiReady`), it would trip CodinGame's
+  // `servicesInitialized` flag and make the wrapper's later `initialize()` throw
+  // "Services are already initialized". The initial theme is already applied via
+  // `editorAppConfig.editorOptions.theme`; this effect only handles live
+  // toggling, which is always after the editor (and thus the API) has started.
+  useEffect(() => {
+    if (!apiReady) return;
+    monacoRuntime.editor.setTheme(monacoTheme);
+    ensureVariableTokenStyle({ resolvedTheme });
+  }, [apiReady, resolvedTheme, monacoTheme]);
+
+  useEffect(() => {
+    // GATED on `apiReady` for the same reason as the theme effect above:
+    // touching `typescriptDefaults` before the wrapper init can auto-initialize
+    // the services and collide with the wrapper's `initialize()`.
+    if (!apiReady || !isTsLike || typeDefinitions === undefined) {
       return;
     }
     // Inject this editor's ambient `context` types. addExtraLib keys by path
@@ -447,7 +644,18 @@ export const TypefoxEditor = ({
     return () => {
       lib.dispose();
     };
-  }, [isTsLike, typeDefinitions, modelId]);
+  }, [apiReady, isTsLike, typeDefinitions, modelId]);
+
+  // Mount the @checkstack/sdk editor bundle (script helpers + typed client) so
+  // `import ... from "@checkstack/sdk/healthcheck"` resolves with real types.
+  // Shared/module-scoped + reset-on-version (mountSdkTypes); the fetch lives in
+  // the consumer so this component is network-agnostic + DOM-test-free.
+  useEffect(() => {
+    if (!apiReady || !isTsLike || sdkTypes === undefined) {
+      return;
+    }
+    mountSdkTypes({ files: sdkTypes, resetKey: sdkTypesResetKey });
+  }, [apiReady, isTsLike, sdkTypes, sdkTypesResetKey]);
 
   // Lazy Automatic Type Acquisition (ATA). For TS/JS editors with an injected
   // `acquireTypes` resolver, parse the buffer's bare import/require specifiers
@@ -555,7 +763,7 @@ export const TypefoxEditor = ({
       return {
         suggestions: entries.map((entry) => ({
           label: entry.name,
-          kind: monaco.languages.CompletionItemKind.Module,
+          kind: monacoRuntime.languages.CompletionItemKind.Module,
           detail: entry.detail,
           insertText: entry.name,
           filterText: entry.name,
@@ -567,7 +775,7 @@ export const TypefoxEditor = ({
     };
 
     const disposables = (["typescript", "javascript"] as const).map((lang) =>
-      monaco.languages.registerCompletionItemProvider(lang, {
+      monacoRuntime.languages.registerCompletionItemProvider(lang, {
         // Opening quotes start a specifier; `:` advances into a `node:`/`bun:`
         // builtin; `/` advances into a scoped name or subpath.
         triggerCharacters: ['"', "'", "/", ":"],
@@ -628,7 +836,7 @@ export const TypefoxEditor = ({
         return {
           suggestions: keys.map((key) => ({
             label: `["${key}"]`,
-            kind: monaco.languages.CompletionItemKind.Property,
+            kind: monacoRuntime.languages.CompletionItemKind.Property,
             detail: objectExpression,
             insertText: `["${key}"]`,
             filterText: key,
@@ -657,7 +865,7 @@ export const TypefoxEditor = ({
     };
 
     const disposables = (["typescript", "javascript"] as const).map((lang) =>
-      monaco.languages.registerCompletionItemProvider(lang, {
+      monacoRuntime.languages.registerCompletionItemProvider(lang, {
         triggerCharacters: ["."],
         provideCompletionItems,
       }),
@@ -708,7 +916,7 @@ export const TypefoxEditor = ({
         )
         .map((prop, index) => ({
           label: `{{${prop.path}}}`,
-          kind: monaco.languages.CompletionItemKind.Variable,
+          kind: monacoRuntime.languages.CompletionItemKind.Variable,
           detail: prop.type,
           documentation: prop.description,
           insertText: `{{${prop.path}}}`,
@@ -727,7 +935,7 @@ export const TypefoxEditor = ({
       return { suggestions, incomplete: false };
     };
 
-    const provider = monaco.languages.registerCompletionItemProvider(
+    const provider = monacoRuntime.languages.registerCompletionItemProvider(
       languageId,
       { triggerCharacters: ["{"], provideCompletionItems },
     );
@@ -829,7 +1037,7 @@ export const TypefoxEditor = ({
         )
         .map((v, index) => ({
           label: `$${v.name}`,
-          kind: monaco.languages.CompletionItemKind.Variable,
+          kind: monacoRuntime.languages.CompletionItemKind.Variable,
           detail: v.example ? `e.g. ${v.example}` : "shell env var",
           // Full name in the (wrapping) docs panel so long CHECKSTACK_* names
           // stay legible even when the suggest-list label truncates.
@@ -850,7 +1058,7 @@ export const TypefoxEditor = ({
       return { suggestions, incomplete: false };
     };
 
-    const provider = monaco.languages.registerCompletionItemProvider("shell", {
+    const provider = monacoRuntime.languages.registerCompletionItemProvider("shell", {
       triggerCharacters: ["$", "{"],
       provideCompletionItems,
     });
@@ -866,7 +1074,7 @@ export const TypefoxEditor = ({
     if (!apiReady) {
       return;
     }
-    const model = monaco.editor
+    const model = monacoRuntime.editor
       .getModels()
       .find((candidate) => candidate.uri.toString().includes(modelId));
     if (!model) {
@@ -876,14 +1084,14 @@ export const TypefoxEditor = ({
       severity: EditorMarker["severity"],
     ): monaco.MarkerSeverity => {
       if (severity === "warning") {
-        return monaco.MarkerSeverity.Warning;
+        return monacoRuntime.MarkerSeverity.Warning;
       }
       if (severity === "info") {
-        return monaco.MarkerSeverity.Info;
+        return monacoRuntime.MarkerSeverity.Info;
       }
-      return monaco.MarkerSeverity.Error;
+      return monacoRuntime.MarkerSeverity.Error;
     };
-    monaco.editor.setModelMarkers(
+    monacoRuntime.editor.setModelMarkers(
       model,
       "external-validation",
       (markers ?? []).map((marker) => ({
@@ -896,7 +1104,7 @@ export const TypefoxEditor = ({
       })),
     );
     return () => {
-      monaco.editor.setModelMarkers(model, "external-validation", []);
+      monacoRuntime.editor.setModelMarkers(model, "external-validation", []);
     };
   }, [apiReady, markers, modelId]);
 
@@ -918,7 +1126,7 @@ export const TypefoxEditor = ({
     const owner = "template-validation";
     const runValidation = (): void => {
       const diagnostics = validate(model.getValue());
-      monaco.editor.setModelMarkers(
+      monacoRuntime.editor.setModelMarkers(
         model,
         owner,
         diagnostics.map((diagnostic) => {
@@ -932,7 +1140,7 @@ export const TypefoxEditor = ({
             endLineNumber: end.lineNumber,
             endColumn: end.column,
             message: diagnostic.message,
-            severity: monaco.MarkerSeverity.Error,
+            severity: monacoRuntime.MarkerSeverity.Error,
           };
         }),
       );
@@ -943,24 +1151,9 @@ export const TypefoxEditor = ({
     });
     return () => {
       subscription.dispose();
-      monaco.editor.setModelMarkers(model, owner, []);
+      monacoRuntime.editor.setModelMarkers(model, owner, []);
     };
   }, [apiReady, language, modelId]);
-
-  const vscodeApiConfig: MonacoVscodeApiConfig = {
-    // 'classic' is the standalone axis (no extension host); 'extended' is the
-    // extension-host axis we deliberately avoid in this migration.
-    $type: "classic",
-    // Register the missing ILanguageStatusService (see the override comment
-    // above) so focusing a JSON editor doesn't throw "addStatus is not
-    // supported".
-    serviceOverrides: { ...languageStatusServiceOverride },
-    viewsConfig: {
-      // Plain editor, no workbench views.
-      $type: "EditorService",
-    },
-    monacoWorkerFactory: ensureStandaloneWorkerFactory,
-  };
 
   const editorAppConfig: EditorAppConfig = {
     // Unique per instance (modelId includes a useId suffix) so multiple editors
@@ -974,10 +1167,12 @@ export const TypefoxEditor = ({
       },
     },
     editorOptions: {
-      // 'vs-dark' is the builtin classic dark theme. (The VS Code
-      // 'Default Dark Modern' theme would require the extension-host
-      // theme-defaults extension, which the standalone setup omits.)
-      theme: "vs-dark",
+      // Derived from useTheme().resolvedTheme: "vs" for light, "vs-dark" for
+      // dark. These are the two built-in classic themes available in the
+      // standalone setup (the VS Code 'Default Dark Modern' theme requires the
+      // extension-host theme-defaults extension, which the standalone setup
+      // omits).
+      theme: monacoTheme,
       minimap: { enabled: false },
       automaticLayout: true,
       // Force completions to come from the TS language service rather than
@@ -1001,12 +1196,30 @@ export const TypefoxEditor = ({
     ? { minHeight: `${minHeight}px`, height: "100%" }
     : { minHeight: `${minHeight}px`, height: `${minHeight}px` };
 
+  // Non-initializer editors wait for the services to be up before mounting (a
+  // sized, non-animated placeholder until then, so the layout doesn't jump).
+  // The initializer mounts immediately and brings the services up.
+  if (!canMountWrapper) {
+    return (
+      <div
+        style={containerStyle}
+        className="w-full rounded-md bg-muted"
+        aria-busy="true"
+        aria-label={placeholder ?? "Loading editor"}
+      />
+    );
+  }
+
   return (
     <MonacoEditorReactComp
       style={containerStyle}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={handleTextChanged}
+      // Route wrapper errors to our handler rather than letting @typefox reset
+      // its run-queue lock and re-throw as an uncaught rejection (recommended by
+      // the monaco-languageclient maintainers).
+      onError={handleEditorError}
       onEditorStartDone={() => {
         // Per-editor ready signal for the completion providers. We use this
         // (not onVscodeApiInitDone) because the vscode API initialises globally

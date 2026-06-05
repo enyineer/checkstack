@@ -301,6 +301,12 @@ function createDedupFakeDb() {
       // The lock key is embedded in the SQL the helper runs via tx.execute.
       let lockKey = "default";
       const tx = {
+        // A transaction handle exposes the same query surface as `db`, so a
+        // service method that wraps its writes in `db.transaction` can issue
+        // select/insert against the same backing store (e.g. createIncident,
+        // which now commits the incident + its system links atomically).
+        select: buildSelect(),
+        insert: buildInsert(),
         execute: async (sqlObj: unknown) => {
           // Drizzle sql`` carries the interpolated key in its params; the
           // helper interpolates exactly one param (the lock key).

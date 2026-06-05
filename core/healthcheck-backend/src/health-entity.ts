@@ -31,8 +31,9 @@ import type {
   EntityRead,
 } from "@checkstack/automation-backend";
 import type { HealthCheckService } from "./service";
+import { parseHealthEntityId } from "./health-entity-id";
 
-/** Entity kind id for the per-system aggregated health. */
+/** Entity kind id for the aggregated health (system rollup + per-environment). */
 export const HEALTH_ENTITY_KIND = "health";
 
 /**
@@ -121,15 +122,23 @@ function readNumber(
  * Restores the keys operators read (`trigger.payload.systemId`,
  * `.previousStatus`, …) that the generic change shape omits.
  *
- * `systemId` is the entity id; `previousStatus` is `prev.status` and `newStatus`
- * is `next.status`; `healthyChecks` / `totalChecks` come from `next`;
- * `timestamp` is the change's `occurredAt`. `systemName` is not derivable from a
- * health change (it lives in the catalog) and is OPTIONAL on the schemas, so it
- * is omitted.
+ * The entity id is now env-qualified (Phase 3b): `payload.systemId` is ALWAYS
+ * the systemId portion (so existing automations reading `trigger.payload.systemId`
+ * are unaffected — the rollup carries the bare systemId), and the NEW optional
+ * `payload.environmentId` is the env portion — present only for a per-environment
+ * change, absent (undefined) for the system rollup. `previousStatus` is
+ * `prev.status` and `newStatus` is `next.status`; `healthyChecks` / `totalChecks`
+ * come from `next`; `timestamp` is the change's `occurredAt`. `systemName` is not
+ * derivable from a health change (it lives in the catalog) and is OPTIONAL on the
+ * schemas, so it is omitted.
  */
 export const healthChangeToPayload: EntityChangePayloadMapper = (changed) => {
+  const { systemId, environmentId } = parseHealthEntityId(changed.id);
   return {
-    systemId: changed.id,
+    systemId,
+    // Present only for a per-env change; omitted for the rollup so the field
+    // is `undefined` (the optional schema accepts both).
+    ...(environmentId === null ? {} : { environmentId }),
     previousStatus: readStatus(changed.prev) ?? undefined,
     newStatus: readStatus(changed.next) ?? undefined,
     healthyChecks: readNumber(changed.next, "healthyChecks") ?? 0,
@@ -152,6 +161,12 @@ export const healthChangeToPayload: EntityChangePayloadMapper = (changed) => {
  */
 export interface HealthChangeClassification {
   systemId: string;
+  /**
+   * The environment portion of the entity id (Phase 3b). `null` for the
+   * system rollup change; the env id for a per-environment change. Cross-plugin
+   * consumers that only care about the system (SLO / dependency) can ignore it.
+   */
+  environmentId: string | null;
   previousStatus: string | null;
   newStatus: string | null;
   degraded: boolean;
@@ -163,6 +178,7 @@ export function classifyHealthChange(changed: {
   prev: Record<string, unknown> | null;
   next: Record<string, unknown> | null;
 }): HealthChangeClassification {
+  const { systemId, environmentId } = parseHealthEntityId(changed.id);
   const previousStatus = readStatus(changed.prev);
   const newStatus = readStatus(changed.next);
   const bothPresent = previousStatus !== null && newStatus !== null;
@@ -171,7 +187,8 @@ export function classifyHealthChange(changed: {
   const recovered =
     bothPresent && newStatus === "healthy" && previousStatus !== "healthy";
   return {
-    systemId: changed.id,
+    systemId,
+    environmentId,
     previousStatus,
     newStatus,
     degraded,
@@ -209,9 +226,17 @@ export function classifyHealthChange(changed: {
 export async function computeHealthEntityState(args: {
   service: HealthCheckService;
   systemId: string;
+  /**
+   * Environment to compute the view for (Phase 3b). `undefined` = the SYSTEM
+   * ROLLUP (worst status across all environments + env-less runs — the
+   * all-runs aggregate, §7.4.2). `null` = the env-less slice. A string = that
+   * environment's per-env view. The existence gate (`checkStatuses.length`) is
+   * env-independent, so a per-env view and the rollup agree on totalChecks.
+   */
+  environmentId?: string | null;
 }): Promise<HealthEntityState | undefined> {
-  const { service, systemId } = args;
-  const overview = await service.getSystemHealthStatus(systemId);
+  const { service, systemId, environmentId } = args;
+  const overview = await service.getSystemHealthStatus(systemId, environmentId);
   // No enabled check associations ⇒ no health entity for this system.
   if (overview.checkStatuses.length === 0) return undefined;
   return {
@@ -224,10 +249,16 @@ export async function computeHealthEntityState(args: {
 
 /**
  * Build the PLUGIN-BACKED + COMPUTED `read` accessor for the `health` entity.
- * For each systemId, assembles the view via {@link computeHealthEntityState}
- * (systems with no runs omitted). This is the single source of truth that
- * `handle.mutate` snapshots `prev` from and `get`/`getMany`/scope enrichment
- * route through — no framework `entity_state` storage.
+ *
+ * Env-aware id parsing (Phase 3b, §7.4.2): each incoming id is parsed via
+ * {@link parseHealthEntityId}. A BARE `"<systemId>"` resolves the SYSTEM
+ * ROLLUP; a `"<systemId>::<environmentId>"` resolves that environment's
+ * per-env view. The result is keyed by the ORIGINAL id, so the reactive
+ * engine, `getMany`, and scope enrichment all see the right view for the id
+ * they asked for. Systems with no enabled check associations are omitted
+ * (existence gate). No framework `entity_state` storage — compute-on-read from
+ * the durable, env-keyed `health_check_runs`, so a read returns the same answer
+ * on every pod (state-and-scale).
  */
 export function createHealthEntityRead(deps: {
   service: HealthCheckService;
@@ -237,9 +268,20 @@ export function createHealthEntityRead(deps: {
     if (ids.length === 0) return {};
     const out: Record<string, HealthEntityState> = {};
     await Promise.all(
-      ids.map(async (systemId) => {
-        const state = await computeHealthEntityState({ service, systemId });
-        if (state) out[systemId] = state;
+      ids.map(async (id) => {
+        const { systemId, environmentId } = parseHealthEntityId(id);
+        const state = await computeHealthEntityState({
+          service,
+          systemId,
+          // A bare `<systemId>` id is the ROLLUP: `parseHealthEntityId`
+          // returns `environmentId: null` for it (so the payload mapper can
+          // tell "rollup → omit environmentId"), but the rollup must read ALL
+          // runs — `undefined` — NOT the env-less slice (`null`, which filters
+          // to `env_id IS NULL`). Reserve `null` for an explicit env-less
+          // read; map the rollup's null to undefined here.
+          environmentId: environmentId === null ? undefined : environmentId,
+        });
+        if (state) out[id] = state;
       }),
     );
     return out;
@@ -293,19 +335,28 @@ export function createHealthEntityRead(deps: {
  */
 export async function writeHealthEntity(args: {
   handle: EntityHandle<HealthEntityState> | undefined;
-  systemId: string;
+  /**
+   * The `health` entity id to mutate (Phase 3b): the env-qualified
+   * `"<systemId>::<environmentId>"` for a per-env write, or the bare
+   * `"<systemId>"` for the env-less / system-rollup write. This is the id the
+   * framework diffs/emits, so it drives both the per-env and rollup
+   * `ENTITY_CHANGED`.
+   */
+  entityId: string;
   apply: () => Promise<HealthEntityState>;
   onError?: (error: unknown) => void;
   /**
-   * Optional per-`systemId` critical section wrapping the snapshot-prev +
+   * Optional per-`entityId` critical section wrapping the snapshot-prev +
    * apply + diff + emit. The executor supplies a transaction-scoped advisory
-   * lock (`withXactLock`, key `health:<systemId>`) so concurrent evaluations
-   * of one system can't double-emit a single logical transition. Identity by
-   * default (no serialization) for the unbound-handle / test paths.
+   * lock (`withXactLock`, key `health:<entityId>`) so concurrent evaluations
+   * of one (system, environment) — or of the rollup — can't double-emit a
+   * single logical transition, and per-env + rollup writes serialize against
+   * their OWN keys (distinct envs / the rollup don't block each other).
+   * Identity by default (no serialization) for the unbound-handle / test paths.
    */
   serialize?: <T>(fn: () => Promise<T>) => Promise<T>;
 }): Promise<HealthEntityState> {
-  const { handle, systemId, apply, onError, serialize } = args;
+  const { handle, entityId, apply, onError, serialize } = args;
   if (!handle) {
     // No reactivity bound — run the durable write directly.
     return apply();
@@ -318,7 +369,7 @@ export async function writeHealthEntity(args: {
     // call, and we wrap that whole call so two concurrent evals serialize.
     return await run(() =>
       handle.mutate({
-        id: systemId,
+        id: entityId,
         apply: async () => {
           durableState = await apply();
           return durableState;
@@ -335,19 +386,26 @@ export async function writeHealthEntity(args: {
   }
 }
 
-/** Advisory-lock key namespace for the per-system health critical section. */
-export function healthSystemLockKey(systemId: string): string {
-  return `health:${systemId}`;
+/**
+ * Advisory-lock key namespace for the per-entity health critical section. The
+ * argument is the FULL `health` entity id (Phase 3b): the bare `"<systemId>"`
+ * for the rollup or `"<systemId>::<environmentId>"` for a per-env write. Two
+ * different envs (or an env vs the rollup) get DIFFERENT keys, so they
+ * serialize independently and never block each other.
+ */
+export function healthEntityLockKey(entityId: string): string {
+  return `health:${entityId}`;
 }
 
 /**
- * Build the per-`systemId` serializer for {@link writeHealthEntity} backed by
+ * Build the per-`entityId` serializer for {@link writeHealthEntity} backed by
  * a transaction-scoped advisory lock (`withXactLock`, key
- * `health:<systemId>`). The returned function blocks until it holds the
- * system's lock, runs `fn` (the whole snapshot-prev + apply + diff + emit), and
+ * `health:<entityId>`). The returned function blocks until it holds the
+ * entity's lock, runs `fn` (the whole snapshot-prev + apply + diff + emit), and
  * auto-releases the lock at COMMIT/ROLLBACK. Two concurrent evaluations of one
- * system therefore serialize — exactly one logical `healthy → degraded`
- * transition emits exactly one `ENTITY_CHANGED` + one transition row.
+ * (system, environment) — or of the rollup — therefore serialize, while
+ * distinct envs proceed in parallel. Exactly one logical transition per entity
+ * emits exactly one `ENTITY_CHANGED` + one transition row.
  *
  * `fn` does its own durable writes on the outer pool; the lock only gates
  * ENTRY to the critical section, so its connection affinity is irrelevant —
@@ -356,12 +414,12 @@ export function healthSystemLockKey(systemId: string): string {
  */
 export function createHealthEntitySerializer(deps: {
   advisoryLock: AdvisoryLockService;
-}): (systemId: string) => <T>(fn: () => Promise<T>) => Promise<T> {
+}): (entityId: string) => <T>(fn: () => Promise<T>) => Promise<T> {
   const { advisoryLock } = deps;
-  return (systemId) =>
+  return (entityId) =>
     <T>(fn: () => Promise<T>) =>
       advisoryLock.withXactLock({
-        key: healthSystemLockKey(systemId),
+        key: healthEntityLockKey(entityId),
         fn: () => fn(),
       });
 }

@@ -17,11 +17,116 @@ An automation's definition (triggers + conditions + actions + mode) is stored as
 
 ## Row fields vs the definition
 
-A handful of operator-facing fields live as their own columns on the `automations` row rather than inside the `definition` JSON: `name`, `description`, `group`, and `status`. They are part of `AutomationSchema` (and the create / update inputs), not `AutomationDefinitionSchema`, so they are NOT round-tripped to YAML.
+A handful of operator-facing fields live as their own columns on the `automations` row rather than inside the `definition` JSON: `name`, `description`, `group`, `status`, and `runAs`. They are part of `AutomationSchema` (and the create / update inputs), not `AutomationDefinitionSchema`, so they are NOT round-tripped to YAML.
+
+`runAs` is the id of the application (service account) the automation runs as - see [Running as a service account](#running-as-a-service-account).
 
 `group` is a single optional free-text label (HA-style "category") used purely to organise the list view into collapsible sections. An empty / absent `group` means the automation lives in the implicit "Ungrouped" bucket. `listAutomations` accepts an optional `group` filter, and `listAutomationGroups` returns the distinct non-null group values (sorted) that power the editor's group picker. Because `group` is a row column, the list query can group and filter without parsing every definition blob.
 
 For declaratively managed automations, the group is expressed in GitOps metadata - see the [GitOps entity kinds reference](/checkstack/user-guide/reference/gitops-kinds/).
+
+## Running as a service account
+
+Every automation declares a `runAs` application (a [service account](/checkstack/user-guide/reference/api-keys/)). EVERY data-access call an action makes authenticates as that bounded identity, so an automation can never do more than its service account is allowed - the same access rules and team scope apply as for a human user.
+
+How it works:
+
+- At run time the dispatch engine builds a per-run RPC client bound to `runAs` (a backend-minted, short-lived, signed app-principal token) and threads it into every action's `execute` as `context.rpcClient`. The token resolves to an `application` principal, so it flows through the full access-rule and team-scope enforcement - it is never treated as a trusted `service` (which would bypass all checks). The model/actions therefore cannot escalate beyond the service account, even when fed untrusted input.
+- **Bind authority.** A user may only set `runAs` to an application whose access rules are a subset of their own (`isApplicationBindable`); a user can never grant an automation more authority than they hold. The editor's picker lists only bindable applications (`getBindableApplications`); the create / update handlers re-enforce it.
+- **Required.** `runAs` is required - an automation with no service account fails to run with a clear error rather than falling back to a trusted client. (Legacy rows created before this field must be assigned a service account before they run again.)
+- **GitOps.** Declarative automations set the service account via the `run-as` metadata label (admin/declarative, so no interactive bind check).
+- **Service-account permissions.** Grant the service account the access rules its actions need via roles - e.g. `notification.send` for the built-in `notify_user` action. Trusted backend services still bypass access checks; only principal-typed callers (users and service accounts) are gated.
+
+> [!NOTE]
+> Trigger and condition evaluation (event delivery, e.g. reading live health
+> state to decide whether to fire) runs on the platform's internal client, not
+> the service account. The `runAs` principal governs ACTION execution - the
+> work the automation performs.
+
+## The AI action
+
+The built-in `ai_analyze` action runs a bounded AI agent on the run context
+(the trigger payload + upstream artifacts, injected into the prompt). The agent
+can investigate and act through the SAME tools the chat assistant uses - but as
+the automation's `runAs` service account, so it can never exceed that identity's
+permissions. Destructive tools are never offered (no human to confirm); mutating
+tools auto-apply through the service account's own client.
+
+- **Config**: `connectionId` (an OpenAI-compatible AI integration, chosen via a
+  connection picker in the editor), optional `model` / `systemPrompt` /
+  `maxSteps`, the `prompt`, and optional `outputFields` - an author-defined set
+  of typed fields (`string`/`number`/`boolean`/`enum`) the agent fills.
+- **Artifact** (`automation.analysis`): `{ summary, data, toolCalls }` where
+  `data` is the author-defined structured object. Downstream actions `consume`
+  it and branch on a field (e.g. a "severity" enum).
+- **Engine**: the agent loop lives in `@checkstack/ai-backend` and is exposed as
+  the `aiAgentRunnerRef` service; `automation-backend` (which already depends on
+  ai-backend) drives it. The runner resolves the allowed tools for the run's
+  principal and executes them through the run's `rpcClient`.
+- **Notifying subscribers**: the health-check plugin contributes
+  `healthcheck.notifySystemSubscribers` / `notifySystemGroupSubscribers` tools
+  (and the chat assistant can use them too). They call
+  `notification.notifyForSubscription`, gated by the `notification.send` access
+  rule, so the service account must hold it.
+
+Example: a "system degraded" trigger -> an `ai_analyze` action that reads the
+incident/system state, opens an incident, notifies the system's subscribers, and
+emits a `severity` field a following action branches on.
+
+The agent is offered the service account's read + mutate tools - both
+hand-authored tools (run via their own handler) and projected `*.list` read
+tools (routed through the live router as the principal). Destructive tools are
+never offered. Every tool call the agent makes is written to the AI tool-call
+audit log (`ai_tool_calls`) under the `automation` transport.
+
+### Failing or stopping the run from an AI action
+
+The AI action plugs into the engine's normal control flow - it needs no special
+"AI can stop the run" power (which would hand a prompt-injectable model an
+availability lever and hide the decision from the automation graph).
+
+**If the AI step itself fails** (bad connection, no service account, the model
+errors), it returns failure and - like any action - halts the run by default.
+To make it best-effort so the rest of the run still proceeds, set
+`continue_on_error`:
+
+```yaml
+actions:
+  - id: analyze
+    action: automation.ai_analyze
+    continue_on_error: true # AI is best-effort; a failure here doesn't halt
+    config:
+      connectionId: my-openai
+      prompt: "Summarise the failure."
+```
+
+**To let the AI's *judgement* stop the run**, have it emit a structured field
+and gate the flow on it with the normal `choose` / `stop` primitives - the
+decision stays operator-authored and visible:
+
+```yaml
+actions:
+  - id: analyze
+    action: automation.ai_analyze
+    config:
+      connectionId: my-openai
+      prompt: "Analyse the failure. Set actionable=false for a known false positive."
+      outputFields:
+        - { key: actionable, type: boolean, description: "Should a human be paged" }
+        - { key: severity, type: enum, description: "Severity", options: [low, high] }
+  # Stop before paging when the AI judged this a non-actionable false positive.
+  - choose:
+      - when: "artifacts.analyze.analysis.data.actionable == false"
+        sequence:
+          - stop: { reason: "AI judged this a non-actionable false positive" }
+  - action: incident.create
+    config:
+      title: "{{ artifacts.analyze.analysis.summary }}"
+```
+
+The AI's output lives at `artifacts.<id>.analysis.data.<field>` (here
+`artifacts.analyze.analysis.data.actionable`); any condition, `choose`, or
+`stop` can read it.
 
 ## Dispatch lifecycle
 

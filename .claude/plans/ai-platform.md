@@ -404,7 +404,12 @@ export const aiAccessRules = [aiAccess.chatUse, aiAccess.toolsManage, aiAccess.m
 
 ---
 
-## 6. Bearer-JWT auth branch (`core/auth-backend/src/index.ts`)
+## 6. Bearer OAuth-token auth branch (`core/auth-backend/src/index.ts`)
+
+> **REVISED after §11 spike:** tokens are **opaque**, not JWT, so the branch
+> **introspects** the token instead of JWKS-verifying claims, and narrows the
+> live principal by the token's granted scopes. The seam, ordering, and
+> single-enforcement-point property are unchanged.
 
 ### 6.1 Where it hooks in
 
@@ -415,116 +420,133 @@ Today it has two branches:
 2. else → better-auth session → `enrichUserLocal` → `RealUser` (`:441-450`).
 
 Add a THIRD branch **between** them (after the `ck_` block returns/exits at
-`:439`, before the session fallback at `:441`): a `Bearer <jwt>` branch.
+`:439`, before the session fallback at `:441`): a `Bearer <opaque>` branch.
 
 ```ts
 // inside validate(request), after the ck_ branch:
 const authHeader = request.headers.get("authorization");
 if (authHeader?.startsWith("Bearer ") && !authHeader.startsWith("Bearer ck_")) {
-  const token = authHeader.slice(7);
-  const claims = await verifyOAuthAccessToken(token); // JWKS-verified (§6.2)
-  if (!claims) return; // not our token / invalid -> falls through to session
-  return await jwtPrincipalFromClaims(claims, db); // §6.3
+  // Opaque token: introspect against the oidcProvider token table (§6.2).
+  const session = await introspectOAuthAccessToken(request, auth); // OAuthAccessToken | null
+  if (!session) return; // not our token / expired -> falls through to session
+  return await principalFromOAuthSession(session, db); // §6.3 (narrows live rules)
 }
 ```
 
 This keeps `autoAuthMiddleware` ([rpc.ts:116](../../core/backend-api/src/rpc.ts#L116))
-the single enforcement point: the JWT branch only PRODUCES a principal; all
+the single enforcement point: the branch only PRODUCES a narrowed principal; all
 authorization still runs in the middleware exactly as for `ck_` keys.
 
-### 6.2 JWT verification
+### 6.2 Token introspection (REVISED after §11 spike — opaque tokens)
 
-`verifyOAuthAccessToken(token)` verifies the RS256 signature against the AS's
-JWKS. **Decided (§11): the better-auth `oidcProvider` plugin owns its own
-signing keys and JWKS** (it ships this), so verification uses the plugin's
-verifier / JWKS URL rather than the platform `keyStore`
-([core/backend/src/services/keystore.ts](../../core/backend/src/services/keystore.ts)).
-The existing `/.well-known/jwks.json` at
-[index.ts:292](../../core/backend/src/index.ts#L292) stays for the platform's own
-internal JWT use; the OAuth AS exposes its discovery + JWKS under the
-better-auth mount. Verify: signature, `iss` = this AS, `aud` includes the MCP
-resource, `exp`/`nbf`. Token introspection (revocation) is checked against the
-`oidcProvider` token table when the token is opaque; for JWT access tokens we
-accept short TTLs (§11) and rely on expiry.
+> **SPIKE OUTCOME (maintainer decision 2026-06-02): Option 1 — opaque tokens +
+> introspect-time narrowing.** The §11 spike found that better-auth `1.6.4`
+> (the version `^1.4.7` actually resolves to) issues **opaque** access tokens
+> (a random string persisted in the `oauthAccessToken` table), NOT JWTs, and
+> exposes **no** access-token claims hook. So there is nothing to JWKS-verify
+> and nothing was embedded into the token. `verifyOAuthAccessToken` is therefore
+> an **introspection** call, not a signature verify, and the scope-narrowing
+> seam moves from mint-time (§7, old) to this **resource-server validate** path.
 
-### 6.3 Claims → principal variant
+`introspectOAuthAccessToken(request)` resolves the opaque bearer token to its
+`OAuthAccessToken` DB row via the better-auth `mcp` plugin's `getMcpSession`
+(`auth.api.getMcpSession({ headers })` → the row `{ accessToken, scopes, userId,
+clientId, accessTokenExpiresAt, ... }` or `null`). The plugin already checks
+expiry/existence against its own `oauthAccessToken` table (so revocation +
+expiry are handled by deleting/expiring the row — no separate revocation list).
+The row's `scopes` (a space-delimited string of the **granted** scopes from the
+consent step) is what we narrow against the live principal in §6.3. There is one
+DB round-trip per protected call — the cost-profile change the maintainer signed
+off on. `oidcProvider` owns its own JWKS for the **id_token** only; the platform
+`keyStore` ([core/backend/src/services/keystore.ts](../../core/backend/src/services/keystore.ts))
+is untouched.
+
+### 6.3 Introspected token → narrowed principal (REVISED)
 
 ```ts
-async function jwtPrincipalFromClaims(claims, db): Promise<RealUser | ApplicationUser> {
-  // sub identifies the bound principal; the AS only ever issues tokens bound to
-  // a real `user` or an `application` (decision 4).
-  const { sub, principal_kind, scopes, team_ids } = claims; // narrowed at mint
-  if (principal_kind === "user") {
-    const base = await enrichUser(userRow(sub), db);   // utils/user.ts:11
-    return { ...base, accessRules: scopes, teamIds: team_ids }; // NARROWED override
-  }
-  // application: same enrichment shape as the ck_ branch (index.ts:426-433)
-  return {
-    type: "application", id: sub, name: appName(sub),
-    accessRules: scopes, teamIds: team_ids, roles: claims.roles ?? [],
-  };
+async function principalFromOAuthSession(session, db): Promise<RealUser | ApplicationUser | undefined> {
+  // session = the OAuthAccessToken row (sub = session.userId, granted = session.scopes)
+  const userRow = await findUserById(session.userId);
+  if (!userRow) return; // token bound to a vanished user -> not authenticated
+  const base = await enrichUser(userRow, db);          // utils/user.ts:11 — LIVE rules
+  const granted = session.scopes.split(" ").filter(Boolean);
+  // Narrow LIVE rules by the token's granted scopes (§7, now introspect-time):
+  const narrowedRules = narrowScopes({
+    requested: granted,
+    principalRules: base.accessRules ?? [],            // current, not frozen
+    catalog: await listRegisteredAccessRuleIds(db),    // for the "*" admin expansion + bundles
+  });
+  return { ...base, accessRules: narrowedRules /* teamIds inherited verbatim from base */ };
 }
 ```
 
-The crux: `enrichUser` (or the application enrichment) yields the principal's
-FULL access rules; the JWT branch then **overrides** `accessRules` and `teamIds`
-with the **narrowed** claim values minted into the token (§13). So the resulting
-principal is a real principal that has been *narrowed* — `autoAuthMiddleware`
-sees a smaller `accessRules`/`teamIds` set and enforces against it identically to
-a UI session. The narrowing cannot widen because the mint-time intersection
-(§13) only ever produces a subset (proven by §16 tests).
+The crux is unchanged in spirit and **strictly stronger** in practice: the
+principal is enriched to its **CURRENT** full access rules, then the token's
+granted scopes narrow them down. Because narrowing happens live on every call
+(not frozen into a JWT at mint), **a rule the principal has since LOST is
+dropped on the very next call** — there is no stale frozen-claim window. The
+result is a real principal with a smaller `accessRules` set that
+`autoAuthMiddleware` enforces identically to a UI session. `teamIds` are
+inherited verbatim from the live enrichment (team narrowing via scopes is a
+future extension, §17).
 
 ---
 
-## 7. Scope narrowing (mint-time, `core/auth-backend`)
+## 7. Scope narrowing (introspect-time, `core/auth-backend`) — REVISED
 
 ### 7.1 The algorithm
 
-At token-mint time (the `oidcProvider` claims hook, §13.1), given:
-- `requested: string[]` — scopes the client asked for (raw access-rule ids
-  and/or bundle ids, §12).
-- the bound principal (a `user` or `application`), from which we resolve, via the
-  SAME machinery the UI uses:
+> **REVISED:** runs at the **resource-server validate** path (§6.3), not at
+> mint. The math is identical to the old mint-time design; only *where* it runs
+> moved. `narrowScopes(...)` lives in `core/auth-backend/src/scope-narrowing.ts`
+> and is the single, pure, fuzz-tested function.
+
+Given:
+- `requested: string[]` — the token's **granted** scopes (raw access-rule ids
+  and/or bundle ids, §12) read from the introspected `OAuthAccessToken.scopes`.
+- the bound principal's **live** rules + teams, resolved via the SAME machinery
+  the UI uses:
   - `principalRules = enrichUser(...).accessRules` (admin → `["*"]`,
     [utils/user.ts:30](../../core/auth-backend/src/utils/user.ts#L30)), and
   - `principalTeams = ...teamIds`.
 
 Compute:
 ```
-expanded   = expandBundles(requested)            // §12 bundle layer
-candidate  = expanded ∩ effectiveRules(principalRules)
-             where effectiveRules("*") = the full registered access-rule set
+expanded   = expandBundles(requested, catalog)   // §12 bundle layer (catalog-derived)
+candidate  = expanded ∩ effectiveRules(principalRules, catalog)
+             where effectiveRules("*") = the full registered access-rule catalog
 narrowed   = candidate                            // never adds anything
-teamClaim  = principalTeams                        // tokens inherit the principal's team reach as-is
+teamClaim  = principalTeams                        // principal's live team reach, as-is
 ```
 
 - **Admin special case:** if `principalRules` contains `"*"`, `effectiveRules`
-  is the complete registered access-rule catalog (so an admin can mint a token
-  for any requested rule, but still ONLY the rules they explicitly requested —
-  the token is still narrowed to `requested`, never auto-granted `"*"`). The
-  minted token never carries `"*"`; it carries the concrete expanded set. This
-  prevents a leaked admin token from being a god-token.
+  is the complete registered access-rule catalog (so an admin's token can carry
+  any requested rule, but still ONLY the rules the token was granted — the
+  narrowed set is intersected with `requested`, never auto-granted `"*"`). The
+  narrowed principal never carries `"*"`; it carries the concrete expanded set.
+  This prevents a leaked admin token from being a god-token.
 - **Narrow-only invariant:** `narrowed ⊆ principalRules` (modulo the admin
   expansion) by set-intersection construction. There is NO path that adds a rule
-  the principal lacks. This is the property §16 fuzz-tests.
-- **No parallel ACL:** the only source of truth is the principal's real rules;
-  the token is a *projection* of them. There is no separate scope grant table to
-  drift (decision 4).
-- **Team reach:** the token inherits `principalTeams` verbatim; per-resource
-  team checks still run handler-side (S2S `checkResourceTeamAccess`,
+  the principal lacks. This is the property §16 fuzz-tests (now at introspect
+  time).
+- **No parallel ACL:** the only source of truth is the principal's **live**
+  rules; the token grants are a *filter* over them. There is no separate scope
+  grant table to drift (decision 4).
+- **Team reach:** the principal's live `principalTeams` apply verbatim;
+  per-resource team checks still run handler-side (S2S `checkResourceTeamAccess`,
   [router.ts:1743](../../core/auth-backend/src/router.ts#L1743)). We do NOT let a
   client request a team subset in v1 (scopes are access-rule ids, not team ids);
   team narrowing is a future extension flagged in §17.
 
-### 7.2 The exact claims hook used
+### 7.2 Where the narrowing runs (REVISED — no claims hook)
 
-Decided in §11: better-auth `oidcProvider` exposes a payload/claims
-customization callback at token issuance. The narrowing runs there, writing the
-custom claims `{ principal_kind, scopes, team_ids, roles }` onto the access
-token. The precise callback name is pinned in the §11 spike (the one real
-Phase-2 code probe), but the design above is callback-API-agnostic: wherever the
-hook lands, it receives the bound session/user and the requested scopes, and
-returns the narrowed claim set.
+There is no mint-time claims hook at better-auth 1.6.4 (§11). The narrowing runs
+in the **Bearer-token branch of `authenticationStrategyServiceRef.validate`**
+([core/auth-backend/src/index.ts:337](../../core/auth-backend/src/index.ts#L337)),
+between the `ck_` branch and the session fallback: introspect → enrich live →
+`narrowScopes` → narrowed principal. `autoAuthMiddleware` remains the single
+enforcement point ([rpc.ts:116](../../core/backend-api/src/rpc.ts#L116)); the
+branch only PRODUCES the narrowed principal.
 
 ---
 
@@ -596,29 +618,49 @@ returns the narrowed claim set.
 > Each of the 6 open items is converted to a DECIDED design + rationale, or an
 > explicit SPIKE task where a code prototype is genuinely required first.
 
-### 11. better-auth `oidcProvider`/`mcp` version + claims-hook API at 1.4.7 — SPIKE (the one real probe)
+### 11. better-auth `oidcProvider`/`mcp` API — SPIKE RESOLVED (2026-06-02)
 
-**Decision: keep as a tightly-scoped Phase-2 spike, because it is the single
-fact that cannot be settled by reading the Checkstack repo — it depends on the
-exact `better-auth@1.4.7` plugin API surface.** Both `auth-backend` and `backend`
-pin `better-auth@^1.4.7`
-([core/auth-backend/package.json](../../core/auth-backend/package.json),
-[core/backend/package.json](../../core/backend/package.json)).
+**Spike ran against the actually-installed `better-auth@1.6.4`** (the version
+`^1.4.7` resolves to in the lockfile — see `SPIKE-findings.md` for the full
+probe with impl line anchors). Outcome: **two material divergences** from the
+original assumptions, resolved by maintainer decision (Option 1):
 
-Spike deliverable (timeboxed, ~½ day, lands as a throwaway branch + a findings
-note appended to this section):
-1. Confirm `oidcProvider` + `mcp` exist and are mutually compatible at 1.4.7.
-2. Pin the exact claims/payload-customization callback (name + signature) used in
-   §7.2 and the `withMcpAuth` wrapper signature used in §9.
-3. Confirm whether `oidcProvider` issues JWT or opaque access tokens at 1.4.7 and
-   whether it ships its own JWKS (assumed yes in §6.2). If opaque, the §6.2
-   verifier becomes an introspection call instead of a JWKS verify — the §6
-   branch design is unaffected (it abstracts behind `verifyOAuthAccessToken`).
-4. Confirm consent-screen + DCR toggle hooks.
+1. **Access tokens are OPAQUE, not JWT.** `oidcProvider` generates the access
+   token as `generateRandomString(32, ...)` and persists it to the
+   `oauthAccessToken` DB row. The only `SignJWT` is for the **id_token**. So
+   §6.2 is an **introspection** call (`auth.api.getMcpSession` → the DB row),
+   not a JWKS verify. One DB round-trip per protected call — the cost-profile
+   change the maintainer signed off on (was the §20 heads-up).
+2. **No access-token claims hook.** The only claims callback,
+   `getAdditionalUserInfoClaim(user, scopes, client)`, applies ONLY to the
+   userinfo endpoint and the id_token, never the access token. So the
+   scope-narrowing seam **moves from mint-time to the resource-server validate
+   path** (§6.3, §7.2). This is arguably MORE correct: narrowing live on every
+   call means a rule the principal has since lost is dropped immediately, with
+   no stale frozen-claim window.
 
-Everything else in §6/§7/§9 is API-shape-agnostic by construction, so the spike
-only pins names, not architecture. **DECISION (key store):** the `oidcProvider`
-plugin owns the AS signing keys/JWKS; the platform `keyStore` is untouched.
+Confirmed present and usable at 1.6.4:
+- `oidcProvider` + `mcp` plugins exist and are mutually compatible (the `mcp`
+  plugin re-uses `oidcProvider`'s `oauthAccessToken`/`oauthApplication`/
+  `oauthConsent` schema and `OIDCOptions`).
+- `withMcpAuth(auth, (req, session: OAuthAccessToken) => Response)` wraps the
+  protected handler (§9); `getMcpSession` does the introspection.
+- DCR: `POST /mcp/register` + `oidcConfig.allowDynamicClientRegistration`
+  toggle. Consent: `consentPage` / `getConsentHTML` + `POST /oauth2/consent`.
+- Discovery: `/.well-known/oauth-authorization-server` +
+  `/.well-known/oauth-protected-resource` (via the `mcp` plugin).
+
+**DECISIONS:**
+- **Key store:** `oidcProvider` owns its own JWKS (id_token only); the platform
+  `keyStore` is untouched.
+- **Pin:** tighten `better-auth` to `^1.6.4` in both `auth-backend` and
+  `backend` `package.json` (the design now depends on 1.6.x introspection
+  behavior). The old `^1.4.7` floated to 1.6.4 anyway.
+- **Deprecation follow-up (NOT in scope now):** `oidcProvider` is
+  `@deprecated` at 1.6.4 ("use `@better-auth/oauth-provider`; removed next
+  major"). It is fully functional today. Migrating to
+  `@better-auth/oauth-provider` is an explicit future task (§17) — it must be
+  re-spiked (its token format + claims surface are unknown) before adoption.
 
 ### 12. Scope grammar: raw IDs vs bundles — LOCKED (maintainer 2026-06-01): raw access-rule IDs + the `checkstack:read` / `checkstack:write` two-bundle layer
 
@@ -733,9 +775,9 @@ page in the SAME PR ([.claude/rules/architecture.md](../rules/architecture.md)).
 | 2 | 1 | `core/ai-backend/src/resolver.test.ts` | `isAllowed` ≡ middleware | For a matrix of (rules, tool.requiredAccessRules), `isAllowed` returns exactly what `autoAuthMiddleware`'s global-rule check would (mirrors rpc.ts:258-260). |
 | 3 | 1 | `core/ai-backend/src/projection.test.ts` | `expose()` | A projected tool's `requiredAccessRules` equals the source procedure's `~orpc.meta.access`; `expose` throws if `effect` omitted. |
 | 4 | 1 | `core/ai-backend/src/serializer.test.ts` | tool serializer | `toJsonSchema()` output for a tool input matches the same procedure's OpenAPI schema (no second serializer drift). |
-| 5 | 2 | `core/auth-backend/src/scope-narrowing.test.ts` | `narrow()` (§7) | **Property/fuzz:** for any `requested` and any `principalRules`, `narrowed ⊆ principalRules` (admin-expanded) — narrowing can NEVER widen. |
+| 5 | 2 | `core/auth-backend/src/scope-narrowing.test.ts` | `narrowScopes()` (§7) | **Property/fuzz:** for any `requested` (granted scopes) and any `principalRules`, `narrowed ⊆ principalRules` (admin-expanded) — narrowing can NEVER widen. |
 | 6 | 2 | `core/auth-backend/src/scope-narrowing.test.ts` | bundle expansion | `checkstack:write ∩ principalRules` never yields a rule the principal lacks; bundles derive from the live catalog. |
-| 7 | 2 | `core/auth-backend/src/jwt-branch.test.ts` | §6.3 | A JWT with narrowed `scopes` produces a principal whose `accessRules` equals the claim (NOT the principal's full rules); a forged/expired token returns `undefined` (falls through, not authenticated). |
+| 7 | 2 | `core/auth-backend/src/oauth-branch.test.ts` | §6.3 | An introspected token whose granted scopes are a subset produces a principal whose `accessRules` equals `granted ∩ liveRules` (NOT the principal's full rules); a token bound to a vanished user / a non-introspectable token returns `undefined` (falls through, not authenticated). Narrowing uses LIVE rules, so a rule the principal has since lost is dropped. |
 | 8 | 2 | `core/ai-backend/src/mcp-auth.test.ts` | MCP authz | An MCP call for a tool outside the token's scopes is rejected by `autoAuthMiddleware`, not just hidden by the resolver (handler-side authz holds when the model misbehaves). |
 | 9 | 2 | `core/ai-backend/src/mcp-conformance.it.test.ts` | MCP wire | Streamable-HTTP initialize/list-tools/call round-trips against the SDK conformance expectations (env-gated `*.it.test.ts`). |
 | 10 | 2 | `core/auth-backend/src/dcr-ratelimit.it.test.ts` | DCR throttle (§14.5) | N rapid DCR registrations from one IP hit the shared-Postgres limit; the limit holds when the counter is read from a second simulated pod (scale-correctness). |
@@ -790,6 +832,16 @@ env-gated convention (`CHECKSTACK_IT=1`) so the default `bun test` stays fast.
    no secret crosses a DTO), MCP conformance, rate-limit/DCR abuse tests; finalize
    all `ai/` docs pages and changesets.
 
+### Future extensions (post-MVP, not scheduled)
+
+- **Team-subset scopes.** v1 inherits the principal's full team reach; let a
+  client request a team subset in its scopes (§7.1).
+- **Migrate off the deprecated `oidcProvider`.** `oidcProvider` is `@deprecated`
+  at better-auth 1.6.4 (replacement: `@better-auth/oauth-provider`). It is fully
+  functional today, but a future task must re-spike the replacement's token
+  format + claims surface (it may restore JWT access tokens / a claims hook) and
+  migrate the AS wiring + the introspection branch (§6.2) accordingly.
+
 ---
 
 ## 18. Risks & mitigations
@@ -839,16 +891,20 @@ env-gated convention (`CHECKSTACK_IT=1`) so the default `bun test` stays fast.
      registry, marked `declareNonReactiveState({ reason: "bookkeeping" })` (never
      a source of truth) — same exception class as the existing WebSocket registry.
 
-## 20. Decision log + the one remaining heads-up
+## 20. Decision log
 
-All three previously-open policy knobs are now LOCKED (maintainer 2026-06-01):
+All three previously-open policy knobs are LOCKED (maintainer 2026-06-01):
 - **Scope grammar (§12):** raw access-rule IDs + the `checkstack:read` /
   `checkstack:write` two-bundle layer (expanded before intersection, narrow-only).
 - **Proposal-token TTL (§13.4):** 10 minutes.
 - **LLM spend cap (§14.6):** off by default; the config knob exists.
 
-Remaining informational heads-up (not a knob — surfaces from the one scoped spike):
-- **§11 spike outcome may pin the OAuth token as opaque (introspection) rather
-  than JWT.** The §6 branch absorbs this, but it changes the verification cost
-  profile (an introspection round-trip per call vs a local JWKS verify). Note for
-  review once the spike lands.
+**§11 spike RESOLVED — Option 1 (maintainer 2026-06-02):**
+- **OAuth tokens are opaque** at better-auth 1.6.4; validation is an
+  introspection round-trip per call (cost-profile change accepted).
+- **Scope narrowing moves from mint-time to the resource-server validate path**
+  (§6.3, §7.2). The narrow-only invariant is unchanged and is enforced live on
+  every call (strictly stronger than frozen mint-time claims).
+- **`better-auth` pinned to `^1.6.4`** (was `^1.4.7`, floated to 1.6.4).
+- **Follow-up (out of scope):** migrate off the now-`@deprecated`
+  `oidcProvider` to `@better-auth/oauth-provider` — requires its own spike (§17).

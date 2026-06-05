@@ -47,6 +47,10 @@ export const ScriptServicesBooter: React.FC = () => {
         minHeight="1px"
         allowPopout={false}
         readOnly
+        // Never let this hidden editor be the sole cold-init driver: a hidden
+        // editor's monaco-vscode init may never complete. It defers to a
+        // visible editor, then attaches once services are up.
+        deferInit
       />
     </div>
   );

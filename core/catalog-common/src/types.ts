@@ -66,6 +66,27 @@ export const GroupSchema = z.object({
 });
 export type Group = z.infer<typeof GroupSchema>;
 
+export const EnvironmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  systemIds: z.array(z.string()), // Required field from the service layer
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+export type Environment = z.infer<typeof EnvironmentSchema>;
+
+export const CreateEnvironmentSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type CreateEnvironment = z.infer<typeof CreateEnvironmentSchema>;
+
+export const UpdateEnvironmentSchema = CreateEnvironmentSchema.partial();
+export type UpdateEnvironment = z.infer<typeof UpdateEnvironmentSchema>;
+
 export const ViewSchema = z.object({
   id: z.string(),
   name: z.string(),

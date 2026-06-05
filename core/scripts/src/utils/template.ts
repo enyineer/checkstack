@@ -17,6 +17,28 @@ export interface TemplateData {
   pluginId: string;
   pluginType: string;
   currentYear: number;
+  /**
+   * npm scope for the *generated* packages, WITHOUT the leading `@`
+   * (e.g. `acme`). Defaults to `checkstack` so the in-monorepo `create`
+   * command renders byte-for-byte identical output to before. An empty
+   * string means "publish the trio unscoped" (e.g. `widget-backend`),
+   * which the {@link scopedPackageName} helper handles.
+   */
+  packageScope: string;
+}
+
+/**
+ * Build a published package name from a scope + bare name. With a scope:
+ * `@acme/widget-backend`; without (empty scope): `widget-backend`.
+ */
+export function scopedPackageName({
+  packageScope,
+  name,
+}: {
+  packageScope: string;
+  name: string;
+}): string {
+  return packageScope ? `@${packageScope}/${name}` : name;
 }
 
 /**
@@ -45,6 +67,19 @@ export function registerHelpers() {
   Handlebars.registerHelper("year", () => {
     return new Date().getFullYear();
   });
+
+  // `{{scoped "widget-common"}}` -> `@<packageScope>/widget-common`, or
+  // just `widget-common` when packageScope is empty. The scope is read from
+  // the template data root so callers don't repeat it at every use site.
+  Handlebars.registerHelper(
+    "scoped",
+    function (this: { packageScope?: string }, name: string) {
+      return scopedPackageName({
+        packageScope: this.packageScope ?? "checkstack",
+        name,
+      });
+    },
+  );
 }
 
 /**
@@ -127,10 +162,16 @@ export function prepareTemplateData({
   baseName,
   pluginType,
   description,
+  packageScope = "checkstack",
 }: {
   baseName: string;
   pluginType: string;
   description: string;
+  /**
+   * npm scope (without `@`) for the generated packages. Defaults to
+   * `checkstack` (the monorepo scope); pass `""` for an unscoped trio.
+   */
+  packageScope?: string;
 }): TemplateData {
   const pluginName = `${baseName}-${pluginType}`;
   const pluginNamePascal = baseName
@@ -150,5 +191,6 @@ export function prepareTemplateData({
     pluginId: pluginName,
     pluginType,
     currentYear: new Date().getFullYear(),
+    packageScope,
   };
 }

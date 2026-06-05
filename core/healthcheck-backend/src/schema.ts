@@ -98,6 +98,20 @@ export const systemHealthChecks = pgTable(
      */
     satelliteIds: jsonb("satellite_ids").$type<string[]>(),
     /**
+     * Per-assignment environment selector for per-environment fan-out.
+     *
+     * Semantics (null vs [] are SEMANTICALLY DISTINCT here, unlike most
+     * nullable jsonb in this schema):
+     * - `null`  => all environments the system currently belongs to.
+     * - `[]`    => opt out: run ONCE with no environment in context.
+     * - non-empty => exactly those environment ids, intersected with the
+     *   system's current membership (a removed env silently drops out).
+     *
+     * The service distinguishes `row.environmentIds === null` from
+     * `length === 0`; jsonb stores both faithfully.
+     */
+    environmentIds: jsonb("environment_ids").$type<string[]>(),
+    /**
      * Whether to also run this check locally on the core instance.
      * Defaults to true. Only relevant when satelliteIds is set.
      */
@@ -145,22 +159,30 @@ export const healthCheckStateTransitions = pgTable(
     configurationId: uuid("configuration_id")
       .notNull()
       .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
+    /**
+     * Environment this transition belongs to. null = a transition recorded
+     * for an env-less run (the opt-out / no-membership case). Per-environment
+     * transitions stay distinct so "in status since" is env-scoped.
+     */
+    environmentId: text("environment_id"),
     fromStatus: healthCheckStatusEnum("from_status"),
     toStatus: healthCheckStatusEnum("to_status").notNull(),
     transitionedAt: timestamp("transitioned_at").defaultNow().notNull(),
   },
   (t) => ({
-    // Powers "most recent transition into status X for this system"
-    // (WHERE system_id = ? AND to_status = ? ORDER BY transitioned_at DESC).
+    // Powers "most recent transition into status X for this system+env"
+    // (WHERE system_id = ? AND environment_id = ? AND to_status = ?
+    //  ORDER BY transitioned_at DESC).
     lookupIdx: index("health_check_state_transitions_lookup_idx").on(
       t.systemId,
+      t.environmentId,
       t.toStatus,
       t.transitionedAt,
     ),
-    // Powers the retention "keep newest per system" sweep.
+    // Powers the retention "keep newest per system+env" sweep.
     systemRecentIdx: index(
       "health_check_state_transitions_system_recent_idx",
-    ).on(t.systemId, t.transitionedAt),
+    ).on(t.systemId, t.environmentId, t.transitionedAt),
   }),
 );
 
@@ -170,6 +192,15 @@ export const healthCheckRuns = pgTable("health_check_runs", {
     .notNull()
     .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
   systemId: text("system_id").notNull(),
+  /**
+   * Environment this run was executed for (per-environment fan-out).
+   * null = ran with no environment (the opt-out / no-membership case,
+   * which is exactly the pre-feature behavior). Nullable text, NOT a FK
+   * to the catalog `environments` table (healthcheck and catalog are
+   * separate plugins with separate Postgres schemas, mirroring how
+   * `systemId` is a bare text with no FK to `systems`).
+   */
+  environmentId: text("environment_id"),
   status: healthCheckStatusEnum("status").notNull(),
   /** Execution duration in milliseconds */
   latencyMs: integer("latency_ms"),
@@ -207,6 +238,11 @@ export const healthCheckAggregates = pgTable(
       .notNull()
       .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
     systemId: text("system_id").notNull(),
+    /**
+     * Environment this bucket aggregates. null = env-less runs. Part of the
+     * unique key so per-environment buckets stay separate.
+     */
+    environmentId: text("environment_id"),
     bucketStart: timestamp("bucket_start").notNull(),
     bucketSize: bucketSizeEnum("bucket_size").notNull(),
 
@@ -238,12 +274,14 @@ export const healthCheckAggregates = pgTable(
     sourceLabel: text("source_label"),
   },
   (t) => ({
-    // Unique constraint includes sourceId for per-region aggregation.
-    // NULLS NOT DISTINCT ensures local runs (sourceId=NULL) correctly
+    // Unique constraint includes environmentId (per-environment fan-out)
+    // and sourceId (per-region aggregation). NULLS NOT DISTINCT ensures
+    // env-less / local runs (environmentId / sourceId = NULL) correctly
     // conflict-match instead of creating duplicate rows per hour.
     bucketUnique: unique("health_check_aggregates_bucket_unique").on(
       t.configurationId,
       t.systemId,
+      t.environmentId,
       t.bucketStart,
       t.bucketSize,
       t.sourceId,

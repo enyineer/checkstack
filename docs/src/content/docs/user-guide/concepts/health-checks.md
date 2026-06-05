@@ -35,6 +35,8 @@ The platform schedules each check independently. A check with `intervalSeconds: 
 
 If you need a check to run from another network, attach **satellites** to it. Each satellite executes the check on its side and ships results back. You can also keep running the check locally at the same time (the `includeLocal` toggle in the editor). See [Satellites](/checkstack/user-guide/concepts/satellites/).
 
+A check also **fans out into one run per environment** the system belongs to, so a single check covers staging and production without duplication. You pick the environment set per assignment (All / Specific / None) in the **Execution** panel, and each run is stored with its own `environmentId`. See [Environments](/checkstack/user-guide/concepts/environments/) for the fan-out model and run identity.
+
 > [!TIP]
 > Picking the right interval is a trade-off. Faster checks catch incidents sooner; slower checks generate less load and noise. 30 to 60 seconds is a good default. For checks that are expensive (large SQL queries, slow third-party APIs) consider 5 minutes or more.
 

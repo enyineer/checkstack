@@ -75,6 +75,7 @@ export async function startWaitTimeoutQueueConsumer(
           name: automation.name,
           status: automation.status,
           definition: automation.definition,
+          runAs: automation.runAs ?? null,
         },
       });
     },

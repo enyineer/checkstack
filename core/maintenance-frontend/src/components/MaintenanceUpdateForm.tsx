@@ -12,8 +12,8 @@ import {
   SelectContent,
   SelectItem,
   useToast,
+  Spinner,
 } from "@checkstack/ui";
-import { Loader2 } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
 
 interface MaintenanceUpdateFormProps {
@@ -111,7 +111,7 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
         >
           {addUpdateMutation.isPending ? (
             <>
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              <Spinner size="sm" className="mr-1" />
               Posting...
             </>
           ) : (

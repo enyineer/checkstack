@@ -14,6 +14,8 @@ export {
   SloStatusSchema,
   CreateSloObjectiveInputSchema,
   UpdateSloObjectiveInputSchema,
+  SloWindowDaysSchema,
+  SLO_MAX_WINDOW_DAYS,
   type DependencyExclusionMode,
   type AttributionType,
   type AchievementType,

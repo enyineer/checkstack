@@ -1,0 +1,58 @@
+name: checkstack-satellite
+
+# Standalone Checkstack Satellite deployment.
+#
+# A satellite runs health checks from a remote vantage point and connects back
+# to your core over an authenticated WebSocket. It runs on a DIFFERENT host than
+# the core, so it ships as its own compose file (no shared network, no core
+# service here).
+#
+# Create the satellite in the core UI (Satellites -> Create), copy the client id
+# and token, then set them below (an `.env` next to this file is the easy way):
+#
+#   CHECKSTACK_CORE_URL=https://checkstack.example.com
+#   CHECKSTACK_SATELLITE_CLIENT_ID=...
+#   CHECKSTACK_SATELLITE_TOKEN=...
+#
+# IMPORTANT - script sandbox: a satellite EXECUTES user scripts (script health
+# checks, collectors), so it confines them with the same rootless-bubblewrap
+# sandbox as the core. The sandbox is FAIL-CLOSED by default: without the two
+# `security_opt` relaxations below the satellite will REFUSE to run every script
+# check (you'll see runs error rather than execute). The two relaxations are:
+#   1. a seccomp profile that permits the unprivileged user-namespace + bwrap
+#      syscalls (the bundled TUNED profile is tighter than `unconfined`), and
+#   2. `systempaths=unconfined`, so bwrap can mount a fresh /proc inside the
+#      namespace.
+#
+# The seccomp profile is read by the Docker daemon from a HOST path at container
+# start, so it must exist on THIS host next to this file. The profile is bundled
+# INSIDE the satellite image (version-matched to the agent), so extract it once -
+# this works fully offline / air-gapped, no GitHub or core access needed:
+#
+#   docker run --rm ghcr.io/enyineer/checkstack-satellite:latest \
+#     print-seccomp > checkstack-userns.json
+#
+# If you cannot ship the profile file, replace the first line under
+# `security_opt` with `seccomp=unconfined` (still non-root + namespaced, just a
+# looser syscall filter). If your platform can relax NEITHER seccomp nor /proc,
+# set the global sandbox policy to `degrade` in the core admin settings (an
+# explicit, audited decision). Full rationale:
+# https://enyineer.github.io/checkstack/developer-guide/security/script-sandbox/
+
+services:
+  satellite:
+    image: ghcr.io/enyineer/checkstack-satellite:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CHECKSTACK_CORE_URL: ${CHECKSTACK_CORE_URL}
+      CHECKSTACK_SATELLITE_CLIENT_ID: ${CHECKSTACK_SATELLITE_CLIENT_ID}
+      CHECKSTACK_SATELLITE_TOKEN: ${CHECKSTACK_SATELLITE_TOKEN}
+    # Required for the fail-closed script sandbox to actually run (see the note
+    # above). Without BOTH lines, script-based health checks are refused.
+    security_opt:
+      - seccomp=./checkstack-userns.json
+      - systempaths=unconfined
+    # Optional hard ceilings (shell scripts have no per-run memory cap):
+    # mem_limit: 1g
+    # pids_limit: 512

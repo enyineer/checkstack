@@ -8,7 +8,10 @@ import {
   ANOMALY_TREND_DETECTED,
   detectDrift,
   resolveEffectiveConfig,
+  isDriftFlatRelative,
+  STABLE_DRIFT_RESOLUTION_RUN_COUNT,
   type AnomalyDirection,
+  type AnomalyMetadata,
   type AnomalySettings,
   type FieldBaseline,
 } from "@checkstack/anomaly-common";
@@ -170,7 +173,7 @@ export async function evaluateDrift({
             deviation: driftResult.deviationSigmas,
           })
           .where(eq(schema.anomalies.id, existing.id));
-        logger.warn(`Drift confirmed for ${systemId} on ${fieldPath}`);
+        logger.debug(`Drift confirmed for ${systemId} on ${fieldPath}`);
 
         if (signalService) {
           await signalService.broadcast(ANOMALY_STATE_CHANGED, {
@@ -211,11 +214,65 @@ export async function evaluateDrift({
     }
 
     if (existing.state === "anomaly") {
+      // PART A (drift self-resolution): the slope-based detector still reports
+      // drift because the 7-day window straddles the old and new regimes, but
+      // if the *projected change relative to the (new) mean* has gone flat for
+      // several consecutive analyzer runs, the metric has settled at its new
+      // level — resolve independently of the slow window catching up. The
+      // run-count lives on the row's metadata (shared Postgres) so it survives
+      // across whichever pod claims the analyzer job.
+      const metadata = (existing.metadata ?? {}) as AnomalyMetadata;
+      const flat = isDriftFlatRelative({
+        projectedChange: driftResult.projectedChange,
+        mean: baseline.mean,
+      });
+      const stableDriftRunCount = flat
+        ? (metadata.stableDriftRunCount ?? 0) + 1
+        : 0;
+
+      if (stableDriftRunCount >= STABLE_DRIFT_RESOLUTION_RUN_COUNT) {
+        await db
+          .update(schema.anomalies)
+          .set({
+            state: "recovered",
+            recoveredAt: new Date(),
+            observedValue: baseline.mean.toString(),
+            deviation: driftResult.deviationSigmas,
+            metadata: { ...metadata, stableDriftRunCount: 0 },
+          })
+          .where(eq(schema.anomalies.id, existing.id));
+        logger.debug(
+          `Drift self-resolved (settled at new level) for ${systemId} on ${fieldPath}`,
+        );
+
+        if (signalService) {
+          await signalService.broadcast(ANOMALY_STATE_CHANGED, {
+            systemId,
+            anomalyId: existing.id,
+            newState: "recovered",
+          });
+        }
+
+        await dispatchAnomalyNotification({
+          action: "drift_recovered",
+          systemId,
+          fieldPath,
+          observedValue: baseline.mean,
+          baselineMean: baseline.mean,
+          catalogClient,
+          notificationClient,
+          db,
+          logger,
+        });
+        return;
+      }
+
       await db
         .update(schema.anomalies)
         .set({
           observedValue: baseline.mean.toString(),
           deviation: driftResult.deviationSigmas,
+          metadata: { ...metadata, stableDriftRunCount },
         })
         .where(eq(schema.anomalies.id, existing.id));
       return;
@@ -241,9 +298,12 @@ export async function evaluateDrift({
         state: "recovered",
         recoveredAt: new Date(),
         observedValue: baseline.mean.toString(),
+        suppressedAt: null,
+        suppressedValue: null,
+        suppressedBaseline: null,
       })
       .where(eq(schema.anomalies.id, existing.id));
-    logger.info(`Drift recovered for ${systemId} on ${fieldPath}`);
+    logger.debug(`Drift recovered for ${systemId} on ${fieldPath}`);
 
     if (signalService) {
       await signalService.broadcast(ANOMALY_STATE_CHANGED, {

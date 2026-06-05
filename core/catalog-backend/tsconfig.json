@@ -5,6 +5,12 @@
   ],
   "references": [
     {
+      "path": "../ai-backend"
+    },
+    {
+      "path": "../ai-common"
+    },
+    {
       "path": "../auth-backend"
     },
     {

@@ -1,8 +1,14 @@
 import { z } from "zod";
-import { createClientDefinition, proc } from "@checkstack/common";
-import { scriptPackagesAccess } from "./access";
+import {
+  createClientDefinition,
+  proc,
+  sandboxPolicySchema,
+} from "@checkstack/common";
+import { scriptPackagesAccess, scriptSandboxAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import {
+  AuditReportSchema,
+  AuditRunSummarySchema,
   BlobGcStateSchema,
   BlobGcSummarySchema,
   GetPackageVersionsInputSchema,
@@ -208,6 +214,33 @@ export const scriptPackagesContract = {
     access: [scriptPackagesAccess.manage],
   }).output(BlobGcStateSchema),
 
+  // ─── Vulnerability audit (manage) ──────────────────────────────────────
+
+  /**
+   * Current audit findings (all severities) plus the last-run summary, for
+   * the settings UI. Reads from the plugin's own Postgres tables, so every
+   * pod returns the same advisories regardless of which pod ran the audit.
+   */
+  getAuditState: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  }).output(AuditReportSchema),
+
+  /**
+   * Run a vulnerability audit on demand: `bun audit --json` against the
+   * current resolved tree, persist the advisories, and notify
+   * `script-packages.manage` holders about newly-appeared / escalated
+   * advisories at or above the notify threshold. Elected via the installer
+   * advisory lock (refuses while an install / migration / GC holds it), so
+   * `ran: false` with a `reason` means "retry later".
+   */
+  auditNow: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [scriptPackagesAccess.manage],
+  }).output(AuditRunSummarySchema),
+
   // ─── Per-host status (manage) ──────────────────────────────────────────
 
   listSatelliteSyncState: proc({
@@ -236,6 +269,40 @@ export const scriptPackagesContract = {
       }),
     )
     .output(z.object({ success: z.boolean() })),
+
+  // ─── Global sandbox policy (admin-only, dedicated permission) ───────────
+
+  /**
+   * Read the resolved, durable GLOBAL script-sandbox policy. This is the
+   * SINGLE cluster-wide source of truth that every script runner (core +
+   * satellite) enforces. Admin-only (`script-sandbox.manage`): the policy
+   * reveals the cluster's exact egress / filesystem / privilege posture.
+   *
+   * Also called server-to-server by the script plugins' policy provider (so
+   * every runner resolves the identical row) and by satellite-backend to relay
+   * the policy to connected satellites - both authenticate as services with
+   * the necessary access.
+   */
+  getSandboxPolicy: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [scriptSandboxAccess.manage],
+  }).output(sandboxPolicySchema),
+
+  /**
+   * Persist the GLOBAL script-sandbox policy. The input is treated as a PARTIAL
+   * override merged over the shipped safe default, so loosening a single layer
+   * does not silently reset the others. Returns the fully-resolved policy that
+   * was stored. Admin-only (`script-sandbox.manage`). On success the backend
+   * broadcasts the new policy to all connected satellites.
+   */
+  setSandboxPolicy: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [scriptSandboxAccess.manage],
+  })
+    .input(sandboxPolicySchema)
+    .output(sandboxPolicySchema),
 
   // ─── Authoring / runtime (read) ────────────────────────────────────────
 

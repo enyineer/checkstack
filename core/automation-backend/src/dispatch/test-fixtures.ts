@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { Versioned } from "@checkstack/backend-api";
+import type { RpcClient } from "@checkstack/backend-api";
 import { createDefaultFilterRegistry } from "@checkstack/template-engine";
 import type { ActionDefinition } from "../action-types";
 import { createActionRegistry, type ActionRegistry } from "../action-registry";
@@ -735,6 +736,8 @@ export function makeDispatchDeps(opts?: {
     getService: async () => {
       throw new Error("getService not stubbed for this test");
     },
+    rpcClientForApplication: async () =>
+      ({ forPlugin: () => ({}) as never }) as unknown as RpcClient,
   };
   if (opts?.withConcurrencyLock) {
     // A faithful keyed async mutex: a second caller for the same key awaits

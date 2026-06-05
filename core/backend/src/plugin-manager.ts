@@ -197,11 +197,15 @@ export class PluginManager {
   async loadPlugins(
     rootRouter: Hono,
     manualPlugins: BackendPlugin[] = [],
-    options: { skipDiscovery?: boolean } = {}
+    options: {
+      skipDiscovery?: boolean;
+      manualPluginPaths?: Map<string, string>;
+    } = {}
   ) {
     await loadPluginsImpl({
       rootRouter,
       manualPlugins,
+      manualPluginPaths: options.manualPluginPaths,
       skipDiscovery: options.skipDiscovery,
       deps: {
         registry: this.registry,

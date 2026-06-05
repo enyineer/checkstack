@@ -1,4 +1,6 @@
 import React, { useRef } from "react";
+import { cn } from "../utils";
+import { usePerformance } from "./PerformanceProvider";
 
 export interface TabItem {
   id: string;
@@ -126,13 +128,17 @@ export const TabPanel: React.FC<TabPanelProps> = ({
   className = "",
 }) => {
   const isActive = activeTab === id;
+  const { isLowPower } = usePerformance();
 
   return isActive ? (
     <div
       id={`tabpanel-${id}`}
       role="tabpanel"
       aria-labelledby={`tab-${id}`}
-      className={`animate-in fade-in-0 duration-200 ${className}`}
+      className={cn(
+        !isLowPower && "animate-in fade-in-0 duration-200",
+        className,
+      )}
     >
       {children}
     </div>

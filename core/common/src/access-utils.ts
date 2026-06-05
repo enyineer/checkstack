@@ -126,6 +126,26 @@ export function qualifyAccessRuleId(
 }
 
 /**
+ * Pure predicate: does a set of granted access-rule ids satisfy a rule?
+ *
+ * This is the single source of truth for client-side access checks - the
+ * `useAccess` API and the sidebar both delegate here so nav visibility always
+ * matches page accessibility. A rule is satisfied by the wildcard `*`, an exact
+ * id match, or (for `read` rules) a `manage` grant on the same resource.
+ */
+export function isAccessRuleSatisfied(
+  grantedRuleIds: readonly string[],
+  rule: Pick<AccessRule, "id" | "resource" | "level">,
+): boolean {
+  if (grantedRuleIds.includes("*")) return true;
+  if (grantedRuleIds.includes(rule.id)) return true;
+  if (rule.level === "read") {
+    return grantedRuleIds.includes(`${rule.resource}.manage`);
+  }
+  return false;
+}
+
+/**
  * Creates an access rule for a resource.
  *
  * @param resource - The resource name (e.g., "system", "incident")

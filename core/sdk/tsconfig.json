@@ -1,0 +1,78 @@
+{
+  "extends": "@checkstack/tsconfig/common.json",
+  "include": [
+    "src",
+    "generated"
+  ],
+  "references": [
+    {
+      "path": "../announcement-common"
+    },
+    {
+      "path": "../anomaly-common"
+    },
+    {
+      "path": "../auth-common"
+    },
+    {
+      "path": "../automation-common"
+    },
+    {
+      "path": "../cache-common"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../command-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dependency-common"
+    },
+    {
+      "path": "../gitops-common"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../incident-common"
+    },
+    {
+      "path": "../integration-common"
+    },
+    {
+      "path": "../maintenance-common"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
+      "path": "../pluginmanager-common"
+    },
+    {
+      "path": "../queue-common"
+    },
+    {
+      "path": "../satellite-common"
+    },
+    {
+      "path": "../script-packages-common"
+    },
+    {
+      "path": "../secrets-common"
+    },
+    {
+      "path": "../slo-common"
+    },
+    {
+      "path": "../theme-common"
+    },
+    {
+      "path": "../tips-common"
+    }
+  ]
+}

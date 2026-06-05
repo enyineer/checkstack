@@ -7,10 +7,11 @@ A plugin contributes to the automation platform by registering definitions into 
 
 ## Registering a trigger
 
-A trigger is hook-backed (subscribes to one of your plugin's hooks) or setup-backed (manages its own emission, e.g. a cron schedule). Declare a `contextKey` extractor so the engine can scope artifact lookups and `wait_for_trigger` matches.
+A trigger is hook-backed (subscribes to one of your plugin's hooks) or setup-backed (manages its own emission, e.g. a cron schedule). Declare a `contextKey` extractor so the engine can scope artifact lookups and `wait_for_trigger` matches. A trigger that needs per-automation configuration declares a versioned `config` - exactly like an action's `config` (see [Registering an action](#registering-an-action)).
 
 ```ts
 import { automationTriggerExtensionPoint } from "@checkstack/automation-backend";
+import { Versioned } from "@checkstack/backend-api";
 import { z } from "zod";
 
 const triggers = env.getExtensionPoint(automationTriggerExtensionPoint);
@@ -37,7 +38,10 @@ triggers.registerTrigger(
     id: "numeric_state",
     displayName: "Numeric Threshold",
     payloadSchema: numericStatePayloadSchema,
-    configSchema: z.object({ field: z.string(), above: z.number().optional() }),
+    config: new Versioned({
+      version: 1,
+      schema: z.object({ field: z.string(), above: z.number().optional() }),
+    }),
     hook: someCheckCompletedHook,
     contextKey: (p) => p.systemId,
     evaluateConfig: (payload, config) =>
@@ -50,6 +54,16 @@ triggers.registerTrigger(
 ## Registering an action
 
 An action declares a versioned config schema and an `execute`. It may `produces` one artifact type and `consumes` several. `config` arrives already template-rendered; `consumedArtifacts` is the resolved upstream artifacts keyed by their local id.
+
+> [!IMPORTANT]
+> To call another plugin's procedures, an action MUST use the
+> `rpcClient` handed to `execute` - it is bound to the automation's
+> `runAs` service account, so every call is authorized exactly as that
+> bounded identity (access rules + team scope). Never capture the trusted
+> `coreServices.rpcClient` at registration time: that bypasses the
+> automation's authorization and lets a run touch resources the service
+> account cannot - a privilege-escalation path. See
+> [Running as a service account](/checkstack/developer-guide/backend/automations/#running-as-a-service-account).
 
 ```ts
 import { automationActionExtensionPoint } from "@checkstack/automation-backend";
@@ -66,7 +80,8 @@ actions.registerAction(
       schema: z.object({ connectionId: z.string(), summary: z.string() }),
     }),
     produces: "issue", // local artifact-type id (namespaced on registration)
-    execute: async ({ config, consumedArtifacts, logger }) => {
+    execute: async ({ config, consumedArtifacts, logger, rpcClient }) => {
+      // `rpcClient` is bound to the automation's `runAs` service account.
       const issue = await jira.create(config);
       return {
         success: true,
@@ -78,6 +93,44 @@ actions.registerAction(
   pluginMetadata,
 );
 ```
+
+### Evolving a config (migrate-then-validate)
+
+Action and trigger configs are stored UNVERSIONED, nested raw in the
+`automations.definition` blob. The platform reads them with
+**assume-v1-on-read**: at runtime it calls `config.parseAssumingV1(...)`
+(migrate, then validate leniently), and the editor validator calls
+`config.parseStrictAssumingV1(...)` (migrate, then validate strictly so
+genuine typos still surface). See
+[Versioned data](/checkstack/developer-guide/backend/versioned-configs/).
+
+To retire or reshape a field, bump the config's `version` and add a
+migration - never silently drop it from the schema, or stored automations
+that still carry the old key will error in the editor with
+`Unrecognized key`. The script plugin's `run_script` / `run_shell` actions
+retired their per-action `sandbox` key (the OS sandbox is now global-only)
+this way:
+
+```ts
+import { Versioned, type Migration } from "@checkstack/backend-api";
+
+const dropSandboxMigration: Migration<Record<string, unknown>, unknown> = {
+  fromVersion: 1,
+  toVersion: 2,
+  description: "Drop the removed per-action `sandbox` override key",
+  migrate: ({ sandbox: _sandbox, ...rest }) => rest,
+};
+
+config: new Versioned({
+  version: 2,
+  schema: runScriptConfigSchema, // no longer mentions `sandbox`
+  migrations: [dropSandboxMigration],
+}),
+```
+
+A `version > 1` config MUST ship a complete migration chain back to v1; a
+registry-driven contract test enumerates every registered config and fails
+CI if one is missing.
 
 ### Consuming an artifact
 

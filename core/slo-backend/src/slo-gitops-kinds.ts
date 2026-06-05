@@ -9,6 +9,7 @@ import {
 import {
   DependencyExclusionModeSchema,
   BurnRateThresholdsSchema,
+  SloWindowDaysSchema,
 } from "@checkstack/slo-common";
 import type { SloService } from "./service";
 
@@ -30,7 +31,7 @@ const sloSpecSchema = z.object({
   systemRef: entityRefSchema,
   healthcheckRef: entityRefSchema.optional(),
   target: z.number().min(0).max(100),
-  windowDays: z.number().int().positive(),
+  windowDays: SloWindowDaysSchema,
   dependencyExclusion: DependencyExclusionModeSchema.optional(),
   excludedDependencyRefs: z.array(entityRefSchema).optional(),
   burnRateThresholds: BurnRateThresholdsSchema.optional(),

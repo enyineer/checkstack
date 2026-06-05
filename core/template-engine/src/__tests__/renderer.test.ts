@@ -4,8 +4,43 @@ import {
   evaluate,
   evaluateBoolean,
   render,
+  renderTemplatePreview,
 } from "../renderer";
 import { TemplateRenderError, UnknownFilterError } from "../errors";
+
+describe("renderTemplatePreview", () => {
+  it("renders a value with interpolation", () => {
+    expect(
+      renderTemplatePreview({
+        value: "{{ environment.baseUrl }}/healthz",
+        context: { environment: { baseUrl: "https://staging" } },
+      }),
+    ).toBe("https://staging/healthz");
+  });
+
+  it("returns a value with no braces unchanged", () => {
+    expect(
+      renderTemplatePreview({ value: "https://static", context: {} }),
+    ).toBe("https://static");
+  });
+
+  it("returns an unparseable value unchanged instead of throwing", () => {
+    // `{{` with no closing braces is not valid template syntax; preview keeps
+    // it verbatim rather than throwing a parse error.
+    expect(renderTemplatePreview({ value: "a {{ b", context: {} })).toBe(
+      "a {{ b",
+    );
+  });
+
+  it("renders a missing path to empty string (non-strict)", () => {
+    expect(
+      renderTemplatePreview({
+        value: "{{ environment.baseUrl }}/x",
+        context: { environment: {} },
+      }),
+    ).toBe("/x");
+  });
+});
 
 describe("render", () => {
   it("renders literal text unchanged", () => {

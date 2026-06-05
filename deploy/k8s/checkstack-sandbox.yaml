@@ -1,0 +1,90 @@
+# Kubernetes example: run Checkstack so the secure FAIL-CLOSED script sandbox
+# works out of the box, without setting anything to `unconfined` by hand.
+#
+# The sandbox confines user scripts with ROOTLESS bubblewrap (unprivileged user
+# namespaces) under a NON-ROOT supervisor (uid 65532). Two runtime relaxations
+# are required for the secure default to RUN rather than (correctly) refuse:
+#
+#  1. seccomp: the cluster default profile blocks the unprivileged
+#     clone(CLONE_NEW*) / unshare / mount / pivot_root syscalls bwrap needs.
+#     Ship the bundled TUNED profile (tighter than Unconfined - it still denies
+#     kernel-module load, reboot, kexec, raw bpf/perf, ptrace, ...). It is
+#     VALIDATED in-container against a real syscall trace of the full flow.
+#  2. procMount: Unmasked: the kubelet masks /proc paths by default, so bwrap
+#     cannot mount the FRESH /proc it needs inside the namespace. Unmasking is
+#     safe here: the sandboxed script runs in a fresh PID+mount namespace as
+#     non-root and never sees the host /proc; the unmask only lets bwrap mount
+#     its own (verified: a script cannot read host process environ).
+#
+# Step 1 - install the seccomp profile on every node at
+#   <kubelet-seccomp-root>/checkstack/checkstack-userns.json
+# (default kubelet seccomp root is /var/lib/kubelet/seccomp). Use your node
+# provisioning (DaemonSet, ignition, image bake) to drop
+# deploy/seccomp/checkstack-userns.json there.
+#
+# `procMount: Unmasked` requires the `ProcMountType` feature gate enabled on the
+# API server and kubelet. If you cannot enable it (or cannot install the seccomp
+# profile), set the global sandbox policy to `degrade` in the admin settings (an
+# explicit, audited operator decision) so runs use the portable subset.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkstack
+  labels:
+    app: checkstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkstack
+  template:
+    metadata:
+      labels:
+        app: checkstack
+    spec:
+      securityContext:
+        # The bundled tuned profile, installed on the node under the kubelet
+        # seccomp root. Tighter than Unconfined: it permits the userns + bwrap
+        # syscalls while denying the dangerous set.
+        seccompProfile:
+          type: Localhost
+          localhostProfile: checkstack/checkstack-userns.json
+      containers:
+        - name: checkstack
+          image: ghcr.io/enyineer/checkstack:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: checkstack-db
+                  key: url
+          securityContext:
+            # The supervisor already runs as non-root (uid 65532) in the image;
+            # pin it here too so the script inherits non-root by construction.
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            # REQUIRED: let bwrap mount a fresh /proc inside the namespace.
+            # Needs the ProcMountType feature gate. Safe in context (see header).
+            procMount: Unmasked
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              # Shell scripts have no per-run memory cap (the ESM heap cap does
+              # not apply to `sh -c`), so this cgroup limit bounds shell memory.
+              memory: "1Gi"
+              # The per-run fork-bomb cap (RLIMIT_NPROC) IS enforced inside the
+              # bwrap user namespace; this pids ceiling is a cluster-wide backstop.
+              # (Set via the Pod-level resource or a LimitRange in your cluster.)
+            requests:
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /.checkstack/ready
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10

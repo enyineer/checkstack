@@ -5,13 +5,22 @@
   ],
   "references": [
     {
+      "path": "../auth-common"
+    },
+    {
       "path": "../backend-api"
     },
     {
       "path": "../common"
     },
     {
+      "path": "../notification-common"
+    },
+    {
       "path": "../script-packages-common"
+    },
+    {
+      "path": "../sdk"
     },
     {
       "path": "../secrets-backend"

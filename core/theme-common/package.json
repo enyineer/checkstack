@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
-    "@orpc/contract": "^1.13.14",
+    "@orpc/contract": "^1.14.4",
     "zod": "^4.0.0"
   },
   "devDependencies": {

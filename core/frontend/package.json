@@ -6,6 +6,11 @@
     "type": "frontend"
   },
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./tailwind-preset": "./tailwind-preset.js",
+    "./*": "./*"
+  },
   "scripts": {
     "dev": "vite",
     "build:vendor": "vite build --config vite.config.vendor.ts",
@@ -27,28 +32,28 @@
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
-    "@orpc/client": "^1.13.14",
-    "@tanstack/react-query": "^5.64.0",
-    "@tanstack/react-query-devtools": "^5.64.0",
-    "better-auth": "^1.1.8",
+    "@orpc/client": "^1.14.4",
+    "@tanstack/react-query": "^5.100.14",
+    "@tanstack/react-query-devtools": "^5.100.14",
+    "autoprefixer": "^10.4.18",
+    "better-auth": "^1.6.13",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.2.0",
+    "react": "^18.3.1",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0",
-    "tailwind-merge": "^2.2.0"
+    "react-router-dom": "^7.16.0",
+    "tailwind-merge": "^2.2.0",
+    "tailwindcss": "^3.4.1",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
-    "@vitejs/plugin-react": "^6.0.1",
-    "autoprefixer": "^10.4.18",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
-    "tailwindcss-animate": "^1.0.7",
-    "vite": "^8.0.8"
+    "@vitejs/plugin-react": "^6.0.2",
+    "postcss": "^8.5.15",
+    "vite": "^8.0.16"
   }
 }

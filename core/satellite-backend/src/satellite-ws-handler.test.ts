@@ -529,4 +529,89 @@ describe("SatelliteWsHandler", () => {
       expect(mirrors).toHaveLength(0);
     });
   });
+
+  describe("global sandbox-policy relay", () => {
+    const POLICY = {
+      enabled: true,
+      onUnavailable: "degrade" as const,
+      resources: { cpuSeconds: 33 },
+      filesystem: { mode: "scratch-plus-ro" as const },
+      network: {
+        mode: "deny" as const,
+        allow: [] as string[],
+        denyLinkLocalAndMetadata: true,
+      },
+      privilege: { mode: "drop-to-uid" as const },
+    };
+
+    function makeSandboxSink() {
+      return {
+        sink: {
+          getCurrentPolicy: mock(async () => POLICY),
+        },
+      };
+    }
+
+    async function authedHandlerWithSandboxSink() {
+      const { sink } = makeSandboxSink();
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        sink,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      return { h, ws };
+    }
+
+    it("carries the resolved policy in the authenticated payload", async () => {
+      const { ws } = await authedHandlerWithSandboxSink();
+      const auth = JSON.parse(ws.messages[0]);
+      expect(auth.type).toBe("authenticated");
+      expect(auth.sandboxPolicy.network.mode).toBe("deny");
+      expect(auth.sandboxPolicy.resources.cpuSeconds).toBe(33);
+    });
+
+    it("omits sandboxPolicy entirely when no sink is wired (version-skew safe)", async () => {
+      const ws = createMockWs();
+      const { onMessage } = handler.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+        }),
+      );
+      const auth = JSON.parse(ws.messages[0]);
+      expect("sandboxPolicy" in auth).toBe(false);
+    });
+
+    it("pushes sandbox_policy to every connected satellite on change", async () => {
+      const { h, ws } = await authedHandlerWithSandboxSink();
+      ws.messages.length = 0;
+
+      h.pushSandboxPolicyToAll({
+        ...POLICY,
+        network: { mode: "allowlist", allow: ["10.0.0.1"], denyLinkLocalAndMetadata: true },
+      });
+
+      expect(ws.messages).toHaveLength(1);
+      const msg = JSON.parse(ws.messages[0]);
+      expect(msg.type).toBe("sandbox_policy");
+      expect(msg.policy.network.mode).toBe("allowlist");
+      expect(msg.policy.network.allow).toEqual(["10.0.0.1"]);
+    });
+  });
 });

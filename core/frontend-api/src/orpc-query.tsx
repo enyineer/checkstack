@@ -3,7 +3,7 @@ import {
   createRouterUtils,
   type RouterUtils,
   type ProcedureUtils,
-} from "@orpc/react-query";
+} from "@orpc/tanstack-query";
 import type { NestedClient, ClientContext } from "@orpc/client";
 import {
   useQuery,

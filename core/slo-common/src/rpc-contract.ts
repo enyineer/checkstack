@@ -145,8 +145,8 @@ export const sloContract = {
     .input(
       z.object({
         objectiveId: z.string(),
-        startDate: z.date(),
-        endDate: z.date(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
       }),
     )
     .output(z.object({ snapshots: z.array(SloDailySnapshotSchema) })),

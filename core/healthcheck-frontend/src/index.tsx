@@ -1,9 +1,8 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
-import { HealthCheckMenuItems } from "./components/HealthCheckMenuItems";
+import { Activity } from "lucide-react";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
@@ -18,6 +17,8 @@ import {
   SystemDetailsSlot,
   CatalogSystemActionsSlot,
   SystemStateBadgesSlot,
+  CatalogBrowseHealthSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
 import {
   healthcheckRoutes,
@@ -53,6 +54,12 @@ export default createFrontendPlugin({
         })),
       title: "Health Checks",
       accessRule: healthCheckAccess.configuration.manage,
+      nav: {
+        group: "Reliability",
+        icon: Activity,
+        // Visible to read-only users (the page itself still gates on manage).
+        accessRule: healthCheckAccess.configuration.read,
+      },
     },
     {
       route: healthcheckRoutes.routes.create,
@@ -112,14 +119,25 @@ export default createFrontendPlugin({
   // No APIs needed - components use usePluginClient() directly
   apis: [],
   extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "healthcheck.user-menu.items",
-      component: HealthCheckMenuItems,
-      metadata: { group: "Reliability" },
-    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "healthcheck.system-health-badge",
       component: SystemHealthBadge,
+    }),
+    createSlotExtension(CatalogBrowseHealthSlot, {
+      id: "healthcheck.catalog.browse-health",
+      // Lazy: only loads when the catalog browse/manage view mounts the slot.
+      load: () =>
+        import("./components/CatalogBrowseHealthFiller").then((m) => ({
+          default: m.CatalogBrowseHealthFiller,
+        })),
+    }),
+    createSlotExtension(SystemSignalsSlot, {
+      id: "healthcheck.dashboard.signals",
+      // Lazy: only loads when the dashboard overview mounts the slot.
+      load: () =>
+        import("./components/HealthSignalsFiller").then((m) => ({
+          default: m.HealthSignalsFiller,
+        })),
     }),
     createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.overview",

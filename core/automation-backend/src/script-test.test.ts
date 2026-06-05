@@ -101,7 +101,7 @@ describe("runScriptTest — typescript", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.helperModuleName).toBe("@checkstack/integration");
+    expect(calls[0]?.helperModuleName).toBe("@checkstack/sdk/integration");
     expect(calls[0]?.helperFunctionName).toBe("defineIntegration");
     expect(calls[0]?.timeoutMs).toBe(5000);
     expect(out.result).toEqual({ id: "ok" });

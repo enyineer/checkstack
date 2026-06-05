@@ -134,6 +134,89 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
     expect((error as any).code).toBe("FORBIDDEN");
   });
 
+  it("throws CONFLICT when creating a system whose name already exists", async () => {
+    // getSystemByName (the first/only select before the guard throws) finds a
+    // system already using this name.
+    (mockDb as { select: ReturnType<typeof mock> }).select.mockReturnValueOnce({
+      from: () => ({
+        where: () =>
+          Promise.resolve([
+            {
+              id: "existing",
+              name: "Payments",
+              description: null,
+              metadata: {},
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ]),
+      }),
+    });
+    const context = createMockRpcContext({ user: mockUser });
+
+    let error;
+    try {
+      await call(router.createSystem, { name: "Payments" }, { context });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    expect((error as any).code).toBe("CONFLICT");
+    expect((error as any).message).toContain("already exists");
+  });
+
+  it("throws CONFLICT when renaming a system to a name another system uses", async () => {
+    mockGitOpsClient.getProvenance.mockResolvedValueOnce(null);
+    // 1st select: getSystem(id) finds the system being renamed.
+    // 2nd select: getSystemByName(newName) finds a DIFFERENT system.
+    (mockDb as { select: ReturnType<typeof mock> }).select
+      .mockReturnValueOnce({
+        from: () => ({
+          where: () =>
+            Promise.resolve([
+              {
+                id: "sys-1",
+                name: "Old",
+                description: null,
+                metadata: {},
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            ]),
+        }),
+      })
+      .mockReturnValueOnce({
+        from: () => ({
+          where: () =>
+            Promise.resolve([
+              {
+                id: "other",
+                name: "Taken",
+                description: null,
+                metadata: {},
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            ]),
+        }),
+      });
+    const context = createMockRpcContext({ user: mockUser });
+
+    let error;
+    try {
+      await call(
+        router.updateSystem,
+        { id: "sys-1", data: { name: "Taken" } },
+        { context },
+      );
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    expect((error as any).code).toBe("CONFLICT");
+    expect((error as any).message).toContain("already exists");
+  });
+
   it("allows adding an unlocked system to a group, even if the group is locked", async () => {
     mockGitOpsClient.getProvenance.mockResolvedValueOnce(null);
     
@@ -144,5 +227,29 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
     } catch (e: any) {
       expect(e.code).not.toBe("FORBIDDEN");
     }
+  });
+
+  it("maps a DB unique violation (concurrent create race) to CONFLICT", async () => {
+    // The pre-insert name check finds no clash...
+    (mockDb as { select: ReturnType<typeof mock> }).select.mockReturnValueOnce({
+      from: () => ({ where: () => Promise.resolve([]) }),
+    });
+    // ...but the INSERT loses a race and the DB's unique index rejects it.
+    (mockDb as { insert: ReturnType<typeof mock> }).insert = mock(() => ({
+      values: () => ({
+        returning: () => Promise.reject({ code: "23505" }),
+      }),
+    }));
+    const context = createMockRpcContext({ user: mockUser });
+
+    let error;
+    try {
+      await call(router.createSystem, { name: "Payments" }, { context });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    expect((error as any).code).toBe("CONFLICT");
+    expect((error as any).message).toContain("already exists");
   });
 });

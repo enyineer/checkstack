@@ -1,5 +1,5 @@
 {
-  "name": "@checkstack/{{pluginName}}",
+  "name": "{{scoped pluginName}}",
   "version": "0.0.1",
   "description": "{{pluginDescription}}",
   "author": "Checkstack contributors",
@@ -11,7 +11,11 @@
   },
   "checkstack": {
     "type": "backend",
-    "pluginId": "{{pluginBaseName}}"
+    "pluginId": "{{pluginBaseName}}",
+    "bundle": [
+      "{{scoped pluginBaseName}}-common",
+      "{{scoped pluginBaseName}}-frontend"
+    ]
   },
   "scripts": {
     "dev": "checkstack-dev",
@@ -24,7 +28,7 @@
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "@checkstack/{{pluginBaseName}}-common": "workspace:*",
+    "{{scoped pluginBaseName}}-common": "workspace:*",
     "@orpc/server": "^1.13.2",
     "drizzle-orm": "^0.45.1"
   },

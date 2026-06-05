@@ -13,7 +13,6 @@ import {
   TestTube2,
   CheckCircle2,
   XCircle,
-  Loader2,
 } from "lucide-react";
 import {
   PageLayout,
@@ -43,6 +42,12 @@ import {
   ConfirmationModal,
   BackLink,
   toastError,
+  Spinner,
+  deriveServerFieldErrors,
+  parseServerValidationData,
+  omitKeepExistingSecrets,
+  listSecretFieldKeys,
+  type FieldErrorMap,
   type LucideIconName,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -81,6 +86,8 @@ export const ProviderConnectionsPage = () => {
 
   // Form validation state
   const [configValid, setConfigValid] = useState(false);
+  // Server validation errors mapped to form fields (cleared on each submit).
+  const [serverFieldErrors, setServerFieldErrors] = useState<FieldErrorMap>({});
 
   // Queries using hooks
   const { data: providers = [], isLoading: providersLoading } =
@@ -98,6 +105,40 @@ export const ProviderConnectionsPage = () => {
   const loading = providersLoading || connectionsLoading;
   const provider = providers.find((p) => p.qualifiedId === providerId);
 
+  // Try to surface a mutation error INLINE on the offending form fields. The
+  // backend attaches structured zod issues (field path + message) to the
+  // error `data` for connection-config validation failures; parse that
+  // payload (typed, via the shared schema) and map each issue to its field.
+  // Anything not field-mappable (generic / unknown errors, or issues whose
+  // root is not a rendered field) falls back to the existing toast so nothing
+  // is swallowed.
+  const handleMutationError = (action: string, error: unknown): void => {
+    const schema = provider?.connectionSchema;
+    const data =
+      error && typeof error === "object" && "data" in error
+        ? error.data
+        : undefined;
+    const parsed = schema ? parseServerValidationData(data) : undefined;
+
+    if (schema && parsed) {
+      const { mapped, unmapped } = deriveServerFieldErrors({
+        issues: parsed.issues,
+        schema,
+      });
+      if (Object.keys(mapped).length > 0) {
+        setServerFieldErrors(mapped);
+      }
+      // Surface any non-mappable issues (and a fully-unmappable payload) via
+      // the toast so they are never silently dropped.
+      if (unmapped.length > 0 || Object.keys(mapped).length === 0) {
+        toastError(toast, action, error);
+      }
+      return;
+    }
+
+    toastError(toast, action, error);
+  };
+
   // Mutations
   const createMutation = client.createConnection.useMutation({
     onSuccess: () => {
@@ -109,7 +150,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toastError(toast, "Failed to create connection", error);
+      handleMutationError("Failed to create connection", error);
       setSaving(false);
     },
   });
@@ -123,7 +164,7 @@ export const ProviderConnectionsPage = () => {
       setSaving(false);
     },
     onError: (error) => {
-      toastError(toast, "Failed to update connection", error);
+      handleMutationError("Failed to update connection", error);
       setSaving(false);
     },
   });
@@ -163,8 +204,18 @@ export const ProviderConnectionsPage = () => {
     },
   });
 
+  // In EDIT mode every `x-secret` field defined by the provider schema may
+  // already hold a stored value (secrets are redacted out of the loaded
+  // preview), so a blank input means "keep existing" and is valid. In CREATE
+  // mode no secret is stored yet, so this is empty and blank secrets stay
+  // required.
+  const keepExistingSecretFields = provider?.connectionSchema
+    ? listSecretFieldKeys(provider.connectionSchema)
+    : [];
+
   const handleCreate = () => {
     if (!providerId || !formName.trim()) return;
+    setServerFieldErrors({});
     setSaving(true);
     createMutation.mutate({
       providerId,
@@ -178,17 +229,26 @@ export const ProviderConnectionsPage = () => {
     setFormName("");
     setFormConfig({});
     setConfigValid(false);
+    setServerFieldErrors({});
     setCreateDialogOpen(true);
   };
 
   const handleUpdate = () => {
-    if (!selectedConnection) return;
+    if (!selectedConnection || !provider?.connectionSchema) return;
+    setServerFieldErrors({});
     setSaving(true);
+    // Drop blank keep-existing secrets so an empty input does not clear the
+    // stored secret on update.
+    const config = omitKeepExistingSecrets({
+      schema: provider.connectionSchema,
+      value: formConfig,
+      keepExistingSecretFields,
+    });
     updateMutation.mutate({
       connectionId: selectedConnection.id,
       updates: {
         name: formName.trim() || selectedConnection.name,
-        config: formConfig,
+        config,
       },
     });
   };
@@ -208,6 +268,7 @@ export const ProviderConnectionsPage = () => {
     setFormName(connection.name);
     setFormConfig(connection.configPreview);
     setConfigValid(true); // Existing connections should have valid config
+    setServerFieldErrors({});
     setEditDialogOpen(true);
   };
 
@@ -347,7 +408,7 @@ export const ProviderConnectionsPage = () => {
                             disabled={isTesting}
                           >
                             {isTesting ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <Spinner size="sm" />
                             ) : (
                               <TestTube2 className="h-4 w-4" />
                             )}
@@ -402,6 +463,8 @@ export const ProviderConnectionsPage = () => {
                 value={formConfig}
                 onChange={setFormConfig}
                 onValidChange={setConfigValid}
+                showInlineErrors
+                fieldErrors={serverFieldErrors}
               />
             )}
           </div>
@@ -416,7 +479,7 @@ export const ProviderConnectionsPage = () => {
               onClick={handleCreate}
               disabled={!formName.trim() || !configValid || saving}
             >
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {saving && <Spinner size="sm" className="mr-2" />}
               Create
             </Button>
           </DialogFooter>
@@ -445,6 +508,9 @@ export const ProviderConnectionsPage = () => {
                 value={formConfig}
                 onChange={setFormConfig}
                 onValidChange={setConfigValid}
+                showInlineErrors
+                fieldErrors={serverFieldErrors}
+                keepExistingSecretFields={keepExistingSecretFields}
               />
             )}
           </div>
@@ -453,7 +519,7 @@ export const ProviderConnectionsPage = () => {
               Cancel
             </Button>
             <Button onClick={handleUpdate} disabled={!configValid || saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {saving && <Spinner size="sm" className="mr-2" />}
               Save Changes
             </Button>
           </DialogFooter>

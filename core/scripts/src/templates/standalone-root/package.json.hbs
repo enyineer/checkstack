@@ -1,0 +1,27 @@
+{
+  "name": "{{pluginBaseName}}-plugin",
+  "version": "0.0.1",
+  "description": "{{pluginDescription}}",
+  "private": true,
+  "license": "Elastic-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '{{scoped pluginBaseName}}-backend' dev",
+    "pack": "bun run --filter '{{scoped pluginBaseName}}-backend' pack -- --bundle",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "bun run --filter '*' lint",
+    "test": "bun run --filter '*' test",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.59.3"
+  }
+}

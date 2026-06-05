@@ -5,6 +5,7 @@ import {
   extractDefaults,
   getCleanDescription,
   isValueEmpty,
+  nestedChildrenRequired,
   isFieldHiddenByCondition,
   NONE_SENTINEL,
   parseSelectValue,
@@ -198,6 +199,43 @@ describe("isValueEmpty", () => {
     it("treats object with missing required field as empty", () => {
       expect(isValueEmpty({ optionalField: "value" }, objectSchema)).toBe(true);
     });
+  });
+});
+
+describe("nestedChildrenRequired", () => {
+  it("marks children of a REQUIRED object regardless of value", () => {
+    expect(
+      nestedChildrenRequired({ objectRequired: true, objectValue: undefined }),
+    ).toBe(true);
+    expect(
+      nestedChildrenRequired({ objectRequired: true, objectValue: {} }),
+    ).toBe(true);
+  });
+
+  it("does NOT mark children of an OPTIONAL object that is empty/unset", () => {
+    // The spend-cap case: empty optional object -> no required `*`.
+    expect(
+      nestedChildrenRequired({ objectRequired: false, objectValue: undefined }),
+    ).toBe(false);
+    expect(
+      nestedChildrenRequired({ objectRequired: false, objectValue: {} }),
+    ).toBe(false);
+    expect(
+      nestedChildrenRequired({
+        objectRequired: false,
+        objectValue: { tokenBudget: "", windowMinutes: "" },
+      }),
+    ).toBe(false);
+  });
+
+  it("marks children of an OPTIONAL object once it is being provided", () => {
+    // Operator started filling the cap -> guide completion with `*`.
+    expect(
+      nestedChildrenRequired({
+        objectRequired: false,
+        objectValue: { tokenBudget: 1000, windowMinutes: "" },
+      }),
+    ).toBe(true);
   });
 });
 

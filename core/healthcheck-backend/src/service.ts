@@ -9,6 +9,7 @@ import {
   type NotificationPolicy,
   NotificationPolicySchema,
   DEFAULT_NOTIFICATION_POLICY,
+  type CollectorConfigEntry,
 } from "@checkstack/healthcheck-common";
 import type { ConfigService } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
@@ -39,6 +40,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
 import { computeHealthState, type HealthState } from "./health-state";
+import { parseHealthEntityId } from "./health-entity-id";
 import { stateThresholds } from "./state-thresholds-migrations";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
@@ -60,6 +62,16 @@ import {
 
 // Drizzle type helper - uses SafeDatabase to prevent relational query API usage
 type Db = SafeDatabase<typeof schema>;
+
+/**
+ * Narrow a migrated config (typed `unknown` by the versioning chain) to a
+ * spreadable record. Every registered strategy/collector config schema is an
+ * object, so a successfully validated value is always object-shaped at
+ * runtime; this guard keeps the type-level handling cast-free.
+ */
+function isConfigRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 // Catalog client type used to resolve human-readable system names for
 // satellite assignment run-context. Optional on the service.
@@ -208,7 +220,7 @@ export class HealthCheckService {
 
   async getConfigurations(): Promise<HealthCheckConfiguration[]> {
     const configs = await this.db.select().from(healthCheckConfigurations);
-    return configs.map((c) => this.mapConfig(c));
+    return Promise.all(configs.map((c) => this.mapConfig(c)));
   }
 
   async associateSystem(props: {
@@ -217,6 +229,13 @@ export class HealthCheckService {
     enabled?: boolean;
     stateThresholds?: StateThresholds;
     satelliteIds?: string[];
+    /**
+     * Per-assignment environment selector. `null` (or `undefined`) = all
+     * current environments; `[]` = opt out (env-less); non-empty = those
+     * ids. `null` and `[]` are stored distinctly so the run-time resolver
+     * can tell "all" from "opt out". `undefined` is normalized to `null`.
+     */
+    environmentIds?: string[] | null;
     includeLocal?: boolean;
     notificationPolicy?: NotificationPolicy;
   }) {
@@ -226,9 +245,15 @@ export class HealthCheckService {
       enabled = true,
       stateThresholds: stateThresholds_,
       satelliteIds,
+      environmentIds,
       includeLocal = true,
       notificationPolicy,
     } = props;
+
+    // Preserve the null/[]/list distinction faithfully. `undefined` props
+    // mean "not provided" -> treat as `null` ("all current environments"),
+    // the default fan-out behavior. `[]` is kept verbatim (opt-out).
+    const environmentIdsValue: string[] | null = environmentIds ?? null;
 
     // Wrap thresholds in versioned config if provided
     const versionedThresholds: VersionedStateThresholds | undefined =
@@ -242,6 +267,7 @@ export class HealthCheckService {
         enabled,
         stateThresholds: versionedThresholds,
         satelliteIds: satelliteIds ?? undefined,
+        environmentIds: environmentIdsValue,
         includeLocal,
         notificationPolicy: notificationPolicy ?? undefined,
       })
@@ -254,6 +280,7 @@ export class HealthCheckService {
           enabled,
           stateThresholds: versionedThresholds,
           satelliteIds: satelliteIds ?? undefined,
+          environmentIds: environmentIdsValue,
           includeLocal,
           notificationPolicy: notificationPolicy ?? undefined,
           updatedAt: new Date(),
@@ -385,7 +412,7 @@ export class HealthCheckService {
       )
       .where(eq(systemHealthChecks.systemId, systemId));
 
-    return rows.map((r) => this.mapConfig(r.config));
+    return Promise.all(rows.map((r) => this.mapConfig(r.config)));
   }
 
   /**
@@ -399,6 +426,7 @@ export class HealthCheckService {
         enabled: systemHealthChecks.enabled,
         stateThresholds: systemHealthChecks.stateThresholds,
         satelliteIds: systemHealthChecks.satelliteIds,
+        environmentIds: systemHealthChecks.environmentIds,
         includeLocal: systemHealthChecks.includeLocal,
         notificationPolicy: systemHealthChecks.notificationPolicy,
       })
@@ -422,6 +450,9 @@ export class HealthCheckService {
         enabled: row.enabled,
         stateThresholds: thresholds,
         satelliteIds: row.satelliteIds ?? undefined,
+        // Preserve the null/[]/list distinction (null = all envs, [] = opt
+        // out). Do NOT collapse null to undefined via `??`.
+        environmentIds: row.environmentIds,
         includeLocal: row.includeLocal,
         notificationPolicy: row.notificationPolicy ?? undefined,
       });
@@ -475,9 +506,25 @@ export class HealthCheckService {
   /**
    * Get the evaluated health status for a system based on configured thresholds.
    * Aggregates status from all health check configurations for this system.
+   *
+   * Environment dimension (Phase 3b, §7.4.2):
+   *  - `environmentId` OMITTED (or `undefined`) ⇒ the **system rollup**: all
+   *    runs for the system regardless of environment. "Any env unhealthy ⇒ at
+   *    least one unhealthy run in the window" already yields worst-status
+   *    semantics for the window-based evaluator, and it exactly matches the
+   *    pre-3b behavior when no environments exist (no extra catalog read).
+   *  - `environmentId` a STRING ⇒ the per-environment slice: only runs whose
+   *    `environment_id` equals that id.
+   *  - `environmentId` `null` ⇒ the ENV-LESS slice: only runs with
+   *    `environment_id IS NULL` (the opt-out / no-membership case).
+   *
+   * The env filter narrows ONLY the per-check run window; the set of enabled
+   * associations (and thus `checkStatuses.length`, the existence gate) is the
+   * same across views, so a per-env view and the rollup agree on totalChecks.
    */
   async getSystemHealthStatus(
     systemId: string,
+    environmentId?: string | null,
   ): Promise<SystemHealthStatusResponse> {
     // Get all associations for this system with their thresholds and config names
     const associations = await this.db
@@ -512,6 +559,17 @@ export class HealthCheckService {
     const checkStatuses: SystemCheckStatus[] = [];
     const maxWindowSize = 100; // Max configurable window size
 
+    // Environment filter for the per-check run window. `undefined` (rollup)
+    // adds no predicate; `null` filters to the env-less slice; a string
+    // filters to that environment. The lookup index leads with
+    // (system_id, environment_id, …) so the env-scoped query is index-efficient.
+    const envFilter =
+      environmentId === undefined
+        ? undefined
+        : environmentId === null
+          ? isNull(healthCheckRuns.environmentId)
+          : eq(healthCheckRuns.environmentId, environmentId);
+
     for (const assoc of associations) {
       const runs = await this.db
         .select({
@@ -523,6 +581,7 @@ export class HealthCheckService {
           and(
             eq(healthCheckRuns.systemId, systemId),
             eq(healthCheckRuns.configurationId, assoc.configurationId),
+            ...(envFilter ? [envFilter] : []),
           ),
         )
         .orderBy(desc(healthCheckRuns.timestamp))
@@ -577,6 +636,7 @@ export class HealthCheckService {
   async getHealthState({
     systemId,
     configurationId,
+    environmentId,
     maintenanceClient,
     logger,
     transitionWindowMinutes,
@@ -584,6 +644,13 @@ export class HealthCheckService {
   }: {
     systemId: string;
     configurationId?: string;
+    /**
+     * Environment to scope the snapshot to (Phase 3b). `undefined` = the
+     * system rollup; `null` = the env-less slice; a string = that env. Threads
+     * into both the status resolver and every durable read in
+     * `computeHealthState`.
+     */
+    environmentId?: string | null;
     maintenanceClient?: MaintenanceClient;
     logger?: Logger;
     transitionWindowMinutes?: number;
@@ -593,12 +660,16 @@ export class HealthCheckService {
       db: this.db,
       systemId,
       configurationId,
+      environmentId,
       maintenanceClient,
       logger,
       transitionWindowMinutes,
       now,
       resolveStatus: async () => {
-        const overview = await this.getSystemHealthStatus(systemId);
+        const overview = await this.getSystemHealthStatus(
+          systemId,
+          environmentId,
+        );
         if (!configurationId) return overview.status;
         const check = overview.checkStatuses.find(
           (c) => c.configurationId === configurationId,
@@ -611,10 +682,17 @@ export class HealthCheckService {
   }
 
   /**
-   * Bulk variant of {@link getHealthState}. Resolves every system in
-   * parallel against a single shared `now` so durations are consistent
-   * across the batch. Avoids N+1 from dashboards and multi-system
-   * automation rules.
+   * Bulk variant of {@link getHealthState}. Resolves every id in parallel
+   * against a single shared `now` so durations are consistent across the
+   * batch. Avoids N+1 from dashboards and multi-system automation rules.
+   *
+   * Environment-aware (Phase 3b, §7.4.4): an id may be the bare `"<systemId>"`
+   * (the system rollup) OR the env-qualified `"<systemId>::<environmentId>"`
+   * (a per-environment view). Each id is parsed via {@link parseHealthEntityId}
+   * and resolved against the right env slice, and the result is keyed by the
+   * ORIGINAL id string. So scope enrichment that reads
+   * `health.systems["<systemId>::<environmentId>"]` gets the per-env snapshot
+   * and `health.systems["<systemId>"]` gets the rollup, with no caller change.
    */
   async getBulkHealthState({
     systemIds,
@@ -623,6 +701,7 @@ export class HealthCheckService {
     transitionWindowMinutes,
     now = new Date(),
   }: {
+    /** Health entity ids — bare systemId (rollup) or `systemId::environmentId`. */
     systemIds: string[];
     maintenanceClient?: MaintenanceClient;
     logger?: Logger;
@@ -630,19 +709,25 @@ export class HealthCheckService {
     now?: Date;
   }): Promise<Record<string, HealthState>> {
     const entries = await Promise.all(
-      systemIds.map(
-        async (systemId) =>
-          [
+      systemIds.map(async (id) => {
+        const { systemId, environmentId } = parseHealthEntityId(id);
+        return [
+          id,
+          await this.getHealthState({
             systemId,
-            await this.getHealthState({
-              systemId,
-              maintenanceClient,
-              logger,
-              transitionWindowMinutes,
-              now,
-            }),
-          ] as const,
-      ),
+            // A bare `<systemId>` id is the ROLLUP and must read ALL runs
+            // (`undefined`), NOT the env-less slice (`null`, i.e.
+            // `env_id IS NULL`). `parseHealthEntityId` returns `null` for a
+            // bare id; map it to `undefined` here. `null` stays reserved for
+            // an explicit env-less read.
+            environmentId: environmentId === null ? undefined : environmentId,
+            maintenanceClient,
+            logger,
+            transitionWindowMinutes,
+            now,
+          }),
+        ] as const;
+      }),
     );
     return Object.fromEntries(entries);
   }
@@ -797,6 +882,7 @@ export class HealthCheckService {
         status: run.status,
         timestamp: run.timestamp,
         latencyMs: run.latencyMs ?? undefined,
+        environmentId: run.environmentId ?? undefined,
         sourceId: run.sourceId ?? undefined,
         sourceLabel: run.sourceLabel ?? undefined,
       })),
@@ -875,6 +961,7 @@ export class HealthCheckService {
         result: run.result ?? {},
         timestamp: run.timestamp,
         latencyMs: run.latencyMs ?? undefined,
+        environmentId: run.environmentId ?? undefined,
         sourceId: run.sourceId ?? undefined,
         sourceLabel: run.sourceLabel ?? undefined,
       })),
@@ -905,6 +992,7 @@ export class HealthCheckService {
       result: r.result ?? {},
       timestamp: r.timestamp,
       latencyMs: r.latencyMs ?? undefined,
+      environmentId: r.environmentId ?? undefined,
       sourceId: r.sourceId ?? undefined,
       sourceLabel: r.sourceLabel ?? undefined,
     };
@@ -1255,20 +1343,78 @@ export class HealthCheckService {
     return new Date(rangeStart.getTime() + bucketIndex * intervalMs);
   }
 
-  private mapConfig(
+  /**
+   * Map a stored configuration row to the public DTO, migrating the
+   * (UNVERSIONED) strategy + collector configs via assume-v1-on-read so the
+   * read API (router / frontend / gitops `getConfiguration`) returns migrated
+   * shapes. Migrations are idempotent, so an already-current config is a
+   * no-op. An unregistered strategy/collector or a failed migrate falls back
+   * to the raw stored blob rather than dropping the configuration.
+   */
+  private async mapConfig(
     row: InferSelectModel<typeof healthCheckConfigurations>,
-  ): HealthCheckConfiguration {
+  ): Promise<HealthCheckConfiguration> {
     return {
       id: row.id,
       name: row.name,
       strategyId: row.strategyId,
-      config: row.config,
-      collectors: row.collectors ?? undefined,
+      config: await this.migrateStrategyConfig(row.strategyId, row.config),
+      collectors: await this.migrateCollectorEntries(row.collectors),
       intervalSeconds: row.intervalSeconds,
       paused: row.paused,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  /**
+   * Migrate a stored strategy config via assume-v1-on-read. Falls back to the
+   * raw blob when the strategy is not registered or the migrate/validate
+   * throws, so a read never drops a configuration on a transient mismatch.
+   */
+  private async migrateStrategyConfig(
+    strategyId: string,
+    rawConfig: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const strategy = this.registry?.getStrategy(strategyId);
+    if (!strategy) return rawConfig;
+    try {
+      const migrated = await strategy.config.parseAssumingV1(rawConfig);
+      return { ...migrated };
+    } catch {
+      return rawConfig;
+    }
+  }
+
+  /**
+   * Migrate each collector entry's stored config via assume-v1-on-read,
+   * preserving id/collectorId/assertions. Falls back to the raw entry config
+   * when the collector is not registered or migrate/validate throws.
+   */
+  private async migrateCollectorEntries(
+    collectors: CollectorConfigEntry[] | null,
+  ): Promise<CollectorConfigEntry[] | undefined> {
+    if (!collectors || collectors.length === 0) return undefined;
+    return Promise.all(
+      collectors.map(async (entry) => {
+        const registered = this.collectorRegistry?.getCollector(
+          entry.collectorId,
+        );
+        if (!registered) return entry;
+        try {
+          const migrated = await registered.collector.config.parseAssumingV1(
+            entry.config,
+          );
+          // A registered collector's config schema is always an object, so a
+          // successful migrate yields a record; fall back to the raw entry if
+          // the validated value is somehow not object-shaped.
+          if (!isConfigRecord(migrated)) return entry;
+          return { ...entry, config: { ...migrated } };
+        } catch {
+          return entry;
+        }
+      }),
+    );
   }
 
   /**
@@ -1450,27 +1596,37 @@ export class HealthCheckService {
       ? ({ ...result } as Record<string, unknown>)
       : {};
 
-    await this.db.insert(healthCheckRuns).values({
-      configurationId: configId,
-      systemId,
-      status,
-      latencyMs,
-      result: resultRecord,
-      sourceId,
-      sourceLabel,
-    });
+    // Atomic: the run row and the hourly-aggregate increment it feeds must
+    // commit together. Without the transaction a failure on the (non-idempotent
+    // `runCount + 1`) aggregate left a committed run that the aggregate never
+    // counted - or, on the reverse ordering, an aggregate with no backing run.
+    // NOTE: this guarantees run/aggregate consistency, but does NOT make a
+    // *duplicate satellite delivery* (a re-POST after a committed write)
+    // idempotent - that requires a dedupe key on the high-volume runs table and
+    // is tracked as a separate follow-up.
+    await this.db.transaction(async (tx) => {
+      await tx.insert(healthCheckRuns).values({
+        configurationId: configId,
+        systemId,
+        status,
+        latencyMs,
+        result: resultRecord,
+        sourceId,
+        sourceLabel,
+      });
 
-    // Trigger incremental hourly aggregation — same as local executor
-    await incrementHourlyAggregate({
-      db: this.db,
-      systemId,
-      configurationId: configId,
-      status,
-      latencyMs,
-      runTimestamp: new Date(props.executedAt),
-      result: resultRecord,
-      collectorRegistry: this.collectorRegistry,
-      sourceLabel,
+      // Trigger incremental hourly aggregation — same as local executor
+      await incrementHourlyAggregate({
+        db: tx,
+        systemId,
+        configurationId: configId,
+        status,
+        latencyMs,
+        runTimestamp: new Date(props.executedAt),
+        result: resultRecord,
+        collectorRegistry: this.collectorRegistry,
+        sourceLabel,
+      });
     });
   }
 }

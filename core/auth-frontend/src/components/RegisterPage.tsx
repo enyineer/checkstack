@@ -21,6 +21,8 @@ import {
   InfoBannerTitle,
   InfoBannerDescription,
   useToast,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { SocialProviderButton } from "./SocialProviderButton";
@@ -37,6 +39,7 @@ export const RegisterPage = () => {
   const { strategies, loading: strategiesLoading } = useEnabledStrategies();
   const authBetterClient = getAuthClientLazy();
   const toast = useToast();
+  const { isLowPower } = usePerformance();
 
   // Derive validation errors directly from password (no state/effect needed)
   const validationErrors = useMemo(() => {
@@ -100,10 +103,30 @@ export const RegisterPage = () => {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div className="h-4 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
-              <div className="h-10 bg-muted animate-pulse rounded" />
+              <div
+                className={cn(
+                  "h-4 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
+              <div
+                className={cn(
+                  "h-10 bg-muted rounded",
+                  !isLowPower && "animate-pulse",
+                )}
+              />
             </div>
           </CardContent>
         </Card>

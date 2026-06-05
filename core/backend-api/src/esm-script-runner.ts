@@ -1,9 +1,23 @@
 import { spawn, type Subprocess } from "bun";
+import { realpathSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { detectSandboxCapabilities } from "./script-sandbox/capabilities";
+import { readCappedOutput } from "./script-sandbox/capped-output";
+import { pickSafeEnv } from "./script-sandbox/env-guard";
+import { truncateCapturedOutput } from "./script-sandbox/output-truncation";
+import {
+  FAIL_CLOSED_DOWNGRADE_REASON,
+  resolveActiveSandboxPolicy,
+} from "./script-sandbox/provider";
+import {
+  type EffectiveSandbox,
+  SandboxUnavailableError,
+} from "./script-sandbox/report";
+import { buildSpawnHardening } from "./script-sandbox/wrapper";
 
 /**
  * Shared sandbox for executing user-authored TypeScript / JavaScript
@@ -61,6 +75,14 @@ export interface EsmScriptRunResult {
   stderr: string;
   /** True if the timeout fired before the subprocess exited. */
   timedOut: boolean;
+  /** True if captured output exceeded the sandbox `maxOutputBytes` cap and was trimmed. */
+  outputTruncated?: boolean;
+  /**
+   * What the OS-level sandbox actually enforced / degraded for this run.
+   * Always present: the runner resolves the active GLOBAL policy itself and
+   * reports the result so callers can surface downgrades.
+   */
+  sandbox?: EffectiveSandbox;
 }
 
 export interface EsmScriptRunOptions {
@@ -78,9 +100,9 @@ export interface EsmScriptRunOptions {
    * to point at that file. Skipped if either field is omitted.
    *
    * @example
-   *   helperModuleName: "@checkstack/healthcheck"
+   *   helperModuleName: "@checkstack/sdk/healthcheck"
    *   helperFunctionName: "defineHealthCheck"
-   *   // editor: import { defineHealthCheck } from "@checkstack/healthcheck"
+   *   // editor: import { defineHealthCheck } from "@checkstack/sdk/healthcheck"
    *   // runtime: import { defineHealthCheck } from "file:///tmp/.../_helpers.mjs"
    */
   helperModuleName?: string;
@@ -112,6 +134,10 @@ export interface EsmScriptRunOptions {
    *
    * The user's script reads these as `process.env.ENV_NAME`. On a key
    * collision with a safe var, the injected value wins.
+   *
+   * Note: forbidden keys (`LD_PRELOAD`, `NODE_OPTIONS`, ...) are dropped from
+   * these overrides by the shared env denylist whenever the active sandbox
+   * policy is enabled.
    */
   env?: Record<string, string>;
 }
@@ -123,41 +149,6 @@ export interface EsmScriptRunOptions {
  */
 export interface EsmScriptRunner {
   run(options: EsmScriptRunOptions): Promise<EsmScriptRunResult>;
-}
-
-// =============================================================================
-// INTERNALS
-// =============================================================================
-
-/**
- * Vars passed through to the subprocess. We intentionally do NOT
- * forward the satellite's full env so backend secrets (DB URLs, API
- * tokens, signing keys) never reach user-authored scripts. PATH / HOME
- * / LANG / ... are kept so `node:child_process`, `node:fs`, and
- * locale-sensitive APIs behave normally.
- */
-const SAFE_ENV_VARS = [
-  "PATH",
-  "HOME",
-  "USER",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-  "TZ",
-  "TMPDIR",
-  "HOSTNAME",
-  "SHELL",
-];
-
-function pickSafeEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_VARS) {
-    const value = process.env[key];
-    if (value !== undefined) {
-      env[key] = value;
-    }
-  }
-  return env;
 }
 
 // =============================================================================
@@ -332,6 +323,22 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     resolutionRoot,
     env: injectedEnv,
   }) {
+    // Reconcile the requested policy against this host's capabilities BEFORE
+    // any filesystem work or spawn. When `onUnavailable: "fail"` and a layer
+    // is unavailable this throws, and we return a clean failure WITHOUT
+    // touching disk or spawning a child.
+    const caps = detectSandboxCapabilities();
+    // Resolve the GLOBAL sandbox policy ourselves (policy is global-only; the
+    // runner no longer accepts a per-run override). With a provider wired at
+    // startup this is the durable cluster-wide default; with NO provider (or a
+    // provider that throws) it FAILS CLOSED to the most restrictive safe policy
+    // (deny egress, scratch + read-only managed packages, privilege drop) —
+    // never the permissive default. The fail-closed fallback is surfaced as a
+    // synthetic downgrade. On hosts lacking a primitive each layer
+    // degrades-and-surfaces (never hard-breaks) per the resolved
+    // `onUnavailable`.
+    const { policy, failedClosed } = await resolveActiveSandboxPolicy();
+
     const sessionId = randomUUID();
     const markerStart = `##__CS_SCRIPT_RESULT_${sessionId}_START__##`;
     const markerEnd = `##__CS_SCRIPT_RESULT_${sessionId}_END__##`;
@@ -340,8 +347,93 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
     // so module resolution walks up to `<resolutionRoot>/node_modules`.
     // Otherwise fall back to `os.tmpdir()` (today's behavior - no
     // node_modules visible, fully backward compatible).
+    //
+    // The scratch dir is created BEFORE building the hardening so the
+    // filesystem layer (Phase 2) can bind it into the namespace. When a
+    // fail-closed policy refuses an unenforceable layer we clean the dir up
+    // again and never spawn — equivalent to "didn't touch disk" from the
+    // caller's view (the dir is gone).
     const tmpBase = resolutionRoot ?? tmpdir();
     const tmpDir = await mkdtemp(path.join(tmpBase, "checkstack-script-"));
+    // The reconciled managed-package tree, exposed read-only under
+    // `scratch-plus-ro`. Only meaningful when a resolutionRoot is set.
+    const nodeModulesDir =
+      resolutionRoot === undefined
+        ? undefined
+        : path.join(resolutionRoot, "node_modules");
+
+    // Path at which we stage the network egress nftables ruleset (consumed by
+    // `nsjail --nftables_file`, or the rootless launcher's fail-closed `nft
+    // -f`). Resolved on the host before the namespace is entered, so a path
+    // inside the per-run dir is fine.
+    const nftRulesetPath = path.join(tmpDir, "egress.nft");
+    // Path at which we stage the rootless egress launcher script (slirp4netns +
+    // the fail-closed nft filter) when the network decision picks the rootless
+    // path. Same per-run dir.
+    const rootlessLauncherPath = path.join(tmpDir, "rootless-egress.sh");
+
+    let hardening;
+    try {
+      hardening = buildSpawnHardening({
+        policy,
+        caps,
+        baseEnv: pickSafeEnv(),
+        // Fold the controlled ESM memory fallback (NODE_OPTIONS) in AFTER the
+        // denylist runs on caller overrides, so a caller can't smuggle
+        // NODE_OPTIONS but the sandbox can still set the heap cap.
+        envOverrides: injectedEnv,
+        filesystem: {
+          scratchDir: tmpDir,
+          nodeModulesDir,
+          // Bind the Bun runtime read-only into the namespace; under FS
+          // confinement the host FS is hidden and the interpreter commonly
+          // lives outside /usr,/bin (e.g. ~/.bun/bin/bun), so without this the
+          // child cannot exec the runtime.
+          interpreterPath: realpathSync(process.execPath),
+        },
+        nftRulesetPath,
+        rootlessLauncherPath,
+        // The ESM runner execs a Bun/Node interpreter that honours
+        // NODE_OPTIONS=--max-old-space-size, so the per-run JS-heap memory cap
+        // IS applied here (unlike the shell runner).
+        appliesNodeMemoryCap: true,
+      });
+      // Surface the fail-closed fallback as a notice in the report so a
+      // missing/failed policy provider is never silent (the run still proceeds
+      // under the most restrictive policy).
+      if (failedClosed) {
+        hardening.effective.downgrades.push({
+          layer: "network",
+          reason: FAIL_CLOSED_DOWNGRADE_REASON,
+        });
+      }
+    } catch (error) {
+      if (error instanceof SandboxUnavailableError) {
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => {
+          // Best-effort: nothing was written yet; the OS reaps any straggler.
+        });
+        return {
+          stdout: "",
+          stderr: "",
+          timedOut: false,
+          error: error.message,
+          sandbox: {
+            requested: policy,
+            enforced: {
+              resources: false,
+              filesystem: false,
+              network: false,
+              privilege: false,
+            },
+            downgrades: error.downgrades,
+            notes: [],
+            platform: caps.platform,
+          },
+        };
+      }
+      throw error;
+    }
+
     const userScriptPath = path.join(tmpDir, "user.mjs");
     const runnerPath = path.join(tmpDir, "runner.mjs");
     const bunfigPath = path.join(tmpDir, "bunfig.toml");
@@ -392,6 +484,20 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
       // degradation the package feature requires.
       await writeFile(bunfigPath, '[install]\nauto = "disable"\n', "utf8");
 
+      // Stage the network egress ruleset (if the sandbox produced one) so the
+      // wrapper can install it inside the child's net namespace.
+      if (hardening.nftRuleset !== undefined) {
+        await writeFile(nftRulesetPath, hardening.nftRuleset, "utf8");
+      }
+      // Stage the rootless egress launcher (slirp4netns orchestration) when the
+      // sandbox picked the rootless path. The prelude execs it as `sh <path>`.
+      if (hardening.rootlessLauncher !== undefined) {
+        await writeFile(rootlessLauncherPath, hardening.rootlessLauncher, {
+          encoding: "utf8",
+          mode: 0o700,
+        });
+      }
+
       await writeFile(userScriptPath, userSource, "utf8");
       await writeFile(
         runnerPath,
@@ -406,31 +512,61 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
       );
 
       proc = spawn({
-        cmd: [process.execPath, runnerPath],
+        // The sandbox may prepend an rlimit prelude (e.g. `prlimit --as=... --`)
+        // to the argv. CWD stays the per-run dir.
+        cmd: hardening.wrapCmd([process.execPath, runnerPath]),
         // CWD = the per-run dir so Bun reads its `bunfig.toml`
         // (auto-install disabled) and resolves modules from
         // `<resolutionRoot>/node_modules` when set.
         cwd: tmpDir,
-        // Per-run injected env wins over the safe-vars whitelist. The
-        // injected secret values live only here + the child process; they
-        // never widen the ambient SAFE_ENV_VARS.
-        env: { ...pickSafeEnv(), ...injectedEnv },
+        // `hardening.env` is the safe-vars base overlaid with the caller's
+        // injected env (denylist applied when the sandbox is enabled). The
+        // controlled ESM memory fallback (NODE_OPTIONS=--max-old-space-size)
+        // is merged on top — it is a sandbox-set cap, not a caller override,
+        // so it is intentionally not subject to the denylist.
+        env: { ...hardening.env, ...hardening.nodeMemoryFlagEnv },
+        // NOTE: we deliberately do NOT pass `uid`/`gid` to Bun.spawn. On the
+        // shipped Bun versions it is a silent no-op (the privilege drop is
+        // carried by the namespace wrapper's `--uid`, or by inheritance from a
+        // non-root supervisor), AND passing it is a forward-compat hazard: a
+        // future Bun that honours it would spawn the WRAPPER itself as the
+        // dropped id, breaking unprivileged-userns creation. `hardening.uid` is
+        // observability-only. See wrapper.ts.
         stdout: "pipe",
         stderr: "pipe",
       });
 
       let stdout: string;
       let stderr: string;
+      let streamTruncated = false;
 
       try {
-        [stdout, stderr] = (await Promise.race([
+        // Bounded-buffering capture: count bytes against the shared
+        // `maxOutputBytes` budget and kill + flag the child once exceeded,
+        // rather than buffering the whole output first (OOM guard on a degraded
+        // host without RLIMIT_AS — plan §5.1). NOTE: a script that floods past
+        // the cap loses its result marker (it is emitted last); that is an
+        // acceptable degradation for abusive output, and the run is reported as
+        // truncated + "no result".
+        const captureProc = proc;
+        const [captured] = (await Promise.race([
           Promise.all([
-            new Response(proc.stdout as ReadableStream).text(),
-            new Response(proc.stderr as ReadableStream).text(),
-            proc.exited,
+            readCappedOutput({
+              stdout: captureProc.stdout as ReadableStream<Uint8Array>,
+              stderr: captureProc.stderr as ReadableStream<Uint8Array>,
+              maxOutputBytes: hardening.maxOutputBytes,
+              onExceeded: () => captureProc.kill(),
+            }),
+            captureProc.exited,
           ]),
           timeoutPromise,
-        ])) as [string, string, number];
+        ])) as [
+          { stdout: string; stderr: string; truncated: boolean },
+          number,
+        ];
+        stdout = captured.stdout;
+        stderr = captured.stderr;
+        streamTruncated = captured.truncated;
       } catch (error) {
         if (timedOut) {
           return {
@@ -438,6 +574,7 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
             stderr: "",
             timedOut: true,
             error: "Script execution timed out",
+            sandbox: hardening.effective,
           };
         }
         throw error;
@@ -467,17 +604,33 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
           .trim();
       }
 
+      // Apply output truncation AFTER the result marker has been plucked, so
+      // the cap never corrupts the marker the parent relies on. Truncation is
+      // the portable resource-cap fallback (pure JS, every platform).
+      const {
+        stdout: cappedStdout,
+        stderr: cappedStderr,
+        truncated: trimTruncated,
+      } = truncateCapturedOutput({
+        stdout: stdout.trim(),
+        stderr: cleanStderr,
+        maxOutputBytes: hardening.maxOutputBytes,
+      });
+      const outputTruncated = streamTruncated || trimTruncated;
+
       if (!payload) {
         // The runner never got far enough to emit — typically a syntax
         // error in the user module or a hard crash. Surface whatever the
         // subprocess wrote to stderr as the error.
         return {
-          stdout: stdout.trim(),
-          stderr: cleanStderr,
+          stdout: cappedStdout,
+          stderr: cappedStderr,
           timedOut: false,
+          outputTruncated,
+          sandbox: hardening.effective,
           error:
-            cleanStderr.length > 0
-              ? cleanStderr
+            cappedStderr.length > 0
+              ? cappedStderr
               : "Script exited without producing a result",
         };
       }
@@ -485,18 +638,22 @@ export const defaultEsmScriptRunner: EsmScriptRunner = {
       if (payload.ok) {
         return {
           result: payload.result,
-          stdout: stdout.trim(),
-          stderr: cleanStderr,
+          stdout: cappedStdout,
+          stderr: cappedStderr,
           timedOut: false,
+          outputTruncated,
+          sandbox: hardening.effective,
         };
       }
 
       return {
         error: payload.error,
         stack: payload.stack,
-        stdout: stdout.trim(),
-        stderr: cleanStderr,
+        stdout: cappedStdout,
+        stderr: cappedStderr,
         timedOut: false,
+        outputTruncated,
+        sandbox: hardening.effective,
       };
     } finally {
       // Order matters:

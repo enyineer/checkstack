@@ -1,6 +1,11 @@
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
+  aiToolExtensionPoint,
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import {
   incidentAccessRules,
   incidentAccess,
   pluginMetadata,
@@ -42,6 +47,7 @@ import {
   incidentArtifactType,
   incidentTriggers,
 } from "./automations";
+import { buildIncidentAiTools } from "./ai/register-ai-tools";
 
 // =============================================================================
 // Plugin Definition
@@ -179,6 +185,44 @@ export default createBackendPlugin({
         })) {
           automationActions.registerAction(action, pluginMetadata);
         }
+
+        // Register this plugin's AI tools (create/update/delete/addUpdate/
+        // resolve/addLink/removeLink) into the AI registry via the extension
+        // point - owned here, not in ai-backend.
+        const aiToolExt = env.getExtensionPoint(aiToolExtensionPoint);
+        for (const tool of buildIncidentAiTools()) {
+          aiToolExt.registerTool(tool, pluginMetadata);
+        }
+
+        // Expose this plugin's read-only AI projection (`incident.list`) via
+        // the AI projection extension point. ai-backend collects its routing in
+        // afterPluginsReady and never imports incident-common.
+        const aiProjectionExt = env.getExtensionPoint(
+          aiToolProjectionExtensionPoint,
+        );
+        aiProjectionExt.expose({
+          procedure: incidentContract.listIncidents,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listIncidents",
+          name: "incident.list",
+          description:
+            "List incidents with optional status/system filters. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+
+        // Expose a read-only projection of `getIncident` so the model can pull
+        // one incident's full timeline (updates) + links to ground its actions.
+        aiProjectionExt.expose({
+          procedure: incidentContract.getIncident,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getIncident",
+          name: "incident.get",
+          description:
+            "Get one incident with its full timeline (updates) and links. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
 
         // Register "Create Incident" command in the command palette
         registerSearchProvider({

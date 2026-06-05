@@ -415,6 +415,101 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
     ).rejects.toThrow(/config validation failed/);
   });
 
+  it("migrates an OLD-shape authored config forward and stores the migrated value", async () => {
+    // A strategy at version 2 whose v1->v2 migration drops a removed
+    // `legacyMode` key. Authored gitops YAML still in the v1 shape (carrying
+    // `legacyMode`) must be migrated forward and applied, not rejected.
+    const v2Schema = z.object({ host: z.string() });
+    const versionedStrategy = {
+      id: "postgres",
+      displayName: "PostgreSQL",
+      description: "test",
+      config: new Versioned({
+        version: 2,
+        schema: v2Schema,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            description: "Drop removed legacyMode key",
+            migrate: ({ legacyMode: _legacyMode, ...rest }: Record<string, unknown>) =>
+              rest,
+          },
+        ],
+      }),
+    };
+    mockHCRegistry.getStrategiesWithMeta = () =>
+      [
+        { strategy: versionedStrategy, ownerPluginId: "mock", qualifiedId: "postgres" },
+      ] as any;
+
+    const kind = buildKind();
+
+    const result = await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "Healthcheck",
+        metadata: { name: "legacy-check" },
+        spec: {
+          strategy: "postgres",
+          intervalSeconds: 30,
+          // Old v1 shape: carries the now-removed `legacyMode`.
+          config: { host: "db.legacy", legacyMode: true },
+        },
+      },
+      context: mockContext,
+    });
+
+    expect(result.entityId).toBe("hc-1");
+    // The MIGRATED config (legacyMode dropped) is what gets stored.
+    expect(mockService.configs[0].config).toEqual({ host: "db.legacy" });
+  });
+
+  it("rejects a genuine typo the migration does not account for (strict)", async () => {
+    const v2Schema = z.object({ host: z.string() });
+    const versionedStrategy = {
+      id: "postgres",
+      displayName: "PostgreSQL",
+      description: "test",
+      config: new Versioned({
+        version: 2,
+        schema: v2Schema,
+        migrations: [
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            description: "Drop removed legacyMode key",
+            migrate: ({ legacyMode: _legacyMode, ...rest }: Record<string, unknown>) =>
+              rest,
+          },
+        ],
+      }),
+    };
+    mockHCRegistry.getStrategiesWithMeta = () =>
+      [
+        { strategy: versionedStrategy, ownerPluginId: "mock", qualifiedId: "postgres" },
+      ] as any;
+
+    const kind = buildKind();
+
+    await expect(
+      kind.reconcile({
+        entity: {
+          apiVersion: CHECKSTACK_API_VERSION,
+          kind: "Healthcheck",
+          metadata: { name: "typo-check" },
+          spec: {
+            strategy: "postgres",
+            intervalSeconds: 30,
+            // `hsot` is a genuine typo no migration accounts for.
+            config: { host: "db.local", hsot: "oops" },
+          },
+        },
+        context: mockContext,
+      }),
+    ).rejects.toThrow(/config validation failed/);
+  });
+
   it("validates collector configs against collector registry schemas", async () => {
     const kind = buildKind();
 

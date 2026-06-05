@@ -7,6 +7,7 @@ import {
   createDefaultFilterRegistry,
   isTruthy,
 } from "./filters";
+import { parseTemplate } from "./parser";
 import type {
   FilterRegistry,
   ParsedCondition,
@@ -58,6 +59,41 @@ export function render(
     out += stringify(value);
   }
   return out;
+}
+
+/**
+ * Render a raw template string against a context for PREVIEW purposes.
+ *
+ * Convenience over `parseTemplate` + `render` with two preview-safe rules:
+ *
+ *   - A value with no `{{` is returned unchanged (fast path).
+ *   - A value that is not parseable as a template (e.g. a stray literal `{{`)
+ *     is returned UNCHANGED instead of throwing — it was clearly not intended
+ *     as a template.
+ *
+ * Renders with `strict: false`, so a missing path resolves to the empty
+ * string. This is the SAME render semantics used by the run-time
+ * `x-templatable` config pass, so an editor preview never diverges from the
+ * real render. Logic-only (no DOM), so it runs in both the backend executor
+ * and the client-side config editor.
+ */
+export function renderTemplatePreview({
+  value,
+  context,
+  options,
+}: {
+  value: string;
+  context: TemplateContext;
+  options?: RenderOptions;
+}): string {
+  if (!value.includes("{{")) return value;
+  let parsed: ParsedTemplate;
+  try {
+    parsed = parseTemplate(value);
+  } catch {
+    return value;
+  }
+  return render(parsed, context, { strict: false, ...options });
 }
 
 /**

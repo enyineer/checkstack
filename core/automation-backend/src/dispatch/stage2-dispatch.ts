@@ -101,6 +101,7 @@ async function loadAutomation(
     name: automation.name,
     status: automation.status,
     definition: automation.definition,
+    runAs: automation.runAs ?? null,
   };
 }
 

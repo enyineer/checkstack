@@ -18,6 +18,9 @@
     },
     {
       "path": "../signal-common"
+    },
+    {
+      "path": "../template-engine"
     }
   ]
 }

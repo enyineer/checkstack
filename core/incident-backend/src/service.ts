@@ -238,33 +238,38 @@ export class IncidentService {
     id: string = generateId(),
   ): Promise<IncidentWithSystems> {
 
-    await this.db.insert(incidents).values({
-      id,
-      title: input.title,
-      description: input.description,
-      status: "investigating",
-      severity: input.severity,
-      suppressNotifications: input.suppressNotifications ?? false,
+    // Atomic: the incident row, its system associations, and any initial update
+    // must all commit together. Without the transaction a failure mid-loop left
+    // a committed incident with only some (or none) of its system links.
+    await this.db.transaction(async (tx) => {
+      await tx.insert(incidents).values({
+        id,
+        title: input.title,
+        description: input.description,
+        status: "investigating",
+        severity: input.severity,
+        suppressNotifications: input.suppressNotifications ?? false,
+      });
+
+      // Insert system associations
+      for (const systemId of input.systemIds) {
+        await tx.insert(incidentSystems).values({
+          incidentId: id,
+          systemId,
+        });
+      }
+
+      // Add initial update if provided
+      if (input.initialMessage) {
+        await tx.insert(incidentUpdates).values({
+          id: generateId(),
+          incidentId: id,
+          message: input.initialMessage,
+          statusChange: "investigating",
+          createdBy: userId,
+        });
+      }
     });
-
-    // Insert system associations
-    for (const systemId of input.systemIds) {
-      await this.db.insert(incidentSystems).values({
-        incidentId: id,
-        systemId,
-      });
-    }
-
-    // Add initial update if provided
-    if (input.initialMessage) {
-      await this.db.insert(incidentUpdates).values({
-        id: generateId(),
-        incidentId: id,
-        message: input.initialMessage,
-        statusChange: "investigating",
-        createdBy: userId,
-      });
-    }
 
     return (await this.getIncident(id))!;
   }
@@ -293,24 +298,29 @@ export class IncidentService {
     if (input.suppressNotifications !== undefined)
       updateData.suppressNotifications = input.suppressNotifications;
 
-    await this.db
-      .update(incidents)
-      .set(updateData)
-      .where(eq(incidents.id, input.id));
+    // Atomic: the field update and the delete-then-reinsert of system links must
+    // commit together. Without the transaction a failure after the delete left
+    // the incident with ALL system associations wiped.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(incidents)
+        .set(updateData)
+        .where(eq(incidents.id, input.id));
 
-    // Update system associations if provided
-    if (input.systemIds !== undefined) {
-      await this.db
-        .delete(incidentSystems)
-        .where(eq(incidentSystems.incidentId, input.id));
+      // Update system associations if provided
+      if (input.systemIds !== undefined) {
+        await tx
+          .delete(incidentSystems)
+          .where(eq(incidentSystems.incidentId, input.id));
 
-      for (const systemId of input.systemIds) {
-        await this.db.insert(incidentSystems).values({
-          incidentId: input.id,
-          systemId,
-        });
+        for (const systemId of input.systemIds) {
+          await tx.insert(incidentSystems).values({
+            incidentId: input.id,
+            systemId,
+          });
+        }
       }
-    }
+    });
 
     return (await this.getIncident(input.id))!;
   }
@@ -324,20 +334,25 @@ export class IncidentService {
   ): Promise<IncidentUpdate> {
     const id = generateId();
 
-    // If status change is provided, update the incident status
-    if (input.statusChange) {
-      await this.db
-        .update(incidents)
-        .set({ status: input.statusChange, updatedAt: new Date() })
-        .where(eq(incidents.id, input.incidentId));
-    }
+    // Atomic: the status flip and the timeline entry that records it must commit
+    // together. Without the transaction a failed insert left the incident in a
+    // new status with no update row explaining it (status/timeline divergence).
+    await this.db.transaction(async (tx) => {
+      // If status change is provided, update the incident status
+      if (input.statusChange) {
+        await tx
+          .update(incidents)
+          .set({ status: input.statusChange, updatedAt: new Date() })
+          .where(eq(incidents.id, input.incidentId));
+      }
 
-    await this.db.insert(incidentUpdates).values({
-      id,
-      incidentId: input.incidentId,
-      message: input.message,
-      statusChange: input.statusChange,
-      createdBy: userId,
+      await tx.insert(incidentUpdates).values({
+        id,
+        incidentId: input.incidentId,
+        message: input.message,
+        statusChange: input.statusChange,
+        createdBy: userId,
+      });
     });
 
     const [update] = await this.db
@@ -367,18 +382,21 @@ export class IncidentService {
 
     if (!existing) return undefined;
 
-    await this.db
-      .update(incidents)
-      .set({ status: "resolved", updatedAt: new Date() })
-      .where(eq(incidents.id, id));
+    // Atomic: mark resolved + write the resolution timeline entry together.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(incidents)
+        .set({ status: "resolved", updatedAt: new Date() })
+        .where(eq(incidents.id, id));
 
-    // Add resolution update entry
-    await this.db.insert(incidentUpdates).values({
-      id: generateId(),
-      incidentId: id,
-      message: message ?? "Incident resolved",
-      statusChange: "resolved",
-      createdBy: userId,
+      // Add resolution update entry
+      await tx.insert(incidentUpdates).values({
+        id: generateId(),
+        incidentId: id,
+        message: message ?? "Incident resolved",
+        statusChange: "resolved",
+        createdBy: userId,
+      });
     });
 
     return (await this.getIncident(id))!;

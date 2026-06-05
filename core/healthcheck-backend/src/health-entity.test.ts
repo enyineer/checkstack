@@ -21,6 +21,10 @@ import {
 } from "./health-entity";
 import type { HealthCheckService } from "./service";
 import {
+  encodeHealthEntityId,
+  parseHealthEntityId,
+} from "./health-entity-id";
+import {
   systemDegradedTrigger,
   systemHealthyTrigger,
   systemHealthChangedTrigger,
@@ -162,6 +166,7 @@ describe("classifyHealthChange (cross-plugin consumer predicate)", () => {
     const c = classifyHealthChange(change());
     expect(c).toEqual({
       systemId: "sys-1",
+      environmentId: null,
       previousStatus: "healthy",
       newStatus: "unhealthy",
       degraded: true,
@@ -370,7 +375,7 @@ describe("writeHealthEntity (durable write driven through handle.mutate)", () =>
 
     const next = await writeHealthEntity({
       handle,
-      systemId: "sys-1",
+      entityId: "sys-1",
       apply: async () => {
         persisted = { status: "unhealthy", healthyChecks: 0, totalChecks: 2 };
         return persisted;
@@ -392,7 +397,7 @@ describe("writeHealthEntity (durable write driven through handle.mutate)", () =>
     let ran = false;
     const next = await writeHealthEntity({
       handle: undefined,
-      systemId: "sys-1",
+      entityId: "sys-1",
       apply: async () => {
         ran = true;
         return { status: "healthy", healthyChecks: 1, totalChecks: 1 };
@@ -415,7 +420,7 @@ describe("writeHealthEntity (durable write driven through handle.mutate)", () =>
     // apply commits, THEN the handle throws (emit failure). Must not rethrow.
     const result = await writeHealthEntity({
       handle,
-      systemId: "sys-1",
+      entityId: "sys-1",
       apply: async () => ({
         status: "unhealthy",
         healthyChecks: 0,
@@ -442,7 +447,7 @@ describe("writeHealthEntity (durable write driven through handle.mutate)", () =>
     await expect(
       writeHealthEntity({
         handle,
-        systemId: "sys-1",
+        entityId: "sys-1",
         apply: async () => {
           throw new Error("insert failed");
         },
@@ -527,7 +532,7 @@ describe("first-run-unhealthy degradation (Defect 1 regression)", () => {
 
     const next = await writeHealthEntity({
       handle,
-      systemId: "sys-1",
+      entityId: "sys-1",
       apply: async () => {
         // The durable first run lands here (unhealthy).
         firstRunRecorded = true;
@@ -645,7 +650,7 @@ describe("per-system serialization (Defect 2 regression)", () => {
     const evalOnce = () =>
       writeHealthEntity({
         handle,
-        systemId: "sys-1",
+        entityId: "sys-1",
         serialize,
         apply: async () => {
           // The durable "insert failing run" — first writer flips the state.
@@ -690,5 +695,378 @@ describe("per-system serialization (Defect 2 regression)", () => {
     expect(result).toBe("ok");
     // The advisory lock was acquired with the per-system namespaced key.
     expect(keys).toContain("health:sys-42");
+  });
+
+  it("serializes per ENV-QUALIFIED id so distinct envs / the rollup use distinct lock keys", async () => {
+    const keys: string[] = [];
+    const advisoryLock = {
+      tryAcquire: async () => ({ release: async () => {} }),
+      withXactLock<T>({
+        key,
+        fn,
+      }: {
+        key: string;
+        fn: () => Promise<T>;
+      }): Promise<T> {
+        keys.push(key);
+        return fn();
+      },
+    } satisfies Parameters<
+      typeof createHealthEntitySerializer
+    >[0]["advisoryLock"];
+
+    const make = createHealthEntitySerializer({ advisoryLock });
+    await make(encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" }))(
+      async () => "ok",
+    );
+    await make(encodeHealthEntityId({ systemId: "sys-1", environmentId: "staging" }))(
+      async () => "ok",
+    );
+    await make(encodeHealthEntityId({ systemId: "sys-1" }))(async () => "ok");
+
+    // Per-env keys are env-qualified; the rollup uses the bare systemId. All
+    // three are DISTINCT, so they never block each other.
+    expect(keys).toEqual([
+      "health:sys-1::prod",
+      "health:sys-1::staging",
+      "health:sys-1",
+    ]);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// PHASE 3b: the `health` entity is env-keyed — `<systemId>` (rollup) and
+// `<systemId>::<environmentId>` (per-env) views share one kind, distinguished
+// only by id-shape. The rollup MUST preserve the pre-3b system-level contract.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("health-entity-id encode/parse round-trip", () => {
+  it("encodes the bare systemId for the rollup (no environment)", () => {
+    expect(encodeHealthEntityId({ systemId: "sys-1" })).toBe("sys-1");
+    expect(encodeHealthEntityId({ systemId: "sys-1", environmentId: null })).toBe(
+      "sys-1",
+    );
+  });
+
+  it("encodes `<systemId>::<environmentId>` for a per-env id", () => {
+    expect(
+      encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" }),
+    ).toBe("sys-1::prod");
+  });
+
+  it("parses a bare id as the rollup (environmentId null)", () => {
+    expect(parseHealthEntityId("sys-1")).toEqual({
+      systemId: "sys-1",
+      environmentId: null,
+    });
+  });
+
+  it("parses a per-env id into (systemId, environmentId)", () => {
+    expect(parseHealthEntityId("sys-1::prod")).toEqual({
+      systemId: "sys-1",
+      environmentId: "prod",
+    });
+  });
+});
+
+/** Sentinel key for the env-less slice (`environmentId === null`) in the fake.
+ * Kept DISTINCT from the rollup key (`"<systemId>"`, selected by `undefined`)
+ * so the fake faithfully models production's `IS NULL` filter — collapsing
+ * them is what masked the rollup BLOCKER. */
+const ENVLESS_KEY = "::__envless__";
+
+/**
+ * Env-aware fake service: `getSystemHealthStatus(systemId, environmentId)`
+ * returns canned per-(system, env) state, distinguishing all THREE arg modes
+ * exactly as production's SQL does:
+ * - `environmentId === undefined` ⇒ ROLLUP (all runs) — key `"<systemId>"`.
+ * - `environmentId === null`      ⇒ ENV-LESS slice (`env_id IS NULL`) — key
+ *   `"<systemId>::__envless__"` (DISTINCT from the rollup key).
+ * - a string                      ⇒ per-env slice — key `"<systemId>::<env>"`.
+ */
+function fakeEnvService(
+  byEntityId: Record<
+    string,
+    { status: CheckStatus; checkStatuses: Array<{ status: CheckStatus }> }
+  >,
+): HealthCheckService {
+  return {
+    getSystemHealthStatus: async (
+      systemId: string,
+      environmentId?: string | null,
+    ) => {
+      const key =
+        environmentId === undefined
+          ? systemId
+          : environmentId === null
+            ? `${systemId}${ENVLESS_KEY}`
+            : `${systemId}::${environmentId}`;
+      const found = byEntityId[key];
+      return {
+        status: found?.status ?? ("healthy" as CheckStatus),
+        evaluatedAt: new Date(),
+        checkStatuses: (found?.checkStatuses ?? []).map((c, i) => ({
+          configurationId: `cfg-${i}`,
+          configurationName: `Check ${i}`,
+          status: c.status,
+          runsConsidered: 1,
+        })),
+      };
+    },
+  } as unknown as HealthCheckService;
+}
+
+describe("createHealthEntityRead — env-keyed (rollup vs per-env)", () => {
+  it("resolves the per-env view for a `<systemId>::<env>` id and the rollup for a bare id", async () => {
+    const service = fakeEnvService({
+      // Rollup: worst across envs (unhealthy because prod is unhealthy).
+      "sys-1": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+      "sys-1::prod": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+      "sys-1::staging": {
+        status: "healthy",
+        checkStatuses: [{ status: "healthy" }],
+      },
+    });
+    const read = createHealthEntityRead({ service });
+    const out = await read(["sys-1", "sys-1::prod", "sys-1::staging"]);
+
+    // Keyed by the ORIGINAL (env-qualified) id, each resolving the right view.
+    expect(out["sys-1"]?.status).toBe("unhealthy"); // rollup
+    expect(out["sys-1::prod"]?.status).toBe("unhealthy"); // per-env
+    expect(out["sys-1::staging"]?.status).toBe("healthy"); // per-env
+  });
+
+  it("rollup of a system WITH environments reads ALL runs (worst status), NOT the env-less slice (BLOCKER regression)", async () => {
+    // A system whose runs ALL carry a non-null env_id: there is NO env-less
+    // slice entry. The bare-`<systemId>` ROLLUP must read ALL runs (worst
+    // status across envs), NOT `env_id IS NULL` (which would find zero rows and
+    // report default healthy). The fake omits the ENV-LESS key entirely, so a
+    // bug that resolved the rollup via `null` would return default healthy here.
+    const service = fakeEnvService({
+      // Rollup (all-runs / `undefined`): worst across envs = unhealthy.
+      "sys-1": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+      "sys-1::prod": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }],
+      },
+      "sys-1::staging": {
+        status: "healthy",
+        checkStatuses: [{ status: "healthy" }],
+      },
+      // NOTE: deliberately NO "sys-1::__envless__" entry — every run has an env.
+    });
+    const read = createHealthEntityRead({ service });
+    const out = await read(["sys-1"]);
+    // Worst status across environments — NOT the (empty) env-less slice's
+    // default healthy.
+    expect(out["sys-1"]?.status).toBe("unhealthy");
+  });
+
+  it("rollup preserves the pre-3b contract: a bare-systemId read equals today's status when no envs exist", async () => {
+    // A system with no environments has only the bare-systemId (rollup =
+    // env-less) entry — exactly the pre-3b shape.
+    const service = fakeEnvService({
+      "sys-1": {
+        status: "degraded",
+        checkStatuses: [{ status: "healthy" }, { status: "degraded" }],
+      },
+    });
+    const read = createHealthEntityRead({ service });
+    const out = await read(["sys-1"]);
+    expect(out["sys-1"]).toEqual({
+      status: "degraded",
+      healthyChecks: 1,
+      totalChecks: 2,
+    });
+  });
+
+  it("omits a per-env id whose system has no enabled checks (existence gate holds per id)", async () => {
+    const service = fakeEnvService({
+      "sys-1::prod": { status: "healthy", checkStatuses: [] },
+    });
+    const read = createHealthEntityRead({ service });
+    const out = await read(["sys-1::prod"]);
+    expect(out["sys-1::prod"]).toBeUndefined();
+  });
+});
+
+describe("computeHealthEntityState — environment-aware", () => {
+  it("computes the env-scoped view for a concrete environment", async () => {
+    const service = fakeEnvService({
+      "sys-1::prod": {
+        status: "unhealthy",
+        checkStatuses: [{ status: "unhealthy" }, { status: "healthy" }],
+      },
+    });
+    const state = await computeHealthEntityState({
+      service,
+      systemId: "sys-1",
+      environmentId: "prod",
+    });
+    expect(state).toEqual({
+      status: "unhealthy",
+      healthyChecks: 1,
+      totalChecks: 2,
+    });
+  });
+
+  it("computes the rollup view when environmentId is omitted", async () => {
+    const service = fakeEnvService({
+      "sys-1": {
+        status: "degraded",
+        checkStatuses: [{ status: "degraded" }],
+      },
+    });
+    const state = await computeHealthEntityState({ service, systemId: "sys-1" });
+    expect(state?.status).toBe("degraded");
+  });
+});
+
+describe("healthChangeToPayload — env-qualified id", () => {
+  it("sets payload.environmentId for a PER-ENV change and validates against the schema", () => {
+    const payload = healthChangeToPayload(
+      change({ id: encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" }) }),
+    );
+    const parsed = systemDegradedTrigger.payloadSchema.parse(payload);
+    // systemId is the bare systemId portion; environmentId is the env.
+    expect(parsed.systemId).toBe("sys-1");
+    expect(parsed.environmentId).toBe("prod");
+  });
+
+  it("OMITS environmentId for the system ROLLUP change (back-compat: bare systemId)", () => {
+    const payload = healthChangeToPayload(change({ id: "sys-1" }));
+    const parsed = systemHealthChangedTrigger.payloadSchema.parse(payload);
+    expect(parsed.systemId).toBe("sys-1");
+    // Absent for the rollup — existing system-level automations are unaffected.
+    expect(parsed.environmentId).toBeUndefined();
+  });
+});
+
+describe("classifyHealthChange — env-qualified id", () => {
+  it("reports the systemId portion + environmentId for a per-env change", () => {
+    const c = classifyHealthChange(
+      change({ id: encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" }) }),
+    );
+    expect(c.systemId).toBe("sys-1");
+    expect(c.environmentId).toBe("prod");
+    expect(c.degraded).toBe(true);
+  });
+
+  it("reports environmentId null for the rollup change", () => {
+    const c = classifyHealthChange(change({ id: "sys-1" }));
+    expect(c.systemId).toBe("sys-1");
+    expect(c.environmentId).toBeNull();
+  });
+});
+
+describe("per-env + rollup serialization under concurrent writes", () => {
+  /** Same keyed-serializer stand-in as the Defect-2 test, reused here. */
+  function makeKeyedSerializer() {
+    const chains = new Map<string, Promise<unknown>>();
+    return (key: string) =>
+      <T>(fn: () => Promise<T>): Promise<T> => {
+        const prior = chains.get(key) ?? Promise.resolve();
+        const next = prior.then(fn, fn);
+        chains.set(
+          key,
+          next.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+        return next;
+      };
+  }
+
+  it("two concurrent evals of the SAME (system, env) emit exactly one transition", async () => {
+    let unhealthy = false;
+    const compute = (): HealthEntityState => ({
+      status: unhealthy ? "unhealthy" : "healthy",
+      healthyChecks: unhealthy ? 0 : 1,
+      totalChecks: 1,
+    });
+    const emitted: Array<{
+      prev: HealthEntityState | undefined;
+      next: HealthEntityState;
+    }> = [];
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async mutate(input: MutateInput<HealthEntityState>) {
+        const prev = compute();
+        await Promise.resolve();
+        const next = await input.apply();
+        if (prev.status !== next.status) emitted.push({ prev, next });
+        return next;
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+
+    const keyed = makeKeyedSerializer();
+    const envId = encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" });
+    const serialize = keyed(`health:${envId}`);
+    const evalOnce = () =>
+      writeHealthEntity({
+        handle,
+        entityId: envId,
+        serialize,
+        apply: async () => {
+          unhealthy = true;
+          return compute();
+        },
+      });
+
+    await Promise.all([evalOnce(), evalOnce()]);
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("a per-env write and the rollup write run in PARALLEL (distinct keys, no mutual block)", async () => {
+    const keyed = makeKeyedSerializer();
+    const order: string[] = [];
+    const envId = encodeHealthEntityId({ systemId: "sys-1", environmentId: "prod" });
+    const rollupId = encodeHealthEntityId({ systemId: "sys-1" });
+
+    const handle = {
+      kind: HEALTH_ENTITY_KIND,
+      async mutate(input: MutateInput<HealthEntityState>) {
+        return input.apply();
+      },
+    } as unknown as EntityHandle<HealthEntityState>;
+
+    // The env write holds its critical section across a microtask; if the
+    // rollup were on the SAME key it would be forced to wait. Distinct keys
+    // let them interleave.
+    const envWrite = writeHealthEntity({
+      handle,
+      entityId: envId,
+      serialize: keyed(`health:${envId}`),
+      apply: async () => {
+        order.push("env-start");
+        await Promise.resolve();
+        order.push("env-end");
+        return { status: "healthy", healthyChecks: 1, totalChecks: 1 };
+      },
+    });
+    const rollupWrite = writeHealthEntity({
+      handle,
+      entityId: rollupId,
+      serialize: keyed(`health:${rollupId}`),
+      apply: async () => {
+        order.push("rollup-start");
+        return { status: "healthy", healthyChecks: 1, totalChecks: 1 };
+      },
+    });
+
+    await Promise.all([envWrite, rollupWrite]);
+
+    // Interleaved: rollup-start ran before env-end (they did not serialize).
+    expect(order.indexOf("rollup-start")).toBeLessThan(order.indexOf("env-end"));
   });
 });

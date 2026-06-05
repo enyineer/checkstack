@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../ai-backend"
+    },
+    {
       "path": "../anomaly-common"
     },
     {

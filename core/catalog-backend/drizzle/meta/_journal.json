@@ -22,6 +22,34 @@
       "when": 1777907813247,
       "tag": "0002_harsh_carmella_unuscione",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780354912371,
+      "tag": "0003_tan_spot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780594817551,
+      "tag": "0004_heavy_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780649274989,
+      "tag": "0005_normal_shaman",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780651494240,
+      "tag": "0006_optimal_gamora",
+      "breakpoints": true
     }
   ]
 }

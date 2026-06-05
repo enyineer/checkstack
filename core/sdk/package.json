@@ -1,0 +1,69 @@
+{
+  "name": "@checkstack/sdk",
+  "version": "0.93.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "description": "Auto-generated, version-pinned typed client and script-authoring helpers for Checkstack.",
+  "exports": {
+    ".": {
+      "types": "./generated/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./healthcheck": {
+      "types": "./generated/healthcheck.d.ts",
+      "default": "./src/healthcheck.ts"
+    },
+    "./integration": {
+      "types": "./generated/integration.d.ts",
+      "default": "./src/integration.ts"
+    },
+    "./editor-bundle": {
+      "types": "./generated/editor-bundle-module.d.ts",
+      "default": "./src/editor-bundle.ts"
+    },
+    "./version": {
+      "types": "./generated/version.d.ts",
+      "default": "./src/version.ts"
+    }
+  },
+  "dependencies": {
+    "@checkstack/announcement-common": "workspace:*",
+    "@checkstack/anomaly-common": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
+    "@checkstack/automation-common": "workspace:*",
+    "@checkstack/cache-common": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/command-common": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/dependency-common": "workspace:*",
+    "@checkstack/gitops-common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
+    "@checkstack/incident-common": "workspace:*",
+    "@checkstack/integration-common": "workspace:*",
+    "@checkstack/maintenance-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
+    "@checkstack/pluginmanager-common": "workspace:*",
+    "@checkstack/queue-common": "workspace:*",
+    "@checkstack/satellite-common": "workspace:*",
+    "@checkstack/script-packages-common": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
+    "@checkstack/slo-common": "workspace:*",
+    "@checkstack/theme-common": "workspace:*",
+    "@checkstack/tips-common": "workspace:*",
+    "@orpc/client": "^1.14.4",
+    "@orpc/openapi-client": "^1.14.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "checkstack": {
+    "type": "common"
+  }
+}

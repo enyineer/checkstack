@@ -1,6 +1,5 @@
 import React from "react";
-import { Loader2, ChevronDown } from "lucide-react";
-import { cn } from "../../utils";
+import { ChevronDown } from "lucide-react";
 
 import {
   Input,
@@ -10,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  usePerformance,
+  Spinner,
 } from "../../index";
 
 import type { DynamicOptionsFieldProps, ResolverOption } from "./types";
@@ -35,7 +34,6 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   optionsResolvers,
   onChange,
 }) => {
-  const { isLowPower } = usePerformance();
   const [options, setOptions] = React.useState<ResolverOption[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | undefined>();
@@ -46,6 +44,15 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   const formValuesRef = React.useRef(formValues);
   formValuesRef.current = formValues;
 
+  // Ref the resolvers too. A parent re-render (e.g. typing in ANOTHER field of
+  // the same form) can hand down a new `optionsResolvers` object identity even
+  // though the resolver for THIS field is unchanged. Reading it from a ref keeps
+  // it out of the fetch effect's dependencies, so the field only re-fetches when
+  // its resolver NAME or its declared `x-depends-on` values change - not on
+  // every unrelated keystroke (which made the picker flash + re-fetch).
+  const optionsResolversRef = React.useRef(optionsResolvers);
+  optionsResolversRef.current = optionsResolvers;
+
   // Build dependency values string for useEffect dependency tracking
   // Only includes the specific fields this resolver depends on
   const dependencyValues = React.useMemo(() => {
@@ -54,7 +61,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   }, [dependsOn, formValues]);
 
   React.useEffect(() => {
-    const resolver = optionsResolvers[resolverName];
+    const resolver = optionsResolversRef.current[resolverName];
     if (!resolver) {
       setError(`Resolver "${resolverName}" not found`);
       setLoading(false);
@@ -65,7 +72,8 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
     setLoading(true);
     setError(undefined);
 
-    // Use ref to get current form values without adding to dependencies
+    // Use refs to get the current resolvers + form values without adding them
+    // to the dependencies (see the refs above).
     resolver(formValuesRef.current)
       .then((result) => {
         if (!cancelled) {
@@ -83,8 +91,10 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
     return () => {
       cancelled = true;
     };
-    // Only re-fetch when resolver changes or explicit dependencies change
-  }, [resolverName, optionsResolvers, dependencyValues]);
+    // Only re-fetch when the resolver NAME or this field's declared
+    // `x-depends-on` values change - NOT when an unrelated field re-renders the
+    // form (the resolvers object identity is read via ref above).
+  }, [resolverName, dependencyValues]);
 
   // Filter options based on search query
   const filteredOptions = React.useMemo(() => {
@@ -200,12 +210,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
       <div className="relative">
         {loading ? (
           <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-muted/50">
-            <Loader2
-              className={cn(
-                "h-4 w-4 text-muted-foreground",
-                !isLowPower && "animate-spin",
-              )}
-            />
+            <Spinner size="sm" className="text-muted-foreground" />
             <span className="text-sm text-muted-foreground">
               Loading options...
             </span>

@@ -4,7 +4,6 @@ import {
   Link2Off,
   Check,
   X,
-  Loader2,
   ChevronDown,
   ChevronUp,
   Send,
@@ -17,6 +16,7 @@ import {
   cn,
   DynamicIcon,
   MarkdownBlock,
+  Spinner,
   type LucideIconName,
 } from "@checkstack/ui";
 
@@ -191,7 +191,7 @@ export function UserChannelCard({
                 className="text-destructive hover:text-destructive"
               >
                 {connecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Link2Off className="h-4 w-4 mr-1" />
                 )}
@@ -205,7 +205,7 @@ export function UserChannelCard({
                 disabled={saving || connecting}
               >
                 {connecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner size="sm" />
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
                 )}
@@ -246,7 +246,7 @@ export function UserChannelCard({
               title="Send test notification"
             >
               {testing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner size="sm" />
               ) : (
                 <Send className="h-4 w-4" />
               )}

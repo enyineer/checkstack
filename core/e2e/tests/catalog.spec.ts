@@ -1,0 +1,394 @@
+import { test, expect } from "@checkstack/test-utils-frontend/playwright";
+import type { Page } from "@playwright/test";
+
+/**
+ * Systems & Catalog E2E. Drives the real authenticated app (admin session via
+ * storageState) against a freshly reset, empty database. The whole file shares
+ * ONE database, so it runs serially and the empty-state assertions run before
+ * the create/edit tests that populate the catalog.
+ *
+ * Routes (plugin-prefixed): /catalog/ (browse), /catalog/config (manage),
+ * /catalog/system/:systemId (detail).
+ */
+test.describe.configure({ mode: "serial" });
+
+// Unique suffix so re-runs / parallel files never collide on names.
+const SUFFIX = Date.now();
+const SYSTEM_NAME = `Payments API ${SUFFIX}`;
+const SYSTEM_DESCRIPTION = "Handles all customer payment processing";
+const SYSTEM_NAME_UPDATED = `Payments Gateway ${SUFFIX}`;
+const GROUP_NAME = `Payment Flow ${SUFFIX}`;
+
+const NAV_TIMEOUT = 30_000;
+
+/**
+ * Browse groups systems into collapsible sections (including a synthetic
+ * "Ungrouped" section). When a health source reports every member healthy the
+ * section starts COLLAPSED, so its system rows are unmounted and the row links
+ * are absent from the DOM. Expand every currently-collapsed section so the row
+ * links become visible/clickable. Each section header is a
+ * `<button aria-expanded>`; clicking a collapsed one opens it. We loop because
+ * expanding one can reflow the set of remaining collapsed buttons.
+ */
+async function expandBrowseSections(page: Page): Promise<void> {
+  // Scope to the page main and to section headers only: their accessible name
+  // ends with the member count ("… 1 system" / "… N systems"), which the
+  // navbar/menu disclosure buttons never carry.
+  const main = page.getByRole("main");
+  const headers = main.getByRole("button", { name: /\d+ systems?$/ });
+  await expect(headers.first()).toBeVisible();
+
+  // The health rollup applies ASYNCHRONOUSLY: sections render expanded, then
+  // collapse once the slot reports an all-healthy rollup. Wait for that rollup
+  // to settle (its badge is shown) so we expand into a stable state - expanding
+  // before the collapse would be undone by it.
+  await expect(
+    main.getByText(/All healthy|degraded|unhealthy/).first(),
+  ).toBeVisible();
+
+  // Open each collapsed section exactly once, waiting for the toggle to register
+  // before moving on. Clicking stores an explicit open override that wins over
+  // the all-healthy default, so it sticks. (A poll that re-clicks without
+  // awaiting the result would double-toggle a section shut.)
+  const count = await headers.count();
+  for (let i = 0; i < count; i++) {
+    const header = headers.nth(i);
+    if ((await header.getAttribute("aria-expanded")) === "false") {
+      await header.click();
+      await expect(header).toHaveAttribute("aria-expanded", "true");
+    }
+  }
+}
+
+test.describe("Systems & Catalog", () => {
+  test("browse shows the empty catalog state with a link to management", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByRole("heading", { name: "Catalog", exact: true }),
+    ).toBeVisible();
+
+    // Onboarding empty state for a brand-new, system-less catalog.
+    await expect(
+      page.getByText("No systems in the catalog yet"),
+    ).toBeVisible();
+
+    // The empty state offers a CTA into catalog management.
+    const addFirst = page.getByRole("link", {
+      name: "Add your first system",
+    });
+    await expect(addFirst).toBeVisible();
+    await expect(addFirst).toHaveAttribute("href", "/catalog/config");
+  });
+
+  test("management page shows empty systems and groups states", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByRole("heading", { name: "Catalog Management" }),
+    ).toBeVisible();
+
+    // The Systems tab (default) starts empty with its CTA.
+    await expect(page.getByText("No systems yet")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add System" }),
+    ).toBeVisible();
+
+    // The Groups tab starts empty too.
+    await page.getByRole("tab", { name: "Groups" }).click();
+    await expect(page.getByText("No groups yet")).toBeVisible();
+  });
+
+  test("creating a system requires a name", async ({ page }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await page.getByRole("button", { name: "Add System" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Create System" }),
+    ).toBeVisible();
+
+    // With an empty name the submit button is disabled — the form can't be
+    // submitted until a name is provided.
+    const submit = dialog.getByRole("button", { name: "Create System" });
+    await expect(submit).toBeDisabled();
+
+    // Filling only the description keeps the submit disabled (name required).
+    await dialog
+      .getByPlaceholder("Describe what this system does...")
+      .fill(SYSTEM_DESCRIPTION);
+    await expect(submit).toBeDisabled();
+
+    // Typing a name enables submission.
+    await dialog.getByLabel("Name").fill(SYSTEM_NAME);
+    await expect(submit).toBeEnabled();
+
+    // Close without saving so the next test owns the create.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("creating a system adds it to management and browse", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await page.getByRole("button", { name: "Add System" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill(SYSTEM_NAME);
+    await dialog
+      .getByPlaceholder("Describe what this system does...")
+      .fill(SYSTEM_DESCRIPTION);
+    await dialog.getByRole("button", { name: "Create System" }).click();
+
+    // The dialog closes on success.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // The new system appears in the management systems list.
+    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
+
+    // ...and in the public browse view. The empty-state onboarding is gone now
+    // that a system exists; the system lives inside the (default-collapsed,
+    // all-healthy) "Ungrouped" section, so expand it to reveal the row link.
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+    await expect(
+      page.getByText("No systems in the catalog yet"),
+    ).toHaveCount(0);
+    await expandBrowseSections(page);
+    await expect(
+      page.getByRole("link", { name: SYSTEM_NAME }),
+    ).toBeVisible();
+  });
+
+  // Regression guard: the catalog backend now rejects duplicate system names
+  // (createSystem in core/catalog-backend/src/router.ts throws CONFLICT via
+  // entityService.getSystemByName). A second create with an existing name must
+  // be refused with an error and must not add a second row.
+  test("rejects a duplicate system name", async ({ page }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    // The first system must already be present from the previous test.
+    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+
+    await page.getByRole("button", { name: "Add System" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill(SYSTEM_NAME);
+    await dialog
+      .getByPlaceholder("Describe what this system does...")
+      .fill("Second system, same name");
+    await dialog.getByRole("button", { name: "Create System" }).click();
+
+    // The backend rejects the duplicate (CONFLICT) and the reason is surfaced to
+    // the user as an error toast.
+    await expect(
+      page.getByText(/already exists/i),
+    ).toBeVisible({ timeout: 8000 });
+
+    // No second row was added - exactly one system carries this name.
+    await expect(page.getByText(SYSTEM_NAME)).toHaveCount(1);
+  });
+
+  test("opens the system detail page from browse", async ({ page }) => {
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+
+    // Reveal the (default-collapsed, all-healthy) section holding the system,
+    // then CLICK the row. This is the regression guard for the browse
+    // re-render/remount loop: previously the health slot re-reported on every
+    // render, remounting rows continuously so a click hit a detached element
+    // ("element is not stable"). With the consumer-side equality guard the row
+    // is stable and the click navigates cleanly.
+    await expandBrowseSections(page);
+    const detailLink = page.getByRole("link", { name: SYSTEM_NAME });
+    await expect(detailLink).toBeVisible();
+    await expect(detailLink).toHaveAttribute("href", /^\/catalog\/system\//);
+    await detailLink.click();
+    await expect(page).toHaveURL(/\/catalog\/system\//, {
+      timeout: NAV_TIMEOUT,
+    });
+
+    // PageLayout renders the system name as the page heading.
+    await expect(
+      page.getByRole("heading", { name: SYSTEM_NAME }),
+    ).toBeVisible({ timeout: NAV_TIMEOUT });
+    await expect(page).toHaveURL(/\/catalog\/system\//);
+
+    // The "About" context panel renders the description.
+    await expect(page.getByText("About")).toBeVisible();
+    await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
+  });
+
+  test("edits a system name", async ({ page }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    // Each system row exposes an aria-labelled edit button.
+    await page
+      .getByRole("button", { name: `Edit ${SYSTEM_NAME}` })
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Edit System" }),
+    ).toBeVisible();
+
+    const nameField = dialog.getByLabel("Name");
+    await expect(nameField).toHaveValue(SYSTEM_NAME);
+    await nameField.fill(SYSTEM_NAME_UPDATED);
+    await dialog.getByRole("button", { name: "Save Changes" }).click();
+
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+  });
+
+  test("creates a group and views it", async ({ page }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await page.getByRole("tab", { name: "Groups" }).click();
+    await page.getByRole("button", { name: "Add Group" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Create Group" }),
+    ).toBeVisible();
+
+    // The group name is required: submit is disabled until it's filled.
+    const submit = dialog.getByRole("button", { name: "Create Group" });
+    await expect(submit).toBeDisabled();
+    await dialog.getByLabel("Name").fill(GROUP_NAME);
+    await expect(submit).toBeEnabled();
+    await submit.click();
+
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // The "No groups yet" empty state is replaced by the new group.
+    await expect(page.getByText("No groups yet")).toHaveCount(0);
+    await expect(page.getByText(GROUP_NAME)).toBeVisible();
+  });
+
+  test("assigns a system to a group via the Groups-tab picker", async ({
+    page,
+  }) => {
+    // Guards the regression where the assign popover, rendered inside the table's
+    // overflow-auto wrapper, was clipped and unclickable. The picker is portaled
+    // now, so the option is clickable and the chip lands.
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+    await page.getByRole("tab", { name: "Groups" }).click();
+
+    await page
+      .getByRole("button", { name: `Add a system to ${GROUP_NAME}` })
+      .click();
+    // The portaled option (the renamed system from the earlier edit test).
+    await page.getByRole("button", { name: SYSTEM_NAME_UPDATED }).click();
+
+    // The system now appears as a removable member chip on the group row.
+    await expect(
+      page.getByRole("button", {
+        name: `Remove ${SYSTEM_NAME_UPDATED} from ${GROUP_NAME}`,
+      }),
+    ).toBeVisible();
+  });
+
+  test("creates an environment and attaches a system to it", async ({
+    page,
+  }) => {
+    const ENV_NAME = `Production ${SUFFIX}`;
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    // Create an environment on the Environments tab.
+    await page.getByRole("tab", { name: "Environments" }).click();
+    await page.getByRole("button", { name: "Add Environment" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Create Environment" }),
+    ).toBeVisible();
+    await dialog.getByLabel("Name").fill(ENV_NAME);
+    await dialog.getByRole("button", { name: "Create Environment" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText(ENV_NAME)).toBeVisible();
+
+    // Attach the system to it from the Systems tab's Environment picker.
+    await page.getByRole("tab", { name: "Systems" }).click();
+    await page
+      .getByRole("button", {
+        name: `Attach ${SYSTEM_NAME_UPDATED} to an environment`,
+      })
+      .click();
+    await page.getByRole("button", { name: ENV_NAME }).click();
+
+    // The environment chip lands on the system row...
+    await expect(
+      page.getByRole("button", {
+        name: `Remove ${SYSTEM_NAME_UPDATED} from ${ENV_NAME}`,
+      }),
+    ).toBeVisible();
+
+    // ...and the system shows as a member on the Environments tab.
+    await page.getByRole("tab", { name: "Environments" }).click();
+    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+  });
+
+  test("filtered browse shows a no-matches state with clear-filters", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+
+    // The system must be browsable before we filter it out (expand the
+    // default-collapsed, all-healthy section to surface its row).
+    await expandBrowseSections(page);
+    await expect(
+      page.getByRole("link", { name: SYSTEM_NAME_UPDATED }),
+    ).toBeVisible();
+
+    // Search for something guaranteed not to match.
+    await page
+      .getByRole("searchbox", { name: "Search systems and groups" })
+      .fill(`zzz-no-such-system-${SUFFIX}`);
+
+    // The filtered-empty state appears with a clear-filters affordance.
+    await expect(
+      page.getByText("No systems match the current search and filters."),
+    ).toBeVisible();
+    const clear = page.getByRole("button", { name: "Clear filters" });
+    await expect(clear).toBeVisible();
+
+    // Clearing filters restores the system. The all-healthy section collapses
+    // back to its default once the search auto-expand no longer applies, so
+    // re-expand before asserting the row link is browsable again.
+    await clear.click();
+    await expect(
+      page.getByText("No systems match the current search and filters."),
+    ).toHaveCount(0);
+    await expandBrowseSections(page);
+    await expect(
+      page.getByRole("link", { name: SYSTEM_NAME_UPDATED }),
+    ).toBeVisible();
+  });
+
+  test("deletes a system with confirmation", async ({ page }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+
+    await page
+      .getByRole("button", { name: `Delete ${SYSTEM_NAME_UPDATED}` })
+      .click();
+
+    // The confirmation modal names the system being deleted.
+    const confirm = page.getByRole("dialog");
+    await expect(confirm.getByText("Delete System")).toBeVisible();
+    await expect(
+      confirm.getByText(new RegExp(`delete .*${SUFFIX}`, "i")),
+    ).toBeVisible();
+
+    await confirm.getByRole("button", { name: "Delete" }).click();
+
+    // The system is gone; the management page returns to its empty state.
+    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toHaveCount(0);
+    await expect(page.getByText("No systems yet")).toBeVisible();
+  });
+});

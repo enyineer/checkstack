@@ -8,9 +8,10 @@ import {
   TableCell,
   HealthBadge,
   Pagination,
+  Spinner,
 } from "@checkstack/ui";
 import { formatDistanceToNow, format } from "date-fns";
-import { ExternalLink, Loader2, Satellite, Server } from "lucide-react";
+import { ExternalLink, Satellite, Server, Layers } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
@@ -23,16 +24,32 @@ export interface HealthCheckRunDetailed {
   status: "healthy" | "unhealthy" | "degraded";
   result: Record<string, unknown>;
   timestamp: Date;
+  /**
+   * Environment this run executed for (per-environment fan-out). undefined =
+   * env-less run (opt-out / no membership).
+   */
+  environmentId?: string;
   /** Source ID for result attribution (undefined = local core, UUID = satellite) */
   sourceId?: string;
   /** Human-readable source label (e.g. "Local" or "EU West (eu-west-1)") */
   sourceLabel?: string;
 }
 
+export interface EnvironmentLabel {
+  id: string;
+  name: string;
+}
+
 export interface HealthCheckRunsTableProps {
   runs: HealthCheckRunDetailed[];
   loading: boolean;
   emptyMessage?: string;
+  /**
+   * Optional id -> name map for the Environment column. When a run's
+   * `environmentId` is present, its display name is looked up here (falling
+   * back to the id). Env-less runs render a muted dash.
+   */
+  environmentLabels?: EnvironmentLabel[];
   /** Show System ID and Configuration ID columns with link to detail page */
   showFilterColumns?: boolean;
   /** Number of columns for the expanded result row */
@@ -52,11 +69,15 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
   runs,
   loading,
   emptyMessage = "No health check runs found.",
+  environmentLabels,
   showFilterColumns = false,
   pagination,
 }) => {
   const navigate = useNavigate();
   const prevRunsRef = useRef(runs);
+  const envNameById = new Map(
+    (environmentLabels ?? []).map((e) => [e.id, e.name]),
+  );
 
   // Keep previous runs during loading to prevent layout shift
   const displayRuns =
@@ -75,9 +96,9 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
     );
   };
 
-  // 3 base columns (Status, Timestamp, Source) + 3 extras when
+  // 4 base columns (Status, Timestamp, Environment, Source) + 3 extras when
   // showFilterColumns is on (System ID, Configuration ID, link icon).
-  const columnCount = showFilterColumns ? 6 : 3;
+  const columnCount = showFilterColumns ? 7 : 4;
   const showEmptyRow = !loading && displayRuns.length === 0;
 
   return (
@@ -89,7 +110,9 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
               <TableHead className="w-24">
                 <span className="flex items-center gap-2">
                   Status
-                  {loading && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {loading && (
+                    <Spinner size="sm" className="h-3 w-3" />
+                  )}
                 </span>
               </TableHead>
               {showFilterColumns && (
@@ -99,6 +122,7 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                 </>
               )}
               <TableHead>Timestamp</TableHead>
+              <TableHead>Environment</TableHead>
               <TableHead>Source</TableHead>
               {showFilterColumns && <TableHead className="w-16"></TableHead>}
             </TableRow>
@@ -134,6 +158,16 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                       addSuffix: true,
                     })}
                   </span>
+                </TableCell>
+                <TableCell>
+                  {run.environmentId ? (
+                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                      <Layers className="h-3 w-3" />
+                      {envNameById.get(run.environmentId) ?? run.environmentId}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">None</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {run.sourceId ? (

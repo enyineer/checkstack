@@ -2,6 +2,10 @@ import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { z } from "zod";
 import {
+  aiToolProjectionExtensionPoint,
+  deferredProjectionExecute,
+} from "@checkstack/ai-backend";
+import {
   sloAccessRules,
   sloAccess,
   pluginMetadata,
@@ -198,6 +202,20 @@ export default createBackendPlugin({
         if (!gitopsService) throw new Error("SloService not initialized");
         return gitopsService;
       },
+    });
+
+    // Expose this plugin's read-only AI projection (`slo.listObjectives`) via
+    // the AI projection extension point. ai-backend collects its routing in
+    // afterPluginsReady and never imports slo-common.
+    env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+      procedure: sloContract.listObjectives,
+      sourcePluginMetadata: pluginMetadata,
+      procedureKey: "listObjectives",
+      name: "slo.listObjectives",
+      description:
+        "List service-level objectives with their current status and error budget. Read-only.",
+      effect: "read",
+      execute: deferredProjectionExecute,
     });
 
     env.registerInit({

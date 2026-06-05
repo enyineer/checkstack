@@ -1,15 +1,13 @@
 import {
   createFrontendPlugin,
-  createSlotExtension,
   NavbarRightSlot,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import {
   notificationRoutes,
   pluginMetadata,
 } from "@checkstack/notification-common";
+import { Bell } from "lucide-react";
 import { NotificationBell } from "./components/NotificationBell";
-import { NotificationUserMenuItems } from "./components/UserMenuItems";
 
 // Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
 // at module load to bind their kinds (e.g., "catalog.system") to icon + label.
@@ -50,6 +48,11 @@ export const notificationPlugin = createFrontendPlugin({
         import("./pages/NotificationSettingsPage").then((m) => ({
           default: m.NotificationSettingsPage,
         })),
+      nav: {
+        group: "Configuration",
+        icon: Bell,
+        label: "Notification Settings",
+      },
     },
     {
       route: notificationRoutes.routes.deliveryAttempts,
@@ -65,10 +68,5 @@ export const notificationPlugin = createFrontendPlugin({
       slot: NavbarRightSlot,
       component: NotificationBell,
     },
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "notification.user.setting",
-      component: NotificationUserMenuItems,
-      metadata: { group: "Configuration" },
-    }),
   ],
 });

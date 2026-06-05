@@ -342,3 +342,106 @@ export const BlobGcStateSchema = z.object({
   totalBytesReclaimed: z.number().int().nonnegative(),
 });
 export type BlobGcState = z.infer<typeof BlobGcStateSchema>;
+
+// ─── Vulnerability audit ──────────────────────────────────────────────────
+
+/**
+ * Normalised advisory severity. `bun audit` reports npm's scale
+ * (`low` | `moderate` | `high` | `critical`); we keep those verbatim so the
+ * UI and the notify-threshold logic share one vocabulary. (`moderate` is
+ * npm's "medium".)
+ */
+export const AuditSeveritySchema = z.enum([
+  "low",
+  "moderate",
+  "high",
+  "critical",
+]);
+export type AuditSeverity = z.infer<typeof AuditSeveritySchema>;
+
+/**
+ * Ordinal rank for a severity, so callers can compare "at or above a
+ * threshold" without re-encoding the order. Higher = more severe.
+ */
+export const AUDIT_SEVERITY_RANK: Record<AuditSeverity, number> = {
+  low: 0,
+  moderate: 1,
+  high: 2,
+  critical: 3,
+};
+
+/**
+ * Severities that trigger a notification to `script-packages.manage`
+ * holders. ALL severities are RECORDED regardless; this gate is only for
+ * the (potentially noisy) notification path. Locked product decision:
+ * notify on medium (moderate) + high + critical.
+ */
+export const AUDIT_NOTIFY_THRESHOLD: AuditSeverity = "moderate";
+
+/**
+ * One advisory affecting one package in the installed script-packages tree,
+ * as parsed from `bun audit --json` and persisted per `lockfileHash`.
+ */
+export const AuditAdvisorySchema = z.object({
+  /** The vulnerable package (the direct or transitive dep name). */
+  packageName: z.string().min(1),
+  /** Advisory id from the registry advisory DB (e.g. GHSA numeric id). */
+  advisoryId: z.string().min(1),
+  /** Human-readable advisory title. */
+  title: z.string(),
+  severity: AuditSeveritySchema,
+  /** Affected version range (e.g. `<4.17.21`). */
+  vulnerableVersions: z.string(),
+  /** Advisory URL (e.g. the GitHub advisory page). */
+  url: z.string().nullable(),
+  /** CVSS base score when the registry provides one. */
+  cvssScore: z.number().nullable(),
+});
+export type AuditAdvisory = z.infer<typeof AuditAdvisorySchema>;
+
+/**
+ * Last-run summary for the audit, surfaced in the settings UI so a manager
+ * can see when it last ran and the headline counts without re-listing every
+ * advisory.
+ */
+export const AuditStateSchema = z.object({
+  lastRunAt: z.coerce.date().nullable(),
+  /** The `lockfileHash` the last successful run audited. */
+  lockfileHash: z.string().nullable(),
+  /** Total advisories found in the last successful run (all severities). */
+  total: z.number().int().nonnegative(),
+  /** Counts by severity from the last successful run. */
+  counts: z.object({
+    low: z.number().int().nonnegative(),
+    moderate: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    critical: z.number().int().nonnegative(),
+  }),
+  /** Error message when the last run failed (null on success). */
+  errorMessage: z.string().nullable(),
+});
+export type AuditState = z.infer<typeof AuditStateSchema>;
+
+/** Current advisories + last-run summary, returned by `getAuditState`. */
+export const AuditReportSchema = z.object({
+  state: AuditStateSchema,
+  advisories: z.array(AuditAdvisorySchema),
+});
+export type AuditReport = z.infer<typeof AuditReportSchema>;
+
+/**
+ * Result of triggering an on-demand audit. `ran: false` with a `reason`
+ * means the pass was refused (e.g. the installer lock was held by an
+ * install / migration / GC) and the caller should retry later.
+ */
+export const AuditRunSummarySchema = z.object({
+  ran: z.boolean(),
+  reason: z.string().optional(),
+  /** The `lockfileHash` audited (null when nothing is installed). */
+  lockfileHash: z.string().nullable(),
+  /** Advisories found in this pass (all severities). */
+  total: z.number().int().nonnegative(),
+  /** Newly-appeared / escalated advisories at or above the notify threshold. */
+  notified: z.number().int().nonnegative(),
+});
+export type AuditRunSummary = z.infer<typeof AuditRunSummarySchema>;

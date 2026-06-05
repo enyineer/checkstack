@@ -454,8 +454,8 @@ export const notificationContract = {
    */
   notifyForSubscription: proc({
     operationType: "mutation",
-    userType: "service",
-    access: [],
+    userType: "authenticated",
+    access: [notificationAccess.send],
   })
     .input(
       z.object({
@@ -472,11 +472,14 @@ export const notificationContract = {
     )
     .output(z.object({ notifiedCount: z.number() })),
 
-  // Send transactional notification via ALL enabled strategies
+  // Send transactional notification via ALL enabled strategies.
+  // userType "authenticated" + access gate: trusted services bypass checks
+  // (short-circuit), while a service-account principal (e.g. an automation's
+  // `runAs`) must hold `notification.send`.
   sendTransactional: proc({
     operationType: "mutation",
-    userType: "service",
-    access: [],
+    userType: "authenticated",
+    access: [notificationAccess.send],
   })
     .input(
       z.object({

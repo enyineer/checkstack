@@ -52,6 +52,20 @@ export const coreServices = {
   ),
   rpc: createServiceRef<RpcService>("core.rpc"),
   rpcClient: createServiceRef<RpcClient>("core.rpcClient"),
+  /**
+   * Factory for an RPC client that authenticates as a specific APPLICATION
+   * (service account), not as the trusted service. The returned client mints a
+   * short-lived, backend-signed app-principal token; the live router resolves
+   * it to an `application` principal subject to the FULL access-rule and
+   * team-scope enforcement (never the service short-circuit). Used by the
+   * automation dispatch engine to run an automation as its configured `runAs`.
+   *
+   * Trusted infra: callable only by backend plugin code. The authority to bind
+   * a given application is gated separately when the automation is saved.
+   */
+  rpcClientAs: createServiceRef<(applicationId: string) => Promise<RpcClient>>(
+    "core.rpcClientAs",
+  ),
   queuePluginRegistry: createServiceRef<QueuePluginRegistry>(
     "core.queuePluginRegistry",
   ),

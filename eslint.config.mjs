@@ -19,6 +19,15 @@ export default tseslint.config(
       "**/public/vendor/**",
       "**/*.test.ts*",
       "**/*.e2e.ts",
+      // Workflow orchestration scripts run in the Workflow runtime, where
+      // `agent`/`phase`/`parallel`/`log` are injected globals. They are not
+      // normal app/runtime source, so linting them produces false no-undef
+      // errors. (They are plain JS, not TypeScript - no type checking either.)
+      "**/*.workflow.mjs",
+      // Test fixtures: hand-written consumer files (some intentionally
+      // uncompilable, e.g. negative resolution cases) exercised by tests, not
+      // project source.
+      "**/test/fixtures/**",
       // Astro-generated files and the docs site source. Astro provides its
       // own type checking via `astro check`; running our ESLint rules over
       // its virtual-module imports (`astro:content`) and generated `.astro/`
@@ -61,6 +70,36 @@ export default tseslint.config(
             "BinaryExpression[operator='instanceof'][right.name='Error']",
           message:
             "Do not use 'instanceof Error' directly. Use extractErrorMessage() from @checkstack/common instead.",
+        },
+        {
+          // Ban calling parse/safeParse/parseAsync/strict on a Versioned's
+          // `.schema` member: `<x>.schema.parse(...)` etc. Parsing the raw
+          // zod schema bypasses the migration chain (stored data) or the
+          // intention-revealing fresh-input path. The Versioned
+          // implementation itself is exempted via a file-scoped override.
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(parse|safeParse|parseAsync|strict)$/][callee.object.type='MemberExpression'][callee.object.property.name='schema']",
+          message:
+            "Do not parse via a Versioned's .schema. For STORED data use .parse()/.parseAssumingV1()/.parseStrictAssumingV1() (migrate-then-validate). For FRESH current-version input use .validate()/.safeValidate().",
+        },
+      ],
+      // The monaco-vscode editor API must only be imported (as a value) by the
+      // guarded accessor `core/ui/src/components/CodeEditor/monacoGuard.ts`.
+      // Direct value imports let `monaco.editor.*` / `monaco.languages.*` calls
+      // auto-initialize the monaco-vscode services on first use, which collides
+      // with @typefox's editor init ("Services are already initialized") and
+      // leaves the editor blank. Type-only imports are fine (no runtime).
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@codingame/monaco-vscode-editor-api",
+              message:
+                'Do not import the raw monaco editor-api as a value. Import the guarded `monaco` runtime from "./monacoGuard" instead (it throws in dev if used before the services are initialized). Type-only imports (`import type * as monaco`) are allowed.',
+              allowTypeImports: true,
+            },
+          ],
         },
       ],
       // Custom checkstack rules
@@ -122,6 +161,35 @@ export default tseslint.config(
       ],
     },
   },
+  // Performance degradation tripwire (.agent/rules/performance.md): animation /
+  // backdrop-blur classes must be gated behind usePerformance().isLowPower.
+  // Scoped to frontend source ONLY (the rule is a no-op elsewhere anyway, but
+  // scoping keeps the intent explicit). Storybook stories and test files are
+  // excluded — stories intentionally showcase effects unguarded, and *.test.ts*
+  // is already in the top-level `ignores`. Severity is intentionally `warn` and
+  // MUST NOT be escalated to `error` (nor forced green via --max-warnings 0):
+  // a sound static proof of a runtime guard is impossible, so this informs
+  // authors rather than blocking CI (see .agent/rules/code-style-guide.md).
+  {
+    files: [
+      "core/*-frontend/src/**/*.{ts,tsx}",
+      "plugins/*-frontend/src/**/*.{ts,tsx}",
+      "core/ui/src/**/*.{ts,tsx}",
+    ],
+    ignores: ["core/ui/stories/**"],
+    rules: {
+      "checkstack/no-unguarded-animation": [
+        "warn",
+        {
+          // Cheap/always-on tokens that never need a guard. Empty by default;
+          // add single-frame entry tokens here only with a measured reason.
+          allowedClasses: [],
+          // Extra guard identifier names beyond the built-in `isLowPower`.
+          additionalGuardIdentifiers: [],
+        },
+      ],
+    },
+  },
   // Frontend packages: ban console.* to enforce proper error handling
   {
     files: [
@@ -151,6 +219,23 @@ export default tseslint.config(
     files: ["core/satellite/src/**/*.ts"],
     rules: {
       "checkstack/enforce-package-metadata": "off",
+    },
+  },
+  // The guarded monaco accessor is the ONE place allowed to import the raw
+  // monaco editor-api as a value (it wraps it with the dev-time init guard).
+  {
+    files: ["core/ui/src/components/CodeEditor/monacoGuard.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": "off",
+    },
+  },
+  // The Versioned implementation legitimately calls `this.schema.parse` /
+  // `.strict()` — it IS the migrate-then-validate primitive every other call
+  // site is routed through. Disable the .schema parse ban for this one file.
+  {
+    files: ["core/backend-api/src/config-versioning.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   }
 );

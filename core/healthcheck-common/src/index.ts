@@ -84,3 +84,24 @@ export const SYSTEM_STATUS_CHANGED = createSignal({
     newStatus: z.enum(["healthy", "degraded", "unhealthy"]),
   }),
 });
+
+/**
+ * Broadcast when the executor FAILED to resolve a system's environments from
+ * the catalog at run time and DEGRADED to a single env-less run (fail-open).
+ *
+ * This is the durable-misconfig / catalog-outage observability signal: a
+ * `logger.warn` alone is easy to miss, so this counter-style signal makes the
+ * degradation observable (dashboards / alerts can count it). The check still
+ * runs (env-less) — this signals that per-environment fan-out was skipped for
+ * this tick, NOT that the check failed.
+ */
+export const ENVIRONMENT_RESOLUTION_FAILED = createSignal({
+  pluginMetadata,
+  event: "environment.resolution_failed",
+  payloadSchema: z.object({
+    systemId: z.string(),
+    configurationId: z.string(),
+    /** The error message that caused the fall-back to an env-less run. */
+    error: z.string(),
+  }),
+});

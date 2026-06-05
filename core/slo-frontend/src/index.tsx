@@ -1,15 +1,15 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
-  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
+import { Target, Settings } from "lucide-react";
 import { sloRoutes, pluginMetadata, sloAccess } from "@checkstack/slo-common";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
-import { SloMenuItems } from "./components/SloMenuItems";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemSignalsSlot,
 } from "@checkstack/catalog-common";
 
 export default createFrontendPlugin({
@@ -22,6 +22,10 @@ export default createFrontendPlugin({
           default: m.SloOverviewPage,
         })),
       title: "SLO Dashboard",
+      nav: {
+        group: "Reliability",
+        icon: Target,
+      },
     },
     {
       route: sloRoutes.routes.config,
@@ -31,6 +35,10 @@ export default createFrontendPlugin({
         })),
       title: "SLO Management",
       accessRule: sloAccess.slo.manage,
+      nav: {
+        group: "Reliability",
+        icon: Settings,
+      },
     },
     {
       route: sloRoutes.routes.detail,
@@ -43,11 +51,6 @@ export default createFrontendPlugin({
   ],
   apis: [],
   extensions: [
-    createSlotExtension(UserMenuItemsSlot, {
-      id: "slo.user-menu.items",
-      component: SloMenuItems,
-      metadata: { group: "Reliability" },
-    }),
     createSlotExtension(SystemStateBadgesSlot, {
       id: "slo.system-state-badge",
       component: SystemSloBadge,
@@ -55,6 +58,13 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "slo.system-details-top.panel",
       component: SystemSloPanel,
+    }),
+    createSlotExtension(SystemSignalsSlot, {
+      id: "slo.dashboard.signals",
+      load: () =>
+        import("./components/SloSignalsFiller").then((m) => ({
+          default: m.SloSignalsFiller,
+        })),
     }),
   ],
 });

@@ -20,11 +20,46 @@ import {
   PageContent,
   PageLayout,
   LoadingSpinner,
-  AccessDenied,
+  NotFound,
 } from "@checkstack/ui";
+import { formatDate } from "../utils/formatDate.logic";
+import {
+  normalizeMetadata,
+  type MetadataEntry,
+} from "../utils/normalizeMetadata.logic";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
 import { Activity, Calendar, ExternalLink, Mail, User } from "lucide-react";
+
+const MetadataSection: React.FC<{
+  metadata: Record<string, unknown> | null | undefined;
+}> = ({ metadata }) => {
+  const entries: MetadataEntry[] = normalizeMetadata(metadata);
+  if (entries.length === 0) return null;
+
+  return (
+    <>
+      <div className="h-px bg-border" />
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Metadata
+        </h3>
+        <dl className="space-y-1.5">
+          {entries.map(({ key, displayValue }) => (
+            <div key={key} className="flex gap-2 text-xs min-w-0">
+              <dt className="shrink-0 font-medium text-muted-foreground">
+                {key}
+              </dt>
+              <dd className="text-foreground truncate">
+                <code className="font-mono">{displayValue}</code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </>
+  );
+};
 
 export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
@@ -43,10 +78,12 @@ export const SystemDetailPage: React.FC = () => {
   const { data: groupsData, isLoading: groupsLoading } =
     catalogClient.getGroups.useQuery({});
 
-  // Fetch contacts for this system
+  // Fetch contacts for this system. Contacts carry PII (name/email), so the
+  // endpoint is authenticated-only; skip the request for anonymous viewers
+  // (it would 401) and fall back to the "No contacts assigned" empty state.
   const { data: contactsData } = catalogClient.getSystemContacts.useQuery(
     { systemId: systemId ?? "" },
-    { enabled: !!systemId },
+    { enabled: !!systemId && !!session },
   );
 
   // Fetch additional links for this system
@@ -92,9 +129,7 @@ export const SystemDetailPage: React.FC = () => {
     return (
       <Page>
         <PageContent>
-          <div className="max-w-3xl space-y-6">
-            <AccessDenied />
-          </div>
+          <NotFound message="This system doesn't exist or has been removed." />
         </PageContent>
       </Page>
     );
@@ -107,7 +142,9 @@ export const SystemDetailPage: React.FC = () => {
 
   const headerActions = (
     <div className="flex items-center gap-2">
-      <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+      <div className="flex items-center gap-1">
+        <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+      </div>
       {session && (
         <NotificationSubscriptionsManager
           target={catalogSystemTarget}
@@ -149,21 +186,11 @@ export const SystemDetailPage: React.FC = () => {
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Calendar className="h-3 w-3" />
-                  Created{" "}
-                  {new Date(system.createdAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  Created {formatDate(system.createdAt)}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Calendar className="h-3 w-3" />
-                  Updated{" "}
-                  {new Date(system.updatedAt).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  Updated {formatDate(system.updatedAt)}
                 </span>
               </div>
             </div>
@@ -267,21 +294,7 @@ export const SystemDetailPage: React.FC = () => {
             </div>
 
             {/* Metadata (conditional) */}
-            {system.metadata &&
-              typeof system.metadata === "object" &&
-              Object.keys(system.metadata).length > 0 && (
-                <>
-                  <div className="h-px bg-border" />
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      Metadata
-                    </h3>
-                    <pre className="text-xs text-foreground bg-muted/30 p-3 rounded-md border border-border overflow-x-auto">
-                      {JSON.stringify(system.metadata, undefined, 2)}
-                    </pre>
-                  </div>
-                </>
-              )}
+            <MetadataSection metadata={system.metadata} />
           </CardContent>
         </Card>
       </div>
