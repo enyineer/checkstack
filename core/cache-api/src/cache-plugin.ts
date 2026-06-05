@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CacheProvider } from "./cache-provider";
-import type { Logger, Migration } from "@checkstack/backend-api";
+import type { Logger, Migration } from "@checkstack/common";
 
 /**
  * Plugin interface for cache backend implementations.

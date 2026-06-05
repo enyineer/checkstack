@@ -36,6 +36,9 @@ describe("buildVerdaccioConfig", () => {
     expect(yaml).toContain("publish: $anonymous");
     expect(yaml).toContain("listen: 0.0.0.0:4999");
     expect(yaml).toContain('storage: "/tmp/store"');
+    // Large bundled platform tarballs must not hit Verdaccio's 10mb default
+    // body cap (413 Payload Too Large).
+    expect(yaml).toContain("max_body_size: 500mb");
     // Falls back to the public registry for third-party transitive deps.
     expect(yaml).toContain("proxy: npmjs");
   });

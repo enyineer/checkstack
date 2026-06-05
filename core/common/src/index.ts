@@ -1,4 +1,6 @@
 export * from "./types";
+export * from "./logger";
+export * from "./migration";
 export * from "./actor";
 export * from "./pagination";
 export * from "./routes";

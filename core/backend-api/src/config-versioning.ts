@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extractErrorMessage } from "@checkstack/common";
+import type { Migration } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Storage Interfaces (simple data shapes for DB/API)
@@ -34,19 +35,12 @@ export interface VersionedPluginRecord<T = unknown> extends VersionedRecord<T> {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Type-safe migration from one data version to another.
- * Used for backward-compatible schema evolution.
+ * The canonical `Migration` definition now lives in `@checkstack/common` so
+ * that low-level packages (`@checkstack/cache-api`, `@checkstack/queue-api`)
+ * can reference it without depending on `backend-api` and creating a
+ * publish-time dependency cycle. Re-exported here for backward compatibility.
  */
-export interface Migration<TFrom = unknown, TTo = unknown> {
-  /** Version number migrating from */
-  fromVersion: number;
-  /** Version number migrating to (must be fromVersion + 1) */
-  toVersion: number;
-  /** Human-readable description of what this migration does */
-  description: string;
-  /** Migration function that transforms old data to new format */
-  migrate(data: TFrom): TTo | Promise<TTo>;
-}
+export type { Migration } from "@checkstack/common";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Migration Chain Validation
