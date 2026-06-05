@@ -1,5 +1,22 @@
 # @checkstack/frontend
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [1fee9da]
+  - @checkstack/common@0.14.1
+  - @checkstack/about-frontend@0.3.2
+  - @checkstack/announcement-frontend@0.4.2
+  - @checkstack/auth-frontend@0.7.2
+  - @checkstack/catalog-frontend@0.11.2
+  - @checkstack/command-frontend@0.3.2
+  - @checkstack/dependency-frontend@0.5.2
+  - @checkstack/frontend-api@0.7.2
+  - @checkstack/signal-common@0.2.8
+  - @checkstack/ui@1.13.2
+  - @checkstack/signal-frontend@0.2.2
+
 ## 0.7.1
 
 ### Patch Changes
