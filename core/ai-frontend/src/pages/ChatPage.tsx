@@ -206,6 +206,16 @@ export function ChatPage() {
   const [copiedError, setCopiedError] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // The operator's browser timezone, surfaced as a hint and sent with each turn
+  // so the assistant resolves bare times ("22:00") in this zone by default.
+  const browserTimeZone = useMemo<string | undefined>(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return;
+    }
+  }, []);
+
   const {
     messages,
     setMessages,
@@ -643,6 +653,12 @@ export function ChatPage() {
               <Send className="w-4 h-4" />
             </Button>
           </div>
+          {browserTimeZone ? (
+            <p className="px-2 pb-2 -mt-1 text-xs text-muted-foreground">
+              Times you mention are interpreted in your timezone (
+              {browserTimeZone}).
+            </p>
+          ) : null}
         </Card>
       </div>
 

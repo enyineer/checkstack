@@ -128,6 +128,7 @@ docker run -d \
 |----------|---------|-------------|
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `INTERNAL_URL` | (falls back to `BASE_URL`) | Internal RPC URL for backend-to-backend calls. Set to K8s service name (e.g., `http://checkstack-service:3000`) for multi-pod load balancing. |
+| `TZ` | (host default) | IANA timezone the AI assistant uses to interpret bare times (e.g. "22:00") when no browser timezone is available, such as automation AI Actions. In-app chat already uses each operator's own browser timezone. Set this to your deployment's local zone (e.g. `Europe/Berlin`) to override the fallback. See [Internal chat](/checkstack/developer-guide/ai/chat/#dates-and-timezones). |
 
 ## Onboarding flow
 

@@ -19,6 +19,20 @@ function newId(): string {
 }
 
 /**
+ * The operator's IANA timezone (e.g. "Europe/Berlin"), sent with every turn so
+ * the backend prompt can resolve bare times like "22:00" into the right offset.
+ * The browser is the authoritative source of the user's wall clock. Returns
+ * undefined where `Intl` is unavailable (the backend then falls back to UTC).
+ */
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * React hook that drives ONE streaming chat turn against /api/ai/chat. The
  * heavy lifting (SSE parsing, state folding) lives in DOM-free, unit-tested
  * modules (`stream-parser`, `chat-state`); this hook only wires them to React
@@ -65,7 +79,9 @@ export function useChatTurn({
           .fetch("/chat", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
+            // Stamp the operator's timezone on every turn (user message AND
+            // confirm-card decision) so the model resolves bare times correctly.
+            body: JSON.stringify({ timeZone: browserTimeZone(), ...body }),
             signal: controller.signal,
           });
         if (!response.ok || !response.body) {

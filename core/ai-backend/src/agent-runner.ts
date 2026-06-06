@@ -31,6 +31,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { toModelSchema } from "./chat/model-schema";
+import { buildDateTimeContext } from "./chat/system-prompt";
 import {
   createServiceRef,
   type AuthUser,
@@ -239,9 +240,13 @@ export function createAgentRunner({
       });
     }
 
+    // Append the date/time context at call time (NOT module load) so the model
+    // gets the CURRENT instant and the host-zone wire contract. Headless: no
+    // operator, so the reference zone is the host/container TZ.
+    const dateContext = buildDateTimeContext({ audience: "headless" });
     const { text } = await gen({
       model: languageModel,
-      system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+      system: `${systemPrompt ?? DEFAULT_SYSTEM_PROMPT} ${dateContext}`,
       prompt,
       tools: sdkTools,
       stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),

@@ -142,6 +142,22 @@ spendCap: { tokenBudget: 200000, windowMinutes: 60 } // optional; omit for no ca
 
 When a cap is set, the loop refuses a new turn once the principal's token usage against that integration in the trailing `windowMinutes` reaches `tokenBudget`, returning a clear spend-exceeded error (HTTP 429). Spend is a rolling-window SUM over the shared `ai_spend` ledger: every completed turn appends one row with the AI SDK's reported input and output tokens, keyed by integration and principal. Because the sum is read from the same shared table every pod writes to, the cap holds across all pods, exactly like the per-principal tool rate-limit budget. An in-memory per-pod token counter would let N pods each allow the cap, which a single-process test could never catch, so the ledger is durable Postgres and the cross-pod count is verified in `core/ai-backend/src/rate-limit/spend-ledger.it.test.ts`.
 
+## Dates and timezones
+
+The model produces dates as text, so the chat enforces an unambiguous wire contract: every date-time a tool receives must be RFC 3339 with an EXPLICIT timezone offset (`2026-07-01T22:00:00Z` or `2026-07-01T22:00:00+02:00`). Zone-less values (`2026-07-01T22:00:00`) and date-only values (`2026-07-01`) are rejected, because feeding a zone-less string to `new Date()` would interpret it in the pod's local zone and the same string could then resolve to different instants on different pods. A rejected value comes back to the model as a tool-input error naming the field and the requirement, so the model repairs the call itself. The contract is enforced centrally for every tool input and structured output, gated to date fields, in `core/ai-backend/src/chat/model-schema.ts`.
+
+To turn an operator's bare "22:00" into an offset, the model needs a reference timezone. The browser sends its IANA zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) with every turn, and that zone is folded into the system prompt. So by default each operator's times are interpreted in their own browser timezone, with no configuration.
+
+When no browser zone is available (a headless automation "AI Action", or a client without `Intl`), the reference zone falls back to the host/container timezone, NOT to UTC. Operators override it by setting the container's `TZ`:
+
+```env
+# Reference timezone for AI date interpretation when no browser zone is sent
+# (e.g. automation AI Actions). Any IANA zone id.
+TZ=Europe/Berlin
+```
+
+This only affects how a bare time is interpreted into an offset; storage is always an absolute instant. The regular (non-AI) UI is unaffected: its date pickers produce real `Date` objects, which serialize as absolute instants and render back in each viewer's own browser zone.
+
 ## No secret leaves the backend
 
 The integration API key is stored in the Secrets Vault and read only on the backend when building the model provider. The chat RPCs expose only non-secret model UX metadata (`listChatIntegrations` returns connection id, name, default model, and the allowlist). The streamed response carries tokens, tool calls, and tool results (already redacted by their source procedures), never the credential. The no-secret-leak guarantee is regression-guarded across every AI DTO in `core/ai-backend/src/hardening/no-secret-leak.test.ts`.

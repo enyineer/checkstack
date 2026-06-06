@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   dateSafeModelSchema,
   coerceDateValues,
+  collectDateOffsetIssues,
   schemaContainsDate,
   toModelSchema,
 } from "./model-schema";
@@ -65,6 +66,10 @@ describe("dateSafeModelSchema", () => {
     };
     expect(js.properties.createdAt?.type).toBe("string");
     expect(js.properties.createdAt?.format).toBe("date-time");
+    // The model is told the offset contract right on the field.
+    expect(String(js.properties.createdAt?.description)).toContain(
+      "explicit timezone offset",
+    );
     // Strict-provider friendly (matches the SDK's own zod adapter).
     expect(js.additionalProperties).toBe(false);
   });
@@ -89,6 +94,118 @@ describe("dateSafeModelSchema", () => {
       endAt: "2026-01-01T00:00:00.000Z",
     });
     expect(bad?.success).toBe(false);
+  });
+});
+
+describe("date format matrix (the wire contract)", () => {
+  // Run every case through BOTH a raw `z.date()` (which exercises OUR coercion)
+  // and a `z.coerce.date()` (whose own `new Date()` coercion is lenient and
+  // MUST still be gated). A model can emit any of these shapes; the contract is:
+  // only an RFC 3339 date-time WITH an explicit offset is accepted, and it maps
+  // to the one unambiguous instant. Zone-less, date-only, numeric and garbage
+  // values are rejected so the model self-repairs instead of us guessing a zone.
+  const schemas = {
+    "z.date()": z.object({ at: z.date() }),
+    "z.coerce.date()": z.object({ at: z.coerce.date() }),
+  };
+
+  // Offset-bearing inputs and the single UTC instant they must resolve to.
+  // Deterministic regardless of the machine's local timezone (each carries Z or
+  // an explicit offset), so the exact ISO is safe to assert in CI.
+  const accepted: Array<[input: string, iso: string]> = [
+    ["2026-07-01T22:00:00.000Z", "2026-07-01T22:00:00.000Z"],
+    ["2026-07-01T22:00:00Z", "2026-07-01T22:00:00.000Z"],
+    ["2026-07-01T22:00Z", "2026-07-01T22:00:00.000Z"], // no seconds
+    ["2026-07-01T22:00:00.123Z", "2026-07-01T22:00:00.123Z"], // sub-seconds
+    ["2026-07-01T22:00:00+00:00", "2026-07-01T22:00:00.000Z"],
+    ["2026-07-01T22:00:00+02:00", "2026-07-01T20:00:00.000Z"],
+    ["2026-07-01T22:00:00-05:00", "2026-07-02T03:00:00.000Z"],
+    ["2026-07-01T22:00:00+0200", "2026-07-01T20:00:00.000Z"], // offset w/o colon
+  ];
+
+  // Rejected: zone-less (would be interpreted server-local), date-only (drops
+  // the time), non-ISO human forms, and outright garbage.
+  const rejected = [
+    "2026-07-01T22:00:00", // no offset
+    "2026-07-01 22:00:00", // space + no offset
+    "2026-07-01", // date only
+    "2026/07/01", // slashes
+    "July 1, 2026", // human
+    "Wed, 01 Jul 2026 22:00:00 GMT", // RFC 1123 (no offset designator we accept)
+    "2026-13-01T00:00:00Z", // matches the offset shape but is not a real date
+    "not a date",
+    "",
+    "tomorrow",
+  ];
+
+  for (const [label, schema] of Object.entries(schemas)) {
+    for (const [input, iso] of accepted) {
+      test(`${label}: accepts "${input}" -> ${iso}`, async () => {
+        const result = await dateSafeModelSchema(schema).validate?.({
+          at: input,
+        });
+        expect(result?.success).toBe(true);
+        if (result?.success) {
+          const at = (result.value as { at: Date }).at;
+          expect(at).toBeInstanceOf(Date);
+          expect(at.toISOString()).toBe(iso);
+        }
+      });
+    }
+
+    for (const input of rejected) {
+      test(`${label}: rejects ${JSON.stringify(input)}`, async () => {
+        const result = await dateSafeModelSchema(schema).validate?.({
+          at: input,
+        });
+        expect(result?.success).toBe(false);
+      });
+    }
+
+    test(`${label}: rejects a bare epoch number`, async () => {
+      const result = await dateSafeModelSchema(schema).validate?.({
+        at: 1782000000000,
+      });
+      expect(result?.success).toBe(false);
+    });
+  }
+
+  test("rejection message names the field and the offset requirement", () => {
+    const issues = collectDateOffsetIssues(
+      { startAt: "2026-07-01T22:00:00" },
+      z.object({ startAt: z.date() }),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("startAt");
+    expect(issues[0]).toContain("explicit timezone offset");
+  });
+
+  test("a regex-shaped but impossible date reports an invalid-date message", () => {
+    const issues = collectDateOffsetIssues(
+      { at: "2026-13-01T00:00:00Z" },
+      z.object({ at: z.date() }),
+    );
+    expect(issues[0]).toContain("not a valid calendar date-time");
+  });
+
+  test("nested arrays and optionals are gated too", () => {
+    const schema = z.object({
+      windows: z.array(z.object({ at: z.date() })),
+      maybe: z.date().optional(),
+    });
+    const issues = collectDateOffsetIssues(
+      { windows: [{ at: "2026-07-01" }], maybe: "2026-07-01T00:00:00" },
+      schema,
+    );
+    expect(issues).toHaveLength(2);
+    expect(issues.some((m) => m.includes("windows[0].at"))).toBe(true);
+    expect(issues.some((m) => m.includes("maybe"))).toBe(true);
+  });
+
+  test("an absent optional date is not flagged", () => {
+    expect(
+      collectDateOffsetIssues({}, z.object({ at: z.date().optional() })),
+    ).toEqual([]);
   });
 });
 
