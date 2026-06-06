@@ -382,6 +382,12 @@ jobs:
             fi
           done
 
+      # The external-plugin-lifecycle integration test drives a real browser to
+      # assert @checkstack/ui's Monaco CodeEditor renders in the standalone dev
+      # server, so Chromium must be available.
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
       - name: Run Integration Tests
         id: integration
         run: |
