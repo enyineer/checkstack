@@ -753,6 +753,7 @@
       },
       "devDependencies": {
         "@checkstack/tsconfig": "workspace:*",
+        "@playwright/test": "^1.60.0",
         "@types/inquirer": "^8.2.10",
         "typescript": "^5.0.0",
       },

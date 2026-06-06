@@ -1,10 +1,11 @@
 ---
 "@checkstack/frontend": minor
-"@checkstack/dev-server": patch
+"@checkstack/dev-server": minor
 ---
 
-Share the Monaco / VS Code editor Vite settings between `@checkstack/frontend` and `@checkstack/dev-server` so they cannot drift.
+Make `@checkstack/ui`'s Monaco `CodeEditor` render in standalone `bun run dev`, and share the Monaco editor Vite settings between `@checkstack/frontend` and `@checkstack/dev-server` so they cannot drift.
 
-`@checkstack/dev-server` hand-rolled its Vite config and was missing the editor settings that `@checkstack/frontend`'s own `vite.config.ts` carries, so a standalone plugin whose frontend uses `@checkstack/ui`'s `CodeEditor` leaked a runtime `require("vscode")` into the browser (and the configs could silently diverge again on any future change).
+Two parts:
 
-`@checkstack/frontend` now exports a shared `monacoViteConfig` helper (`@checkstack/frontend/vite-monaco`) providing the two required settings - `worker.format: "es"` (the `@codingame` language workers are ES-module workers) and the `vscode` resolve alias (resolves `"vscode": "npm:@codingame/monaco-vscode-extension-api"` so `require("vscode")` doesn't leak). Both `vite.config.ts` and the dev server now consume it. The dev server resolves it from the plugin's installed `@checkstack/frontend`/`@checkstack/ui` and degrades gracefully when the editor stack is absent.
+- **Shared config.** `@checkstack/frontend` now exports a `monacoViteConfig` helper (`@checkstack/frontend/vite-monaco`) with the editor settings the app's `vite.config.ts` already used - `worker.format: "es"` and the `vscode` resolve alias (so `require("vscode")` doesn't leak into the browser). Both the app config and the dev server consume it.
+- **Pre-built workers (dev server).** In a standalone plugin, `@checkstack/ui` is a *pre-bundled npm dependency*, and Vite's dependency optimizer can't process the Monaco language workers it imports via `?worker&url` - the dev server used to crash (or, with `@checkstack/ui` served as source, its other deps lost CJS/ESM interop). The dev server now pre-builds the three Monaco workers (editor / TypeScript / JSON) into static ES-module bundles, serves them, and redirects the `?worker&url` imports to them via `resolve.alias` (which applies during pre-bundling). `@checkstack/ui` stays pre-bundled, the workers resolve, and the editor renders. Builds are content-addressed and cached under `node_modules/.cache/checkstack-dev-monaco` (concurrency-safe atomic promotion), so only the first run after a dependency change pays the build cost. React is deduped so the editor's hooks share the dev shell's React instance.
