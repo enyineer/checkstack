@@ -6,10 +6,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Checkstack Health Monitor</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <!--
+    Resolve the saved theme BEFORE first paint so the boot splash (and the
+    app's first frame) match the user's light/dark choice instead of flashing.
+    Mirrors ThemeProvider (storageKey "checkstack-ui-theme"); ThemeProvider
+    re-applies the class on mount, so this is purely a no-flash head start.
+  -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("checkstack-ui-theme") || "system";
+        var dark =
+          t === "dark" ||
+          (t === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {
+        /* localStorage unavailable (private mode) - default to light */
+      }
+    })();
+  </script>
+  <!--
+    Boot splash styles. Inlined (not in the app CSS bundle) so the spinner is
+    visible during the blank window while main.tsx loads plugins + initialises
+    Module Federation, before React mounts. Colours mirror the theme tokens in
+    core/ui/src/themes.css. Removed by main.tsx once the app renders.
+  -->
+  <style>
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: hsl(0 0% 100%);
+    }
+
+    html.dark #boot-splash {
+      background: hsl(240 10% 4%);
+    }
+
+    #boot-splash .boot-splash__spinner {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 9999px;
+      border: 3px solid hsl(262 83% 58% / 0.2);
+      border-top-color: hsl(262 83% 58%);
+      animation: boot-splash-spin 0.7s linear infinite;
+    }
+
+    html.dark #boot-splash .boot-splash__spinner {
+      border-color: hsl(263 70% 65% / 0.2);
+      border-top-color: hsl(263 70% 65%);
+    }
+
+    /* Respect reduced-motion: show a static ring instead of spinning. */
+    @media (prefers-reduced-motion: reduce) {
+      #boot-splash .boot-splash__spinner {
+        animation: none;
+      }
+    }
+
+    @keyframes boot-splash-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
 </head>
 
 <body>
   <div id="root"></div>
+  <!--
+    Sibling overlay (not a child of #root) so React mounts into an empty
+    container. It covers the viewport until main.tsx removes it after the first
+    render, so the app is already painted underneath when the splash goes away.
+  -->
+  <div id="boot-splash" role="status" aria-label="Loading Checkstack">
+    <div class="boot-splash__spinner"></div>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 
