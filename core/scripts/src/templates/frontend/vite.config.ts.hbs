@@ -32,15 +32,27 @@ export default defineConfig({
       // The host loads `<remoteName>/plugin`.
       exposes: { "./plugin": "./src/index.tsx" },
       // Reuse the host's singleton instances — MUST mirror the host's shared
-      // set (@checkstack/frontend vite.config.ts). @checkstack/ui is NOT shared:
-      // it is bundled (tree-shaken) and its contexts are unified via a
-      // registered (globalThis-keyed) context.
+      // set (@checkstack/frontend vite.config.ts). @checkstack/ui is NOT shared
+      // wholesale: it is bundled (tree-shaken) and its contexts are unified via
+      // a registered (globalThis-keyed) context. The ONE exception is the
+      // CodeEditor (Monaco / VS Code) stack, shared as a singleton so this
+      // plugin reuses the host's editor (and its workers) instead of bundling
+      // Monaco. `import: false` makes it CONSUME-ONLY: the plugin never bundles
+      // a local fallback of the editor, so the heavy `@codingame/*` /
+      // `monaco-languageclient` / `vscode` subtree is never pulled into the
+      // plugin build (which is why no `vscode` alias or worker config is needed
+      // here). The host is the sole provider.
       shared: {
         react: { singleton: true, requiredVersion: "^18.0.0" },
         "react-dom": { singleton: true, requiredVersion: "^18.0.0" },
         "react-router-dom": { singleton: true, requiredVersion: "^7.0.0" },
         "@tanstack/react-query": { singleton: true, requiredVersion: "^5.0.0" },
         "@checkstack/frontend-api": { singleton: true, requiredVersion: false },
+        "@checkstack/ui/code-editor": {
+          singleton: true,
+          requiredVersion: false,
+          import: false,
+        },
       },
     }),
   ],
@@ -49,21 +61,5 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     minify: true,
-    rollupOptions: {
-      // Externalise the Monaco / VS Code editor stack that @checkstack/ui's
-      // CodeEditor pulls in. It needs a `vscode` resolve alias + ES-module
-      // workers to bundle (which the host configures), so a plugin build would
-      // otherwise fail on `require("vscode")`. CodeEditor is lazy in
-      // @checkstack/ui, so a plugin that does not render it never loads these
-      // chunks. (First-class CodeEditor support in plugins is a future step.)
-      external: [
-        "vscode",
-        /^@codingame\//,
-        /^@typefox\//,
-        "monaco-languageclient",
-        /^vscode-/,
-        /^monaco-editor/,
-      ],
-    },
   },
 });

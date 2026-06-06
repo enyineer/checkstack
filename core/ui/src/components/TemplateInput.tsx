@@ -1,5 +1,10 @@
 import React from "react";
-import { CodeEditor, type TemplateProperty } from "./CodeEditor";
+// Deep package specifier (not "./CodeEditor"): routes the CodeEditor value
+// through the Module Federation shared singleton (see core/ui/src/index.ts).
+import {
+  CodeEditor,
+  type TemplateProperty,
+} from "@checkstack/ui/code-editor";
 import { TemplateValueInput } from "./TemplateValueInput";
 
 /**

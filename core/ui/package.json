@@ -4,6 +4,14 @@
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./code-editor": "./src/components/CodeEditor/index.ts",
+    "./package.json": "./package.json",
+    "./src/vite-monaco": "./src/vite-monaco.ts",
+    "./src/components/CodeEditor/generateTypeDefinitions": "./src/components/CodeEditor/generateTypeDefinitions.ts",
+    "./src/*": "./src/*"
+  },
   "dependencies": {
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",

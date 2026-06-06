@@ -21,9 +21,43 @@ const monaco = monacoViteConfig({
 });
 
 // https://vitejs.dev/config/
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
   // Backend URL for proxy - always targets local backend in dev
   const backendUrl = "http://localhost:3000";
+
+  // The shared editor singleton is ONLY wired up for production builds. In dev
+  // (`vite serve`) runtime plugins are compiled straight into the host by
+  // @checkstack/dev-server, so nothing consumes the share - and worse, an
+  // `eager` share forces vite's dep optimizer to crawl the editor's dynamic
+  // `?worker&url` Monaco subtree, whose `@codingame/*` worker files are not
+  // resolvable as bare specifiers from this app root (see the optimizeDeps note
+  // below), which fails dep optimization with UNLOADABLE_DEPENDENCY. In dev the
+  // host just bundles @checkstack/ui's editor normally (worker config + vscode
+  // alias are applied unconditionally below), exactly as before this change.
+  const editorShare =
+    command === "build"
+      ? {
+          // The Monaco / VS Code editor (the only shared piece of
+          // @checkstack/ui). MUST be `eager`: runtime plugins consume it with
+          // `import: false` (no local fallback), and @module-federation/vite's
+          // consume-only shim READS `__mf_module_cache__.share[...]` after
+          // bootstrap rather than lazily invoking the provider - so the host
+          // has to have populated the share scope eagerly or the plugin throws
+          // "imported before federation bootstrap finished". Eager is safe: the
+          // editor's module scope is light (Monaco lives behind a dynamic import
+          // inside CodeEditor.tsx), so this loads the wrapper, NOT Monaco, at
+          // startup. `requiredVersion: false` skips negotiation (workspace:*,
+          // not a semver range). The deep specifier matches the re-export in
+          // core/ui/src/index.ts and the value imports inside @checkstack/ui, so
+          // every editor reference dedupes to one singleton.
+          "@checkstack/ui/code-editor": {
+            singleton: true,
+            eager: true,
+            requiredVersion: false,
+          },
+        }
+      : {};
+
   return {
     // Tell Vite to look for .env files in monorepo root
     envDir: monorepoRoot,
@@ -36,9 +70,14 @@ export default defineConfig(() => {
       // share scope — this is what lets a separately-built plugin share the
       // host's React / Router / QueryClient / framework contexts (and is why
       // it works where a hand-rolled import-map externalisation could not).
-      // @checkstack/ui is intentionally NOT shared: it is bundled per consumer
-      // (tree-shaken) and its few React contexts are unified via a registered
-      // (globalThis-keyed) context — see core/ui/src/utils/registered-context.ts.
+      // @checkstack/ui is intentionally NOT shared wholesale: it is bundled per
+      // consumer (tree-shaken) and its few React contexts are unified via a
+      // registered (globalThis-keyed) context — see
+      // core/ui/src/utils/registered-context.ts. The ONE exception is the
+      // CodeEditor (Monaco / VS Code) stack: on a production build it is shared
+      // as a singleton so the host owns the single editor instance (and builds
+      // its `?worker&url` workers) while runtime plugins reuse it instead of
+      // bundling Monaco. See `editorShare` above for why this is build-only.
       federation({
         name: "checkstack_host",
         remotes: {},
@@ -66,6 +105,7 @@ export default defineConfig(() => {
             eager: true,
             requiredVersion: false,
           },
+          ...editorShare,
         },
       }),
     ],
