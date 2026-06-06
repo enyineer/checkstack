@@ -6,9 +6,10 @@ import path from "node:path";
  * that `@checkstack/ui`'s `CodeEditor` pulls in (`@typefox/monaco-editor-react`
  * + `monaco-languageclient` + `@codingame/monaco-vscode-*`).
  *
- * Consumed by BOTH `@checkstack/frontend`'s own `vite.config.ts` and
- * `@checkstack/dev-server`'s standalone-plugin dev config (which previously
- * hand-rolled its own copy and drifted), so the two stay in sync.
+ * Lives here in `@checkstack/ui` (which owns `CodeEditor` and the editor
+ * dependencies) so every consumer can share one source instead of drifting:
+ * `@checkstack/frontend`'s `vite.config.ts`, `@checkstack/dev-server`'s
+ * standalone-plugin dev config, and `@checkstack/ui`'s own Storybook config.
  *
  * Two settings are required:
  *

@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { monacoViteConfig } from "./src/vite-monaco";
+import { monacoViteConfig } from "@checkstack/ui/src/vite-monaco";
 
 // Monorepo root is 2 levels up from core/frontend
 const monorepoRoot = path.resolve(__dirname, "../..");

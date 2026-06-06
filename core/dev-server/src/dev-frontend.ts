@@ -20,7 +20,7 @@ import {
   type MonacoWorkerSetup,
   type ViteBuild,
 } from "./dev-monaco-workers";
-import type { MonacoViteConfig } from "@checkstack/frontend/vite-monaco";
+import type { MonacoViteConfig } from "@checkstack/ui/src/vite-monaco";
 
 /**
  * Directory of THIS module (`@checkstack/dev-server`'s installed location).
@@ -298,19 +298,18 @@ async function loadMonacoViteConfig({
   pluginCwd: string;
 }): Promise<MonacoViteConfig | undefined> {
   try {
-    // Load the helper from the RESOLVED `@checkstack/frontend` (a peer the
-    // plugin author installs), mirroring loadDevPostcssPlugins — never a static
-    // import, so `@checkstack/frontend` stays a peer dep rather than becoming a
-    // hard runtime dependency of the dev server.
-    const frontendRequire = createRequire(
-      path.join(frontendDir, "package.json"),
-    );
-    const mod = await import(
-      pathToFileURL(frontendRequire.resolve("@checkstack/frontend/vite-monaco"))
-        .href
-    );
+    // Load the helper from the RESOLVED `@checkstack/ui` (a peer the plugin
+    // author installs), mirroring loadDevPostcssPlugins — never a static
+    // import, so `@checkstack/ui` stays a peer dep rather than becoming a hard
+    // runtime dependency of the dev server.
+    const helperPath = resolveFromCandidates({
+      request: "@checkstack/ui/src/vite-monaco",
+      candidateBasePaths: [frontendDir, pluginCwd, DEV_SERVER_MODULE_DIR],
+    });
+    if (!helperPath) return undefined;
+    const mod = await import(pathToFileURL(helperPath).href);
     // Cast: dynamic `import()`'s namespace is untyped. `monacoViteConfig` is the
-    // documented export of `@checkstack/frontend/vite-monaco`; a wrong-shaped
+    // documented export of `@checkstack/ui/src/vite-monaco`; a wrong-shaped
     // module is caught by the surrounding try/catch (→ undefined fallback).
     const buildConfig = mod.monacoViteConfig as (args: {
       resolveFrom: string[];

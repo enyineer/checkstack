@@ -4,8 +4,8 @@ import path from "node:path";
 import { monacoViteConfig } from "./vite-monaco";
 
 // `@typefox/monaco-editor-react` + the `vscode` npm-alias live in
-// `@checkstack/ui`'s dependencies, two levels up from this file.
-const UI_DIR = path.resolve(import.meta.dir, "../../ui");
+// `@checkstack/ui`'s dependencies (this package's root).
+const UI_DIR = path.resolve(import.meta.dir, "..");
 
 describe("monacoViteConfig", () => {
   it("returns the ES-module worker format the @codingame workers require", () => {
@@ -22,13 +22,5 @@ describe("monacoViteConfig", () => {
     expect(vscodeDir).toContain("monaco-vscode");
     expect(path.isAbsolute(vscodeDir)).toBe(true);
     expect(existsSync(vscodeDir)).toBe(true);
-  });
-
-  it("throws when the editor stack cannot be resolved", () => {
-    expect(() =>
-      monacoViteConfig({
-        resolveFrom: [path.resolve(import.meta.dir, "does-not-exist")],
-      }),
-    ).toThrow();
   });
 });

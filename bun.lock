@@ -881,15 +881,18 @@
         "@checkstack/frontend": "workspace:*",
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
+        "@checkstack/ui": "workspace:*",
         "typescript": "^5.0.0",
       },
       "peerDependencies": {
         "@checkstack/backend": "*",
         "@checkstack/frontend": "*",
+        "@checkstack/ui": "*",
       },
       "optionalPeers": [
         "@checkstack/backend",
         "@checkstack/frontend",
+        "@checkstack/ui",
       ],
     },
     "core/drizzle-helper": {
