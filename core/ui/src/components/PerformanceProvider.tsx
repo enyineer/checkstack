@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { useToast } from "./ToastProvider";
+import { createRegisteredContext } from "../utils/registered-context";
 
 const STORAGE_KEY = "checkstack-low-power";
 
@@ -17,12 +18,17 @@ interface PerformanceContextValue {
   toggleManualLowPower: () => void;
 }
 
-const PerformanceContext = createContext<PerformanceContextValue>({
-  isLowPower: false,
-  isLoaded: false,
-  manualLowPower: false,
-  toggleManualLowPower: () => {},
-});
+// Registered (singleton) context: @checkstack/ui is bundled per consumer, but
+// the host's provider and a plugin's usePerformance() must share one context.
+const PerformanceContext = createRegisteredContext<PerformanceContextValue>(
+  "checkstack.ui.performance",
+  {
+    isLowPower: false,
+    isLoaded: false,
+    manualLowPower: false,
+    toggleManualLowPower: () => {},
+  },
+);
 
 /**
  * usePerformance - Hook to access the global hardware performance state.

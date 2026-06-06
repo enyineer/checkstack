@@ -342,7 +342,50 @@ load-bearing — do not regress):
 - Entries resolved via `createRequire(import.meta.url).resolve(...)` (never
   hardcoded bun-store paths).
 
-**Still TODO in Phase 1:**
+**Update (2026-06-06, later): `@checkstack/ui` decision changed — NOT shared.**
+Building `@checkstack/ui` as a vendor bundle made a ~2 MB EAGER entry (a lib
+entry exports its whole public API, so it can't be tree-shaken), regressing
+the optimised login path. Industry norm ("eager-load only true singletons;
+bundle the rest") + the `@indeedeng/react-singleton-context` pattern give the
+right answer: **`@checkstack/ui` is bundled per consumer (tree-shaken); its
+three React contexts (Theme/Toast/Performance) use a registered, globalThis-
+keyed context** so they stay single-instance across the bundled copies.
+DONE & tested: `core/ui/src/utils/registered-context.ts` (+ test) and the
+three providers converted. Shared set shrank to React-ecosystem +
+@tanstack/react-query + @checkstack/frontend-api.
+
+**Vendor build correctness (DONE & verified).** Three more latent issues
+fixed, all confirmed in the emitted bundles:
+- **Named exports for CJS packages.** `export *` (and lib-mode auto-facades)
+  emit DEFAULT-ONLY for CJS React 18 — `import { useState } from "react"` was
+  `undefined`. Fix: explicit ESM wrapper entries (`core/frontend/vendor-
+  entries/*.ts`). React/react-dom/jsx-runtime (CJS) destructure their named
+  API off the default object; react-router-dom / @tanstack/react-query /
+  frontend-api (ESM) `export *`. Verified `react.js` exports `useState` +
+  `default`, `react-query.js` exports `useQuery`, etc.
+- **`process is not defined`.** The lib build did not replace
+  `process.env.NODE_ENV` in the bundled CJS, so React referenced `process` in
+  the browser. Fixed with `define: { "process.env.NODE_ENV": '"production"' }`.
+- **Single instances.** `manualChunks` pins react/react-dom/scheduler →
+  `react-core` and @tanstack → `tanstack-query`; every entry imports those
+  shared chunks (verified one react-core chunk; QueryClient defined once).
+
+**REMAINING BLOCKER — host externalisation triggers a CJS `require("react")`.**
+Adding the shared set to `build.rollupOptions.external` in
+`core/frontend/vite.config.ts` makes the host load `/vendor/*` (verified: host
+entry emits bare `import … from "react"`, React no longer in `/assets`). BUT
+the host then throws at load: **"Calling `require` for \"react\" in an
+environment that doesn't expose `require`"** — a CJS dependency bundled into
+the host does `require("react")`, and once `react` is external rolldown leaves
+it as the throwing `__require("react")` shim instead of converting it to an
+ESM import. (This step is reverted on the branch so the host build/runtime is
+sound.) Next debug step: capture the browser stack (a transient Postgres
+connect-timeout flake blocked the last attempt) to identify the offending CJS
+dep, then either make rolldown's commonjs transform convert that `require` to
+an external ESM import, pre-convert the dep, or provide a `require` shim that
+delegates to the import-mapped modules.
+
+**Still TODO in Phase 1 (after the blocker):**
 - Add `@checkstack/ui` to the vendor build (the heavy one — Monaco). Needs
   `monacoViteConfig` (worker format + `vscode` alias), code-splitting
   preserved so Monaco stays lazy, and CSS emitted/served. Will likely need a
