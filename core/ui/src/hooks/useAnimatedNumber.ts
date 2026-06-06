@@ -14,8 +14,8 @@ export function useAnimatedNumber(
   decimals = 2,
 ): string {
   const [displayValue, setDisplayValue] = useState(targetValue);
-  const animationRef = useRef<number>();
-  const startTimeRef = useRef<number>();
+  const animationRef = useRef<number | undefined>(undefined);
+  const startTimeRef = useRef<number | undefined>(undefined);
   const startValueRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {

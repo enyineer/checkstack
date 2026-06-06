@@ -82,11 +82,11 @@ export default defineConfig(({ command }) => {
         name: "checkstack_host",
         remotes: {},
         shared: {
-          react: { singleton: true, eager: true, requiredVersion: "^18.0.0" },
+          react: { singleton: true, eager: true, requiredVersion: "^19.0.0" },
           "react-dom": {
             singleton: true,
             eager: true,
-            requiredVersion: "^18.0.0",
+            requiredVersion: "^19.0.0",
           },
           "react-router-dom": {
             singleton: true,

@@ -30,13 +30,13 @@
     "@dnd-kit/utilities": "^3.2.2",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.3.1",
+    "react": "19.2.7",
     "react-router-dom": "^7.16.0",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "@types/react": "^18.2.0",
+    "@types/react": "^19.0.0",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*"
   }
