@@ -1,7 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { monacoViteConfig } from "@checkstack/ui/src/vite-monaco";
+// Relative (not the bare `@checkstack/ui/...` specifier): Vite's config loader
+// externalizes bare node_modules imports, which would leave this `.ts` file
+// un-transpiled at config-load time (ERR_UNKNOWN_FILE_EXTENSION). A relative
+// path is bundled into the config instead.
+import { monacoViteConfig } from "../ui/src/vite-monaco";
 
 // Monorepo root is 2 levels up from core/frontend
 const monorepoRoot = path.resolve(__dirname, "../..");
