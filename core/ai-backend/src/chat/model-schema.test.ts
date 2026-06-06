@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
-  buildAgentToolInputSchema,
+  dateSafeModelSchema,
   coerceDateValues,
   schemaContainsDate,
-} from "./tool-input-schema";
+} from "./model-schema";
 
 describe("schemaContainsDate", () => {
   test("detects dates in object / array / optional / coerce positions", () => {
@@ -50,11 +50,11 @@ describe("coerceDateValues", () => {
   });
 });
 
-describe("buildAgentToolInputSchema", () => {
+describe("dateSafeModelSchema", () => {
   // The core regression: the AI SDK would throw "Date cannot be represented in
   // JSON Schema" building the model-facing schema for these inputs.
   test("produces a date-time string schema without throwing", async () => {
-    const schema = buildAgentToolInputSchema(
+    const schema = dateSafeModelSchema(
       z.object({ id: z.string(), createdAt: z.date() }),
     );
     const js = (await schema.jsonSchema) as {
@@ -68,7 +68,7 @@ describe("buildAgentToolInputSchema", () => {
   });
 
   test("validator coerces the model's ISO string into a Date", async () => {
-    const schema = buildAgentToolInputSchema(z.object({ at: z.date() }));
+    const schema = dateSafeModelSchema(z.object({ at: z.date() }));
     const result = await schema.validate?.({ at: "2026-01-02T03:04:05.000Z" });
     expect(result?.success).toBe(true);
     if (result?.success) {
@@ -77,7 +77,7 @@ describe("buildAgentToolInputSchema", () => {
   });
 
   test("validator preserves the original schema's refinement", async () => {
-    const schema = buildAgentToolInputSchema(
+    const schema = dateSafeModelSchema(
       z
         .object({ startAt: z.coerce.date(), endAt: z.coerce.date() })
         .refine((v) => v.endAt > v.startAt, { message: "endAt after startAt" }),

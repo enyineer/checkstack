@@ -3,10 +3,7 @@ import type { AuthUser } from "@checkstack/backend-api";
 import type { AiPermissionMode, AiFieldDiff } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "../tool-registry";
 import { decideToolDisposition } from "./permission-mode.logic";
-import {
-  buildAgentToolInputSchema,
-  schemaContainsDate,
-} from "./tool-input-schema";
+import { dateSafeModelSchema, schemaContainsDate } from "./model-schema";
 
 /**
  * Result a mutate/destructive tool's `execute` returns to the model in APPROVE
@@ -143,7 +140,7 @@ export function buildAgentSdkTools({
     // crashing the turn. For date-bearing inputs hand the SDK a date-safe
     // schema + a coercing validator; everything else stays on the native path.
     const inputSchema = schemaContainsDate(t.input)
-      ? buildAgentToolInputSchema(t.input)
+      ? dateSafeModelSchema(t.input)
       : t.input;
 
     if (disposition === "auto-run") {

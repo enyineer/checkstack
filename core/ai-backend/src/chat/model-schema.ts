@@ -10,27 +10,28 @@ interface JsonSchemaNode {
 }
 
 /**
- * The AI SDK builds each tool's model-facing JSON Schema from the raw Zod input
- * via Zod v4's `toJSONSchema()` with the default `unrepresentable: "throw"`.
- * That throws "Date cannot be represented in JSON Schema" for `z.date()` AND
- * `z.coerce.date()`, so a single date field in any tool input crashes every
- * chat turn (the whole tool list is projected before the model is called).
+ * The single model-boundary date handler. The AI SDK builds the model-facing
+ * JSON Schema from a raw Zod schema via Zod v4's `toJSONSchema()` with the
+ * default `unrepresentable: "throw"`, which throws "Date cannot be represented
+ * in JSON Schema" for `z.date()` AND `z.coerce.date()`. A single date field in
+ * any tool input or `generateObject` output would therefore crash the model
+ * call (for the chat, before the model is even invoked).
  *
- * For date-bearing tool inputs we therefore hand the SDK a ready-made schema
- * (so it never runs the throwing converter) plus our own validator:
+ * For date-bearing schemas we hand the SDK a ready-made schema (so it never
+ * runs the throwing converter) plus our own validator:
  *  - the model-facing schema renders dates as `{ type: "string", format:
  *    "date-time" }` (their wire shape) - matching the SDK's own options
  *    (draft-7 / input) so non-date parts are byte-identical to before;
- *  - the validator coerces the ISO strings the model sends back into real
+ *  - the validator coerces the ISO strings the model emits back into real
  *    `Date`s before parsing with the ORIGINAL schema, so refinements and the
  *    downstream RPC client (which expects `Date`s) keep working.
  *
- * Tools with no date in their input are left as raw Zod so the SDK handles them
- * exactly as it always has.
+ * Apply this at EVERY model-schema boundary (gated by {@link schemaContainsDate})
+ * so individual tool / agent definitions never have to special-case dates - the
+ * thing that would otherwise regress one tool at a time. Non-date schemas are
+ * left as raw Zod so the SDK handles them exactly as it always has.
  */
-export function buildAgentToolInputSchema(input: z.ZodTypeAny): Schema<unknown> {
-  // The Zod-produced JSON Schema is structurally a JSONSchema7; the cast just
-  // bridges Zod's own JSONSchema type to the SDK's parameter type.
+export function dateSafeModelSchema(input: z.ZodTypeAny): Schema<unknown> {
   // Cast: bridges Zod's own JSONSchema type to the node shape this module
   // mutates. It is the same JSON Schema object, just a narrower view.
   const modelSchema = z.toJSONSchema(input, {
