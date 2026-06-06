@@ -41,6 +41,28 @@ describe("serializeTool", () => {
     );
   });
 
+  test("serializes a tool whose schema has Date fields (no throw)", () => {
+    // Regression for "The assistant hit an error: Date cannot be represented in
+    // JSON Schema": tools that read timestamped resources (incidents, health
+    // checks, anomalies) carry `z.date()` fields. Projecting the tool list must
+    // not throw - it runs on every chat turn before the model is even called.
+    const dateTool: RegisteredAiTool = {
+      name: "incident.get",
+      description: "Get an incident.",
+      effect: "read",
+      input: z.object({ id: z.string() }),
+      output: z.object({ id: z.string(), createdAt: z.date() }),
+      requiredAccessRules: ["incident.incident.read"],
+      execute: () => Promise.resolve({}),
+    };
+    const descriptor = serializeTool({ tool: dateTool });
+    const out = descriptor.outputSchema as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+    expect(out.properties.createdAt?.type).toBe("string");
+    expect(out.properties.createdAt?.format).toBe("date-time");
+  });
+
   test("never emits a secret VALUE into the descriptor", () => {
     // A tool whose input has an x-secret field: the schema describes the field
     // but the descriptor must never contain a concrete secret value.

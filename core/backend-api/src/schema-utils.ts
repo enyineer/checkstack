@@ -101,8 +101,25 @@ function addSchemaMetadata(
  * dropdowns for optionsResolver fields, hidden for auto-populated fields).
  */
 export function toJsonSchema(zodSchema: z.ZodTypeAny): Record<string, unknown> {
-  // Use Zod's native JSON Schema conversion
-  const jsonSchema = zodSchema.toJSONSchema() as Record<string, unknown>;
+  // Use Zod's native JSON Schema conversion.
+  //
+  // Zod v4 throws "Date cannot be represented in JSON Schema" for `z.date()`
+  // by default (`unrepresentable: "throw"`). Many platform contracts carry
+  // date fields (timestamps), and this converter is the substrate for the
+  // OpenAPI generator AND the AI tool projection - so a single date field
+  // would crash the whole AI chat (every turn projects the full tool list)
+  // and break OpenAPI. Dates serialize as ISO strings over the wire, so we
+  // represent them as `{ type: "string", format: "date-time" }` and let any
+  // other unrepresentable type degrade to `{}` (any) rather than throw.
+  const jsonSchema = z.toJSONSchema(zodSchema, {
+    unrepresentable: "any",
+    override: (ctx) => {
+      if (ctx.zodSchema instanceof z.ZodDate) {
+        ctx.jsonSchema.type = "string";
+        ctx.jsonSchema.format = "date-time";
+      }
+    },
+  }) as Record<string, unknown>;
   addSchemaMetadata(zodSchema, jsonSchema);
   return jsonSchema;
 }
