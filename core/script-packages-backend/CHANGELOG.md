@@ -1,5 +1,18 @@
 # @checkstack/script-packages-backend
 
+## 0.3.3
+
+### Patch Changes
+
+- @checkstack/auth-common@0.8.2
+- @checkstack/backend-api@0.21.3
+- @checkstack/common@0.14.1
+- @checkstack/notification-common@1.3.2
+- @checkstack/script-packages-common@0.3.2
+- @checkstack/sdk@0.98.1
+- @checkstack/secrets-backend@0.2.3
+- @checkstack/secrets-common@0.2.2
+
 ## 0.3.2
 
 ### Patch Changes

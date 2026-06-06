@@ -1,5 +1,57 @@
 # @checkstack/frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- fb705df: Upgrade React 18 to React 19 across the platform.
+
+  **BREAKING (runtime frontend plugins):** React is shared as a Module Federation
+  singleton, so the host now provides **React 19** to every runtime plugin.
+  Frontend plugins built against React 18 must be rebuilt against React 19
+  (`react` / `react-dom` `^19`). The scaffold templates and the host/plugin MF
+  `requiredVersion` are updated to `^19`. `react` (and now `react-dom`) are pinned
+  to a single version across the workspace via syncpack so the singleton can never
+  skew (react and react-dom must match exactly).
+
+  The React 19 removed-API surface was audited - the codebase used only no-arg
+  `useRef()` (now `useRef<T | undefined>(undefined)`); no `ReactDOM.render`,
+  legacy context, string refs, or function-component `defaultProps`. This also
+  clears the `IMPORT_IS_UNDEFINED` build warnings for `React.use` /
+  `React.useOptimistic` (react-router 7 feature-detection), which React 19 exports.
+
+  The downstream `*-frontend` packages (and `@checkstack/infrastructure-common`)
+  receive only the mechanical `react` dependency bump (`patch`); the framework
+  packages carrying the shared-singleton change are bumped `minor`.
+
+### Patch Changes
+
+- 9d8961c: Fix the double-scrolling on the AI chat page (`/ai/chat`). The page sized its
+  layout with a fixed `calc(100vh - 220px)` height, which overshot the available
+  space when the page subtitle wrapped to two lines - so the whole page scrolled
+  on top of the message list's own scroll.
+
+  `PageLayout` gains an opt-in `fillHeight` prop that fills the viewport via a
+  bounded flex height chain (established in the app shell) instead of viewport
+  math; the chat page uses it so only the message list scrolls and the page itself
+  never does. Normal document-flow pages are unaffected (they still scroll the
+  main area as before).
+
+- Updated dependencies [9d8961c]
+- Updated dependencies [50123c7]
+- Updated dependencies [fb705df]
+  - @checkstack/ui@1.15.0
+  - @checkstack/dependency-frontend@0.5.4
+  - @checkstack/frontend-api@0.8.0
+  - @checkstack/about-frontend@0.3.4
+  - @checkstack/announcement-frontend@0.4.4
+  - @checkstack/auth-frontend@0.7.4
+  - @checkstack/catalog-frontend@0.11.4
+  - @checkstack/command-frontend@0.3.4
+  - @checkstack/signal-frontend@0.2.3
+  - @checkstack/common@0.14.1
+  - @checkstack/signal-common@0.2.8
+
 ## 0.8.0
 
 ### Minor Changes

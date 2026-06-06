@@ -1,5 +1,16 @@
 # @checkstack/dependency-common
 
+## 1.2.3
+
+### Patch Changes
+
+- Updated dependencies [fb705df]
+  - @checkstack/frontend-api@0.8.0
+  - @checkstack/catalog-common@2.3.3
+  - @checkstack/common@0.14.1
+  - @checkstack/notification-common@1.3.2
+  - @checkstack/signal-common@0.2.8
+
 ## 1.2.2
 
 ### Patch Changes

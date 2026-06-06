@@ -1,5 +1,23 @@
 # @checkstack/ai-backend
 
+## 0.1.3
+
+### Patch Changes
+
+- 00b9367: Refresh the bundled docs search index (`ai.searchDocs` / `ai.getDoc`) for the
+  updated plugin-authoring documentation: one-off `bunx` examples now pin
+  `@latest`, committed `pack` scripts use the installed `checkstack-scripts` bin,
+  and a new "Keep the tooling current" section documents Bun's scaffolder cache
+  behaviour (latest re-resolved per run within the ~5 min registry-manifest
+  window; tarballs content-addressed by version). Cutting this release also
+  rebuilds the Docker image, so the bundled in-app docs served at `/checkstack/*`
+  pick up the changes.
+  - @checkstack/ai-common@0.1.2
+  - @checkstack/backend-api@0.21.3
+  - @checkstack/common@0.14.1
+  - @checkstack/integration-backend@0.4.3
+  - @checkstack/sdk@0.98.1
+
 ## 0.1.2
 
 ### Patch Changes

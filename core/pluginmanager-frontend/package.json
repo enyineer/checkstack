@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/pluginmanager-frontend",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",

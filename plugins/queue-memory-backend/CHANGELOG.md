@@ -1,5 +1,14 @@
 # @checkstack/queue-memory-backend
 
+## 0.4.12
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.3
+- @checkstack/common@0.14.1
+- @checkstack/queue-api@0.3.11
+- @checkstack/queue-memory-common@0.1.18
+
 ## 0.4.11
 
 ### Patch Changes
