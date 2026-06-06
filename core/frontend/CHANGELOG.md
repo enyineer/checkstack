@@ -1,5 +1,45 @@
 # @checkstack/frontend
 
+## 0.8.0
+
+### Minor Changes
+
+- 968c12f: Show a loading spinner on initial app load instead of a blank screen. The host
+  boots by awaiting plugin registration + Module Federation init before React
+  mounts, which left `#root` empty for a few seconds. `index.html` now renders an
+  inline, theme-aware boot splash (visible before the JS/CSS bundles load, with a
+  no-flash light/dark head start mirroring the saved theme, and reduced-motion
+  safe) that `main.tsx` removes once the app has rendered.
+- 968c12f: Make installed (runtime) frontend plugins actually load, via Module Federation 2.0. Previously a packed external plugin's frontend could not run: the host only shared React/router with runtime plugins, and there was no working way to share the framework/UI singletons (hand-rolled import-map externalisation hit an unsolvable rolldown CJS-interop wall).
+
+  - **Host (`@checkstack/frontend`)** now uses `@module-federation/vite` as an MF host and loads runtime plugins through the MF runtime (`registerRemotes` + `loadRemote`) instead of a raw `import()`. The shared set (react, react-dom, react-router-dom, @tanstack/react-query, @checkstack/frontend-api) is owned by the host; plugins reuse those exact instances via the share scope. The old hand-rolled vendor build + import map are removed.
+  - **`@checkstack/ui`** is bundled per consumer (tree-shaken); its Theme / Toast / Performance React contexts are unified across the host and bundled-in-plugin copies via a registered (globalThis-keyed) context, so a plugin's `useTheme`/`useToast`/`usePerformance` resolve to the host's providers. The ONE exception is the Monaco / VS Code **CodeEditor**, now exposed as the `@checkstack/ui/code-editor` subpath and shared as an MF singleton: the host owns the single editor instance (and builds its `?worker&url` workers), and plugins reuse it. A plugin can now render `<CodeEditor>` (directly or via `ScriptTestPanel` / template/JSON fields) without bundling Monaco.
+  - **Scaffold + pack (`@checkstack/scripts`)** build frontend plugins as MF remotes (`vite build` with the federation plugin, exposing `./plugin`, manifest enabled, DTS disabled). The CodeEditor is shared with `import: false` so the plugin is a consume-only participant - it never bundles a local fallback of the editor, keeping the heavy `@codingame/*` / `monaco-languageclient` / `vscode` subtree out of the plugin entirely (so no `vscode` alias or ES-worker config is needed in the plugin build). `plugin-pack` builds frontend packages with `NODE_ENV=production` (the MF plugin skips the remote under `NODE_ENV=test`) and ships only `dist/`. The scaffolded route now declares a `nav` entry so it appears in the sidebar.
+  - **Backend (`@checkstack/backend`)** serves a plugin's MF assets under its (possibly scoped) package name (`/assets/plugins/@scope/name/*`), with correct content types, and the SPA catch-all defers those paths so the federation manifest/remoteEntry are not shadowed by `index.html`.
+
+  Verified end-to-end by the external-plugin install E2E (scaffold → pack → install via the Plugin Manager UI → frontend + backend + co-loaded core plugins all work).
+
+### Patch Changes
+
+- ed251b6: Make `@checkstack/ui`'s Monaco `CodeEditor` render in standalone `bun run dev`, and consolidate the Monaco editor Vite settings into one shared helper so they can't drift.
+
+  - **Shared config (now in `@checkstack/ui`).** `@checkstack/ui` exports a `monacoViteConfig` helper (`@checkstack/ui/src/vite-monaco`) with the editor's Vite settings - `worker.format: "es"` and the `vscode` resolve alias (so `require("vscode")` doesn't leak into the browser). `@checkstack/ui` owns `CodeEditor` and the editor dependencies, so all three consumers now share one source: the app's `vite.config.ts`, `@checkstack/dev-server`, and `@checkstack/ui`'s own Storybook config (each previously hand-rolled its own copy).
+  - **Pre-built workers (dev server).** In a standalone plugin, `@checkstack/ui` is a _pre-bundled npm dependency_, and Vite's dependency optimizer can't process the Monaco language workers it imports via `?worker&url` - the dev server used to crash (and serving `@checkstack/ui` as source instead broke the CJS/ESM interop of its other deps). The dev server now pre-builds the three Monaco workers (editor / TypeScript / JSON) into static ES-module bundles, serves them, and redirects the `?worker&url` imports to them via `resolve.alias` (which applies during pre-bundling). `@checkstack/ui` stays pre-bundled and the workers resolve, so the editor renders. Builds are content-addressed and cached under `node_modules/.cache/checkstack-dev-monaco` (concurrency-safe atomic promotion), so only the first run after a dependency change pays the build cost. React is deduped so the editor's hooks share the dev shell's React instance.
+
+- Updated dependencies [ed251b6]
+- Updated dependencies [968c12f]
+  - @checkstack/ui@1.14.0
+  - @checkstack/about-frontend@0.3.3
+  - @checkstack/announcement-frontend@0.4.3
+  - @checkstack/auth-frontend@0.7.3
+  - @checkstack/catalog-frontend@0.11.3
+  - @checkstack/command-frontend@0.3.3
+  - @checkstack/dependency-frontend@0.5.3
+  - @checkstack/common@0.14.1
+  - @checkstack/frontend-api@0.7.2
+  - @checkstack/signal-common@0.2.8
+  - @checkstack/signal-frontend@0.2.2
+
 ## 0.7.2
 
 ### Patch Changes
