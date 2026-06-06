@@ -26,11 +26,12 @@ import {
   Button,
   Badge,
   LoadingSpinner,
+  PageLayout,
   useToast,
   usePerformance,
   cn,
 } from "@checkstack/ui";
-import { Maximize2, Save, RefreshCw, Trash2 } from "lucide-react";
+import { Maximize2, Save, RefreshCw, Trash2, GitBranch } from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
 import { DependencyEdgeForm } from "./DependencyEdgeForm";
 import { useProvenanceLocks } from "@checkstack/gitops-frontend";
@@ -411,14 +412,14 @@ function DependencyMapContent() {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-12rem)] flex items-center justify-center">
+      <div className="flex-1 min-h-0 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="h-[calc(100vh-12rem)] rounded-xl border border-border overflow-hidden bg-background/50">
+    <div className="flex-1 min-h-0 rounded-xl border border-border overflow-hidden bg-background/50">
       <ReactFlow<SystemNode, DependencyEdge>
         nodes={nodes}
         edges={edges}
@@ -701,24 +702,22 @@ function DependencyMapContent() {
 }
 
 /**
- * Dependency Map page — wrapped in ReactFlowProvider and Suspense.
+ * Dependency Map page — standard PageLayout header (matching the GitBranch nav
+ * icon), full-height so the canvas fills the viewport. Wrapped in
+ * ReactFlowProvider and Suspense.
  */
 const DependencyMapPageContent = () => {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dependency Map</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Interactive topology view of system dependencies. Drag nodes to
-            rearrange — positions auto-save.
-          </p>
-        </div>
-      </div>
+    <PageLayout
+      title="Dependency Map"
+      subtitle="Interactive topology view of system dependencies. Drag nodes to rearrange; positions auto-save."
+      icon={GitBranch}
+      fillHeight
+    >
       <ReactFlowProvider>
         <DependencyMapContent />
       </ReactFlowProvider>
-    </div>
+    </PageLayout>
   );
 };
 
