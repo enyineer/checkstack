@@ -41,7 +41,6 @@ export class TarballPluginInstaller implements PluginInstaller {
 
     const bundle = await tryExtractBundle(stored.tarball);
     if (bundle) {
-      // For bundles, the outer tarball's "package.json" is the primary's.
       const primary = bundle.siblings.find(
         (s) => s.packageJson.name === bundle.manifest.primary,
       );
@@ -51,8 +50,13 @@ export class TarballPluginInstaller implements PluginInstaller {
           `Bundle manifest names primary '${bundle.manifest.primary}' but no matching sibling tarball was found in the uploaded archive.`,
         );
       }
+      // `tarball` is the primary's INNER package tarball (not the outer bundle
+      // archive): it's what gets persisted as the primary's artifact and what
+      // the runtime installs, so it must be a plain `package/package.json`
+      // tarball. The outer bundle is exposed via `bundle` for sibling
+      // resolution only.
       return {
-        tarball: stored.tarball,
+        tarball: primary.tarball,
         packageJson: primary.packageJson,
         bundle,
       };
