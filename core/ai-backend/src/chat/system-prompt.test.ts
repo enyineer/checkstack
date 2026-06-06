@@ -82,8 +82,10 @@ describe("formatInstantInZone", () => {
     expect(
       formatInstantInZone({ now: FIXED_NOW, timeZone: "Europe/Berlin" }),
     ).toBe("Sunday 2026-06-07 10:30 (GMT+02:00)");
-    expect(formatInstantInZone({ now: FIXED_NOW, timeZone: "UTC" })).toBe(
-      "Sunday 2026-06-07 08:30 (GMT+00:00)",
+    // A zero offset renders as "GMT" or "GMT+00:00" depending on the runtime's
+    // ICU version (Bun locally vs Node in CI), so tolerate both.
+    expect(formatInstantInZone({ now: FIXED_NOW, timeZone: "UTC" })).toMatch(
+      /^Sunday 2026-06-07 08:30 \(GMT(\+00:00)?\)$/,
     );
   });
 });
