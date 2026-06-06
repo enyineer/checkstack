@@ -8,7 +8,7 @@ import { federation } from "@module-federation/vite";
 // which compiles the plugin into the host app directly, so this file is only
 // exercised at pack time.
 const pkg = JSON.parse(
-  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+  readFileSync(new URL("package.json", import.meta.url), "utf8"),
 ) as { name: string };
 
 // Identifier-safe MF remote name. MUST match how the Checkstack host derives
