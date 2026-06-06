@@ -3,6 +3,10 @@ import type { AuthUser } from "@checkstack/backend-api";
 import type { AiPermissionMode, AiFieldDiff } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "../tool-registry";
 import { decideToolDisposition } from "./permission-mode.logic";
+import {
+  buildAgentToolInputSchema,
+  schemaContainsDate,
+} from "./tool-input-schema";
 
 /**
  * Result a mutate/destructive tool's `execute` returns to the model in APPROVE
@@ -134,10 +138,18 @@ export function buildAgentSdkTools({
   for (const t of tools) {
     const disposition = decideToolDisposition({ effect: t.effect, mode });
 
+    // A raw `z.date()` / `z.coerce.date()` in the input would make the SDK's
+    // Zod->JSON-Schema conversion throw ("Date cannot be represented..."),
+    // crashing the turn. For date-bearing inputs hand the SDK a date-safe
+    // schema + a coercing validator; everything else stays on the native path.
+    const inputSchema = schemaContainsDate(t.input)
+      ? buildAgentToolInputSchema(t.input)
+      : t.input;
+
     if (disposition === "auto-run") {
       sdkTools[t.name] = aiTool({
         description: t.description,
-        inputSchema: t.input,
+        inputSchema,
         execute: async (input: unknown) => {
           await callbacks.enforceBudget(principal);
           return callbacks.runRead({ principal, tool: t, input });
