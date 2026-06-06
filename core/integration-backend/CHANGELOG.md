@@ -1,5 +1,14 @@
 # @checkstack/integration-backend
 
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [b50916d]
+  - @checkstack/backend-api@0.21.4
+  - @checkstack/command-backend@0.2.4
+  - @checkstack/secrets-backend@0.2.4
+
 ## 0.4.3
 
 ### Patch Changes
