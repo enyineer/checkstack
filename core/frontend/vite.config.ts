@@ -1,33 +1,19 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
-import { createRequire } from "node:module";
+import { monacoViteConfig } from "@checkstack/ui/src/vite-monaco";
 
 // Monorepo root is 2 levels up from core/frontend
 const monorepoRoot = path.resolve(__dirname, "../..");
 
-// Resolve the `vscode` npm-alias (= @codingame/monaco-vscode-extension-api) to
-// an absolute path so Vite can alias it. (Migration stage 1.)
-//
-// `@typefox/monaco-editor-react` and `monaco-languageclient` declare
-// `"vscode": "npm:@codingame/monaco-vscode-extension-api"`. Under bun's
-// isolated node_modules that alias is only materialized inside those two
-// packages — but the package that actually does `require("vscode")` at runtime
-// (@codingame/monaco-vscode-api) has no `vscode` in its own scope, so esbuild
-// can't resolve it and leaks a runtime `require` into the browser ("Calling
-// require for vscode in an environment that doesn't expose the require
-// function"). Aliasing every `vscode` specifier to the real package dir fixes
-// it. We resolve the alias *through* @typefox so the path follows bun's store
-// layout on any machine/CI rather than being hardcoded.
-const localRequire = createRequire(path.join(__dirname, "vite.config.ts"));
-const typefoxDir = path.dirname(
-  localRequire.resolve("@typefox/monaco-editor-react", {
-    paths: [path.resolve(__dirname, "../ui")],
-  }),
-);
-const vscodeApiDir = path.dirname(
-  localRequire.resolve("vscode", { paths: [typefoxDir] }),
-);
+// The Monaco / VS Code editor stack (`@checkstack/ui`'s CodeEditor) needs
+// `worker.format: "es"` and a `vscode` resolve alias. Both are produced by this
+// shared helper - also consumed by @checkstack/dev-server - so the app's config
+// and the standalone-plugin dev config never drift. The editor deps live in
+// `core/ui`, so we resolve from there.
+const monaco = monacoViteConfig({
+  resolveFrom: [path.resolve(__dirname, "../ui")],
+});
 
 // https://vitejs.dev/config/
 export default defineConfig(() => {
@@ -38,10 +24,8 @@ export default defineConfig(() => {
     envDir: monorepoRoot,
     plugins: [react()],
     // The @typefox/monaco-editor-react + @codingame/monaco-vscode-* stack
-    // loads its language services in ES module workers. (Migration stage 1.)
-    worker: {
-      format: "es",
-    },
+    // loads its language services in ES module workers.
+    worker: monaco.worker,
     server: {
       proxy: {
         // Proxy API requests and WebSocket connections to backend
@@ -95,9 +79,8 @@ export default defineConfig(() => {
         // @checkstack/ui's node_modules under bun's isolated store and are not
         // resolvable as bare specifiers from this app root, so listing them
         // errors ("Failed to resolve dependency ... present in
-        // optimizeDeps.include"). Vite discovers and pre-bundles them through
-        // the import graph instead, and the `require("vscode")` CJS interop is
-        // handled by the `vscode` resolve.alias below.
+        // optimizeDeps.include"). The `require("vscode")` CJS interop is handled
+        // by the `vscode` resolve.alias below.
       ],
     },
     build: {
@@ -172,10 +155,10 @@ export default defineConfig(() => {
       ],
       alias: {
         "@": path.resolve(__dirname, "./src"),
-        // See vscodeApiDir above: alias the `vscode` npm-alias to its real
-        // package dir so @codingame's CJS `require("vscode")` resolves under
-        // bun's isolated store instead of leaking a runtime require.
-        vscode: vscodeApiDir,
+        // Alias the `vscode` npm-alias to its real package dir so @codingame's
+        // CJS `require("vscode")` resolves under bun's isolated store instead
+        // of leaking a runtime require. Resolved by monacoViteConfig above.
+        ...monaco.resolve.alias,
       },
     },
   };

@@ -10,10 +10,17 @@
  */
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import type { ViteDevServer } from "vite";
 import { buildDevTailwindContent } from "./dev-frontend-css";
+import {
+  prepareMonacoWorkers,
+  type MonacoWorkerSetup,
+  type ViteBuild,
+} from "./dev-monaco-workers";
+import type { MonacoViteConfig } from "@checkstack/ui/src/vite-monaco";
 
 /**
  * Directory of THIS module (`@checkstack/dev-server`'s installed location).
@@ -80,10 +87,8 @@ export async function startFrontendDevServer({
   // Lazy-imported here to avoid Vite's eager module init when the dev
   // server isn't actually being launched (e.g. unit tests that only
   // exercise `pickFrontendEntry`).
-  const [{ createServer: createViteServer }, reactModule] = await Promise.all([
-    import("vite"),
-    import("@vitejs/plugin-react"),
-  ]);
+  const [{ createServer: createViteServer, build }, reactModule] =
+    await Promise.all([import("vite"), import("@vitejs/plugin-react")]);
   const react = reactModule.default;
 
   // Resolve the @checkstack/frontend package. In the monorepo it is
@@ -158,6 +163,29 @@ export async function startFrontendDevServer({
     pluginEntry,
   });
 
+  // Monaco / VS Code editor Vite settings (ES-module workers + the `vscode`
+  // alias) from @checkstack/frontend's shared helper, so the dev server matches
+  // the app's config instead of drifting. Without the `vscode` alias,
+  // @checkstack/ui's CodeEditor leaks a runtime `require("vscode")` into the
+  // browser. Returns `undefined` when the editor stack isn't resolvable — the
+  // dev server still starts; the editor just isn't configured.
+  const monaco = await loadMonacoViteConfig({ frontendDir, pluginCwd });
+
+  // Pre-build @checkstack/ui's Monaco language workers and redirect its
+  // `?worker&url` imports to them. In a standalone install @checkstack/ui is a
+  // pre-bundled npm dep and Vite can't process those worker imports during
+  // pre-bundling; this serves pre-built bundles instead so the CodeEditor
+  // renders. See dev-monaco-workers.ts. `undefined` (editor degrades, dev
+  // server still starts) when the editor stack or build is unavailable.
+  const monacoWorkers = monaco
+    ? await loadMonacoWorkers({
+        frontendDir,
+        pluginCwd,
+        vscodeDir: monaco.resolve.alias.vscode,
+        buildFn: build,
+      })
+    : undefined;
+
   const server = await createViteServer({
     root: frontendDir,
     configFile: false, // we control the config inline
@@ -192,11 +220,29 @@ export async function startFrontendDevServer({
           return html.replace("/src/main.tsx", "/src/dev-main.tsx");
         },
       },
+      // Serves the pre-built Monaco worker bundles (no-op when absent).
+      ...(monacoWorkers ? [monacoWorkers.plugin] : []),
     ],
+    // ES-module worker format for the Monaco language workers (no-op when the
+    // editor stack isn't resolvable).
+    ...(monaco ? { worker: monaco.worker } : {}),
     resolve: {
-      alias: {
-        "virtual:checkstack-dev-plugin": pluginEntry,
-      },
+      // Share a single React copy between the dev shell and the plugin
+      // (including @checkstack/ui's CodeEditor) so its hooks don't hit a second
+      // React instance ("Invalid hook call"). Mirrors the app's vite.config.
+      ...(monacoWorkers
+        ? { dedupe: ["react", "react-dom", "react/jsx-runtime"] }
+        : {}),
+      alias: [
+        { find: "virtual:checkstack-dev-plugin", replacement: pluginEntry },
+        // `vscode` npm-alias → real @codingame package dir (see monacoViteConfig).
+        ...(monaco
+          ? [{ find: "vscode", replacement: monaco.resolve.alias.vscode }]
+          : []),
+        // Redirect @checkstack/ui's `?worker&url` worker imports to the
+        // pre-built bundles served by the plugin above (see dev-monaco-workers).
+        ...(monacoWorkers?.aliases ?? []),
+      ],
     },
     // Without this, Vite tries to optimize the dev plugin's deps and
     // chokes on workspace-resolved peers. Letting Vite skip pre-bundle
@@ -228,6 +274,121 @@ type PostcssPlugin = NonNullable<ViteCssPostcssObject["plugins"]>[number];
 /** The fields we read off `@checkstack/frontend`'s tailwind preset. */
 interface TailwindPreset {
   [key: string]: unknown;
+}
+
+/**
+ * Build the Monaco / VS Code editor Vite settings from `@checkstack/frontend`'s
+ * shared `monacoViteConfig` helper — the SAME settings the frontend's own
+ * `vite.config.ts` uses, so the dev server and the app never drift.
+ *
+ * The editor stack (`@typefox/monaco-editor-react`, `@codingame/*`) lives in
+ * `@checkstack/ui`'s dependencies, so we resolve from the plugin's installed
+ * `@checkstack/ui` location (falling back to the frontend / plugin / dev-server
+ * dirs). Returns `undefined` on any failure (e.g. `@checkstack/ui` not
+ * installed, or an editor-less plugin) — the dev server still starts; only the
+ * in-browser editor's language features are unavailable. Mirrors
+ * {@link loadDevPostcssPlugins}: a frontend-tooling hiccup never takes the dev
+ * server down.
+ */
+async function loadMonacoViteConfig({
+  frontendDir,
+  pluginCwd,
+}: {
+  frontendDir: string;
+  pluginCwd: string;
+}): Promise<MonacoViteConfig | undefined> {
+  try {
+    // Load the helper from the RESOLVED `@checkstack/ui` (a peer the plugin
+    // author installs), mirroring loadDevPostcssPlugins — never a static
+    // import, so `@checkstack/ui` stays a peer dep rather than becoming a hard
+    // runtime dependency of the dev server.
+    const helperPath = resolveFromCandidates({
+      request: "@checkstack/ui/src/vite-monaco",
+      candidateBasePaths: [frontendDir, pluginCwd, DEV_SERVER_MODULE_DIR],
+    });
+    if (!helperPath) return undefined;
+    const mod = await import(pathToFileURL(helperPath).href);
+    // Cast: dynamic `import()`'s namespace is untyped. `monacoViteConfig` is the
+    // documented export of `@checkstack/ui/src/vite-monaco`; a wrong-shaped
+    // module is caught by the surrounding try/catch (→ undefined fallback).
+    const buildConfig = mod.monacoViteConfig as (args: {
+      resolveFrom: string[];
+    }) => MonacoViteConfig;
+    return buildConfig({ resolveFrom: monacoResolveFrom({ frontendDir, pluginCwd }) });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Candidate base dirs to resolve the Monaco editor stack from. The stack
+ * (`@typefox/monaco-editor-react`, `@codingame/*`) lives in `@checkstack/ui`'s
+ * deps, so the ui package's dir comes first, falling back to the frontend /
+ * plugin / dev-server dirs.
+ */
+function monacoResolveFrom({
+  frontendDir,
+  pluginCwd,
+}: {
+  frontendDir: string;
+  pluginCwd: string;
+}): string[] {
+  const uiPkgJson = resolveFromCandidates({
+    request: "@checkstack/ui/package.json",
+    candidateBasePaths: [frontendDir, pluginCwd, DEV_SERVER_MODULE_DIR],
+  });
+  return [
+    ...(uiPkgJson ? [path.dirname(uiPkgJson)] : []),
+    frontendDir,
+    pluginCwd,
+    DEV_SERVER_MODULE_DIR,
+  ];
+}
+
+/**
+ * `node_modules/.cache` home for the pre-built Monaco workers, falling back to
+ * a tmp dir if the plugin's `node_modules` isn't writable.
+ */
+function monacoWorkerCacheDir({ pluginCwd }: { pluginCwd: string }): string {
+  const preferred = path.join(
+    pluginCwd,
+    "node_modules",
+    ".cache",
+    "checkstack-dev-monaco",
+  );
+  try {
+    fs.mkdirSync(preferred, { recursive: true });
+    return preferred;
+  } catch {
+    const fallback = path.join(os.tmpdir(), "checkstack-dev-monaco");
+    fs.mkdirSync(fallback, { recursive: true });
+    return fallback;
+  }
+}
+
+/**
+ * Pre-build (cached) @checkstack/ui's Monaco language workers and return the
+ * Vite wiring that redirects its `?worker&url` imports to the pre-built
+ * bundles. See {@link prepareMonacoWorkers}. Returns `undefined` (editor
+ * degrades gracefully) on any failure.
+ */
+async function loadMonacoWorkers({
+  frontendDir,
+  pluginCwd,
+  vscodeDir,
+  buildFn,
+}: {
+  frontendDir: string;
+  pluginCwd: string;
+  vscodeDir: string;
+  buildFn: ViteBuild;
+}): Promise<MonacoWorkerSetup | undefined> {
+  return prepareMonacoWorkers({
+    resolveFrom: monacoResolveFrom({ frontendDir, pluginCwd }),
+    vscodeDir,
+    cacheBaseDir: monacoWorkerCacheDir({ pluginCwd }),
+    buildFn,
+  });
 }
 
 /**

@@ -753,6 +753,7 @@
       },
       "devDependencies": {
         "@checkstack/tsconfig": "workspace:*",
+        "@playwright/test": "^1.60.0",
         "@types/inquirer": "^8.2.10",
         "typescript": "^5.0.0",
       },
@@ -880,15 +881,18 @@
         "@checkstack/frontend": "workspace:*",
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
+        "@checkstack/ui": "workspace:*",
         "typescript": "^5.0.0",
       },
       "peerDependencies": {
         "@checkstack/backend": "*",
         "@checkstack/frontend": "*",
+        "@checkstack/ui": "*",
       },
       "optionalPeers": [
         "@checkstack/backend",
         "@checkstack/frontend",
+        "@checkstack/ui",
       ],
     },
     "core/drizzle-helper": {
@@ -1772,7 +1776,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.96.1",
+      "version": "0.97.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

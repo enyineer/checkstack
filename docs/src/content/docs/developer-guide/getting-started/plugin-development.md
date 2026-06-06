@@ -211,6 +211,17 @@ no full reload.
 For pure backend plugins, the Vite server is skipped; only port 3000
 runs.
 
+> [!NOTE]
+> `@checkstack/ui`'s Monaco `CodeEditor` works in standalone `bun run dev`.
+> Because `@checkstack/ui` is a pre-bundled npm dependency in a standalone
+> install, Vite can't process the Monaco language workers it imports via
+> `?worker&url` during dependency pre-bundling. The dev server therefore
+> pre-builds those workers once (cached under
+> `node_modules/.cache/checkstack-dev-monaco`) and serves them, so the editor
+> renders the same as in the monorepo. The first `bun run dev` after installing
+> or upgrading the editor packages takes a little longer while the workers
+> build; subsequent runs reuse the cache.
+
 ## What `bun run dev` does
 
 ```mermaid

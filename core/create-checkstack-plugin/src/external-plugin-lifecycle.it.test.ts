@@ -246,7 +246,27 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       const original = fs.readFileSync(frontendIndex, "utf8");
       fs.writeFileSync(
         frontendIndex,
-        `// e2e Tailwind probe: a custom arbitrary utility class.\n` +
+        // e2e Monaco render probe: mount @checkstack/ui's CodeEditor into a body
+        // overlay at the plugin frontend's MODULE LOAD (eagerly imported by the
+        // dev shell to register the plugin, so it runs independently of
+        // routing/auth). The dev test asserts it actually renders in a browser —
+        // proving the dev server's pre-built Monaco workers + alias redirect
+        // work, not just that the boot log is clean.
+        `import { CodeEditor as __E2ECodeEditor } from "@checkstack/ui";\n` +
+          `import { createRoot as __e2eCreateRoot } from "react-dom/client";\n` +
+          `import { useState as __e2eUseState } from "react";\n` +
+          `if (typeof document !== "undefined") {\n` +
+          `  const __el = document.createElement("div");\n` +
+          `  __el.id = "__e2e_monaco__";\n` +
+          `  __el.style.cssText = "position:fixed;bottom:0;right:0;width:480px;height:260px;z-index:99999;background:#fff";\n` +
+          `  document.body.appendChild(__el);\n` +
+          `  const __E2EEditor = () => {\n` +
+          `    const [v, setV] = __e2eUseState("interface H { status: \\"ok\\" | \\"down\\" }\\nconst p: H = { status: \\"ok\\" }\\n");\n` +
+          `    return <__E2ECodeEditor value={v} onChange={setV} language="typescript" minHeight="220px" />;\n` +
+          `  };\n` +
+          `  __e2eCreateRoot(__el).render(<__E2EEditor />);\n` +
+          `}\n` +
+          `// e2e Tailwind probe: a custom arbitrary utility class.\n` +
           `export const __TailwindProbe = () => <div className="${TAILWIND_PROBE_CLASS}" />;\n` +
           original,
       );
@@ -473,6 +493,50 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         compiledCss,
         `dev CSS did not contain the plugin's custom Tailwind class (${TAILWIND_PROBE_CLASS} → "${TAILWIND_PROBE_CSS}"); the dev shell is unstyled.\nboot log:\n${bootLog}`,
       ).toBeDefined();
+
+      // RENDER verification: @checkstack/ui's CodeEditor (Monaco) must actually
+      // MOUNT with syntax highlighting in a real browser against the standalone
+      // dev server. This is the end-to-end guard for the pre-built-worker fix
+      // (`@checkstack/ui` is a pre-bundled npm dep here; the dev server serves
+      // pre-built Monaco workers and redirects the `?worker&url` imports to
+      // them). The probe (scaffold step) mounts an editor into #__e2e_monaco__.
+      const { chromium } = await import("@playwright/test");
+      const browser = await chromium.launch();
+      try {
+        const pwPage = await browser.newPage();
+        const pageErrors: string[] = [];
+        pwPage.on("pageerror", (e) => pageErrors.push(String(e.message)));
+        await pwPage.goto(`http://localhost:${FRONTEND_PORT}/`, {
+          waitUntil: "load",
+          timeout: 60_000,
+        });
+        // Monaco token spans (`mtk1`, `mtk5`, …) prove the editor rendered AND
+        // tokenized — not just an empty shell. Vite may re-optimize deps on the
+        // first editor load (504 + reload), so retry across reloads.
+        const tokenSelector =
+          '#__e2e_monaco__ .monaco-editor .view-lines [class^="mtk"]';
+        let tokenCount = 0;
+        for (let i = 0; i < 8 && tokenCount === 0; i++) {
+          await pwPage.waitForTimeout(3000);
+          tokenCount = await pwPage.locator(tokenSelector).count().catch(() => 0);
+          if (tokenCount === 0)
+            await pwPage.reload({ waitUntil: "load" }).catch(() => {});
+        }
+        if (tokenCount === 0) {
+          const diag = await pwPage.evaluate(() => ({
+            overlay: !!document.getElementById("__e2e_monaco__"),
+            anyMonaco: document.querySelectorAll(".monaco-editor").length,
+          }));
+          throw new Error(
+            `@checkstack/ui's Monaco CodeEditor did not render in the standalone dev server.\n` +
+              `diag=${JSON.stringify(diag)} pageErrors=${JSON.stringify(pageErrors.slice(0, 6))}\n` +
+              `boot log:\n${bootLog}`,
+          );
+        }
+        expect(tokenCount).toBeGreaterThan(0);
+      } finally {
+        await browser.close();
+      }
     }, 300_000);
   },
 );

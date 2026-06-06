@@ -30,13 +30,17 @@
   },
   "peerDependencies": {
     "@checkstack/backend": "*",
-    "@checkstack/frontend": "*"
+    "@checkstack/frontend": "*",
+    "@checkstack/ui": "*"
   },
   "peerDependenciesMeta": {
     "@checkstack/backend": {
       "optional": true
     },
     "@checkstack/frontend": {
+      "optional": true
+    },
+    "@checkstack/ui": {
       "optional": true
     }
   },
@@ -45,6 +49,7 @@
     "@checkstack/scripts": "workspace:*",
     "@checkstack/backend": "workspace:*",
     "@checkstack/frontend": "workspace:*",
+    "@checkstack/ui": "workspace:*",
     "typescript": "^5.0.0"
   }
 }
