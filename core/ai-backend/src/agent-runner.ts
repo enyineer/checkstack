@@ -30,6 +30,8 @@ import {
   type LanguageModel,
 } from "ai";
 import { z } from "zod";
+import { toModelSchema } from "./chat/model-schema";
+import { buildDateTimeContext } from "./chat/system-prompt";
 import {
   createServiceRef,
   type AuthUser,
@@ -201,7 +203,8 @@ export function createAgentRunner({
 
       sdkTools[t.name] = aiTool({
         description: t.description,
-        inputSchema: t.input as z.ZodType,
+        // Single model-boundary date handling, same as the chat tool path.
+        inputSchema: toModelSchema(t.input as z.ZodType),
         execute: async (input: unknown) => {
           try {
             const result = await invoke(input);
@@ -237,9 +240,13 @@ export function createAgentRunner({
       });
     }
 
+    // Append the date/time context at call time (NOT module load) so the model
+    // gets the CURRENT instant and the host-zone wire contract. Headless: no
+    // operator, so the reference zone is the host/container TZ.
+    const dateContext = buildDateTimeContext({ audience: "headless" });
     const { text } = await gen({
       model: languageModel,
-      system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+      system: `${systemPrompt ?? DEFAULT_SYSTEM_PROMPT} ${dateContext}`,
       prompt,
       tools: sdkTools,
       stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
@@ -249,7 +256,10 @@ export function createAgentRunner({
     if (outputSchema) {
       const res = await genObj({
         model: languageModel,
-        schema: outputSchema,
+        // Same single model-boundary date handling as the tool path: the
+        // structured-output schema's dates must serialize AND the model's ISO
+        // strings coerce back to Date.
+        schema: toModelSchema(outputSchema),
         system:
           "Produce the structured result from the analysis below. Use only information present in it; do not invent values.",
         prompt: `Task: ${prompt}\n\n--- Analysis ---\n${text}`,

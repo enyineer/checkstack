@@ -41,6 +41,7 @@ import {
   type AgentToolCallbacks,
 } from "./sdk-tools";
 import type { ChatReadInvoker } from "./read-invoker";
+import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
 
 type AiDatabase = SafeDatabase<typeof schema>;
@@ -200,6 +201,8 @@ export interface ChatTurnInput {
   forwardHeaders: Record<string, string>;
   /** The user's new message text. */
   userText: string;
+  /** The operator's IANA timezone (browser-detected) for resolving bare times. */
+  timeZone?: string;
 }
 
 /**
@@ -220,24 +223,9 @@ export interface ChatDecisionInput {
   token: string;
   /** Whether the operator applied or declined the card. */
   decision: DecisionKind;
+  /** The operator's IANA timezone (browser-detected) for resolving bare times. */
+  timeZone?: string;
 }
-
-const SYSTEM_PROMPT =
-  "You are Checkstack's built-in assistant. You ONLY help operators run " +
-  "Checkstack: incidents, health checks, anomalies, automations, and the " +
-  "monitoring and operations of THIS platform. Use the provided tools to read " +
-  "live data. For any change to the platform, call the appropriate tool: " +
-  "depending on the conversation's permission mode it either returns a " +
-  "confirmation card the operator must approve, or applies immediately and " +
-  "returns the applied result. Never claim a change took effect until the tool " +
-  "result confirms it (an applied result, or the operator approving the card). " +
-  "Call each change tool ONCE per request: a confirm-card result means the " +
-  "proposal succeeded and is awaiting the operator - do NOT call the tool again " +
-  "to retry; just tell the operator you are waiting for their decision. " +
-  "Politely DECLINE anything unrelated to operating Checkstack " +
-  "(general coding help, writing, or general knowledge) with a one-line " +
-  "redirect back to Checkstack monitoring and operations. Be concise and " +
-  "engineering-focused.";
 
 /** Max agent steps (tool-call round trips) per turn. */
 const MAX_STEPS = 8;
@@ -532,6 +520,7 @@ export function createChatService({
     languageModel,
     recordUsage,
     modelMessages,
+    timeZone,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -541,6 +530,8 @@ export function createChatService({
     languageModel: ReturnType<typeof buildLanguageModel>;
     recordUsage: (usage: LanguageModelUsage) => Promise<void>;
     modelMessages: ModelMessage[];
+    /** The operator's IANA timezone (from the browser), folded into the prompt. */
+    timeZone?: string;
   }): Response => {
     // Build the SDK tools from the resolver-allowed set only. The model is never
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
@@ -568,7 +559,7 @@ export function createChatService({
 
     const result = streamText({
       model: languageModel,
-      system: SYSTEM_PROMPT,
+      system: buildChatSystemPrompt({ timeZone }),
       // Defensively normalize: drop empty-content rows and merge consecutive
       // same-role messages so a failed prior turn (which persists no assistant
       // reply, leaving consecutive `user` rows) cannot poison the history into a
@@ -680,6 +671,7 @@ export function createChatService({
         model,
         forwardHeaders,
         userText,
+        timeZone,
       } = input;
 
       // Ownership: the conversation MUST belong to the principal.
@@ -810,6 +802,7 @@ export function createChatService({
         languageModel,
         recordUsage,
         modelMessages,
+        timeZone,
       });
     },
 
@@ -831,6 +824,7 @@ export function createChatService({
         forwardHeaders,
         token,
         decision,
+        timeZone,
       } = input;
 
       const conversation = await loadOwnedConversation({
@@ -915,6 +909,7 @@ export function createChatService({
         languageModel,
         recordUsage,
         modelMessages,
+        timeZone,
       });
     },
   };

@@ -48,6 +48,17 @@ describe("buildClassifierPrompt", () => {
     expect(system).toMatch(/clearly unrelated|CLEARLY unrelated/i);
   });
 
+  test("system prompt names maintenances and a CRUD-action allowance as ON_TOPIC", () => {
+    // Regression for the real bug: "Create a maintenance" was refused because
+    // maintenances were not listed and there was no generic action allowance.
+    const { system } = buildClassifierPrompt({
+      userText: "Create a maintenance",
+    });
+    expect(system.toLowerCase()).toContain("maintenance");
+    // Any create/list/update/delete request must be ON_TOPIC by default.
+    expect(system).toMatch(/create[^.]*list[^.]*update[^.]*delete/i);
+  });
+
   test("system prompt retains the 'when in doubt' ON_TOPIC default", () => {
     const { system } = buildClassifierPrompt({ userText: "???" });
     expect(system).toMatch(/when in doubt.*on_topic/i);

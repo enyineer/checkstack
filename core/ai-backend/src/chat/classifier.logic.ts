@@ -19,18 +19,25 @@ export type ClassifierVerdict = "ON_TOPIC" | "OFF_TOPIC";
  * against any decoration regardless.
  */
 const CLASSIFIER_SYSTEM_PROMPT =
-  "You are a topical classifier for Checkstack, an incident, health-check, " +
-  "anomaly, automation, and monitoring/operations platform. Decide whether the " +
+  "You are a topical classifier for Checkstack, an operations platform covering " +
+  "incidents, health checks, anomalies, automations, maintenances/maintenance " +
+  "windows, dependencies, systems and services, notifications, SLOs, " +
+  "integrations, on-call, and general monitoring/operations. Decide whether the " +
   "user's message is ON_TOPIC or OFF_TOPIC. " +
-  "ON_TOPIC includes: operating or reasoning about Checkstack (incidents, " +
-  "health checks, anomalies, automations, monitoring, on-call, the platform's " +
-  "data and configuration); meta/capability questions about the assistant itself " +
-  "(\"what can you do\", \"who are you\", \"help\", \"what features do you have\"); " +
-  "greetings and conversational openers (\"hi\", \"hello\", \"hey\"); " +
+  "ON_TOPIC includes: operating or reasoning about Checkstack or any of its " +
+  "resources and configuration; meta/capability questions about the assistant " +
+  "itself (\"what can you do\", \"who are you\", \"help\", \"what features do you " +
+  "have\"); greetings and conversational openers (\"hi\", \"hello\", \"hey\"); " +
   "how-to or conceptual questions about using Checkstack features or workflows " +
   "(\"how do health checks work\", \"how do I create an automation\"). " +
-  "OFF_TOPIC means CLEARLY unrelated requests: general coding help unrelated to " +
-  "Checkstack, creative writing, and general trivia or knowledge questions. " +
+  "IMPORTANT: any request to create, add, list, show, view, find, update, edit, " +
+  "schedule, start, stop, resolve, acknowledge, or delete something is ON_TOPIC " +
+  "by default - it is almost certainly an action on a platform resource (e.g. " +
+  "\"create a maintenance\", \"list incidents\", \"schedule downtime\"), EVEN IF " +
+  "the resource type is not named in the list above. " +
+  "OFF_TOPIC means ONLY requests that are CLEARLY unrelated to operating this " +
+  "platform: general-purpose coding help, creative writing, math homework, and " +
+  "general trivia or knowledge questions. " +
   "When in doubt, reply ON_TOPIC. Reply with the token only.";
 
 /**

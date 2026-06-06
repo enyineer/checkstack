@@ -10,6 +10,8 @@ const ChatTurnBodySchema = z.object({
   connectionId: z.string(),
   model: z.string().optional(),
   message: z.string().min(1),
+  /** Browser IANA timezone, used to resolve bare times the operator types. */
+  timeZone: z.string().optional(),
 });
 
 /**
@@ -25,6 +27,8 @@ const ChatDecisionBodySchema = z.object({
     token: z.string().min(1),
     kind: z.enum(["apply", "decline"]),
   }),
+  /** Browser IANA timezone, used to resolve bare times the operator types. */
+  timeZone: z.string().optional(),
 });
 
 /** A /chat POST is either a new user turn or a confirm-card decision turn. */
@@ -91,6 +95,7 @@ export function createChatRequestHandler({
           forwardHeaders,
           token: body.decision.token,
           decision: body.decision.kind,
+          timeZone: body.timeZone,
         });
       }
       return await chatService.streamTurn({
@@ -100,6 +105,7 @@ export function createChatRequestHandler({
         model: body.model,
         forwardHeaders,
         userText: body.message,
+        timeZone: body.timeZone,
       });
     } catch (error) {
       return Response.json(
