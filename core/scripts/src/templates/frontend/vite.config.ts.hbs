@@ -25,6 +25,10 @@ export default defineConfig({
       name: remoteName,
       filename: "remoteEntry.js",
       manifest: true,
+      // No remote type generation: the host loads this plugin dynamically and
+      // never imports its types, and the DTS step (#TYPE-001) otherwise fails
+      // and can abort the build before the federation manifest is written.
+      dts: false,
       // The host loads `<remoteName>/plugin`.
       exposes: { "./plugin": "./src/index.tsx" },
       // Reuse the host's singleton instances — MUST mirror the host's shared
