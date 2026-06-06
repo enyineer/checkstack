@@ -234,7 +234,11 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         if (instance.exitCode == null) instance.kill("SIGKILL");
       }
       await ownedRegistry?.stop();
-      if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
+      if (tmpRoot && !process.env.CHECKSTACK_E2E_KEEP) {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } else if (tmpRoot) {
+        console.log(`[e2e] kept workspace: ${tmpRoot}`);
+      }
     });
 
     it("installs the packaged plugin via the UI; frontend + backend + core plugins load", async () => {
