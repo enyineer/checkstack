@@ -96,7 +96,9 @@ function DependencyMapContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState<SystemNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<DependencyEdge>([]);
   const [hasUnsaved, setHasUnsaved] = useState(false);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
   // Edge editor state
   const [selectedEdge, setSelectedEdge] = useState<

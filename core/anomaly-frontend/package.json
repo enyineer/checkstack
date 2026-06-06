@@ -25,14 +25,14 @@
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.3.1",
+    "react": "19.2.7",
     "react-router-dom": "^7.16.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@types/react": "^18.2.0",
+    "@types/react": "^19.0.0",
     "typescript": "^5.0.0"
   }
 }

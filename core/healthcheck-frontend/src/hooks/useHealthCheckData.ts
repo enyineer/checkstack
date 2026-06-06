@@ -147,7 +147,7 @@ export function useHealthCheckData({
   // Keep previous valid context to prevent layout shift during refetch
   const previousContextRef = useRef<
     HealthCheckDiagramSlotContext | undefined
-  >();
+  >(undefined);
   if (context) {
     previousContextRef.current = context;
   }

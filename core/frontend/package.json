@@ -41,8 +41,8 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "lucide-react": "^1.17.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.2.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "react-router-dom": "^7.16.0",
     "tailwind-merge": "^2.2.0",
     "tailwindcss": "^3.4.1",
@@ -51,8 +51,8 @@
   "devDependencies": {
     "@checkstack/scripts": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
-    "@types/react": "^18.2.64",
-    "@types/react-dom": "^18.2.21",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.2",
     "postcss": "^8.5.15",
     "vite": "^8.0.16"
