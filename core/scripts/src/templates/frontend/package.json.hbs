@@ -9,12 +9,14 @@
   "exports": {
     ".": { "import": "./src/index.tsx" }
   },
+  "files": ["dist"],
   "checkstack": {
     "type": "frontend",
     "pluginId": "{{pluginBaseName}}"
   },
   "scripts": {
     "dev": "checkstack-dev",
+    "build": "vite build",
     "pack": "bunx @checkstack/scripts plugin-pack",
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
@@ -26,7 +28,9 @@
     "@checkstack/common": "workspace:*",
     "{{scoped pluginBaseName}}-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "@tanstack/react-query": "^5.100.14",
     "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.1",
     "lucide-react": "^0.469.0"
   },
@@ -36,8 +40,12 @@
     "@checkstack/frontend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@checkstack/test-utils-frontend": "workspace:*",
+    "@module-federation/vite": "^1.16",
     "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
     "@playwright/test": "^1.49.0",
-    "typescript": "^5.7.2"
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.0.16"
   }
 }

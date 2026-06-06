@@ -323,6 +323,15 @@ async function packPackage({
   const pkg = JSON.parse(original) as InstallPackageMetadata &
     RewritablePackageJson;
 
+  // Frontend plugins must be built into a Module Federation remote (vite build
+  // → dist/ with mf-manifest.json + remoteEntry + chunks) before packing, so
+  // the host can load them at runtime. Built with the ORIGINAL package.json
+  // (deps resolve from the installed node_modules); `bun pm pack` then includes
+  // the produced dist/. Other package types have no build step.
+  if (pkg.checkstack?.type === "frontend") {
+    runScriptIfPresent({ cwd: pkgDir, script: "build" });
+  }
+
   const { rewritten, unresolved } = await rewriteWorkspaceVersions({
     pkg,
     resolveVersion: createWorkspaceMapResolver({ workspaceMap }),

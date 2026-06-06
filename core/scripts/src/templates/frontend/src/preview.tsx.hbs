@@ -1,0 +1,7 @@
+// Build entry for `vite build` only. The Checkstack host loads this plugin as
+// a Module Federation remote (the exposed "./plugin" module), never this file.
+const root = document.querySelector("#root");
+if (root) {
+  root.textContent =
+    "This is the {{pluginNamePascal}} Checkstack plugin (a federated remote).";
+}

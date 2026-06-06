@@ -1,0 +1,44 @@
+import { readFileSync } from "node:fs";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { federation } from "@module-federation/vite";
+
+// Used by `bun run build` / `bun run pack` to build this plugin as a Module
+// Federation REMOTE. Local dev uses `checkstack-dev` (@checkstack/dev-server),
+// which compiles the plugin into the host app directly, so this file is only
+// exercised at pack time.
+const pkg = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { name: string };
+
+// Identifier-safe MF remote name. MUST match how the Checkstack host derives
+// it from the package name (see @checkstack/frontend's plugin-loader).
+const remoteName = pkg.name.replace(/^@/, "").replaceAll(/[^a-zA-Z0-9]/g, "_");
+
+export default defineConfig({
+  // The host serves this plugin's assets under /assets/plugins/<package>/, so
+  // bake that base in to make the federation manifest's chunk URLs resolve.
+  base: `/assets/plugins/${pkg.name}/`,
+  plugins: [
+    react(),
+    federation({
+      name: remoteName,
+      filename: "remoteEntry.js",
+      manifest: true,
+      // The host loads `<remoteName>/plugin`.
+      exposes: { "./plugin": "./src/index.tsx" },
+      // Reuse the host's singleton instances — MUST mirror the host's shared
+      // set (@checkstack/frontend vite.config.ts). @checkstack/ui is NOT shared:
+      // it is bundled (tree-shaken) and its contexts are unified via a
+      // registered (globalThis-keyed) context.
+      shared: {
+        react: { singleton: true, requiredVersion: "^18.0.0" },
+        "react-dom": { singleton: true, requiredVersion: "^18.0.0" },
+        "react-router-dom": { singleton: true, requiredVersion: "^7.0.0" },
+        "@tanstack/react-query": { singleton: true, requiredVersion: "^5.0.0" },
+        "@checkstack/frontend-api": { singleton: true, requiredVersion: false },
+      },
+    }),
+  ],
+  build: { target: "esnext", outDir: "dist", emptyOutDir: true, minify: true },
+});
