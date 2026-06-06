@@ -385,7 +385,32 @@ dep, then either make rolldown's commonjs transform convert that `require` to
 an external ESM import, pre-convert the dep, or provide a `require` shim that
 delegates to the import-mapped modules.
 
-**Still TODO in Phase 1 (after the blocker):**
+**BLOCKER INVESTIGATION RESULT (2026-06-06): host externalisation is blocked
+by rolldown-vite CJS interop — two fixes attempted, both failed.**
+Root cause: with React external, rolldown emits a runtime `__require("react")`
+for any bundled CJS dep that does `require("react")`. In the host that dep is
+`use-sync-external-store` (pulled transitively by `recharts` via
+`@checkstack/ui`), and it evaluates EAGERLY at the very start of load.
+- **rolldown `esmExternalRequirePlugin`** (the documented fix): no effect via
+  rolldown-vite, in either `build.rollupOptions.plugins` or the top-level Vite
+  `plugins` array (identical output hash → not applied). Reverted; `rolldown`
+  dep removed.
+- **Global `require` shim** (`src/require-shim.ts`, imported first in the
+  entry): the `use-sync-external-store` `require("react")` fires BEFORE the
+  shim body runs — its `__SHIM_MARK` log never appears before the error.
+  rolldown's chunk-evaluation order can't be controlled enough to guarantee
+  the shim installs before such an early-evaluating CJS dep. Reverted.
+This is a fundamental rolldown-vite limitation for the hand-rolled import-map
+approach, and it will recur for ANY CJS dep (host or plugin) that requires an
+externalised package — not just recharts. **Strategic options:** (a) adopt
+`vite-plugin-federation` (Module Federation handles shared-dep CJS interop +
+singleton negotiation internally, at the cost of plugin authors using the MF
+plugin); (b) a build pre-pass that converts all CJS deps to ESM before
+externalisation; (c) eliminate the CJS culprits (fragile, whack-a-mole).
+Awaiting a decision before proceeding. The vendor build + registered UI
+contexts (committed) are sound and independent of this decision.
+
+**Still TODO in Phase 1 (after the blocker is resolved):**
 - Add `@checkstack/ui` to the vendor build (the heavy one — Monaco). Needs
   `monacoViteConfig` (worker format + `vscode` alias), code-splitting
   preserved so Monaco stays lazy, and CSS emitted/served. Will likely need a
