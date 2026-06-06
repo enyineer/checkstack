@@ -1,6 +1,20 @@
 # Runtime frontend-plugin sharing contract
 
-> **Status:** design for review (drafted 2026-06-06, not started)
+> **RESOLUTION (2026-06-06): DONE via Module Federation 2.0.** The hand-rolled
+> import-map externalisation below hit an unsolvable rolldown CJS-interop wall
+> (externalising CJS React makes transitive CJS deps call a runtime
+> `__require("react")` that throws). After a spike confirmed MF 2.0
+> (`@module-federation/vite` + `@module-federation/runtime`) works on our Vite 8
+> stack — its share scope hands separately-built remotes the host's React /
+> Router / QueryClient / framework-api, and React.lazy/Monaco splitting is
+> preserved — we adopted it. The host is an MF host (no static remotes; runtime
+> `registerRemotes`/`loadRemote`); `@checkstack/ui` stays bundled-per-consumer
+> with its contexts unified via a registered (globalThis-keyed) context;
+> `plugin-pack` builds plugins as MF remotes. The full install E2E passes
+> end-to-end. The §1–§4 design notes below are retained for history; the
+> implemented mechanism is MF 2.0, not the import map.
+
+> **Status:** DONE (MF 2.0). Original draft 2026-06-06.
 > **Branch:** off `main` (discovered while building the external-plugin
 > install E2E on `feat/external-plugin-install-e2e`)
 > **Goal:** make an **installed** (runtime, non-monorepo) frontend plugin

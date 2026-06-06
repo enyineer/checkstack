@@ -254,6 +254,17 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
     it("installs the packaged plugin via the UI; frontend + backend + core plugins load", async () => {
       browser = await chromium.launch();
       const page = await browser.newPage({ baseURL: INSTANCE_URL });
+      if (process.env.CHECKSTACK_E2E_KEEP) {
+        page.on("console", (m) => {
+          if (m.type() === "error" || m.text().includes("plugin")) {
+            console.log(`[browser:${m.type()}] ${m.text()}`);
+          }
+        });
+        page.on("pageerror", (e) => console.log(`[browser:pageerror] ${e.message}`));
+        page.on("requestfailed", (r) =>
+          console.log(`[browser:reqfail] ${r.url()} ${r.failure()?.errorText}`),
+        );
+      }
 
       // --- Onboard the first admin (fresh DB → onboarding) ---
       await page.goto("/");
@@ -315,7 +326,7 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
 
       // --- (core plugins co-load) a core plugin still works, frontend + backend ---
       const catalogRes = await page.request.post(
-        `${INSTANCE_URL}/api/catalog/listEntities`,
+        `${INSTANCE_URL}/api/catalog/getEntities`,
         { data: { json: {} } },
       );
       expect(catalogRes.status(), `catalog API status ${catalogRes.status()}`).toBe(200);
