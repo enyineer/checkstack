@@ -34,7 +34,7 @@ export function useChatTurn({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const aborter = useRef<AbortController | undefined>();
+  const aborter = useRef<AbortController | undefined>(undefined);
 
   // Shared streaming driver: POST `body` to /chat, start a fresh assistant
   // message (optionally appending a user message first), and fold the SSE

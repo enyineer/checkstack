@@ -45,13 +45,13 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -108,13 +108,13 @@
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -172,13 +172,13 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -250,14 +250,14 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -282,13 +282,13 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -344,7 +344,7 @@
         "@checkstack/ui": "workspace:*",
         "better-auth": "^1.6.13",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
@@ -352,7 +352,7 @@
         "@checkstack/test-utils-frontend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@playwright/test": "^1.60.0",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -436,14 +436,14 @@
         "@dnd-kit/utilities": "^3.2.2",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "yaml": "^2.6.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -572,12 +572,12 @@
         "@checkstack/infrastructure-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -664,14 +664,14 @@
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/utilities": "^3.2.2",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -716,13 +716,13 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -777,13 +777,13 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -855,13 +855,13 @@
         "@checkstack/ui": "workspace:*",
         "@xyflow/react": "^12.11.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -939,8 +939,8 @@
         "class-variance-authority": "^0.7.0",
         "clsx": "^2.1.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
-        "react-dom": "^18.2.0",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
         "react-router-dom": "^7.16.0",
         "tailwind-merge": "^2.2.0",
         "tailwindcss": "^3.4.1",
@@ -949,8 +949,8 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.64",
-        "@types/react-dom": "^18.2.21",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
         "@vitejs/plugin-react": "^6.0.2",
         "postcss": "^8.5.15",
         "vite": "^8.0.16",
@@ -971,11 +971,11 @@
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/bun": "^1.3.5",
-        "@types/react": "^18.0.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
       "peerDependencies": {
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
     },
     "core/gitops-backend": {
@@ -1030,13 +1030,13 @@
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1128,7 +1128,7 @@
         "ajv-formats": "^3.0.1",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "recharts": "^3.6.0",
         "uuid": "^14.0.0",
@@ -1137,7 +1137,7 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1212,13 +1212,13 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1232,8 +1232,8 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
-        "react": "^18.3.1",
+        "@types/react": "^19.0.0",
+        "react": "19.2.7",
         "typescript": "^5.7.2",
       },
     },
@@ -1246,13 +1246,13 @@
         "@checkstack/infrastructure-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -1308,13 +1308,13 @@
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1387,13 +1387,13 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1452,13 +1452,13 @@
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1485,13 +1485,13 @@
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1554,14 +1554,14 @@
         "ajv": "^8.18.0",
         "ajv-formats": "^3.0.1",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "zod": "^4.0.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -1649,13 +1649,13 @@
         "@checkstack/tips-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1708,13 +1708,13 @@
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -1764,7 +1764,7 @@
         "handlebars": "^4.7.8",
         "ink": "^7.0.5",
         "inquirer": "^13.4.1",
-        "react": "^19.2.7",
+        "react": "^19.0.0",
         "tar": "^7.5.16",
         "zod": "^4.4.3",
       },
@@ -1772,13 +1772,13 @@
         "@checkstack/tsconfig": "workspace:*",
         "@types/handlebars": "^4.1.0",
         "@types/inquirer": "^8.2.10",
-        "@types/react": "^19.2.16",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.97.0",
+      "version": "0.98.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -1910,13 +1910,13 @@
         "@checkstack/secrets-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.3.18",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
     },
@@ -1958,11 +1958,11 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.0.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.7.2",
       },
       "peerDependencies": {
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
     },
     "core/slo-backend": {
@@ -2033,14 +2033,14 @@
         "@checkstack/ui": "workspace:*",
         "date-fns": "^4.4.0",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-router-dom": "^7.16.0",
         "recharts": "^3.8.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -2085,12 +2085,12 @@
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
       "peerDependencies": {
         "@playwright/test": "^1.60.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
     },
     "core/theme-backend": {
@@ -2139,12 +2139,12 @@
         "@checkstack/theme-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -2194,13 +2194,13 @@
         "@checkstack/tips-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/test-utils-frontend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
-        "@types/react": "^18.2.0",
+        "@types/react": "^19.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -2239,9 +2239,9 @@
         "jsonc-parser": "^3.3.1",
         "lucide-react": "^1.17.0",
         "monaco-languageclient": "10.7.0",
-        "react": "^18.3.1",
+        "react": "19.2.7",
         "react-day-picker": "^9.13.0",
-        "react-dom": "^18.2.0",
+        "react-dom": "19.2.7",
         "react-markdown": "^10.1.0",
         "react-router-dom": "^7.16.0",
         "recharts": "^3.6.0",
@@ -2264,8 +2264,8 @@
         "@testing-library/react": "^16.0.0",
         "@types/bun": "^1.3.14",
         "@types/node": "^20.19.27",
-        "@types/react": "^18.2.0",
-        "@types/react-dom": "^18.2.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
         "@vitejs/plugin-react": "^6.0.2",
         "autoprefixer": "^10.4.18",
         "bun-types": "^1.3.14",
@@ -2933,6 +2933,8 @@
     "drizzle-kit": ">=0.31.0 <1.0.0",
     "drizzle-orm": "^0.45.0",
     "esbuild": "^0.27.7",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
   },
@@ -4193,11 +4195,9 @@
 
     "@types/pg": ["@types/pg@8.20.0", "", { "dependencies": { "@types/node": "*", "pg-protocol": "*", "pg-types": "^2.2.0" } }, "sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow=="],
 
-    "@types/prop-types": ["@types/prop-types@15.7.15", "", {}, "sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw=="],
+    "@types/react": ["@types/react@19.2.16", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-esJiCAnl0kfpNdE69f3So4WJUXy95dLZydX0KwK46riIHDzHM7O9Vtf9xCHW0PXIqvgqNrswl522kA/5yx+F4w=="],
 
-    "@types/react": ["@types/react@18.3.28", "", { "dependencies": { "@types/prop-types": "*", "csstype": "^3.2.2" } }, "sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw=="],
-
-    "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
+    "@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
     "@types/resolve": ["@types/resolve@1.20.6", "", {}, "sha512-A4STmOXPhMUtHH+S6ymgE2GiBSMqf4oTvcQZMcHzokuTLVYzXTB8ttjcgxOVaAp2lGwEdzZ0J+cRbbeevQj1UQ=="],
 
@@ -5039,8 +5039,6 @@
 
     "longest-streak": ["longest-streak@3.1.0", "", {}, "sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g=="],
 
-    "loose-envify": ["loose-envify@1.4.0", "", { "dependencies": { "js-tokens": "^3.0.0 || ^4.0.0" }, "bin": { "loose-envify": "cli.js" } }, "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q=="],
-
     "loupe": ["loupe@3.2.1", "", {}, "sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ=="],
 
     "lru-cache": ["lru-cache@11.3.6", "", {}, "sha512-Gf/KoL3C/MlI7Bt0PGI9I+TeTC/I6r/csU58N4BSNc4lppLBeKsOdFYkK+dX0ABDUMJNfCHTyPpzwwO21Awd3A=="],
@@ -5405,7 +5403,7 @@
 
     "rcon-srcds": ["rcon-srcds@2.1.1", "", {}, "sha512-qXFImo6HVrXIS8EZm/MNlSGsqy9yTzxXXtOIU4z3PtWz6PFG325lVk5zpkwBvz5Kp9AgOn18RgMoljQRSbL0Qg=="],
 
-    "react": ["react@18.3.1", "", { "dependencies": { "loose-envify": "^1.1.0" } }, "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ=="],
+    "react": ["react@19.2.7", "", {}, "sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ=="],
 
     "react-day-picker": ["react-day-picker@9.14.0", "", { "dependencies": { "@date-fns/tz": "^1.4.1", "@tabby_ai/hijri-converter": "1.0.5", "date-fns": "^4.1.0", "date-fns-jalali": "4.1.0-0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-tBaoDWjPwe0M5pGrum4H0SR6Lyk+BO9oHnp9JbKpGKW2mlraNPgP9BMfsg5pWpwrssARmeqk7YBl2oXutZTaHA=="],
 
@@ -5413,7 +5411,7 @@
 
     "react-docgen-typescript": ["react-docgen-typescript@2.4.0", "", { "peerDependencies": { "typescript": ">= 4.3.x" } }, "sha512-ZtAp5XTO5HRzQctjPU0ybY0RRCQO19X/8fxn3w7y2VVTUbGHDKULPTL4ky3vB05euSgG5NpALhEhDPvQ56wvXg=="],
 
-    "react-dom": ["react-dom@18.3.1", "", { "dependencies": { "loose-envify": "^1.1.0", "scheduler": "^0.23.2" }, "peerDependencies": { "react": "^18.3.1" } }, "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw=="],
+    "react-dom": ["react-dom@19.2.7", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.7" } }, "sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ=="],
 
     "react-is": ["react-is@17.0.2", "", {}, "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w=="],
 
@@ -5563,7 +5561,7 @@
 
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
-    "scheduler": ["scheduler@0.23.2", "", { "dependencies": { "loose-envify": "^1.1.0" } }, "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ=="],
+    "scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "semver": ["semver@7.8.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-rkVq3IXh+4FDGch+KwzX3aV9W3kO54GyEgpvBzSyctDA6Xtd7RJQV1xmXbeQp5v7+VzLOfVqiutSE6GICgPFvg=="],
 
@@ -5955,13 +5953,7 @@
 
     "@changesets/get-dependents-graph/semver": ["semver@7.8.0", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-AcM7dV/5ul4EekoQ29Agm5vri8JNqRyj39o0qpX6vDF2GZrtutZl5RwgD1XnZjiTAfncsJhMI48QQH3sN87YNA=="],
 
-    "@checkstack/healthcheck-postgres-backend/pg": ["pg@8.20.0", "", { "dependencies": { "pg-connection-string": "^2.12.0", "pg-pool": "^3.13.0", "pg-protocol": "^1.13.0", "pg-types": "2.2.0", "pgpass": "1.0.5" }, "optionalDependencies": { "pg-cloudflare": "^1.3.0" }, "peerDependencies": { "pg-native": ">=3.0.1" }, "optionalPeers": ["pg-native"] }, "sha512-ldhMxz2r8fl/6QkXnBD3CR9/xg694oT6DZQ2s6c/RI28OjtSOpxnPrUCGOBJ46RCUxcWdx3p6kw/xnDHjKvaRA=="],
-
     "@checkstack/queue-backend/@hono/zod-validator": ["@hono/zod-validator@0.4.3", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.19.1" } }, "sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ=="],
-
-    "@checkstack/scripts/@types/react": ["@types/react@19.2.16", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-esJiCAnl0kfpNdE69f3So4WJUXy95dLZydX0KwK46riIHDzHM7O9Vtf9xCHW0PXIqvgqNrswl522kA/5yx+F4w=="],
-
-    "@checkstack/scripts/react": ["react@19.2.7", "", {}, "sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ=="],
 
     "@codingame/monaco-vscode-api/marked": ["marked@14.0.0", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ=="],
 
@@ -6028,8 +6020,6 @@
     "@rollup/pluginutils/estree-walker": ["estree-walker@2.0.2", "", {}, "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w=="],
 
     "@so-ric/colorspace/color": ["color@5.0.3", "", { "dependencies": { "color-convert": "^3.1.3", "color-string": "^2.1.3" } }, "sha512-ezmVcLR3xAVp8kYOm4GS45ZLLgIE6SPAFoduLr6hTDajwb3KZ2F46gulK3XpcwRFb5KKGCSezCBAY4Dw4HsyXA=="],
-
-    "@storybook/addon-docs/react-dom": ["react-dom@19.2.5", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.5" } }, "sha512-J5bAZz+DXMMwW/wV3xzKke59Af6CHY7G4uYLN1OvBcKEsWOs4pQExj86BBKamxl/Ik5bx9whOrvBlSDfWzgSag=="],
 
     "@testing-library/dom/aria-query": ["aria-query@5.3.0", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A=="],
 
@@ -6117,10 +6107,6 @@
 
     "ink/chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
-    "ink/react": ["react@19.2.7", "", {}, "sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ=="],
-
-    "ink/scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
-
     "ioredis-mock/@ioredis/commands": ["@ioredis/commands@1.6.0", "", {}, "sha512-lNa3bQBsR2OQ+IopxlSydDNSPKD4TGUaSBBs+f68ugyTJBtXhcxQE8oqrDflRv2kKOT/QnBQcSPQ7/T2mSMLxQ=="],
 
     "ioredis-mock/semver": ["semver@7.7.4", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA=="],
@@ -6154,10 +6140,6 @@
     "react-day-picker/date-fns": ["date-fns@4.1.0", "", {}, "sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg=="],
 
     "react-markdown/remark-parse": ["remark-parse@11.0.0", "", { "dependencies": { "@types/mdast": "^4.0.0", "mdast-util-from-markdown": "^2.0.0", "micromark-util-types": "^2.0.0", "unified": "^11.0.0" } }, "sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA=="],
-
-    "react-reconciler/react": ["react@19.2.7", "", {}, "sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ=="],
-
-    "react-reconciler/scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "read-cache/pify": ["pify@2.3.0", "", {}, "sha512-udgsAY+fTnvv7kI7aaxbqwWNb0AHiB0qBO89PZKPkoTmGOgdbrHDKD+0B2X4uTfJ/FT1R09r9gTsjUjNJotuog=="],
 
@@ -6257,12 +6239,6 @@
 
     "@babel/helper-compilation-targets/lru-cache/yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
 
-    "@checkstack/healthcheck-postgres-backend/pg/pg-cloudflare": ["pg-cloudflare@1.3.0", "", {}, "sha512-6lswVVSztmHiRtD6I8hw4qP/nDm1EJbKMRhf3HCYaqud7frGysPv7FYJ5noZQdhQtN2xJnimfMtvQq21pdbzyQ=="],
-
-    "@checkstack/healthcheck-postgres-backend/pg/pg-connection-string": ["pg-connection-string@2.12.0", "", {}, "sha512-U7qg+bpswf3Cs5xLzRqbXbQl85ng0mfSV/J0nnA31MCLgvEaAo7CIhmeyrmJpOr7o+zm0rXK+hNnT5l9RHkCkQ=="],
-
-    "@checkstack/healthcheck-postgres-backend/pg/pg-pool": ["pg-pool@3.13.0", "", { "peerDependencies": { "pg": ">=8.0" } }, "sha512-gB+R+Xud1gLFuRD/QgOIgGOBE2KCQPaPwkzBBGC9oG69pHTkhQeIuejVIk3/cnDyX39av2AxomQiyPT13WKHQA=="],
-
     "@eslint/config-array/minimatch/brace-expansion": ["brace-expansion@1.1.14", "", { "dependencies": { "balanced-match": "^1.0.0", "concat-map": "0.0.1" } }, "sha512-MWPGfDxnyzKU7rNOW9SP/c50vi3xrmrua/+6hfPbCS2ABNWfx24vPidzvC7krjU/RTo235sV776ymlsMtGKj8g=="],
 
     "@eslint/eslintrc/ajv/json-schema-traverse": ["json-schema-traverse@0.4.1", "", {}, "sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg=="],
@@ -6288,8 +6264,6 @@
     "@so-ric/colorspace/color/color-convert": ["color-convert@3.1.3", "", { "dependencies": { "color-name": "^2.0.0" } }, "sha512-fasDH2ont2GqF5HpyO4w0+BcewlhHEZOFn9c1ckZdHpJ56Qb7MHhH/IcJZbBGgvdtwdwNbLvxiBEdg336iA9Sg=="],
 
     "@so-ric/colorspace/color/color-string": ["color-string@2.1.4", "", { "dependencies": { "color-name": "^2.0.0" } }, "sha512-Bb6Cq8oq0IjDOe8wJmi4JeNn763Xs9cfrBcaylK1tPypWzyoy2G3l90v9k64kjphl/ZJjPIShFztenRomi8WTg=="],
-
-    "@storybook/addon-docs/react-dom/scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
 
     "@types/sax/@types/node/undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
 
