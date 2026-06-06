@@ -3,7 +3,7 @@ import type { AuthUser } from "@checkstack/backend-api";
 import type { AiPermissionMode, AiFieldDiff } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "../tool-registry";
 import { decideToolDisposition } from "./permission-mode.logic";
-import { dateSafeModelSchema, schemaContainsDate } from "./model-schema";
+import { toModelSchema } from "./model-schema";
 
 /**
  * Result a mutate/destructive tool's `execute` returns to the model in APPROVE
@@ -135,53 +135,41 @@ export function buildAgentSdkTools({
   for (const t of tools) {
     const disposition = decideToolDisposition({ effect: t.effect, mode });
 
-    // A raw `z.date()` / `z.coerce.date()` in the input would make the SDK's
-    // Zod->JSON-Schema conversion throw ("Date cannot be represented..."),
-    // crashing the turn. For date-bearing inputs hand the SDK a date-safe
-    // schema + a coercing validator; everything else stays on the native path.
-    const inputSchema = schemaContainsDate(t.input)
-      ? dateSafeModelSchema(t.input)
-      : t.input;
+    // Single model-boundary date handling (see toModelSchema): a raw z.date() /
+    // z.coerce.date() input would otherwise make the SDK's Zod->JSON-Schema
+    // conversion throw "Date cannot be represented...", crashing the turn.
+    const inputSchema = toModelSchema(t.input);
 
-    if (disposition === "auto-run") {
-      sdkTools[t.name] = aiTool({
-        description: t.description,
-        inputSchema,
-        execute: async (input: unknown) => {
-          await callbacks.enforceBudget(principal);
-          return callbacks.runRead({ principal, tool: t, input });
-        },
-      });
-      continue;
-    }
+    // Disposition decides ONLY the description note + which callback runs; the
+    // tool is constructed in ONE place below so the schema/budget wiring can
+    // never drift between branches (the bug this consolidation removes).
+    const variant: { note: string; run: (input: unknown) => Promise<unknown> } =
+      disposition === "auto-run"
+        ? {
+            note: "",
+            run: (input) => callbacks.runRead({ principal, tool: t, input }),
+          }
+        : disposition === "auto-apply"
+          ? {
+              // AUTO mode + mutate: apply immediately server-side under the SAME
+              // propose/apply service (authz re-check + audit) as a human apply.
+              note: " (auto-applied immediately in this conversation's auto mode)",
+              run: (input) =>
+                callbacks.autoApply({ principal, tool: t, input }),
+            }
+          : {
+              // propose: mutate-in-APPROVE or ANY destructive tool. Returns a
+              // confirm card; nothing commits until the human applies.
+              note: " (requires human confirmation before it takes effect)",
+              run: (input) => callbacks.propose({ principal, tool: t, input }),
+            };
 
-    if (disposition === "auto-apply") {
-      // AUTO mode + mutate: apply immediately server-side. Same propose/apply
-      // service (same authz re-check + audit) as a human apply - never weaker.
-      sdkTools[t.name] = aiTool({
-        description: `${t.description} (auto-applied immediately in this conversation's auto mode)`,
-        inputSchema: t.input,
-        execute: async (
-          input: unknown,
-        ): Promise<AutoAppliedResult | DuplicateToolCallResult> => {
-          await callbacks.enforceBudget(principal);
-          return callbacks.autoApply({ principal, tool: t, input });
-        },
-      });
-      continue;
-    }
-
-    // disposition === "propose": mutate-in-APPROVE or ANY destructive tool. The
-    // returned confirm card is what the chat UI renders; nothing is committed
-    // until the human applies.
     sdkTools[t.name] = aiTool({
-      description: `${t.description} (requires human confirmation before it takes effect)`,
-      inputSchema: t.input,
-      execute: async (
-        input: unknown,
-      ): Promise<ConfirmCardResult | DuplicateToolCallResult> => {
+      description: `${t.description}${variant.note}`,
+      inputSchema,
+      execute: async (input: unknown) => {
         await callbacks.enforceBudget(principal);
-        return callbacks.propose({ principal, tool: t, input });
+        return variant.run(input);
       },
     });
   }

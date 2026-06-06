@@ -60,6 +60,21 @@ export function dateSafeModelSchema(input: z.ZodTypeAny): Schema<unknown> {
 }
 
 /**
+ * The ONE entry point for handing a Zod schema to the model. Date-bearing
+ * schemas get the date-safe + coercing treatment ({@link dateSafeModelSchema});
+ * everything else passes through as raw Zod so the SDK handles it natively.
+ *
+ * Call this at EVERY model-schema boundary (chat tool inputs, agent-runner tool
+ * inputs, `generateObject` output) so the gate can never be wired into some
+ * branches and forgotten in others.
+ */
+export function toModelSchema(
+  input: z.ZodTypeAny,
+): Schema<unknown> | z.ZodTypeAny {
+  return schemaContainsDate(input) ? dateSafeModelSchema(input) : input;
+}
+
+/**
  * Does any node of this schema declare a `Date`? Only such inputs need the
  * special handling above; everything else stays on the SDK's native path.
  */

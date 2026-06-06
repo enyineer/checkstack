@@ -30,7 +30,7 @@ import {
   type LanguageModel,
 } from "ai";
 import { z } from "zod";
-import { dateSafeModelSchema, schemaContainsDate } from "./chat/model-schema";
+import { toModelSchema } from "./chat/model-schema";
 import {
   createServiceRef,
   type AuthUser,
@@ -202,7 +202,8 @@ export function createAgentRunner({
 
       sdkTools[t.name] = aiTool({
         description: t.description,
-        inputSchema: t.input as z.ZodType,
+        // Single model-boundary date handling, same as the chat tool path.
+        inputSchema: toModelSchema(t.input as z.ZodType),
         execute: async (input: unknown) => {
           try {
             const result = await invoke(input);
@@ -250,13 +251,10 @@ export function createAgentRunner({
     if (outputSchema) {
       const res = await genObj({
         model: languageModel,
-        // Same model-boundary date handling as the chat tool path: a date in
-        // the structured-output schema would otherwise make the SDK's
-        // Zod->JSON-Schema conversion throw, and the model's ISO strings need
-        // coercing back to Date. Non-date schemas pass through untouched.
-        schema: schemaContainsDate(outputSchema)
-          ? dateSafeModelSchema(outputSchema)
-          : outputSchema,
+        // Same single model-boundary date handling as the tool path: the
+        // structured-output schema's dates must serialize AND the model's ISO
+        // strings coerce back to Date.
+        schema: toModelSchema(outputSchema),
         system:
           "Produce the structured result from the analysis below. Use only information present in it; do not invent values.",
         prompt: `Task: ${prompt}\n\n--- Analysis ---\n${text}`,

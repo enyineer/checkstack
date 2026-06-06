@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { asSchema } from "ai";
 import { z } from "zod";
 import type { AuthUser, RpcClient } from "@checkstack/backend-api";
 import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
@@ -106,6 +107,55 @@ describe("createAgentRunner", () => {
     expect(result.text).toBe("done");
     expect(result.object).toEqual({ severity: "high" });
     expect(result.toolCalls).toEqual([{ tool: "plugin.read", ok: true }]);
+  });
+
+  it("hands the model a date-safe schema for tools with Date inputs (no throw)", async () => {
+    // Regression: the AI Action (headless agent runner) builds its OWN tools.
+    // A `z.date()` input would make the SDK's Zod->JSON-Schema conversion throw
+    // "Date cannot be represented...", crashing the action - the same bug as the
+    // chat. The runner must gate date inputs through dateSafeModelSchema too.
+    const registry = createAiToolRegistry();
+    registry.register({
+      name: "plugin.history",
+      description: "history",
+      effect: "read",
+      input: z.object({ since: z.date() }),
+      requiredAccessRules: [],
+      execute: async () => ({ ok: true }),
+    } as RegisteredAiTool);
+    const resolver = createAiToolResolver({ registry });
+
+    let offeredSchema: unknown;
+    const generateText = mock(
+      async (args: {
+        tools?: Record<string, { inputSchema: unknown }>;
+      }) => {
+        const t = (args.tools ?? {})["plugin.history"];
+        // Exactly what the SDK does internally to build the model request; this
+        // threw before the fix.
+        offeredSchema = await asSchema(t.inputSchema as never).jsonSchema;
+        return { text: "ok", usage: {} };
+      },
+    );
+
+    const runner = createAgentRunner({
+      resolver,
+      resolveConnection: async () => connection,
+      modelFns: { generateText: generateText as never },
+    });
+
+    await runner({
+      principal,
+      rpcClient,
+      connectionId: "conn-1",
+      prompt: "go",
+    });
+
+    const props = (
+      offeredSchema as { properties: Record<string, Record<string, unknown>> }
+    ).properties;
+    expect(props.since?.type).toBe("string");
+    expect(props.since?.format).toBe("date-time");
   });
 
   it("offers a projected read tool and routes it through the principal's client", async () => {

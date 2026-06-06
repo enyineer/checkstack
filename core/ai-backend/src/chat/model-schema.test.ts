@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { tool as aiTool, asSchema } from "ai";
 import { z } from "zod";
 import {
   dateSafeModelSchema,
   coerceDateValues,
   schemaContainsDate,
+  toModelSchema,
 } from "./model-schema";
 
 describe("schemaContainsDate", () => {
@@ -87,5 +89,59 @@ describe("dateSafeModelSchema", () => {
       endAt: "2026-01-01T00:00:00.000Z",
     });
     expect(bad?.success).toBe(false);
+  });
+});
+
+describe("toModelSchema (the single boundary entry)", () => {
+  test("returns the raw Zod schema when there is no date", () => {
+    const schema = z.object({ q: z.string() });
+    expect(toModelSchema(schema)).toBe(schema);
+  });
+
+  test("returns a date-safe Schema when a date is present", () => {
+    const schema = z.object({ at: z.date() });
+    expect(toModelSchema(schema)).not.toBe(schema);
+  });
+
+  // The full inbound round-trip exactly as the AI SDK runtime drives it: the
+  // model emits an object with an ISO date STRING, the tool's inputSchema
+  // validates it, and `execute` is called with the validated value. We assert
+  // `execute` receives a real `Date` - i.e. the model can create date-bearing
+  // objects and they are parsed back to Date in our backend. Uses a raw
+  // `z.date()` (not coerce.date) so this proves OUR coercion, not Zod's.
+  //
+  // The input string is the EXACT shape a real model emits, captured from a
+  // live deepseek-v4-flash maintenance-window creation: ISO 8601 with a `Z`
+  // offset and NO milliseconds (`...T22:00:00Z`, not `...T22:00:00.000Z`). The
+  // less-precise form is what providers actually return, so the test asserts
+  // `new Date()` normalizes it to a real Date with the milliseconds filled in.
+  test("model's ISO date object (no millis) is parsed to a real Date for execute", async () => {
+    const schema = z.object({ startAt: z.date(), label: z.string() });
+    let received: { startAt: unknown; label: unknown } | undefined;
+    const t = aiTool({
+      inputSchema: toModelSchema(schema) as never,
+      execute: async (input: unknown) => {
+        received = input as { startAt: unknown; label: unknown };
+        return { ok: true };
+      },
+    });
+
+    const validated = await asSchema(t.inputSchema).validate?.({
+      startAt: "2026-07-01T22:00:00Z",
+      label: "window",
+    });
+    expect(validated?.success).toBe(true);
+    if (validated?.success) {
+      await t.execute?.(validated.value, {
+        toolCallId: "call-1",
+        messages: [],
+      });
+    }
+
+    expect(received?.startAt).toBeInstanceOf(Date);
+    expect((received?.startAt as Date).toISOString()).toBe(
+      "2026-07-01T22:00:00.000Z",
+    );
+    expect(received?.label).toBe("window");
   });
 });
