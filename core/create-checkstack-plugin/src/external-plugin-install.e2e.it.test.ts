@@ -182,6 +182,10 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         env: installEnv,
       });
       expect(bundle.status, bundle.stderr || bundle.stdout).toBe(0);
+      if (process.env.CHECKSTACK_E2E_KEEP) {
+        console.log("[e2e] bundle pack stdout:\n" + bundle.stdout);
+        console.log("[e2e] bundle pack stderr:\n" + bundle.stderr);
+      }
       const distDir = path.join(backendDir, "dist");
       const tgz = fs.readdirSync(distDir).find((f) => f.endsWith("-bundle.tgz"));
       expect(tgz, "expected a *-bundle.tgz").toBeDefined();
@@ -201,6 +205,12 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
             CHECKSTACK_E2E_DB_NAME: E2E_DB_NAME,
             BUN_CONFIG_REGISTRY: registryUrl,
             NPM_CONFIG_USERCONFIG: npmrcPath,
+            // Use the SAME throwaway cache as the scaffold install. Without
+            // this the instance's plugin co-install (`bun install <tgz>`) uses
+            // the global bun cache, which can hold a stale same-version
+            // `@checkstackit/widget-*@0.0.1` from a previous run and skip
+            // re-extracting the freshly-built bundle (missing its new dist).
+            BUN_INSTALL_CACHE_DIR: cacheDir,
           },
           stdio: ["ignore", "pipe", "pipe"],
         },

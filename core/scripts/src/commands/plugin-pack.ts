@@ -233,16 +233,23 @@ Options:
 function runScriptIfPresent({
   cwd,
   script,
+  env,
 }: {
   cwd: string;
   script: string;
+  /** Extra env vars merged over `process.env` for the spawned script. */
+  env?: NodeJS.ProcessEnv;
 }): void {
   const pkg = readJson<{ scripts?: Record<string, string> }>(
     path.join(cwd, "package.json"),
   );
   if (!pkg.scripts?.[script]) return;
   console.log(`▶ bun run ${script}`);
-  const r = spawnSync("bun", ["run", script], { cwd, stdio: "inherit" });
+  const r = spawnSync("bun", ["run", script], {
+    cwd,
+    stdio: "inherit",
+    env: env ? { ...process.env, ...env } : process.env,
+  });
   if (r.status !== 0) {
     throw new Error(`bun run ${script} exited with status ${r.status}`);
   }
@@ -329,7 +336,15 @@ async function packPackage({
   // (deps resolve from the installed node_modules); `bun pm pack` then includes
   // the produced dist/. Other package types have no build step.
   if (pkg.checkstack?.type === "frontend") {
-    runScriptIfPresent({ cwd: pkgDir, script: "build" });
+    // Force NODE_ENV=production: the Module Federation Vite plugin skips
+    // emitting the remote (no mf-manifest.json) when NODE_ENV is "test" — e.g.
+    // when pack runs inside a test runner that sets it. A pack is always a
+    // production build.
+    runScriptIfPresent({
+      cwd: pkgDir,
+      script: "build",
+      env: { NODE_ENV: "production" },
+    });
   }
 
   const { rewritten, unresolved } = await rewriteWorkspaceVersions({
