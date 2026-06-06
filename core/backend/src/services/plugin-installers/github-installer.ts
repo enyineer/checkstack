@@ -182,7 +182,10 @@ export class GithubPluginInstaller implements PluginInstaller {
           `Bundle manifest in '${asset.name}' names primary '${bundle.manifest.primary}' but no matching sibling tarball was found.`,
         );
       }
-      return { tarball: buf, packageJson: primary.packageJson, bundle };
+      // Persist/install the primary's INNER package tarball (a plain
+      // `package/package.json` tarball), not the outer bundle archive `buf`;
+      // the bundle is exposed via `bundle` for sibling resolution only.
+      return { tarball: primary.tarball, packageJson: primary.packageJson, bundle };
     }
 
     let packageJson;

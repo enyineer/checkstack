@@ -522,7 +522,17 @@ const init = async () => {
       "accessRules" in user ? user.accessRules : []
     ) as string[];
     const anonymous = await authService.getAnonymousAccessRules();
-    if (!accessRules.includes(requiredAccess) && !anonymous.includes(requiredAccess)) {
+    // `enrichUser` collapses the admin role to the `"*"` wildcard (it never
+    // materialises every individual rule id), so an admin's `accessRules` is
+    // just `["*"]`. Honour that wildcard the same way the autoAuthMiddleware
+    // and oRPC procedures do (see auth-backend router.ts) - a bare
+    // `includes(requiredAccess)` would 403 every admin on this hand-rolled
+    // multipart route.
+    const hasAccess =
+      accessRules.includes("*") ||
+      accessRules.includes(requiredAccess) ||
+      anonymous.includes(requiredAccess);
+    if (!hasAccess) {
       return c.json({ error: "Access denied" }, 403);
     }
 
@@ -763,6 +773,20 @@ const init = async () => {
     }
   }
 
+  // Register the plugin-manager's core access rules + metadata BEFORE
+  // loadPlugins. The auth-backend's full access-rule sync to the DB runs in
+  // `afterPluginsReady`, which fires *inside* loadPlugins and reads
+  // `pluginManager.getAllAccessRules()` at that moment. Registering these
+  // core rules after loadPlugins (where the router is wired up below) would
+  // miss that sync entirely, so the admin role would never be granted
+  // `pluginmanager.plugin.manage` and the install endpoints would 403 even
+  // for operators. The ids land prefixed as e.g. `pluginmanager.plugin.manage`.
+  pluginManager.registerCoreAccessRules(
+    pluginManagerMetadata.pluginId,
+    pluginManagerAccessRules,
+  );
+  pluginManager.registerCorePluginMetadata(pluginManagerMetadata);
+
   await pluginManager.loadPlugins(app, manualPlugins, {
     skipDiscovery: !!devPluginPath,
     manualPluginPaths,
@@ -785,15 +809,9 @@ const init = async () => {
   }
 
   // 4.5. Register the plugin-manager admin router (core router, not a regular
-  // plugin). Access rules from `@checkstack/pluginmanager-common` are also
-  // pushed into the access registry here so the autoAuthMiddleware can
-  // resolve them. We use the existing access-rule prefix scheme so the
-  // ids land as e.g. `pluginmanager.plugin.manage`.
-  pluginManager.registerCoreAccessRules(
-    pluginManagerMetadata.pluginId,
-    pluginManagerAccessRules,
-  );
-  pluginManager.registerCorePluginMetadata(pluginManagerMetadata);
+  // plugin). Its access rules + metadata were registered before loadPlugins
+  // above so the auth-backend full sync picks them up; here we only wire the
+  // router now that plugin services are available.
   const pluginManagerRouter = createPluginManagerRouter({
     db,
     pluginManager,

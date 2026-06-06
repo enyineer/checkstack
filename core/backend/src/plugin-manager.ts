@@ -24,6 +24,11 @@ import { createExtensionPointManager } from "./plugin-manager/extension-points";
 import { loadPlugins as loadPluginsImpl } from "./plugin-manager/plugin-loader";
 import { rootLogger } from "./logger";
 import type { PluginEventRecorder } from "./services/plugin-event-recorder";
+import { installBundleFromArtifacts } from "./services/plugin-installers/install-from-tarball";
+import { getPluginSchemaName } from "@checkstack/drizzle-helper";
+import { stripPublicSchemaFromMigrations } from "./utils/strip-public-schema";
+import { runPluginMigrations } from "./utils/run-plugin-migrations";
+import { createScopedDb } from "./utils/scoped-db";
 
 export interface DeregisterOptions {
   deleteSchema: boolean;
@@ -69,6 +74,14 @@ export class PluginManager {
   // index.ts). The runtime install pipeline reads from here on bootstrap
   // and writes to here when handling broadcast install hooks.
   private runtimeDir: string | undefined;
+
+  // In-process dedupe for bundle installs: the install broadcast fans out one
+  // `pluginInstallationRequested` event PER package, so all siblings of a
+  // bundle race to install the same set of tarballs into `runtimeDir`. Keyed
+  // by bundleId, the first handler runs the single co-install and the rest
+  // await the same promise (cross-pod isolation is inherent — each pod has its
+  // own filesystem and its own map).
+  private bundleInstallLocks = new Map<string, Promise<void>>();
 
   // Resolves once `/api/:pluginId/*` is registered on the root router and
   // Phase 2 (per-plugin init) is starting. The HTTP server awaits this
@@ -507,7 +520,9 @@ export class PluginManager {
 
     // Fast path: monorepo-local plugin, just load by package name / path.
     if (!row.isUninstallable) {
-      await this.loadSinglePlugin(pluginId, row.path);
+      if (row.type === "backend") {
+        await this.loadSinglePlugin(pluginId, row.path);
+      }
       return;
     }
 
@@ -519,41 +534,123 @@ export class PluginManager {
 
     const pkgDir = path.join(this.runtimeDir, "node_modules", pluginId);
     if (!fs.existsSync(path.join(pkgDir, "package.json"))) {
-      // Module not installed yet — pull from artifact store and install.
-      const artifactStore = await this.registry.get(
-        coreServices.pluginArtifactStore,
-        { pluginId: "core" },
+      // Module not installed yet — pull from the artifact store and install.
+      if (row.bundleId) {
+        // Multi-package bundle: install ALL siblings in one `bun install` so a
+        // sibling that depends on another sibling resolves from the bundled
+        // tarballs instead of 404ing against a registry (the siblings are
+        // shipped inside the bundle and are usually unpublished). Deduped per
+        // bundleId so the parallel per-package broadcast handlers cooperate.
+        await this.ensureBundleInstalled(row.bundleId);
+      } else {
+        const artifactStore = await this.registry.get(
+          coreServices.pluginArtifactStore,
+          { pluginId: "core" },
+        );
+        const artifact = await artifactStore.fetch({
+          pluginName: pluginId,
+          version: row.version,
+        });
+        if (!artifact) {
+          throw new Error(
+            `No tarball found in plugin_artifacts for ${pluginId}@${row.version}. ` +
+              `The plugin row exists but its artifact is missing — re-install from the original source.`,
+          );
+        }
+        const allowInstallScripts =
+          (row.metadata as { checkstack?: { allowInstallScripts?: boolean } })
+            ?.checkstack?.allowInstallScripts === true;
+
+        const installerRegistry = await this.registry.get(
+          coreServices.pluginInstallerRegistry,
+          { pluginId: "core" },
+        );
+        // Any installer's installFromArtifact does the same thing (delegates
+        // to the shared install-from-tarball helper) — pick npm.
+        await installerRegistry
+          .forSource("npm")
+          .installFromArtifact({
+            tarball: artifact.tarball,
+            pluginName: pluginId,
+            allowInstallScripts,
+          });
+      }
+    }
+
+    // Only BACKEND packages register as backend plugins. A bundle's `common`
+    // (a plain library) and `frontend` (served to the browser via
+    // /api/plugins) siblings still need to be installed on disk — done above —
+    // but they export no `BackendPlugin`, so loading them here would throw.
+    // This mirrors the fresh-instance bootstrap, which installs every package
+    // but only imports `type = 'backend'` rows.
+    if (row.type === "backend") {
+      await this.loadSinglePlugin(pluginId, pkgDir);
+    }
+  }
+
+  /**
+   * Install every package of a bundle into `runtimeDir` in a single
+   * `bun install`, deduped per bundleId so the N parallel per-package install
+   * broadcasts run it exactly once. Resolves when the bundle is on disk.
+   */
+  private async ensureBundleInstalled(bundleId: string): Promise<void> {
+    const inflight = this.bundleInstallLocks.get(bundleId);
+    if (inflight) return inflight;
+    const promise = this.installBundleNow(bundleId).finally(() => {
+      this.bundleInstallLocks.delete(bundleId);
+    });
+    this.bundleInstallLocks.set(bundleId, promise);
+    return promise;
+  }
+
+  private async installBundleNow(bundleId: string): Promise<void> {
+    if (!this.runtimeDir) {
+      throw new Error(
+        `Runtime plugin dir not configured — call setRuntimeDir before hydrating runtime plugins.`,
       );
+    }
+    const { plugins: pluginsTable } = await import("./schema");
+    const { eq } = await import("drizzle-orm");
+
+    const siblings = await db
+      .select()
+      .from(pluginsTable)
+      .where(eq(pluginsTable.bundleId, bundleId));
+    if (siblings.length === 0) {
+      throw new Error(`Bundle '${bundleId}' has no rows in 'plugins' table`);
+    }
+
+    const artifactStore = await this.registry.get(
+      coreServices.pluginArtifactStore,
+      { pluginId: "core" },
+    );
+    const packages: Array<{ tarball: Uint8Array; pluginName: string }> = [];
+    for (const sib of siblings) {
       const artifact = await artifactStore.fetch({
-        pluginName: pluginId,
-        version: row.version,
+        pluginName: sib.name,
+        version: sib.version,
       });
       if (!artifact) {
         throw new Error(
-          `No tarball found in plugin_artifacts for ${pluginId}@${row.version}. ` +
-            `The plugin row exists but its artifact is missing — re-install from the original source.`,
+          `No tarball found in plugin_artifacts for ${sib.name}@${sib.version} ` +
+            `(bundle ${bundleId}). Re-install from the original source.`,
         );
       }
-      const allowInstallScripts =
-        (row.metadata as { checkstack?: { allowInstallScripts?: boolean } })
-          ?.checkstack?.allowInstallScripts === true;
-
-      const installerRegistry = await this.registry.get(
-        coreServices.pluginInstallerRegistry,
-        { pluginId: "core" },
-      );
-      // Any installer's installFromArtifact does the same thing (delegates
-      // to the shared install-from-tarball helper) — pick npm.
-      await installerRegistry
-        .forSource("npm")
-        .installFromArtifact({
-          tarball: artifact.tarball,
-          pluginName: pluginId,
-          allowInstallScripts,
-        });
+      packages.push({ tarball: artifact.tarball, pluginName: sib.name });
     }
 
-    await this.loadSinglePlugin(pluginId, pkgDir);
+    // `--ignore-scripts` is all-or-nothing for one command; gate on the
+    // primary package the operator chose to trust.
+    const primary = siblings.find((s) => s.isPrimary) ?? siblings[0];
+    const allowInstallScripts =
+      (primary.metadata as { checkstack?: { allowInstallScripts?: boolean } })
+        ?.checkstack?.allowInstallScripts === true;
+
+    await installBundleFromArtifacts({
+      packages,
+      allowInstallScripts,
+      runtimeDir: this.runtimeDir,
+    });
   }
 
   /**
@@ -617,6 +714,16 @@ export class PluginManager {
                   backendPlugin.metadata
                 );
               }
+              // Inject the plugin-scoped database when a schema is declared —
+              // mirrors the full-system loader (plugin-loader Phase 2). Without
+              // this the `database` init arg is undefined and the plugin's
+              // service throws on its first query.
+              if (args.schema) {
+                resolvedDeps["database"] = createScopedDb(
+                  db,
+                  getPluginSchemaName(metaPluginId),
+                );
+              }
               await args.init(resolvedDeps as never);
             },
           });
@@ -666,6 +773,20 @@ export class PluginManager {
           getAllAccessRules: () => this.getAllAccessRules(),
         },
       });
+
+      // 2.5. Run this plugin's Drizzle migrations into its isolated schema
+      // before init, so its tables exist when the service issues its first
+      // query. Mirrors the full-system loader; a runtime-installed plugin
+      // ships its `drizzle/` folder inside the package.
+      const migrationsFolder = path.join(pluginPath, "drizzle");
+      if (fs.existsSync(migrationsFolder)) {
+        stripPublicSchemaFromMigrations(migrationsFolder);
+        await runPluginMigrations({
+          pool: adminPool,
+          migrationsFolder,
+          migrationsSchema: getPluginSchemaName(metaPluginId),
+        });
+      }
 
       // 3. Initialize plugin (Phase 2)
       for (const pending of pendingInits) {
