@@ -1,5 +1,40 @@
 # @checkstack/backend
 
+## 0.17.0
+
+### Minor Changes
+
+- 968c12f: Make installed (runtime) frontend plugins actually load, via Module Federation 2.0. Previously a packed external plugin's frontend could not run: the host only shared React/router with runtime plugins, and there was no working way to share the framework/UI singletons (hand-rolled import-map externalisation hit an unsolvable rolldown CJS-interop wall).
+
+  - **Host (`@checkstack/frontend`)** now uses `@module-federation/vite` as an MF host and loads runtime plugins through the MF runtime (`registerRemotes` + `loadRemote`) instead of a raw `import()`. The shared set (react, react-dom, react-router-dom, @tanstack/react-query, @checkstack/frontend-api) is owned by the host; plugins reuse those exact instances via the share scope. The old hand-rolled vendor build + import map are removed.
+  - **`@checkstack/ui`** is bundled per consumer (tree-shaken); its Theme / Toast / Performance React contexts are unified across the host and bundled-in-plugin copies via a registered (globalThis-keyed) context, so a plugin's `useTheme`/`useToast`/`usePerformance` resolve to the host's providers. The ONE exception is the Monaco / VS Code **CodeEditor**, now exposed as the `@checkstack/ui/code-editor` subpath and shared as an MF singleton: the host owns the single editor instance (and builds its `?worker&url` workers), and plugins reuse it. A plugin can now render `<CodeEditor>` (directly or via `ScriptTestPanel` / template/JSON fields) without bundling Monaco.
+  - **Scaffold + pack (`@checkstack/scripts`)** build frontend plugins as MF remotes (`vite build` with the federation plugin, exposing `./plugin`, manifest enabled, DTS disabled). The CodeEditor is shared with `import: false` so the plugin is a consume-only participant - it never bundles a local fallback of the editor, keeping the heavy `@codingame/*` / `monaco-languageclient` / `vscode` subtree out of the plugin entirely (so no `vscode` alias or ES-worker config is needed in the plugin build). `plugin-pack` builds frontend packages with `NODE_ENV=production` (the MF plugin skips the remote under `NODE_ENV=test`) and ships only `dist/`. The scaffolded route now declares a `nav` entry so it appears in the sidebar.
+  - **Backend (`@checkstack/backend`)** serves a plugin's MF assets under its (possibly scoped) package name (`/assets/plugins/@scope/name/*`), with correct content types, and the SPA catch-all defers those paths so the federation manifest/remoteEntry are not shadowed by `index.html`.
+
+  Verified end-to-end by the external-plugin install E2E (scaffold → pack → install via the Plugin Manager UI → frontend + backend + co-loaded core plugins all work).
+
+### Patch Changes
+
+- e434d62: Fix the runtime (installed) plugin path so an external plugin uploaded via the Plugin Manager actually installs and its backend loads. Five distinct defects, surfaced by a new full install E2E:
+
+  - **Plugin Manager access denied for admins.** The Plugin Manager's core access rules were registered _after_ `loadPlugins`, so the auth full-sync never wrote them to the DB; and the hand-rolled `upload-tarball` route checked `accessRules.includes(rule)` without honoring the admin `"*"` wildcard. Rules now register before `loadPlugins`, and the route honors `"*"` (matching `openapi-router.ts`).
+  - **Bundle installs 404'd on intra-bundle deps.** A bundle's siblings were installed one tarball at a time, so a sibling that depends on another sibling failed to resolve against the registry. `installBundleFromArtifacts` now installs the whole bundle via a throwaway manifest using `file:` deps + `overrides`, resolving siblings locally and merging the result into the shared runtime dir.
+  - **Primary artifact was the outer bundle archive.** The tarball/github installers stored the outer `bundle.json` archive as the primary's artifact instead of the primary's own package tarball; they now store the inner package tarball.
+  - **Non-backend siblings loaded as backend plugins.** The install broadcast tried to load `common`/`frontend` siblings as backend plugins ("does not export a valid BackendPlugin"). Only `type: "backend"` packages now register as backend plugins (mirroring fresh-instance bootstrap).
+  - **Runtime backend never migrated or got a scoped DB.** `loadSinglePlugin` now runs the plugin's Drizzle migrations into its isolated schema and injects the plugin-scoped `database` into `init`, matching the full-system loader.
+
+  Note: the installed _frontend_ half of a runtime plugin remains a known gap (the host only shares React/router with runtime plugins, and `plugin-pack` does not build frontends); tracked separately for a follow-up.
+
+  - @checkstack/api-docs-common@0.1.18
+  - @checkstack/auth-common@0.8.2
+  - @checkstack/backend-api@0.21.2
+  - @checkstack/cache-api@0.3.11
+  - @checkstack/common@0.14.1
+  - @checkstack/pluginmanager-common@0.2.7
+  - @checkstack/queue-api@0.3.11
+  - @checkstack/signal-backend@0.3.2
+  - @checkstack/signal-common@0.2.8
+
 ## 0.16.2
 
 ### Patch Changes
