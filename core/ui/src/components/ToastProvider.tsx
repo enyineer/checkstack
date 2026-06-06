@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { useContext, useState, useCallback } from "react";
 import { Toast } from "./Toast";
+import { createRegisteredContext } from "../utils/registered-context";
 
 type ToastVariant = "default" | "success" | "error" | "warning" | "info";
 
@@ -26,7 +27,11 @@ interface ToastContextValue {
   info: (message: string, duration?: number) => void;
 }
 
-const ToastContext = createContext<ToastContextValue | undefined>(undefined);
+// Registered (singleton) context: shared between the host's provider and a
+// plugin's useToast() even though @checkstack/ui is bundled per consumer.
+const ToastContext = createRegisteredContext<ToastContextValue | undefined>(
+  "checkstack.ui.toast",
+);
 
 export const useToast = (): ToastContextValue => {
   const context = useContext(ToastContext);

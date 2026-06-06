@@ -192,7 +192,11 @@ describe("CLI Template Scaffolding", () => {
         const pkg = JSON.parse(
           readFileSync(path.join(targetDir, "package.json"), "utf8"),
         ) as { scripts?: Record<string, string> };
-        expect(pkg.scripts?.pack).toBe("bunx @checkstack/scripts plugin-pack");
+        // Uses the installed `checkstack-scripts` bin (from the
+        // @checkstack/scripts devDependency), NOT `bunx @checkstack/scripts`:
+        // bunx re-resolves/caches by version and can run a stale copy, whereas
+        // the local bin always matches the pinned devDependency.
+        expect(pkg.scripts?.pack).toBe("checkstack-scripts plugin-pack");
         if (pluginType !== "common") {
           // Backend/frontend templates pin the dev script to the
           // `checkstack-dev` bin (provided by `@checkstack/dev-server`,

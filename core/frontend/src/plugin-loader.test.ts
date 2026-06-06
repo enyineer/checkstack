@@ -1,21 +1,30 @@
-import {
-  describe,
-  it,
-  expect,
-  mock,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { loadPlugins } from "./plugin-loader";
+import { describe, it, expect, mock, beforeAll, afterAll, beforeEach } from "bun:test";
 
-// Note: We don't mock @checkstack/frontend-api module-wide here because
-// it causes test isolation issues with other tests that use the real pluginRegistry.
-// Instead, we just verify behavior based on the function's outputs.
+// The loader registers each runtime (installed) plugin as a Module Federation
+// remote (`registerRemotes`) and loads its exposed `./plugin` (`loadRemote`).
+// Stub both so the test exercises the loader's wiring without a real federation
+// host. `@module-federation/runtime` has exactly one importer in the repo
+// (plugin-loader.ts) and no other test imports it, so this process-wide
+// `mock.module` can't leak into another suite's expectations.
+const registerRemotes = mock(
+  (_remotes: Array<{ name: string; entry: string }>) => {},
+);
+const loadRemote = mock((id: string) => {
+  // The host loads `<remoteName>/plugin`; hand back a valid FrontendPlugin.
+  if (id === "remote_plugin/plugin") {
+    return Promise.resolve({
+      default: { metadata: { pluginId: "remote-plugin" }, extensions: [] },
+    });
+  }
+  return Promise.resolve(undefined);
+});
 
-// Mock fetch. The `typeof url === "string"` guard means a stray non-string
-// argument can never throw (defensive; the override is also scoped to this
-// suite's lifecycle below).
+mock.module("@module-federation/runtime", () => ({
+  registerRemotes,
+  loadRemote,
+}));
+
+// Mock fetch for the enabled-plugins endpoint.
 const mockFetch = mock((url: string) => {
   if (url === "/api/plugins") {
     return Promise.resolve({
@@ -23,73 +32,63 @@ const mockFetch = mock((url: string) => {
       json: () => Promise.resolve([{ name: "remote-plugin", path: "/dist" }]),
     } as unknown as Response);
   }
-  // Mock HEAD request for CSS
-  if (typeof url === "string" && url.endsWith(".css")) {
-    return Promise.resolve({ ok: true } as unknown as Response);
-  }
   return Promise.resolve({ ok: false } as unknown as Response);
 });
 
-// bun test runs every file in ONE shared process, so leaving these overrides on
-// `global` leaks into other files - e.g. the real-HTTP backend auth tests would
-// hit this mock instead of the real fetch and crash. Scope them to this suite.
+// bun test runs every file in ONE shared process, so leaving fetch overridden
+// on `global` leaks into other files - scope it to this suite's lifecycle.
 const originalFetch = global.fetch;
-const originalDocument = global.document;
 
 beforeAll(() => {
   (global as unknown as { fetch: typeof fetch }).fetch = mockFetch as never;
-  global.document = {
-    createElement: mock(() => ({})),
-    head: {
-      append: mock(),
-    },
-  } as unknown as Document;
 });
 
 afterAll(() => {
   (global as unknown as { fetch: typeof fetch }).fetch = originalFetch;
-  (global as unknown as { document: Document }).document = originalDocument;
 });
 
 describe("frontend loadPlugins", () => {
   beforeEach(() => {
     mockFetch.mockClear();
+    registerRemotes.mockClear();
+    loadRemote.mockClear();
   });
 
-  it("should discover and register local and remote plugins", async () => {
-    // Import the real pluginRegistry to verify registration
+  it("registers bundled plugins and loads enabled runtime plugins as MF remotes", async () => {
     const { pluginRegistry } = await import("@checkstack/frontend-api");
+    // Dynamic import so the `mock.module` above is in effect for the loader.
+    const { loadPlugins } = await import("./plugin-loader");
 
-    // Reset registry before test
     pluginRegistry.reset();
 
-    // With eager loading, modules are already resolved objects, not async functions
-    const mockModules = {
+    // Bundled (local) plugins arrive as already-resolved modules from the eager
+    // `import.meta.glob`; the override stands in for that map.
+    const bundledModules = {
       "../../../plugins/local-frontend/src/index.tsx": {
         default: { metadata: { pluginId: "local" }, extensions: [] },
       },
     };
 
-    // We also need to mock dynamic import() for remote plugins
-    mock.module("/assets/plugins/remote-plugin/index.js", () => ({
-      default: { metadata: { pluginId: "remote-plugin" }, extensions: [] },
-    }));
+    await loadPlugins(bundledModules);
 
-    await loadPlugins(mockModules);
+    const ids = pluginRegistry
+      .getPlugins()
+      .map((p) => p.metadata.pluginId);
+    // Bundled local plugin registered from the eager module map.
+    expect(ids).toContain("local");
+    // Runtime plugin loaded via MF and registered.
+    expect(ids).toContain("remote-plugin");
 
-    // Verify plugins are registered
-    const registeredPlugins = pluginRegistry.getPlugins();
-    expect(registeredPlugins.some((p) => p.metadata.pluginId === "local")).toBe(
-      true
-    );
+    // The remote is registered under its identifier-safe name, pointing at the
+    // backend-served manifest, and loaded via its exposed `./plugin`.
+    expect(registerRemotes).toHaveBeenCalledWith([
+      {
+        name: "remote_plugin",
+        entry: "/assets/plugins/remote-plugin/mf-manifest.json",
+      },
+    ]);
+    expect(loadRemote).toHaveBeenCalledWith("remote_plugin/plugin");
 
-    // Verify CSS loading was attempted
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/assets/plugins/remote-plugin/index.css",
-      expect.objectContaining({ method: "HEAD" })
-    );
-
-    // Clean up
     pluginRegistry.reset();
   });
 });

@@ -1,12 +1,14 @@
 import React from "react";
 import { Label } from "../Label";
 import { Textarea } from "../Textarea";
+// Deep package specifier (not "../CodeEditor"): routes the CodeEditor value
+// through the Module Federation shared singleton (see core/ui/src/index.ts).
 import {
   CodeEditor,
   type TemplateProperty,
   type AcquireTypes,
   type AcquiredTypeFile,
-} from "../CodeEditor";
+} from "@checkstack/ui/code-editor";
 import {
   Select,
   SelectContent,

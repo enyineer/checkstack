@@ -1,4 +1,5 @@
 import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { Boxes } from "lucide-react";
 import { {{pluginNameCamel}}Routes, pluginMetadata, {{pluginNameCamel}}Access } from "{{scoped pluginBaseName}}-common";
 
 export default createFrontendPlugin({
@@ -18,6 +19,14 @@ export default createFrontendPlugin({
         })),
       title: "{{pluginNamePascal}}",
       accessRule: {{pluginNameCamel}}Access.read,
+      // `nav` opts this route into the left sidebar. Without it the page is
+      // still reachable by URL but not listed. Pick the section heading
+      // (group) and icon that fit your plugin.
+      nav: {
+        group: "Workspace",
+        icon: Boxes,
+        label: "{{pluginNamePascal}}",
+      },
     },
   ],
 });

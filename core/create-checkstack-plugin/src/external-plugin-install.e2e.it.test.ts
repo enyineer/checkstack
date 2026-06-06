@@ -8,7 +8,8 @@
  * (tarball upload + typed confirmation) and asserts:
  *
  *  1. the packaged plugin installs and its backend loads (`POST /api/widget/*`),
- *  2. the plugin's FRONTEND works (its route/nav entry + page render),
+ *  2. the plugin's FRONTEND works (its route/nav entry + page render), incl.
+ *     the host's shared Monaco editor mounting inside the plugin page,
  *  3. the co-loaded CORE plugins still work (frontend nav + backend API) - i.e.
  *     installing the external plugin didn't break the platform.
  *
@@ -45,6 +46,7 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE_NAME = "widget";
+const PASCAL_NAME = "Widget";
 const PLUGIN_ID = "widget";
 const PACKAGE_SCOPE = "checkstackit";
 const INSTANCE_PORT = 3199;
@@ -81,6 +83,105 @@ function run({
     stdout: r.stdout ?? "",
     stderr: `${r.stderr ?? ""}${r.error ? r.error.message : ""}`,
   };
+}
+
+/**
+ * Replace the scaffolded frontend page with a minimal one that renders a
+ * `CodeEditor` UNCONDITIONALLY. The scaffold default does not use the editor,
+ * so without this the E2E would not exercise the shared-Monaco path at all.
+ *
+ * Why a full rewrite (not a surgical insert): the scaffold page gates its body
+ * behind `<PageLayout loading={isLoading}>` and an early error-return, so an
+ * editor placed inside it only renders once the plugin's `getItems` query
+ * resolves - coupling the editor assertion to query timing. Rendering the
+ * editor unconditionally tests exactly what we care about: a runtime plugin
+ * resolving the host's shared editor. If the host failed to provide it, the
+ * consume-only (`import: false`) share would throw and crash the page rather
+ * than silently hide the editor. The page name MUST match the route loader in
+ * `src/index.tsx` (`${pascalName}ListPage`).
+ */
+function injectCodeEditor({
+  frontendDir,
+  pascalName,
+}: {
+  frontendDir: string;
+  pascalName: string;
+}): void {
+  const pagePath = path.join(
+    frontendDir,
+    "src",
+    "components",
+    `${pascalName}ListPage.tsx`,
+  );
+  if (!fs.existsSync(pagePath)) {
+    throw new Error(
+      `injectCodeEditor: expected scaffolded page at ${pagePath} - update ` +
+        "this patch to match the frontend page template.",
+    );
+  }
+  const page = [
+    'import { PageLayout, CodeEditor } from "@checkstack/ui";',
+    'import { Boxes } from "lucide-react";',
+    "",
+    `export const ${pascalName}ListPage = () => (`,
+    `  <PageLayout title="${pascalName}" icon={Boxes}>`,
+    '    <div data-testid="plugin-code-editor">',
+    '      <CodeEditor',
+    '        value="const probe = 1;"',
+    '        language="typescript"',
+    '        minHeight="120px"',
+    "        onChange={() => {}}",
+    "      />",
+    "    </div>",
+    "  </PageLayout>",
+    ");",
+    "",
+  ].join("\n");
+  fs.writeFileSync(pagePath, page);
+}
+
+/** Recursively collect dist filenames that look like bundled Monaco / workers. */
+function findBundledMonaco({ frontendDir }: { frontendDir: string }): string[] {
+  const dist = path.join(frontendDir, "dist");
+  const hits: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (/monaco|codingame|\.worker/i.test(entry.name)) {
+        hits.push(path.relative(dist, p));
+      }
+    }
+  };
+  if (fs.existsSync(dist)) walk(dist);
+  return hits;
+}
+
+/** True if the built frontend references the shared `@checkstack/ui/code-editor`. */
+function distReferencesSharedEditor({
+  frontendDir,
+}: {
+  frontendDir: string;
+}): boolean {
+  const dist = path.join(frontendDir, "dist");
+  if (!fs.existsSync(dist)) return false;
+  const stack = [dist];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(p);
+      else if (/\.(js|mjs|json)$/.test(entry.name)) {
+        const text = fs.readFileSync(p, "utf8");
+        // The bare shared key, or MF's mangled loadShare virtual name for it
+        // (`@checkstack/ui/code-editor` → ...code_mf_2_editor...).
+        if (text.includes("code-editor") || text.includes("code_mf_2_editor")) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 async function poll<T>({
@@ -123,6 +224,20 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         throw new Error(
           `Frontend is not built (${distIndex} missing). Run \`bun run --filter @checkstack/frontend build\` first.`,
         );
+      }
+
+      // Make the run hermetic. The instance installs runtime plugins into
+      // `<repoRoot>/runtime_plugins` (see core/backend/src/index.ts), which
+      // PERSISTS across runs. The plugin version is fixed at 0.0.1, so a prior
+      // run's install is reused and `bun install <tgz>` skips re-extracting the
+      // freshly-packed dist - serving a STALE plugin frontend. Wipe it (and any
+      // stray scope dir hoisted into the repo's node_modules) so the install
+      // always materialises the bundle we just built.
+      for (const stale of [
+        path.join(monorepoRoot, "runtime_plugins"),
+        path.join(monorepoRoot, "node_modules", `@${PACKAGE_SCOPE}`),
+      ]) {
+        fs.rmSync(stale, { recursive: true, force: true });
       }
 
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ext-install-"));
@@ -168,6 +283,10 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         resolveVersion,
       });
       const backendDir = path.join(workspaceDir, "packages", `${BASE_NAME}-backend`);
+      const frontendDir = path.join(workspaceDir, "packages", `${BASE_NAME}-frontend`);
+      // Make the plugin actually render the shared editor (scaffold default
+      // doesn't) so install exercises the shared-Monaco path end-to-end.
+      injectCodeEditor({ frontendDir, pascalName: PASCAL_NAME });
       const installEnv = {
         NPM_CONFIG_USERCONFIG: npmrcPath,
         BUN_CONFIG_REGISTRY: registryUrl,
@@ -182,6 +301,23 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         env: installEnv,
       });
       expect(bundle.status, bundle.stderr || bundle.stdout).toBe(0);
+      if (process.env.CHECKSTACK_E2E_KEEP) {
+        console.log("[e2e] bundle pack stdout:\n" + bundle.stdout);
+        console.log("[e2e] bundle pack stderr:\n" + bundle.stderr);
+      }
+      // Build-time proof of Option B: the plugin imports CodeEditor yet its
+      // frontend build must NOT bundle Monaco (it shares the host's), and it
+      // MUST reference the shared `@checkstack/ui/code-editor` module.
+      const bundledMonaco = findBundledMonaco({ frontendDir });
+      expect(
+        bundledMonaco,
+        `plugin frontend bundled Monaco instead of sharing it: ${bundledMonaco.join(", ")}`,
+      ).toEqual([]);
+      expect(
+        distReferencesSharedEditor({ frontendDir }),
+        "frontend build does not reference the shared @checkstack/ui/code-editor",
+      ).toBe(true);
+
       const distDir = path.join(backendDir, "dist");
       const tgz = fs.readdirSync(distDir).find((f) => f.endsWith("-bundle.tgz"));
       expect(tgz, "expected a *-bundle.tgz").toBeDefined();
@@ -201,6 +337,12 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
             CHECKSTACK_E2E_DB_NAME: E2E_DB_NAME,
             BUN_CONFIG_REGISTRY: registryUrl,
             NPM_CONFIG_USERCONFIG: npmrcPath,
+            // Use the SAME throwaway cache as the scaffold install. Without
+            // this the instance's plugin co-install (`bun install <tgz>`) uses
+            // the global bun cache, which can hold a stale same-version
+            // `@checkstackit/widget-*@0.0.1` from a previous run and skip
+            // re-extracting the freshly-built bundle (missing its new dist).
+            BUN_INSTALL_CACHE_DIR: cacheDir,
           },
           stdio: ["ignore", "pipe", "pipe"],
         },
@@ -234,12 +376,31 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
         if (instance.exitCode == null) instance.kill("SIGKILL");
       }
       await ownedRegistry?.stop();
-      if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
+      if (tmpRoot && !process.env.CHECKSTACK_E2E_KEEP) {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
+      } else if (tmpRoot) {
+        console.log(`[e2e] kept workspace: ${tmpRoot}`);
+      }
     });
 
     it("installs the packaged plugin via the UI; frontend + backend + core plugins load", async () => {
       browser = await chromium.launch();
       const page = await browser.newPage({ baseURL: INSTANCE_URL });
+      if (process.env.CHECKSTACK_E2E_KEEP) {
+        page.on("console", (m) => {
+          if (
+            m.type() === "error" ||
+            m.type() === "warning" ||
+            /plugin|editor|share|federation|remote/i.test(m.text())
+          ) {
+            console.log(`[browser:${m.type()}] ${m.text()}`);
+          }
+        });
+        page.on("pageerror", (e) => console.log(`[browser:pageerror] ${e.message}`));
+        page.on("requestfailed", (r) =>
+          console.log(`[browser:reqfail] ${r.url()} ${r.failure()?.errorText}`),
+        );
+      }
 
       // --- Onboard the first admin (fresh DB → onboarding) ---
       await page.goto("/");
@@ -298,10 +459,33 @@ describe.skipIf(!process.env.CHECKSTACK_E2E_INSTALL)(
       await expect(page).toHaveURL(/\/widget/, { timeout: 15_000 });
       // The plugin's page rendered (not a 404/error boundary).
       await expect(page.getByText(/not found|something went wrong/i)).toHaveCount(0);
+      if (process.env.CHECKSTACK_E2E_KEEP) {
+        await page
+          .waitForSelector('[data-testid="plugin-code-editor"]', { timeout: 8_000 })
+          .catch(() => undefined);
+        const html = await page.content();
+        const dump = path.join(tmpRoot, "widget-page.html");
+        fs.writeFileSync(dump, html);
+        await page.screenshot({ path: path.join(tmpRoot, "widget-page.png"), fullPage: true });
+        const main = await page.locator("main, #root").first().innerText().catch(() => "<no text>");
+        console.log(`[e2e] widget page URL: ${page.url()}`);
+        console.log(`[e2e] widget page dumped: ${dump} (${html.length} bytes)`);
+        console.log(`[e2e] widget main text (first 600):\n${main.slice(0, 600)}`);
+        console.log(`[e2e] testid count: ${await page.getByTestId("plugin-code-editor").count()}`);
+        console.log(`[e2e] .monaco-editor count: ${await page.locator(".monaco-editor").count()}`);
+      }
+      // The shared editor (provided by the HOST, never bundled into the plugin)
+      // mounts inside the plugin's page - runtime proof of Option B.
+      await expect(page.getByTestId("plugin-code-editor")).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(page.locator(".monaco-editor").first()).toBeVisible({
+        timeout: 30_000,
+      });
 
       // --- (core plugins co-load) a core plugin still works, frontend + backend ---
       const catalogRes = await page.request.post(
-        `${INSTANCE_URL}/api/catalog/listEntities`,
+        `${INSTANCE_URL}/api/catalog/getEntities`,
         { data: { json: {} } },
       );
       expect(catalogRes.status(), `catalog API status ${catalogRes.status()}`).toBe(200);

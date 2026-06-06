@@ -395,7 +395,11 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     // handlers (oRPC RPC + OpenAPI REST mounts).
     const apiPath =
       c.req.path.startsWith("/api/") || c.req.path.startsWith("/rest/");
-    if (apiPath) {
+    // Runtime frontend-plugin assets are served by the `/assets/plugins/*`
+    // route registered later during init. Defer to it here, otherwise this SPA
+    // fallback would return index.html for a plugin's mf-manifest.json /
+    // remoteEntry.js and the Module Federation runtime would fail (#RUNTIME-003).
+    if (apiPath || c.req.path.startsWith("/assets/plugins/")) {
       return next();
     }
 
@@ -605,28 +609,51 @@ const init = async () => {
     });
   });
 
-  // Serve static assets for runtime frontend plugins only
-  // Backend plugins don't need public assets - only frontend plugins do
-  // e.g. /assets/plugins/my-plugin-frontend/index.js -> runtime_plugins/node_modules/my-plugin-frontend/dist/index.js
-  app.use("/assets/plugins/:pluginName/*", async (c, next) => {
-    const pluginName = c.req.param("pluginName");
-    // Find plugin in DB to get path
+  // Serve static assets for runtime frontend plugins (built Module Federation
+  // remotes). The plugin is served under its package name, which may be SCOPED
+  // (e.g. /assets/plugins/@scope/name/mf-manifest.json) — so a single-segment
+  // `:pluginName` route can't capture it. Use a catch-all and split the package
+  // name (two segments when it starts with `@`) from the asset path.
+  // e.g. /assets/plugins/@acme/widget-frontend/mf-manifest.json ->
+  //      runtime_plugins/node_modules/@acme/widget-frontend/dist/mf-manifest.json
+  const ASSET_CONTENT_TYPES: Record<string, string> = {
+    ".js": "text/javascript",
+    ".mjs": "text/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".map": "application/json",
+    ".wasm": "application/wasm",
+  };
+  app.use("/assets/plugins/*", async (c, next) => {
+    const rest = c.req.path.split("/assets/plugins/")[1] ?? "";
+    const segments = rest.split("/").filter(Boolean);
+    const scoped = rest.startsWith("@");
+    const pluginName = scoped
+      ? segments.slice(0, 2).join("/")
+      : segments[0];
+    const assetPath = scoped
+      ? segments.slice(2).join("/")
+      : segments.slice(1).join("/");
+    // Reject path traversal and empty lookups.
+    if (!pluginName || !assetPath || assetPath.includes("..")) {
+      return next();
+    }
+
     const results = await db
       .select()
       .from(plugins)
       .where(eq(plugins.name, pluginName));
     const plugin = results[0];
-
-    // Only serve assets for frontend plugins
     if (!plugin || plugin.type !== "frontend") {
       return next();
     }
 
-    // We assume plugins are built into 'dist' folder
-    const assetPath = c.req.path.split(`/assets/plugins/${pluginName}/`)[1];
     const filePath = path.join(plugin.path, "dist", assetPath);
-
     if (fs.existsSync(filePath)) {
+      const type =
+        ASSET_CONTENT_TYPES[path.extname(filePath)] ??
+        "application/octet-stream";
+      c.header("Content-Type", type);
       return c.body(fs.readFileSync(filePath));
     }
     return next();

@@ -2,7 +2,9 @@ import React from "react";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-import { CodeEditor } from "../CodeEditor";
+// Deep package specifier (not "../CodeEditor"): routes through the Module
+// Federation shared singleton so this never bundles its own Monaco copy.
+import { CodeEditor } from "@checkstack/ui/code-editor";
 import type { JsonFieldProps } from "./types";
 
 const ajv = new Ajv({ allErrors: true, strict: false });

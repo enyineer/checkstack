@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
+import { createRegisteredContext } from "../utils/registered-context";
 
 type Theme = "light" | "dark" | "system";
 
@@ -29,7 +30,12 @@ const initialState: ThemeProviderState = {
   },
 };
 
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
+// Registered (singleton) context: shared between the host's provider and a
+// plugin's useTheme() even though @checkstack/ui is bundled per consumer.
+const ThemeProviderContext = createRegisteredContext<ThemeProviderState>(
+  "checkstack.ui.theme",
+  initialState,
+);
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   children,

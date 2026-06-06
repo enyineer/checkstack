@@ -117,6 +117,13 @@ export const noExtraneousRuntimeDeps = {
      * @param {{ typeOnly?: boolean }} [options]
      */
     const validatePackage = (node, packageName, options = {}) => {
+      // A package importing its OWN name is a self-reference resolved via its
+      // own `exports` map (e.g. `@checkstack/ui` importing
+      // `@checkstack/ui/code-editor`). It is always available and must NOT be
+      // listed as a dependency of itself, so never flag it.
+      if (pkgData.name && packageName === pkgData.name) {
+        return;
+      }
       // Ignore type-only packages and @types/*
       if (packageName.startsWith("@types/") || packageName.startsWith("node:")) {
         return;

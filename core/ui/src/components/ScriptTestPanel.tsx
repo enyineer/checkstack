@@ -11,7 +11,9 @@ import { Button } from "./Button";
 import { Badge } from "./Badge";
 import { Input } from "./Input";
 import { Label } from "./Label";
-import { CodeEditor } from "./CodeEditor";
+// Deep package specifier (not "./CodeEditor"): routes through the Module
+// Federation shared singleton so this never bundles its own Monaco copy.
+import { CodeEditor } from "@checkstack/ui/code-editor";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
 import {

@@ -60,7 +60,13 @@ export * from "./components/CommandPalette";
 export * from "./components/TerminalFeed";
 export * from "./components/PerformanceProvider";
 export * from "./components/AmbientBackground";
-export * from "./components/CodeEditor";
+// The CodeEditor (Monaco / VS Code) stack is re-exported via the package's own
+// deep specifier - NOT the relative "./components/CodeEditor" - so Module
+// Federation can treat it as a shared singleton. The host owns the one editor
+// instance (and builds its workers); runtime plugins reuse it via the share
+// scope instead of bundling Monaco. The rest of @checkstack/ui stays bundled
+// per consumer. See core/frontend/vite.config.ts `shared`.
+export * from "@checkstack/ui/code-editor";
 export * from "./components/TemplateValueInput";
 export * from "./components/VariablePicker";
 export * from "./components/TemplateInput";

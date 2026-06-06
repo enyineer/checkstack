@@ -13,8 +13,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build:vendor": "vite build --config vite.config.vendor.ts",
-    "build": "bun run build:vendor && vite build",
+    "build": "vite build",
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "preview": "vite preview",
@@ -32,6 +31,8 @@
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
+    "@module-federation/runtime": "^2.5",
+    "@module-federation/vite": "^1.16",
     "@orpc/client": "^1.14.4",
     "@tanstack/react-query": "^5.100.14",
     "@tanstack/react-query-devtools": "^5.100.14",
