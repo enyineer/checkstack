@@ -211,6 +211,154 @@ risk surface (it alters how the host app itself loads React/RQ/UI).
 
 ---
 
+## 4b. Phase 1 kickoff findings (2026-06-06, branch `feat/frontend-plugin-sharing`)
+
+Hands-on investigation refined the plan with correctness subtleties:
+
+- **The current vendor build may already be subtly wrong.**
+  `vite.config.vendor.ts:20-31` builds `react` and `react-dom` as separate
+  lib entries with **no externalisation**, so `react-dom.js` likely bundles
+  its **own** copy of `react` — a second React instance even within
+  `/vendor`. This was never caught because runtime frontend plugins have
+  never actually run (§1d). Phase 1 must make every vendor bundle
+  **externalise the other shared specifiers** (and reference them via the
+  import map) so there is exactly one instance of each.
+- **Entry resolution must not hardcode bun store paths.** Under bun's
+  isolated store, real entries live at
+  `node_modules/.bun/<pkg>@<ver>+<hash>/...` (hash changes on updates).
+  Resolve via `require.resolve`/`createRequire` at config time, not literal
+  paths. Note `@tanstack/react-query` and `lucide-react` resolve to **CJS**
+  entries (Vite's commonjs interop handles this, but the vendor bundle must
+  emit ESM).
+- **`@orpc/*` probably should NOT be separate shared entries.** Plugins
+  import `@checkstack/frontend-api`, not `@orpc/*` directly (verified in the
+  §1a scout: with `frontend-api` externalised, `@orpc/*` never entered the
+  plugin bundle). `@orpc/client` + `@orpc/tanstack-query` are internal to
+  `frontend-api` and should be **bundled into the `frontend-api` vendor
+  bundle** (whose `createRouterUtils`/client instance is the shared one).
+  `@orpc/tanstack-query` isn't even resolvable from `core/frontend`
+  (transitive-only). → **Drop `@orpc/client` + `@orpc/tanstack-query` from
+  the shared import-map list**; keep them bundled inside `frontend-api`.
+  (Revises the §4.3 lock: the import-map surface is the React ecosystem +
+  `@tanstack/react-query` + the three `@checkstack/*` + `lucide-react`.)
+- **`@checkstack/ui` is the hard one — it carries the whole Monaco/VS Code
+  stack** (`@codingame/*`, `monaco-languageclient`, `@typefox/monaco-editor-
+  react`, plus recharts/radix). It is deliberately code-split so Monaco
+  stays lazy (PRs #236/#253). Vendoring it as one bundle would **re-ship
+  Monaco eagerly** and undo that. The `@checkstack/ui` vendor bundle must
+  therefore (a) preserve code-splitting (lazy Monaco chunks), (b) carry the
+  Monaco worker setup + `vscode` alias (`monacoViteConfig`), and (c) emit
+  its CSS for the host to serve. This is the bulk of Phase 1's risk and
+  effort. **Open fork — see below.**
+
+### RESOLVED by industry research (2026-06-06)
+
+Researched how host↔plugin module sharing is normally done (Module
+Federation; native import maps / single-spa / Native Federation). Findings:
+
+- **Two mainstream patterns, and in BOTH the shared singletons are
+  externalised from EVERYONE — including the host — and loaded once via a
+  loader/import map.** Nobody re-exports the host's in-bundle copy through a
+  shim. **→ Option A2 (host-facade) is dropped: it is non-standard, has no
+  prior art, and the export-drift shim is a long-term liability.**
+- **Chosen mechanism: native import maps (Option A1 family).** Externalise
+  the shared set from the host's own bundle too (this is the *standard*
+  practice, not exotic) and resolve via the browser import map to one copy.
+  Plugin-author contract is simply "externalise this known list" — friendlier
+  for third parties than Module Federation, which would force authors onto
+  the `vite-plugin-federation` toolchain.
+- **Standard guidance: share the MINIMAL singleton set, bundle the rest**
+  (per-plugin duplication of stateless libs is fine and avoids version
+  coupling). The "bundle the rest" advice targets *third-party,
+  independently-versioned* libs — it does NOT really apply to our
+  *first-party, version-locked* `@checkstack/*` packages.
+
+**Final shared (import-map) surface — LOCKED, revises §4.3:**
+`react`, `react-dom`, `react-dom/client`, `react/jsx-runtime`,
+`react-router-dom`, `@tanstack/react-query`, `@checkstack/frontend-api`,
+`@checkstack/ui`. **Bundled per-plugin (removed from shared):**
+`lucide-react` (tree-shaken to the few icons used — cheap), `@checkstack/
+common` (stateless utils/types — safe to duplicate), `@orpc/*` (internal to
+`frontend-api`, bundled inside its vendor bundle), and anything else a
+plugin adds.
+
+**`@checkstack/ui` sub-decision — share WHOLE (was leaning split).** On
+deeper analysis, splitting `@checkstack/ui` into a shared context entry vs
+bundled components creates a fragile invariant (every component using a
+context hook must import it from the shared subpath, or plugins silently get
+the wrong context). Because `@checkstack/ui` is *first-party and
+version-locked to the host* (host-wins is already accepted, §4.2), sharing
+it WHOLE as one singleton vendor bundle is simpler and removes that
+fragility. The only cost — Monaco in the vendor bundle — is handled by a
+**code-split-preserving** vendor build (Monaco stays in lazy chunks, as
+today). Worker setup + `vscode` alias come from `monacoViteConfig`; the
+bundle emits its CSS for the host to serve.
+
+### (superseded) Fork that was to be confirmed before touching the host build
+
+How to vendor `@checkstack/ui` (and the other `@checkstack/*` source
+packages, which have no prebuilt `dist` in-repo):
+
+- **Option A1 (recommended): per-package vendor bundles with code-splitting
+  preserved.** Build `@checkstack/ui` → `/vendor/checkstack-ui.js` (+ lazy
+  Monaco chunks + css), externalising react/react-query/etc.; host
+  externalises `@checkstack/ui` too. Preserves lazy Monaco and shares one
+  instance. Most work, cleanest result.
+- **Option A2: host-exposed module facade.** Keep the host bundling
+  `@checkstack/ui` (with its existing splitting) and expose its module via a
+  tiny host-served shim the import map points at (`/vendor/checkstack-ui.js`
+  re-exports `window.__checkstackShared["@checkstack/ui"]`, populated by the
+  host at boot). Avoids re-building Monaco machinery in a vendor pass and
+  avoids touching the host's `@checkstack/ui` bundling; the import map still
+  gives plugins the host's instance. Less standard, but far less risk to the
+  carefully-tuned Monaco lazy-loading.
+
+`react` / `react-dom` / `react-router-dom` / `@tanstack/react-query` /
+`react/jsx-runtime` / `lucide-react` are mechanical either way (true vendor
+bundles, cross-externalised). The fork is only about the heavy
+`@checkstack/*` source packages.
+
+## 4c. Phase 1 implementation progress (2026-06-06, branch `feat/frontend-plugin-sharing`)
+
+**Vendor build (`core/frontend/vite.config.vendor.ts`) — DONE & verified for
+the React ecosystem + frontend-api.** Key correctness learnings (these are
+load-bearing — do not regress):
+
+- **Never mark the React-cluster `external` in the vendor build.** React 18 is
+  CJS; rolldown turns an externalised `require("react")` into a runtime
+  `__require("react")` that THROWS in the browser (import maps rewrite ESM
+  `import`s only). Instead build all React packages together with **no
+  externals** so rolldown emits ONE shared `react-*` chunk that every entry
+  (`react.js`, `react-dom.js`, `react-router-dom.js`, `react-query.js`,
+  `frontend-api.js`, later `checkstack-ui.js`) imports as real ESM. Verified:
+  a single `react-*` core chunk shared by all; zero throwing `__require`.
+- **A package that is BOTH an entry AND an internal dep of another entry must
+  be forced into a shared chunk via `output.manualChunks`** — otherwise
+  rolldown leaves it inline in its own entry and re-bundles a SECOND copy into
+  the other entry. Hit this with `@tanstack/react-query` (was duplicated into
+  `frontend-api`). Fixed with `manualChunks: id.includes("/@tanstack/") ->
+  "tanstack-query"`. Verified: `QueryClient` class defined in exactly one
+  chunk; both `react-query.js` and `frontend-api.js` import it.
+- Entries resolved via `createRequire(import.meta.url).resolve(...)` (never
+  hardcoded bun-store paths).
+
+**Still TODO in Phase 1:**
+- Add `@checkstack/ui` to the vendor build (the heavy one — Monaco). Needs
+  `monacoViteConfig` (worker format + `vscode` alias), code-splitting
+  preserved so Monaco stays lazy, and CSS emitted/served. Will likely need a
+  `manualChunks` entry for `@checkstack/ui` too (entry + dep of nothing here,
+  but its own internal deps must not duplicate the shared react/query/api).
+- Expand the import map in `core/frontend/index.html`: add `react/jsx-runtime`
+  -> `/vendor/react-jsx-runtime.js`, `@tanstack/react-query` ->
+  `/vendor/react-query.js`, `@checkstack/frontend-api` ->
+  `/vendor/frontend-api.js`, `@checkstack/ui` -> `/vendor/checkstack-ui.js`.
+- Externalise the shared set in the HOST build (`core/frontend/vite.config.ts`)
+  so host + plugins share the same `/vendor/*` instance. **Risky step — full
+  host build + boot re-test required (decision §4.1).**
+- `plugin-pack` frontend build (externalise the shared set; bundle the rest)
+  + scaffold ships `dist`.
+- Re-enable the E2E frontend assertions.
+
 ## 5. What is already done (context)
 
 The backend/install half is fixed and verified on
