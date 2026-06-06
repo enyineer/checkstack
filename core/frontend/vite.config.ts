@@ -11,6 +11,21 @@ import { monacoViteConfig } from "../ui/src/vite-monaco";
 // Monorepo root is 2 levels up from core/frontend
 const monorepoRoot = path.resolve(__dirname, "../..");
 
+// The Module Federation share options we actually use. `@module-federation/vite`
+// publishes a `shared` type that is NARROWER than the MF runtime it drives: it
+// omits `eager` and types `requiredVersion` as `string` only. The runtime (and
+// `@module-federation/sdk`'s own `SharedConfig`) supports both `eager: true` and
+// `requiredVersion: false`, which we rely on. We author against this accurate
+// shape and bridge the plugin's outdated param type with a single cast below.
+interface HostShare {
+  singleton?: boolean;
+  eager?: boolean;
+  requiredVersion?: string | false;
+}
+type FederationSharedOption = NonNullable<
+  Parameters<typeof federation>[0]["shared"]
+>;
+
 // The Monaco / VS Code editor stack (`@checkstack/ui`'s CodeEditor) needs
 // `worker.format: "es"` and a `vscode` resolve alias. Both are produced by this
 // shared helper - also consumed by @checkstack/dev-server - so the app's config
@@ -34,7 +49,7 @@ export default defineConfig(({ command }) => {
   // below), which fails dep optimization with UNLOADABLE_DEPENDENCY. In dev the
   // host just bundles @checkstack/ui's editor normally (worker config + vscode
   // alias are applied unconditionally below), exactly as before this change.
-  const editorShare =
+  const editorShare: Record<string, HostShare> =
     command === "build"
       ? {
           // The Monaco / VS Code editor (the only shared piece of
@@ -57,6 +72,33 @@ export default defineConfig(({ command }) => {
           },
         }
       : {};
+
+  // Authored against the accurate `HostShare` shape (eager + requiredVersion:
+  // false). Extracted to a const so it is passed as a VARIABLE (not a fresh
+  // object literal), letting the single cast below bridge the plugin's narrower
+  // published `shared` type without tripping excess-property checks.
+  const shared: Record<string, HostShare> = {
+    react: { singleton: true, eager: true, requiredVersion: "^19.0.0" },
+    "react-dom": { singleton: true, eager: true, requiredVersion: "^19.0.0" },
+    "react-router-dom": {
+      singleton: true,
+      eager: true,
+      requiredVersion: "^7.0.0",
+    },
+    "@tanstack/react-query": {
+      singleton: true,
+      eager: true,
+      requiredVersion: "^5.0.0",
+    },
+    // First-party, version-locked to the host: skip version negotiation
+    // (its dep range is `workspace:*`, not a semver range).
+    "@checkstack/frontend-api": {
+      singleton: true,
+      eager: true,
+      requiredVersion: false,
+    },
+    ...editorShare,
+  };
 
   return {
     // Tell Vite to look for .env files in monorepo root
@@ -81,32 +123,8 @@ export default defineConfig(({ command }) => {
       federation({
         name: "checkstack_host",
         remotes: {},
-        shared: {
-          react: { singleton: true, eager: true, requiredVersion: "^19.0.0" },
-          "react-dom": {
-            singleton: true,
-            eager: true,
-            requiredVersion: "^19.0.0",
-          },
-          "react-router-dom": {
-            singleton: true,
-            eager: true,
-            requiredVersion: "^7.0.0",
-          },
-          "@tanstack/react-query": {
-            singleton: true,
-            eager: true,
-            requiredVersion: "^5.0.0",
-          },
-          // First-party, version-locked to the host: skip version negotiation
-          // (its dep range is `workspace:*`, not a semver range).
-          "@checkstack/frontend-api": {
-            singleton: true,
-            eager: true,
-            requiredVersion: false,
-          },
-          ...editorShare,
-        },
+        // Cast bridges the plugin's outdated `shared` type (see HostShare).
+        shared: shared as FederationSharedOption,
       }),
     ],
     // The @typefox/monaco-editor-react + @codingame/monaco-vscode-* stack
@@ -165,8 +183,12 @@ export default defineConfig(({ command }) => {
     build: {
       // Use esnext to support top-level await and modern ES features
       target: "esnext",
-      // Generate sourcemaps for production debugging
-      sourcemap: true,
+      // Source maps over the Monaco / VS Code (`@codingame/*`) stack roughly
+      // DOUBLE the build's time and peak memory and ship ~MBs of `.js.map` into
+      // the image - enough to OOM-thrash a CI runner (the Docker build hung
+      // here). Off by default; opt in locally with `VITE_SOURCEMAP=true` when
+      // you need to debug the production bundle.
+      sourcemap: process.env.VITE_SOURCEMAP === "true",
       // Monaco stays off the initial load via the `React.lazy(CodeEditor)`
       // boundary (see CodeEditor.tsx) — verified preserved under Module
       // Federation's automatic code-splitting. We do NOT hand-group chunks:

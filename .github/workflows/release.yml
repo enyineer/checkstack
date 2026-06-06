@@ -88,18 +88,44 @@ jobs:
           gh pr edit "${PR_NUMBER}" --body-file /tmp/pr-body.md
 
 
+  # Multi-arch build by DIGEST: each platform builds on its OWN NATIVE runner
+  # (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm), then `docker-merge`
+  # assembles the manifest list. This replaces a single emulated build that ran
+  # BOTH platforms on one runner: arm64 under QEMU plus both heavy frontend
+  # builds contending for ~7GB RAM made the amd64 frontend build OOM-thrash and
+  # appear to hang. Native runners remove the emulation AND the contention.
   docker:
-    name: Build and Push Docker Image (${{ matrix.image }})
+    name: Build ${{ matrix.image }} (${{ matrix.platform }})
     needs: release
     if: needs.release.outputs.releasePublished == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
+        # `pair` is the slash-free form of `platform`, used in cache scopes and
+        # artifact names (which cannot contain "/"). Kept as a static matrix
+        # field so no runtime env juggling is needed.
         include:
           - image: checkstack
             dockerfile: Dockerfile
+            platform: linux/amd64
+            pair: linux-amd64
+            runner: ubuntu-latest
+          - image: checkstack
+            dockerfile: Dockerfile
+            platform: linux/arm64
+            pair: linux-arm64
+            runner: ubuntu-24.04-arm
           - image: checkstack-satellite
             dockerfile: Dockerfile.satellite
+            platform: linux/amd64
+            pair: linux-amd64
+            runner: ubuntu-latest
+          - image: checkstack-satellite
+            dockerfile: Dockerfile.satellite
+            platform: linux/arm64
+            pair: linux-arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -116,28 +142,94 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from package.json
-        id: version
-        run: |
-          VERSION=$(jq -r '.version' ./core/release/package.json)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Build and Push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
+          platforms: ${{ matrix.platform }}
+          # Push by digest only; the merge job applies the version/latest tags
+          # to the assembled manifest. Cache is scoped per image AND platform so
+          # the two native builds never clobber each other's cache.
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.pair }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.pair }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          # `__` separates image from platform: image names contain hyphens
+          # ("checkstack" is a PREFIX of "checkstack-satellite"), so a hyphen
+          # boundary would let the merge job's `digests-checkstack-*` glob also
+          # match satellite digests. `__` never appears in an image name.
+          name: digests-${{ matrix.image }}__${{ matrix.pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Assemble the per-platform digests of each image into one multi-arch manifest
+  # list and apply the version + latest tags.
+  docker-merge:
+    name: Merge ${{ matrix.image }} manifest
+    needs: [release, docker]
+    if: needs.release.outputs.releasePublished == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [checkstack, checkstack-satellite]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          # `__` boundary so this does not also match the other image's digests
+          # (see the upload step's note: image names share a hyphen prefix).
+          pattern: digests-${{ matrix.image }}__*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from package.json
+        id: version
+        run: |
+          VERSION=$(jq -r '.version' ./core/release/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest \
+            $(printf 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect \
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   create-github-release:
     name: Create GitHub Release
-    needs: [release, docker]
+    needs: [release, docker-merge]
     if: needs.release.outputs.releasePublished == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
