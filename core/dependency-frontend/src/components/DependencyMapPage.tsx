@@ -411,14 +411,14 @@ function DependencyMapContent() {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-12rem)] flex items-center justify-center">
+      <div className="flex-1 min-h-0 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="h-[calc(100vh-12rem)] rounded-xl border border-border overflow-hidden bg-background/50">
+    <div className="flex-1 min-h-0 rounded-xl border border-border overflow-hidden bg-background/50">
       <ReactFlow<SystemNode, DependencyEdge>
         nodes={nodes}
         edges={edges}
@@ -705,8 +705,8 @@ function DependencyMapContent() {
  */
 const DependencyMapPageContent = () => {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-1 min-h-0 flex-col gap-4">
+      <div className="flex shrink-0 items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dependency Map</h1>
           <p className="text-sm text-muted-foreground mt-1">
