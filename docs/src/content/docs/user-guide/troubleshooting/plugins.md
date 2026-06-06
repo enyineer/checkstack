@@ -13,7 +13,7 @@ The plugin tarball is larger than the platform's 50 MB ceiling.
 
 **How to verify** - the error message includes the actual size.
 
-**Fix** - this limit is hardcoded; there is no env var or UI knob. Ask the plugin author to slim the package (typically by adding a tighter `files` field to `package.json` so dev artifacts aren't shipped). If you control the plugin, repack with `bunx @checkstack/scripts plugin-pack` after pruning.
+**Fix** - this limit is hardcoded; there is no env var or UI knob. Ask the plugin author to slim the package (typically by adding a tighter `files` field to `package.json` so dev artifacts aren't shipped). If you control the plugin, repack with `bunx @checkstack/scripts@latest plugin-pack` after pruning.
 
 ### Symptom: "Failed to peek tarball"
 
@@ -22,7 +22,7 @@ The uploaded `.tgz` is corrupted or missing the required `package.json`/`checkst
 **Fix**:
 
 1. Re-download or re-pack the artifact.
-2. Confirm the package was packed with `bunx @checkstack/scripts plugin-pack` (not `bun pm pack` directly). The pack CLI validates the `checkstack` metadata block before producing the tarball.
+2. Confirm the package was packed with `bunx @checkstack/scripts@latest plugin-pack` (not `bun pm pack` directly). The pack CLI validates the `checkstack` metadata block before producing the tarball.
 
 ### Symptom: npm install fails with `404 Not Found`
 

@@ -7,15 +7,16 @@ Develop a Checkstack plugin from its own repo. No monorepo checkout. No
 upload loop. No Docker bind-mount tricks.
 
 ```bash
-bunx @checkstack/dev-server
+bunx @checkstack/dev-server@latest
 ```
 
 `@checkstack/dev-server` is the published npm package that ships the
 dev server; it exposes a `checkstack-dev` binary so once you've added
 it as a devDependency, your `package.json` can wire `"dev":
 "checkstack-dev"` and you run `bun run dev` from then on (see the
-bootstrap section below). The `bunx @checkstack/dev-server` form is for
-a one-shot try before any install.
+bootstrap section below). The `bunx @checkstack/dev-server@latest` form
+is for a one-shot try before any install - pin `@latest` so Bun does not
+run a stale cached copy (see [Keep the tooling current](#keep-the-tooling-current)).
 
 The command boots the same backend code path Checkstack uses
 in production, with two well-defined dev overrides:
@@ -63,22 +64,65 @@ Use `create-checkstack-plugin` to scaffold a complete standalone workspace
 consuming it) in one command:
 
 ```bash
-bunx create-checkstack-plugin widget
+bunx create-checkstack-plugin@latest widget
 # or with bun create:
-bun create checkstack-plugin widget
+bun create checkstack-plugin@latest widget
 ```
+
+Always pin `@latest`. Bun caches the package per `name@version` and may serve a
+stale copy otherwise - see [Keep the tooling current](#keep-the-tooling-current).
 
 You will be prompted for an npm scope (e.g. `acme` for `@acme/widget-*`).
 To accept defaults without prompts, pass `--yes`:
 
 ```bash
-bunx create-checkstack-plugin widget --scope acme --yes
+bunx create-checkstack-plugin@latest widget --scope acme --yes
 ```
 
 The scaffolder resolves the concrete published `@checkstack/*` versions from
 the registry at scaffold time (each package independently - they are 0.x and
 not lockstepped) and writes them as caret ranges in the generated
 `package.json` files. It then runs `git init` in the new directory.
+
+## Keep the tooling current
+
+`create-checkstack-plugin`, `@checkstack/dev-server`, and `@checkstack/scripts`
+are published to npm and run through Bun's cache. Understanding how that cache
+behaves saves you from a confusing "I published a fix but the old behaviour is
+still running" loop.
+
+- **Resolving the latest version.** A bare `bunx create-checkstack-plugin`
+  resolves the `latest` dist-tag from npm on each run - it is *not* pinned to
+  the first version you happened to cache. But Bun's view of "what is latest" is
+  driven by a cached registry manifest, and Bun deliberately ignores the
+  `Age` header, so it "may be about 5 minutes out of date to receive the latest
+  package version metadata from npm". Right after a publish, expect up to a
+  ~5-minute window before a fresh resolve sees it.
+- **Package contents are cached by version.** Downloaded tarballs live at
+  `~/.bun/install/cache/<name>@<version>` and are content-addressed by version
+  with no time-based expiry. A new version is a new cache key (so you get it
+  automatically), but **re-publishing the *same* version with different
+  contents is never re-fetched** - always bump the version.
+- **Pin `@latest` in example/one-off commands.** Writing
+  `bunx create-checkstack-plugin@latest` (rather than the bare name) makes the
+  intent explicit and forces resolution of the `latest` dist-tag.
+
+To force a refresh immediately - e.g. you just published and do not want to wait
+out the manifest window, or you need to bust a same-version tarball:
+
+```bash
+bun pm cache rm          # clear Bun's global install cache, then re-run
+# or, more surgically, target a single package:
+rm -rf ~/.bun/install/cache/create-checkstack-plugin@*
+```
+
+> [!NOTE]
+> A scaffolded plugin's own `package.json` scripts call the **installed binaries**
+> (`"pack": "checkstack-scripts plugin-pack"`, `"dev": "checkstack-dev"`), not
+> `bunx`. Those resolve from `node_modules/.bin` against the pinned
+> `@checkstack/scripts` / `@checkstack/dev-server` devDependencies, so a committed
+> script always runs the version your lockfile installed - never a cache-resolved
+> "latest". Use `@latest` only for the one-shot `bunx` commands above.
 
 The result is a Bun workspace ready to boot:
 
@@ -250,7 +294,7 @@ refuses `CHECKSTACK_DEV_AUTH=true` when `NODE_ENV=production` and ignores
 ## Command-line flags
 
 ```
-bunx @checkstack/dev-server --help
+bunx @checkstack/dev-server@latest --help
 ```
 
 (After installing `@checkstack/dev-server` as a devDependency, the
@@ -311,7 +355,7 @@ metadata schema, compatibility check, install scripts handling — is
 happy with what you've built:
 
 ```bash
-bunx @checkstack/scripts plugin-pack --validate-only
+bunx @checkstack/scripts@latest plugin-pack --validate-only
 ```
 
 For a final smoke test, pack and install via the Plugin Manager UI of a

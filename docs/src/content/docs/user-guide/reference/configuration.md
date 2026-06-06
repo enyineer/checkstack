@@ -56,7 +56,7 @@ These variables only apply when you are developing a plugin locally; never set t
 
 | Variable | Required | Default | What it does |
 |----------|----------|---------|--------------|
-| `CHECKSTACK_DEV_PLUGIN_PATH` | no | unset | Absolute path to a plugin directory whose default export is a `BackendPlugin`. Setting this skips filesystem discovery and loads only that plugin plus core services. Used by `bunx @checkstack/scripts dev`. |
+| `CHECKSTACK_DEV_PLUGIN_PATH` | no | unset | Absolute path to a plugin directory whose default export is a `BackendPlugin`. Setting this skips filesystem discovery and loads only that plugin plus core services. Used by the dev server (`bunx @checkstack/dev-server@latest`, or the `checkstack-dev` bin). |
 | `CHECKSTACK_DEV_EXTRA_PLUGIN_PATHS` | no | unset | JSON array of additional plugin module paths to co-load alongside the one under `CHECKSTACK_DEV_PLUGIN_PATH`. The dev script sets this automatically based on `package.json` dependencies. |
 | `CHECKSTACK_DEV_AUTH` | no | `false` | When `true`, registers a synthetic auth service that auto-grants every access rule. Strictly refused when `NODE_ENV=production` (the process throws at boot). Useful for testing plugins without going through a login flow. |
 

@@ -1144,7 +1144,7 @@ When your `-frontend` package is part of a multi-package plugin (most are
 packed into a bundle by the runtime distribution tooling. See
 [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/)
 for how the primary package's `checkstack.bundle` field declares siblings,
-how `bunx @checkstack/scripts plugin-pack --bundle` produces a single
+how `bunx @checkstack/scripts@latest plugin-pack --bundle` produces a single
 bundle tarball, and the npm / GitHub release / GitHub Enterprise /
 tarball-upload distribution channels operators can install from.
 

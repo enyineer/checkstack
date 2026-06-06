@@ -33,7 +33,7 @@ re-fetch from the original source is needed for replicas to come up.
 
 For plugin authors: see [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/)
 for the developer-facing guide on packing, bundles, npm/GitHub/tarball
-distribution, and the `bunx @checkstack/scripts plugin-pack` CLI.
+distribution, and the `bunx @checkstack/scripts@latest plugin-pack` CLI.
 
 ### 2. Inversion of Control (IoC)
 

@@ -1130,7 +1130,7 @@ If TypeScript complains about handler types:
 Once your backend (and any sibling `-frontend` / `-common` packages) are
 ready, package and publish them so operators can install via the runtime
 Plugin Manager. The full guide - required `package.json` shape, the
-`bunx @checkstack/scripts plugin-pack` CLI, single-package vs `--bundle`
+`bunx @checkstack/scripts@latest plugin-pack` CLI, single-package vs `--bundle`
 mode, npm / GitHub release / GitHub Enterprise / tarball-upload distribution,
 and a copy-paste GitHub Actions workflow - lives in
 [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/).
@@ -1138,15 +1138,17 @@ and a copy-paste GitHub Actions workflow - lives in
 For the dev loop itself, add `@checkstack/dev-server` as a devDependency,
 wire `"dev": "checkstack-dev"` into your `package.json` scripts, and
 run `bun run dev` from your plugin's repo - it boots a local Checkstack
-with your plugin loaded and auth bypassed. (`bunx @checkstack/dev-server`
+with your plugin loaded and auth bypassed. (`bunx @checkstack/dev-server@latest`
 also works as a one-shot before any install.) Full guide:
 [Developing Plugins in Isolation](/checkstack/developer-guide/getting-started/plugin-development/).
 
 Quick checklist before your first release:
 
-1. Add a `pack` script to every package's `package.json`:
+1. Add `@checkstack/scripts` as a devDependency and a `pack` script to every
+   package's `package.json` (the `checkstack-scripts` bin comes from that
+   devDependency and resolves from `node_modules/.bin`):
    ```json
-   "scripts": { "pack": "bunx @checkstack/scripts plugin-pack" }
+   "scripts": { "pack": "checkstack-scripts plugin-pack" }
    ```
 2. Set the required `checkstack` block (`type`, `pluginId`) and standard
    metadata fields (`description`, `author`, `license`).

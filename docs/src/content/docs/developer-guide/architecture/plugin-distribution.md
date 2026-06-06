@@ -66,22 +66,29 @@ A minimal valid package.json:
     "type": "backend",
     "pluginId": "widget"
   },
+  "devDependencies": {
+    "@checkstack/scripts": "^0.4.0"
+  },
   "scripts": {
-    "pack": "bunx @checkstack/scripts plugin-pack"
+    "pack": "checkstack-scripts plugin-pack"
   }
 }
 ```
 
-The `pack` script is the single supported entrypoint. Do not call
-`bun pm pack` directly — `plugin-pack` validates metadata before packing,
-catches issues at build time instead of install time.
+The `pack` script is the single supported entrypoint. It calls the
+`checkstack-scripts` bin from the `@checkstack/scripts` devDependency (resolved
+from `node_modules/.bin`), so a committed script always runs the pinned version
+- not a cache-resolved "latest". Do not call `bun pm pack` directly -
+`plugin-pack` validates metadata before packing, catching issues at build time
+instead of install time.
 
 ## The `plugin-pack` CLI
 
-Install once per machine via npx-style runner:
+For a one-off run without installing, use `bunx` with an explicit `@latest` so
+Bun does not execute a stale cached copy:
 
 ```bash
-bunx @checkstack/scripts plugin-pack --help
+bunx @checkstack/scripts@latest plugin-pack --help
 ```
 
 ```
@@ -331,7 +338,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: latest }
       - run: bun install --frozen-lockfile
-      - run: bunx @checkstack/scripts plugin-pack --bundle
+      - run: bunx @checkstack/scripts@latest plugin-pack --bundle
       - name: Attach bundle to release
         uses: softprops/action-gh-release@v2
         with:
@@ -352,7 +359,7 @@ Lint your `package.json` against the install-time schema in your own CI,
 without pack:
 
 ```bash
-bunx @checkstack/scripts plugin-pack --validate-only
+bunx @checkstack/scripts@latest plugin-pack --validate-only
 ```
 
 Returns non-zero on any schema violation with a per-field error list. We
