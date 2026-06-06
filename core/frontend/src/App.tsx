@@ -207,8 +207,12 @@ function AppContent() {
               mobileOpen={mobileNavOpen}
               onMobileOpenChange={setMobileNavOpen}
             />
-            <main className="flex-1 min-w-0 overflow-y-auto">
-              <div className="px-3 py-4 md:p-8 w-full max-w-7xl mx-auto">
+            <main className="flex flex-1 min-w-0 flex-col overflow-y-auto">
+              {/* `flex-1 min-h-0 flex flex-col` establishes a bounded height
+                  chain so a page can fill the viewport (PageLayout `fillHeight`)
+                  and scroll an inner pane instead of the whole page. Tall normal
+                  pages still overflow into `main`'s scroll (verified). */}
+              <div className="flex flex-1 min-h-0 flex-col px-3 py-4 md:p-8 w-full max-w-7xl mx-auto">
                 <Routes>
             <Route
               path="/"

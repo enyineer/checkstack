@@ -445,8 +445,12 @@ export function ChatPage() {
       title="AI assistant"
       subtitle="Chat with Checkstack's built-in assistant. It can read incidents, health checks, and anomalies, and propose automations for you to confirm."
       icon={Sparkles}
+      fillHeight
     >
-      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4 h-[calc(100vh-220px)]">
+      {/* `flex-1 min-h-0` fills the fillHeight content area (no viewport math),
+          so only the message list scrolls - the page itself never does, even
+          when the subtitle wraps. */}
+      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-4 flex-1 min-h-0">
         {/* Conversation sidebar */}
         <Card className="overflow-hidden flex flex-col">
           <CardContent className="p-2 flex flex-col gap-2 overflow-y-auto">

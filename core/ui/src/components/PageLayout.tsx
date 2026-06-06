@@ -7,6 +7,7 @@ import {
   LoadingSpinner,
   AccessDenied,
 } from "..";
+import { cn } from "../utils";
 
 interface PageLayoutProps {
   title: string;
@@ -16,6 +17,15 @@ interface PageLayoutProps {
   loading?: boolean;
   allowed?: boolean;
   children: React.ReactNode;
+  /**
+   * Make the content area fill the viewport height instead of growing with its
+   * content. The page's own children then own their scrolling (e.g. a chat
+   * message list), so the page itself never scrolls. Use for full-height app
+   * surfaces (chat, canvases); leave off for normal document-flow pages, which
+   * scroll the main area as usual. Relies on the bounded height chain in
+   * core/frontend's App shell.
+   */
+  fillHeight?: boolean;
   maxWidth?:
     | "sm"
     | "md"
@@ -38,6 +48,7 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
   loading,
   allowed,
   children,
+  fillHeight = false,
   maxWidth = "7xl",
 }) => {
   // If loading is explicitly true, show loading state
@@ -82,18 +93,23 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
   }
 
   return (
-    <Page>
+    <Page className={fillHeight ? "min-h-0" : undefined}>
       <PageHeader
         title={title}
         subtitle={subtitle}
         icon={icon}
         actions={actions}
       />
-      <PageContent>
+      <PageContent
+        className={fillHeight ? "flex min-h-0 flex-col" : undefined}
+      >
         <div
-          className={
-            maxWidth === "full" ? "space-y-6" : `max-w-${maxWidth} space-y-6`
-          }
+          className={cn(
+            maxWidth === "full" ? undefined : `max-w-${maxWidth}`,
+            // fillHeight: fill the bounded content area and let children scroll.
+            // Otherwise: normal document flow with vertical rhythm.
+            fillHeight ? "flex min-h-0 flex-1 flex-col" : "space-y-6",
+          )}
         >
           {children}
         </div>
