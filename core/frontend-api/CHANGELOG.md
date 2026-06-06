@@ -1,5 +1,34 @@
 # @checkstack/frontend-api
 
+## 0.8.0
+
+### Minor Changes
+
+- fb705df: Upgrade React 18 to React 19 across the platform.
+
+  **BREAKING (runtime frontend plugins):** React is shared as a Module Federation
+  singleton, so the host now provides **React 19** to every runtime plugin.
+  Frontend plugins built against React 18 must be rebuilt against React 19
+  (`react` / `react-dom` `^19`). The scaffold templates and the host/plugin MF
+  `requiredVersion` are updated to `^19`. `react` (and now `react-dom`) are pinned
+  to a single version across the workspace via syncpack so the singleton can never
+  skew (react and react-dom must match exactly).
+
+  The React 19 removed-API surface was audited - the codebase used only no-arg
+  `useRef()` (now `useRef<T | undefined>(undefined)`); no `ReactDOM.render`,
+  legacy context, string refs, or function-component `defaultProps`. This also
+  clears the `IMPORT_IS_UNDEFINED` build warnings for `React.use` /
+  `React.useOptimistic` (react-router 7 feature-detection), which React 19 exports.
+
+  The downstream `*-frontend` packages (and `@checkstack/infrastructure-common`)
+  receive only the mechanical `react` dependency bump (`patch`); the framework
+  packages carrying the shared-singleton change are bumped `minor`.
+
+### Patch Changes
+
+- @checkstack/common@0.14.1
+- @checkstack/signal-common@0.2.8
+
 ## 0.7.2
 
 ### Patch Changes

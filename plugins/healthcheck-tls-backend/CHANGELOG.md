@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-tls-backend
 
+## 0.2.27
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.3
+- @checkstack/common@0.14.1
+- @checkstack/healthcheck-common@1.5.3
+
 ## 0.2.26
 
 ### Patch Changes

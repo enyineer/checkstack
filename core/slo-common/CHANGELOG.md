@@ -1,5 +1,14 @@
 # @checkstack/slo-common
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [fb705df]
+  - @checkstack/frontend-api@0.8.0
+  - @checkstack/common@0.14.1
+  - @checkstack/signal-common@0.2.8
+
 ## 0.5.2
 
 ### Patch Changes

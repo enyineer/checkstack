@@ -1,5 +1,12 @@
 # create-checkstack-plugin
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [fb705df]
+  - @checkstack/scripts@0.6.0
+
 ## 0.1.4
 
 ### Patch Changes

@@ -1,5 +1,19 @@
 # @checkstack/backend
 
+## 0.17.1
+
+### Patch Changes
+
+- @checkstack/api-docs-common@0.1.18
+- @checkstack/auth-common@0.8.2
+- @checkstack/backend-api@0.21.3
+- @checkstack/cache-api@0.3.11
+- @checkstack/common@0.14.1
+- @checkstack/pluginmanager-common@0.2.7
+- @checkstack/queue-api@0.3.11
+- @checkstack/signal-backend@0.3.3
+- @checkstack/signal-common@0.2.8
+
 ## 0.17.0
 
 ### Minor Changes

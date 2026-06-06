@@ -1,5 +1,14 @@
 # @checkstack/theme-backend
 
+## 0.2.3
+
+### Patch Changes
+
+- @checkstack/auth-backend@0.5.3
+- @checkstack/backend-api@0.21.3
+- @checkstack/common@0.14.1
+- @checkstack/theme-common@0.2.2
+
 ## 0.2.2
 
 ### Patch Changes

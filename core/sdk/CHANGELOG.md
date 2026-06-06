@@ -1,5 +1,33 @@
 # @checkstack/sdk
 
+## 0.98.1
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.3
+- @checkstack/dependency-common@1.2.3
+- @checkstack/incident-common@1.4.3
+- @checkstack/maintenance-common@1.4.3
+- @checkstack/slo-common@0.5.3
+- @checkstack/announcement-common@0.5.2
+- @checkstack/anomaly-common@1.3.3
+- @checkstack/auth-common@0.8.2
+- @checkstack/automation-common@0.4.2
+- @checkstack/cache-common@0.5.2
+- @checkstack/command-common@0.3.2
+- @checkstack/common@0.14.1
+- @checkstack/gitops-common@0.6.2
+- @checkstack/healthcheck-common@1.5.3
+- @checkstack/integration-common@0.7.2
+- @checkstack/notification-common@1.3.2
+- @checkstack/pluginmanager-common@0.2.7
+- @checkstack/queue-common@0.6.2
+- @checkstack/satellite-common@0.8.3
+- @checkstack/script-packages-common@0.3.2
+- @checkstack/secrets-common@0.2.2
+- @checkstack/theme-common@0.2.2
+- @checkstack/tips-common@0.3.2
+
 ## 0.96.1
 
 ### Patch Changes

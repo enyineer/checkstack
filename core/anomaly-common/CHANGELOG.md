@@ -1,5 +1,14 @@
 # @checkstack/anomaly-common
 
+## 1.3.3
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.3
+- @checkstack/common@0.14.1
+- @checkstack/notification-common@1.3.2
+- @checkstack/signal-common@0.2.8
+
 ## 1.3.2
 
 ### Patch Changes

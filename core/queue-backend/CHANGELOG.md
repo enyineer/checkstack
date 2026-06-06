@@ -1,5 +1,14 @@
 # @checkstack/queue-backend
 
+## 0.4.3
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.3
+- @checkstack/common@0.14.1
+- @checkstack/queue-api@0.3.11
+- @checkstack/queue-common@0.6.2
+
 ## 0.4.2
 
 ### Patch Changes
