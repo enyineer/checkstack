@@ -40,5 +40,26 @@ export default defineConfig({
       },
     }),
   ],
-  build: { target: "esnext", outDir: "dist", emptyOutDir: true, minify: true },
+  build: {
+    target: "esnext",
+    outDir: "dist",
+    emptyOutDir: true,
+    minify: true,
+    rollupOptions: {
+      // Externalise the Monaco / VS Code editor stack that @checkstack/ui's
+      // CodeEditor pulls in. It needs a `vscode` resolve alias + ES-module
+      // workers to bundle (which the host configures), so a plugin build would
+      // otherwise fail on `require("vscode")`. CodeEditor is lazy in
+      // @checkstack/ui, so a plugin that does not render it never loads these
+      // chunks. (First-class CodeEditor support in plugins is a future step.)
+      external: [
+        "vscode",
+        /^@codingame\//,
+        /^@typefox\//,
+        "monaco-languageclient",
+        /^vscode-/,
+        /^monaco-editor/,
+      ],
+    },
+  },
 });
