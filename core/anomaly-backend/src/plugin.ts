@@ -58,9 +58,16 @@ export const plugin = createBackendPlugin({
       procedure: anomalyContract.getAnomalies,
       sourcePluginMetadata: pluginMetadata,
       procedureKey: "getAnomalies",
-      name: "anomaly.explain",
+      name: "anomaly.list",
       description:
-        "List detected anomalies (statistical sigma/drift) for context. Read-only.",
+        "List detected anomalies (statistical spikes / drift). Read-only. " +
+        "All filters are OPTIONAL - call with no arguments to list every " +
+        "anomaly, or narrow with: systemId (a system UUID from the catalog " +
+        "tool, never a system name), state (one of: suspicious, anomaly, " +
+        "recovered), kind (one of: spike, drift), suppression (one of: " +
+        "active, suppressed, all). Each result includes the anomaly's id and " +
+        "systemId. There is no per-anomaly 'explain' call - read the returned " +
+        "rows directly.",
       effect: "read",
       execute: deferredProjectionExecute,
     });

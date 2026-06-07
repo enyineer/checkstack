@@ -5,20 +5,19 @@ import {
 } from "@checkstack/ai-backend";
 import { anomalyContract, pluginMetadata } from "@checkstack/anomaly-common";
 
-describe("anomaly AI projection (anomaly.explain)", () => {
+describe("anomaly AI projection (anomaly.list)", () => {
   test("projects getAnomalies as a read-only tool with the source procedure's access rules", () => {
     const tool = buildProjectedTool({
       procedure: anomalyContract.getAnomalies,
       sourcePluginMetadata: pluginMetadata,
       procedureKey: "getAnomalies",
-      name: "anomaly.explain",
-      description:
-        "List detected anomalies (statistical sigma/drift) for context. Read-only.",
+      name: "anomaly.list",
+      description: "List detected anomalies (statistical spikes / drift).",
       effect: "read",
       execute: deferredProjectionExecute,
     });
 
-    expect(tool.name).toBe("anomaly.explain");
+    expect(tool.name).toBe("anomaly.list");
     expect(tool.effect).toBe("read");
 
     // The projection inherits the source procedure's gating — it must NOT

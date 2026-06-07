@@ -259,7 +259,9 @@ export default createBackendPlugin({
           procedureKey: "getConfigurations",
           name: "healthcheck.status",
           description:
-            "List health-check configurations and their current status. Read-only.",
+            "List systems' health checks and their current status, including " +
+            "which are failing/unhealthy. Use this when asked what is down, " +
+            "failing, or unhealthy. Read-only.",
           effect: "read",
           execute: deferredProjectionExecute,
         });
