@@ -1,5 +1,13 @@
 # @checkstack/satellite
 
+## 0.5.7
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.6
+- @checkstack/satellite-common@0.8.5
+- @checkstack/script-packages-backend@0.3.7
+
 ## 0.5.6
 
 ### Patch Changes

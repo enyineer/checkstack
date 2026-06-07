@@ -1,5 +1,53 @@
 # @checkstack/maintenance-backend
 
+## 1.5.0
+
+### Minor Changes
+
+- 0b6f01b: feat(ai): add the system.issues aggregator tool and system-signals extension point
+
+  `ai-backend` gains a new read tool, `system.issues`, that returns ALL current
+  system issues - failing health checks, breaching or at-risk SLOs, active
+  anomalies, open incidents, active maintenances, and dependency problems -
+  aggregated across every system in ONE call. The assistant is steered to reach
+  for it FIRST whenever asked whether there are issues, what is down, or for an
+  overall health overview, instead of polling each per-domain tool. The tool is
+  gated by `catalog.system.read`.
+
+  The tool owns no domain knowledge. A new backend `systemSignalsExtensionPoint`
+  lets any plugin register ONE `SystemSignalsContributor` from its own `init`; the
+  tool fans out across every contributor and merges their per-system maps. Each
+  contributor enforces its OWN per-source access gate - returning an empty map
+  (never throwing) when the principal lacks access - and reads from shared, durable
+  storage so the answer is identical on every pod. `ai-backend` imports no
+  capability plugin's `*-common` to collect signals; the dependency direction stays
+  plugin -> `@checkstack/ai-backend`.
+
+  The maintenance plugin now registers a `system.issues` contributor (sourceId
+  `maintenance`) from its backend `init`, surfacing in-progress maintenances
+  alongside the other sources. The contributor enforces its own
+  `maintenance.read` gate and reads active maintenances for all systems globally
+  via a new `getActiveMaintenancesBySystem` service method. The row->signal mapping
+  is extracted into a new pure `deriveMaintenanceSignals` deriver in
+  `@checkstack/maintenance-common`, shared by the backend contributor and the
+  frontend `MaintenanceSignalsFiller` so the two surfaces stay in lockstep.
+
+  The new `systemSignalsExtensionPoint`, `SystemSignalsContributor`,
+  `SystemSignalsExtensionPoint`, and the `system.issues` tool factory plus its
+  pure helpers (`mergeSystemSignalsMaps`, `collectSystemSignals`,
+  `toSystemIssuesOutput`, schemas) are exported from `@checkstack/ai-backend`.
+
+### Patch Changes
+
+- Updated dependencies [dbb76a2]
+- Updated dependencies [0b6f01b]
+  - @checkstack/ai-backend@0.3.0
+  - @checkstack/maintenance-common@1.5.0
+  - @checkstack/automation-backend@0.5.8
+  - @checkstack/catalog-backend@1.4.8
+  - @checkstack/backend-api@0.21.6
+  - @checkstack/command-backend@0.2.6
+
 ## 1.4.7
 
 ### Patch Changes

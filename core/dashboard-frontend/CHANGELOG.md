@@ -1,5 +1,16 @@
 # @checkstack/dashboard-frontend
 
+## 0.8.6
+
+### Patch Changes
+
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+  - @checkstack/healthcheck-common@1.6.0
+  - @checkstack/incident-common@1.5.0
+  - @checkstack/maintenance-common@1.5.0
+
 ## 0.8.5
 
 ### Patch Changes

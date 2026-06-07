@@ -1,5 +1,20 @@
 # @checkstack/satellite-backend
 
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [dbb76a2]
+- Updated dependencies [0b6f01b]
+  - @checkstack/healthcheck-backend@1.7.0
+  - @checkstack/healthcheck-common@1.6.0
+  - @checkstack/automation-backend@0.5.8
+  - @checkstack/backend-api@0.21.6
+  - @checkstack/satellite-common@0.8.5
+  - @checkstack/script-packages-backend@0.3.7
+  - @checkstack/gitops-backend@0.5.6
+  - @checkstack/secrets-backend@0.2.6
+
 ## 0.6.7
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @checkstack/script-packages-store-s3
 
+## 0.2.9
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.6
+- @checkstack/script-packages-backend@0.3.7
+
 ## 0.2.8
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @checkstack/satellite-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- @checkstack/satellite-common@0.8.5
+
 ## 0.4.5
 
 ### Patch Changes

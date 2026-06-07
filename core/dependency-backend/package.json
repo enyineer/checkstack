@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dependency-backend",
-  "version": "1.4.7",
+  "version": "1.5.0",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",

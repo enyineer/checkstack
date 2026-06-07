@@ -1,5 +1,78 @@
 # @checkstack/ai-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 0b6f01b: feat(ai): add the system.issues aggregator tool and system-signals extension point
+
+  `ai-backend` gains a new read tool, `system.issues`, that returns ALL current
+  system issues - failing health checks, breaching or at-risk SLOs, active
+  anomalies, open incidents, active maintenances, and dependency problems -
+  aggregated across every system in ONE call. The assistant is steered to reach
+  for it FIRST whenever asked whether there are issues, what is down, or for an
+  overall health overview, instead of polling each per-domain tool. The tool is
+  gated by `catalog.system.read`.
+
+  The tool owns no domain knowledge. A new backend `systemSignalsExtensionPoint`
+  lets any plugin register ONE `SystemSignalsContributor` from its own `init`; the
+  tool fans out across every contributor and merges their per-system maps. Each
+  contributor enforces its OWN per-source access gate - returning an empty map
+  (never throwing) when the principal lacks access - and reads from shared, durable
+  storage so the answer is identical on every pod. `ai-backend` imports no
+  capability plugin's `*-common` to collect signals; the dependency direction stays
+  plugin -> `@checkstack/ai-backend`.
+
+  The maintenance plugin now registers a `system.issues` contributor (sourceId
+  `maintenance`) from its backend `init`, surfacing in-progress maintenances
+  alongside the other sources. The contributor enforces its own
+  `maintenance.read` gate and reads active maintenances for all systems globally
+  via a new `getActiveMaintenancesBySystem` service method. The row->signal mapping
+  is extracted into a new pure `deriveMaintenanceSignals` deriver in
+  `@checkstack/maintenance-common`, shared by the backend contributor and the
+  frontend `MaintenanceSignalsFiller` so the two surfaces stay in lockstep.
+
+  The new `systemSignalsExtensionPoint`, `SystemSignalsContributor`,
+  `SystemSignalsExtensionPoint`, and the `system.issues` tool factory plus its
+  pure helpers (`mergeSystemSignalsMaps`, `collectSystemSignals`,
+  `toSystemIssuesOutput`, schemas) are exported from `@checkstack/ai-backend`.
+
+### Patch Changes
+
+- dbb76a2: fix(ai): guide the assistant to find all issues and fix the anomaly tool
+
+  Two assistant problems reported in production:
+
+  1. Asked "are there any issues?", the model answered from a single source (an
+     SLO breach) and missed a system with a failing health check. The chat
+     system prompt now instructs the model to check ALL issue sources before
+     answering - failing health checks (`healthcheck_status`), breaching/at-risk
+     SLOs (`slo_listObjectives`), active anomalies (`anomaly_list`), and open
+     incidents (`incident_list`) - and not to stop after the first source. It
+     also tells the model that `systemId` must be a real system UUID (resolve a
+     name via the catalog tool first) and to never invent ids or filter values.
+
+  2. The anomaly tool was named `anomaly.explain` but actually LISTS anomalies
+     with optional filters. The misleading name led the model to pass a
+     non-existent filter value ("Type validation failed") and a system
+     name/anomaly id as `systemId` ("a value was malformed"). Renamed to
+     `anomaly.list` with a description that spells out the optional filters and
+     their valid enum values (state: suspicious|anomaly|recovered, kind:
+     spike|drift, suppression: active|suppressed|all) and that `systemId` is a
+     system UUID.
+
+  Also sharpened the `healthcheck.status` and `slo.listObjectives` tool
+  descriptions to be use-case oriented ("use when asked what is failing /
+  breaching").
+
+  BREAKING: the anomaly read tool's name changes from `anomaly_explain` to
+  `anomaly_list` over the MCP `tools/list` surface. MCP clients referencing it by
+  the old name must update.
+
+  - @checkstack/sdk@0.103.1
+  - @checkstack/backend-api@0.21.6
+  - @checkstack/integration-backend@0.4.6
+
 ## 0.2.0
 
 ### Minor Changes

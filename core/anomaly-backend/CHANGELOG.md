@@ -1,5 +1,74 @@
 # @checkstack/anomaly-backend
 
+## 1.3.0
+
+### Minor Changes
+
+- dbb76a2: fix(ai): guide the assistant to find all issues and fix the anomaly tool
+
+  Two assistant problems reported in production:
+
+  1. Asked "are there any issues?", the model answered from a single source (an
+     SLO breach) and missed a system with a failing health check. The chat
+     system prompt now instructs the model to check ALL issue sources before
+     answering - failing health checks (`healthcheck_status`), breaching/at-risk
+     SLOs (`slo_listObjectives`), active anomalies (`anomaly_list`), and open
+     incidents (`incident_list`) - and not to stop after the first source. It
+     also tells the model that `systemId` must be a real system UUID (resolve a
+     name via the catalog tool first) and to never invent ids or filter values.
+
+  2. The anomaly tool was named `anomaly.explain` but actually LISTS anomalies
+     with optional filters. The misleading name led the model to pass a
+     non-existent filter value ("Type validation failed") and a system
+     name/anomaly id as `systemId` ("a value was malformed"). Renamed to
+     `anomaly.list` with a description that spells out the optional filters and
+     their valid enum values (state: suspicious|anomaly|recovered, kind:
+     spike|drift, suppression: active|suppressed|all) and that `systemId` is a
+     system UUID.
+
+  Also sharpened the `healthcheck.status` and `slo.listObjectives` tool
+  descriptions to be use-case oriented ("use when asked what is failing /
+  breaching").
+
+  BREAKING: the anomaly read tool's name changes from `anomaly_explain` to
+  `anomaly_list` over the MCP `tools/list` surface. MCP clients referencing it by
+  the old name must update.
+
+- 0b6f01b: feat(anomaly): contribute anomaly signals to the backend system.issues aggregator
+
+  The anomaly plugin now registers a `system.issues` contributor (sourceId
+  `anomaly`) from its backend `init`, so the AI assistant surfaces confirmed
+  anomalies and suspicious states alongside incidents, SLOs, health checks, and
+  dependency problems.
+
+  The contributor enforces its own `anomaly_feed.read` access gate (returning an
+  empty map - never throwing - when the principal lacks access; service users are
+  trusted), then reads the current problem rows for every system from the shared,
+  durable `anomalies` table via a new global `getActiveSignalAnomalies` service
+  method (state = anomaly | suspicious, suppressed rows excluded). The answer is
+  therefore identical on every pod, and only systems with a current problem appear
+  in the result.
+
+  The row->signal mapping (source/tone/label/detail/href/accessRule/iconName) is
+  extracted into a new pure `deriveAnomalySignals` deriver in
+  `@checkstack/anomaly-common`, shared by both the backend contributor and the
+  frontend `AnomalySignalsFiller` so the two surfaces stay in lockstep. The
+  frontend filler now delegates to that deriver with unchanged behavior.
+
+### Patch Changes
+
+- Updated dependencies [dbb76a2]
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+  - @checkstack/ai-backend@0.3.0
+  - @checkstack/healthcheck-backend@1.7.0
+  - @checkstack/anomaly-common@1.4.0
+  - @checkstack/healthcheck-common@1.6.0
+  - @checkstack/catalog-backend@1.4.8
+  - @checkstack/backend-api@0.21.6
+  - @checkstack/gitops-backend@0.5.6
+
 ## 1.2.7
 
 ### Patch Changes

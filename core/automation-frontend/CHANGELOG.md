@@ -1,5 +1,11 @@
 # @checkstack/automation-frontend
 
+## 0.4.7
+
+### Patch Changes
+
+- @checkstack/script-packages-frontend@0.3.7
+
 ## 0.4.6
 
 ### Patch Changes
