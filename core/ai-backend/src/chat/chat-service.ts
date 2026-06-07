@@ -38,8 +38,10 @@ import {
   type ConfirmCardResult,
   type AutoAppliedResult,
   type DuplicateToolCallResult,
+  type ValidationFeedbackResult,
   type AgentToolCallbacks,
 } from "./sdk-tools";
+import { ToolValidationError } from "../propose-apply/validation-error";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
@@ -156,6 +158,33 @@ function turnKey({
   input: unknown;
 }): string {
   return `${tool.name}:${hashToolArgs(input)}`;
+}
+
+/**
+ * Turn a {@link ToolValidationError} thrown by a tool's `dryRun` into a
+ * model-facing tool result, so the structured issues reach the MODEL (which can
+ * fix them and re-propose) instead of leaking to the operator as a raw stream
+ * error with the proposal lost. The turn-dedup key is deliberately NOT recorded
+ * for this case, so the corrected retry is allowed.
+ */
+function toValidationFeedback({
+  toolName,
+  error,
+}: {
+  toolName: string;
+  error: ToolValidationError;
+}): ValidationFeedbackResult {
+  return {
+    __validationFailed: true,
+    toolName,
+    issues: error.issues,
+    note:
+      "Your drafted input did not validate. Fix EVERY issue listed above, then " +
+      "call this tool again with the corrected input. Do NOT tell the operator " +
+      "the change is done - nothing has been proposed or applied yet. If an " +
+      "issue is unclear or you are missing a value, ask the operator instead of " +
+      "guessing.",
+  };
 }
 
 /** Audit-key a chat principal (chat is RealUser-only; services are refused). */
@@ -333,14 +362,25 @@ export function buildChatToolCallbacks({
         };
         return duplicate;
       }
-      const proposal = await proposeApply.propose({
-        principal: proposePrincipal,
-        toolName: tool.name,
-        input: toolInput,
-        transport: "chat",
-        conversationId,
-        rpcClient,
-      });
+      let proposal;
+      try {
+        proposal = await proposeApply.propose({
+          principal: proposePrincipal,
+          toolName: tool.name,
+          input: toolInput,
+          transport: "chat",
+          conversationId,
+          rpcClient,
+        });
+      } catch (error) {
+        // Semantic validation failure: feed the issues back to the model to
+        // self-correct rather than surfacing a raw error to the operator. The
+        // turn-key is NOT recorded, so the corrected retry is allowed.
+        if (error instanceof ToolValidationError) {
+          return toValidationFeedback({ toolName: tool.name, error });
+        }
+        throw error;
+      }
       handledThisTurn.add(key);
       const card: ConfirmCardResult = {
         __confirm: true,
@@ -381,14 +421,25 @@ export function buildChatToolCallbacks({
         };
         return duplicate;
       }
-      const proposal = await proposeApply.propose({
-        principal: applyPrincipal,
-        toolName: tool.name,
-        input: toolInput,
-        transport: "chat",
-        conversationId,
-        rpcClient,
-      });
+      let proposal;
+      try {
+        proposal = await proposeApply.propose({
+          principal: applyPrincipal,
+          toolName: tool.name,
+          input: toolInput,
+          transport: "chat",
+          conversationId,
+          rpcClient,
+        });
+      } catch (error) {
+        // Same self-correction loop as the propose path: a validation failure
+        // becomes model-facing feedback, never a silent auto-apply of a broken
+        // draft or a raw error to the operator.
+        if (error instanceof ToolValidationError) {
+          return toValidationFeedback({ toolName: tool.name, error });
+        }
+        throw error;
+      }
       const applied = await proposeApply.apply({
         principal: applyPrincipal,
         token: proposal.token,
@@ -559,7 +610,10 @@ export function createChatService({
 
     const result = streamText({
       model: languageModel,
-      system: buildChatSystemPrompt({ timeZone }),
+      system: buildChatSystemPrompt({
+        timeZone,
+        mode: conversation.permissionMode,
+      }),
       // Defensively normalize: drop empty-content rows and merge consecutive
       // same-role messages so a failed prior turn (which persists no assistant
       // reply, leaving consecutive `user` rows) cannot poison the history into a

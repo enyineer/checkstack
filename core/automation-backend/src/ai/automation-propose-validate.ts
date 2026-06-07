@@ -112,8 +112,18 @@ async function collectProposeConnectionIssues({
     }
   } catch {
     // Without the action catalog we cannot tell which actions are
-    // connection-backed; skip rather than emit misleading issues.
-    return [];
+    // connection-backed, so the connectionId check is skipped entirely. Surface
+    // that as a soft "could not verify" issue rather than returning [] - a
+    // silently dropped check reads as "all connections valid" and lets a
+    // fabricated connectionId through. The soft issue still blocks the proposal,
+    // so the model retries instead of the gap being invisible.
+    return [
+      {
+        path: ["definition"],
+        message:
+          "Could not verify connectionId references - the action catalog could not be listed. Retry, or call automation.listConnections to confirm each integration action's connectionId exists.",
+      },
+    ];
   }
 
   const resolveConnectionProviderId: ResolveConnectionProviderId = (actionId) =>

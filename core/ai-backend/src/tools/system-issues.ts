@@ -13,9 +13,23 @@ import type { RegisteredAiTool } from "../tool-registry";
 export const SystemIssuesInputSchema = z.object({
   /**
    * When provided, only signals for these system ids are returned. Omit to get
-   * issues across ALL systems the principal can see.
+   * issues across ALL systems the principal can see. The `.describe()` is the
+   * model-facing contract (the JSDoc is not serialized): a system id is a UUID
+   * from `catalog_listSystems`, never a system name - passing a name silently
+   * matches nothing and reads as a false "no issues".
    */
-  systemIds: z.array(z.string()).optional(),
+  systemIds: z
+    .array(
+      z
+        .string()
+        .describe(
+          "A system UUID exactly as returned by catalog_listSystems - never a system name.",
+        ),
+    )
+    .optional()
+    .describe(
+      "Optional system UUIDs (from catalog_listSystems) to narrow the answer. If the operator names a system, resolve the name to its id first; omit to cover all systems you can see.",
+    ),
 });
 export type SystemIssuesInput = z.infer<typeof SystemIssuesInputSchema>;
 
@@ -186,7 +200,7 @@ export function createSystemIssuesTool({
   return {
     name: "system.issues",
     description:
-      "Return ALL current system issues - failing health checks, breaching or at-risk SLOs, active anomalies, open incidents, active maintenances, and dependency problems - aggregated across every system in ONE call. Use this FIRST whenever asked whether there are any issues, what is wrong, what is down, or for an overall health overview, before reaching for any per-domain tool. Read-only. Optionally pass systemIds to narrow the answer to specific systems. The result lists `checkedSources`, plus `inaccessibleSources` (you lack permission to read these - they were NOT checked, so do not report them as clear) and `failedSources` (errored). If either is non-empty, tell the operator those sources could not be checked.",
+      "Return ALL current system issues - failing health checks, breaching or at-risk SLOs, active anomalies, open incidents, active maintenances, and dependency problems - aggregated across every system in ONE call. Use this FIRST whenever asked whether there are any issues, what is wrong, what is down, or for an overall health overview, before reaching for any per-domain tool. Read-only. Optionally pass systemIds to narrow the answer; each MUST be a system UUID from catalog_listSystems, not a name (a name matches nothing and looks like 'no issues'), so resolve a named system to its id first. The result lists `checkedSources`, plus `inaccessibleSources` (you lack permission to read these - they were NOT checked, so do not report them as clear) and `failedSources` (errored). If either is non-empty, tell the operator those sources could not be checked.",
     effect: "read",
     input: SystemIssuesInputSchema,
     output: SystemIssuesOutputSchema,

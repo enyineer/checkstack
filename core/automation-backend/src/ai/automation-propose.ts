@@ -11,7 +11,7 @@ import {
 } from "@checkstack/automation-common";
 import { z } from "zod";
 import type { AiProposalPreview } from "@checkstack/ai-common";
-import type { RegisteredAiTool } from "@checkstack/ai-backend";
+import { ToolValidationError, type RegisteredAiTool } from "@checkstack/ai-backend";
 import { collectProposeIssues } from "./automation-propose-validate";
 
 /**
@@ -38,7 +38,7 @@ export const AutomationProposeInputSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Application (service account) id the automation runs as. The user must be allowed to bind it.",
+      "Service account (application) id the automation runs as, taken VERBATIM from automation.listServiceAccounts. Never invent one (e.g. \"system\"/\"admin\" are not service accounts). The user must be allowed to bind it.",
     ),
 });
 
@@ -47,16 +47,6 @@ export type AutomationProposeInput = z.infer<typeof AutomationProposeInputSchema
 /** Output returned once a human applies the proposal (the created automation). */
 export interface AutomationProposeApplyResult {
   automation: Automation;
-}
-
-class AutomationProposeValidationError extends Error {
-  constructor(
-    message: string,
-    public readonly issues: Array<{ path: Array<string | number>; message: string }>,
-  ) {
-    super(message);
-    this.name = "AutomationProposeValidationError";
-  }
 }
 
 /**
@@ -98,7 +88,7 @@ export function createAutomationProposeTool(): RegisteredAiTool<
     ]);
     const errors = [...validation.errors, ...proposeIssues];
     if (errors.length > 0) {
-      throw new AutomationProposeValidationError(
+      throw new ToolValidationError(
         "The drafted automation is invalid.",
         errors,
       );

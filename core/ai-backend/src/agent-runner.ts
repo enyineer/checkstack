@@ -31,7 +31,10 @@ import {
 } from "ai";
 import { z } from "zod";
 import { toModelSchema } from "./chat/model-schema";
-import { buildDateTimeContext } from "./chat/system-prompt";
+import {
+  buildDateTimeContext,
+  buildHeadlessSystemPrompt,
+} from "./chat/system-prompt";
 import {
   createServiceRef,
   type AuthUser,
@@ -48,13 +51,14 @@ import { deferredProjectionExecute } from "./projection";
 
 const DEFAULT_MAX_STEPS = 8;
 
-const DEFAULT_SYSTEM_PROMPT = [
-  "You are an automation agent acting UNATTENDED - there is no human to ask.",
-  "You run with a bounded service account; you can only do what its permissions allow.",
-  "Use the available tools to investigate and act decisively on the task.",
-  "If a tool call is refused, do not retry it - work within your permissions.",
-  "Never attempt destructive actions. Be concise.",
-].join(" ");
+/**
+ * How many times the structured-output pass re-prompts the model after its
+ * output fails the author's schema before giving up. The validated artifact
+ * contract is non-negotiable (a malformed object must never reach a downstream
+ * `choose`/`condition`), but a near-miss is usually recoverable - so we feed the
+ * failure back and let the model self-correct rather than hard-failing the step.
+ */
+const MAX_OUTPUT_REPAIR_ATTEMPTS = 2;
 
 /** One tool invocation outcome, surfaced in the action's artifact for audit. */
 export interface AgentTaskToolCall {
@@ -246,7 +250,10 @@ export function createAgentRunner({
     const dateContext = buildDateTimeContext({ audience: "headless" });
     const { text } = await gen({
       model: languageModel,
-      system: `${systemPrompt ?? DEFAULT_SYSTEM_PROMPT} ${dateContext}`,
+      // The non-negotiable headless baseline plus any author override (appended,
+      // never substituted), so an override can add task framing but can never
+      // drop a boundary/safety line - then the live date/time context.
+      system: `${buildHeadlessSystemPrompt({ override: systemPrompt })} ${dateContext}`,
       prompt,
       tools: sdkTools,
       stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
@@ -254,19 +261,69 @@ export function createAgentRunner({
 
     let object: unknown;
     if (outputSchema) {
-      const res = await genObj({
-        model: languageModel,
-        // Same single model-boundary date handling as the tool path: the
-        // structured-output schema's dates must serialize AND the model's ISO
-        // strings coerce back to Date.
-        schema: toModelSchema(outputSchema),
-        system:
-          "Produce the structured result from the analysis below. Use only information present in it; do not invent values.",
-        prompt: `Task: ${prompt}\n\n--- Analysis ---\n${text}`,
+      object = await generateStructuredWithRepair({
+        genObj,
+        languageModel,
+        outputSchema,
+        taskPrompt: prompt,
+        analysis: text,
       });
-      object = res.object;
     }
 
     return { text, object, toolCalls };
   };
+}
+
+/**
+ * Run the structured-output pass with a bounded self-correction loop: if the
+ * model's output fails the schema, feed the validation error back and retry up
+ * to {@link MAX_OUTPUT_REPAIR_ATTEMPTS} times before giving up. This closes the
+ * feedback loop so a recoverable near-miss (e.g. an enum value just outside the
+ * allowed set) self-corrects instead of failing the whole action - while the
+ * schema contract still holds: after the retries are exhausted the last error
+ * propagates and the step fails rather than emitting a malformed artifact.
+ *
+ * We retry on ANY thrown error (bounded), feeding its message back as guidance:
+ * a schema mismatch is by far the dominant `generateObject` failure, and harm-
+ * lessly re-attempting a transient fault a couple of times is acceptable. The
+ * final failure is re-thrown for the caller (the AI action) to surface.
+ */
+async function generateStructuredWithRepair({
+  genObj,
+  languageModel,
+  outputSchema,
+  taskPrompt,
+  analysis,
+}: {
+  genObj: typeof generateObject;
+  languageModel: LanguageModel;
+  outputSchema: z.ZodType;
+  taskPrompt: string;
+  analysis: string;
+}): Promise<unknown> {
+  // Same single model-boundary date handling as the tool path: the schema's
+  // dates must serialize AND the model's ISO strings coerce back to Date.
+  const schema = toModelSchema(outputSchema);
+  const baseSystem =
+    "Produce the structured result from the analysis below. Use only information present in it; do not invent values.";
+  let repairNote = "";
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= MAX_OUTPUT_REPAIR_ATTEMPTS; attempt++) {
+    try {
+      const res = await genObj({
+        model: languageModel,
+        schema,
+        system: `${baseSystem}${repairNote}`,
+        prompt: `Task: ${taskPrompt}\n\n--- Analysis ---\n${analysis}`,
+      });
+      return res.object;
+    } catch (error) {
+      lastError = error;
+      repairNote = ` Your previous output was rejected: ${extractErrorMessage(
+        error,
+      )}. Return ONLY a value that exactly matches the required schema.`;
+    }
+  }
+  throw lastError;
 }

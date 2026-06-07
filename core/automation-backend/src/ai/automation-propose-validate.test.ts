@@ -166,4 +166,34 @@ describe("collectProposeIssues — connectionId", () => {
     });
     expect(issues).toEqual([]);
   });
+
+  test("emits a soft note (not silent skip) when the action catalog fails to load", async () => {
+    const input = makeInput({
+      definition: {
+        ...makeInput().definition,
+        actions: [
+          {
+            id: "open_issue",
+            action: "integration-jira.create_issue",
+            config: { connectionId: "made-up" },
+            enabled: true,
+            continue_on_error: false,
+          },
+        ],
+      },
+    });
+    const issues = await collectProposeIssues({
+      input,
+      rpcClient: fakeRpcClient({
+        // The catalog read fails, so we cannot tell which actions are
+        // connection-backed. The check must NOT silently pass (which would let
+        // the fabricated "made-up" connectionId through) - it must surface a
+        // soft "could not verify" issue that still blocks the proposal.
+        listActions: mock(() => Promise.reject(new Error("FORBIDDEN"))),
+      }),
+    });
+    const issue = issues.find((i) => /Could not verify connectionId/.test(i.message));
+    expect(issue).toBeDefined();
+    expect(issue?.message).toMatch(/automation\.listConnections/);
+  });
 });

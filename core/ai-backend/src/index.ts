@@ -498,6 +498,10 @@ export {
   type ProposalDescription,
 } from "./propose-apply/service";
 export {
+  ToolValidationError,
+  type ToolValidationIssue,
+} from "./propose-apply/validation-error";
+export {
   createAiToolCallStore,
   PROPOSAL_TTL_MS,
   type AiToolCallStore,

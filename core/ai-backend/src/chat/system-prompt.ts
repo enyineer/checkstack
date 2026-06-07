@@ -1,10 +1,13 @@
 /**
- * System-prompt assembly for the chat agent loop.
+ * System-prompt assembly for the chat agent loop AND the headless agent runner.
  *
  * Kept in its own DOM/dep-free module so the prompt text - and especially the
  * timezone handling, which is correctness-sensitive - is unit-testable without
- * standing up the whole chat service.
+ * standing up the whole chat service. The shared instruction fragments
+ * (grounding, access-scope) are reused by both the attended chat prompt and the
+ * unattended headless prompt so the two never drift on what the agent must know.
  */
+import type { AiPermissionMode } from "@checkstack/ai-common";
 
 /** The base instruction set: what the assistant is and how it uses tools. */
 export const CHAT_SYSTEM_PROMPT =
@@ -96,6 +99,50 @@ export const AUTOMATION_BUILDING_INSTRUCTION =
   "{{ artifacts.<actionId>.script_result.result.<field> }}. " +
   "Validate any script with automation.testScript before calling " +
   "automation.propose.";
+
+/**
+ * Ground concepts in the docs and never fabricate. Shared by chat and headless.
+ *
+ * The model otherwise answers conceptual/how-to questions from (possibly stale)
+ * priors instead of the docs tools, and invents ids/values it should source from
+ * a tool. This names the docs tools explicitly so they are not invisible, and
+ * states the no-fabrication rule both surfaces depend on. The "what to do when a
+ * value is missing" half differs by audience (ask vs. fail) and is appended by
+ * the respective builder.
+ */
+export const DOCS_GROUNDING_INSTRUCTION =
+  "For any Checkstack concept or how-to you are unsure about, call searchDocs " +
+  "to find the relevant page and getDoc to read it, and ground your answer in " +
+  "that content rather than prior knowledge. Never fabricate ids, values, or " +
+  "facts, and never present unverified output as fact.";
+
+/**
+ * Results are scoped to the caller's permissions, so an empty result is NOT
+ * proof that nothing exists. Shared by chat and headless. Without this the agent
+ * reports a confident "no incidents" / "all clear" when it simply cannot see a
+ * team's resources - the most dangerous misreport on a monitoring platform.
+ */
+export const ACCESS_SCOPE_INSTRUCTION =
+  "Tool results reflect YOUR access scope. An empty or short list may mean you " +
+  "are not authorized to see more, not that nothing exists - never assert a " +
+  "definitive all-clear (such as \"there are no incidents\") from an empty " +
+  "result; say what you checked and that your view may be limited.";
+
+/**
+ * Tell the model the conversation's CURRENT permission mode so it narrates the
+ * right outcome (the base prompt only says the behaviour is mode-dependent, but
+ * never which mode is active, so the model guesses).
+ */
+export function permissionModeInstruction(mode: AiPermissionMode): string {
+  return mode === "auto"
+    ? "This conversation is in AUTO mode: a non-destructive change you make is " +
+        "applied IMMEDIATELY with no confirmation card; destructive changes " +
+        "still require the operator to approve a card. Only make a change when " +
+        "the operator's request clearly calls for it."
+    : "This conversation is in APPROVE mode: every change you make returns a " +
+        "confirmation card the operator must approve before it takes effect - " +
+        "nothing commits until they do.";
+}
 
 /**
  * The date-time wire contract, stated to the model so it emits an offset the
@@ -199,23 +246,81 @@ export function buildDateTimeContext({
 }
 
 /**
+ * The attended "missing value" rule: ASK rather than guess. Chat-only because a
+ * headless run has no operator to ask (it fails the step instead).
+ */
+const CHAT_CLARIFY_INSTRUCTION =
+  "If you are missing a value a tool needs and cannot obtain it from a " +
+  "discovery/list tool or the docs, ASK the operator a specific clarifying " +
+  "question instead of inventing one - a clarifying question is always better " +
+  "than a guess, especially when building an automation or proposing a change.";
+
+/**
  * Build the chat system prompt, folding in the reference timezone used to turn
  * an operator's bare "22:00" into an offset-bearing instant and the current
  * time. Prefers the operator's browser zone; falls back to the host/container
- * zone (NOT UTC) when the client sent none or an invalid one.
+ * zone (NOT UTC) when the client sent none or an invalid one. `mode` is the
+ * conversation's permission mode, stated so the model narrates the right outcome.
  */
 export function buildChatSystemPrompt({
   timeZone,
   now,
+  mode,
 }: {
   timeZone?: string;
   now?: Date;
+  mode: AiPermissionMode;
 }): string {
-  return `${CHAT_SYSTEM_PROMPT} ${INVESTIGATION_INSTRUCTION} ${AUTOMATION_BUILDING_INSTRUCTION} ${buildDateTimeContext(
-    {
-      timeZone,
-      now,
-      audience: "operator",
-    },
-  )}`;
+  return [
+    CHAT_SYSTEM_PROMPT,
+    permissionModeInstruction(mode),
+    INVESTIGATION_INSTRUCTION,
+    AUTOMATION_BUILDING_INSTRUCTION,
+    DOCS_GROUNDING_INSTRUCTION,
+    CHAT_CLARIFY_INSTRUCTION,
+    ACCESS_SCOPE_INSTRUCTION,
+    buildDateTimeContext({ timeZone, now, audience: "operator" }),
+  ].join(" ");
+}
+
+/**
+ * The unattended baseline: what the headless agent runner (the automation "AI
+ * Action") must know. Shares the grounding + access-scope guidance with chat so
+ * the two never drift, but states the boundaries unique to an unattended run:
+ * there is no human to ask, mutations apply immediately and irreversibly, and a
+ * missing value is a reason to STOP, not to guess. An author-supplied
+ * `override` is APPENDED (role/task framing on top of the baseline), never a
+ * replacement - so an override can add context but can never silently drop a
+ * safety line.
+ */
+export const HEADLESS_BASELINE_PROMPT = [
+  "You are an automation agent acting UNATTENDED - there is no human to ask.",
+  "You run with a bounded service account; you can only do what its permissions allow.",
+  "Use the available tools to investigate and act decisively on the task.",
+  "If a tool call is refused, do not retry it - work within your permissions.",
+  "Any tool that changes state takes effect IMMEDIATELY and cannot be undone or " +
+    "confirmed by a human, so only make a change the task explicitly requires; " +
+    "never attempt destructive actions.",
+  "A successful change has already taken effect - never repeat it to 'retry'.",
+  DOCS_GROUNDING_INSTRUCTION,
+  "If you are missing a required value and cannot obtain it from a tool or the " +
+    "docs, do NOT guess - state clearly in your result that the value is missing " +
+    "and stop.",
+  ACCESS_SCOPE_INSTRUCTION,
+  INVESTIGATION_INSTRUCTION,
+  "Be concise.",
+].join(" ");
+
+/**
+ * Compose the headless system prompt: the non-negotiable baseline plus any
+ * author-supplied role/task framing (appended, not substituted).
+ */
+export function buildHeadlessSystemPrompt({
+  override,
+}: {
+  override?: string;
+}): string {
+  return override
+    ? `${HEADLESS_BASELINE_PROMPT} ${override}`
+    : HEADLESS_BASELINE_PROMPT;
 }
