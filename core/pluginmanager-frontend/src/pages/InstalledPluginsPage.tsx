@@ -45,6 +45,7 @@ const InstalledPluginsPageContent: React.FC = () => {
 
   const view = accessApi.useAccess(pluginManagerAccess.view);
   const uninstallAccess = accessApi.useAccess(pluginManagerAccess.uninstall);
+  const installAccess = accessApi.useAccess(pluginManagerAccess.install);
 
   const { data, isLoading, refetch } = client.list.useQuery();
 
@@ -83,21 +84,23 @@ const InstalledPluginsPageContent: React.FC = () => {
           Events
         </Link>
       </Button>
-      <Tip
-        plugin={pluginManagerMetadata}
-        id="install"
-        title="Extend Checkstack at runtime"
-        description="Plugins add new health-check protocols, notification channels, integrations, even auth backends — without rebuilding the platform. Install one from npm, a GitHub release, or upload a tarball directly."
-        side="bottom"
-        align="end"
-      >
-        <Button asChild>
-          <Link to={installPath}>
-            <Plus className="w-4 h-4 mr-2" />
-            Install plugin
-          </Link>
-        </Button>
-      </Tip>
+      {installAccess.allowed && (
+        <Tip
+          plugin={pluginManagerMetadata}
+          id="install"
+          title="Extend Checkstack at runtime"
+          description="Plugins add new health-check protocols, notification channels, integrations, even auth backends — without rebuilding the platform. Install one from npm, a GitHub release, or upload a tarball directly."
+          side="bottom"
+          align="end"
+        >
+          <Button asChild>
+            <Link to={installPath}>
+              <Plus className="w-4 h-4 mr-2" />
+              Install plugin
+            </Link>
+          </Button>
+        </Tip>
+      )}
     </div>
   );
 

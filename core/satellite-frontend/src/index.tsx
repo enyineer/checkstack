@@ -16,7 +16,10 @@ export default createFrontendPlugin({
           default: m.SatelliteListPage,
         })),
       title: "Satellites",
-      accessRule: satelliteAccess.satellite.read,
+      // The page is entirely manage-gated (no read-only view), so gate the route
+      // AND its sidebar entry on manage - otherwise read-only users see the nav
+      // item, click it, and immediately hit "Access Denied".
+      accessRule: satelliteAccess.satellite.manage,
       nav: { group: "Reliability", icon: Satellite },
     },
   ],
