@@ -213,7 +213,9 @@ export default createBackendPlugin({
       procedureKey: "listObjectives",
       name: "slo.listObjectives",
       description:
-        "List service-level objectives with their current status and error budget. Read-only.",
+        "List service-level objectives with their current status and error " +
+        "budget, including which are breaching or at risk. Use this when asked " +
+        "what is breaching or what's wrong. Read-only.",
       effect: "read",
       execute: deferredProjectionExecute,
     });

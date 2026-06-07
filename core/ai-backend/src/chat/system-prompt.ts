@@ -25,6 +25,30 @@ export const CHAT_SYSTEM_PROMPT =
   "engineering-focused.";
 
 /**
+ * How to answer "are there any issues?" thoroughly, and how to pass ids.
+ *
+ * The model tends to answer from the first source that returns something (e.g.
+ * report an SLO breach and stop, missing a failing health check). It also tends
+ * to pass a system NAME, an invented id, or a made-up filter value where a tool
+ * wants a real id/enum - which fails validation. This block makes both
+ * behaviours explicit. Tool names are the provider-safe ids the model is given.
+ */
+export const INVESTIGATION_INSTRUCTION =
+  "When the operator asks whether there are issues/problems, what is wrong, or " +
+  "what is down/failing/breaching, do NOT answer from a single source. Before " +
+  "answering, check ALL of these and report a consolidated summary: failing " +
+  "health checks (healthcheck_status), breaching or at-risk SLOs " +
+  "(slo_listObjectives), active anomalies (anomaly_list), and open incidents " +
+  "(incident_list). Do not stop after the first source that returns something; " +
+  "an empty result from one source does not mean there are no issues in " +
+  "another. " +
+  "Many tools take a systemId, which MUST be a system's UUID: if the operator " +
+  "names a system, first resolve it to its id with the catalog tool, then pass " +
+  "that id. Pass ids and enum filter values EXACTLY as a tool returned or as a " +
+  "tool's description lists them - never invent an id, and never pass a filter " +
+  "value (such as a state) that the tool does not document.";
+
+/**
  * The date-time wire contract, stated to the model so it emits an offset the
  * first time instead of learning via a rejected tool call. Enforced server-side
  * by `collectDateOffsetIssues` regardless - this is the cooperative half.
@@ -138,9 +162,11 @@ export function buildChatSystemPrompt({
   timeZone?: string;
   now?: Date;
 }): string {
-  return `${CHAT_SYSTEM_PROMPT} ${buildDateTimeContext({
-    timeZone,
-    now,
-    audience: "operator",
-  })}`;
+  return `${CHAT_SYSTEM_PROMPT} ${INVESTIGATION_INSTRUCTION} ${buildDateTimeContext(
+    {
+      timeZone,
+      now,
+      audience: "operator",
+    },
+  )}`;
 }

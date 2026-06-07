@@ -36,7 +36,7 @@ A bare `tools/call` may only ever run a `read`-effect tool. The handler checks t
 
 ## The read-only tool surface
 
-The Phase 2 surface is the projected read-only tools: `incident.list`, `healthcheck.status`, and `anomaly.explain`. Each is a projection of an existing oRPC read procedure, so its input schema and access rules come straight from the source procedure and never drift.
+The Phase 2 surface is the projected read-only tools: `incident.list`, `healthcheck.status`, and `anomaly.list`. Each is a projection of an existing oRPC read procedure, so its input schema and access rules come straight from the source procedure and never drift.
 
 ## Connecting a client
 

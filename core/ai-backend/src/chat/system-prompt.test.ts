@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CHAT_SYSTEM_PROMPT,
   DATE_FORMAT_INSTRUCTION,
+  INVESTIGATION_INSTRUCTION,
   buildChatSystemPrompt,
   buildDateTimeContext,
   formatInstantInZone,
@@ -43,6 +44,15 @@ describe("buildChatSystemPrompt", () => {
     const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin" });
     expect(prompt.startsWith(CHAT_SYSTEM_PROMPT)).toBe(true);
     expect(prompt).toContain(DATE_FORMAT_INSTRUCTION);
+  });
+
+  test("carries the issue-investigation guidance (check all sources, real ids)", () => {
+    const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin" });
+    expect(prompt).toContain(INVESTIGATION_INSTRUCTION);
+    // The concrete behaviours we are fixing must be present in the text.
+    expect(prompt).toContain("healthcheck_status");
+    expect(prompt).toContain("anomaly_list");
+    expect(prompt).toContain("Do not stop after the first source");
   });
 
   test("folds in a valid operator timezone", () => {
