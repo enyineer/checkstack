@@ -21,7 +21,7 @@
     "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
     "lint": "bun run lint:code",
     "lint:code": "eslint .",
-    "test": "bun run scripts/test-packages.ts",
+    "test": "bun run scripts/run-tests.ts",
     "deps:check": "syncpack lint",
     "deps:fix": "syncpack fix",
     "bundle-vendor": "bun run scripts/bundle-vendor.ts",
