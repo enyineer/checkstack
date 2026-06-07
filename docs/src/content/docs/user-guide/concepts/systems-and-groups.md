@@ -65,7 +65,10 @@ A dependency can also be marked **transitive** to let it cascade further down th
 > [!IMPORTANT]
 > Dependencies do not auto-open incidents. They affect derived health state and which alerts get suppressed in cascades, nothing more. See [Incidents](/checkstack/user-guide/concepts/incidents/) for the human workflow.
 
-The dependency map lives under **Catalog -> Dependencies**. Node positions are saved per user, so your layout follows you across devices.
+The dependency map lives under **Workspace -> Dependency Map**. Node positions are saved per user, so your layout follows you across devices.
+
+> [!NOTE]
+> The full dependency map is gated by its own access rule and is shown to signed-in users by default, not to anonymous visitors. Per-system dependency *warnings* (the badges and dashboard signals) stay public, so anonymous visitors still see when a system is affected by an upstream problem - they just do not get the full topology view. Admins can grant the map to the anonymous role under **Teams & access** to make it public.
 
 ## Putting it together
 

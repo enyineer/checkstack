@@ -64,8 +64,9 @@ export const DependencySignalsFiller: React.FC<Props> = ({
             ? `${upstreamCount} upstream ${upstreamCount === 1 ? "system" : "systems"} affected`
             : undefined,
         href: resolveRoute(dependencyRoutes.routes.map),
-        // The dependency map is gated; render as text for users without access.
-        accessRule: dependencyAccess.dependency.read,
+        // The dependency map is gated by its own rule; users who can see the
+        // warning (dependency.read) but not the map get plain text, not a link.
+        accessRule: dependencyAccess.map,
         iconName: "GitBranch",
       };
       result[systemId] = [signal];
