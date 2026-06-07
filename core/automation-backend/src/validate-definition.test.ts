@@ -13,7 +13,11 @@ import { definePluginMetadata } from "@checkstack/common";
 import type { AutomationDefinition } from "@checkstack/automation-common";
 import { createActionRegistry } from "./action-registry";
 import { createTriggerRegistry } from "./trigger-registry";
-import { collectDefinitionIssues } from "./validate-definition";
+import {
+  collectConnectionIdIssues,
+  collectDefinitionIssues,
+  type IntegrationConnectionLookup,
+} from "./validate-definition";
 
 const meta = definePluginMetadata({ pluginId: "test" });
 
@@ -73,6 +77,38 @@ function makeProducerDeps() {
     meta,
   );
   return { triggerRegistry, actionRegistry };
+}
+
+/**
+ * Deps with a connection-backed action (`test.create_issue`, bound to provider
+ * `integration-jira.jira`) so the connectionId check can be exercised.
+ */
+function makeConnectionDeps() {
+  const { triggerRegistry, actionRegistry } = makeProducerDeps();
+  actionRegistry.register(
+    {
+      id: "create_issue",
+      displayName: "Create Jira Issue",
+      config: new Versioned({
+        version: 1,
+        schema: z.object({ connectionId: z.string().min(1) }),
+      }),
+      connectionProviderId: "integration-jira.jira",
+      produces: "issue",
+      execute: async () => ({ success: true, artifact: { key: "X-1" } }),
+    },
+    meta,
+  );
+  return { triggerRegistry, actionRegistry };
+}
+
+/** A connection lookup that returns a fixed set of connection ids. */
+function fakeConnectionLookup(
+  idsByProvider: Record<string, string[] | undefined>,
+): IntegrationConnectionLookup {
+  return {
+    listConnectionIds: async ({ providerId }) => idsByProvider[providerId],
+  };
 }
 
 function baseDefinition(
@@ -306,5 +342,268 @@ describe("collectDefinitionIssues", () => {
     expect(
       issues.some((i) => i.path.includes("id")),
     ).toBe(true);
+  });
+
+  // ─── Artifact / template wiring ────────────────────────────────────────
+
+  it("flags an artifacts.<id> reference to a non-existent producer", async () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          action: "test.log",
+          config: { message: "Issue {{ artifacts.ghost.key }}", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, makeDeps());
+    const wiring = issues.find((i) => i.message.includes("artifacts.ghost"));
+    expect(wiring).toBeDefined();
+    expect(wiring?.path.join(".")).toBe("actions.0.config.message");
+  });
+
+  it("accepts an artifacts.<id> reference wired to a real earlier producer", async () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "make_thing",
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+        {
+          action: "test.log",
+          config: {
+            message: "made {{ artifacts.make_thing.thing.ok }}",
+            level: "info",
+          },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, deps);
+    expect(issues).toEqual([]);
+  });
+
+  it("does not flag built-in template roots (trigger/vars/now)", async () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          action: "test.log",
+          config: {
+            message: "{{ trigger.payload.id }} at {{ now }} {{ vars.x }}",
+            level: "info",
+          },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, makeDeps());
+    expect(issues).toEqual([]);
+  });
+
+  it("flags an unwired artifacts ref inside a choose `when` condition", async () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          choose: [
+            {
+              when: "{{ artifacts.ghost.key }} == 'x'",
+              sequence: [
+                {
+                  action: "test.log",
+                  config: { message: "hi", level: "info" },
+                  enabled: true,
+                  continue_on_error: false,
+                },
+              ],
+            },
+          ],
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, makeDeps());
+    expect(
+      issues.some(
+        (i) =>
+          i.path.join(".") === "actions.0.choose.0.when" &&
+          i.message.includes("artifacts.ghost"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag the literal word artifacts outside a template span", async () => {
+    const def = baseDefinition({
+      actions: [
+        {
+          action: "test.log",
+          config: { message: "we publish artifacts.nightly nightly", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, makeDeps());
+    expect(issues).toEqual([]);
+  });
+
+  // ─── connectionId references ───────────────────────────────────────────
+
+  it("flags an unknown connectionId on a provider action", async () => {
+    const deps = makeConnectionDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "open_issue",
+          action: "test.create_issue",
+          config: { connectionId: "made-up" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, {
+      ...deps,
+      connectionLookup: fakeConnectionLookup({
+        "integration-jira.jira": ["conn-real"],
+      }),
+    });
+    const issue = issues.find(
+      (i) => i.path.join(".") === "actions.0.config.connectionId",
+    );
+    expect(issue?.message).toMatch(/unknown connectionId "made-up"/);
+  });
+
+  it("accepts a known connectionId on a provider action", async () => {
+    const deps = makeConnectionDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "open_issue",
+          action: "test.create_issue",
+          config: { connectionId: "conn-real" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, {
+      ...deps,
+      connectionLookup: fakeConnectionLookup({
+        "integration-jira.jira": ["conn-real"],
+      }),
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it("does not check a templated connectionId (resolved at run time)", async () => {
+    const deps = makeConnectionDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "open_issue",
+          action: "test.create_issue",
+          config: { connectionId: "{{ vars.connId }}" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, {
+      ...deps,
+      connectionLookup: fakeConnectionLookup({ "integration-jira.jira": [] }),
+    });
+    expect(issues).toEqual([]);
+  });
+
+  it("emits a soft note when the connection lookup fails", async () => {
+    const deps = makeConnectionDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "open_issue",
+          action: "test.create_issue",
+          config: { connectionId: "conn-real" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, {
+      ...deps,
+      connectionLookup: fakeConnectionLookup({
+        "integration-jira.jira": undefined,
+      }),
+    });
+    expect(
+      issues.some((i) => i.message.includes("Could not verify connectionId")),
+    ).toBe(true);
+  });
+
+  it("skips the connectionId check when no lookup is injected", async () => {
+    const deps = makeConnectionDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "open_issue",
+          action: "test.create_issue",
+          config: { connectionId: "made-up" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, deps);
+    expect(
+      issues.some((i) => i.path.includes("connectionId")),
+    ).toBe(false);
+  });
+});
+
+describe("collectConnectionIdIssues", () => {
+  it("walks a single provider action via an abstract resolver", async () => {
+    const issues = await collectConnectionIdIssues({
+      actions: [
+        {
+          id: "open_issue",
+          action: "integration-jira.create_issue",
+          config: { connectionId: "nope" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+      resolveConnectionProviderId: (id) =>
+        id === "integration-jira.create_issue"
+          ? "integration-jira.jira"
+          : undefined,
+      connectionLookup: fakeConnectionLookup({
+        "integration-jira.jira": ["conn-a"],
+      }),
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.message).toMatch(/unknown connectionId "nope"/);
+  });
+
+  it("returns no issues for a non-connection action", async () => {
+    const issues = await collectConnectionIdIssues({
+      actions: [
+        {
+          action: "test.log",
+          config: { connectionId: "irrelevant" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+      resolveConnectionProviderId: () => undefined,
+      connectionLookup: fakeConnectionLookup({}),
+    });
+    expect(issues).toEqual([]);
   });
 });

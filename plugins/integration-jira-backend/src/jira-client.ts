@@ -78,6 +78,75 @@ export interface JiraIssueStatus {
 }
 
 /**
+ * Lightweight projection of an issue returned by `searchIssues`. Mirrors
+ * the fields the `integration-jira.issue_search` artifact surfaces so an
+ * automation can gate on an existing ticket without a hand-rolled fetch.
+ */
+export interface JiraSearchHit {
+  key: string;
+  url: string;
+  status?: string;
+  summary?: string;
+}
+
+/**
+ * Result of a read-only issue search.
+ */
+export interface JiraSearchResult {
+  found: boolean;
+  count: number;
+  issues: JiraSearchHit[];
+  firstIssueKey?: string;
+}
+
+/**
+ * Input for `searchIssues`. Either pass a raw `jql` string, or a
+ * structured query that is compiled into JQL, or both (they are ANDed).
+ */
+export interface SearchIssuesPayload {
+  jql?: string;
+  projectKey?: string;
+  status?: string;
+  statusCategory?: string;
+  summaryContains?: string;
+  /** Cap on returned issues; defaults to 25, hard-capped at 100. */
+  maxResults?: number;
+}
+
+/**
+ * Escape a value for safe inclusion inside a quoted JQL string literal.
+ * JQL uses backslash escaping inside double quotes.
+ */
+function quoteJqlValue(value: string): string {
+  return `"${value.replaceAll("\\", String.raw`\\`).replaceAll('"', String.raw`\"`)}"`;
+}
+
+/**
+ * Compile a structured query (plus optional raw JQL) into a single JQL
+ * string. Clauses are ANDed; an empty query yields an empty string.
+ */
+export function buildSearchJql(payload: SearchIssuesPayload): string {
+  const { jql, projectKey, status, statusCategory, summaryContains } = payload;
+  const clauses: string[] = [];
+  if (projectKey && projectKey.trim().length > 0) {
+    clauses.push(`project = ${quoteJqlValue(projectKey.trim())}`);
+  }
+  if (status && status.trim().length > 0) {
+    clauses.push(`status = ${quoteJqlValue(status.trim())}`);
+  }
+  if (statusCategory && statusCategory.trim().length > 0) {
+    clauses.push(`statusCategory = ${quoteJqlValue(statusCategory.trim())}`);
+  }
+  if (summaryContains && summaryContains.trim().length > 0) {
+    clauses.push(`summary ~ ${quoteJqlValue(summaryContains.trim())}`);
+  }
+  if (jql && jql.trim().length > 0) {
+    clauses.push(`(${jql.trim()})`);
+  }
+  return clauses.join(" AND ");
+}
+
+/**
  * Options for creating a Jira client.
  */
 interface JiraClientOptions {
@@ -365,6 +434,54 @@ export function createJiraClient(options: JiraClientOptions) {
         id: status.id,
         name: status.name,
         statusCategoryKey: status.statusCategory?.key,
+      };
+    },
+
+    /**
+     * Read-only issue search. Compiles the structured query (and/or raw
+     * JQL) into JQL and queries the Jira search endpoint, returning a
+     * lightweight projection an automation can gate on (e.g. "is there an
+     * open ticket already?").
+     */
+    async searchIssues(
+      payload: SearchIssuesPayload,
+    ): Promise<JiraSearchResult> {
+      const jql = buildSearchJql(payload);
+      const maxResults = Math.min(Math.max(payload.maxResults ?? 25, 1), 100);
+
+      interface SearchResponse {
+        total?: number;
+        issues?: Array<{
+          key: string;
+          fields?: {
+            summary?: string;
+            status?: { name?: string };
+          };
+        }>;
+      }
+
+      const result = await request<SearchResponse>("/search", {
+        method: "POST",
+        body: JSON.stringify({
+          jql,
+          maxResults,
+          fields: ["summary", "status"],
+        }),
+      });
+
+      const browseBase = baseUrl.replace(/\/$/, "");
+      const issues: JiraSearchHit[] = (result.issues ?? []).map((issue) => ({
+        key: issue.key,
+        url: `${browseBase}/browse/${issue.key}`,
+        status: issue.fields?.status?.name,
+        summary: issue.fields?.summary,
+      }));
+      const count = result.total ?? issues.length;
+      return {
+        found: count > 0,
+        count,
+        issues,
+        firstIssueKey: issues[0]?.key,
       };
     },
 

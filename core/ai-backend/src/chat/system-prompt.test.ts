@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AUTOMATION_BUILDING_INSTRUCTION,
   CHAT_SYSTEM_PROMPT,
   DATE_FORMAT_INSTRUCTION,
   INVESTIGATION_INSTRUCTION,
@@ -54,6 +55,29 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("healthcheck_status");
     expect(prompt).toContain("anomaly_list");
     expect(prompt).toContain("Do not stop after the first source");
+  });
+
+  test("carries the automation-building playbook (discover, real ids, no hardcoding)", () => {
+    const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin" });
+    expect(prompt).toContain(AUTOMATION_BUILDING_INSTRUCTION);
+    // Discovery tools the model must use to source real values.
+    expect(prompt).toContain("automation.listCapabilities");
+    expect(prompt).toContain("automation.getCapabilitySchema");
+    expect(prompt).toContain("automation.listServiceAccounts");
+    expect(prompt).toContain("automation.listConnections");
+    expect(prompt).toContain("automation.testScript");
+    // Never invent a runAs service account.
+    expect(prompt).toContain("NEVER invent a service account");
+    // Never hand-roll HTTP / invent a connectionId for an integrated system.
+    expect(prompt).toContain("never hand-roll");
+    expect(prompt).toContain("never invent a connectionId");
+    // Never hardcode a URL or token / leave a placeholder in a script.
+    expect(prompt).toContain("never hardcode a URL or token");
+    expect(prompt).toContain("egress allowlisted");
+    // Decisions are side-effect-free over a prior query's artifact.
+    expect(prompt).toContain("side-effect-free");
+    // Output wiring.
+    expect(prompt).toContain("{{ artifacts.<id>... }}");
   });
 
   test("folds in a valid operator timezone", () => {

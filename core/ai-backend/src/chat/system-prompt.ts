@@ -52,6 +52,44 @@ export const INVESTIGATION_INSTRUCTION =
   "value (such as a state) that the tool does not document.";
 
 /**
+ * How to build a WORKING automation instead of a plausible-looking one.
+ *
+ * The model's failure mode is fabricating values it should source from the
+ * platform: a runAs service account that does not exist, a hand-rolled HTTP
+ * fetch to an integrated system with a placeholder URL/token, and a script
+ * whose return value is never wired downstream. This block forces discovery
+ * before drafting, real ids from the listing tools, integration actions over
+ * hand-rolled HTTP, side-effect-free decisions, and validation before propose.
+ * Deliberately names only the discovery tools - never enumerate resource or
+ * action types here, so this text need not change when capabilities change.
+ */
+export const AUTOMATION_BUILDING_INSTRUCTION =
+  "When building or editing an automation, do NOT draft action configs from " +
+  "memory. First discover what is available: call automation.listCapabilities, " +
+  "then automation.getCapabilitySchema for each action you intend to use, and " +
+  "shape every config to that schema. " +
+  "Pick a runAs from automation.listServiceAccounts and use one of those ids " +
+  "verbatim - NEVER invent a service account (values like \"system\" are not " +
+  "service accounts and will be rejected). " +
+  "For a system Checkstack integrates with, use that integration's actions " +
+  "with a REAL connectionId from automation.listConnections - never hand-roll " +
+  "an HTTP fetch to an integrated system, and never invent a connectionId. " +
+  "Model a decision or gate (e.g. \"only if there is no open ticket\") as a " +
+  "choose or condition over a prior QUERY action's artifact - conditions are " +
+  "side-effect-free, so never express a gate as an action that also performs " +
+  "I/O. " +
+  "For a system Checkstack does NOT integrate with, write a script action that " +
+  "fetches the API using secrets for auth (declare them in secretEnv and read " +
+  "them from process.env) and variables from an upstream variables action for " +
+  "the URL and params - never hardcode a URL or token and never leave a " +
+  "placeholder; also tell the operator the script needs egress allowlisted to " +
+  "that host. " +
+  "Give every action that produces output an id and wire it downstream with " +
+  "{{ artifacts.<id>... }}. " +
+  "Validate any script with automation.testScript before calling " +
+  "automation.propose.";
+
+/**
  * The date-time wire contract, stated to the model so it emits an offset the
  * first time instead of learning via a rejected tool call. Enforced server-side
  * by `collectDateOffsetIssues` regardless - this is the cooperative half.
@@ -165,7 +203,7 @@ export function buildChatSystemPrompt({
   timeZone?: string;
   now?: Date;
 }): string {
-  return `${CHAT_SYSTEM_PROMPT} ${INVESTIGATION_INSTRUCTION} ${buildDateTimeContext(
+  return `${CHAT_SYSTEM_PROMPT} ${INVESTIGATION_INSTRUCTION} ${AUTOMATION_BUILDING_INSTRUCTION} ${buildDateTimeContext(
     {
       timeZone,
       now,

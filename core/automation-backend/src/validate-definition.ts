@@ -32,9 +32,29 @@ export interface DefinitionIssue {
   message: string;
 }
 
+/**
+ * Minimal connection lookup the connectionId check needs. The router wires
+ * this to `IntegrationApi.listConnections` (per provider); tests inject a
+ * fake. Returns the ids of every configured connection for a provider, or
+ * `undefined` when the lookup itself failed (so we can degrade to a softer
+ * "could not verify" message rather than a false "unknown connection").
+ */
+export interface IntegrationConnectionLookup {
+  listConnectionIds(params: {
+    providerId: string;
+  }): Promise<string[] | undefined>;
+}
+
 export interface ValidateDefinitionDeps {
   triggerRegistry: TriggerRegistry;
   actionRegistry: ActionRegistry;
+  /**
+   * Optional integration-connection lookup. When present, every provider
+   * action whose `config.connectionId` is a literal id is checked against the
+   * real connections configured for that action's provider. When omitted (e.g.
+   * the structural-only editor dry-run), the connectionId check is skipped.
+   */
+  connectionLookup?: IntegrationConnectionLookup;
 }
 
 /**
@@ -61,6 +81,16 @@ export async function collectDefinitionIssues(
   await validateTriggers(parsed.data, deps, issues);
   await validateActionList(parsed.data.actions, ["actions"], deps, issues);
   validateActionIds(parsed.data.actions, ["actions"], deps, issues);
+  validateArtifactWiring(parsed.data, deps, issues);
+  if (deps.connectionLookup) {
+    const connectionIssues = await collectConnectionIdIssues({
+      actions: parsed.data.actions,
+      resolveConnectionProviderId: (actionId) =>
+        deps.actionRegistry.getAction(actionId)?.connectionProviderId,
+      connectionLookup: deps.connectionLookup,
+    });
+    issues.push(...connectionIssues);
+  }
   return issues;
 }
 
@@ -170,6 +200,430 @@ function walkActionId(
 
   // delay / variables / condition / stop / wait_for_trigger have no child
   // action lists and don't produce artifacts — nothing more to walk.
+}
+
+// ─── Artifact / template wiring validation ──────────────────────────────
+
+/**
+ * Match `artifacts.<id>` references inside a `{{ ... }}` template. Captures
+ * both dot form (`artifacts.foo.bar`) and the bracket form the editor emits
+ * for non-identifier ids (`artifacts["foo"].bar`).
+ */
+const ARTIFACT_REF_RE =
+  /\bartifacts\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\])/g;
+
+/**
+ * Scan every action config + condition in the definition for
+ * `{{ artifacts.<id>... }}` references and flag any whose `<id>` is not
+ * produced by some action in the automation.
+ *
+ * Conservative on purpose: artifacts are keyed in scope by the PRODUCING
+ * action's `id` (`artifacts.<actionId>.<localName>`), so a reference is only
+ * resolvable when an action carries that id AND its registered action declares
+ * a `produces`. We collect producer ids across the WHOLE definition (not just
+ * lexically-earlier ones) so legitimate cross-branch / reordered references
+ * never false-positive; only a reference to a producer that simply does not
+ * exist is flagged - exactly the "fabricated artifact id" failure mode.
+ */
+function validateArtifactWiring(
+  definition: AutomationDefinition,
+  deps: ValidateDefinitionDeps,
+  issues: DefinitionIssue[],
+): void {
+  const producerIds = collectProducerIds(definition.actions, deps);
+  walkArtifactRefs(definition.actions, ["actions"], producerIds, issues);
+}
+
+/**
+ * Collect the ids of every action in the tree that produces a referenceable
+ * artifact (has an `id` AND its registered action declares `produces`).
+ */
+function collectProducerIds(
+  actions: ActionInput[],
+  deps: ValidateDefinitionDeps,
+): Set<string> {
+  const producerIds = new Set<string>();
+  const visit = (list: ActionInput[]): void => {
+    for (const action of list) {
+      if ("action" in action) {
+        const registered = deps.actionRegistry.getAction(action.action);
+        if (registered?.produces && typeof action.id === "string") {
+          producerIds.add(action.id);
+        }
+        continue;
+      }
+      if ("choose" in action) {
+        for (const branch of action.choose) visit(branch.sequence);
+        if (action.else) visit(action.else);
+        continue;
+      }
+      if ("parallel" in action) {
+        visit(action.parallel);
+        continue;
+      }
+      if ("repeat" in action) {
+        visit(action.repeat.sequence);
+        continue;
+      }
+      if ("sequence" in action) {
+        visit(action.sequence);
+        continue;
+      }
+    }
+  };
+  visit(actions);
+  return producerIds;
+}
+
+function walkArtifactRefs(
+  actions: ActionInput[],
+  basePath: Array<string | number>,
+  producerIds: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  for (const [index, action] of actions.entries()) {
+    const path = [...basePath, index];
+
+    if ("action" in action) {
+      scanValueForArtifactRefs(
+        action.config,
+        [...path, "config"],
+        producerIds,
+        issues,
+      );
+      continue;
+    }
+
+    if ("choose" in action) {
+      for (const [branchIndex, branch] of action.choose.entries()) {
+        scanConditionForArtifactRefs(
+          branch.when,
+          [...path, "choose", branchIndex, "when"],
+          producerIds,
+          issues,
+        );
+        walkArtifactRefs(
+          branch.sequence,
+          [...path, "choose", branchIndex, "sequence"],
+          producerIds,
+          issues,
+        );
+      }
+      if (action.else) {
+        walkArtifactRefs(action.else, [...path, "else"], producerIds, issues);
+      }
+      continue;
+    }
+
+    if ("condition" in action) {
+      scanConditionForArtifactRefs(
+        action.condition,
+        [...path, "condition"],
+        producerIds,
+        issues,
+      );
+      continue;
+    }
+
+    if ("variables" in action) {
+      scanValueForArtifactRefs(
+        action.variables,
+        [...path, "variables"],
+        producerIds,
+        issues,
+      );
+      continue;
+    }
+
+    if ("parallel" in action) {
+      walkArtifactRefs(action.parallel, [...path, "parallel"], producerIds, issues);
+      continue;
+    }
+
+    if ("repeat" in action) {
+      walkArtifactRefs(
+        action.repeat.sequence,
+        [...path, "repeat", "sequence"],
+        producerIds,
+        issues,
+      );
+      continue;
+    }
+
+    if ("sequence" in action) {
+      walkArtifactRefs(action.sequence, [...path, "sequence"], producerIds, issues);
+      continue;
+    }
+  }
+}
+
+/**
+ * Recursively walk an arbitrary config value, scanning every string for
+ * `{{ artifacts.<id>... }}` references. Object/array structure is preserved in
+ * the issue path so the editor can point at the offending field.
+ */
+function scanValueForArtifactRefs(
+  value: unknown,
+  path: Array<string | number>,
+  producerIds: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  if (typeof value === "string") {
+    scanStringForArtifactRefs(value, path, producerIds, issues);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      scanValueForArtifactRefs(item, [...path, index], producerIds, issues);
+    }
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      scanValueForArtifactRefs(item, [...path, key], producerIds, issues);
+    }
+  }
+}
+
+/**
+ * A condition is either a template string or a structured node. Only the
+ * string leaves carry templates, so recurse into the structured forms.
+ */
+function scanConditionForArtifactRefs(
+  condition: unknown,
+  path: Array<string | number>,
+  producerIds: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  if (typeof condition === "string") {
+    scanStringForArtifactRefs(condition, path, producerIds, issues);
+    return;
+  }
+  // and/or/not nodes nest further conditions; numeric_state/time/state nodes
+  // carry no free-form templates we need to wire-check. scanValue handles both
+  // by recursing into any string leaves it finds.
+  scanValueForArtifactRefs(condition, path, producerIds, issues);
+}
+
+function scanStringForArtifactRefs(
+  text: string,
+  path: Array<string | number>,
+  producerIds: Set<string>,
+  issues: DefinitionIssue[],
+): void {
+  // Only inspect inside `{{ ... }}` spans so a literal mention of the word
+  // "artifacts" in prose never triggers a false positive.
+  for (const span of extractTemplateSpans(text)) {
+    ARTIFACT_REF_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = ARTIFACT_REF_RE.exec(span)) !== null) {
+      const id = match[1] ?? match[2];
+      if (!id || producerIds.has(id)) continue;
+      issues.push({
+        path,
+        message: `Template references artifacts.${id} but no earlier action with id "${id}" produces an artifact. Give the producing action that id, or fix the reference.`,
+      });
+    }
+  }
+}
+
+/** Extract the bodies of every `{{ ... }}` span in a template string. */
+function extractTemplateSpans(text: string): string[] {
+  const spans: string[] = [];
+  const re = /\{\{([\s\S]*?)\}\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match[1] !== undefined) spans.push(match[1]);
+  }
+  return spans;
+}
+
+// ─── Connection-id validation ───────────────────────────────────────────
+
+/**
+ * Resolve the integration provider an action is bound to (its registered
+ * `connectionProviderId`), or `undefined` for non-connection actions. Abstract
+ * so both the registry-backed editor path and the RPC-backed propose path can
+ * drive the same connectionId walk.
+ */
+export type ResolveConnectionProviderId = (
+  actionId: string,
+) => string | undefined;
+
+/**
+ * For each provider action bound to an integration provider
+ * (`connectionProviderId`) whose `config.connectionId` is a literal id, verify
+ * a connection with that id exists for the provider. Template-valued
+ * connectionIds (`${{ ... }}` / `{{ ... }}`) are left to run-time resolution.
+ *
+ * Exported so the AI propose path can run the SAME check against the
+ * user-scoped integration client (whose `listConnections` access check applies
+ * exactly as a direct call would), reusing this walk instead of duplicating it.
+ */
+export async function collectConnectionIdIssues({
+  actions,
+  basePath = ["actions"],
+  resolveConnectionProviderId,
+  connectionLookup,
+}: {
+  actions: ActionInput[];
+  basePath?: Array<string | number>;
+  resolveConnectionProviderId: ResolveConnectionProviderId;
+  connectionLookup: IntegrationConnectionLookup;
+}): Promise<DefinitionIssue[]> {
+  const issues: DefinitionIssue[] = [];
+  // Cache per-provider lookups so an automation with many actions on the same
+  // provider hits the integration lookup once per provider, not once per action.
+  const cache = new Map<string, Promise<string[] | undefined>>();
+  await walkConnectionIds({
+    actions,
+    basePath,
+    resolveConnectionProviderId,
+    connectionLookup,
+    cache,
+    issues,
+  });
+  return issues;
+}
+
+async function walkConnectionIds({
+  actions,
+  basePath,
+  resolveConnectionProviderId,
+  connectionLookup,
+  cache,
+  issues,
+}: {
+  actions: ActionInput[];
+  basePath: Array<string | number>;
+  resolveConnectionProviderId: ResolveConnectionProviderId;
+  connectionLookup: IntegrationConnectionLookup;
+  cache: Map<string, Promise<string[] | undefined>>;
+  issues: DefinitionIssue[];
+}): Promise<void> {
+  for (const [index, action] of actions.entries()) {
+    const path = [...basePath, index];
+
+    if ("action" in action) {
+      await checkConnectionId({
+        action,
+        path,
+        resolveConnectionProviderId,
+        connectionLookup,
+        cache,
+        issues,
+      });
+      continue;
+    }
+    if ("choose" in action) {
+      for (const [branchIndex, branch] of action.choose.entries()) {
+        await walkConnectionIds({
+          actions: branch.sequence,
+          basePath: [...path, "choose", branchIndex, "sequence"],
+          resolveConnectionProviderId,
+          connectionLookup,
+          cache,
+          issues,
+        });
+      }
+      if (action.else) {
+        await walkConnectionIds({
+          actions: action.else,
+          basePath: [...path, "else"],
+          resolveConnectionProviderId,
+          connectionLookup,
+          cache,
+          issues,
+        });
+      }
+      continue;
+    }
+    if ("parallel" in action) {
+      await walkConnectionIds({
+        actions: action.parallel,
+        basePath: [...path, "parallel"],
+        resolveConnectionProviderId,
+        connectionLookup,
+        cache,
+        issues,
+      });
+      continue;
+    }
+    if ("repeat" in action) {
+      await walkConnectionIds({
+        actions: action.repeat.sequence,
+        basePath: [...path, "repeat", "sequence"],
+        resolveConnectionProviderId,
+        connectionLookup,
+        cache,
+        issues,
+      });
+      continue;
+    }
+    if ("sequence" in action) {
+      await walkConnectionIds({
+        actions: action.sequence,
+        basePath: [...path, "sequence"],
+        resolveConnectionProviderId,
+        connectionLookup,
+        cache,
+        issues,
+      });
+      continue;
+    }
+  }
+}
+
+async function checkConnectionId({
+  action,
+  path,
+  resolveConnectionProviderId,
+  connectionLookup,
+  cache,
+  issues,
+}: {
+  action: Extract<ActionInput, { action: string }>;
+  path: Array<string | number>;
+  resolveConnectionProviderId: ResolveConnectionProviderId;
+  connectionLookup: IntegrationConnectionLookup;
+  cache: Map<string, Promise<string[] | undefined>>;
+  issues: DefinitionIssue[];
+}): Promise<void> {
+  const providerId = resolveConnectionProviderId(action.action);
+  if (!providerId) return;
+
+  const connectionId = readConnectionId(action.config);
+  if (connectionId === undefined) return;
+  // A templated connectionId is resolved at run time; nothing to verify here.
+  if (connectionId.includes("{{") || connectionId.includes("${{")) return;
+
+  let pending = cache.get(providerId);
+  if (!pending) {
+    pending = connectionLookup.listConnectionIds({ providerId });
+    cache.set(providerId, pending);
+  }
+  const connectionIds = await pending;
+  // Lookup itself failed - degrade to a soft note rather than a false unknown.
+  if (connectionIds === undefined) {
+    issues.push({
+      path: [...path, "config", "connectionId"],
+      message: `Could not verify connectionId "${connectionId}" for action "${action.action}" - the integration connections could not be listed. Use automation.listConnections to confirm it exists.`,
+    });
+    return;
+  }
+  if (!connectionIds.includes(connectionId)) {
+    issues.push({
+      path: [...path, "config", "connectionId"],
+      message: `Action "${action.action}" references unknown connectionId "${connectionId}". Call automation.listConnections to pick a configured connection for this provider.`,
+    });
+  }
+}
+
+/** Read a literal `connectionId` string from an action config, if present. */
+function readConnectionId(config: unknown): string | undefined {
+  if (config === null || typeof config !== "object") return undefined;
+  const value = (config as Record<string, unknown>).connectionId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 async function validateTriggers(

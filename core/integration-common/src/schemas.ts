@@ -188,6 +188,20 @@ export type ProviderConnectionRedacted = z.infer<
   typeof ProviderConnectionRedactedSchema
 >;
 
+/**
+ * Name-only summary of a configured connection - just enough for an automation
+ * author (or the AI assistant) to pick a `connectionId` for an integration
+ * action. Carries NO config/secrets (not even the redacted preview), so it is
+ * safe to expose to any authenticated principal, unlike the admin-only
+ * {@link ProviderConnectionRedactedSchema}.
+ */
+export const ConnectionSummarySchema = z.object({
+  id: z.string(),
+  providerId: z.string(),
+  name: z.string(),
+});
+export type ConnectionSummary = z.infer<typeof ConnectionSummarySchema>;
+
 /** Input for creating a provider connection */
 export const CreateConnectionInputSchema = z.object({
   /** Qualified provider ID */

@@ -9,6 +9,7 @@ import { createJiraProvider } from "./provider";
 import {
   createJiraActions,
   jiraIssueArtifactType,
+  jiraIssueSearchArtifactType,
 } from "./automations";
 
 export const jiraPlugin = createBackendPlugin({
@@ -18,9 +19,14 @@ export const jiraPlugin = createBackendPlugin({
     // Register the jira.issue artifact type early so downstream
     // plugins / the editor can see it. Safe in `register()` since the
     // extension point is buffered.
-    env
-      .getExtensionPoint(automationArtifactTypeExtensionPoint)
-      .registerArtifactType(jiraIssueArtifactType, pluginMetadata);
+    const artifactTypes = env.getExtensionPoint(
+      automationArtifactTypeExtensionPoint,
+    );
+    artifactTypes.registerArtifactType(jiraIssueArtifactType, pluginMetadata);
+    artifactTypes.registerArtifactType(
+      jiraIssueSearchArtifactType,
+      pluginMetadata,
+    );
 
     env.registerInit({
       deps: {

@@ -46,6 +46,42 @@ export const jiraIssueArtifactType: ArtifactTypeDefinition<
   schema: jiraIssueDataSchema,
 };
 
+// ─── jira.issue_search artifact type ───────────────────────────────────
+
+const jiraIssueSearchHitSchema = z.object({
+  key: z.string().describe("e.g. PROJ-123"),
+  url: z.string().url(),
+  status: z.string().optional().describe("Current status name"),
+  summary: z.string().optional().describe("Issue summary"),
+});
+
+const jiraIssueSearchDataSchema = z.object({
+  found: z.boolean().describe("True when at least one issue matched"),
+  count: z.number().describe("Total number of matching issues"),
+  issues: z
+    .array(jiraIssueSearchHitSchema)
+    .describe("Matching issues (capped by the action's maxResults)"),
+  firstIssueKey: z
+    .string()
+    .optional()
+    .describe("Key of the first match, if any"),
+});
+
+/**
+ * Result of a read-only `search_issues` lookup. A downstream `choose` /
+ * `condition_guard` can gate creation on
+ * `{{ not artifacts.<actionId>.issue_search.found }}` so an automation
+ * does not file a duplicate ticket.
+ */
+export const jiraIssueSearchArtifactType: ArtifactTypeDefinition<
+  z.infer<typeof jiraIssueSearchDataSchema>
+> = {
+  id: "issue_search",
+  displayName: "Jira Issue Search",
+  description: "Result of a read-only Jira issue lookup",
+  schema: jiraIssueSearchDataSchema,
+};
+
 // ─── Action configs ────────────────────────────────────────────────────
 
 /**
@@ -135,6 +171,50 @@ const jiraAddCommentConfigSchema = z.object({
     .min(1)
     .describe("Comment body"),
 });
+
+/**
+ * Read-only issue search. The operator supplies a connection plus either
+ * a structured query (project / status / summary contains) and/or a raw
+ * JQL string; the action ANDs them and queries Jira's search endpoint.
+ */
+const jiraSearchIssuesConfigSchema = z
+  .object({
+    connectionId: configString({
+      "x-options-resolver": JIRA_RESOLVERS.CONNECTION_OPTIONS,
+    }).describe("Jira connection"),
+    projectKey: configString({
+      "x-options-resolver": JIRA_RESOLVERS.PROJECT_OPTIONS,
+      "x-depends-on": ["connectionId"],
+    })
+      .optional()
+      .describe("Restrict to a project"),
+    status: configString({ "x-editor-types": ["raw"] })
+      .optional()
+      .describe('Match an exact status name (e.g. "Open")'),
+    statusCategory: configString({ "x-editor-types": ["raw"] })
+      .optional()
+      .describe('Match a status category (e.g. "indeterminate" for in-progress)'),
+    summaryContains: configString({ "x-editor-types": ["raw"] })
+      .optional()
+      .describe("Match issues whose summary contains this text"),
+    jql: configString({ "x-editor-types": ["raw"] })
+      .optional()
+      .describe("Raw JQL, ANDed with the structured filters above"),
+  })
+  .superRefine((data, ctx) => {
+    const hasStructured =
+      [data.projectKey, data.status, data.statusCategory, data.summaryContains]
+        .some((v) => typeof v === "string" && v.trim().length > 0);
+    const hasJql = typeof data.jql === "string" && data.jql.trim().length > 0;
+    if (!hasStructured && !hasJql) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide at least one filter (project, status, summary, or raw JQL)",
+        path: ["jql"],
+      });
+    }
+  });
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -379,10 +459,79 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     },
   };
 
+  const searchIssuesAction: ActionDefinition<
+    z.infer<typeof jiraSearchIssuesConfigSchema>,
+    z.infer<typeof jiraIssueSearchDataSchema>
+  > = {
+    id: "search_issues",
+    displayName: "Search Jira Issues",
+    description:
+      "Read-only lookup for matching Jira issues (e.g. check for an existing open ticket before creating one)",
+    category: "Jira",
+    icon: "Search",
+    connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
+    config: new Versioned({
+      version: 1,
+      schema: jiraSearchIssuesConfigSchema,
+    }),
+    produces: "issue_search",
+    execute: async ({ config, logger, getService }) => {
+      const connectionStore = await getService(connectionStoreRef);
+      const loaded = await loadJiraClient(
+        config.connectionId,
+        connectionStore,
+        logger,
+      );
+      if ("error" in loaded) {
+        return { success: false, error: loaded.error };
+      }
+      const { client } = loaded;
+      try {
+        const result = await client.searchIssues({
+          jql: config.jql,
+          projectKey: config.projectKey,
+          status: config.status,
+          statusCategory: config.statusCategory,
+          summaryContains: config.summaryContains,
+        });
+        logger.info(
+          `Jira search matched ${result.count} issue(s)` +
+            (result.firstIssueKey ? ` (first: ${result.firstIssueKey})` : ""),
+        );
+        return {
+          success: true,
+          artifact: {
+            found: result.found,
+            count: result.count,
+            issues: result.issues,
+            firstIssueKey: result.firstIssueKey,
+          },
+        };
+      } catch (error) {
+        const message = extractErrorMessage(error, "Unknown error");
+        if (
+          message.includes("429") ||
+          message.toLowerCase().includes("rate limit")
+        ) {
+          return {
+            success: false,
+            error: `Rate limited by Jira: ${message}`,
+            retryAfterMs: 60_000,
+          };
+        }
+        return {
+          success: false,
+          error: `Failed to search Jira issues: ${message}`,
+        };
+      }
+    },
+  };
+
   return [
     createIssueAction as ActionDefinition<unknown, unknown>,
     transitionIssueAction as ActionDefinition<unknown, unknown>,
     addCommentAction as ActionDefinition<unknown, unknown>,
+    searchIssuesAction as ActionDefinition<unknown, unknown>,
   ];
 }
 
