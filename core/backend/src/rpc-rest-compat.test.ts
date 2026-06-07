@@ -1,14 +1,28 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 import { PluginManager } from "./plugin-manager";
 import { coreServices, os, createBackendPlugin } from "@checkstack/backend-api";
 import { Hono } from "hono";
 import { createMockDbModule } from "@checkstack/test-utils-backend";
 import { createMockLoggerModule } from "@checkstack/test-utils-backend";
+import * as realDb from "./db";
+import * as realLogger from "./logger";
+
+// Snapshot the REAL modules before mocking so afterAll can restore them.
+// `mock.module` is process-global and `mock.restore()` does not undo it, so
+// without this the stubs leak into every core/backend suite that runs after
+// this file (e.g. the real-HTTP auth tests).
+const realDbModule = { ...realDb };
+const realLoggerModule = { ...realLogger };
 
 // Mock DB and other globals
 mock.module("./db", () => createMockDbModule());
 
 mock.module("./logger", () => createMockLoggerModule());
+
+afterAll(() => {
+  mock.module("./db", () => realDbModule);
+  mock.module("./logger", () => realLoggerModule);
+});
 
 /**
  * Guards the oRPC router REGISTRATION + MOUNTING wiring contract.

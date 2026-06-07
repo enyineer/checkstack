@@ -1,4 +1,12 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  expect,
+  test,
+  mock,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "bun:test";
 import { APICallError, type LanguageModelUsage } from "ai";
 import type { AuthUser } from "@checkstack/backend-api";
 import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
@@ -208,6 +216,13 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore();
+});
+
+// mock.restore() does NOT undo a module mock, so restore the real `ai` module
+// here - otherwise the stubbed streamText/stepCountIs leak into every other
+// ai-backend suite that runs after this file.
+afterAll(() => {
+  mock.module("ai", () => ({ ...realAi }));
 });
 
 describe("streamTurn topical pre-classifier", () => {

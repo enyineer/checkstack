@@ -1,12 +1,22 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 import { AuthAccessApi } from "./lib/AuthAccessApi";
 import type { AccessRule } from "@checkstack/common";
 import { useAccessRules } from "./hooks/useAccessRules";
+import * as realUseAccessRules from "./hooks/useAccessRules";
+
+// Snapshot the real hook module before mocking; restore it in afterAll so the
+// stub does not leak into later auth-frontend suites (mock.module is
+// process-global and mock.restore() does not undo it).
+const realUseAccessRulesModule = { ...realUseAccessRules };
 
 // Mock the useAccessRules hook
 mock.module("./hooks/useAccessRules", () => ({
   useAccessRules: mock(),
 }));
+
+afterAll(() => {
+  mock.module("./hooks/useAccessRules", () => realUseAccessRulesModule);
+});
 
 // Test access rule objects
 const testReadAccess: AccessRule = {

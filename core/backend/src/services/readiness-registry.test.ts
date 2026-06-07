@@ -1,14 +1,24 @@
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, mock, afterAll } from "bun:test";
 import {
   CoreReadinessRegistry,
   createScopedReadinessRegistry,
 } from "./readiness-registry";
 import { createMockLogger } from "@checkstack/test-utils-backend";
+import * as realLogger from "../logger";
+
+// Snapshot the real logger before mocking; restore it in afterAll so the stub
+// does not leak into later core/backend suites (mock.module is process-global
+// and mock.restore() does not undo it).
+const realLoggerModule = { ...realLogger };
 
 const mockLogger = createMockLogger();
 mock.module("../logger", () => ({
   rootLogger: mockLogger,
 }));
+
+afterAll(() => {
+  mock.module("../logger", () => realLoggerModule);
+});
 
 describe("CoreReadinessRegistry", () => {
   let registry: CoreReadinessRegistry;
