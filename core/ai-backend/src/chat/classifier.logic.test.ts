@@ -12,56 +12,47 @@ describe("buildClassifierPrompt", () => {
     });
     expect(prompt).toBe("Summarize the open incidents");
     expect(system.length).toBeGreaterThan(0);
-    // The system prompt names the platform domains so the model knows what is
-    // on-topic.
     expect(system).toContain("Checkstack");
     expect(system).toContain("ON_TOPIC");
     expect(system).toContain("OFF_TOPIC");
   });
 
-  test("system prompt explicitly lists meta/capability questions as ON_TOPIC", () => {
-    const { system } = buildClassifierPrompt({ userText: "what can you do?" });
-    // Must contain language that classifies assistant capability/meta questions
-    // as ON_TOPIC. If this regresses (e.g. someone tightens the prompt and
-    // removes the meta allowance), this assertion catches it.
-    expect(system).toMatch(/what can you do|meta.*capability|capability.*question/i);
+  // The classifier is a DENY-LIST: it must NOT enumerate resources/tools/verbs
+  // (so new tools never require a prompt edit). Everything is ON_TOPIC by
+  // default; only a few obviously-unrelated categories are rejected.
+  test("treats everything as ON_TOPIC by default", () => {
+    const { system } = buildClassifierPrompt({ userText: "x" });
+    expect(system.toLowerCase()).toMatch(
+      /everything[^.]*on_topic|on_topic by default/i,
+    );
   });
 
-  test("system prompt explicitly lists greetings as ON_TOPIC", () => {
-    const { system } = buildClassifierPrompt({ userText: "hi" });
-    // Greetings / conversational openers must be named in the ON_TOPIC section.
-    expect(system).toMatch(/greeting|conversational opener|\"hi\"/i);
-  });
-
-  test("system prompt explicitly lists how-to/conceptual questions as ON_TOPIC", () => {
-    const { system } = buildClassifierPrompt({
-      userText: "how do health checks work?",
-    });
-    // How-to and conceptual questions about using Checkstack must be on-topic.
-    expect(system).toMatch(/how.to|conceptual/i);
-  });
-
-  test("system prompt restricts OFF_TOPIC to CLEARLY unrelated requests only", () => {
+  test("restricts OFF_TOPIC to CLEARLY unrelated requests only", () => {
     const { system } = buildClassifierPrompt({ userText: "write me a poem" });
-    // The word "clearly" (or equivalent) must gate the OFF_TOPIC definition so
-    // borderline messages default to ON_TOPIC.
-    expect(system).toMatch(/clearly unrelated|CLEARLY unrelated/i);
+    expect(system).toMatch(/clearly unrelated/i);
   });
 
-  test("system prompt names maintenances and a CRUD-action allowance as ON_TOPIC", () => {
-    // Regression for the real bug: "Create a maintenance" was refused because
-    // maintenances were not listed and there was no generic action allowance.
-    const { system } = buildClassifierPrompt({
-      userText: "Create a maintenance",
-    });
-    expect(system.toLowerCase()).toContain("maintenance");
-    // Any create/list/update/delete request must be ON_TOPIC by default.
-    expect(system).toMatch(/create[^.]*list[^.]*update[^.]*delete/i);
+  test("names the obviously off-topic categories (coding, writing, math, trivia)", () => {
+    const { system } = buildClassifierPrompt({ userText: "x" });
+    const lower = system.toLowerCase();
+    expect(lower).toMatch(/coding|programming/);
+    expect(lower).toContain("writing");
+    expect(lower).toMatch(/math|homework/);
+    expect(lower).toMatch(/trivia|world knowledge/);
   });
 
-  test("system prompt retains the 'when in doubt' ON_TOPIC default", () => {
+  test("retains the 'when in doubt' ON_TOPIC default", () => {
     const { system } = buildClassifierPrompt({ userText: "???" });
     expect(system).toMatch(/when in doubt.*on_topic/i);
+  });
+
+  test("does NOT enumerate platform resource types (deny-list, not allow-list)", () => {
+    // Guards the design: if someone reverts to an allow-list that lists
+    // resources, this catches it. The prompt should not need editing when tools
+    // are added, so it must not pin specific resource names.
+    const { system } = buildClassifierPrompt({ userText: "x" });
+    expect(system.toLowerCase()).not.toContain("anomal");
+    expect(system.toLowerCase()).not.toContain("slo");
   });
 });
 

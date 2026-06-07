@@ -17,28 +17,25 @@ export type ClassifierVerdict = "ON_TOPIC" | "OFF_TOPIC";
  * System prompt for the classifier. Kept tiny + deterministic: the model must
  * reply with a bare token so the (cheap) call stays short. The parser defends
  * against any decoration regardless.
+ *
+ * Deliberately a DENY-LIST, not an allow-list: it does NOT enumerate Checkstack
+ * resources, tools, or verbs (those change constantly and must never require a
+ * prompt edit). Everything is ON_TOPIC by default; only a few obviously
+ * unrelated categories are rejected. This biases hard toward letting real ops
+ * questions through.
  */
 const CLASSIFIER_SYSTEM_PROMPT =
-  "You are a topical classifier for Checkstack, an operations platform covering " +
-  "incidents, health checks, anomalies, automations, maintenances/maintenance " +
-  "windows, dependencies, systems and services, notifications, SLOs, " +
-  "integrations, on-call, and general monitoring/operations. Decide whether the " +
-  "user's message is ON_TOPIC or OFF_TOPIC. " +
-  "ON_TOPIC includes: operating or reasoning about Checkstack or any of its " +
-  "resources and configuration; meta/capability questions about the assistant " +
-  "itself (\"what can you do\", \"who are you\", \"help\", \"what features do you " +
-  "have\"); greetings and conversational openers (\"hi\", \"hello\", \"hey\"); " +
-  "how-to or conceptual questions about using Checkstack features or workflows " +
-  "(\"how do health checks work\", \"how do I create an automation\"). " +
-  "IMPORTANT: any request to create, add, list, show, view, find, update, edit, " +
-  "schedule, start, stop, resolve, acknowledge, or delete something is ON_TOPIC " +
-  "by default - it is almost certainly an action on a platform resource (e.g. " +
-  "\"create a maintenance\", \"list incidents\", \"schedule downtime\"), EVEN IF " +
-  "the resource type is not named in the list above. " +
-  "OFF_TOPIC means ONLY requests that are CLEARLY unrelated to operating this " +
-  "platform: general-purpose coding help, creative writing, math homework, and " +
-  "general trivia or knowledge questions. " +
-  "When in doubt, reply ON_TOPIC. Reply with the token only.";
+  "You are a topical gate for Checkstack, an operations and monitoring " +
+  "assistant. Treat essentially EVERYTHING as ON_TOPIC by default - any " +
+  "question or request about operating, analyzing, troubleshooting, " +
+  "configuring, or reasoning about Checkstack, its data, systems, services, " +
+  "environments, or their problems and status, any action on a resource, " +
+  "questions about your own capabilities, and greetings. " +
+  "Reply OFF_TOPIC ONLY when the message is CLEARLY unrelated to operating this " +
+  "platform - that is ONLY: general-purpose programming/coding help, creative " +
+  "writing, math or homework, or general trivia and world knowledge. " +
+  "Everything else is ON_TOPIC. When in doubt, reply ON_TOPIC. Reply with the " +
+  "token only.";
 
 /**
  * The canned refusal returned (over the normal SSE stream) when the classifier
