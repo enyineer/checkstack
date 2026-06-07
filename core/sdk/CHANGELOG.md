@@ -1,5 +1,12 @@
 # @checkstack/sdk
 
+## 0.101.1
+
+### Patch Changes
+
+- Updated dependencies [f9cfdae]
+  - @checkstack/dependency-common@1.2.5
+
 ## 0.100.1
 
 ### Patch Changes

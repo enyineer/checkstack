@@ -1,5 +1,11 @@
 # @checkstack/healthcheck-frontend
 
+## 0.23.6
+
+### Patch Changes
+
+- @checkstack/script-packages-frontend@0.3.6
+
 ## 0.23.5
 
 ### Patch Changes

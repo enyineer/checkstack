@@ -1,5 +1,16 @@
 # @checkstack/dependency-backend
 
+## 1.4.6
+
+### Patch Changes
+
+- Updated dependencies [f9cfdae]
+  - @checkstack/dependency-common@1.2.5
+  - @checkstack/ai-backend@0.1.6
+  - @checkstack/automation-backend@0.5.6
+  - @checkstack/catalog-backend@1.4.6
+  - @checkstack/healthcheck-backend@1.6.6
+
 ## 1.4.5
 
 ### Patch Changes
