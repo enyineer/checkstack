@@ -27,6 +27,10 @@ export {
   type AddMaintenanceUpdateInput,
 } from "./schemas";
 export { MaintenanceDetailsSlot, MaintenanceStatusSlot } from "./slots";
+export {
+  deriveMaintenanceSignals,
+  MAINTENANCE_SIGNAL_SOURCE,
+} from "./system-signals";
 export * from "./plugin-metadata";
 export * from "./notifications";
 export { maintenanceRoutes } from "./routes";

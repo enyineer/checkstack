@@ -1,20 +1,16 @@
 import React, { useEffect, useMemo } from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
 import {
   SystemSignalsSlot,
-  type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
 import {
   MaintenanceApi,
-  maintenanceRoutes,
-  maintenanceAccess,
+  deriveMaintenanceSignals,
+  MAINTENANCE_SIGNAL_SOURCE,
 } from "@checkstack/maintenance-common";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
-
-const SOURCE_ID = "maintenance";
 
 /**
  * Reports in-progress maintenance windows as dashboard signals. Bulk-fetches
@@ -22,6 +18,10 @@ const SOURCE_ID = "maintenance";
  * deep-linking to that maintenance's detail page. Scheduled (future) windows
  * are intentionally not surfaced - they are not "needs attention now". Headless
  * filler for {@link SystemSignalsSlot}.
+ *
+ * The row->signal mapping lives in the shared {@link deriveMaintenanceSignals}
+ * deriver so the dashboard and the backend `system.issues` aggregator emit
+ * identical signals.
  */
 export const MaintenanceSignalsFiller: React.FC<Props> = ({
   systemIds,
@@ -35,34 +35,15 @@ export const MaintenanceSignalsFiller: React.FC<Props> = ({
   );
 
   const signals = useMemo<SystemSignalsMap>(() => {
-    const result: SystemSignalsMap = {};
-    if (!data) return result;
-
-    for (const systemId of systemIds) {
-      const active = (data.maintenances[systemId] ?? []).filter(
-        (maintenance) => maintenance.status === "in_progress",
-      );
-      if (active.length === 0) continue;
-
-      result[systemId] = active.map((maintenance): SystemSignal => ({
-        source: SOURCE_ID,
-        tone: "info",
-        label: "Under maintenance",
-        detail: maintenance.title,
-        href: resolveRoute(maintenanceRoutes.routes.detail, {
-          maintenanceId: maintenance.id,
-        }),
-        // Detail page is read-gated; render as text for users without it.
-        accessRule: maintenanceAccess.maintenance.read,
-        since: new Date(maintenance.startAt).toISOString(),
-        iconName: "Wrench",
-      }));
-    }
-    return result;
+    if (!data) return {};
+    return deriveMaintenanceSignals({
+      maintenancesBySystem: data.maintenances,
+      systemIds,
+    });
   }, [data, systemIds]);
 
   useEffect(() => {
-    onSignals(SOURCE_ID, signals);
+    onSignals(MAINTENANCE_SIGNAL_SOURCE, signals);
   }, [signals, onSignals]);
 
   return null;

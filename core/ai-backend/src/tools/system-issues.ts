@@ -1,0 +1,209 @@
+import { z } from "zod";
+import { qualifyAccessRuleId } from "@checkstack/common";
+import type { AuthUser } from "@checkstack/backend-api";
+import {
+  catalogAccess,
+  pluginMetadata as catalogPluginMetadata,
+} from "@checkstack/catalog-common";
+import type { SystemSignal, SystemSignalsMap } from "@checkstack/catalog-common";
+import type { SystemSignalsContributor } from "../extension-points";
+import type { RegisteredAiTool } from "../tool-registry";
+
+/** Input for `system.issues`: optionally narrow the answer to specific systems. */
+export const SystemIssuesInputSchema = z.object({
+  /**
+   * When provided, only signals for these system ids are returned. Omit to get
+   * issues across ALL systems the principal can see.
+   */
+  systemIds: z.array(z.string()).optional(),
+});
+export type SystemIssuesInput = z.infer<typeof SystemIssuesInputSchema>;
+
+/** One signal as surfaced to the model (the source it came from is carried inline). */
+export const SystemIssueSignalSchema = z.object({
+  source: z.string(),
+  tone: z.enum(["error", "warn", "info"]),
+  label: z.string(),
+  detail: z.string().optional(),
+  since: z.string().optional(),
+});
+
+/** All current issues for one system. */
+export const SystemIssuesGroupSchema = z.object({
+  systemId: z.string(),
+  signals: z.array(SystemIssueSignalSchema),
+});
+
+/** The model-facing result: issues grouped by system, plus per-source coverage. */
+export const SystemIssuesOutputSchema = z.object({
+  /** One entry per system that currently has at least one issue. */
+  systems: z.array(SystemIssuesGroupSchema),
+  /** Total number of systems with issues (== `systems.length`). */
+  totalSystems: z.number(),
+  /** Total number of individual signals across all systems. */
+  totalSignals: z.number(),
+  /** Sources that were successfully checked (the answer covers these). */
+  checkedSources: z.array(z.string()),
+  /**
+   * Sources the caller lacks permission to read. These were NOT checked, so an
+   * empty `systems` does NOT mean these sources are clear - tell the operator
+   * they could not be checked due to access.
+   */
+  inaccessibleSources: z.array(z.string()),
+  /** Sources that errored while being read (also not reflected in `systems`). */
+  failedSources: z.array(z.string()),
+});
+export type SystemIssuesOutput = z.infer<typeof SystemIssuesOutputSchema>;
+
+/** Per-source outcome of a {@link collectSystemSignals} fan-out. */
+export interface SystemSignalsCollection {
+  merged: SystemSignalsMap;
+  checkedSources: string[];
+  inaccessibleSources: string[];
+  failedSources: string[];
+}
+
+/**
+ * Merge several contributors' {@link SystemSignalsMap}s into one map keyed by
+ * systemId, concatenating the signal arrays for systems that appear in more than
+ * one source. Pure and order-stable (sources are concatenated in input order),
+ * so it is unit-testable without standing up an environment.
+ */
+export function mergeSystemSignalsMaps(
+  maps: SystemSignalsMap[],
+): SystemSignalsMap {
+  const merged: SystemSignalsMap = {};
+  for (const map of maps) {
+    for (const [systemId, signals] of Object.entries(map)) {
+      if (signals.length === 0) continue;
+      const existing = merged[systemId];
+      if (existing) {
+        existing.push(...signals);
+      } else {
+        merged[systemId] = [...signals];
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * Shape a merged {@link SystemSignalsMap} into the model-friendly grouped
+ * result, optionally narrowed to `systemIds`. Drops the link/icon fields the
+ * model does not need (`href`, `accessRule`, `iconName`) and keeps
+ * source/tone/label/detail/since.
+ */
+export function toSystemIssuesOutput({
+  collection,
+  systemIds,
+}: {
+  collection: SystemSignalsCollection;
+  systemIds?: string[];
+}): SystemIssuesOutput {
+  const allow = systemIds ? new Set(systemIds) : undefined;
+  const systems = Object.entries(collection.merged)
+    .filter(([systemId]) => !allow || allow.has(systemId))
+    .map(([systemId, signals]) => ({
+      systemId,
+      signals: signals.map((s: SystemSignal) => ({
+        source: s.source,
+        tone: s.tone,
+        label: s.label,
+        detail: s.detail,
+        since: s.since,
+      })),
+    }));
+  return {
+    systems,
+    totalSystems: systems.length,
+    totalSignals: systems.reduce((sum, s) => sum + s.signals.length, 0),
+    checkedSources: collection.checkedSources,
+    inaccessibleSources: collection.inaccessibleSources,
+    failedSources: collection.failedSources,
+  };
+}
+
+/**
+ * Read every contributor's signals for `principal` and return the merged map
+ * plus per-source coverage. Each source is classified so the caller can tell
+ * "checked and clear" apart from "skipped":
+ *  - checked: read succeeded and the principal could access it,
+ *  - inaccessible: the principal lacked access (`accessible: false`),
+ *  - failed: the contributor threw.
+ * A throwing/denied source never breaks the whole call.
+ */
+export async function collectSystemSignals({
+  contributors,
+  principal,
+}: {
+  contributors: SystemSignalsContributor[];
+  principal: AuthUser;
+}): Promise<SystemSignalsCollection> {
+  const settled = await Promise.allSettled(
+    contributors.map((c) => c.read({ principal })),
+  );
+  const maps: SystemSignalsMap[] = [];
+  const checkedSources: string[] = [];
+  const inaccessibleSources: string[] = [];
+  const failedSources: string[] = [];
+  for (const [index, result] of settled.entries()) {
+    const { sourceId } = contributors[index];
+    if (result.status !== "fulfilled") {
+      failedSources.push(sourceId);
+      continue;
+    }
+    if (!result.value.accessible) {
+      inaccessibleSources.push(sourceId);
+      continue;
+    }
+    checkedSources.push(sourceId);
+    maps.push(result.value.signals);
+  }
+  return {
+    merged: mergeSystemSignalsMaps(maps),
+    checkedSources,
+    inaccessibleSources,
+    failedSources,
+  };
+}
+
+/**
+ * `system.issues` - the single "what are the current issues" tool. It fans out
+ * across every backend `SystemSignalsContributor` (failing health checks,
+ * breaching/at-risk SLOs, active anomalies, open incidents, active
+ * maintenances, dependency problems) and returns them aggregated across systems
+ * in ONE call. `effect: "read"` (auto-runs).
+ *
+ * The `contributors` array is the live array from
+ * `createSystemSignalsExtensionPoint`, read at execute time so contributors
+ * registered during plugin init are always seen.
+ */
+export function createSystemIssuesTool({
+  contributors,
+}: {
+  contributors: SystemSignalsContributor[];
+}): RegisteredAiTool<SystemIssuesInput, SystemIssuesOutput> {
+  return {
+    name: "system.issues",
+    description:
+      "Return ALL current system issues - failing health checks, breaching or at-risk SLOs, active anomalies, open incidents, active maintenances, and dependency problems - aggregated across every system in ONE call. Use this FIRST whenever asked whether there are any issues, what is wrong, what is down, or for an overall health overview, before reaching for any per-domain tool. Read-only. Optionally pass systemIds to narrow the answer to specific systems. The result lists `checkedSources`, plus `inaccessibleSources` (you lack permission to read these - they were NOT checked, so do not report them as clear) and `failedSources` (errored). If either is non-empty, tell the operator those sources could not be checked.",
+    effect: "read",
+    input: SystemIssuesInputSchema,
+    output: SystemIssuesOutputSchema,
+    // The TOOL is gated by catalog.system.read; PER-SOURCE access is enforced
+    // inside each contributor (a source the principal cannot see returns {}).
+    requiredAccessRules: [
+      qualifyAccessRuleId(catalogPluginMetadata, catalogAccess.system.read),
+    ],
+    async execute({
+      input,
+      principal,
+    }: {
+      input: SystemIssuesInput;
+      principal: AuthUser;
+    }) {
+      const collection = await collectSystemSignals({ contributors, principal });
+      return toSystemIssuesOutput({ collection, systemIds: input.systemIds });
+    },
+  };
+}

@@ -16,6 +16,8 @@ import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
+  systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import { buildMaintenanceAiTools } from "./ai/register-ai-tools";
 import {
@@ -30,6 +32,7 @@ import {
   specToRegistration,
 } from "@checkstack/notification-common";
 import { MaintenanceService } from "./service";
+import { createMaintenanceSignalsContributor } from "./system-signals";
 import { createRouter } from "./router";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
@@ -213,6 +216,20 @@ export default createBackendPlugin({
           effect: "read",
           execute: deferredProjectionExecute,
         });
+
+        // Contribute in-progress maintenance windows to the cross-plugin
+        // `system.issues` aggregator (ai-backend). The contributor gates on
+        // maintenance.read against the originating principal (per-source access
+        // is THIS plugin's job), reads GLOBALLY from the shared maintenance
+        // tables, and runs the SAME deriver the dashboard filler uses - see
+        // createMaintenanceSignalsContributor.
+        const signalsExt = env.getExtensionPoint(systemSignalsExtensionPoint);
+        signalsExt.contribute(
+          createMaintenanceSignalsContributor({
+            service: maintenanceService,
+            resolver: createSystemAccessResolver(rpcClient),
+          }),
+        );
 
         // Register "Create Maintenance" command in the command palette
         registerSearchProvider({

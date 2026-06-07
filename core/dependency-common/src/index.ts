@@ -28,6 +28,10 @@ export {
 export * from "./plugin-metadata";
 export * from "./notifications";
 export { dependencyRoutes } from "./routes";
+export {
+  deriveDependencySignals,
+  DEPENDENCY_SIGNAL_SOURCE_ID,
+} from "./signals";
 
 // =============================================================================
 // REALTIME SIGNALS

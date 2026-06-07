@@ -4,6 +4,8 @@ import { z } from "zod";
 import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
+  systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import {
   sloAccessRules,
@@ -47,6 +49,7 @@ import { setupWeeklyDigestJob } from "./weekly-digest";
 import { evaluateAchievements } from "./achievement-evaluator";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSloGitOpsKinds } from "./slo-gitops-kinds";
+import { createSloSignalsContributor } from "./signals-contributor";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -188,6 +191,11 @@ export default createBackendPlugin({
       pluginMetadata,
     );
 
+    // System-signals contributor for the `system.issues` AI tool. Registered
+    // (contribute) synchronously in init with the resolved service + engine;
+    // ai-backend reads the live contributor array at the tool's execute time.
+    const systemSignalsExt = env.getExtensionPoint(systemSignalsExtensionPoint);
+
     // Shared references across init/afterPluginsReady (maintenance-backend pattern)
     let sharedEngine: SloEngine;
     let gitopsService: SloService | undefined;
@@ -260,6 +268,18 @@ export default createBackendPlugin({
           cache,
         });
         rpc.registerRouter(router, sloContract);
+
+        // Contribute breaching/degraded/at-risk SLOs to the `system.issues` AI
+        // tool. `read` enforces this source's read access on the originating
+        // principal, queries every objective globally from `slo_objectives`, and
+        // derives signals via the same shared deriver the frontend filler uses.
+        systemSignalsExt.contribute(
+          createSloSignalsContributor({
+            service,
+            engine,
+            resolver: createSystemAccessResolver(rpcClient),
+          }),
+        );
 
         // Register command palette entries
         registerSearchProvider({

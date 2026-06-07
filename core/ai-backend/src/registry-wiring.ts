@@ -2,6 +2,8 @@ import type { PluginMetadata } from "@checkstack/common";
 import type {
   AiToolExtensionPoint,
   AiToolProjectionExtensionPoint,
+  SystemSignalsContributor,
+  SystemSignalsExtensionPoint,
 } from "./extension-points";
 import { buildProjectedTool } from "./projection";
 import { toProviderToolName } from "./tool-name";
@@ -69,4 +71,26 @@ export function createRegistryExtensionPoints({
   };
 
   return { toolExtensionPoint, projectionExtensionPoint, exposedProjections };
+}
+
+/**
+ * Build the {@link SystemSignalsExtensionPoint} implementation that accumulates
+ * every registered contributor into a shared array, mirroring how {@link
+ * createRegistryExtensionPoints} accumulates `exposedProjections`. The returned
+ * `contributors` array is the SAME reference the `system.issues` tool reads at
+ * execute time, so contributors registered from any plugin's `init` are visible
+ * to the tool by the time it runs.
+ */
+export function createSystemSignalsExtensionPoint(): {
+  systemSignalsExtensionPoint: SystemSignalsExtensionPoint;
+  /** Every contributor registered via the point (populated lazily at init). */
+  contributors: SystemSignalsContributor[];
+} {
+  const contributors: SystemSignalsContributor[] = [];
+  const systemSignalsExtensionPoint: SystemSignalsExtensionPoint = {
+    contribute: (contributor) => {
+      contributors.push(contributor);
+    },
+  };
+  return { systemSignalsExtensionPoint, contributors };
 }

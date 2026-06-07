@@ -18,11 +18,16 @@ import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
+  systemSignalsExtensionPoint,
 } from "./extension-points";
 import { createAiToolRegistry } from "./tool-registry";
 import { createAiToolResolver } from "./resolver";
-import { createRegistryExtensionPoints } from "./registry-wiring";
+import {
+  createRegistryExtensionPoints,
+  createSystemSignalsExtensionPoint,
+} from "./registry-wiring";
 import { buildCompositeTools } from "./tools/composite-tools";
+import { createSystemIssuesTool } from "./tools/system-issues";
 import { createOpenAiCompatibleProvider } from "./openai-provider";
 import { createAiRouter } from "./router";
 import { createMcpRequestHandler } from "./mcp/server";
@@ -76,6 +81,13 @@ export default createBackendPlugin({
     const { toolExtensionPoint, projectionExtensionPoint, exposedProjections } =
       createRegistryExtensionPoints({ registry });
 
+    // System-signals contributors: each plugin that owns a kind of problem state
+    // registers ONE contributor from its OWN init; the `system.issues` composite
+    // tool fans out across this SAME array at execute time. ai-backend imports no
+    // plugin's `*-common` to collect them.
+    const { systemSignalsExtensionPoint: systemSignalsExt, contributors } =
+      createSystemSignalsExtensionPoint();
+
     // Path 1 — hand-authored composite tools.
     env.registerExtensionPoint(aiToolExtensionPoint, toolExtensionPoint);
     // Path 2 — opt-in projection of an existing oRPC procedure. Plugins call
@@ -85,6 +97,7 @@ export default createBackendPlugin({
       aiToolProjectionExtensionPoint,
       projectionExtensionPoint,
     );
+    env.registerExtensionPoint(systemSignalsExtensionPoint, systemSignalsExt);
 
     // Live MCP connection registry — the ONE allowed pod-local thing
     // (declareNonReactiveState({ reason: "bookkeeping" }), decision 9). Created
@@ -174,6 +187,18 @@ export default createBackendPlugin({
         for (const tool of buildCompositeTools()) {
           toolExt.registerTool(tool, pluginMetadata);
         }
+
+        // The `system.issues` aggregator: ONE "what are the current issues"
+        // read tool that fans out across every registered SystemSignalsContributor
+        // and merges their global maps. Registered through the same extension
+        // point external plugins use; gated by catalog.system.read (per-source
+        // access is enforced inside each contributor). The `contributors` array
+        // is the live register-scope array, read at execute time, so plugins that
+        // contribute during their own init are seen.
+        toolExt.registerTool(
+          createSystemIssuesTool({ contributors }),
+          pluginMetadata,
+        );
 
 
         // Register the OpenAI-compatible integration provider so it appears in
@@ -408,11 +433,31 @@ export default createBackendPlugin({
 export {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
+  systemSignalsExtensionPoint,
+  principalGrantedRuleIds,
 } from "./extension-points";
 export type {
   AiToolExtensionPoint,
   AiToolProjectionExtensionPoint,
+  SystemSignalsExtensionPoint,
+  SystemSignalsContributor,
+  SystemSignalsContribution,
 } from "./extension-points";
+export {
+  createGatedSystemSignalsContributor,
+  createSystemAccessResolver,
+} from "./system-signals-contributor";
+export type { SystemAccessResolver } from "./system-signals-contributor";
+export {
+  createSystemIssuesTool,
+  mergeSystemSignalsMaps,
+  collectSystemSignals,
+  toSystemIssuesOutput,
+  SystemIssuesInputSchema,
+  SystemIssuesOutputSchema,
+  type SystemIssuesInput,
+  type SystemIssuesOutput,
+} from "./tools/system-issues";
 export {
   createAiToolRegistry,
   type AiToolRegistry,

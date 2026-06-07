@@ -29,6 +29,10 @@ export {
   type AddIncidentUpdateInput,
 } from "./schemas";
 export { IncidentDetailsSlot, IncidentStatusSlot } from "./slots";
+export {
+  INCIDENT_SIGNAL_SOURCE_ID,
+  deriveIncidentSignals,
+} from "./signals";
 export * from "./plugin-metadata";
 export * from "./notifications";
 export { incidentRoutes } from "./routes";

@@ -3,10 +3,14 @@ import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import {
   SystemSignalsSlot,
-  type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
-import { AnomalyApi } from "@checkstack/anomaly-common";
+import {
+  AnomalyApi,
+  deriveAnomalySignals,
+  ANOMALY_SIGNAL_SOURCE_ID,
+  type AnomalySignalRow,
+} from "@checkstack/anomaly-common";
 import {
   healthcheckRoutes,
   healthCheckAccess,
@@ -14,14 +18,12 @@ import {
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
 
-const SOURCE_ID = "anomaly";
-
 /**
  * Reports confirmed anomalies and suspicious states as dashboard signals.
  * Reuses the two globally-deduped anomaly queries (the same ones the badge
- * uses) and emits one signal per anomaly for systems in the overview, deep-
- * linking to the affected check's history. Headless filler for
- * {@link SystemSignalsSlot}.
+ * uses) and the shared {@link deriveAnomalySignals} mapper - the SAME mapper the
+ * backend `system.issues` contributor runs - so frontend and backend signals
+ * stay identical. Headless filler for {@link SystemSignalsSlot}.
  */
 export const AnomalySignalsFiller: React.FC<Props> = ({
   systemIds,
@@ -39,46 +41,31 @@ export const AnomalySignalsFiller: React.FC<Props> = ({
   );
 
   const signals = useMemo<SystemSignalsMap>(() => {
-    const result: SystemSignalsMap = {};
     const inOverview = new Set(systemIds);
+    const rows: AnomalySignalRow[] = [...confirmed, ...suspicious]
+      .filter((a) => inOverview.has(a.systemId))
+      .map((a) => ({
+        systemId: a.systemId,
+        configurationId: a.configurationId,
+        fieldPath: a.fieldPath,
+        startedAt: a.startedAt,
+        state: a.state,
+      }));
 
-    const add = (
-      systemId: string,
-      configurationId: string,
-      fieldPath: string,
-      startedAt: string,
-      tone: SystemSignal["tone"],
-      label: string,
-    ) => {
-      if (!inOverview.has(systemId)) return;
-      const signal: SystemSignal = {
-        source: SOURCE_ID,
-        tone,
-        label,
-        detail: fieldPath,
-        href: resolveRoute(healthcheckRoutes.routes.historyDetail, {
-          systemId,
-          configurationId,
+    return deriveAnomalySignals({
+      rows,
+      buildHref: (row) =>
+        resolveRoute(healthcheckRoutes.routes.historyDetail, {
+          systemId: row.systemId,
+          configurationId: row.configurationId,
         }),
-        // The history detail page is gated; render as text for users without it.
-        accessRule: healthCheckAccess.details,
-        since: new Date(startedAt).toISOString(),
-        iconName: "ChartSpline",
-      };
-      (result[systemId] ??= []).push(signal);
-    };
-
-    for (const a of confirmed) {
-      add(a.systemId, a.configurationId, a.fieldPath, a.startedAt, "warn", "Anomaly detected");
-    }
-    for (const a of suspicious) {
-      add(a.systemId, a.configurationId, a.fieldPath, a.startedAt, "info", "Suspicious behaviour");
-    }
-    return result;
+      // The history detail page is gated; render as text for users without it.
+      accessRule: healthCheckAccess.details,
+    });
   }, [confirmed, suspicious, systemIds]);
 
   useEffect(() => {
-    onSignals(SOURCE_ID, signals);
+    onSignals(ANOMALY_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
 
   return null;

@@ -21,8 +21,11 @@ import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
+  systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import { buildHealthcheckAiTools } from "./ai/register-ai-tools";
+import { createHealthcheckSignalsContributor } from "./ai/system-signals-contributor";
 import {
   createBackendPlugin,
   coreServices,
@@ -234,11 +237,12 @@ export default createBackendPlugin({
         // computes each system's aggregate from durable `health_check_runs`,
         // and the queue worker (set up just below — the only mutation site)
         // drives writes through `handle.mutate`.
-        healthEntityService = new HealthCheckService(
+        const service = new HealthCheckService(
           database,
           healthCheckRegistry,
           collectorRegistry,
         );
+        healthEntityService = service;
 
         // Register this plugin's AI tools (propose/update/delete) into the AI
         // registry via the extension point - owned here, not in ai-backend.
@@ -265,6 +269,22 @@ export default createBackendPlugin({
           effect: "read",
           execute: deferredProjectionExecute,
         });
+
+        // Contribute this plugin's per-system health problems to the AI
+        // `system.issues` aggregator. PER-SOURCE access is OUR job: gate on the
+        // principal's `healthcheck.status` grant and return {} (never throw)
+        // when not satisfied. The read derives from the durable
+        // `health_check_runs` / `system_health_checks` tables (global, identical
+        // on every pod) and reuses the SAME pure deriver as the dashboard
+        // filler, so backend signals match the UI's source/tone/label/detail.
+        env
+          .getExtensionPoint(systemSignalsExtensionPoint)
+          .contribute(
+            createHealthcheckSignalsContributor({
+              service,
+              resolver: createSystemAccessResolver(rpcClient),
+            }),
+          );
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);

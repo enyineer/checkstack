@@ -536,6 +536,60 @@ export class MaintenanceService {
   }
 
   /**
+   * Global read of all currently-active (in_progress) maintenance windows,
+   * grouped by the systems they affect. Returns one entry per system that has
+   * at least one in_progress window; systems with none are absent (so the
+   * result is safe to feed straight into the system-signals deriver). Reads the
+   * shared, durable `maintenances` + `maintenance_systems` tables so the answer
+   * is identical on every pod.
+   *
+   * Unlike {@link getMaintenancesForSystem} (per system, scheduled +
+   * in_progress) and the bulk-by-systemIds RPC, this is GLOBAL across all
+   * systems and limited to in_progress - it backs the `system.issues`
+   * aggregator contributor, which reports problems for ALL systems at once.
+   */
+  async getActiveMaintenancesBySystem(): Promise<
+    Record<string, MaintenanceWithSystems[]>
+  > {
+    const activeRows = await this.db
+      .select()
+      .from(maintenances)
+      .where(eq(maintenances.status, "in_progress"));
+    if (activeRows.length === 0) return {};
+
+    const activeIds = activeRows.map((m) => m.id);
+    const systemRows = await this.db
+      .select({
+        maintenanceId: maintenanceSystems.maintenanceId,
+        systemId: maintenanceSystems.systemId,
+      })
+      .from(maintenanceSystems)
+      .where(inArray(maintenanceSystems.maintenanceId, activeIds));
+
+    const systemsByMaintenance = new Map<string, string[]>();
+    for (const r of systemRows) {
+      const list = systemsByMaintenance.get(r.maintenanceId);
+      if (list) list.push(r.systemId);
+      else systemsByMaintenance.set(r.maintenanceId, [r.systemId]);
+    }
+
+    const result: Record<string, MaintenanceWithSystems[]> = {};
+    for (const m of activeRows) {
+      const systemIds = systemsByMaintenance.get(m.id) ?? [];
+      const withSystems: MaintenanceWithSystems = {
+        ...m,
+        description: m.description ?? undefined,
+        systemIds,
+      };
+      for (const systemId of systemIds) {
+        (result[systemId] ??= []).push(withSystems);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Get maintenances that should transition from 'scheduled' to 'in_progress'.
    * These are maintenances where status = 'scheduled' AND startAt <= now.
    */

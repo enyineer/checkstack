@@ -1,20 +1,16 @@
 import React, { useEffect, useMemo } from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
-import { resolveRoute } from "@checkstack/common";
 import {
   SystemSignalsSlot,
-  type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
 import {
-  healthcheckRoutes,
-  healthCheckAccess,
+  deriveHealthcheckSignals,
+  HEALTHCHECK_SIGNAL_SOURCE_ID,
 } from "@checkstack/healthcheck-common";
 import { HealthCheckApi } from "../api";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
-
-const SOURCE_ID = "healthcheck";
 
 /**
  * Reports per-system health as dashboard signals. Bulk-fetches health for all
@@ -35,56 +31,12 @@ export const HealthSignalsFiller: React.FC<Props> = ({
   );
 
   const signals = useMemo<SystemSignalsMap>(() => {
-    const result: SystemSignalsMap = {};
-    if (!data) return result;
-
-    for (const systemId of systemIds) {
-      const status = data.statuses[systemId];
-      if (!status || status.status === "healthy") continue;
-
-      const failing = status.checkStatuses.filter(
-        (c) => c.status !== "healthy",
-      );
-      const failingCheck = failing[0];
-      // Link target and its gating rule differ: the check history detail page
-      // needs `details`; the assignments page needs `configuration.manage`. The
-      // dashboard renders text instead of a link for users without the rule.
-      const { href, accessRule } = failingCheck
-        ? {
-            href: resolveRoute(healthcheckRoutes.routes.historyDetail, {
-              systemId,
-              configurationId: failingCheck.configurationId,
-            }),
-            accessRule: healthCheckAccess.details,
-          }
-        : {
-            href: resolveRoute(healthcheckRoutes.routes.assignments, {
-              systemId,
-            }),
-            accessRule: healthCheckAccess.configuration.manage,
-          };
-
-      const detail =
-        status.checkStatuses.length > 0
-          ? `${failing.length} of ${status.checkStatuses.length} checks failing`
-          : undefined;
-
-      const signal: SystemSignal = {
-        source: SOURCE_ID,
-        tone: status.status === "unhealthy" ? "error" : "warn",
-        label: status.status === "unhealthy" ? "Unhealthy" : "Degraded",
-        detail,
-        href,
-        accessRule,
-        iconName: "Activity",
-      };
-      result[systemId] = [signal];
-    }
-    return result;
-  }, [data, systemIds]);
+    if (!data) return {};
+    return deriveHealthcheckSignals({ statuses: data.statuses });
+  }, [data]);
 
   useEffect(() => {
-    onSignals(SOURCE_ID, signals);
+    onSignals(HEALTHCHECK_SIGNAL_SOURCE_ID, signals);
   }, [signals, onSignals]);
 
   return null;

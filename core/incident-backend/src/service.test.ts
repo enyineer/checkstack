@@ -227,6 +227,99 @@ describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () =
   });
 });
 
+describe("IncidentService.listOpenIncidentsBySystem (global signals read)", () => {
+  it("returns {} without a junction query when no open incidents exist", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st query: open incidents -> none, so the junction query is skipped.
+      [],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+    expect(await service.listOpenIncidentsBySystem()).toEqual({});
+    expect(dbHelper.getCallCount()).toBe(1);
+  });
+
+  it("groups open incidents under each affected system, full systemIds per entry", async () => {
+    const createdAt = new Date("2026-06-01T10:00:00.000Z");
+    const updatedAt = new Date("2026-06-01T10:05:00.000Z");
+    const dbHelper = createProgrammableSelectDb([
+      // 1st query: open incident rows (resolved excluded by the WHERE clause).
+      [
+        {
+          id: "inc-1",
+          title: "DB down",
+          description: null,
+          status: "investigating",
+          severity: "critical",
+          suppressNotifications: false,
+          createdAt,
+          updatedAt,
+        },
+        {
+          id: "inc-2",
+          title: "Slow",
+          description: "elevated latency",
+          status: "monitoring",
+          severity: "major",
+          suppressNotifications: false,
+          createdAt,
+          updatedAt,
+        },
+      ],
+      // 2nd query: junction rows. inc-1 spans two systems; inc-2 one.
+      [
+        { incidentId: "inc-1", systemId: "sys-a" },
+        { incidentId: "inc-1", systemId: "sys-b" },
+        { incidentId: "inc-2", systemId: "sys-a" },
+      ],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+
+    const out = await service.listOpenIncidentsBySystem();
+
+    expect(Object.keys(out).sort()).toEqual(["sys-a", "sys-b"]);
+    // sys-a sees both incidents; sys-b only inc-1.
+    expect(out["sys-a"].map((i) => i.id)).toEqual(["inc-1", "inc-2"]);
+    expect(out["sys-b"].map((i) => i.id)).toEqual(["inc-1"]);
+    // Multi-system incident carries its FULL systemIds under each key.
+    expect(out["sys-a"][0].systemIds).toEqual(["sys-a", "sys-b"]);
+    expect(out["sys-b"][0].systemIds).toEqual(["sys-a", "sys-b"]);
+    // null description is normalized to undefined (IncidentWithSystems shape).
+    expect(out["sys-a"][0].description).toBeUndefined();
+    expect(out["sys-a"][1].description).toBe("elevated latency");
+    expect(dbHelper.getCallCount()).toBe(2);
+  });
+
+  it("yields no entry for an open incident with no system associations", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      [
+        {
+          id: "inc-orphan",
+          title: "Orphan",
+          description: null,
+          status: "identified",
+          severity: "minor",
+          suppressNotifications: false,
+          createdAt: new Date("2026-06-01T10:00:00.000Z"),
+          updatedAt: new Date("2026-06-01T10:00:00.000Z"),
+        },
+      ],
+      [], // no junction rows
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+    expect(await service.listOpenIncidentsBySystem()).toEqual({});
+    expect(dbHelper.getCallCount()).toBe(2);
+  });
+});
+
 /**
  * Table-backed fake `db` for the dedup-create path. Models just enough of
  * the Drizzle surface the service touches (select/insert by TABLE IDENTITY,

@@ -1,8 +1,11 @@
 import { createBackendPlugin, coreServices, type SafeDatabase } from "@checkstack/backend-api";
 import {
   aiToolProjectionExtensionPoint,
+  systemSignalsExtensionPoint,
+  createSystemAccessResolver,
   deferredProjectionExecute,
 } from "@checkstack/ai-backend";
+import { createAnomalySignalsContributor } from "./system-signals";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { setupBaselineAnalyzerJob } from "./jobs/baseline-analyzer";
 import { processCheckCompleted } from "./detector";
@@ -117,6 +120,20 @@ export const plugin = createBackendPlugin({
 
         const service = new AnomalyService(typedDb);
         gitopsService = service;
+
+        // Contribute anomaly problem state to the dashboard `system.issues`
+        // aggregator. The contributor gates the originating principal on
+        // anomaly's own read rule and reads globally from shared Postgres - see
+        // createAnomalySignalsContributor.
+        env
+          .getExtensionPoint(systemSignalsExtensionPoint)
+          .contribute(
+            createAnomalySignalsContributor({
+              service,
+              resolver: createSystemAccessResolver(rpcClient),
+            }),
+          );
+
         routerCache = createAnomalyRouterCache({ cacheManager, logger });
         const router = createRouter(service, logger, routerCache);
         rpc.registerRouter(router, anomalyContract);

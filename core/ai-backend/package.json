@@ -17,7 +17,9 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
     "@checkstack/ai-common": "workspace:*",
+    "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/drizzle-helper": "workspace:*",
     "@checkstack/integration-backend": "workspace:*",
