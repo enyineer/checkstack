@@ -27,6 +27,13 @@ const RoleDtoSchema = z.object({
 const AccessRuleDtoSchema = z.object({
   id: z.string(),
   description: z.string().optional(),
+  /**
+   * Whether an anonymous caller can actually USE this rule (a `public` procedure
+   * requires it). The role editor uses this to warn/disable granting inert
+   * permissions to the anonymous role. Absent/false => only authenticated
+   * procedures need it, so granting it to the anonymous role has no effect.
+   */
+  anonymousUsable: z.boolean().optional(),
 });
 
 const StrategyDtoSchema = z.object({

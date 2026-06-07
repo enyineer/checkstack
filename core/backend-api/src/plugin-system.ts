@@ -139,6 +139,12 @@ export type BackendPluginRegistry = {
   ) => void;
   pluginManager: {
     getAllAccessRules: () => { id: string; description?: string }[];
+    /**
+     * Qualified ids of access rules an anonymous caller can actually use (rules
+     * required by at least one `public` procedure). Used to guard the role
+     * editor against granting inert permissions to the anonymous role.
+     */
+    getAnonymousUsableAccessRuleIds: () => string[];
   };
 };
 

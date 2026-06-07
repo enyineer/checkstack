@@ -15,7 +15,11 @@ import {
   HookUnsubscribe,
 } from "@checkstack/backend-api";
 import type { AnyContractRouter } from "@orpc/contract";
-import type { AccessRule, PluginMetadata } from "@checkstack/common";
+import type {
+  AccessRule,
+  PluginMetadata,
+  ProcedureMetadata,
+} from "@checkstack/common";
 import { extractErrorMessage } from "@checkstack/common";
 
 // Extracted modules
@@ -29,6 +33,32 @@ import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { stripPublicSchemaFromMigrations } from "./utils/strip-public-schema";
 import { runPluginMigrations } from "./utils/run-plugin-migrations";
 import { createScopedDb } from "./utils/scoped-db";
+
+/**
+ * Collect the qualified ids (`{pluginId}.{ruleId}`) of access rules an ANONYMOUS
+ * caller can actually use: a rule is included iff at least one procedure that
+ * requires it has `userType: "public"` (the only userType where the anonymous
+ * role's rules are consulted). Pure + exported for unit testing.
+ */
+export function collectAnonymousUsableRuleIds(
+  contracts: Iterable<unknown>,
+): string[] {
+  const usable = new Set<string>();
+  for (const contract of contracts) {
+    for (const procedure of Object.values(
+      contract as Record<string, unknown>,
+    )) {
+      const meta = (
+        procedure as { ["~orpc"]?: { meta?: ProcedureMetadata } } | undefined
+      )?.["~orpc"]?.meta;
+      if (meta?.userType !== "public") continue;
+      for (const rule of meta.access ?? []) {
+        usable.add(`${rule.pluginId}.${rule.id}`);
+      }
+    }
+  }
+  return [...usable];
+}
 
 export interface DeregisterOptions {
   deleteSchema: boolean;
@@ -208,6 +238,22 @@ export class PluginManager {
     return new Map(this.pluginContractRegistry);
   }
 
+  /**
+   * Qualified ids (`{pluginId}.{ruleId}`) of access rules an ANONYMOUS caller can
+   * actually USE: a rule is included iff at least one registered procedure that
+   * requires it has `userType: "public"` - the only userType where the anonymous
+   * role's granted rules are consulted. Rules used solely by
+   * authenticated/user/service procedures are excluded: granting them to the
+   * anonymous role is inert (the auth middleware rejects unauthenticated callers
+   * before access rules are checked), so the role editor uses this to avoid
+   * misleading "granted but unusable" anonymous permissions.
+   */
+  getAnonymousUsableAccessRuleIds(): string[] {
+    return collectAnonymousUsableRuleIds(
+      this.pluginContractRegistry.values(),
+    );
+  }
+
   async loadPlugins(
     rootRouter: Hono,
     manualPlugins: BackendPlugin[] = [],
@@ -228,6 +274,8 @@ export class PluginManager {
         extensionPointManager: this.extensionPointManager,
         registeredAccessRules: this.registeredAccessRules,
         getAllAccessRules: () => this.getAllAccessRules(),
+        getAnonymousUsableAccessRuleIds: () =>
+          this.getAnonymousUsableAccessRuleIds(),
         db,
         pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
@@ -772,6 +820,8 @@ export class PluginManager {
         },
         pluginManager: {
           getAllAccessRules: () => this.getAllAccessRules(),
+          getAnonymousUsableAccessRuleIds: () =>
+            this.getAnonymousUsableAccessRuleIds(),
         },
       });
 

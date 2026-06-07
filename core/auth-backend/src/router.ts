@@ -190,6 +190,8 @@ export const createAuthRouter = (
       description?: string;
       isDefault?: boolean;
       isPublic?: boolean;
+      /** Whether an anonymous caller can actually use this rule (a public RPC requires it). */
+      anonymousUsable?: boolean;
     }[];
   },
   getBetterAuth: () =>
@@ -450,6 +452,36 @@ export const createAuthRouter = (
     const isAnonymousRole = id === ANONYMOUS_ROLE_ID;
     if (isAnonymousRole) {
       const allPerms = accessRuleRegistry.getAccessRules();
+
+      // GUARDRAIL: refuse to ADD an access rule to the anonymous role that no
+      // `public` endpoint uses. The auth middleware rejects unauthenticated
+      // callers BEFORE checking access rules, so such a grant is inert and
+      // misleading (the admin would think anonymous users gained a capability
+      // they cannot actually use). Only NEWLY-added inert rules are blocked;
+      // anything already on the role is left untouched so this can never wedge
+      // an existing configuration.
+      const usableIds = new Set(
+        allPerms.filter((p) => p.anonymousUsable).map((p) => p.id),
+      );
+      const currentAnonRows = await internalDb
+        .select()
+        .from(schema.roleAccessRule)
+        .where(eq(schema.roleAccessRule.roleId, ANONYMOUS_ROLE_ID));
+      const currentAnonRules = new Set(
+        currentAnonRows.map((r) => r.accessRuleId),
+      );
+      const inertAdditions = validAccessRules.filter(
+        (p) => !usableIds.has(p) && !currentAnonRules.has(p),
+      );
+      if (inertAdditions.length > 0) {
+        throw new ORPCError("BAD_REQUEST", {
+          message:
+            "These access rules cannot be granted to the anonymous role - no " +
+            "public endpoint uses them, so only authenticated callers could " +
+            `ever exercise them: ${inertAdditions.join(", ")}`,
+        });
+      }
+
       const publicDefaultPermIds = allPerms
         .filter((p) => p.isPublic)
         .map((p) => p.id);
