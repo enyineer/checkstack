@@ -30,7 +30,7 @@ function handAuthoredTool(): RegisteredAiTool {
 }
 
 describe("createRegistryExtensionPoints (end-to-end registration)", () => {
-  test("registerTool qualifies an unqualified name with the plugin id", () => {
+  test("registerTool qualifies an unqualified name, registered provider-safe", () => {
     const registry = createAiToolRegistry();
     const { toolExtensionPoint } = createRegistryExtensionPoints({ registry });
 
@@ -39,11 +39,15 @@ describe("createRegistryExtensionPoints (end-to-end registration)", () => {
       definePluginMetadata({ pluginId: "automation" }),
     );
 
-    expect(registry.hasTool("automation.propose")).toBe(true);
-    expect(registry.getTool("automation.propose")?.effect).toBe("mutate");
+    // Qualified to `automation.propose`, then normalized to the provider-safe
+    // name set (the "." the provider rejects becomes "_").
+    expect(registry.hasTool("automation_propose")).toBe(true);
+    expect(registry.getTool("automation_propose")?.effect).toBe("mutate");
+    // The dotted form is NOT a key (the provider would never send it).
+    expect(registry.hasTool("automation.propose")).toBe(false);
   });
 
-  test("registerTool leaves an already-qualified name unchanged", () => {
+  test("registerTool leaves an already-qualified name unchanged (modulo sanitization)", () => {
     const registry = createAiToolRegistry();
     const { toolExtensionPoint } = createRegistryExtensionPoints({ registry });
 
@@ -52,8 +56,10 @@ describe("createRegistryExtensionPoints (end-to-end registration)", () => {
       definePluginMetadata({ pluginId: "different" }),
     );
 
-    expect(registry.hasTool("automation.propose")).toBe(true);
-    expect(registry.hasTool("different.automation.propose")).toBe(false);
+    // Already qualified, so it is not re-prefixed with "different"; only "."
+    // is sanitized to "_".
+    expect(registry.hasTool("automation_propose")).toBe(true);
+    expect(registry.hasTool("different_automation_propose")).toBe(false);
   });
 
   test("expose builds and registers a projected tool from a contract procedure", () => {
@@ -72,7 +78,8 @@ describe("createRegistryExtensionPoints (end-to-end registration)", () => {
       execute: () => Promise.resolve({}),
     });
 
-    const tool = registry.getTool("incident.list");
+    // The authored name "incident.list" is normalized to the provider-safe key.
+    const tool = registry.getTool("incident_list");
     expect(tool).toBeDefined();
     // Access rules read verbatim from the source procedure, qualified.
     expect(tool?.requiredAccessRules).toEqual(["incident.incident.read"]);
@@ -98,9 +105,10 @@ describe("createRegistryExtensionPoints (end-to-end registration)", () => {
       execute: () => Promise.resolve({}),
     });
 
+    // Registry keys/names are the provider-safe form of each authored name.
     expect(registry.getTools().map((t) => t.name).sort()).toEqual([
-      "automation.propose",
-      "incident.list",
+      "automation_propose",
+      "incident_list",
     ]);
   });
 

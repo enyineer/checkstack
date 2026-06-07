@@ -26,24 +26,24 @@ describe("createAiToolResolver.resolveTools", () => {
   test("a principal lacking automation.manage never sees automation.propose", () => {
     const registry = createAiToolRegistry();
     registry.register(
-      tool("automation.propose", ["automation.automation.manage"]),
+      tool("automation_propose", ["automation.automation.manage"]),
     );
-    registry.register(tool("incident.list", ["incident.incident.read"]));
+    registry.register(tool("incident_list", ["incident.incident.read"]));
     const resolver = createAiToolResolver({ registry });
 
     const principal = userWith(["incident.incident.read"]);
     const names = resolver.resolveTools(principal).map((t) => t.name);
 
-    expect(names).toEqual(["incident.list"]);
-    expect(names).not.toContain("automation.propose");
+    expect(names).toEqual(["incident_list"]);
+    expect(names).not.toContain("automation_propose");
   });
 
   test("an admin (accessRules ['*']) sees all tools", () => {
     const registry = createAiToolRegistry();
     registry.register(
-      tool("automation.propose", ["automation.automation.manage"]),
+      tool("automation_propose", ["automation.automation.manage"]),
     );
-    registry.register(tool("incident.list", ["incident.incident.read"]));
+    registry.register(tool("incident_list", ["incident.incident.read"]));
     const resolver = createAiToolResolver({ registry });
 
     const names = resolver
@@ -51,12 +51,12 @@ describe("createAiToolResolver.resolveTools", () => {
       .map((t) => t.name)
       .sort();
 
-    expect(names).toEqual(["automation.propose", "incident.list"]);
+    expect(names).toEqual(["automation_propose", "incident_list"]);
   });
 
   test("a service principal (no access rules) sees no tools", () => {
     const registry = createAiToolRegistry();
-    registry.register(tool("incident.list", ["incident.incident.read"]));
+    registry.register(tool("incident_list", ["incident.incident.read"]));
     const resolver = createAiToolResolver({ registry });
 
     const service: AuthUser = { type: "service", pluginId: "automation" };

@@ -135,7 +135,7 @@ function mutatingTool(
 ): RegisteredAiTool<{ value: string }, { created: string }> {
   let executed = 0;
   const tool: RegisteredAiTool<{ value: string }, { created: string }> = {
-    name: "demo.mutate",
+    name: "demo_mutate",
     description: "demo mutating tool",
     effect: "mutate",
     input: ManageInput,
@@ -200,7 +200,7 @@ describe("propose/apply lifecycle (matrix #11)", () => {
 
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "alpha" },
       transport: "chat",
     });
@@ -222,7 +222,7 @@ describe("propose/apply lifecycle (matrix #11)", () => {
 
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "beta" },
       transport: "chat",
     });
@@ -239,7 +239,7 @@ describe("propose/apply lifecycle (matrix #11)", () => {
     const { service } = setup(tool);
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "gamma" },
       transport: "chat",
     });
@@ -265,7 +265,7 @@ describe("propose/apply authorization (matrix #11 / decision 5)", () => {
     await expect(
       service.propose({
         principal: notAllowed,
-        toolName: "demo.mutate",
+        toolName: "demo_mutate",
         input: { value: "x" },
         transport: "chat",
       }),
@@ -277,7 +277,7 @@ describe("propose/apply authorization (matrix #11 / decision 5)", () => {
     const { service } = setup(tool);
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });
@@ -294,7 +294,7 @@ describe("propose/apply authorization (matrix #11 / decision 5)", () => {
     await expect(
       service.propose({
         principal: allowed,
-        toolName: "demo.mutate",
+        toolName: "demo_mutate",
         input: { value: "x" },
         transport: "chat",
       }),
@@ -306,7 +306,7 @@ describe("propose/apply authorization (matrix #11 / decision 5)", () => {
     await expect(
       service.propose({
         principal: { type: "service", pluginId: "x" },
-        toolName: "demo.mutate",
+        toolName: "demo_mutate",
         input: { value: "x" },
         transport: "chat",
       }),
@@ -320,7 +320,7 @@ describe("propose does NOT mutate (matrix #12)", () => {
     const { service } = setup(tool);
     await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });
@@ -334,7 +334,7 @@ describe("audit rows (matrix #13)", () => {
     const { service, store } = setup(tool);
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });
@@ -358,7 +358,7 @@ describe("audit rows (matrix #13)", () => {
     // Proposed by u1.
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });
@@ -386,7 +386,7 @@ describe("audit rows (matrix #13)", () => {
     const { service, store } = setup(tool);
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });
@@ -411,7 +411,7 @@ describe("audit rows (matrix #13)", () => {
     const { service, store } = setup(tool, () => current);
     const proposal = await service.propose({
       principal: allowed,
-      toolName: "demo.mutate",
+      toolName: "demo_mutate",
       input: { value: "x" },
       transport: "chat",
     });

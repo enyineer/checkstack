@@ -28,9 +28,9 @@ function tool(
 
 function setup() {
   const registry = createAiToolRegistry();
-  const read = tool("incident.list", "read", "incident.incident.read");
-  const mutate = tool("automation.propose", "mutate", "automation.automation.manage");
-  const destroy = tool("incident.delete", "destructive", "incident.incident.manage");
+  const read = tool("incident_list", "read", "incident.incident.read");
+  const mutate = tool("automation_propose", "mutate", "automation.automation.manage");
+  const destroy = tool("incident_delete", "destructive", "incident.incident.manage");
   registry.register(read);
   registry.register(mutate);
   registry.register(destroy);
@@ -57,15 +57,15 @@ describe("agent loop tool gating (matrix #14)", () => {
   test("the loop only offers resolver-allowed tools", () => {
     const { resolver } = setup();
     const offered = offeredTools({ principal: limited, resolver }).map((t) => t.name);
-    expect(offered).toEqual(["incident.list"]);
-    expect(offered).not.toContain("automation.propose");
-    expect(offered).not.toContain("incident.delete");
+    expect(offered).toEqual(["incident_list"]);
+    expect(offered).not.toContain("automation_propose");
+    expect(offered).not.toContain("incident_delete");
   });
 
   test("a model-requested tool OUTSIDE the principal's set is refused server-side", () => {
     const { resolver, registry } = setup();
     const d = disposeAgentTool({
-      toolName: "automation.propose",
+      toolName: "automation_propose",
       principal: limited,
       resolver,
       getTool: (n) => registry.getTool(n),
@@ -87,7 +87,7 @@ describe("agent loop tool gating (matrix #14)", () => {
   test("a read tool auto-runs", () => {
     const { resolver, registry } = setup();
     const d = disposeAgentTool({
-      toolName: "incident.list",
+      toolName: "incident_list",
       principal: limited,
       resolver,
       getTool: (n) => registry.getTool(n),
@@ -98,7 +98,7 @@ describe("agent loop tool gating (matrix #14)", () => {
   test("a mutate tool requires a confirm card (never silently mutates)", () => {
     const { resolver, registry } = setup();
     const d = disposeAgentTool({
-      toolName: "automation.propose",
+      toolName: "automation_propose",
       principal: power,
       resolver,
       getTool: (n) => registry.getTool(n),
@@ -109,7 +109,7 @@ describe("agent loop tool gating (matrix #14)", () => {
   test("a destructive tool requires a confirm card", () => {
     const { resolver, registry } = setup();
     const d = disposeAgentTool({
-      toolName: "incident.delete",
+      toolName: "incident_delete",
       principal: power,
       resolver,
       getTool: (n) => registry.getTool(n),

@@ -4,6 +4,7 @@ import type {
   AiToolProjectionExtensionPoint,
 } from "./extension-points";
 import { buildProjectedTool } from "./projection";
+import { toProviderToolName } from "./tool-name";
 import type { AiToolRegistry } from "./tool-registry";
 
 /**
@@ -57,7 +58,10 @@ export function createRegistryExtensionPoints({
       const tool = buildProjectedTool(input);
       registry.register(tool);
       exposedProjections.push({
-        toolName: tool.name,
+        // Match the registry's canonical (provider-safe) key so the chat
+        // read-loop and MCP transport resolve this route by the same name the
+        // model is given and echoes back.
+        toolName: toProviderToolName(tool.name),
         pluginId: input.sourcePluginMetadata.pluginId,
         procedureKey: input.procedureKey,
       });

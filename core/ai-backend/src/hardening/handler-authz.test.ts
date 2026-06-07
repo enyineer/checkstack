@@ -154,7 +154,7 @@ describe("HARDENING: a misbehaving model cannot escape the resolver gate", () =>
   test("isAllowed refuses a tool whose rule the principal lacks", () => {
     const registry = createAiToolRegistry();
     let ran = false;
-    const adminTool = readTool("ai.secrets", "ai.tools.manage", () => {
+    const adminTool = readTool("ai_secrets", "ai.tools.manage", () => {
       ran = true;
     });
     registry.register(adminTool);
@@ -168,7 +168,7 @@ describe("HARDENING: a misbehaving model cannot escape the resolver gate", () =>
 
   test("a service principal (no access rules) is refused every tool", () => {
     const registry = createAiToolRegistry();
-    const tool = readTool("incident.list", "incident.incident.read", () => {});
+    const tool = readTool("incident_list", "incident.incident.read", () => {});
     registry.register(tool);
     const resolver = createAiToolResolver({ registry });
     const service: AuthUser = { type: "service", pluginId: "svc" };
@@ -181,7 +181,7 @@ describe("HARDENING: propose refuses a model-picked out-of-scope tool BEFORE dry
     const registry = createAiToolRegistry();
     let dryRan = false;
     let executed = false;
-    const tool = mutateTool("billing.refund", "billing.billing.manage", {
+    const tool = mutateTool("billing_refund", "billing.billing.manage", {
       onDryRun: () => {
         dryRan = true;
       },
@@ -200,7 +200,7 @@ describe("HARDENING: propose refuses a model-picked out-of-scope tool BEFORE dry
     await expect(
       service.propose({
         principal: limited, // lacks billing.billing.manage
-        toolName: "billing.refund",
+        toolName: "billing_refund",
         input: { amount: 100 },
         transport: "chat",
         rpcClient,
@@ -217,7 +217,7 @@ describe("HARDENING: bad model-supplied args are rejected (no execution on garba
   test("propose rejects args that fail the tool's own zod schema", async () => {
     const registry = createAiToolRegistry();
     let dryRan = false;
-    const tool = mutateTool("incident.escalate", "incident.incident.read", {
+    const tool = mutateTool("incident_escalate", "incident.incident.read", {
       onDryRun: () => {
         dryRan = true;
       },
@@ -237,7 +237,7 @@ describe("HARDENING: bad model-supplied args are rejected (no execution on garba
     await expect(
       service.propose({
         principal: limited,
-        toolName: "incident.escalate",
+        toolName: "incident_escalate",
         input: { amount: -5 },
         transport: "chat",
         rpcClient,
@@ -253,9 +253,9 @@ describe("HARDENING: scope-narrowing can never WIDEN the surfaced toolset", () =
   // only ever shrink the visible tools — never add one the principal lacks.
   test("narrowing the principal's rules monotonically shrinks the visible tools", () => {
     const registry = createAiToolRegistry();
-    registry.register(readTool("incident.list", "incident.incident.read", () => {}));
-    registry.register(readTool("hc.status", "healthcheck.config.read", () => {}));
-    registry.register(readTool("ai.secrets", "ai.tools.manage", () => {}));
+    registry.register(readTool("incident_list", "incident.incident.read", () => {}));
+    registry.register(readTool("hc_status", "healthcheck.config.read", () => {}));
+    registry.register(readTool("ai_secrets", "ai.tools.manage", () => {}));
     const resolver = createAiToolResolver({ registry });
 
     const wide: AuthUser = {
@@ -274,8 +274,8 @@ describe("HARDENING: scope-narrowing can never WIDEN the surfaced toolset", () =
 
     // Narrowed is a strict subset — never a superset.
     for (const name of narrowNames) expect(wideNames.has(name)).toBe(true);
-    expect(narrowNames.has("hc.status")).toBe(false);
-    expect(narrowNames.has("ai.secrets")).toBe(false);
+    expect(narrowNames.has("hc_status")).toBe(false);
+    expect(narrowNames.has("ai_secrets")).toBe(false);
     // And the narrowing never invented a tool outside the wide set.
     expect([...narrowNames].every((n) => wideNames.has(n))).toBe(true);
   });
