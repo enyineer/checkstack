@@ -47,12 +47,12 @@ function buildHandler({
   }) => Promise<void>;
 }) {
   const registry = createAiToolRegistry();
-  const incidentTool = readTool("incident.list", "incident.incident.read");
-  const adminTool = readTool("ai.secrets", "ai.tools.manage");
+  const incidentTool = readTool("incident_list", "incident.incident.read");
+  const adminTool = readTool("ai_secrets", "ai.tools.manage");
   // A mutating tool the limited principal IS allowed for (same access rule as
   // incident.list). The ONLY thing that may refuse a bare tools/call for it is
   // the structural effect-gate, not the resolver.
-  const mutating = mutateTool("incident.close", "incident.incident.read");
+  const mutating = mutateTool("incident_close", "incident.incident.read");
   registry.register(incidentTool);
   registry.register(adminTool);
   registry.register(mutating);
@@ -121,8 +121,8 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
     );
     const json = await res.json();
     const names = json.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(["incident.list"]);
-    expect(names).not.toContain("ai.secrets");
+    expect(names).toEqual(["incident_list"]);
+    expect(names).not.toContain("ai_secrets");
   });
 
   test("tools/list returns 401 for an unauthenticated caller", async () => {
@@ -150,7 +150,7 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
         jsonrpc: "2.0",
         id: 4,
         method: "tools/call",
-        params: { name: "ai.secrets", arguments: {} },
+        params: { name: "ai_secrets", arguments: {} },
       }),
     );
     expect(res.status).toBe(403);
@@ -175,7 +175,7 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
           jsonrpc: "2.0",
           id: 5,
           method: "tools/call",
-          params: { name: "incident.list", arguments: { status: "open" } },
+          params: { name: "incident_list", arguments: { status: "open" } },
         },
         "tok-123",
       ),
@@ -205,7 +205,7 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
         jsonrpc: "2.0",
         id: 7,
         method: "tools/call",
-        params: { name: "incident.close", arguments: {} },
+        params: { name: "incident_close", arguments: {} },
       }),
     );
     expect(res.status).toBe(403);
@@ -221,8 +221,8 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
     );
     const json = await res.json();
     const names = json.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toContain("incident.list");
-    expect(names).not.toContain("incident.close");
+    expect(names).toContain("incident_list");
+    expect(names).not.toContain("incident_close");
   });
 
   // §14.5: per-principal tool budget enforced on tools/call (shared-Postgres).
@@ -241,7 +241,7 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
         jsonrpc: "2.0",
         id: 9,
         method: "tools/call",
-        params: { name: "incident.list", arguments: {} },
+        params: { name: "incident_list", arguments: {} },
       }),
     );
     expect(res.status).toBe(429);
@@ -264,12 +264,12 @@ describe("MCP server (read-only Streamable-HTTP)", () => {
         jsonrpc: "2.0",
         id: 10,
         method: "tools/call",
-        params: { name: "incident.list", arguments: { status: "open" } },
+        params: { name: "incident_list", arguments: { status: "open" } },
       }),
     );
     expect(res.status).toBe(200);
     expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.toolName).toBe("incident.list");
+    expect(recorded[0]?.toolName).toBe("incident_list");
     // The args hash is a SHA-256 hex digest, never the raw args.
     expect(recorded[0]?.argsHash).toMatch(/^[0-9a-f]{64}$/);
   });

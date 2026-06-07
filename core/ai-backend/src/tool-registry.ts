@@ -1,5 +1,6 @@
 import type { AuthUser, RpcClient } from "@checkstack/backend-api";
 import type { AiTool } from "@checkstack/ai-common";
+import { toProviderToolName } from "./tool-name";
 
 /**
  * A tool whose executors run with a Checkstack {@link AuthUser} principal and
@@ -21,7 +22,12 @@ export type RegisteredAiTool<TInput = unknown, TOutput = unknown> = AiTool<
  * registry, so no capability is implemented twice.
  *
  * Tool names are already fully qualified (`<plugin>.<tool>`) by the extension
- * points before they reach `register`.
+ * points before they reach `register`. `register` then maps the name to its
+ * provider-safe form (see {@link toProviderToolName}) and uses that as the
+ * canonical key, so every consumer (serializer, chat SDK tools, MCP
+ * `tools/list`, and the tool-call resolution path) sees and resolves the same
+ * provider-safe name. A name with an illegal character (beyond the "."
+ * separator) is rejected here rather than rewritten.
  */
 export interface AiToolRegistry {
   register(tool: RegisteredAiTool): void;
@@ -35,12 +41,16 @@ export function createAiToolRegistry(): AiToolRegistry {
 
   return {
     register(tool: RegisteredAiTool): void {
-      if (tools.has(tool.name)) {
+      // Map to the provider-safe name (e.g. `incident.list` -> `incident_list`)
+      // and key the registry on it, so the name sent to the model and the name
+      // it echoes back both match this entry. Throws on an illegal name.
+      const name = toProviderToolName(tool.name);
+      if (tools.has(name)) {
         throw new Error(
-          `AI tool ${tool.name} already registered — likely a duplicate registration.`,
+          `AI tool ${name} already registered — likely a duplicate registration.`,
         );
       }
-      tools.set(tool.name, tool);
+      tools.set(name, name === tool.name ? tool : { ...tool, name });
     },
 
     getTools(): RegisteredAiTool[] {

@@ -129,7 +129,7 @@ function mutatingTool(): {
     created: input.value,
   }));
   const tool: RegisteredAiTool<{ value: string }, { created: string }> = {
-    name: "demo.mutate",
+    name: "demo_mutate",
     description: "demo mutating tool",
     effect: "mutate",
     input: ManageInput,
@@ -208,7 +208,7 @@ describe("AUTO-mode mutate auto-apply path", () => {
     // proposed -> applied, with the applier stamped. Not a weaker/parallel path.
     const applied = [...store.rows.values()].filter((r) => r.status === "applied");
     expect(applied).toHaveLength(1);
-    expect(applied[0]?.toolName).toBe("demo.mutate");
+    expect(applied[0]?.toolName).toBe("demo_mutate");
     expect(applied[0]?.effect).toBe("mutate");
     expect(applied[0]?.appliedById).toBe("u1");
     expect(applied[0]?.id).toBe(result.toolCallId);

@@ -47,14 +47,14 @@ describe("createAgentRunner", () => {
     const registry = createAiToolRegistry();
     const calls: string[] = [];
     registry.register(
-      readTool("plugin.read", async () => {
-        calls.push("plugin.read");
+      readTool("plugin_read", async () => {
+        calls.push("plugin_read");
         return { ok: true };
       }),
     );
     // A destructive tool must NOT be offered.
     registry.register({
-      name: "plugin.delete",
+      name: "plugin_delete",
       description: "delete",
       effect: "destructive",
       input: z.object({}),
@@ -63,7 +63,7 @@ describe("createAgentRunner", () => {
     } as RegisteredAiTool);
     // A projected read (deferred sentinel) must NOT be offered in v1.
     registry.register({
-      name: "plugin.projected",
+      name: "plugin_projected",
       description: "projected",
       effect: "read",
       input: z.object({}),
@@ -77,7 +77,7 @@ describe("createAgentRunner", () => {
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
       offeredToolNames = Object.keys(args.tools ?? {});
       // Simulate the model calling the read tool once.
-      const t = (args.tools ?? {})["plugin.read"] as {
+      const t = (args.tools ?? {})["plugin_read"] as {
         execute: (i: unknown) => Promise<unknown>;
       };
       await t.execute({});
@@ -102,11 +102,11 @@ describe("createAgentRunner", () => {
       outputSchema: z.object({ severity: z.string() }),
     });
 
-    expect(offeredToolNames.sort()).toEqual(["plugin.read"]);
-    expect(calls).toEqual(["plugin.read"]);
+    expect(offeredToolNames.sort()).toEqual(["plugin_read"]);
+    expect(calls).toEqual(["plugin_read"]);
     expect(result.text).toBe("done");
     expect(result.object).toEqual({ severity: "high" });
-    expect(result.toolCalls).toEqual([{ tool: "plugin.read", ok: true }]);
+    expect(result.toolCalls).toEqual([{ tool: "plugin_read", ok: true }]);
   });
 
   it("hands the model a date-safe schema for tools with Date inputs (no throw)", async () => {
@@ -116,7 +116,7 @@ describe("createAgentRunner", () => {
     // chat. The runner must gate date inputs through dateSafeModelSchema too.
     const registry = createAiToolRegistry();
     registry.register({
-      name: "plugin.history",
+      name: "plugin_history",
       description: "history",
       effect: "read",
       input: z.object({ since: z.date() }),
@@ -130,7 +130,7 @@ describe("createAgentRunner", () => {
       async (args: {
         tools?: Record<string, { inputSchema: unknown }>;
       }) => {
-        const t = (args.tools ?? {})["plugin.history"];
+        const t = (args.tools ?? {})["plugin_history"];
         // Exactly what the SDK does internally to build the model request; this
         // threw before the fix.
         offeredSchema = await asSchema(t.inputSchema as never).jsonSchema;
@@ -161,7 +161,7 @@ describe("createAgentRunner", () => {
   it("offers a projected read tool and routes it through the principal's client", async () => {
     const registry = createAiToolRegistry();
     registry.register({
-      name: "incident.list",
+      name: "incident_list",
       description: "list incidents",
       effect: "read",
       input: z.object({}),
@@ -186,7 +186,7 @@ describe("createAgentRunner", () => {
     let offered: string[] = [];
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
       offered = Object.keys(args.tools ?? {});
-      const t = (args.tools ?? {})["incident.list"] as {
+      const t = (args.tools ?? {})["incident_list"] as {
         execute: (i: unknown) => Promise<unknown>;
       };
       await t.execute({ status: "open" });
@@ -197,7 +197,7 @@ describe("createAgentRunner", () => {
       resolver,
       resolveConnection: async () => connection,
       getProjectionRoute: (name) =>
-        name === "incident.list"
+        name === "incident_list"
           ? { pluginId: "incident", procedureKey: "listIncidents" }
           : undefined,
       modelFns: { generateText: generateText as never },
@@ -210,15 +210,15 @@ describe("createAgentRunner", () => {
       prompt: "go",
     });
 
-    expect(offered).toEqual(["incident.list"]);
+    expect(offered).toEqual(["incident_list"]);
     expect(procCalls).toEqual([{ status: "open" }]);
-    expect(result.toolCalls).toEqual([{ tool: "incident.list", ok: true }]);
+    expect(result.toolCalls).toEqual([{ tool: "incident_list", ok: true }]);
   });
 
   it("records a tool failure and surfaces it to the model instead of aborting", async () => {
     const registry = createAiToolRegistry();
     registry.register(
-      readTool("plugin.boom", async () => {
+      readTool("plugin_boom", async () => {
         throw new Error("missing access: plugin.read");
       }),
     );
@@ -226,7 +226,7 @@ describe("createAgentRunner", () => {
 
     let toolResult: unknown;
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
-      const t = (args.tools ?? {})["plugin.boom"] as {
+      const t = (args.tools ?? {})["plugin_boom"] as {
         execute: (i: unknown) => Promise<unknown>;
       };
       toolResult = await t.execute({});
@@ -247,15 +247,15 @@ describe("createAgentRunner", () => {
     });
 
     expect(toolResult).toEqual({ error: "missing access: plugin.read" });
-    expect(result.toolCalls).toEqual([{ tool: "plugin.boom", ok: false }]);
+    expect(result.toolCalls).toEqual([{ tool: "plugin_boom", ok: false }]);
     expect(result.object).toBeUndefined();
   });
 
   it("calls recordToolCall for each invocation (ok and failure)", async () => {
     const registry = createAiToolRegistry();
-    registry.register(readTool("plugin.ok", async () => ({ ok: true })));
+    registry.register(readTool("plugin_ok", async () => ({ ok: true })));
     registry.register(
-      readTool("plugin.boom", async () => {
+      readTool("plugin_boom", async () => {
         throw new Error("nope");
       }),
     );
@@ -273,8 +273,8 @@ describe("createAgentRunner", () => {
 
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
       const tools = args.tools ?? {};
-      await (tools["plugin.ok"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
-      await (tools["plugin.boom"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
+      await (tools["plugin_ok"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
+      await (tools["plugin_boom"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
       return { text: "x", usage: {} };
     });
 
@@ -287,12 +287,12 @@ describe("createAgentRunner", () => {
     await runner({ principal, rpcClient, connectionId: "c", prompt: "go" });
 
     expect(recorded).toContainEqual({
-      toolName: "plugin.ok",
+      toolName: "plugin_ok",
       ok: true,
       effect: "read",
     });
     expect(recorded).toContainEqual({
-      toolName: "plugin.boom",
+      toolName: "plugin_boom",
       ok: false,
       effect: "read",
     });

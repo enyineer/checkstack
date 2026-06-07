@@ -120,7 +120,7 @@ describe("docs tools registration + resolution", () => {
       .resolveTools(userWith(["ai.chat.read"]))
       .map((t) => t.name)
       .sort();
-    expect(names).toEqual(["ai.getDoc", "ai.searchDocs"]);
+    expect(names).toEqual(["ai_getDoc", "ai_searchDocs"]);
   });
 
   test("a principal without ai.chat.read sees neither docs tool", () => {
