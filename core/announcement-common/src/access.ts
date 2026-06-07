@@ -1,4 +1,5 @@
 import { access } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Announcement plugin.
@@ -11,6 +12,7 @@ export const announcementAccess = {
     "announcement",
     "manage",
     "Manage announcements — create, edit, and delete",
+    { pluginId: pluginMetadata.pluginId },
   ),
 };
 

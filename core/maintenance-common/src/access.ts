@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Maintenance plugin.
@@ -27,6 +28,7 @@ export const maintenanceAccess = {
     },
     {
       idParam: "systemId",
+      pluginId: pluginMetadata.pluginId,
     },
   ),
 };

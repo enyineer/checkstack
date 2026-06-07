@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
+import type { AccessRule } from "@checkstack/common";
 import { FrontendPlugin, Extension } from "./plugin";
 
 /** Lazy page loader, as declared on a {@link PluginRoute}. */
@@ -20,7 +21,12 @@ interface ResolvedRoute {
   load?: RouteLoader;
   element?: ReactNode;
   title?: string;
-  accessRule?: string;
+  /**
+   * The FULL access rule (not just its id) so the route guard can qualify it
+   * (`{pluginId}.{id}`) against the user's granted ids AND apply manage->read
+   * escalation. A bare id string could do neither.
+   */
+  accessRule?: AccessRule;
 }
 
 class PluginRegistry {
@@ -73,7 +79,7 @@ class PluginRegistry {
         load: route.load,
         element: route.element,
         title: route.title,
-        accessRule: route.accessRule?.id,
+        accessRule: route.accessRule,
       };
 
       // Add to route map for resolution
@@ -189,7 +195,7 @@ class PluginRegistry {
           load: route.load,
           element: route.element,
           title: route.title,
-          accessRule: route.accessRule?.id,
+          accessRule: route.accessRule,
           // Resolved sidebar entry (defaults applied) for routes that opt in.
           // `accessRule` here is the EFFECTIVE rule object (nav override, else
           // the route's own rule) the sidebar gates visibility on.
@@ -200,6 +206,10 @@ class PluginRegistry {
                 label: route.nav.label ?? route.title ?? route.route.id,
                 order: route.nav.order ?? 0,
                 accessRule: route.nav.accessRule ?? route.accessRule,
+                // Dynamic visibility predicate (e.g. Infrastructure: any
+                // readable tab; per-user entries: authenticated) — passed
+                // through so the sidebar can evaluate it.
+                isVisible: route.nav.isVisible,
               }
             : undefined,
         };

@@ -5,7 +5,9 @@ import type { AnyContractProcedure } from "@orpc/contract";
 import { buildProjectedTool } from "./projection";
 
 const sourcePluginMetadata = definePluginMetadata({ pluginId: "incident" });
-const incidentRead = access("incident", "read", "View incidents");
+const incidentRead = access("incident", "read", "View incidents", {
+  pluginId: sourcePluginMetadata.pluginId,
+});
 
 // A realistic contract procedure with access metadata + an input schema.
 const listIncidents = proc({

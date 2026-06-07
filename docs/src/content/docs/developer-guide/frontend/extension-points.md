@@ -565,6 +565,7 @@ export interface SystemSignal {
   label: string; // short label, e.g. "Critical incident"
   detail?: string; // optional context, e.g. the incident title
   href?: string; // deep link to where the issue originates
+  accessRule?: AccessRule; // rule required to open href; see contract rules below
   since?: string; // ISO start time - shown as "since" and used as a tie-break
   iconName?: IconName; // lucide icon name, rendered via DynamicIcon
 }
@@ -594,6 +595,11 @@ Contract rules:
   from rendered output.
 - Sort order is worst tone first (`error` -> `warn` -> `info`), matching the
   icon-only `StatusBadge` ordering used elsewhere.
+- Set `accessRule` whenever `href` points at a permission-gated page. The
+  dashboard renders the signal as a LINK only if the current user satisfies that
+  rule, and as plain TEXT otherwise - so a user is never offered a deep link that
+  would immediately hit "Access Denied". Omit `accessRule` only when the target
+  needs no specific permission (the link is then always rendered).
 
 Each core reliability plugin (healthcheck, incident, SLO, maintenance, anomaly,
 dependency) ships a filler for this slot. A third-party plugin adds a new signal

@@ -39,6 +39,21 @@ export interface AccessApi {
    * ```
    */
   useAccess(accessRule: AccessRule): { loading: boolean; allowed: boolean };
+  /**
+   * Whether the current user is authenticated (logged in). Use to gate UI that
+   * needs a real user but no specific access rule - e.g. per-user actions like
+   * muting your own anomaly notifications, which any logged-in user may do but
+   * an anonymous visitor may not.
+   *
+   * @example
+   * ```tsx
+   * const { isAuthenticated } = accessApi.useIsAuthenticated();
+   * if (isAuthenticated) {
+   *   // show the per-user action
+   * }
+   * ```
+   */
+  useIsAuthenticated(): { loading: boolean; isAuthenticated: boolean };
 }
 
 export const accessApiRef = createApiRef<AccessApi>("core.access");

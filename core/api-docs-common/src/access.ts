@@ -1,4 +1,5 @@
 import { access } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the API Docs plugin.
@@ -10,6 +11,7 @@ export const apiDocsAccess = {
    */
   view: access("api-docs", "read", "View API Documentation", {
     isDefault: true,
+    pluginId: pluginMetadata.pluginId,
   }),
 };
 

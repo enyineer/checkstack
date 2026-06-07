@@ -1,5 +1,7 @@
 import { access } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the Automation plugin.
  */
@@ -12,6 +14,7 @@ export const automationAccess = {
     "automation",
     "read",
     "View automations and run history",
+    { pluginId: pluginMetadata.pluginId },
   ),
   /**
    * Manage automations: create, edit, enable/disable, delete, manually run.
@@ -20,6 +23,7 @@ export const automationAccess = {
     "automation",
     "manage",
     "Create, edit, enable, disable, delete, and manually run automations",
+    { pluginId: pluginMetadata.pluginId },
   ),
 };
 

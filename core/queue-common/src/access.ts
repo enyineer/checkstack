@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Queue plugin.
@@ -7,10 +8,16 @@ export const queueAccess = {
   /**
    * Queue settings access.
    */
-  settings: accessPair("queue", {
-    read: { description: "Read Queue Settings" },
-    manage: { description: "Update Queue Settings" },
-  }),
+  settings: accessPair(
+    "queue",
+    {
+      read: { description: "Read Queue Settings" },
+      manage: { description: "Update Queue Settings" },
+    },
+    {
+      pluginId: pluginMetadata.pluginId,
+    },
+  ),
 };
 
 /**

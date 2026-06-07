@@ -35,7 +35,9 @@ import { createApiRouteHandler, registerApiRoute } from "./api-router";
  * bypassed.
  */
 
-const manageRule = access("thing", "manage", "Manage things");
+const manageRule = access("thing", "manage", "Manage things", {
+  pluginId: "target",
+});
 
 const targetContract = {
   // Gated by `thing.manage`. autoAuthMiddleware qualifies it to

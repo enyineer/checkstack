@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Incident plugin.
@@ -26,6 +27,7 @@ export const incidentAccess = {
     },
     {
       idParam: "systemId",
+      pluginId: pluginMetadata.pluginId,
     },
   ),
 };

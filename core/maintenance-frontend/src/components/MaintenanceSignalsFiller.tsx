@@ -9,6 +9,7 @@ import {
 import {
   MaintenanceApi,
   maintenanceRoutes,
+  maintenanceAccess,
 } from "@checkstack/maintenance-common";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
@@ -51,6 +52,8 @@ export const MaintenanceSignalsFiller: React.FC<Props> = ({
         href: resolveRoute(maintenanceRoutes.routes.detail, {
           maintenanceId: maintenance.id,
         }),
+        // Detail page is read-gated; render as text for users without it.
+        accessRule: maintenanceAccess.maintenance.read,
         since: new Date(maintenance.startAt).toISOString(),
         iconName: "Wrench",
       }));

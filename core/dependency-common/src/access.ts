@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Dependency plugin.
@@ -23,6 +24,7 @@ export const dependencyAccess = {
     },
     {
       idParam: "systemId",
+      pluginId: pluginMetadata.pluginId,
     },
   ),
 };

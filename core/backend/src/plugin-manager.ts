@@ -194,9 +194,10 @@ export class PluginManager {
   }
 
   getAllAccessRules(): AccessRule[] {
-    return this.registeredAccessRules.map(
-      ({ pluginId: _pluginId, ...rule }) => rule
-    );
+    // Return rules WITH their `pluginId` (it is a required AccessRule field now).
+    // Their `id` is already fully-qualified (`{pluginId}.{id}`, see the registration
+    // above), which is what gets synced to the DB and granted to roles.
+    return [...this.registeredAccessRules];
   }
 
   /**

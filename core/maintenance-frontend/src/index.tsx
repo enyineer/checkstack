@@ -44,6 +44,8 @@ export default createFrontendPlugin({
           default: m.MaintenanceDetailPage,
         })),
       title: "Maintenance Details",
+      // Read-gated; anonymous holds this by default (isPublic), admin-revocable.
+      accessRule: maintenanceAccess.maintenance.read,
     },
   ],
   // No APIs needed - components use usePluginClient() directly

@@ -6,7 +6,10 @@ import {
   type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
-import { healthcheckRoutes } from "@checkstack/healthcheck-common";
+import {
+  healthcheckRoutes,
+  healthCheckAccess,
+} from "@checkstack/healthcheck-common";
 import { HealthCheckApi } from "../api";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
@@ -43,12 +46,23 @@ export const HealthSignalsFiller: React.FC<Props> = ({
         (c) => c.status !== "healthy",
       );
       const failingCheck = failing[0];
-      const href = failingCheck
-        ? resolveRoute(healthcheckRoutes.routes.historyDetail, {
-            systemId,
-            configurationId: failingCheck.configurationId,
-          })
-        : resolveRoute(healthcheckRoutes.routes.assignments, { systemId });
+      // Link target and its gating rule differ: the check history detail page
+      // needs `details`; the assignments page needs `configuration.manage`. The
+      // dashboard renders text instead of a link for users without the rule.
+      const { href, accessRule } = failingCheck
+        ? {
+            href: resolveRoute(healthcheckRoutes.routes.historyDetail, {
+              systemId,
+              configurationId: failingCheck.configurationId,
+            }),
+            accessRule: healthCheckAccess.details,
+          }
+        : {
+            href: resolveRoute(healthcheckRoutes.routes.assignments, {
+              systemId,
+            }),
+            accessRule: healthCheckAccess.configuration.manage,
+          };
 
       const detail =
         status.checkStatuses.length > 0
@@ -61,6 +75,7 @@ export const HealthSignalsFiller: React.FC<Props> = ({
         label: status.status === "unhealthy" ? "Unhealthy" : "Degraded",
         detail,
         href,
+        accessRule,
         iconName: "Activity",
       };
       result[systemId] = [signal];

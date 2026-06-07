@@ -2,11 +2,8 @@ import React, { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { pluginRegistry } from "@checkstack/frontend-api";
 import { useAccessRules } from "@checkstack/auth-frontend";
-import {
-  isAccessRuleSatisfied,
-  APP_DOC_SLUGS,
-  docsPath,
-} from "@checkstack/common";
+import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
+import { selectNavGroups } from "./Sidebar.logic";
 import {
   Sheet,
   SheetContent,
@@ -43,42 +40,24 @@ interface NavGroup {
 
 /** Build the access-filtered, grouped, ordered nav model from the route registry. */
 function useNavGroups(): NavGroup[] {
-  const { accessRules } = useAccessRules();
+  const { accessRules, isAuthenticated } = useAccessRules();
 
   // getAllRoutes() is recomputed from the registry; plugin load/unload triggers
   // an App re-render so this stays current. Cheap O(routes) work.
   const routes = pluginRegistry.getAllRoutes();
 
-  return useMemo(() => {
-    const visible = routes.filter(
-      (route): route is NavRoute =>
-        route.nav !== undefined &&
-        (route.nav.accessRule === undefined ||
-          isAccessRuleSatisfied(accessRules, route.nav.accessRule)),
-    );
-
-    const byGroup = new Map<string, NavRoute[]>();
-    for (const route of visible) {
-      const list = byGroup.get(route.nav.group);
-      if (list) list.push(route);
-      else byGroup.set(route.nav.group, [route]);
-    }
-
-    const orderOf = (group: string): number => {
-      const index = GROUP_ORDER.indexOf(group as (typeof GROUP_ORDER)[number]);
-      return index === -1 ? GROUP_ORDER.length : index;
-    };
-
-    return [...byGroup.entries()]
-      .toSorted(([a], [b]) => orderOf(a) - orderOf(b) || a.localeCompare(b))
-      .map(([group, items]) => ({
-        group,
-        items: items.toSorted(
-          (a, b) =>
-            a.nav.order - b.nav.order || a.nav.label.localeCompare(b.nav.label),
-        ),
-      }));
-  }, [routes, accessRules]);
+  // Pure filtering/grouping (unit-tested in Sidebar.logic.test.ts): access +
+  // isVisible gating, with empty groups dropped.
+  return useMemo(
+    () =>
+      selectNavGroups({
+        routes,
+        accessRules,
+        isAuthenticated,
+        groupOrder: GROUP_ORDER,
+      }) as NavGroup[],
+    [routes, accessRules, isAuthenticated],
+  );
 }
 
 function loadCollapsedGroups(): Set<string> {

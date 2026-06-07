@@ -1,8 +1,14 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { usePluginClient, ExtensionSlot } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  ExtensionSlot,
+  useApi,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import {
   CatalogApi,
+  catalogAccess,
   catalogRoutes,
   SystemSignalsSlot,
   type SystemSignalsMap,
@@ -67,6 +73,16 @@ export const Dashboard: React.FC = () => {
   const { isLowPower } = usePerformance();
   const catalogClient = usePluginClient(CatalogApi);
   const navigate = useNavigate();
+  const accessApi = useApi(accessApiRef);
+  // The Catalog CONFIG page (add/manage systems) requires manage; "Open Catalog"
+  // CTAs point there, so hide them from users who can't reach it. The catalog
+  // HOME view only needs read, gating the "View catalog" link.
+  const { allowed: canManageCatalog } = accessApi.useAccess(
+    catalogAccess.system.manage,
+  );
+  const { allowed: canViewCatalog } = accessApi.useAccess(
+    catalogAccess.system.read,
+  );
 
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
   const [activeTone, setActiveTone] = useState<SystemSignalTone | null>(null);
@@ -161,12 +177,16 @@ export const Dashboard: React.FC = () => {
             "Attach health checks so the dashboard surfaces issues the moment they appear.",
           ]}
           actions={
-            <Button
-              onClick={() => navigate(resolveRoute(catalogRoutes.routes.config))}
-            >
-              <LayoutGrid className="w-4 h-4 mr-2" />
-              Open Catalog
-            </Button>
+            canManageCatalog ? (
+              <Button
+                onClick={() =>
+                  navigate(resolveRoute(catalogRoutes.routes.config))
+                }
+              >
+                <LayoutGrid className="w-4 h-4 mr-2" />
+                Open Catalog
+              </Button>
+            ) : undefined
           }
         />
       );
@@ -229,10 +249,15 @@ export const Dashboard: React.FC = () => {
             attach a health check to it.
           </>
         }
-        action={{
-          label: "Open Catalog",
-          onClick: () => navigate(resolveRoute(catalogRoutes.routes.config)),
-        }}
+        action={
+          canManageCatalog
+            ? {
+                label: "Open Catalog",
+                onClick: () =>
+                  navigate(resolveRoute(catalogRoutes.routes.config)),
+              }
+            : undefined
+        }
         actionHint={
           <span className="inline-flex items-center gap-1.5">
             <Lightbulb
@@ -266,7 +291,7 @@ export const Dashboard: React.FC = () => {
               System health
             </h2>
           </div>
-          {systemsCount > 0 && (
+          {systemsCount > 0 && canViewCatalog && (
             <Link
               to={catalogHref}
               className={cn(

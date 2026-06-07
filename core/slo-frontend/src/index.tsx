@@ -47,6 +47,8 @@ export default createFrontendPlugin({
           default: m.SloDetailPage,
         })),
       title: "SLO Detail",
+      // Read-gated; anonymous holds this by default (isPublic), admin-revocable.
+      accessRule: sloAccess.slo.read,
     },
   ],
   apis: [],

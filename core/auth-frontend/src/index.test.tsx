@@ -14,6 +14,7 @@ const testReadAccess: AccessRule = {
   resource: "test",
   level: "read",
   description: "Test read access",
+  pluginId: "test",
 };
 
 const testManageAccess: AccessRule = {
@@ -21,6 +22,7 @@ const testManageAccess: AccessRule = {
   resource: "test",
   level: "manage",
   description: "Test manage access",
+  pluginId: "test",
 };
 
 const otherAccess: AccessRule = {
@@ -28,6 +30,7 @@ const otherAccess: AccessRule = {
   resource: "other",
   level: "read",
   description: "Other read access",
+  pluginId: "other",
 };
 
 describe("AuthAccessApi", () => {
@@ -39,7 +42,7 @@ describe("AuthAccessApi", () => {
 
   it("should return true if user has the access rule", () => {
     (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
-      accessRules: ["test.read"],
+      accessRules: ["test.test.read"],
       loading: false,
     });
 
@@ -51,7 +54,7 @@ describe("AuthAccessApi", () => {
 
   it("should return false if user is missing the access rule", () => {
     (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
-      accessRules: ["other.read"],
+      accessRules: ["other.other.read"],
       loading: false,
     });
 
@@ -99,7 +102,7 @@ describe("AuthAccessApi", () => {
 
   it("should return true if user has manage access for a manage check", () => {
     (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
-      accessRules: ["test.manage"],
+      accessRules: ["test.test.manage"],
       loading: false,
     });
 
@@ -123,7 +126,7 @@ describe("AuthAccessApi", () => {
 
   it("should return true if user has manage access for a read check", () => {
     (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
-      accessRules: ["test.manage"],
+      accessRules: ["test.test.manage"],
       loading: false,
     });
 

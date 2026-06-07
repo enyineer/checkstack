@@ -7,7 +7,10 @@ import {
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
 import { AnomalyApi } from "@checkstack/anomaly-common";
-import { healthcheckRoutes } from "@checkstack/healthcheck-common";
+import {
+  healthcheckRoutes,
+  healthCheckAccess,
+} from "@checkstack/healthcheck-common";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
 
@@ -57,6 +60,8 @@ export const AnomalySignalsFiller: React.FC<Props> = ({
           systemId,
           configurationId,
         }),
+        // The history detail page is gated; render as text for users without it.
+        accessRule: healthCheckAccess.details,
         since: new Date(startedAt).toISOString(),
         iconName: "ChartSpline",
       };

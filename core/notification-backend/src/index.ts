@@ -115,7 +115,8 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
         accessRule: access(
           `strategy.${strategy.id}`,
           "manage",
-          `Use ${strategy.displayName} notification channel`
+          `Use ${strategy.displayName} notification channel`,
+          { pluginId: metadata.pluginId }
         ),
         ownerPluginId: metadata.pluginId,
       });

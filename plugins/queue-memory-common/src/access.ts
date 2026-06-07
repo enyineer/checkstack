@@ -4,10 +4,15 @@ import { accessPair, type AccessRule } from "@checkstack/common";
  * Access rules for the In-Memory Queue plugin.
  * Uses the same permission IDs as before for backward compatibility.
  */
-export const queueMemoryAccess = accessPair("queue-memory", {
-  read: { description: "View in-memory queue configuration and statistics" },
-  manage: { description: "Modify in-memory queue configuration" },
-});
+export const queueMemoryAccess = accessPair(
+  "queue-memory",
+  {
+    read: { description: "View in-memory queue configuration and statistics" },
+    manage: { description: "Modify in-memory queue configuration" },
+  },
+  // Must match the backend plugin id (queue-memory-backend) that registers these.
+  { pluginId: "queue-memory" },
+);
 
 /**
  * All access rules for registration with the plugin system.

@@ -122,6 +122,22 @@ export interface NavEntry {
    * (e.g. show on `read` while the page itself needs `manage`).
    */
   accessRule?: AccessRule;
+  /**
+   * Dynamic visibility predicate, evaluated with the current user's access
+   * rules and auth state. Use for entries whose visibility cannot be expressed
+   * as a single static `accessRule`:
+   *  - the Infrastructure entry, visible only if the user can read at least one
+   *    of the tabs contributed by other plugins at runtime;
+   *  - per-user entries (e.g. Notification Settings) that require an
+   *    authenticated user rather than a specific rule.
+   * Evaluated IN ADDITION to `accessRule` (both must pass). Returning `false`
+   * hides the entry; a group with no visible entries is not rendered.
+   */
+  isVisible?: (context: {
+    /** The current user's granted access-rule IDs (as `isAccessRuleSatisfied` expects). */
+    accessRules: string[];
+    isAuthenticated: boolean;
+  }) => boolean;
 }
 
 /** Fields common to every route, regardless of eager/lazy. */

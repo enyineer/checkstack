@@ -1,5 +1,7 @@
 import { access, accessPair } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the Health Check plugin.
  */
@@ -16,15 +18,20 @@ export const healthCheckAccess = {
     idParam: "systemId",
     isDefault: true,
     isPublic: true,
+    pluginId: pluginMetadata.pluginId,
   }),
 
   /**
    * Configuration access for viewing and managing health check configurations.
    */
-  configuration: accessPair("healthcheck", {
-    read: { description: "Read Health Check Configurations" },
-    manage: { description: "Full management of Health Check Configurations" },
-  }),
+  configuration: accessPair(
+    "healthcheck",
+    {
+      read: { description: "Read Health Check Configurations" },
+      manage: { description: "Full management of Health Check Configurations" },
+    },
+    { pluginId: pluginMetadata.pluginId },
+  ),
 
   /**
    * Access for viewing detailed health check run data including metadata.
@@ -34,6 +41,7 @@ export const healthCheckAccess = {
     "healthcheck.details",
     "read",
     "View Detailed Health Check Run Data (Warning: This may expose sensitive data, depending on the health check strategy)",
+    { pluginId: pluginMetadata.pluginId },
   ),
 };
 

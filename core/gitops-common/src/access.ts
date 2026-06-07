@@ -1,34 +1,49 @@
 import { access, accessPair } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the GitOps plugin.
  */
 export const gitopsAccess = {
   /** Provider management (add/edit/remove Git providers). */
-  provider: accessPair("provider", {
-    read: {
-      description: "View GitOps providers and sync status",
-      isDefault: true,
+  provider: accessPair(
+    "provider",
+    {
+      read: {
+        description: "View GitOps providers and sync status",
+        isDefault: true,
+      },
+      manage: {
+        description: "Add, edit, and remove GitOps providers",
+      },
     },
-    manage: {
-      description: "Add, edit, and remove GitOps providers",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 
   /** Secret management for ${{ secrets.NAME }} template values. */
-  secret: accessPair("secret", {
-    read: {
-      description: "View secret names (not values)",
-      isDefault: true,
+  secret: accessPair(
+    "secret",
+    {
+      read: {
+        description: "View secret names (not values)",
+        isDefault: true,
+      },
+      manage: {
+        description: "Create, rotate, and delete secrets",
+      },
     },
-    manage: {
-      description: "Create, rotate, and delete secrets",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 
   /** Kind registry browsing. */
   kinds: {
     read: access("kinds", "read", "View entity kind definitions and schemas", {
+      pluginId: pluginMetadata.pluginId,
       isDefault: true,
     }),
   },

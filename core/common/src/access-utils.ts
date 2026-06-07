@@ -70,6 +70,16 @@ export interface AccessRule {
   readonly resource: string;
 
   /**
+   * The id of the plugin that OWNS this rule. REQUIRED: granted access-rule ids
+   * are stored fully-qualified as `{pluginId}.{id}` (e.g. `incident.incident.read`)
+   * so the same short id from two plugins never collides, and access checks ONLY
+   * ever compare the qualified form. There is intentionally NO unqualified
+   * fallback - matching a bare id would be a privilege-escalation flaw across
+   * plugins. Set by the *-common access definitions via `pluginMetadata.pluginId`.
+   */
+  readonly pluginId: string;
+
+  /**
    * The access level this rule grants: "read" or "manage".
    * Directly maps to canRead/canManage in team grants.
    */
@@ -135,12 +145,16 @@ export function qualifyAccessRuleId(
  */
 export function isAccessRuleSatisfied(
   grantedRuleIds: readonly string[],
-  rule: Pick<AccessRule, "id" | "resource" | "level">,
+  rule: Pick<AccessRule, "id" | "resource" | "level" | "pluginId">,
 ): boolean {
   if (grantedRuleIds.includes("*")) return true;
-  if (grantedRuleIds.includes(rule.id)) return true;
+  // Granted ids are ALWAYS fully-qualified (`{pluginId}.{id}`). We match ONLY the
+  // qualified form - never the bare id - so one plugin's grant can never satisfy
+  // another plugin's identically-named rule (a cross-plugin escalation flaw).
+  const qualify = (id: string): string => `${rule.pluginId}.${id}`;
+  if (grantedRuleIds.includes(qualify(rule.id))) return true;
   if (rule.level === "read") {
-    return grantedRuleIds.includes(`${rule.resource}.manage`);
+    return grantedRuleIds.includes(qualify(`${rule.resource}.manage`));
   }
   return false;
 }
@@ -178,7 +192,9 @@ export function access(
   resource: string,
   level: AccessLevel,
   description: string,
-  options?: {
+  options: {
+    /** Owning plugin id (REQUIRED) - rules are matched only as `{pluginId}.{id}`. */
+    pluginId: string;
     idParam?: string;
     listKey?: string;
     recordKey?: string;
@@ -187,20 +203,21 @@ export function access(
   },
 ): AccessRule {
   const hasInstanceAccess =
-    options?.idParam || options?.listKey || options?.recordKey;
+    options.idParam || options.listKey || options.recordKey;
 
   return {
     id: `${resource}.${level}`,
     resource,
     level,
     description,
-    isDefault: options?.isDefault,
-    isPublic: options?.isPublic,
+    pluginId: options.pluginId,
+    isDefault: options.isDefault,
+    isPublic: options.isPublic,
     instanceAccess: hasInstanceAccess
       ? {
-          idParam: options?.idParam,
-          listKey: options?.listKey,
-          recordKey: options?.recordKey,
+          idParam: options.idParam,
+          listKey: options.listKey,
+          recordKey: options.recordKey,
         }
       : undefined,
   };
@@ -265,22 +282,27 @@ export function accessPair(
     read: AccessLevelConfig;
     manage: AccessLevelConfig;
   },
-  instanceAccess?: InstanceAccessConfig,
+  options: InstanceAccessConfig & {
+    /** Owning plugin id (REQUIRED) - rules are matched only as `{pluginId}.{id}`. */
+    pluginId: string;
+  },
 ): { read: AccessRule; manage: AccessRule } {
   return {
     read: access(resource, "read", levels.read.description, {
-      idParam: instanceAccess?.idParam,
-      listKey: instanceAccess?.listKey,
-      recordKey: instanceAccess?.recordKey,
+      idParam: options.idParam,
+      listKey: options.listKey,
+      recordKey: options.recordKey,
       isDefault: levels.read.isDefault,
       isPublic: levels.read.isPublic,
+      pluginId: options.pluginId,
     }),
     manage: access(resource, "manage", levels.manage.description, {
-      idParam: instanceAccess?.idParam,
+      idParam: options.idParam,
       // Note: manage doesn't typically use listKey (you don't "manage" a list in bulk)
       // but we include idParam for single-resource manage checks
       isDefault: levels.manage.isDefault,
       isPublic: levels.manage.isPublic,
+      pluginId: options.pluginId,
     }),
   };
 }

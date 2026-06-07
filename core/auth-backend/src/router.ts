@@ -237,10 +237,24 @@ export const createAuthRouter = (
     return enabledStrategies.filter((s) => s.enabled);
   });
 
+  // The configurable "anonymous" role's grants - what an unauthenticated visitor
+  // is allowed. Same `roleAccessRule` store the enriched `user.accessRules` is
+  // built from, so the format matches and the frontend's access checks behave
+  // identically for guests and users.
+  const loadAnonymousAccessRules = async (): Promise<string[]> => {
+    const rolePerms = await internalDb
+      .select()
+      .from(schema.roleAccessRule)
+      .where(eq(schema.roleAccessRule.roleId, ANONYMOUS_ROLE_ID));
+    return rolePerms.map((rp) => rp.accessRuleId);
+  };
+
   const accessRulesHandler = os.accessRules.handler(async ({ context }) => {
     const user = context.user;
+    // Anonymous callers get the anonymous role's effective rules (NOT empty), so
+    // the UI can gate on what a guest may actually do.
     if (!isRealUser(user)) {
-      return { accessRules: [] };
+      return { accessRules: await loadAnonymousAccessRules() };
     }
     return { accessRules: user.accessRules || [] };
   });
@@ -922,13 +936,7 @@ export const createAuthRouter = (
   );
 
   const getAnonymousAccessRules = os.getAnonymousAccessRules.handler(
-    async () => {
-      const rolePerms = await internalDb
-        .select()
-        .from(schema.roleAccessRule)
-        .where(eq(schema.roleAccessRule.roleId, ANONYMOUS_ROLE_ID));
-      return rolePerms.map((rp) => rp.accessRuleId);
-    },
+    async () => loadAnonymousAccessRules(),
   );
 
   const filterUsersByAccessRule = os.filterUsersByAccessRule.handler(

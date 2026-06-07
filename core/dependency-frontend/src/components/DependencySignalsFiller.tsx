@@ -9,6 +9,7 @@ import {
 import {
   DependencyApi,
   dependencyRoutes,
+  dependencyAccess,
   type DerivedState,
 } from "@checkstack/dependency-common";
 
@@ -63,6 +64,8 @@ export const DependencySignalsFiller: React.FC<Props> = ({
             ? `${upstreamCount} upstream ${upstreamCount === 1 ? "system" : "systems"} affected`
             : undefined,
         href: resolveRoute(dependencyRoutes.routes.map),
+        // The dependency map is gated; render as text for users without access.
+        accessRule: dependencyAccess.dependency.read,
         iconName: "GitBranch",
       };
       result[systemId] = [signal];

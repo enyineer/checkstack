@@ -639,7 +639,10 @@ export async function loadPlugins({
   // Emit access rule registration hooks at start of Phase 3
   // (EventBus already retrieved above, all plugins can receive notifications)
   const accessRulesByPlugin = new Map<string, AccessRule[]>();
-  for (const { pluginId, ...rule } of deps.registeredAccessRules) {
+  for (const rule of deps.registeredAccessRules) {
+    // Keep `pluginId` on the rule (required AccessRule field); use it only to
+    // group. The rule's `id` is already fully-qualified.
+    const { pluginId } = rule;
     if (!accessRulesByPlugin.has(pluginId)) {
       accessRulesByPlugin.set(pluginId, []);
     }
