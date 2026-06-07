@@ -1,5 +1,82 @@
 # @checkstack/healthcheck-backend
 
+## 1.7.0
+
+### Minor Changes
+
+- 0b6f01b: feat(healthcheck): contribute health problems to the backend system.issues aggregator
+
+  The healthcheck plugin now registers a `system.issues` contributor (sourceId
+  `healthcheck`) from its backend `init`, so the AI assistant surfaces degraded
+  and unhealthy systems alongside incidents, SLOs, anomalies, and dependency
+  problems.
+
+  The contributor enforces its own `healthcheck.status` access gate (returning an
+  empty map - never throwing - when the principal lacks access; service users get
+  no signals), then reads the current problem rows for every system from the
+  shared, durable `health_check_runs` / `system_health_checks` tables via a new
+  global `getAllUnhealthySystemStatuses` service method (every system with an
+  enabled check association, evaluated with the same per-system evaluator the
+  dashboard uses, healthy systems omitted). The answer is therefore identical on
+  every pod, and only systems with a current problem appear in the result.
+
+  The row->signal mapping (source/tone/label/detail/href/accessRule/iconName) is
+  extracted into a new pure `deriveHealthcheckSignals` deriver in
+  `@checkstack/healthcheck-common`, shared by both the backend contributor and the
+  frontend `HealthSignalsFiller` so the two surfaces stay in lockstep. The
+  frontend filler now delegates to that deriver with unchanged behavior.
+
+### Patch Changes
+
+- dbb76a2: fix(ai): guide the assistant to find all issues and fix the anomaly tool
+
+  Two assistant problems reported in production:
+
+  1. Asked "are there any issues?", the model answered from a single source (an
+     SLO breach) and missed a system with a failing health check. The chat
+     system prompt now instructs the model to check ALL issue sources before
+     answering - failing health checks (`healthcheck_status`), breaching/at-risk
+     SLOs (`slo_listObjectives`), active anomalies (`anomaly_list`), and open
+     incidents (`incident_list`) - and not to stop after the first source. It
+     also tells the model that `systemId` must be a real system UUID (resolve a
+     name via the catalog tool first) and to never invent ids or filter values.
+
+  2. The anomaly tool was named `anomaly.explain` but actually LISTS anomalies
+     with optional filters. The misleading name led the model to pass a
+     non-existent filter value ("Type validation failed") and a system
+     name/anomaly id as `systemId` ("a value was malformed"). Renamed to
+     `anomaly.list` with a description that spells out the optional filters and
+     their valid enum values (state: suspicious|anomaly|recovered, kind:
+     spike|drift, suppression: active|suppressed|all) and that `systemId` is a
+     system UUID.
+
+  Also sharpened the `healthcheck.status` and `slo.listObjectives` tool
+  descriptions to be use-case oriented ("use when asked what is failing /
+  breaching").
+
+  BREAKING: the anomaly read tool's name changes from `anomaly_explain` to
+  `anomaly_list` over the MCP `tools/list` surface. MCP clients referencing it by
+  the old name must update.
+
+- Updated dependencies [dbb76a2]
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+- Updated dependencies [0b6f01b]
+  - @checkstack/ai-backend@0.3.0
+  - @checkstack/healthcheck-common@1.6.0
+  - @checkstack/incident-backend@1.7.0
+  - @checkstack/incident-common@1.5.0
+  - @checkstack/maintenance-common@1.5.0
+  - @checkstack/automation-backend@0.5.8
+  - @checkstack/catalog-backend@1.4.8
+  - @checkstack/satellite-backend@0.6.8
+  - @checkstack/sdk@0.103.1
+  - @checkstack/backend-api@0.21.6
+  - @checkstack/script-packages-backend@0.3.7
+  - @checkstack/command-backend@0.2.6
+  - @checkstack/gitops-backend@0.5.6
+  - @checkstack/secrets-backend@0.2.6
+
 ## 1.6.7
 
 ### Patch Changes

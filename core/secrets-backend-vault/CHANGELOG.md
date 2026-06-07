@@ -1,5 +1,12 @@
 # @checkstack/secrets-backend-vault
 
+## 0.1.8
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.6
+- @checkstack/secrets-backend@0.2.6
+
 ## 0.1.7
 
 ### Patch Changes

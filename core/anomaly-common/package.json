@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/anomaly-common",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {
