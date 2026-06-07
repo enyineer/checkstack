@@ -97,9 +97,33 @@ import { Activity } from "lucide-react";
 
 The sidebar filters entries by the user's access rules (via the same check as
 page guards, so nav visibility matches page accessibility), groups them, and
-highlights the active route. Canonical group order: **Workspace**,
-**Reliability**, **Automation**, **Configuration**, **Documentation**; unknown
-groups are appended alphabetically.
+highlights the active route. A group whose every entry is filtered out is not
+rendered. Canonical group order: **Workspace**, **Reliability**, **Automation**,
+**Configuration**, **Documentation**; unknown groups are appended alphabetically.
+
+For entries whose visibility cannot be expressed as one static `accessRule`, add
+a dynamic `nav.isVisible` predicate. It receives the user's `accessRules` (rule
+ids) and `isAuthenticated`, and is evaluated IN ADDITION to `accessRule` (both
+must pass). Use it when visibility depends on runtime contributions or on auth
+state rather than a single rule:
+
+```ts
+nav: {
+  group: "Configuration",
+  icon: Server,
+  // Show only when the user can read at least one tab contributed by other
+  // plugins (the Infrastructure page aggregates them via a slot):
+  isVisible: ({ accessRules }) =>
+    pluginRegistry
+      .getExtensions(InfrastructureTabsSlot.id)
+      .some((ext) => isAccessRuleSatisfied(accessRules, ext.metadata.readAccess)),
+  // Or, for a per-user page that needs a login but no specific rule:
+  // isVisible: ({ isAuthenticated }) => isAuthenticated,
+},
+```
+
+For gating buttons/links INSIDE a page on auth state (not a specific rule), use
+`accessApi.useIsAuthenticated()` (alongside `accessApi.useAccess(rule)`).
 
 > [!NOTE]
 > `nav.icon` is a component (`React.ComponentType<{ className?: string }>`), so

@@ -1,8 +1,11 @@
-import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { createFrontendPlugin, pluginRegistry } from "@checkstack/frontend-api";
+import { isAccessRuleSatisfied } from "@checkstack/common";
 import { Server } from "lucide-react";
 import {
   pluginMetadata,
   infrastructureRoutes,
+  InfrastructureTabsSlot,
+  type InfrastructureTabMetadata,
 } from "@checkstack/infrastructure-common";
 
 export const infrastructurePlugin = createFrontendPlugin({
@@ -15,13 +18,26 @@ export const infrastructurePlugin = createFrontendPlugin({
           default: m.InfrastructureConfigPage,
         })),
       title: "Infrastructure",
-      // No accessRule here — the page handles per-tab access internally
+      // No static accessRule — the tabs are contributed by other plugins at
+      // runtime. Show the sidebar entry only when the user can READ at least one
+      // contributed tab; otherwise the page would just render "Access Denied".
       nav: {
         group: "Configuration",
         icon: Server,
-        // Per-tab access is gated inside the page (tabs are contributed by
-        // other plugins), so there is no single static rule to gate the
-        // sidebar entry on.
+        isVisible: ({ accessRules }) =>
+          pluginRegistry
+            .getExtensions(InfrastructureTabsSlot.id)
+            .some((extension) => {
+              // `getExtensions` is keyed by slot id and therefore untyped; every
+              // extension in THIS slot carries InfrastructureTabMetadata by the
+              // slot contract, so reading `readAccess` off it is sound.
+              const metadata = extension.metadata as
+                | InfrastructureTabMetadata
+                | undefined;
+              return metadata
+                ? isAccessRuleSatisfied(accessRules, metadata.readAccess)
+                : false;
+            }),
       },
     },
   ],

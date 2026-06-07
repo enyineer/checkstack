@@ -52,6 +52,11 @@ export const notificationPlugin = createFrontendPlugin({
         group: "Configuration",
         icon: Bell,
         label: "Notification Settings",
+        // Notifications are per-user (channels + subscriptions), so this page is
+        // meaningless to anonymous users - they can't receive notifications.
+        // Show it only to authenticated users (admin sub-sections inside the
+        // page remain separately gated by notificationAccess.admin).
+        isVisible: ({ isAuthenticated }) => isAuthenticated,
       },
     },
     {

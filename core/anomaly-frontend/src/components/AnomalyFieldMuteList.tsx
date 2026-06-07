@@ -1,7 +1,7 @@
 import React from "react";
 import { Bell, BellOff } from "lucide-react";
 import { Button, useToast } from "@checkstack/ui";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { AnomalyApi } from "@checkstack/anomaly-common";
 import { extractErrorMessage } from "@checkstack/common";
 
@@ -22,6 +22,10 @@ export const AnomalyFieldMuteList: React.FC<{
   const { systemId } = resource;
   const anomalyClient = usePluginClient(AnomalyApi);
   const toast = useToast();
+  // Muting is a per-user preference for logged-in users only; anonymous
+  // visitors (e.g. reaching this via a direct link) get no mute controls.
+  const accessApi = useApi(accessApiRef);
+  const { isAuthenticated: canMute } = accessApi.useIsAuthenticated();
 
   // Notification mute is a per-user concern orthogonal to global suppression,
   // so the mute-management list must include suppressed rows — otherwise a
@@ -81,24 +85,26 @@ export const AnomalyFieldMuteList: React.FC<{
           Mute the entire system or just specific fields. Mutes persist
           across re-subscribes.
         </span>
-        <Button
-          type="button"
-          variant={isSystemMuted ? "outline" : "primary"}
-          size="sm"
-          className="h-6 px-2 text-[11px] gap-1"
-          disabled={isPending}
-          onClick={() => handleToggle("", isSystemMuted)}
-        >
-          {isSystemMuted ? (
-            <>
-              <BellOff className="h-3 w-3" /> System muted
-            </>
-          ) : (
-            <>
-              <Bell className="h-3 w-3" /> Mute system
-            </>
-          )}
-        </Button>
+        {canMute && (
+          <Button
+            type="button"
+            variant={isSystemMuted ? "outline" : "primary"}
+            size="sm"
+            className="h-6 px-2 text-[11px] gap-1"
+            disabled={isPending}
+            onClick={() => handleToggle("", isSystemMuted)}
+          >
+            {isSystemMuted ? (
+              <>
+                <BellOff className="h-3 w-3" /> System muted
+              </>
+            ) : (
+              <>
+                <Bell className="h-3 w-3" /> Mute system
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {fieldPaths.length === 0 ? (
@@ -116,23 +122,23 @@ export const AnomalyFieldMuteList: React.FC<{
                 className="flex items-center justify-between px-3 py-1.5 text-xs"
               >
                 <span className="font-mono truncate">{fp}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  disabled={isPending || isSystemMuted}
-                  title={muted ? "Unmute this field" : "Mute this field"}
-                  onClick={() =>
-                    handleToggle(fp, mutedFields.has(fp))
-                  }
-                >
-                  {muted ? (
-                    <BellOff className="h-3 w-3" />
-                  ) : (
-                    <Bell className="h-3 w-3" />
-                  )}
-                </Button>
+                {canMute && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    disabled={isPending || isSystemMuted}
+                    title={muted ? "Unmute this field" : "Mute this field"}
+                    onClick={() => handleToggle(fp, mutedFields.has(fp))}
+                  >
+                    {muted ? (
+                      <BellOff className="h-3 w-3" />
+                    ) : (
+                      <Bell className="h-3 w-3" />
+                    )}
+                  </Button>
+                )}
               </div>
             );
           })}

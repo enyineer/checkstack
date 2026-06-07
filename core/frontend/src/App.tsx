@@ -290,7 +290,9 @@ function AppWithApis() {
     const registryBuilder = new ApiRegistryBuilder()
       .register(loggerApiRef, new ConsoleLoggerApi())
       .register(accessApiRef, {
-        useAccess: () => ({ loading: false, allowed: true }), // Default to allow all if no auth plugin present
+        // Default to allow all if no auth plugin present (mirrors useAccess).
+        useAccess: () => ({ loading: false, allowed: true }),
+        useIsAuthenticated: () => ({ loading: false, isAuthenticated: true }),
       })
       .registerFactory(fetchApiRef, (_registry) => {
         return new CoreFetchApi(baseUrl);

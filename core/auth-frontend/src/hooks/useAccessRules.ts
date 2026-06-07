@@ -15,17 +15,20 @@ export const useAccessRules = () => {
     }
   );
 
-  // If no session or pending, return empty access rules
+  // If no session or pending, return empty access rules. `isAuthenticated`
+  // lets the sidebar gate per-user entries (e.g. Notification Settings) that
+  // require a logged-in user rather than a specific access rule.
   if (sessionPending) {
-    return { accessRules: [], loading: true };
+    return { accessRules: [], loading: true, isAuthenticated: false };
   }
 
   if (!session?.user) {
-    return { accessRules: [], loading: false };
+    return { accessRules: [], loading: false, isAuthenticated: false };
   }
 
   return {
     accessRules: data?.accessRules ?? [],
     loading: isLoading,
+    isAuthenticated: true,
   };
 };

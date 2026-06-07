@@ -200,6 +200,10 @@ class PluginRegistry {
                 label: route.nav.label ?? route.title ?? route.route.id,
                 order: route.nav.order ?? 0,
                 accessRule: route.nav.accessRule ?? route.accessRule,
+                // Dynamic visibility predicate (e.g. Infrastructure: any
+                // readable tab; per-user entries: authenticated) — passed
+                // through so the sidebar can evaluate it.
+                isVisible: route.nav.isVisible,
               }
             : undefined,
         };

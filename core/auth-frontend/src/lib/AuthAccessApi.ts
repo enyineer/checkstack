@@ -25,4 +25,10 @@ export class AuthAccessApi implements AccessApi {
       allowed: isAccessRuleSatisfied(accessRules, accessRule),
     };
   }
+
+  useIsAuthenticated(): { loading: boolean; isAuthenticated: boolean } {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const { loading, isAuthenticated } = useAccessRules();
+    return { loading, isAuthenticated };
+  }
 }

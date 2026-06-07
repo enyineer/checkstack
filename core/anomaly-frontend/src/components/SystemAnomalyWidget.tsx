@@ -1,8 +1,14 @@
 import React from "react";
-import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  accessApiRef,
+  type SlotContext,
+} from "@checkstack/frontend-api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import {
   AnomalyApi,
+  anomalyAccess,
   type AnomalyDto,
 } from "@checkstack/anomaly-common";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
@@ -117,6 +123,8 @@ function AnomalyRow({
   isToggling,
   onSuppress,
   isSuppressing,
+  canMute,
+  canManage,
 }: {
   anomaly: AnomalyDto;
   systemId: string;
@@ -125,6 +133,10 @@ function AnomalyRow({
   isToggling: boolean;
   onSuppress: (anomalyId: string) => void;
   isSuppressing: boolean;
+  /** Whether the user may mute notifications (any logged-in user). */
+  canMute: boolean;
+  /** Whether the user may suppress the anomaly (anomalyAccess.feed.manage). */
+  canManage: boolean;
 }) {
   const isSuspicious = anomaly.state === "suspicious";
   const isDrift = anomaly.kind === "drift";
@@ -219,30 +231,32 @@ function AnomalyRow({
           )}
           {deviationValue}σ
         </Badge>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
-          disabled={isToggling}
-          title={
-            isMuted
-              ? "Unmute notifications for this field"
-              : "Mute notifications for this field"
-          }
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onToggleMute(anomaly.fieldPath, isMuted);
-          }}
-        >
-          {isMuted ? (
-            <BellOff className="h-3.5 w-3.5" />
-          ) : (
-            <Bell className="h-3.5 w-3.5" />
-          )}
-        </Button>
-        {!isSuspicious && (
+        {canMute && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            disabled={isToggling}
+            title={
+              isMuted
+                ? "Unmute notifications for this field"
+                : "Mute notifications for this field"
+            }
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleMute(anomaly.fieldPath, isMuted);
+            }}
+          >
+            {isMuted ? (
+              <BellOff className="h-3.5 w-3.5" />
+            ) : (
+              <Bell className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+        {canManage && !isSuspicious && (
           <Button
             type="button"
             variant="ghost"
@@ -272,6 +286,14 @@ function AnomalyRow({
 export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   const anomalyClient = usePluginClient(AnomalyApi);
   const toast = useToast();
+  const accessApi = useApi(accessApiRef);
+  // Muting notifications is a per-user preference any LOGGED-IN user may set
+  // (contract: userType "user", access []), so it is gated on authentication,
+  // not on manage. Suppressing an anomaly is an operator action gated on
+  // anomalyAccess.feed.manage. Anonymous visitors get neither. The server
+  // enforces both regardless.
+  const { isAuthenticated: canMute } = accessApi.useIsAuthenticated();
+  const { allowed: canManage } = accessApi.useAccess(anomalyAccess.feed.manage);
 
   // Fetch only active anomalies — exclude recovered ones.
   // Two queries with React Query deduplication: confirmed anomalies + suspicious.
@@ -394,31 +416,33 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
                 {suspiciousCount}
               </Badge>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[11px] gap-1"
-              disabled={isToggling}
-              title={
-                isSystemMuted
-                  ? "Resume anomaly notifications for this system"
-                  : "Stop receiving any anomaly notifications for this system"
-              }
-              onClick={() => handleToggleMute("", isSystemMuted)}
-            >
-              {isSystemMuted ? (
-                <>
-                  <BellOff className="h-3 w-3" />
-                  Muted
-                </>
-              ) : (
-                <>
-                  <Bell className="h-3 w-3" />
-                  Mute all
-                </>
-              )}
-            </Button>
+            {canMute && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] gap-1"
+                disabled={isToggling}
+                title={
+                  isSystemMuted
+                    ? "Resume anomaly notifications for this system"
+                    : "Stop receiving any anomaly notifications for this system"
+                }
+                onClick={() => handleToggleMute("", isSystemMuted)}
+              >
+                {isSystemMuted ? (
+                  <>
+                    <BellOff className="h-3 w-3" />
+                    Muted
+                  </>
+                ) : (
+                  <>
+                    <Bell className="h-3 w-3" />
+                    Mute all
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -434,6 +458,8 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
               isToggling={isToggling}
               onSuppress={handleSuppress}
               isSuppressing={suppressMutation.isPending}
+              canMute={canMute}
+              canManage={canManage}
             />
           ))}
         </div>
