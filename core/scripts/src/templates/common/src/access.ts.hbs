@@ -10,15 +10,22 @@ export const {{pluginNameCamel}}Access = {
    * - read: View {{pluginBaseName}} data (auto-assigned to authenticated users)
    * - manage: Create, update, and delete {{pluginBaseName}} data
    */
-  ...accessPair("{{pluginBaseName}}", {
-    read: {
-      description: "Read {{pluginBaseName}} data",
-      isDefault: true, // read is auto-assigned to "users" role
+  ...accessPair(
+    "{{pluginBaseName}}",
+    {
+      read: {
+        description: "Read {{pluginBaseName}} data",
+        isDefault: true, // read is auto-assigned to "users" role
+      },
+      manage: {
+        description: "Manage {{pluginBaseName}} data",
+      },
     },
-    manage: {
-      description: "Manage {{pluginBaseName}} data",
+    {
+      // Owning plugin id - rules are matched only as `{pluginId}.{id}`.
+      pluginId: "{{pluginBaseName}}",
     },
-  }),
+  ),
 };
 
 /**
