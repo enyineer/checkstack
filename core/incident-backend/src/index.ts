@@ -4,6 +4,7 @@ import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
   deferredProjectionExecute,
 } from "@checkstack/ai-backend";
 import {
@@ -232,7 +233,12 @@ export default createBackendPlugin({
         // using the SAME shared deriver so frontend and backend agree. The
         // per-source access gate + global read live in the contributor factory.
         const signalsExt = env.getExtensionPoint(systemSignalsExtensionPoint);
-        signalsExt.contribute(createIncidentSignalsContributor({ service }));
+        signalsExt.contribute(
+          createIncidentSignalsContributor({
+            service,
+            resolver: createSystemAccessResolver(rpcClient),
+          }),
+        );
 
         // Register "Create Incident" command in the command palette
         registerSearchProvider({

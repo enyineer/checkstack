@@ -22,6 +22,7 @@ import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import { buildHealthcheckAiTools } from "./ai/register-ai-tools";
 import { createHealthcheckSignalsContributor } from "./ai/system-signals-contributor";
@@ -278,7 +279,12 @@ export default createBackendPlugin({
         // filler, so backend signals match the UI's source/tone/label/detail.
         env
           .getExtensionPoint(systemSignalsExtensionPoint)
-          .contribute(createHealthcheckSignalsContributor({ service }));
+          .contribute(
+            createHealthcheckSignalsContributor({
+              service,
+              resolver: createSystemAccessResolver(rpcClient),
+            }),
+          );
 
         // Create catalog client for notification delegation
         const catalogClient = rpcClient.forPlugin(CatalogApi);

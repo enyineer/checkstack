@@ -2,6 +2,7 @@ import { createBackendPlugin, coreServices, type SafeDatabase } from "@checkstac
 import {
   aiToolProjectionExtensionPoint,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
   deferredProjectionExecute,
 } from "@checkstack/ai-backend";
 import { createAnomalySignalsContributor } from "./system-signals";
@@ -126,7 +127,12 @@ export const plugin = createBackendPlugin({
         // createAnomalySignalsContributor.
         env
           .getExtensionPoint(systemSignalsExtensionPoint)
-          .contribute(createAnomalySignalsContributor({ service }));
+          .contribute(
+            createAnomalySignalsContributor({
+              service,
+              resolver: createSystemAccessResolver(rpcClient),
+            }),
+          );
 
         routerCache = createAnomalyRouterCache({ cacheManager, logger });
         const router = createRouter(service, logger, routerCache);

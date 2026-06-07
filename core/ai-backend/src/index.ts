@@ -444,6 +444,11 @@ export type {
   SystemSignalsContribution,
 } from "./extension-points";
 export {
+  createGatedSystemSignalsContributor,
+  createSystemAccessResolver,
+} from "./system-signals-contributor";
+export type { SystemAccessResolver } from "./system-signals-contributor";
+export {
   createSystemIssuesTool,
   mergeSystemSignalsMaps,
   collectSystemSignals,

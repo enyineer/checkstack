@@ -17,6 +17,7 @@ import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import { buildMaintenanceAiTools } from "./ai/register-ai-tools";
 import {
@@ -224,7 +225,10 @@ export default createBackendPlugin({
         // createMaintenanceSignalsContributor.
         const signalsExt = env.getExtensionPoint(systemSignalsExtensionPoint);
         signalsExt.contribute(
-          createMaintenanceSignalsContributor({ service: maintenanceService }),
+          createMaintenanceSignalsContributor({
+            service: maintenanceService,
+            resolver: createSystemAccessResolver(rpcClient),
+          }),
         );
 
         // Register "Create Maintenance" command in the command palette

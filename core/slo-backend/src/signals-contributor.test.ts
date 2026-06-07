@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthUser } from "@checkstack/backend-api";
+import type { SystemAccessResolver } from "@checkstack/ai-backend";
 import type { SloObjective, SloStatus } from "@checkstack/slo-common";
-import { createSloSignalsRead } from "./signals-contributor";
+import { createSloSignalsContributor } from "./signals-contributor";
 import type { SloService } from "./service";
 import type { SloEngine } from "./slo-engine";
 
@@ -46,13 +47,9 @@ const breachingStatus: SloStatus = {
 // Minimal stubs: the contributor only calls listObjectives + computeStatus.
 // Cast through unknown because the real classes carry many other members the
 // contributor never touches in this unit.
-function makeServiceEngine({
-  objectives,
-}: {
-  objectives: SloObjective[];
-}): { service: SloService; engine: SloEngine } {
+function makeServiceEngine(): { service: SloService; engine: SloEngine } {
   const service = {
-    listObjectives: async () => objectives,
+    listObjectives: async () => [objective],
   } as unknown as SloService;
   const engine = {
     computeStatus: async () => breachingStatus,
@@ -60,35 +57,39 @@ function makeServiceEngine({
   return { service, engine };
 }
 
-const userWithAccess: AuthUser = {
+// The per-source gate is owned/tested by createGatedSystemSignalsContributor.
+const allowAll: SystemAccessResolver = {
+  accessibleSystemIds: async ({ systemIds }) => systemIds,
+};
+const denyAll: SystemAccessResolver = { accessibleSystemIds: async () => [] };
+const userWith = (accessRules: string[]): AuthUser => ({
   type: "user",
   id: "u1",
-  accessRules: ["slo.slo.read"],
-};
+  accessRules,
+});
 
-const userWithoutAccess: AuthUser = {
-  type: "user",
-  id: "u2",
-  accessRules: [],
-};
-
-const serviceUser: AuthUser = { type: "service", pluginId: "other" };
-
-describe("createSloSignalsRead", () => {
-  test("returns {} when the principal lacks SLO read access (never throws)", async () => {
-    const { service, engine } = makeServiceEngine({ objectives: [objective] });
-    const read = createSloSignalsRead({ service, engine });
-
-    const result = await read({ principal: userWithoutAccess });
-
-    expect(result).toEqual({ accessible: false, signals: {} });
+describe("createSloSignalsContributor", () => {
+  test("uses the shared slo source id", () => {
+    const { service, engine } = makeServiceEngine();
+    const contributor = createSloSignalsContributor({
+      service,
+      engine,
+      resolver: allowAll,
+    });
+    expect(contributor.sourceId).toBe("slo");
   });
 
-  test("derives signals globally for an allowed user principal", async () => {
-    const { service, engine } = makeServiceEngine({ objectives: [objective] });
-    const read = createSloSignalsRead({ service, engine });
+  test("derives signals globally for an authorized principal", async () => {
+    const { service, engine } = makeServiceEngine();
+    const contributor = createSloSignalsContributor({
+      service,
+      engine,
+      resolver: allowAll,
+    });
 
-    const result = await read({ principal: userWithAccess });
+    const result = await contributor.read({
+      principal: userWith(["slo.slo.read"]),
+    });
 
     expect(result.signals["sys-a"]).toHaveLength(1);
     expect(result.signals["sys-a"]?.[0]?.tone).toBe("error");
@@ -96,12 +97,16 @@ describe("createSloSignalsRead", () => {
     expect(result.signals["sys-a"]?.[0]?.source).toBe("slo");
   });
 
-  test("treats a service principal as trusted (no access gate)", async () => {
-    const { service, engine } = makeServiceEngine({ objectives: [objective] });
-    const read = createSloSignalsRead({ service, engine });
+  test("routes a non-global user through the team gate (no grants -> nothing)", async () => {
+    const { service, engine } = makeServiceEngine();
+    const contributor = createSloSignalsContributor({
+      service,
+      engine,
+      resolver: denyAll,
+    });
 
-    const result = await read({ principal: serviceUser });
+    const result = await contributor.read({ principal: userWith([]) });
 
-    expect(result.signals["sys-a"]).toHaveLength(1);
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 });

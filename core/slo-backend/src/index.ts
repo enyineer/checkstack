@@ -5,6 +5,7 @@ import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import {
   sloAccessRules,
@@ -13,7 +14,6 @@ import {
   sloContract,
   sloRoutes,
   AchievementTypeSchema,
-  SLO_SIGNAL_SOURCE_ID,
 } from "@checkstack/slo-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
@@ -49,7 +49,7 @@ import { setupWeeklyDigestJob } from "./weekly-digest";
 import { evaluateAchievements } from "./achievement-evaluator";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerSloGitOpsKinds } from "./slo-gitops-kinds";
-import { createSloSignalsRead } from "./signals-contributor";
+import { createSloSignalsContributor } from "./signals-contributor";
 
 // =============================================================================
 // Integration Event Payload Schemas
@@ -273,10 +273,13 @@ export default createBackendPlugin({
         // tool. `read` enforces this source's read access on the originating
         // principal, queries every objective globally from `slo_objectives`, and
         // derives signals via the same shared deriver the frontend filler uses.
-        systemSignalsExt.contribute({
-          sourceId: SLO_SIGNAL_SOURCE_ID,
-          read: createSloSignalsRead({ service, engine }),
-        });
+        systemSignalsExt.contribute(
+          createSloSignalsContributor({
+            service,
+            engine,
+            resolver: createSystemAccessResolver(rpcClient),
+          }),
+        );
 
         // Register command palette entries
         registerSearchProvider({

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthUser } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
+import type { SystemAccessResolver } from "@checkstack/ai-backend";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { createMockLogger } from "@checkstack/test-utils-backend";
@@ -29,21 +30,12 @@ function makeDependency(overrides: Partial<Dependency>): Dependency {
   };
 }
 
-/**
- * Build a DependencyService stub whose only used method is getAllDependencies.
- * Cast is unavoidable: the real service requires a live SafeDatabase, which a
- * focused unit test should not stand up.
- */
 function stubService(deps: Dependency[]): DependencyService {
   return {
     getAllDependencies: async () => deps,
   } as unknown as DependencyService;
 }
 
-/**
- * Build a catalog client stub exposing only getSystems. Cast is unavoidable:
- * InferClient<typeof CatalogApi> is the full generated client surface.
- */
 function stubCatalogClient(
   systems: Array<{ id: string; name: string }>,
 ): InferClient<typeof CatalogApi> {
@@ -52,10 +44,6 @@ function stubCatalogClient(
   } as unknown as InferClient<typeof CatalogApi>;
 }
 
-/**
- * Build a healthcheck client stub exposing only getBulkSystemHealthStatus. Cast
- * is unavoidable for the same reason as the catalog stub above.
- */
 function stubHealthCheckClient(
   statuses: Record<
     string,
@@ -67,73 +55,73 @@ function stubHealthCheckClient(
   } as unknown as InferClient<typeof HealthCheckApi>;
 }
 
+// The per-source gate is owned/tested by createGatedSystemSignalsContributor.
+const allowAll: SystemAccessResolver = {
+  accessibleSystemIds: async ({ systemIds }) => systemIds,
+};
+const denyAll: SystemAccessResolver = { accessibleSystemIds: async () => [] };
+
+function build({
+  deps,
+  systems,
+  health,
+  resolver,
+}: {
+  deps: Dependency[];
+  systems: Array<{ id: string; name: string }>;
+  health: Record<
+    string,
+    { status: "healthy" | "degraded" | "unhealthy"; checkStatuses: [] }
+  >;
+  resolver: SystemAccessResolver;
+}) {
+  return createDependencySystemSignalsContributor({
+    service: stubService(deps),
+    warningService: new WarningEvaluationService(),
+    catalogClient: stubCatalogClient(systems),
+    healthCheckClient: stubHealthCheckClient(health),
+    resolver,
+    logger: noopLogger,
+  });
+}
+
 const realUser = (accessRules: string[]): AuthUser => ({
   type: "user",
   id: "u1",
   accessRules,
 });
+const grant = `dependency.${dependencyAccess.dependency.read.id}`;
 
 describe("dependency system.issues contributor", () => {
   test("exposes the shared source id", () => {
-    const contributor = createDependencySystemSignalsContributor({
-      service: stubService([]),
-      warningService: new WarningEvaluationService(),
-      catalogClient: stubCatalogClient([]),
-      healthCheckClient: stubHealthCheckClient({}),
-      logger: noopLogger,
+    const contributor = build({
+      deps: [],
+      systems: [],
+      health: {},
+      resolver: allowAll,
     });
     expect(contributor.sourceId).toBe(DEPENDENCY_SIGNAL_SOURCE_ID);
   });
 
-  test("returns {} when the principal lacks dependency.read access", async () => {
-    const contributor = createDependencySystemSignalsContributor({
-      service: stubService([
-        makeDependency({ sourceSystemId: "downstream", targetSystemId: "up" }),
-      ]),
-      warningService: new WarningEvaluationService(),
-      catalogClient: stubCatalogClient([
-        { id: "downstream", name: "Downstream" },
-        { id: "up", name: "Up" },
-      ]),
-      healthCheckClient: stubHealthCheckClient({
-        up: { status: "unhealthy", checkStatuses: [] },
-      }),
-      logger: noopLogger,
-    });
-
-    const result = await contributor.read({
-      principal: realUser(["some.other.rule"]),
-    });
-    expect(result).toEqual({ accessible: false, signals: {} });
-  });
-
-  test("returns derived signals globally when the principal has access", async () => {
-    const contributor = createDependencySystemSignalsContributor({
-      service: stubService([
+  test("derives signals globally when the principal has access", async () => {
+    const contributor = build({
+      deps: [
         makeDependency({
           id: "dep-down",
           sourceSystemId: "downstream",
           targetSystemId: "up",
           impactType: "critical",
         }),
-      ]),
-      warningService: new WarningEvaluationService(),
-      catalogClient: stubCatalogClient([
+      ],
+      systems: [
         { id: "downstream", name: "Downstream" },
         { id: "up", name: "Up" },
-      ]),
-      healthCheckClient: stubHealthCheckClient({
-        up: { status: "unhealthy", checkStatuses: [] },
-      }),
-      logger: noopLogger,
+      ],
+      health: { up: { status: "unhealthy", checkStatuses: [] } },
+      resolver: allowAll,
     });
 
-    const result = await contributor.read({
-      principal: realUser([
-        // Fully-qualified grant for the source's read rule.
-        `dependency.${dependencyAccess.dependency.read.id}`,
-      ]),
-    });
+    const result = await contributor.read({ principal: realUser([grant]) });
 
     // Only the downstream system has a warning; the healthy upstream is absent.
     expect(Object.keys(result.signals)).toEqual(["downstream"]);
@@ -144,46 +132,32 @@ describe("dependency system.issues contributor", () => {
     });
   });
 
-  test("trusts service users (backend-to-backend) with wildcard access", async () => {
-    const contributor = createDependencySystemSignalsContributor({
-      service: stubService([
-        makeDependency({
-          sourceSystemId: "downstream",
-          targetSystemId: "up",
-          impactType: "degraded",
-        }),
-      ]),
-      warningService: new WarningEvaluationService(),
-      catalogClient: stubCatalogClient([
+  test("routes a non-global user through the team gate (no grants -> nothing)", async () => {
+    const contributor = build({
+      deps: [makeDependency({ sourceSystemId: "downstream", targetSystemId: "up" })],
+      systems: [
         { id: "downstream", name: "Downstream" },
         { id: "up", name: "Up" },
-      ]),
-      healthCheckClient: stubHealthCheckClient({
-        up: { status: "degraded", checkStatuses: [] },
-      }),
-      logger: noopLogger,
+      ],
+      health: { up: { status: "unhealthy", checkStatuses: [] } },
+      resolver: denyAll,
     });
 
     const result = await contributor.read({
-      principal: { type: "service", pluginId: "some-plugin" },
+      principal: realUser(["some.other.rule"]),
     });
-    expect(Object.keys(result.signals)).toEqual(["downstream"]);
-    expect(result.signals["downstream"][0].tone).toBe("warn");
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 
-  test("returns {} when there are no dependencies at all", async () => {
-    const contributor = createDependencySystemSignalsContributor({
-      service: stubService([]),
-      warningService: new WarningEvaluationService(),
-      catalogClient: stubCatalogClient([]),
-      healthCheckClient: stubHealthCheckClient({}),
-      logger: noopLogger,
+  test("access granted but no dependencies: accessible with empty signals", async () => {
+    const contributor = build({
+      deps: [],
+      systems: [],
+      health: {},
+      resolver: allowAll,
     });
 
-    const result = await contributor.read({
-      principal: realUser([`dependency.${dependencyAccess.dependency.read.id}`]),
-    });
-    // Access granted, just no dependencies: accessible, with empty signals.
+    const result = await contributor.read({ principal: realUser([grant]) });
     expect(result).toEqual({ accessible: true, signals: {} });
   });
 });

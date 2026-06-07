@@ -4,7 +4,7 @@ import {
   type HealthcheckSignalStatuses,
 } from "@checkstack/healthcheck-common";
 import type { AuthUser } from "@checkstack/backend-api";
-
+import type { SystemAccessResolver } from "@checkstack/ai-backend";
 import {
   createHealthcheckSignalsContributor,
   type HealthcheckSignalsSource,
@@ -25,21 +25,18 @@ const unhealthyStatuses: HealthcheckSignalStatuses = {
   },
 };
 
-function sourceReturning(
-  statuses: HealthcheckSignalStatuses,
-): { source: HealthcheckSignalsSource; calls: () => number } {
-  let count = 0;
-  return {
-    calls: () => count,
-    source: {
-      getAllUnhealthySystemStatuses: async () => {
-        count += 1;
-        return statuses;
-      },
-    },
-  };
+function sourceReturning(statuses: HealthcheckSignalStatuses): {
+  source: HealthcheckSignalsSource;
+} {
+  return { source: { getAllUnhealthySystemStatuses: async () => statuses } };
 }
 
+// The per-source gate is owned/tested by createGatedSystemSignalsContributor;
+// these resolver stubs let us focus on this plugin's wiring.
+const allowAll: SystemAccessResolver = {
+  accessibleSystemIds: async ({ systemIds }) => systemIds,
+};
+const denyAll: SystemAccessResolver = { accessibleSystemIds: async () => [] };
 const userWith = (accessRules: string[]): AuthUser => ({
   type: "user",
   id: "u1",
@@ -49,44 +46,25 @@ const userWith = (accessRules: string[]): AuthUser => ({
 describe("createHealthcheckSignalsContributor", () => {
   it("exposes the shared source id", () => {
     const { source } = sourceReturning({});
-    const contributor = createHealthcheckSignalsContributor({ service: source });
+    const contributor = createHealthcheckSignalsContributor({
+      service: source,
+      resolver: allowAll,
+    });
     expect(contributor.sourceId).toBe(HEALTHCHECK_SIGNAL_SOURCE_ID);
   });
 
-  it("returns {} and never queries when the principal lacks healthcheck.status", async () => {
-    const { source, calls } = sourceReturning(unhealthyStatuses);
-    const contributor = createHealthcheckSignalsContributor({ service: source });
-
-    const result = await contributor.read({ principal: userWith([]) });
-
-    expect(result).toEqual({ accessible: false, signals: {} });
-    expect(calls()).toBe(0);
-  });
-
-  it("treats a service principal as trusted (sees signals)", async () => {
-    // Service principals are trusted backend-to-backend callers (the RPC
-    // middleware skips access checks for them), so the contributor queries and
-    // returns signals rather than gating them out.
-    const { source, calls } = sourceReturning(unhealthyStatuses);
-    const contributor = createHealthcheckSignalsContributor({ service: source });
-
-    const serviceUser: AuthUser = { type: "service", pluginId: "svc" };
-    const result = await contributor.read({ principal: serviceUser });
-
-    expect(Object.keys(result.signals).length).toBeGreaterThan(0);
-    expect(calls()).toBe(1);
-  });
-
-  it("returns derived signals when the principal holds the qualified status rule", async () => {
+  it("wires the service + shared deriver for an authorized principal", async () => {
     const { source } = sourceReturning(unhealthyStatuses);
-    const contributor = createHealthcheckSignalsContributor({ service: source });
+    const contributor = createHealthcheckSignalsContributor({
+      service: source,
+      resolver: allowAll,
+    });
 
     const result = await contributor.read({
       principal: userWith(["healthcheck.healthcheck.status.read"]),
     });
 
     expect(Object.keys(result.signals)).toEqual(["s1"]);
-    expect(result.signals.s1).toHaveLength(1);
     expect(result.signals.s1[0]).toMatchObject({
       source: HEALTHCHECK_SIGNAL_SOURCE_ID,
       tone: "error",
@@ -94,12 +72,15 @@ describe("createHealthcheckSignalsContributor", () => {
     });
   });
 
-  it("returns derived signals for a wildcard grant", async () => {
+  it("routes a non-global user through the team gate (no grants -> nothing)", async () => {
     const { source } = sourceReturning(unhealthyStatuses);
-    const contributor = createHealthcheckSignalsContributor({ service: source });
+    const contributor = createHealthcheckSignalsContributor({
+      service: source,
+      resolver: denyAll,
+    });
 
-    const result = await contributor.read({ principal: userWith(["*"]) });
+    const result = await contributor.read({ principal: userWith([]) });
 
-    expect(Object.keys(result.signals)).toEqual(["s1"]);
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 });

@@ -8,6 +8,9 @@
       "path": "../ai-common"
     },
     {
+      "path": "../auth-common"
+    },
+    {
       "path": "../backend-api"
     },
     {

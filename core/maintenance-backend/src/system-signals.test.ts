@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import type { AuthUser } from "@checkstack/backend-api";
+import type { SystemAccessResolver } from "@checkstack/ai-backend";
 import type { MaintenanceWithSystems } from "@checkstack/maintenance-common";
 import { MAINTENANCE_SIGNAL_SOURCE } from "@checkstack/maintenance-common";
 import { createMaintenanceSignalsContributor } from "./system-signals";
@@ -21,66 +22,42 @@ const activeWindow = (
   ...over,
 });
 
-/**
- * Tiny stub of the slice the contributor reads, recording whether the global
- * query ran so we can assert the access gate short-circuits before any read.
- */
-function stubService(bySystem: Record<string, MaintenanceWithSystems[]>): {
-  service: Pick<MaintenanceService, "getActiveMaintenancesBySystem">;
-  calls: { read: number };
-} {
-  const calls = { read: 0 };
-  return {
-    calls,
-    service: {
-      getActiveMaintenancesBySystem: async () => {
-        calls.read += 1;
-        return bySystem;
-      },
-    },
-  };
+function stubService(
+  bySystem: Record<string, MaintenanceWithSystems[]>,
+): Pick<MaintenanceService, "getActiveMaintenancesBySystem"> {
+  return { getActiveMaintenancesBySystem: async () => bySystem };
 }
+
+// The per-source gate is owned/tested by createGatedSystemSignalsContributor.
+const allowAll: SystemAccessResolver = {
+  accessibleSystemIds: async ({ systemIds }) => systemIds,
+};
+const denyAll: SystemAccessResolver = { accessibleSystemIds: async () => [] };
+const userWith = (accessRules: string[]): AuthUser => ({
+  type: "user",
+  id: "u1",
+  accessRules,
+});
 
 describe("createMaintenanceSignalsContributor", () => {
   test("uses the shared source id", () => {
-    const { service } = stubService({});
-    const contributor = createMaintenanceSignalsContributor({ service });
+    const contributor = createMaintenanceSignalsContributor({
+      service: stubService({}),
+      resolver: allowAll,
+    });
     expect(contributor.sourceId).toBe(MAINTENANCE_SIGNAL_SOURCE);
   });
 
-  test("returns {} and skips the read when the principal lacks maintenance.read", async () => {
-    const { service, calls } = stubService({
-      sysA: [activeWindow()],
+  test("wires the service + shared deriver for an allowed principal", async () => {
+    const contributor = createMaintenanceSignalsContributor({
+      service: stubService({ sysA: [activeWindow()] }),
+      resolver: allowAll,
     });
-    const contributor = createMaintenanceSignalsContributor({ service });
 
-    const principal: AuthUser = {
-      type: "user",
-      id: "u1",
-      accessRules: ["incident.incident.read"],
-    };
-
-    const result = await contributor.read({ principal });
-
-    expect(result).toEqual({ accessible: false, signals: {} });
-    expect(calls.read).toBe(0);
-  });
-
-  test("returns derived signals for an allowed principal", async () => {
-    const { service, calls } = stubService({
-      sysA: [activeWindow({ id: "m1", title: "Database upgrade" })],
+    const result = await contributor.read({
+      principal: userWith(["maintenance.maintenance.read"]),
     });
-    const contributor = createMaintenanceSignalsContributor({ service });
 
-    const principal: AuthUser = {
-      type: "user",
-      id: "u1",
-      accessRules: ["maintenance.maintenance.read"],
-    };
-
-    const result = await contributor.read({ principal });
-
-    expect(calls.read).toBe(1);
     expect(Object.keys(result.signals)).toEqual(["sysA"]);
     expect(result.signals.sysA[0]).toMatchObject({
       source: MAINTENANCE_SIGNAL_SOURCE,
@@ -91,36 +68,14 @@ describe("createMaintenanceSignalsContributor", () => {
     });
   });
 
-  test("a maintenance.manage grant satisfies the read gate", async () => {
-    const { service } = stubService({
-      sysA: [activeWindow()],
+  test("routes a non-global user through the team gate (no grants -> nothing)", async () => {
+    const contributor = createMaintenanceSignalsContributor({
+      service: stubService({ sysA: [activeWindow()] }),
+      resolver: denyAll,
     });
-    const contributor = createMaintenanceSignalsContributor({ service });
 
-    const principal: AuthUser = {
-      type: "user",
-      id: "u1",
-      accessRules: ["maintenance.maintenance.manage"],
-    };
+    const result = await contributor.read({ principal: userWith([]) });
 
-    const result = await contributor.read({ principal });
-    expect(Object.keys(result.signals)).toEqual(["sysA"]);
-  });
-
-  test("treats a service principal as trusted (sees signals)", async () => {
-    // Service principals are trusted backend-to-backend callers (the RPC
-    // middleware skips access checks for them), so the contributor returns
-    // signals rather than gating them out.
-    const { service, calls } = stubService({
-      sysA: [activeWindow()],
-    });
-    const contributor = createMaintenanceSignalsContributor({ service });
-
-    const principal: AuthUser = { type: "service", pluginId: "scheduler" };
-
-    const result = await contributor.read({ principal });
-
-    expect(Object.keys(result.signals)).toEqual(["sysA"]);
-    expect(calls.read).toBe(1);
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 });

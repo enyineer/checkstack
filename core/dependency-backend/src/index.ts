@@ -4,6 +4,7 @@ import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
   systemSignalsExtensionPoint,
+  createSystemAccessResolver,
 } from "@checkstack/ai-backend";
 import {
   dependencyAccessRules,
@@ -192,6 +193,7 @@ export default createBackendPlugin({
             warningService,
             catalogClient,
             healthCheckClient,
+            resolver: createSystemAccessResolver(rpcClient),
             logger,
           }),
         );

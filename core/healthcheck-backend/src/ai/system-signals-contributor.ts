@@ -1,4 +1,3 @@
-import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
   deriveHealthcheckSignals,
   healthCheckAccess,
@@ -6,7 +5,8 @@ import {
   type HealthcheckSignalStatuses,
 } from "@checkstack/healthcheck-common";
 import {
-  principalGrantedRuleIds,
+  createGatedSystemSignalsContributor,
+  type SystemAccessResolver,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
 
@@ -21,35 +21,26 @@ export interface HealthcheckSignalsSource {
 }
 
 /**
- * Build the healthcheck contributor for the AI `system.issues` aggregator.
- *
- * PER-SOURCE access is enforced here: the principal must satisfy
- * `healthcheck.status`, otherwise `read` returns `{}` (never throws). When
- * allowed, it derives signals from the global durable scan so the answer is
- * identical on every pod, reusing the SAME pure deriver the dashboard filler
- * uses.
+ * Build the healthcheck contributor for the AI `system.issues` aggregator. Reads
+ * the global durable scan of unhealthy systems and runs the SAME deriver the
+ * dashboard filler uses. The per-source access gate (global `healthcheck.status`
+ * plus per-system team grants) is applied by
+ * {@link createGatedSystemSignalsContributor}.
  */
 export function createHealthcheckSignalsContributor({
   service,
+  resolver,
 }: {
   service: HealthcheckSignalsSource;
+  resolver: SystemAccessResolver;
 }): SystemSignalsContributor {
-  return {
+  return createGatedSystemSignalsContributor({
     sourceId: HEALTHCHECK_SIGNAL_SOURCE_ID,
-    read: async ({ principal }) => {
-      if (
-        !isAccessRuleSatisfied(
-          principalGrantedRuleIds(principal),
-          healthCheckAccess.status,
-        )
-      ) {
-        return { accessible: false, signals: {} };
-      }
-      const statuses = await service.getAllUnhealthySystemStatuses();
-      return {
-        accessible: true,
-        signals: deriveHealthcheckSignals({ statuses }),
-      };
-    },
-  };
+    accessRule: healthCheckAccess.status,
+    resolver,
+    readSignals: async () =>
+      deriveHealthcheckSignals({
+        statuses: await service.getAllUnhealthySystemStatuses(),
+      }),
+  });
 }

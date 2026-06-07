@@ -1,7 +1,7 @@
 import type { Logger } from "@checkstack/backend-api";
-import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
-  principalGrantedRuleIds,
+  createGatedSystemSignalsContributor,
+  type SystemAccessResolver,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
 import type { InferClient } from "@checkstack/common";
@@ -22,23 +22,25 @@ import type {
 /**
  * Build the dependency plugin's `system.issues` contributor.
  *
- * The contributor enforces this source's own read access first (returning an
- * empty map - never throwing - when the principal lacks it), then evaluates
- * dependency warnings for ALL systems globally from the shared, durable
- * `dependencies` table (so the answer is identical on every pod) and runs the
- * SHARED {@link deriveDependencySignals} deriver to project them into signals.
+ * It evaluates dependency warnings for ALL systems globally from the shared,
+ * durable `dependencies` table (so the answer is identical on every pod) and
+ * runs the SHARED {@link deriveDependencySignals} deriver. The per-source access
+ * gate (global `dependency.read` plus per-system team grants) is applied by
+ * {@link createGatedSystemSignalsContributor}.
  */
 export function createDependencySystemSignalsContributor({
   service,
   warningService,
   catalogClient,
   healthCheckClient,
+  resolver,
   logger,
 }: {
   service: DependencyService;
   warningService: WarningEvaluationService;
   catalogClient: InferClient<typeof CatalogApi>;
   healthCheckClient: InferClient<typeof HealthCheckApi>;
+  resolver: SystemAccessResolver;
   logger: Logger;
 }): SystemSignalsContributor {
   /**
@@ -143,22 +145,11 @@ export function createDependencySystemSignalsContributor({
     return warnings;
   }
 
-  return {
+  return createGatedSystemSignalsContributor({
     sourceId: DEPENDENCY_SIGNAL_SOURCE_ID,
-    read: async ({ principal }) => {
-      // Per-source security gate: only principals that may read dependency
-      // warnings get any signals. Never throw to signal "no access".
-      if (
-        !isAccessRuleSatisfied(
-          principalGrantedRuleIds(principal),
-          dependencyAccess.dependency.read,
-        )
-      ) {
-        return { accessible: false, signals: {} };
-      }
-
-      const warnings = await evaluateGlobalWarnings();
-      return { accessible: true, signals: deriveDependencySignals({ warnings }) };
-    },
-  };
+    accessRule: dependencyAccess.dependency.read,
+    resolver,
+    readSignals: async () =>
+      deriveDependencySignals({ warnings: await evaluateGlobalWarnings() }),
+  });
 }

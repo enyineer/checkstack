@@ -1,12 +1,12 @@
-import type { AuthUser } from "@checkstack/backend-api";
 import {
-  principalGrantedRuleIds,
-  type SystemSignalsContribution,
+  createGatedSystemSignalsContributor,
+  type SystemAccessResolver,
+  type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
-import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
   deriveSloSignals,
   sloAccess,
+  SLO_SIGNAL_SOURCE_ID,
   type SloSignalRow,
 } from "@checkstack/slo-common";
 import type { SloService } from "./service";
@@ -39,28 +39,27 @@ async function readSloRowsBySystemId({
 }
 
 /**
- * Build the `read` callback for the SLO system-signals contributor. Enforces
- * this source's own read access against the originating principal (returns `{}`
- * - never throws - when the principal cannot see SLOs), then derives identical
- * signals to the frontend filler via the shared {@link deriveSloSignals}.
+ * Build the SLO contributor for the AI `system.issues` aggregator. Reads every
+ * objective globally, computes status, and runs the SAME deriver the frontend
+ * filler uses. The per-source access gate (global `slo.read` plus per-system
+ * team grants) is applied by {@link createGatedSystemSignalsContributor}.
  */
-export function createSloSignalsRead({
+export function createSloSignalsContributor({
   service,
   engine,
+  resolver,
 }: {
   service: SloService;
   engine: SloEngine;
-}): (context: { principal: AuthUser }) => Promise<SystemSignalsContribution> {
-  return async ({ principal }) => {
-    // Per-source access gate. `principalGrantedRuleIds` treats a trusted service
-    // principal as wildcard; user/application principals must satisfy the rule.
-    if (
-      !isAccessRuleSatisfied(principalGrantedRuleIds(principal), sloAccess.slo.read)
-    ) {
-      return { accessible: false, signals: {} };
-    }
-
-    const rowsBySystemId = await readSloRowsBySystemId({ service, engine });
-    return { accessible: true, signals: deriveSloSignals({ rowsBySystemId }) };
-  };
+  resolver: SystemAccessResolver;
+}): SystemSignalsContributor {
+  return createGatedSystemSignalsContributor({
+    sourceId: SLO_SIGNAL_SOURCE_ID,
+    accessRule: sloAccess.slo.read,
+    resolver,
+    readSignals: async () =>
+      deriveSloSignals({
+        rowsBySystemId: await readSloRowsBySystemId({ service, engine }),
+      }),
+  });
 }

@@ -1,9 +1,8 @@
-import type { AuthUser } from "@checkstack/backend-api";
 import {
-  principalGrantedRuleIds,
+  createGatedSystemSignalsContributor,
+  type SystemAccessResolver,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
-import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
   anomalyAccess,
   deriveAnomalySignals,
@@ -20,30 +19,22 @@ type SignalSource = Pick<AnomalyService, "getActiveSignalAnomalies">;
 
 /**
  * Build the anomaly contributor for the dashboard `system.issues` aggregator.
- *
- * PER-SOURCE access is OUR responsibility: gate the originating principal on
- * anomaly's own read rule and return `{}` (NEVER throw) when it is missing.
- * Service users are trusted backend-to-backend callers. The read is GLOBAL and
- * resolves from shared Postgres, so every pod returns the same answer, and the
- * shared {@link deriveAnomalySignals} mapper keeps the signals identical to the
- * frontend filler's.
+ * Reads active (anomaly/suspicious) rows globally from shared Postgres and runs
+ * the SAME deriver the frontend filler uses. The per-source access gate (global
+ * `anomaly.feed.read` plus per-system team grants) is applied by
+ * {@link createGatedSystemSignalsContributor}.
  */
 export const createAnomalySignalsContributor = ({
   service,
+  resolver,
 }: {
   service: SignalSource;
-}): SystemSignalsContributor => ({
-  sourceId: ANOMALY_SIGNAL_SOURCE_ID,
-  read: async ({ principal }: { principal: AuthUser }) => {
-    if (
-      !isAccessRuleSatisfied(
-        principalGrantedRuleIds(principal),
-        anomalyAccess.feed.read,
-      )
-    ) {
-      return { accessible: false, signals: {} };
-    }
-    const rows = await service.getActiveSignalAnomalies();
-    return { accessible: true, signals: deriveAnomalySignals({ rows }) };
-  },
-});
+  resolver: SystemAccessResolver;
+}): SystemSignalsContributor =>
+  createGatedSystemSignalsContributor({
+    sourceId: ANOMALY_SIGNAL_SOURCE_ID,
+    accessRule: anomalyAccess.feed.read,
+    resolver,
+    readSignals: async () =>
+      deriveAnomalySignals({ rows: await service.getActiveSignalAnomalies() }),
+  });

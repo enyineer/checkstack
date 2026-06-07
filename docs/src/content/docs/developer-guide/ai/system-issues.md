@@ -40,20 +40,18 @@ Returning `accessible` lets the aggregator tell "checked and clear" apart from "
 
 ## The per-source access gate
 
-The `system.issues` tool is gated by `catalog.system.read`, but that only controls whether the tool runs at all. PER-SOURCE visibility is each contributor's own responsibility. The aggregator never inspects a source's data to decide what a principal may see - it trusts each contributor to return only allowed signals.
+The `system.issues` tool is gated by `catalog.system.read`, but that only controls whether the tool runs at all. Per-source visibility - the global rule AND per-system team grants - is applied for you by `createGatedSystemSignalsContributor`. Build your contributor with it instead of hand-rolling the gate: pass your source's read `accessRule`, a `SystemAccessResolver`, and a `readSignals` that returns problem signals for ALL systems globally. The factory then:
 
-A contributor MUST:
+- lets a principal holding the global rule (and a trusted `ServiceUser`, mapped to the wildcard) see every system the source reports;
+- filters a real user / application WITHOUT the global rule to the systems its TEAM grants allow - the SAME `getAccessibleResourceIds` instance/team filtering the matching bulk RPC applies - so `system.issues` never under- or over-reports relative to the per-domain UI;
+- returns `{ accessible: false, signals: {} }` (never throws) for any other principal without access, and reports the source as inaccessible.
 
-- Check the principal's own access rule for its domain (e.g. `incident.read`), using the shared `principalGrantedRuleIds` helper so access is decided consistently across sources.
-- Return `{ accessible: false, signals: {} }` when the principal lacks access - never throw. A denied contributor is reported as an inaccessible source; a throwing one is reported as failed. Either way one source can never break the whole call.
-- Short-circuit BEFORE querying when access is denied, so a denied principal triggers no database work.
-
-`principalGrantedRuleIds` treats a `ServiceUser` as a trusted backend-to-backend caller (wildcard), matching how the RPC middleware skips access checks for services, so every source agrees on service callers.
+It does not call `readSignals` for a principal that can see nothing.
 
 ```ts
-import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
-  principalGrantedRuleIds,
+  createGatedSystemSignalsContributor,
+  type SystemAccessResolver,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
 import {
@@ -65,30 +63,25 @@ import type { IncidentService } from "./service";
 
 export function createIncidentSignalsContributor({
   service,
+  resolver,
 }: {
   service: Pick<IncidentService, "listOpenIncidentsBySystem">;
+  resolver: SystemAccessResolver;
 }): SystemSignalsContributor {
-  return {
+  return createGatedSystemSignalsContributor({
     sourceId: INCIDENT_SIGNAL_SOURCE_ID,
-    read: async ({ principal }) => {
-      if (
-        !isAccessRuleSatisfied(
-          principalGrantedRuleIds(principal),
-          incidentAccess.incident.read,
-        )
-      ) {
-        return { accessible: false, signals: {} };
-      }
+    accessRule: incidentAccess.incident.read,
+    resolver,
+    // Global read: problem signals for EVERY system. The factory applies the
+    // access gate (global rule + per-system team grants) on top.
+    readSignals: async () => {
       const incidentsBySystem = await service.listOpenIncidentsBySystem();
-      return {
-        accessible: true,
-        signals: deriveIncidentSignals({
-          incidentsBySystem,
-          systemIds: Object.keys(incidentsBySystem),
-        }),
-      };
+      return deriveIncidentSignals({
+        incidentsBySystem,
+        systemIds: Object.keys(incidentsBySystem),
+      });
     },
-  };
+  });
 }
 ```
 
@@ -101,11 +94,17 @@ A signal must look the same whether it comes from the backend aggregator or the 
 Register ONE contributor from your plugin's own `init`, after the service it reads is bound, through the same extension point external plugins use.
 
 ```ts
-import { systemSignalsExtensionPoint } from "@checkstack/ai-backend";
+import {
+  systemSignalsExtensionPoint,
+  createSystemAccessResolver,
+} from "@checkstack/ai-backend";
 
-// in registerInit({ init }):
+// in registerInit({ init }), with `rpcClient` from coreServices.rpcClient:
 env.getExtensionPoint(systemSignalsExtensionPoint).contribute(
-  createIncidentSignalsContributor({ service }),
+  createIncidentSignalsContributor({
+    service,
+    resolver: createSystemAccessResolver(rpcClient),
+  }),
 );
 ```
 
