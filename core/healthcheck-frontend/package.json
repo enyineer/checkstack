@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-frontend",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",

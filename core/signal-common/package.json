@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/signal-common",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {
