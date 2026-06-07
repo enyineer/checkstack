@@ -1,6 +1,7 @@
 ---
 "@checkstack/dependency-common": patch
 "@checkstack/dependency-frontend": patch
+"@checkstack/ai-backend": patch
 ---
 
 fix(dependency): gate the dependency map behind its own non-public access rule
