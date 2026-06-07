@@ -62,6 +62,14 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
   const isAdminRole = role?.id === "admin";
   // Disable access rules for admin (wildcard) or user's own roles (prevent elevation)
   const accessRulesDisabled = isAdminRole || isUserRole;
+  // The anonymous role may only hold rules that a PUBLIC endpoint actually uses;
+  // granting an authenticated-only rule to it is inert (the server rejects
+  // unauthenticated callers before checking rules). Mirrors the backend guardrail.
+  const isAnonymousRole = role?.id === "anonymous";
+  const isBlockedForAnonymous = (perm: AccessRuleEntry): boolean =>
+    isAnonymousRole &&
+    perm.anonymousUsable === false &&
+    !selectedAccessRules.has(perm.id);
 
   // Group access rules by plugin
   const accessRulesByPlugin: Record<string, AccessRuleEntry[]> = {};
@@ -78,6 +86,10 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
     if (newSelected.has(accessRuleId)) {
       newSelected.delete(accessRuleId);
     } else {
+      // Defense in depth: never add a rule the anonymous role can't use (the
+      // checkbox is also disabled, and the backend rejects it).
+      const perm = accessRulesList.find((p) => p.id === accessRuleId);
+      if (perm && isBlockedForAnonymous(perm)) return;
       newSelected.add(accessRuleId);
     }
     setSelectedAccessRules(newSelected);
@@ -155,6 +167,16 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                 <AlertDescription>
                   You cannot modify access rules for a role you currently have.
                   This prevents accidental self-lockout from the system.
+                </AlertDescription>
+              </Alert>
+            )}
+            {isAnonymousRole && (
+              <Alert variant="info" className="mb-3">
+                <AlertDescription>
+                  The anonymous role applies to signed-out visitors. Rules that
+                  no public page or endpoint uses are disabled here - granting
+                  them would have no effect, since anonymous visitors are
+                  rejected before those rules are checked.
                 </AlertDescription>
               </Alert>
             )}
@@ -236,14 +258,21 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                           }
 
                           // Use editable checkbox design when access rules are editable
+                          const blockedForAnonymous =
+                            isBlockedForAnonymous(perm);
                           return (
                             <div
                               key={perm.id}
-                              className="flex items-start space-x-3 p-2 rounded-md hover:bg-muted/50 transition-colors"
+                              className={`flex items-start space-x-3 p-2 rounded-md transition-colors ${
+                                blockedForAnonymous
+                                  ? "opacity-50"
+                                  : "hover:bg-muted/50"
+                              }`}
                             >
                               <Checkbox
                                 id={`perm-${perm.id}`}
                                 checked={selectedAccessRules.has(perm.id)}
+                                disabled={blockedForAnonymous}
                                 onCheckedChange={() =>
                                   handleToggleAccessRule(perm.id)
                                 }
@@ -251,12 +280,22 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                               />
                               <label
                                 htmlFor={`perm-${perm.id}`}
-                                className="text-sm cursor-pointer flex-1 space-y-1"
+                                className={`text-sm flex-1 space-y-1 ${
+                                  blockedForAnonymous
+                                    ? "cursor-not-allowed"
+                                    : "cursor-pointer"
+                                }`}
                               >
                                 <div className="font-medium">{perm.id}</div>
                                 {perm.description && (
                                   <div className="text-xs text-muted-foreground">
                                     {perm.description}
+                                  </div>
+                                )}
+                                {blockedForAnonymous && (
+                                  <div className="text-xs text-muted-foreground italic">
+                                    Not available to anonymous visitors (no public
+                                    endpoint uses this rule).
                                   </div>
                                 )}
                               </label>

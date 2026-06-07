@@ -31,6 +31,12 @@ export interface Role {
 export interface AccessRuleEntry {
   id: string;
   description?: string;
+  /**
+   * Whether an anonymous caller can actually use this rule (a public endpoint
+   * requires it). When false, granting it to the anonymous role is inert, so the
+   * role editor disables it for that role.
+   */
+  anonymousUsable?: boolean;
 }
 
 export interface AuthStrategy {

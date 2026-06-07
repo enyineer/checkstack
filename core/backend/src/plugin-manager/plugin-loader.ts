@@ -48,6 +48,7 @@ export interface PluginLoaderDeps {
   extensionPointManager: ExtensionPointManager;
   registeredAccessRules: (AccessRule & { pluginId: string })[];
   getAllAccessRules: () => AccessRule[];
+  getAnonymousUsableAccessRuleIds: () => string[];
   db: SafeDatabase<Record<string, unknown>>;
   /**
    * Map of pluginId -> PluginMetadata for request-time context injection.
@@ -236,6 +237,8 @@ export function registerPlugin({
     },
     pluginManager: {
       getAllAccessRules: () => deps.getAllAccessRules(),
+      getAnonymousUsableAccessRuleIds: () =>
+        deps.getAnonymousUsableAccessRuleIds(),
     },
   });
 }

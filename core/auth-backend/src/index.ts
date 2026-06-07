@@ -323,11 +323,18 @@ export default createBackendPlugin({
       getStrategies: () => strategies,
     };
 
-    // Access rule registry - gets all access rules from PluginManager
+    // Access rule registry - gets all access rules from PluginManager, annotated
+    // with `anonymousUsable` (whether a `public` procedure actually requires the
+    // rule) so the role editor can guard anonymous-role grants.
     const accessRuleRegistry = {
       getAccessRules: () => {
-        // Get all access rules from the central PluginManager registry
-        return env.pluginManager.getAllAccessRules();
+        const usable = new Set(
+          env.pluginManager.getAnonymousUsableAccessRuleIds(),
+        );
+        return env.pluginManager.getAllAccessRules().map((rule) => ({
+          ...rule,
+          anonymousUsable: usable.has(rule.id),
+        }));
       },
     };
 
