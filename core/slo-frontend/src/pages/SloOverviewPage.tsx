@@ -89,9 +89,9 @@ const SloOverviewPageContent: React.FC = () => {
                 to={resolveRoute(sloRoutes.routes.detail, {
                   sloId: item.objective.id,
                 })}
-                className="block no-underline"
+                className="block no-underline h-full"
               >
-                <Card className="transition-colors hover:border-primary/50">
+                <Card className="h-full transition-colors hover:border-primary/50">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-medium">
