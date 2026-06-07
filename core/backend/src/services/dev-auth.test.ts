@@ -1,4 +1,10 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, afterAll } from "bun:test";
+import * as realJwt from "./jwt";
+
+// Snapshot the real jwt module before mocking; restore it in afterAll so the
+// stub does not leak into later core/backend suites - notably the real auth
+// tests (mock.module is process-global and mock.restore() does not undo it).
+const realJwtModule = { ...realJwt };
 
 // dev-auth signs/verifies S2S tokens via jwtService, which is backed by the
 // DB-bound KeyStore. Mock it so these stay pure unit tests (no DB): tokens are
@@ -12,6 +18,10 @@ mock.module("./jwt", () => ({
       token.startsWith("svc:") ? { service: token.slice(4) } : undefined,
   },
 }));
+
+afterAll(() => {
+  mock.module("./jwt", () => realJwtModule);
+});
 
 const { createDevAuthService } = await import("./dev-auth");
 

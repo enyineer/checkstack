@@ -1,5 +1,11 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 import { KeyStore } from "./keystore";
+import * as realDb from "../db";
+
+// Snapshot the real db module before mocking; restore it in afterAll so the
+// stub does not leak into later core/backend suites (mock.module is
+// process-global and mock.restore() does not undo it).
+const realDbModule = { ...realDb };
 
 /**
  * Drizzle fluent-chain mock factory.
@@ -48,6 +54,10 @@ const dbMock = createDrizzleMockChain();
 mock.module("../db", () => ({
   db: dbMock,
 }));
+
+afterAll(() => {
+  mock.module("../db", () => realDbModule);
+});
 
 describe("KeyStore", () => {
   let store: KeyStore;

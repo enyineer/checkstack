@@ -1,4 +1,10 @@
-import { describe, expect, it, mock, beforeEach } from "bun:test";
+import { describe, expect, it, mock, beforeEach, afterAll } from "bun:test";
+import * as realBullmq from "bullmq";
+
+// Snapshot the real bullmq module before mocking; restore it in afterAll so the
+// FakeQueue/FakeWorker stubs do not leak into other suites (mock.module is
+// process-global and mock.restore() does not undo it).
+const realBullmqModule = { ...realBullmq };
 
 /**
  * Durability tuning unit test (reactive-automation-engine plan §15.4).
@@ -48,6 +54,10 @@ mock.module("bullmq", () => ({
   Queue: FakeQueue,
   Worker: FakeWorker,
 }));
+
+afterAll(() => {
+  mock.module("bullmq", () => realBullmqModule);
+});
 
 // Import AFTER registering the module mock so the SUT picks up the fakes.
 const { BullMQQueue } = await import("./bullmq-queue");
