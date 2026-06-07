@@ -82,16 +82,20 @@ const SloOverviewPageContent: React.FC = () => {
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* content-start: this grid is stretched to the sidebar's height by
+              the outer items-stretch grid; without it, the default align-content
+              stretches the card rows to fill that height. Keep cards content-sized
+              while h-full still makes cards within a row match each other. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
             {objectives.map((item) => (
               <Link
                 key={item.objective.id}
                 to={resolveRoute(sloRoutes.routes.detail, {
                   sloId: item.objective.id,
                 })}
-                className="block no-underline"
+                className="block no-underline h-full"
               >
-                <Card className="transition-colors hover:border-primary/50">
+                <Card className="h-full transition-colors hover:border-primary/50">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-medium">
