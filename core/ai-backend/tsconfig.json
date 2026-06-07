@@ -11,6 +11,9 @@
       "path": "../backend-api"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
       "path": "../common"
     },
     {

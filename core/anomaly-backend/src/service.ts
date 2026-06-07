@@ -74,6 +74,45 @@ export class AnomalyService {
   }
 
   /**
+   * Return the current "problem" anomaly rows across ALL systems, for the
+   * dashboard `system.issues` aggregator. Mirrors the frontend filler's two
+   * active queries (state = anomaly | suspicious, suppressed rows excluded) in a
+   * single global read so the backend signals match the frontend ones. Reads
+   * from shared, durable storage so every pod returns the same answer.
+   */
+  async getActiveSignalAnomalies(): Promise<
+    Array<{
+      systemId: string;
+      configurationId: string;
+      fieldPath: string;
+      startedAt: string;
+      state: schema.AnomalyState;
+    }>
+  > {
+    const rows = await this.db
+      .select({
+        systemId: schema.anomalies.systemId,
+        configurationId: schema.anomalies.configurationId,
+        fieldPath: schema.anomalies.fieldPath,
+        startedAt: schema.anomalies.startedAt,
+        state: schema.anomalies.state,
+      })
+      .from(schema.anomalies)
+      .where(
+        and(
+          inArray(schema.anomalies.state, ["anomaly", "suspicious"]),
+          isNull(schema.anomalies.suppressedAt),
+        ),
+      )
+      .orderBy(desc(schema.anomalies.startedAt));
+
+    return rows.map((r) => ({
+      ...r,
+      startedAt: r.startedAt.toISOString(),
+    }));
+  }
+
+  /**
    * Globally suppress a single anomaly row. Snapshots the current observed
    * value and baseline so the inline detector can auto-unsuppress once the
    * metric "changes again" (moves outside the relative reactivation band).

@@ -5,6 +5,7 @@ export * from "./engine/config";
 export * from "./engine/drift";
 export * from "./engine/self-resolution";
 export * from "./access";
+export * from "./signals";
 export * from "./rpc-contract";
 export * from "./plugin-metadata";
 export * from "./notifications";

@@ -50,6 +50,7 @@ describe("buildChatSystemPrompt", () => {
     const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin" });
     expect(prompt).toContain(INVESTIGATION_INSTRUCTION);
     // The concrete behaviours we are fixing must be present in the text.
+    expect(prompt).toContain("system_issues");
     expect(prompt).toContain("healthcheck_status");
     expect(prompt).toContain("anomaly_list");
     expect(prompt).toContain("Do not stop after the first source");

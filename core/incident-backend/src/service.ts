@@ -225,6 +225,59 @@ export class IncidentService {
   }
 
   /**
+   * Global read of every OPEN (not-resolved) incident across ALL systems,
+   * grouped by systemId. Powers the backend `system.issues` contributor, which
+   * needs problem state for every system on every pod (not a caller-supplied
+   * systemId list). Reads the authoritative `incidents` + `incident_systems`
+   * tables, so the answer is identical on every pod (state-and-scale rule).
+   *
+   * An incident affecting multiple systems appears under each of its systemIds,
+   * each entry carrying the incident's full `systemIds` list (mirrors the bulk
+   * RPC shape `getBulkIncidentsForSystems` returns). Systems with no open
+   * incident are simply absent from the returned record.
+   */
+  async listOpenIncidentsBySystem(): Promise<
+    Record<string, IncidentWithSystems[]>
+  > {
+    const openRows = await this.db
+      .select()
+      .from(incidents)
+      .where(ne(incidents.status, "resolved"));
+    if (openRows.length === 0) return {};
+
+    const openIds = openRows.map((i) => i.id);
+    const systemRows = await this.db
+      .select({
+        incidentId: incidentSystems.incidentId,
+        systemId: incidentSystems.systemId,
+      })
+      .from(incidentSystems)
+      .where(inArray(incidentSystems.incidentId, openIds));
+
+    const systemsByIncident = new Map<string, string[]>();
+    for (const r of systemRows) {
+      const list = systemsByIncident.get(r.incidentId);
+      if (list) list.push(r.systemId);
+      else systemsByIncident.set(r.incidentId, [r.systemId]);
+    }
+
+    const result: Record<string, IncidentWithSystems[]> = {};
+    for (const i of openRows) {
+      const systemIds = systemsByIncident.get(i.id) ?? [];
+      const incident: IncidentWithSystems = {
+        ...i,
+        description: i.description ?? undefined,
+        systemIds,
+      };
+      for (const systemId of systemIds) {
+        (result[systemId] ??= []).push(incident);
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Create a new incident.
    *
    * `id` may be supplied by the caller so the reactive `incident` entity can

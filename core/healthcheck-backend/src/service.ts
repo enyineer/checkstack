@@ -10,6 +10,7 @@ import {
   NotificationPolicySchema,
   DEFAULT_NOTIFICATION_POLICY,
   type CollectorConfigEntry,
+  type HealthcheckSignalStatuses,
 } from "@checkstack/healthcheck-common";
 import type { ConfigService } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
@@ -622,6 +623,36 @@ export class HealthCheckService {
       evaluatedAt: new Date(),
       checkStatuses,
     };
+  }
+
+  /**
+   * Global problem scan across EVERY system that has at least one enabled
+   * health-check association. Returns the evaluated status keyed by systemId,
+   * containing ONLY systems that are currently degraded or unhealthy (healthy
+   * systems are omitted). This is the read source for the AI system-signals
+   * contributor: it must answer the same on every pod, so it derives entirely
+   * from the durable `health_check_runs` / `system_health_checks` tables via
+   * the same per-system evaluator the dashboard uses - no per-caller systemId
+   * list and no process-local state.
+   */
+  async getAllUnhealthySystemStatuses(): Promise<HealthcheckSignalStatuses> {
+    // Distinct systemIds that have at least one ENABLED check association.
+    // `getSystemHealthStatus` already short-circuits to healthy for systems
+    // with no enabled associations, so this is the complete candidate set.
+    const rows = await this.db
+      .selectDistinct({ systemId: systemHealthChecks.systemId })
+      .from(systemHealthChecks)
+      .where(eq(systemHealthChecks.enabled, true));
+
+    const result: HealthcheckSignalStatuses = {};
+    await Promise.all(
+      rows.map(async ({ systemId }) => {
+        const status = await this.getSystemHealthStatus(systemId);
+        if (status.status === "healthy") return; // problems only
+        result[systemId] = status;
+      }),
+    );
+    return result;
   }
 
   /**

@@ -32,6 +32,12 @@ export {
 } from "./schemas";
 export * from "./plugin-metadata";
 export { sloRoutes } from "./routes";
+export {
+  deriveSloSignals,
+  SLO_SIGNAL_SOURCE_ID,
+  SLO_AT_RISK_BUDGET_PERCENT,
+  type SloSignalRow,
+} from "./signals";
 
 // =============================================================================
 // REALTIME SIGNALS

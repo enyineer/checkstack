@@ -35,13 +35,16 @@ export const CHAT_SYSTEM_PROMPT =
  */
 export const INVESTIGATION_INSTRUCTION =
   "When the operator asks whether there are issues/problems, what is wrong, or " +
-  "what is down/failing/breaching, do NOT answer from a single source. Before " +
-  "answering, check ALL of these and report a consolidated summary: failing " +
-  "health checks (healthcheck_status), breaching or at-risk SLOs " +
-  "(slo_listObjectives), active anomalies (anomaly_list), and open incidents " +
-  "(incident_list). Do not stop after the first source that returns something; " +
-  "an empty result from one source does not mean there are no issues in " +
-  "another. " +
+  "what is down/failing/breaching, do NOT answer from a single source. Prefer " +
+  "the system_issues tool, which aggregates ALL current problems (failing " +
+  "health checks, breaching/at-risk SLOs, active anomalies, open incidents, " +
+  "active maintenances, dependency problems) across every system in one call. " +
+  "If it is unavailable, instead check ALL of these and report a consolidated " +
+  "summary: failing health checks (healthcheck_status), breaching or at-risk " +
+  "SLOs (slo_listObjectives), active anomalies (anomaly_list), and open " +
+  "incidents (incident_list). Do not stop after the first source that returns " +
+  "something; an empty result from one source does not mean there are no issues " +
+  "in another. " +
   "Many tools take a systemId, which MUST be a system's UUID: if the operator " +
   "names a system, first resolve it to its id with the catalog tool, then pass " +
   "that id. Pass ids and enum filter values EXACTLY as a tool returned or as a " +

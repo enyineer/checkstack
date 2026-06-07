@@ -1,5 +1,7 @@
 import { createExtensionPoint } from "@checkstack/backend-api";
+import type { AuthUser } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
+import type { SystemSignalsMap } from "@checkstack/catalog-common";
 import type { RegisteredAiTool } from "./tool-registry";
 import type { ProjectToolInput } from "./projection";
 
@@ -39,3 +41,73 @@ export const aiToolProjectionExtensionPoint =
   createExtensionPoint<AiToolProjectionExtensionPoint>(
     "ai.toolProjectionExtensionPoint",
   );
+
+/**
+ * A single backend contributor of dashboard "needs attention" system signals.
+ *
+ * This mirrors the FRONTEND `SystemSignalsSlot` concept on the backend: where a
+ * frontend plugin's React filler computes per-system `SystemSignal[]` from a
+ * bulk RPC and reports via the slot, a backend plugin registers a contributor
+ * here that returns problem signals for ALL systems globally (keyed by
+ * systemId). The `system.issues` AI tool fans out across every registered
+ * contributor and merges their maps into one "what is wrong right now" answer.
+ *
+ * Access: the `system.issues` tool itself is gated by `catalog.system.read`, but
+ * PER-SOURCE access (and per-system/team scoping) is the contributor's own
+ * responsibility - `read` receives the originating `AuthUser` principal and MUST
+ * return only signals the principal is allowed to see (returning `{}` when the
+ * principal lacks access). The aggregator never inspects a source's data to
+ * decide visibility.
+ */
+export interface SystemSignalsContributor {
+  /**
+   * Stable id of the contributing source, e.g. "incident" / "slo" /
+   * "healthcheck". Surfaced on the aggregated result so the model can attribute
+   * each signal, and used to keep one source's failure from affecting others.
+   */
+  sourceId: string;
+  /**
+   * Return problem signals for ALL systems globally, keyed by systemId, scoped
+   * to what `principal` may see. Systems absent from the returned map have no
+   * signal from this source. MUST resolve from shared, durable storage so the
+   * answer is identical on every pod (state-and-scale rule). Return `{}` (not a
+   * throw) when the principal lacks access to this source.
+   */
+  read(context: { principal: AuthUser }): Promise<SystemSignalsMap>;
+}
+
+/**
+ * Backend extension point for contributing dashboard "needs attention" system
+ * signals to the `system.issues` AI tool. Each plugin that owns a kind of
+ * problem state (incidents, breaching/at-risk SLOs, failing health checks,
+ * active anomalies, open incidents, active maintenances, dependency problems)
+ * registers ONE contributor from its own backend `init`. ai-backend collects
+ * every contributor and the `system.issues` tool merges their global maps in a
+ * single call - ai-backend imports no plugin's `*-common` to do so.
+ */
+export interface SystemSignalsExtensionPoint {
+  contribute(contributor: SystemSignalsContributor): void;
+}
+
+export const systemSignalsExtensionPoint =
+  createExtensionPoint<SystemSignalsExtensionPoint>(
+    "ai.systemSignalsExtensionPoint",
+  );
+
+/**
+ * The access-rule ids a principal holds, for a {@link SystemSignalsContributor}'s
+ * per-source gate. Pass the result to `isAccessRuleSatisfied`.
+ *
+ * Service principals are trusted backend-to-backend callers - the RPC
+ * middleware (`autoAuthMiddleware`) skips access-rule checks for them entirely -
+ * so they are treated here as holding the wildcard `*`, matching that behaviour.
+ * Real users and applications carry their own `accessRules`. Centralising this
+ * keeps every contributor's gate consistent (a service caller sees every source
+ * or none, never a per-source split).
+ */
+export function principalGrantedRuleIds(
+  principal: AuthUser,
+): readonly string[] {
+  if (principal.type === "service") return ["*"];
+  return principal.accessRules ?? [];
+}

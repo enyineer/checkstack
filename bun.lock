@@ -62,6 +62,7 @@
         "@ai-sdk/openai-compatible": "^2.0.48",
         "@checkstack/ai-common": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/drizzle-helper": "workspace:*",
         "@checkstack/integration-backend": "workspace:*",
@@ -1778,7 +1779,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.102.0",
+      "version": "0.103.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -2005,6 +2006,7 @@
       "name": "@checkstack/slo-common",
       "version": "0.5.4",
       "dependencies": {
+        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",

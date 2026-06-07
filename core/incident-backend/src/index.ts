@@ -3,6 +3,7 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
+  systemSignalsExtensionPoint,
   deferredProjectionExecute,
 } from "@checkstack/ai-backend";
 import {
@@ -48,6 +49,7 @@ import {
   incidentTriggers,
 } from "./automations";
 import { buildIncidentAiTools } from "./ai/register-ai-tools";
+import { createIncidentSignalsContributor } from "./system-signals";
 
 // =============================================================================
 // Plugin Definition
@@ -223,6 +225,14 @@ export default createBackendPlugin({
           effect: "read",
           execute: deferredProjectionExecute,
         });
+
+        // Contribute incident problem state to the `system.issues` AI tool.
+        // Mirrors the frontend `SystemSignalsSlot` filler: returns one signal
+        // per OPEN incident for EVERY system globally (keyed by systemId),
+        // using the SAME shared deriver so frontend and backend agree. The
+        // per-source access gate + global read live in the contributor factory.
+        const signalsExt = env.getExtensionPoint(systemSignalsExtensionPoint);
+        signalsExt.contribute(createIncidentSignalsContributor({ service }));
 
         // Register "Create Incident" command in the command palette
         registerSearchProvider({

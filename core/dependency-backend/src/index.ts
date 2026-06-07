@@ -3,6 +3,7 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   aiToolProjectionExtensionPoint,
   deferredProjectionExecute,
+  systemSignalsExtensionPoint,
 } from "@checkstack/ai-backend";
 import {
   dependencyAccessRules,
@@ -50,6 +51,7 @@ import {
 } from "./dependency-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { registerDependencyGitOpsKinds } from "./dependency-gitops-kinds";
+import { createDependencySystemSignalsContributor } from "./ai/system-signals-contributor";
 
 // =============================================================================
 // Plugin Definition
@@ -179,6 +181,20 @@ export default createBackendPlugin({
           getDependencyEntity: () => dependencyEntity,
         });
         rpc.registerRouter(router, dependencyContract);
+
+        // Contribute this plugin's dependency warnings to the backend
+        // `system.issues` aggregator. The contributor enforces its own
+        // `dependency.read` access gate and reads globally from the shared
+        // `dependencies` table, so the answer is identical on every pod.
+        env.getExtensionPoint(systemSignalsExtensionPoint).contribute(
+          createDependencySystemSignalsContributor({
+            service,
+            warningService,
+            catalogClient,
+            healthCheckClient,
+            logger,
+          }),
+        );
 
         logger.debug("✅ Dependency Backend initialized.");
       },
