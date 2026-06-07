@@ -32,7 +32,7 @@ export default createFrontendPlugin({
           default: m.DependencyMapPage,
         })),
       title: "Dependency Map",
-      accessRule: dependencyAccess.dependency.read,
+      accessRule: dependencyAccess.map,
       nav: { group: "Workspace", icon: GitBranch },
     },
   ],

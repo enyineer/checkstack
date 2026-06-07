@@ -32,8 +32,10 @@ describe("dependency.list projection", () => {
     expect(tool.effect).toBe("read");
   });
 
-  test("inherits the source procedure's qualified read access rule", () => {
-    // qualifyAccessRuleId: `${pluginId}.${rule.id}` where rule.id = `dependency.read`.
-    expect(tool.requiredAccessRules).toEqual(["dependency.dependency.read"]);
+  test("inherits the source procedure's qualified map access rule", () => {
+    // getAllDependencies (the full graph) is gated by the non-public map rule,
+    // so the AI projection inherits it too: `${pluginId}.${rule.id}` where
+    // rule.id = `map.read`. The full topology is map-access-only, not public.
+    expect(tool.requiredAccessRules).toEqual(["dependency.map.read"]);
   });
 });

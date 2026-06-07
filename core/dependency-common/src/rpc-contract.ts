@@ -33,11 +33,14 @@ export const dependencyContract = {
     )
     .output(z.object({ dependencies: z.array(DependencySchema) })),
 
-  /** Get the full dependency graph (all dependencies, for the canvas) */
+  /**
+   * Get the full dependency graph (all dependencies, for the canvas).
+   * Gated by the map rule - the full topology is map-only, not public.
+   */
   getAllDependencies: proc({
     operationType: "query",
     userType: "public",
-    access: [dependencyAccess.dependency.read],
+    access: [dependencyAccess.map],
   }).output(z.object({ dependencies: z.array(DependencySchema) })),
 
   /** Bulk-fetch derived warnings for multiple systems (for dashboard badges) */
@@ -101,20 +104,21 @@ export const dependencyContract = {
 
   // ==========================================================================
   // NODE POSITIONS (authenticated - per-user canvas layout persistence)
+  // Gated by the map rule - canvas layout only matters to map viewers.
   // ==========================================================================
 
   /** Get saved node positions for the dependency map canvas */
   getNodePositions: proc({
     operationType: "query",
     userType: "user",
-    access: [dependencyAccess.dependency.read],
+    access: [dependencyAccess.map],
   }).output(z.object({ positions: z.array(NodePositionSchema) })),
 
   /** Save node positions for the dependency map canvas */
   saveNodePositions: proc({
     operationType: "mutation",
     userType: "user",
-    access: [dependencyAccess.dependency.read],
+    access: [dependencyAccess.map],
   })
     .input(z.object({ positions: z.array(NodePositionSchema) }))
     .output(z.object({ success: z.boolean() })),
