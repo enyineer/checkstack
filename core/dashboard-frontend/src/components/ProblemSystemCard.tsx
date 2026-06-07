@@ -1,7 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, type AccessRule } from "@checkstack/common";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import {
   catalogRoutes,
   type System,
@@ -36,59 +37,112 @@ const glow: Record<SystemSignalTone, string> = {
   info: "from-info/[0.07]",
 };
 
+/** The icon + label + detail (+ hover chevron when `interactive`) of a signal. */
+const SignalInner: React.FC<{
+  signal: SystemSignal;
+  isLowPower: boolean;
+  interactive: boolean;
+}> = ({ signal, isLowPower, interactive }) => (
+  <>
+    <span
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-md",
+        chipBg[signal.tone],
+      )}
+    >
+      <DynamicIcon name={signal.iconName} className="h-3.5 w-3.5" />
+    </span>
+    <span className="shrink-0 text-sm font-medium text-foreground">
+      {signal.label}
+    </span>
+    {signal.detail && (
+      <span className="min-w-0 truncate text-xs text-muted-foreground">
+        {signal.detail}
+      </span>
+    )}
+    {interactive && (
+      <ChevronRight
+        className={cn(
+          "ml-auto h-4 w-4 shrink-0 text-muted-foreground/70 opacity-0 group-hover/row:opacity-100",
+          !isLowPower && "transition-opacity",
+        )}
+        aria-hidden="true"
+      />
+    )}
+  </>
+);
+
+/** Plain, non-clickable row (no href, or the user can't access the target). */
+const SignalTextRow: React.FC<{ signal: SystemSignal; isLowPower: boolean }> = ({
+  signal,
+  isLowPower,
+}) => (
+  <li className="flex items-center gap-2.5 px-2 py-1.5">
+    <SignalInner signal={signal} isLowPower={isLowPower} interactive={false} />
+  </li>
+);
+
+/** Clickable deep-link row. */
+const SignalLinkRow: React.FC<{
+  signal: SystemSignal;
+  href: string;
+  isLowPower: boolean;
+}> = ({ signal, href, isLowPower }) => (
+  <li>
+    <Link
+      to={href}
+      className={cn(
+        "group/row -mx-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        !isLowPower && "transition-colors",
+      )}
+    >
+      <SignalInner signal={signal} isLowPower={isLowPower} interactive />
+    </Link>
+  </li>
+);
+
+/**
+ * A signal whose target page is permission-gated: render it as a link only when
+ * the user satisfies its access rule, otherwise as plain text (so the user is
+ * never sent to an "Access Denied" page). Own component so the `useAccess` hook
+ * is called in a stable position regardless of the surrounding list.
+ */
+const GatedSignalRow: React.FC<{
+  signal: SystemSignal;
+  href: string;
+  accessRule: AccessRule;
+  isLowPower: boolean;
+}> = ({ signal, href, accessRule, isLowPower }) => {
+  const accessApi = useApi(accessApiRef);
+  const { allowed } = accessApi.useAccess(accessRule);
+  return allowed ? (
+    <SignalLinkRow signal={signal} href={href} isLowPower={isLowPower} />
+  ) : (
+    <SignalTextRow signal={signal} isLowPower={isLowPower} />
+  );
+};
+
 const SignalRow: React.FC<{ signal: SystemSignal; isLowPower: boolean }> = ({
   signal,
   isLowPower,
 }) => {
-  const body = (
-    <>
-      <span
-        className={cn(
-          "flex size-6 shrink-0 items-center justify-center rounded-md",
-          chipBg[signal.tone],
-        )}
-      >
-        <DynamicIcon name={signal.iconName} className="h-3.5 w-3.5" />
-      </span>
-      <span className="shrink-0 text-sm font-medium text-foreground">
-        {signal.label}
-      </span>
-      {signal.detail && (
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {signal.detail}
-        </span>
-      )}
-      {signal.href && (
-        <ChevronRight
-          className={cn(
-            "ml-auto h-4 w-4 shrink-0 text-muted-foreground/70 opacity-0 group-hover/row:opacity-100",
-            !isLowPower && "transition-opacity",
-          )}
-          aria-hidden="true"
-        />
-      )}
-    </>
-  );
-
+  // No destination -> plain text.
   if (!signal.href) {
+    return <SignalTextRow signal={signal} isLowPower={isLowPower} />;
+  }
+  // Gated destination -> link only if the user can actually open it.
+  if (signal.accessRule) {
     return (
-      <li className="flex items-center gap-2.5 px-2 py-1.5">{body}</li>
+      <GatedSignalRow
+        signal={signal}
+        href={signal.href}
+        accessRule={signal.accessRule}
+        isLowPower={isLowPower}
+      />
     );
   }
-
-  return (
-    <li>
-      <Link
-        to={signal.href}
-        className={cn(
-          "group/row -mx-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          !isLowPower && "transition-colors",
-        )}
-      >
-        {body}
-      </Link>
-    </li>
-  );
+  // Destination needs no specific permission -> always a link.
+  return <SignalLinkRow signal={signal} href={signal.href} isLowPower={isLowPower} />;
 };
 
 /**

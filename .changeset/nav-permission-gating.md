@@ -6,6 +6,9 @@
 "@checkstack/notification-frontend": patch
 "@checkstack/anomaly-frontend": patch
 "@checkstack/dashboard-frontend": patch
+"@checkstack/catalog-common": patch
+"@checkstack/healthcheck-frontend": patch
+"@checkstack/dependency-frontend": patch
 "@checkstack/ui": patch
 "@checkstack/ai-backend": patch
 ---
@@ -19,6 +22,7 @@ actions the server would reject.
 - **Notification Settings**: hidden from anonymous users - notifications are per-user, so an anonymous visitor can't have any.
 - **Anomaly Mute / Suppress**: the "Mute" / "Mute all" controls (a per-user preference) are hidden from anonymous visitors; the "Suppress" control is gated on `anomalyAccess.feed.manage`. Both were previously always visible.
 - **Dashboard**: the "Open Catalog" actions (which open the manage-only Catalog config page) are hidden from users without `catalogAccess.system.manage`, and the "View catalog" link is gated on `catalogAccess.system.read`.
+- **Dashboard status signals**: the per-system status rows contributed by plugins (`SystemSignalsSlot`) now render as a LINK only when the user can open the target, and as plain text otherwise. `SystemSignal` gains an optional `accessRule`; the healthcheck, anomaly, and dependency fillers set it for their gated targets (check-history / assignments / dependency-map). Signals pointing at ungated pages (incident / maintenance / SLO detail) stay links.
 
 The `@checkstack/ai-backend` bump is only the regenerated bundled docs index
 (the frontend routing guide gained the `nav.isVisible` section); no code change.

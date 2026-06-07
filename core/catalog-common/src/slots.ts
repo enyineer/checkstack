@@ -1,5 +1,5 @@
 import { createSlot } from "@checkstack/frontend-api";
-import type { IconName } from "@checkstack/common";
+import type { IconName, AccessRule } from "@checkstack/common";
 import type { System } from "./types";
 
 /**
@@ -175,6 +175,14 @@ export interface SystemSignal {
    * there is no more specific page than the system itself.
    */
   href?: string;
+  /**
+   * Access rule required to view {@link href}'s target page. When set, the
+   * dashboard renders the signal as a LINK only if the user satisfies this rule,
+   * and as plain text otherwise - so a user is never offered a link that would
+   * immediately hit "Access Denied". Omit only when the target needs no specific
+   * permission (the link is then always rendered).
+   */
+  accessRule?: AccessRule;
   /** ISO timestamp the signal started — shown as a "since" hint and used as a sort tie-break. */
   since?: string;
   /** Lucide icon name (PascalCase), rendered by `@checkstack/ui`'s `DynamicIcon`. */
