@@ -1,5 +1,14 @@
 # @checkstack/incident-backend
 
+## 1.6.7
+
+### Patch Changes
+
+- Updated dependencies [2428bfc]
+  - @checkstack/ai-backend@0.2.0
+  - @checkstack/automation-backend@0.5.7
+  - @checkstack/catalog-backend@1.4.7
+
 ## 1.6.6
 
 ### Patch Changes

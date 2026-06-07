@@ -57,7 +57,7 @@
     },
     "core/ai-backend": {
       "name": "@checkstack/ai-backend",
-      "version": "0.1.6",
+      "version": "0.2.0",
       "dependencies": {
         "@ai-sdk/openai-compatible": "^2.0.48",
         "@checkstack/ai-common": "workspace:*",
@@ -184,7 +184,7 @@
     },
     "core/anomaly-backend": {
       "name": "@checkstack/anomaly-backend",
-      "version": "1.2.6",
+      "version": "1.2.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -358,7 +358,7 @@
     },
     "core/automation-backend": {
       "name": "@checkstack/automation-backend",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
@@ -596,7 +596,7 @@
     },
     "core/catalog-backend": {
       "name": "@checkstack/catalog-backend",
-      "version": "1.4.6",
+      "version": "1.4.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
@@ -789,7 +789,7 @@
     },
     "core/dependency-backend": {
       "name": "@checkstack/dependency-backend",
-      "version": "1.4.6",
+      "version": "1.4.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/automation-backend": "workspace:*",
@@ -1042,7 +1042,7 @@
     },
     "core/healthcheck-backend": {
       "name": "@checkstack/healthcheck-backend",
-      "version": "1.6.6",
+      "version": "1.6.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
@@ -1143,7 +1143,7 @@
     },
     "core/incident-backend": {
       "name": "@checkstack/incident-backend",
-      "version": "1.6.6",
+      "version": "1.6.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
@@ -1320,7 +1320,7 @@
     },
     "core/maintenance-backend": {
       "name": "@checkstack/maintenance-backend",
-      "version": "1.4.6",
+      "version": "1.4.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
@@ -1399,7 +1399,7 @@
     },
     "core/notification-backend": {
       "name": "@checkstack/notification-backend",
-      "version": "1.5.6",
+      "version": "1.5.7",
       "dependencies": {
         "@checkstack/auth-backend": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
@@ -1567,7 +1567,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.102.0",
+      "version": "0.103.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1587,7 +1587,7 @@
     },
     "core/satellite-backend": {
       "name": "@checkstack/satellite-backend",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/automation-common": "workspace:*",
@@ -1778,7 +1778,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.101.1",
+      "version": "0.102.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -1967,7 +1967,7 @@
     },
     "core/slo-backend": {
       "name": "@checkstack/slo-backend",
-      "version": "0.7.6",
+      "version": "0.7.7",
       "dependencies": {
         "@checkstack/ai-backend": "workspace:*",
         "@checkstack/automation-backend": "workspace:*",
@@ -2633,7 +2633,7 @@
     },
     "plugins/integration-jira-backend": {
       "name": "@checkstack/integration-jira-backend",
-      "version": "0.3.6",
+      "version": "0.3.7",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -2668,7 +2668,7 @@
     },
     "plugins/integration-script-backend": {
       "name": "@checkstack/integration-script-backend",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/automation-common": "workspace:*",
@@ -2690,7 +2690,7 @@
     },
     "plugins/integration-teams-backend": {
       "name": "@checkstack/integration-teams-backend",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -2707,7 +2707,7 @@
     },
     "plugins/integration-webex-backend": {
       "name": "@checkstack/integration-webex-backend",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -2724,7 +2724,7 @@
     },
     "plugins/integration-webhook-backend": {
       "name": "@checkstack/integration-webhook-backend",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "dependencies": {
         "@checkstack/automation-backend": "workspace:*",
         "@checkstack/backend-api": "workspace:*",
@@ -2741,7 +2741,7 @@
     },
     "plugins/notification-backstage-backend": {
       "name": "@checkstack/notification-backstage-backend",
-      "version": "0.1.45",
+      "version": "0.1.46",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2755,7 +2755,7 @@
     },
     "plugins/notification-discord-backend": {
       "name": "@checkstack/notification-discord-backend",
-      "version": "0.1.41",
+      "version": "0.1.42",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2769,7 +2769,7 @@
     },
     "plugins/notification-gotify-backend": {
       "name": "@checkstack/notification-gotify-backend",
-      "version": "0.1.41",
+      "version": "0.1.42",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2783,7 +2783,7 @@
     },
     "plugins/notification-pushover-backend": {
       "name": "@checkstack/notification-pushover-backend",
-      "version": "0.1.41",
+      "version": "0.1.42",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2797,7 +2797,7 @@
     },
     "plugins/notification-slack-backend": {
       "name": "@checkstack/notification-slack-backend",
-      "version": "0.1.41",
+      "version": "0.1.42",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2811,7 +2811,7 @@
     },
     "plugins/notification-smtp-backend": {
       "name": "@checkstack/notification-smtp-backend",
-      "version": "0.0.49",
+      "version": "0.0.50",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2827,7 +2827,7 @@
     },
     "plugins/notification-teams-backend": {
       "name": "@checkstack/notification-teams-backend",
-      "version": "0.0.49",
+      "version": "0.0.50",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2841,7 +2841,7 @@
     },
     "plugins/notification-telegram-backend": {
       "name": "@checkstack/notification-telegram-backend",
-      "version": "0.0.49",
+      "version": "0.0.50",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -2857,7 +2857,7 @@
     },
     "plugins/notification-webex-backend": {
       "name": "@checkstack/notification-webex-backend",
-      "version": "0.0.49",
+      "version": "0.0.50",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
