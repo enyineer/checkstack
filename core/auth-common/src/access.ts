@@ -1,4 +1,5 @@
 import { access, accessPair, type AccessRule } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Auth plugin.
@@ -11,28 +12,42 @@ export const authAccess = {
    * User management access rules.
    */
   users: {
-    read: access("users", "read", "List all users"),
+    read: access("users", "read", "List all users", {
+      pluginId: pluginMetadata.pluginId,
+    }),
     create: access(
       "users.create",
       "manage",
       "Create new users (credential strategy)",
+      { pluginId: pluginMetadata.pluginId },
     ),
-    manage: access("users", "manage", "Delete users"),
+    manage: access("users", "manage", "Delete users", {
+      pluginId: pluginMetadata.pluginId,
+    }),
   },
 
   /**
    * Role management access rules.
    */
   roles: {
-    read: access("roles", "read", "Read and list roles"),
-    create: access("roles.create", "manage", "Create new roles"),
+    read: access("roles", "read", "Read and list roles", {
+      pluginId: pluginMetadata.pluginId,
+    }),
+    create: access("roles.create", "manage", "Create new roles", {
+      pluginId: pluginMetadata.pluginId,
+    }),
     update: access(
       "roles.update",
       "manage",
       "Update role names and access rules",
+      { pluginId: pluginMetadata.pluginId },
     ),
-    delete: access("roles.delete", "manage", "Delete roles"),
-    manage: access("roles", "manage", "Assign roles to users"),
+    delete: access("roles.delete", "manage", "Delete roles", {
+      pluginId: pluginMetadata.pluginId,
+    }),
+    manage: access("roles", "manage", "Assign roles to users", {
+      pluginId: pluginMetadata.pluginId,
+    }),
   },
 
   /**
@@ -42,6 +57,7 @@ export const authAccess = {
     "strategies",
     "manage",
     "Manage authentication strategies and settings",
+    { pluginId: pluginMetadata.pluginId },
   ),
 
   /**
@@ -51,6 +67,7 @@ export const authAccess = {
     "registration",
     "manage",
     "Manage user registration settings",
+    { pluginId: pluginMetadata.pluginId },
   ),
 
   /**
@@ -60,17 +77,22 @@ export const authAccess = {
     "applications",
     "manage",
     "Create, update, delete, and view external applications",
+    { pluginId: pluginMetadata.pluginId },
   ),
 
   /**
    * Team management access rules.
    */
-  teams: accessPair("teams", {
-    read: { description: "View teams and team memberships" },
-    manage: {
-      description: "Create, delete, and manage all teams and resource access",
+  teams: accessPair(
+    "teams",
+    {
+      read: { description: "View teams and team memberships" },
+      manage: {
+        description: "Create, delete, and manage all teams and resource access",
+      },
     },
-  }),
+    { pluginId: pluginMetadata.pluginId },
+  ),
 };
 
 /**

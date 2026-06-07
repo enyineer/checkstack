@@ -177,9 +177,13 @@ export const authContract = {
   // AUTHENTICATED ENDPOINTS (userType: "authenticated")
   // ==========================================================================
 
+  // Public so ANONYMOUS callers also get their effective rules (the configurable
+  // "anonymous" role's grants), not an empty set. The frontend gates nav/links
+  // on these, so an anonymous visitor must see exactly what the anonymous role
+  // is allowed - which an admin can change.
   accessRules: proc({
     operationType: "query",
-    userType: "authenticated",
+    userType: "public",
     access: [],
   }).output(z.object({ accessRules: z.array(z.string()) })),
 

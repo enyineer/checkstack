@@ -1,5 +1,7 @@
 import { accessPair } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 export const anomalyAccess = {
   feed: accessPair(
     "anomaly_feed",
@@ -15,6 +17,7 @@ export const anomalyAccess = {
     },
     {
       idParam: "systemId",
+      pluginId: pluginMetadata.pluginId,
     }
   ),
 };

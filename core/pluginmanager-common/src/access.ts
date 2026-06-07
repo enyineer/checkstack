@@ -1,5 +1,7 @@
 import { access } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the Plugin Manager.
  *
@@ -7,9 +9,15 @@ import { access } from "@checkstack/common";
  * trusted operators should hold the `manage` rule.
  */
 export const pluginManagerAccess = {
-  view: access("plugin", "read", "View installed plugins and install events"),
-  install: access("plugin", "manage", "Install plugins from any source"),
-  uninstall: access("plugin", "manage", "Uninstall plugins"),
+  view: access("plugin", "read", "View installed plugins and install events", {
+    pluginId: pluginMetadata.pluginId,
+  }),
+  install: access("plugin", "manage", "Install plugins from any source", {
+    pluginId: pluginMetadata.pluginId,
+  }),
+  uninstall: access("plugin", "manage", "Uninstall plugins", {
+    pluginId: pluginMetadata.pluginId,
+  }),
 };
 
 export const pluginManagerAccessRules = [

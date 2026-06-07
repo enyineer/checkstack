@@ -6,7 +6,11 @@ import {
   type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
-import { IncidentApi, incidentRoutes } from "@checkstack/incident-common";
+import {
+  IncidentApi,
+  incidentRoutes,
+  incidentAccess,
+} from "@checkstack/incident-common";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
 
@@ -59,6 +63,8 @@ export const IncidentSignalsFiller: React.FC<Props> = ({
           href: resolveRoute(incidentRoutes.routes.detail, {
             incidentId: incident.id,
           }),
+          // Detail page is read-gated; render as text for users without it.
+          accessRule: incidentAccess.incident.read,
           since: new Date(incident.createdAt).toISOString(),
           iconName: "TriangleAlert",
         };

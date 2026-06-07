@@ -1,5 +1,7 @@
 import { accessPair } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the Catalog plugin.
  *
@@ -25,6 +27,7 @@ export const catalogAccess = {
       },
     },
     {
+      pluginId: pluginMetadata.pluginId,
       idParam: "systemId",
       listKey: "systems",
     },
@@ -33,16 +36,22 @@ export const catalogAccess = {
   /**
    * Group access (global, no team-based filtering).
    */
-  group: accessPair("group", {
-    read: {
-      description: "View groups",
-      isDefault: true,
-      isPublic: true,
+  group: accessPair(
+    "group",
+    {
+      read: {
+        description: "View groups",
+        isDefault: true,
+        isPublic: true,
+      },
+      manage: {
+        description: "Create, update, and delete groups",
+      },
     },
-    manage: {
-      description: "Create, update, and delete groups",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 
   /**
    * Environment access (global, no team-based filtering).
@@ -51,29 +60,41 @@ export const catalogAccess = {
    * groups): a free-form set of custom fields that any system can belong
    * to many-to-many.
    */
-  environment: accessPair("environment", {
-    read: {
-      description: "View environments",
-      isDefault: true,
-      isPublic: true,
+  environment: accessPair(
+    "environment",
+    {
+      read: {
+        description: "View environments",
+        isDefault: true,
+        isPublic: true,
+      },
+      manage: {
+        description: "Create, update, and delete environments",
+      },
     },
-    manage: {
-      description: "Create, update, and delete environments",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 
   /**
    * View access (global, user-only).
    */
-  view: accessPair("view", {
-    read: {
-      description: "View saved views",
-      isDefault: true,
+  view: accessPair(
+    "view",
+    {
+      read: {
+        description: "View saved views",
+        isDefault: true,
+      },
+      manage: {
+        description: "Manage saved views",
+      },
     },
-    manage: {
-      description: "Manage saved views",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 };
 
 /**

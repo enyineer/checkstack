@@ -1,5 +1,7 @@
 import { access } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the Integration plugin.
  */
@@ -10,7 +12,10 @@ export const integrationAccess = {
   manage: access(
     "integration",
     "manage",
-    "Manage webhook integrations and view delivery logs"
+    "Manage webhook integrations and view delivery logs",
+    {
+      pluginId: pluginMetadata.pluginId,
+    }
   ),
 };
 

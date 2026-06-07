@@ -8,7 +8,9 @@ import { createRegistryExtensionPoints } from "./registry-wiring";
 import type { RegisteredAiTool } from "./tool-registry";
 
 const sourcePluginMetadata = definePluginMetadata({ pluginId: "incident" });
-const incidentRead = access("incident", "read", "View incidents");
+const incidentRead = access("incident", "read", "View incidents", {
+  pluginId: sourcePluginMetadata.pluginId,
+});
 const listIncidents = proc({
   operationType: "query",
   userType: "authenticated",

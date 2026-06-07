@@ -7,28 +7,26 @@ export const useAccessRules = () => {
   const authClient = usePluginClient(AuthApi);
   const { data: session, isPending: sessionPending } = authApi.useSession();
 
-  // Query: Fetch access rules (only when user is authenticated)
+  // Fetch the caller's EFFECTIVE access rules once the session is resolved -
+  // for authenticated users their own grants, for anonymous visitors the
+  // configurable "anonymous" role's grants (the `accessRules` procedure is
+  // public). Gating on these makes guest UI match what a guest may actually do.
   const { data, isLoading } = authClient.accessRules.useQuery(
     {},
     {
-      enabled: !sessionPending && !!session?.user,
+      enabled: !sessionPending,
     }
   );
 
-  // If no session or pending, return empty access rules. `isAuthenticated`
-  // lets the sidebar gate per-user entries (e.g. Notification Settings) that
-  // require a logged-in user rather than a specific access rule.
+  // `isAuthenticated` lets callers additionally gate logged-in-only UI (e.g.
+  // Notification Settings) that needs a real user rather than a specific rule.
   if (sessionPending) {
     return { accessRules: [], loading: true, isAuthenticated: false };
-  }
-
-  if (!session?.user) {
-    return { accessRules: [], loading: false, isAuthenticated: false };
   }
 
   return {
     accessRules: data?.accessRules ?? [],
     loading: isLoading,
-    isAuthenticated: true,
+    isAuthenticated: !!session?.user,
   };
 };

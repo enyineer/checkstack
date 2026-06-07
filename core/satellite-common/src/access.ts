@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Satellite plugin.
@@ -9,15 +10,21 @@ export const satelliteAccess = {
    * Read allows viewing satellite list and status.
    * Manage allows creating, deleting, and managing satellites.
    */
-  satellite: accessPair("satellite", {
-    read: {
-      description: "View satellite list and status",
+  satellite: accessPair(
+    "satellite",
+    {
+      read: {
+        description: "View satellite list and status",
+      },
+      manage: {
+        description:
+          "Manage satellites - create, delete, and configure satellite nodes",
+      },
     },
-    manage: {
-      description:
-        "Manage satellites - create, delete, and configure satellite nodes",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 };
 
 /**

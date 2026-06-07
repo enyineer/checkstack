@@ -31,12 +31,14 @@ export const NavItem: React.FC<NavItemProps> = ({
   // Always call hooks at top level
   const accessApi = useApi(accessApiRef);
 
-  // Create a dummy access rule for when accessRule is undefined
+  // Create a dummy access rule for when accessRule is undefined (its result is
+  // ignored - `hasAccess` below falls back to `true` when no rule is provided).
   const dummyRule: AccessRule = {
     id: "",
     resource: "",
     level: "read",
     description: "",
+    pluginId: "",
   };
   const { allowed, loading } = accessApi.useAccess(accessRule ?? dummyRule);
   const hasAccess = accessRule ? allowed : true;

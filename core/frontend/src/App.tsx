@@ -7,6 +7,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { Menu } from "lucide-react";
+import type { AccessRule } from "@checkstack/common";
 import {
   ApiProvider,
   ApiRegistryBuilder,
@@ -121,15 +122,13 @@ function GlobalShortcuts() {
 
 const RouteGuard: React.FC<{
   children: React.ReactNode;
-  accessRule?: string;
+  accessRule?: AccessRule;
 }> = ({ children, accessRule }) => {
   const accessApi = useApi(accessApiRef);
-  // If there's an access rule requirement, use useAccess with a minimal AccessRule-like object
-  // the route.accessRule is already the qualified access rule ID string
+  // Pass the FULL rule so the check qualifies it (`{pluginId}.{id}`) against the
+  // user's granted ids and applies manage->read escalation.
   const { allowed, loading } = accessRule
-    ? accessApi.useAccess({ id: accessRule } as Parameters<
-        typeof accessApi.useAccess
-      >[0])
+    ? accessApi.useAccess(accessRule)
     : { allowed: true, loading: false };
 
   if (loading) {

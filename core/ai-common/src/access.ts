@@ -1,5 +1,7 @@
 import { access } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the AI platform plugin.
  *
@@ -14,11 +16,17 @@ export const aiAccess = {
    * The `access()` factory only supports `read` / `manage` levels, so the
    * domain is carried by the resource segment.
    */
-  chatUse: access("chat", "read", "Use the in-app AI chat"),
+  chatUse: access("chat", "read", "Use the in-app AI chat", {
+    pluginId: pluginMetadata.pluginId,
+  }),
   /** Manage AI tool projections + introspect the registered tool set. Qualified id: `ai.tools.manage`. */
-  toolsManage: access("tools", "manage", "Manage AI tool projections"),
+  toolsManage: access("tools", "manage", "Manage AI tool projections", {
+    pluginId: pluginMetadata.pluginId,
+  }),
   /** Manage MCP clients and Dynamic Client Registration settings (Phase 2). Qualified id: `ai.mcp.manage`. */
-  mcpManage: access("mcp", "manage", "Manage MCP clients and DCR settings"),
+  mcpManage: access("mcp", "manage", "Manage MCP clients and DCR settings", {
+    pluginId: pluginMetadata.pluginId,
+  }),
 };
 
 /**

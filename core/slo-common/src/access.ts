@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the SLO plugin.
@@ -9,16 +10,22 @@ export const sloAccess = {
    * Read is public by default (anyone can view SLO status).
    * Manage requires authentication (create, edit, delete SLOs).
    */
-  slo: accessPair("slo", {
-    read: {
-      description: "View SLOs and error budgets",
-      isDefault: true,
-      isPublic: true,
+  slo: accessPair(
+    "slo",
+    {
+      read: {
+        description: "View SLOs and error budgets",
+        isDefault: true,
+        isPublic: true,
+      },
+      manage: {
+        description: "Create, edit, and delete SLOs",
+      },
     },
-    manage: {
-      description: "Create, edit, and delete SLOs",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 };
 
 /**

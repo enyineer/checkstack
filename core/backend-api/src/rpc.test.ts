@@ -25,7 +25,7 @@ const testContracts = {
   publicGlobalEndpoint: proc({
     userType: "public",
     operationType: "query",
-    access: [access("resource", "read", "Test access")],
+    access: [access("resource", "read", "Test access", { pluginId: "test" })],
   }).output(z.object({ message: z.string() })),
 
   // Public endpoint with list filtering
@@ -39,7 +39,7 @@ const testContracts = {
           read: { description: "View systems", isPublic: true },
           manage: { description: "Manage systems" },
         },
-        { listKey: "systems" },
+        { listKey: "systems", pluginId: "test" },
       ).read,
     ],
   }).output(
@@ -80,7 +80,7 @@ const testContracts = {
           read: { description: "View systems", isPublic: true },
           manage: { description: "Manage systems" },
         },
-        { idParam: "systemId" },
+        { idParam: "systemId", pluginId: "test" },
       ).read,
     ],
   })
@@ -95,6 +95,7 @@ const testContracts = {
       access("bulk", "read", "Bulk read", {
         recordKey: "statuses",
         isPublic: true,
+        pluginId: "test",
       }),
     ],
   })
@@ -129,7 +130,7 @@ const testContracts = {
           read: { description: "View systems", isPublic: true },
           manage: { description: "Manage systems" },
         },
-        { idParam: "systemId" },
+        { idParam: "systemId", pluginId: "test" },
       ).read,
     ],
     instanceAccess: { recordKey: "statuses" },

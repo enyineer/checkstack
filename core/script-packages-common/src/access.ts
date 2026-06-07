@@ -1,5 +1,7 @@
 import { access } from "@checkstack/common";
 
+import { pluginMetadata } from "./plugin-metadata";
+
 /**
  * Access rules for the script-packages plugin.
  *
@@ -21,6 +23,7 @@ export const scriptPackagesAccess = {
     "script-packages",
     "read",
     "Read installed script packages, manifest, and types",
+    { pluginId: pluginMetadata.pluginId },
   ),
 
   /**
@@ -33,6 +36,7 @@ export const scriptPackagesAccess = {
     "script-packages",
     "manage",
     "Manage script packages (allowlist, registry, storage, installs)",
+    { pluginId: pluginMetadata.pluginId },
   ),
 };
 
@@ -61,6 +65,7 @@ export const scriptSandboxAccess = {
     "script-sandbox",
     "manage",
     "View and edit the global script-sandbox policy (resource caps, filesystem, network egress, privilege)",
+    { pluginId: pluginMetadata.pluginId },
   ),
 };
 

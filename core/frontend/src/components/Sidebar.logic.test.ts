@@ -4,8 +4,9 @@ import { selectNavGroups, type NavLike } from "./Sidebar.logic";
 
 const GROUP_ORDER = ["Workspace", "Configuration", "Documentation"] as const;
 
+// Rules carry an owning pluginId; checks match the qualified `${pluginId}.${id}`.
 const rule = (id: string): AccessRule =>
-  ({ id, resource: id, level: "read" }) as unknown as AccessRule;
+  ({ id, resource: id, level: "read", pluginId: "p" }) as unknown as AccessRule;
 
 interface Route {
   path: string;
@@ -43,7 +44,7 @@ describe("selectNavGroups", () => {
   test("shows an entry whose accessRule the user satisfies", () => {
     const groups = selectNavGroups({
       routes: [route("/ok", { accessRule: rule("x.read") })],
-      accessRules: ["x.read"],
+      accessRules: ["p.x.read"],
       isAuthenticated: true,
       groupOrder: GROUP_ORDER,
     });
@@ -106,7 +107,7 @@ describe("selectNavGroups", () => {
     expect(
       selectNavGroups({
         routes: [r],
-        accessRules: ["x.read"],
+        accessRules: ["p.x.read"],
         isAuthenticated: false,
         groupOrder: GROUP_ORDER,
       }),

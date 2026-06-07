@@ -39,6 +39,9 @@ export default createFrontendPlugin({
           default: m.IncidentDetailPage,
         })),
       title: "Incident Details",
+      // Read-gated; the anonymous role holds this by default (isPublic) but an
+      // admin can revoke it, so the route guard always checks the actual grant.
+      accessRule: incidentAccess.incident.read,
     },
     {
       route: incidentRoutes.routes.systemHistory,

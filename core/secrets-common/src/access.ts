@@ -1,4 +1,5 @@
 import { accessPair } from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Access rules for the Secrets platform.
@@ -8,15 +9,21 @@ import { accessPair } from "@checkstack/common";
  * rotate, and delete secrets and configure the active backend.
  */
 export const secretsAccess = {
-  secret: accessPair("secret", {
-    read: {
-      description: "View secret names and metadata (never values)",
-      isDefault: true,
+  secret: accessPair(
+    "secret",
+    {
+      read: {
+        description: "View secret names and metadata (never values)",
+        isDefault: true,
+      },
+      manage: {
+        description: "Create, rotate, delete secrets and configure backends",
+      },
     },
-    manage: {
-      description: "Create, rotate, delete secrets and configure backends",
+    {
+      pluginId: pluginMetadata.pluginId,
     },
-  }),
+  ),
 };
 
 /** All access rules for registration with the plugin system. */

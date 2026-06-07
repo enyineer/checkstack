@@ -6,7 +6,7 @@ import {
   type SystemSignal,
   type SystemSignalsMap,
 } from "@checkstack/catalog-common";
-import { SloApi, sloRoutes } from "@checkstack/slo-common";
+import { SloApi, sloRoutes, sloAccess } from "@checkstack/slo-common";
 
 type Props = SlotContext<typeof SystemSignalsSlot>;
 
@@ -61,6 +61,8 @@ export const SloSignalsFiller: React.FC<Props> = ({ systemIds, onSignals }) => {
           href: resolveRoute(sloRoutes.routes.detail, {
             sloId: objective.id,
           }),
+          // Detail page is read-gated; render as text for users without it.
+          accessRule: sloAccess.slo.read,
           iconName: "Target",
         });
       }
