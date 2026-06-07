@@ -62,7 +62,7 @@ describe("createMaintenanceSignalsContributor", () => {
 
     const result = await contributor.read({ principal });
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ accessible: false, signals: {} });
     expect(calls.read).toBe(0);
   });
 
@@ -81,8 +81,8 @@ describe("createMaintenanceSignalsContributor", () => {
     const result = await contributor.read({ principal });
 
     expect(calls.read).toBe(1);
-    expect(Object.keys(result)).toEqual(["sysA"]);
-    expect(result.sysA[0]).toMatchObject({
+    expect(Object.keys(result.signals)).toEqual(["sysA"]);
+    expect(result.signals.sysA[0]).toMatchObject({
       source: MAINTENANCE_SIGNAL_SOURCE,
       tone: "info",
       label: "Under maintenance",
@@ -104,7 +104,7 @@ describe("createMaintenanceSignalsContributor", () => {
     };
 
     const result = await contributor.read({ principal });
-    expect(Object.keys(result)).toEqual(["sysA"]);
+    expect(Object.keys(result.signals)).toEqual(["sysA"]);
   });
 
   test("treats a service principal as trusted (sees signals)", async () => {
@@ -120,7 +120,7 @@ describe("createMaintenanceSignalsContributor", () => {
 
     const result = await contributor.read({ principal });
 
-    expect(Object.keys(result)).toEqual(["sysA"]);
+    expect(Object.keys(result.signals)).toEqual(["sysA"]);
     expect(calls.read).toBe(1);
   });
 });

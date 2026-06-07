@@ -34,7 +34,7 @@ export const SystemIssuesGroupSchema = z.object({
   signals: z.array(SystemIssueSignalSchema),
 });
 
-/** The model-facing result: issues grouped by system. */
+/** The model-facing result: issues grouped by system, plus per-source coverage. */
 export const SystemIssuesOutputSchema = z.object({
   /** One entry per system that currently has at least one issue. */
   systems: z.array(SystemIssuesGroupSchema),
@@ -42,8 +42,26 @@ export const SystemIssuesOutputSchema = z.object({
   totalSystems: z.number(),
   /** Total number of individual signals across all systems. */
   totalSignals: z.number(),
+  /** Sources that were successfully checked (the answer covers these). */
+  checkedSources: z.array(z.string()),
+  /**
+   * Sources the caller lacks permission to read. These were NOT checked, so an
+   * empty `systems` does NOT mean these sources are clear - tell the operator
+   * they could not be checked due to access.
+   */
+  inaccessibleSources: z.array(z.string()),
+  /** Sources that errored while being read (also not reflected in `systems`). */
+  failedSources: z.array(z.string()),
 });
 export type SystemIssuesOutput = z.infer<typeof SystemIssuesOutputSchema>;
+
+/** Per-source outcome of a {@link collectSystemSignals} fan-out. */
+export interface SystemSignalsCollection {
+  merged: SystemSignalsMap;
+  checkedSources: string[];
+  inaccessibleSources: string[];
+  failedSources: string[];
+}
 
 /**
  * Merge several contributors' {@link SystemSignalsMap}s into one map keyed by
@@ -76,14 +94,14 @@ export function mergeSystemSignalsMaps(
  * source/tone/label/detail/since.
  */
 export function toSystemIssuesOutput({
-  merged,
+  collection,
   systemIds,
 }: {
-  merged: SystemSignalsMap;
+  collection: SystemSignalsCollection;
   systemIds?: string[];
 }): SystemIssuesOutput {
   const allow = systemIds ? new Set(systemIds) : undefined;
-  const systems = Object.entries(merged)
+  const systems = Object.entries(collection.merged)
     .filter(([systemId]) => !allow || allow.has(systemId))
     .map(([systemId, signals]) => ({
       systemId,
@@ -99,14 +117,20 @@ export function toSystemIssuesOutput({
     systems,
     totalSystems: systems.length,
     totalSignals: systems.reduce((sum, s) => sum + s.signals.length, 0),
+    checkedSources: collection.checkedSources,
+    inaccessibleSources: collection.inaccessibleSources,
+    failedSources: collection.failedSources,
   };
 }
 
 /**
- * Read every contributor's signals for `principal`, tolerating a contributor
- * that throws or returns `{}` (it is skipped, never breaking the whole call),
- * and return the merged map. Contributors enforce their OWN per-source access,
- * so a source the principal cannot see returns `{}` itself.
+ * Read every contributor's signals for `principal` and return the merged map
+ * plus per-source coverage. Each source is classified so the caller can tell
+ * "checked and clear" apart from "skipped":
+ *  - checked: read succeeded and the principal could access it,
+ *  - inaccessible: the principal lacked access (`accessible: false`),
+ *  - failed: the contributor threw.
+ * A throwing/denied source never breaks the whole call.
  */
 export async function collectSystemSignals({
   contributors,
@@ -114,17 +138,33 @@ export async function collectSystemSignals({
 }: {
   contributors: SystemSignalsContributor[];
   principal: AuthUser;
-}): Promise<SystemSignalsMap> {
+}): Promise<SystemSignalsCollection> {
   const settled = await Promise.allSettled(
     contributors.map((c) => c.read({ principal })),
   );
   const maps: SystemSignalsMap[] = [];
-  for (const result of settled) {
-    if (result.status === "fulfilled" && result.value) {
-      maps.push(result.value);
+  const checkedSources: string[] = [];
+  const inaccessibleSources: string[] = [];
+  const failedSources: string[] = [];
+  for (const [index, result] of settled.entries()) {
+    const { sourceId } = contributors[index];
+    if (result.status !== "fulfilled") {
+      failedSources.push(sourceId);
+      continue;
     }
+    if (!result.value.accessible) {
+      inaccessibleSources.push(sourceId);
+      continue;
+    }
+    checkedSources.push(sourceId);
+    maps.push(result.value.signals);
   }
-  return mergeSystemSignalsMaps(maps);
+  return {
+    merged: mergeSystemSignalsMaps(maps),
+    checkedSources,
+    inaccessibleSources,
+    failedSources,
+  };
 }
 
 /**
@@ -146,7 +186,7 @@ export function createSystemIssuesTool({
   return {
     name: "system.issues",
     description:
-      "Return ALL current system issues - failing health checks, breaching or at-risk SLOs, active anomalies, open incidents, active maintenances, and dependency problems - aggregated across every system in ONE call. Use this FIRST whenever asked whether there are any issues, what is wrong, what is down, or for an overall health overview, before reaching for any per-domain tool. Read-only. Optionally pass systemIds to narrow the answer to specific systems.",
+      "Return ALL current system issues - failing health checks, breaching or at-risk SLOs, active anomalies, open incidents, active maintenances, and dependency problems - aggregated across every system in ONE call. Use this FIRST whenever asked whether there are any issues, what is wrong, what is down, or for an overall health overview, before reaching for any per-domain tool. Read-only. Optionally pass systemIds to narrow the answer to specific systems. The result lists `checkedSources`, plus `inaccessibleSources` (you lack permission to read these - they were NOT checked, so do not report them as clear) and `failedSources` (errored). If either is non-empty, tell the operator those sources could not be checked.",
     effect: "read",
     input: SystemIssuesInputSchema,
     output: SystemIssuesOutputSchema,
@@ -162,8 +202,8 @@ export function createSystemIssuesTool({
       input: SystemIssuesInput;
       principal: AuthUser;
     }) {
-      const merged = await collectSystemSignals({ contributors, principal });
-      return toSystemIssuesOutput({ merged, systemIds: input.systemIds });
+      const collection = await collectSystemSignals({ contributors, principal });
+      return toSystemIssuesOutput({ collection, systemIds: input.systemIds });
     },
   };
 }

@@ -43,10 +43,13 @@ export function createHealthcheckSignalsContributor({
           healthCheckAccess.status,
         )
       ) {
-        return {};
+        return { accessible: false, signals: {} };
       }
       const statuses = await service.getAllUnhealthySystemStatuses();
-      return deriveHealthcheckSignals({ statuses });
+      return {
+        accessible: true,
+        signals: deriveHealthcheckSignals({ statuses }),
+      };
     },
   };
 }

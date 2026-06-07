@@ -4,7 +4,6 @@ import {
   principalGrantedRuleIds,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
-import type { SystemSignalsMap } from "@checkstack/catalog-common";
 import type { InferClient } from "@checkstack/common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
@@ -146,7 +145,7 @@ export function createDependencySystemSignalsContributor({
 
   return {
     sourceId: DEPENDENCY_SIGNAL_SOURCE_ID,
-    read: async ({ principal }): Promise<SystemSignalsMap> => {
+    read: async ({ principal }) => {
       // Per-source security gate: only principals that may read dependency
       // warnings get any signals. Never throw to signal "no access".
       if (
@@ -155,11 +154,11 @@ export function createDependencySystemSignalsContributor({
           dependencyAccess.dependency.read,
         )
       ) {
-        return {};
+        return { accessible: false, signals: {} };
       }
 
       const warnings = await evaluateGlobalWarnings();
-      return deriveDependencySignals({ warnings });
+      return { accessible: true, signals: deriveDependencySignals({ warnings }) };
     },
   };
 }

@@ -3,7 +3,6 @@ import {
   principalGrantedRuleIds,
   type SystemSignalsContributor,
 } from "@checkstack/ai-backend";
-import type { SystemSignalsMap } from "@checkstack/catalog-common";
 import {
   incidentAccess,
   INCIDENT_SIGNAL_SOURCE_ID,
@@ -31,21 +30,24 @@ export function createIncidentSignalsContributor({
 }): SystemSignalsContributor {
   return {
     sourceId: INCIDENT_SIGNAL_SOURCE_ID,
-    read: async ({ principal }): Promise<SystemSignalsMap> => {
+    read: async ({ principal }) => {
       if (
         !isAccessRuleSatisfied(
           principalGrantedRuleIds(principal),
           incidentAccess.incident.read,
         )
       ) {
-        return {};
+        return { accessible: false, signals: {} };
       }
 
       const incidentsBySystem = await service.listOpenIncidentsBySystem();
-      return deriveIncidentSignals({
-        incidentsBySystem,
-        systemIds: Object.keys(incidentsBySystem),
-      });
+      return {
+        accessible: true,
+        signals: deriveIncidentSignals({
+          incidentsBySystem,
+          systemIds: Object.keys(incidentsBySystem),
+        }),
+      };
     },
   };
 }

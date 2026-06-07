@@ -68,12 +68,29 @@ export interface SystemSignalsContributor {
   sourceId: string;
   /**
    * Return problem signals for ALL systems globally, keyed by systemId, scoped
-   * to what `principal` may see. Systems absent from the returned map have no
-   * signal from this source. MUST resolve from shared, durable storage so the
-   * answer is identical on every pod (state-and-scale rule). Return `{}` (not a
-   * throw) when the principal lacks access to this source.
+   * to what `principal` may see, plus whether the principal could access this
+   * source at all. Systems absent from `signals` have no signal from this
+   * source. MUST resolve from shared, durable storage so the answer is
+   * identical on every pod (state-and-scale rule).
+   *
+   * When the principal lacks access, return `{ accessible: false, signals: {} }`
+   * (NOT a throw) - the aggregator surfaces that as an inaccessible source so
+   * the model can say "I could not check X" instead of implying "no issues".
    */
-  read(context: { principal: AuthUser }): Promise<SystemSignalsMap>;
+  read(context: {
+    principal: AuthUser;
+  }): Promise<SystemSignalsContribution>;
+}
+
+/**
+ * One contributor's reply: the signals it found (empty if none or if access was
+ * denied) plus whether the principal could read the source at all. `accessible:
+ * false` means "skipped for lack of permission", which the aggregator reports
+ * distinctly from "checked and found nothing".
+ */
+export interface SystemSignalsContribution {
+  accessible: boolean;
+  signals: SystemSignalsMap;
 }
 
 /**

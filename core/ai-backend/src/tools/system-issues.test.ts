@@ -1,11 +1,15 @@
 import { describe, test, expect } from "bun:test";
 import type { AuthUser } from "@checkstack/backend-api";
 import type { SystemSignal, SystemSignalsMap } from "@checkstack/catalog-common";
-import type { SystemSignalsContributor } from "../extension-points";
+import type {
+  SystemSignalsContributor,
+  SystemSignalsContribution,
+} from "../extension-points";
 import {
   mergeSystemSignalsMaps,
   collectSystemSignals,
   toSystemIssuesOutput,
+  type SystemSignalsCollection,
 } from "./system-issues";
 
 const signal = (over: Partial<SystemSignal> = {}): SystemSignal => ({
@@ -21,10 +25,43 @@ const principal: AuthUser = {
   accessRules: ["catalog.system.read"],
 };
 
-const contributor = (
+/** A contributor that is accessible and returns `signals`. */
+const ok = (
   sourceId: string,
-  read: (ctx: { principal: AuthUser }) => Promise<SystemSignalsMap>,
-): SystemSignalsContributor => ({ sourceId, read });
+  signals: SystemSignalsMap,
+): SystemSignalsContributor => ({
+  sourceId,
+  read: async (): Promise<SystemSignalsContribution> => ({
+    accessible: true,
+    signals,
+  }),
+});
+
+/** A contributor the principal cannot access. */
+const denied = (sourceId: string): SystemSignalsContributor => ({
+  sourceId,
+  read: async (): Promise<SystemSignalsContribution> => ({
+    accessible: false,
+    signals: {},
+  }),
+});
+
+/** A contributor that throws while reading. */
+const throwing = (sourceId: string): SystemSignalsContributor => ({
+  sourceId,
+  read: async (): Promise<SystemSignalsContribution> => {
+    throw new Error(`${sourceId} exploded`);
+  },
+});
+
+const emptyCollection = (
+  merged: SystemSignalsMap,
+): SystemSignalsCollection => ({
+  merged,
+  checkedSources: [],
+  inaccessibleSources: [],
+  failedSources: [],
+});
 
 describe("mergeSystemSignalsMaps", () => {
   test("merges two maps by systemId, concatenating signal arrays", () => {
@@ -64,75 +101,72 @@ describe("mergeSystemSignalsMaps", () => {
 });
 
 describe("collectSystemSignals", () => {
-  test("merges signals from multiple contributors by systemId", async () => {
+  test("merges signals from accessible contributors and lists them as checked", async () => {
     const contributors = [
-      contributor("incident", async () => ({
-        sysA: [signal({ source: "incident" })],
-      })),
-      contributor("slo", async () => ({
+      ok("incident", { sysA: [signal({ source: "incident" })] }),
+      ok("slo", {
         sysA: [signal({ source: "slo", tone: "warn", label: "SLO" })],
         sysB: [signal({ source: "slo", tone: "warn", label: "SLO B" })],
-      })),
-    ];
-
-    const merged = await collectSystemSignals({ contributors, principal });
-
-    expect(merged.sysA.map((s) => s.source)).toEqual(["incident", "slo"]);
-    expect(merged.sysB).toHaveLength(1);
-  });
-
-  test("skips a throwing contributor without breaking the whole call", async () => {
-    const contributors = [
-      contributor("boom", async () => {
-        throw new Error("source exploded");
       }),
-      contributor("incident", async () => ({
-        sysA: [signal({ source: "incident" })],
-      })),
     ];
 
-    const merged = await collectSystemSignals({ contributors, principal });
+    const result = await collectSystemSignals({ contributors, principal });
 
-    // The healthy source still contributed; the thrower was skipped.
-    expect(Object.keys(merged)).toEqual(["sysA"]);
-    expect(merged.sysA).toHaveLength(1);
+    expect(result.merged.sysA.map((s) => s.source)).toEqual([
+      "incident",
+      "slo",
+    ]);
+    expect(result.merged.sysB).toHaveLength(1);
+    expect(result.checkedSources.sort()).toEqual(["incident", "slo"]);
+    expect(result.inaccessibleSources).toEqual([]);
+    expect(result.failedSources).toEqual([]);
   });
 
-  test("tolerates a contributor returning an empty map", async () => {
+  test("reports an inaccessible source distinctly (not as empty/clear)", async () => {
     const contributors = [
-      contributor("noaccess", async () => ({})),
-      contributor("incident", async () => ({
-        sysA: [signal({ source: "incident" })],
-      })),
+      denied("incident"),
+      ok("slo", { sysA: [signal({ source: "slo" })] }),
     ];
 
-    const merged = await collectSystemSignals({ contributors, principal });
+    const result = await collectSystemSignals({ contributors, principal });
 
-    expect(Object.keys(merged)).toEqual(["sysA"]);
+    // The denied source contributes no signals but IS surfaced so the model
+    // can say "could not check incidents" instead of "no incidents".
+    expect(Object.keys(result.merged)).toEqual(["sysA"]);
+    expect(result.inaccessibleSources).toEqual(["incident"]);
+    expect(result.checkedSources).toEqual(["slo"]);
+    expect(result.failedSources).toEqual([]);
   });
 
-  test("no contributors produces no entries", async () => {
-    const merged = await collectSystemSignals({ contributors: [], principal });
-    expect(merged).toEqual({});
-  });
-
-  test("all contributors empty produces no entries", async () => {
+  test("reports a throwing contributor as failed without breaking the call", async () => {
     const contributors = [
-      contributor("a", async () => ({})),
-      contributor("b", async () => ({})),
+      throwing("boom"),
+      ok("incident", { sysA: [signal({ source: "incident" })] }),
     ];
-    const merged = await collectSystemSignals({ contributors, principal });
-    expect(merged).toEqual({});
+
+    const result = await collectSystemSignals({ contributors, principal });
+
+    expect(Object.keys(result.merged)).toEqual(["sysA"]);
+    expect(result.failedSources).toEqual(["boom"]);
+    expect(result.checkedSources).toEqual(["incident"]);
+  });
+
+  test("no contributors produces no entries and empty coverage", async () => {
+    const result = await collectSystemSignals({ contributors: [], principal });
+    expect(result.merged).toEqual({});
+    expect(result.checkedSources).toEqual([]);
+    expect(result.inaccessibleSources).toEqual([]);
+    expect(result.failedSources).toEqual([]);
   });
 });
 
 describe("toSystemIssuesOutput", () => {
   test("groups signals by system and counts totals", () => {
     const out = toSystemIssuesOutput({
-      merged: {
+      collection: emptyCollection({
         sysA: [signal({ source: "incident" }), signal({ source: "slo" })],
         sysB: [signal({ source: "anomaly" })],
-      },
+      }),
     });
 
     expect(out.totalSystems).toBe(2);
@@ -141,12 +175,27 @@ describe("toSystemIssuesOutput", () => {
     expect(sysA?.signals.map((s) => s.source)).toEqual(["incident", "slo"]);
   });
 
+  test("passes per-source coverage through to the output", () => {
+    const out = toSystemIssuesOutput({
+      collection: {
+        merged: { sysA: [signal()] },
+        checkedSources: ["incident", "slo"],
+        inaccessibleSources: ["healthcheck"],
+        failedSources: ["dependency"],
+      },
+    });
+
+    expect(out.checkedSources).toEqual(["incident", "slo"]);
+    expect(out.inaccessibleSources).toEqual(["healthcheck"]);
+    expect(out.failedSources).toEqual(["dependency"]);
+  });
+
   test("narrows to the requested systemIds", () => {
     const out = toSystemIssuesOutput({
-      merged: {
+      collection: emptyCollection({
         sysA: [signal()],
         sysB: [signal()],
-      },
+      }),
       systemIds: ["sysB"],
     });
 
@@ -156,7 +205,7 @@ describe("toSystemIssuesOutput", () => {
 
   test("drops href/accessRule/iconName, keeps source/tone/label/detail/since", () => {
     const out = toSystemIssuesOutput({
-      merged: {
+      collection: emptyCollection({
         sysA: [
           signal({
             detail: "2 of 3 checks failing",
@@ -172,7 +221,7 @@ describe("toSystemIssuesOutput", () => {
             iconName: "TriangleAlert",
           }),
         ],
-      },
+      }),
     });
 
     const s = out.systems[0].signals[0];

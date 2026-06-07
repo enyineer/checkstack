@@ -59,7 +59,7 @@ describe("createHealthcheckSignalsContributor", () => {
 
     const result = await contributor.read({ principal: userWith([]) });
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ accessible: false, signals: {} });
     expect(calls()).toBe(0);
   });
 
@@ -73,7 +73,7 @@ describe("createHealthcheckSignalsContributor", () => {
     const serviceUser: AuthUser = { type: "service", pluginId: "svc" };
     const result = await contributor.read({ principal: serviceUser });
 
-    expect(Object.keys(result).length).toBeGreaterThan(0);
+    expect(Object.keys(result.signals).length).toBeGreaterThan(0);
     expect(calls()).toBe(1);
   });
 
@@ -85,9 +85,9 @@ describe("createHealthcheckSignalsContributor", () => {
       principal: userWith(["healthcheck.healthcheck.status.read"]),
     });
 
-    expect(Object.keys(result)).toEqual(["s1"]);
-    expect(result.s1).toHaveLength(1);
-    expect(result.s1[0]).toMatchObject({
+    expect(Object.keys(result.signals)).toEqual(["s1"]);
+    expect(result.signals.s1).toHaveLength(1);
+    expect(result.signals.s1[0]).toMatchObject({
       source: HEALTHCHECK_SIGNAL_SOURCE_ID,
       tone: "error",
       label: "Unhealthy",
@@ -100,6 +100,6 @@ describe("createHealthcheckSignalsContributor", () => {
 
     const result = await contributor.read({ principal: userWith(["*"]) });
 
-    expect(Object.keys(result)).toEqual(["s1"]);
+    expect(Object.keys(result.signals)).toEqual(["s1"]);
   });
 });

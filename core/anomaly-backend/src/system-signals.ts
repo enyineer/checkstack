@@ -41,9 +41,9 @@ export const createAnomalySignalsContributor = ({
         anomalyAccess.feed.read,
       )
     ) {
-      return {};
+      return { accessible: false, signals: {} };
     }
     const rows = await service.getActiveSignalAnomalies();
-    return deriveAnomalySignals({ rows });
+    return { accessible: true, signals: deriveAnomalySignals({ rows }) };
   },
 });

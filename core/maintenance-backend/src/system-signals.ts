@@ -47,12 +47,15 @@ export function createMaintenanceSignalsContributor({
           maintenanceAccess.maintenance.read,
         )
       ) {
-        return {};
+        return { accessible: false, signals: {} };
       }
 
       const maintenancesBySystem =
         await service.getActiveMaintenancesBySystem();
-      return deriveMaintenanceSignals({ maintenancesBySystem });
+      return {
+        accessible: true,
+        signals: deriveMaintenanceSignals({ maintenancesBySystem }),
+      };
     },
   };
 }

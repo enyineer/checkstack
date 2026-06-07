@@ -1,6 +1,8 @@
 import type { AuthUser } from "@checkstack/backend-api";
-import { principalGrantedRuleIds } from "@checkstack/ai-backend";
-import type { SystemSignalsMap } from "@checkstack/catalog-common";
+import {
+  principalGrantedRuleIds,
+  type SystemSignalsContribution,
+} from "@checkstack/ai-backend";
 import { isAccessRuleSatisfied } from "@checkstack/common";
 import {
   deriveSloSignals,
@@ -48,17 +50,17 @@ export function createSloSignalsRead({
 }: {
   service: SloService;
   engine: SloEngine;
-}): (context: { principal: AuthUser }) => Promise<SystemSignalsMap> {
+}): (context: { principal: AuthUser }) => Promise<SystemSignalsContribution> {
   return async ({ principal }) => {
     // Per-source access gate. `principalGrantedRuleIds` treats a trusted service
     // principal as wildcard; user/application principals must satisfy the rule.
     if (
       !isAccessRuleSatisfied(principalGrantedRuleIds(principal), sloAccess.slo.read)
     ) {
-      return {};
+      return { accessible: false, signals: {} };
     }
 
     const rowsBySystemId = await readSloRowsBySystemId({ service, engine });
-    return deriveSloSignals({ rowsBySystemId });
+    return { accessible: true, signals: deriveSloSignals({ rowsBySystemId }) };
   };
 }

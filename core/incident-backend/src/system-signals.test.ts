@@ -52,7 +52,7 @@ describe("incident system-signals contributor", () => {
 
     const result = await contributor.read({ principal: userWithoutRead });
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ accessible: false, signals: {} });
     expect(service.listOpenIncidentsBySystem).not.toHaveBeenCalled();
   });
 
@@ -65,7 +65,8 @@ describe("incident system-signals contributor", () => {
 
     const result = await contributor.read({ principal: serviceUser });
 
-    expect(Object.keys(result)).toEqual(["sys-1"]);
+    expect(result.accessible).toBe(true);
+    expect(Object.keys(result.signals)).toEqual(["sys-1"]);
     expect(service.listOpenIncidentsBySystem).toHaveBeenCalled();
   });
 
@@ -76,9 +77,10 @@ describe("incident system-signals contributor", () => {
     const result = await contributor.read({ principal: userWithRead });
 
     expect(service.listOpenIncidentsBySystem).toHaveBeenCalledTimes(1);
-    expect(Object.keys(result)).toEqual(["sys-1"]);
-    expect(result["sys-1"]).toHaveLength(1);
-    expect(result["sys-1"][0]).toMatchObject({
+    expect(result.accessible).toBe(true);
+    expect(Object.keys(result.signals)).toEqual(["sys-1"]);
+    expect(result.signals["sys-1"]).toHaveLength(1);
+    expect(result.signals["sys-1"][0]).toMatchObject({
       source: "incident",
       tone: "error",
       label: "Critical incident",
@@ -99,6 +101,6 @@ describe("incident system-signals contributor", () => {
       },
     });
 
-    expect(result["sys-1"]).toHaveLength(1);
+    expect(result.signals["sys-1"]).toHaveLength(1);
   });
 });

@@ -46,7 +46,10 @@ describe("createAnomalySignalsContributor", () => {
       accessRules: ["catalog.system.read"],
     };
 
-    expect(await contributor.read({ principal })).toEqual({});
+    expect(await contributor.read({ principal })).toEqual({
+      accessible: false,
+      signals: {},
+    });
   });
 
   test("returns derived signals when the principal has anomaly read access", async () => {
@@ -65,13 +68,13 @@ describe("createAnomalySignalsContributor", () => {
     };
 
     const map = await contributor.read({ principal });
-    expect(Object.keys(map).sort()).toEqual(["sys-1", "sys-2"]);
-    expect(map["sys-1"]?.[0]).toMatchObject({
+    expect(Object.keys(map.signals).sort()).toEqual(["sys-1", "sys-2"]);
+    expect(map.signals["sys-1"]?.[0]).toMatchObject({
       source: "anomaly",
       tone: "warn",
       label: "Anomaly detected",
     });
-    expect(map["sys-2"]?.[0]).toMatchObject({
+    expect(map.signals["sys-2"]?.[0]).toMatchObject({
       source: "anomaly",
       tone: "info",
       label: "Suspicious behaviour",
@@ -85,6 +88,6 @@ describe("createAnomalySignalsContributor", () => {
     const principal: AuthUser = { type: "service", pluginId: "scheduler" };
 
     const map = await contributor.read({ principal });
-    expect(Object.keys(map)).toHaveLength(2);
+    expect(Object.keys(map.signals)).toHaveLength(2);
   });
 });

@@ -104,7 +104,7 @@ describe("dependency system.issues contributor", () => {
     const result = await contributor.read({
       principal: realUser(["some.other.rule"]),
     });
-    expect(result).toEqual({});
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 
   test("returns derived signals globally when the principal has access", async () => {
@@ -136,8 +136,8 @@ describe("dependency system.issues contributor", () => {
     });
 
     // Only the downstream system has a warning; the healthy upstream is absent.
-    expect(Object.keys(result)).toEqual(["downstream"]);
-    expect(result["downstream"][0]).toMatchObject({
+    expect(Object.keys(result.signals)).toEqual(["downstream"]);
+    expect(result.signals["downstream"][0]).toMatchObject({
       source: DEPENDENCY_SIGNAL_SOURCE_ID,
       tone: "error",
       label: "Upstream down",
@@ -167,8 +167,8 @@ describe("dependency system.issues contributor", () => {
     const result = await contributor.read({
       principal: { type: "service", pluginId: "some-plugin" },
     });
-    expect(Object.keys(result)).toEqual(["downstream"]);
-    expect(result["downstream"][0].tone).toBe("warn");
+    expect(Object.keys(result.signals)).toEqual(["downstream"]);
+    expect(result.signals["downstream"][0].tone).toBe("warn");
   });
 
   test("returns {} when there are no dependencies at all", async () => {
@@ -183,6 +183,7 @@ describe("dependency system.issues contributor", () => {
     const result = await contributor.read({
       principal: realUser([`dependency.${dependencyAccess.dependency.read.id}`]),
     });
-    expect(result).toEqual({});
+    // Access granted, just no dependencies: accessible, with empty signals.
+    expect(result).toEqual({ accessible: true, signals: {} });
   });
 });

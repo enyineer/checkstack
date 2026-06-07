@@ -15,19 +15,28 @@ A contributor returns problem signals for ALL systems globally, keyed by systemI
 import type { AuthUser } from "@checkstack/backend-api";
 import type { SystemSignalsMap } from "@checkstack/catalog-common";
 
+interface SystemSignalsContribution {
+  /** False when the principal lacks this source's access (signals are empty). */
+  accessible: boolean;
+  signals: SystemSignalsMap;
+}
+
 interface SystemSignalsContributor {
   /** Stable id of the source, e.g. "incident" / "slo" / "healthcheck". */
   sourceId: string;
   /**
    * Return problem signals for ALL systems globally, keyed by systemId, scoped
-   * to what `principal` may see. Systems absent from the map have no signal from
-   * this source. Return `{}` (never a throw) when the principal lacks access.
+   * to what `principal` may see, plus whether the principal could read this
+   * source at all. When access is denied, return
+   * `{ accessible: false, signals: {} }` (never a throw).
    */
-  read(context: { principal: AuthUser }): Promise<SystemSignalsMap>;
+  read(context: { principal: AuthUser }): Promise<SystemSignalsContribution>;
 }
 ```
 
 `SystemSignalsMap` is `Record<string, SystemSignal[]>` from `@checkstack/catalog-common`. Only systems that currently have a problem appear in the map; healthy systems are simply absent. The aggregator drops the link/icon fields the model does not need (`href`, `accessRule`, `iconName`) and keeps `source` / `tone` / `label` / `detail` / `since`.
+
+Returning `accessible` lets the aggregator tell "checked and clear" apart from "skipped for lack of permission". The tool output therefore includes `checkedSources`, `inaccessibleSources`, and `failedSources` (a contributor that threw), and the model is instructed to tell the operator when a source could not be checked rather than implying everything is clear.
 
 ## The per-source access gate
 
@@ -35,28 +44,24 @@ The `system.issues` tool is gated by `catalog.system.read`, but that only contro
 
 A contributor MUST:
 
-- Check the principal's own access rule for its domain (e.g. `incident.read`).
-- Return `{}` when the principal lacks access - never throw. A throwing or denied contributor is skipped, so one source can never break the whole call.
+- Check the principal's own access rule for its domain (e.g. `incident.read`), using the shared `principalGrantedRuleIds` helper so access is decided consistently across sources.
+- Return `{ accessible: false, signals: {} }` when the principal lacks access - never throw. A denied contributor is reported as an inaccessible source; a throwing one is reported as failed. Either way one source can never break the whole call.
 - Short-circuit BEFORE querying when access is denied, so a denied principal triggers no database work.
 
-`ServiceUser` principals carry no access rules; treat them as ungranted for this gate unless your source explicitly trusts service callers.
+`principalGrantedRuleIds` treats a `ServiceUser` as a trusted backend-to-backend caller (wildcard), matching how the RPC middleware skips access checks for services, so every source agrees on service callers.
 
 ```ts
 import { isAccessRuleSatisfied } from "@checkstack/common";
-import type { AuthUser } from "@checkstack/backend-api";
-import type { SystemSignalsContributor } from "@checkstack/ai-backend";
-import type { SystemSignalsMap } from "@checkstack/catalog-common";
+import {
+  principalGrantedRuleIds,
+  type SystemSignalsContributor,
+} from "@checkstack/ai-backend";
 import {
   incidentAccess,
   INCIDENT_SIGNAL_SOURCE_ID,
   deriveIncidentSignals,
 } from "@checkstack/incident-common";
 import type { IncidentService } from "./service";
-
-/** RealUser / ApplicationUser carry accessRules; ServiceUser has none. */
-function grantedRules(principal: AuthUser): readonly string[] {
-  return "accessRules" in principal ? (principal.accessRules ?? []) : [];
-}
 
 export function createIncidentSignalsContributor({
   service,
@@ -65,17 +70,23 @@ export function createIncidentSignalsContributor({
 }): SystemSignalsContributor {
   return {
     sourceId: INCIDENT_SIGNAL_SOURCE_ID,
-    read: async ({ principal }): Promise<SystemSignalsMap> => {
+    read: async ({ principal }) => {
       if (
-        !isAccessRuleSatisfied(grantedRules(principal), incidentAccess.incident.read)
+        !isAccessRuleSatisfied(
+          principalGrantedRuleIds(principal),
+          incidentAccess.incident.read,
+        )
       ) {
-        return {};
+        return { accessible: false, signals: {} };
       }
       const incidentsBySystem = await service.listOpenIncidentsBySystem();
-      return deriveIncidentSignals({
-        incidentsBySystem,
-        systemIds: Object.keys(incidentsBySystem),
-      });
+      return {
+        accessible: true,
+        signals: deriveIncidentSignals({
+          incidentsBySystem,
+          systemIds: Object.keys(incidentsBySystem),
+        }),
+      };
     },
   };
 }

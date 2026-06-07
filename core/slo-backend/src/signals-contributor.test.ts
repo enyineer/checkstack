@@ -81,7 +81,7 @@ describe("createSloSignalsRead", () => {
 
     const result = await read({ principal: userWithoutAccess });
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ accessible: false, signals: {} });
   });
 
   test("derives signals globally for an allowed user principal", async () => {
@@ -90,10 +90,10 @@ describe("createSloSignalsRead", () => {
 
     const result = await read({ principal: userWithAccess });
 
-    expect(result["sys-a"]).toHaveLength(1);
-    expect(result["sys-a"]?.[0]?.tone).toBe("error");
-    expect(result["sys-a"]?.[0]?.label).toBe("SLO breaching");
-    expect(result["sys-a"]?.[0]?.source).toBe("slo");
+    expect(result.signals["sys-a"]).toHaveLength(1);
+    expect(result.signals["sys-a"]?.[0]?.tone).toBe("error");
+    expect(result.signals["sys-a"]?.[0]?.label).toBe("SLO breaching");
+    expect(result.signals["sys-a"]?.[0]?.source).toBe("slo");
   });
 
   test("treats a service principal as trusted (no access gate)", async () => {
@@ -102,6 +102,6 @@ describe("createSloSignalsRead", () => {
 
     const result = await read({ principal: serviceUser });
 
-    expect(result["sys-a"]).toHaveLength(1);
+    expect(result.signals["sys-a"]).toHaveLength(1);
   });
 });

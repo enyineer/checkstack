@@ -441,6 +441,7 @@ export type {
   AiToolProjectionExtensionPoint,
   SystemSignalsExtensionPoint,
   SystemSignalsContributor,
+  SystemSignalsContribution,
 } from "./extension-points";
 export {
   createSystemIssuesTool,
