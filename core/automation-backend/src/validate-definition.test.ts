@@ -454,6 +454,98 @@ describe("collectDefinitionIssues", () => {
     expect(issues).toEqual([]);
   });
 
+  it("flags a wrong artifact-type segment for a real producer", async () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "make_thing",
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+        {
+          choose: [
+            {
+              // `test.create` produces "thing"; the model dropped that segment
+              // and gated on `.ok` directly, which resolves to undefined at run
+              // time and makes the gate misfire.
+              when: "{{ not artifacts.make_thing.ok }}",
+              sequence: [
+                {
+                  action: "test.log",
+                  config: { message: "hi", level: "info" },
+                  enabled: true,
+                  continue_on_error: false,
+                },
+              ],
+            },
+          ],
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, deps);
+    const wiring = issues.find((i) =>
+      i.message.includes("artifacts.make_thing.ok"),
+    );
+    expect(wiring).toBeDefined();
+    expect(wiring?.message).toContain('produces "thing"');
+    expect(wiring?.message).toContain("artifacts.make_thing.thing.<field>");
+    expect(wiring?.path.join(".")).toBe("actions.1.choose.0.when");
+  });
+
+  it("accepts a bare artifacts.<id> whole-object reference", async () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "make_thing",
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+        {
+          action: "test.log",
+          config: { message: "{{ artifacts.make_thing }}", level: "info" },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, deps);
+    expect(issues).toEqual([]);
+  });
+
+  it("accepts a correct artifact-type segment in bracket form", async () => {
+    const deps = makeProducerDeps();
+    const def = baseDefinition({
+      actions: [
+        {
+          id: "make_thing",
+          action: "test.create",
+          config: {},
+          enabled: true,
+          continue_on_error: false,
+        },
+        {
+          action: "test.log",
+          config: {
+            message: 'made {{ artifacts["make_thing"]["thing"].ok }}',
+            level: "info",
+          },
+          enabled: true,
+          continue_on_error: false,
+        },
+      ],
+    });
+    const issues = await collectDefinitionIssues(def, deps);
+    expect(issues).toEqual([]);
+  });
+
   // ─── connectionId references ───────────────────────────────────────────
 
   it("flags an unknown connectionId on a provider action", async () => {

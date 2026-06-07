@@ -76,8 +76,13 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("egress allowlisted");
     // Decisions are side-effect-free over a prior query's artifact.
     expect(prompt).toContain("side-effect-free");
-    // Output wiring.
-    expect(prompt).toContain("{{ artifacts.<id>... }}");
+    // Output wiring: the FULL artifacts.<actionId>.<artifactType>.<field>
+    // path, including the easily-dropped <artifactType> segment.
+    expect(prompt).toContain(
+      "{{ artifacts.<actionId>.<artifactType>.<field> }}",
+    );
+    expect(prompt).toContain("The <artifactType> segment is REQUIRED");
+    expect(prompt).toContain("script_result.result");
   });
 
   test("folds in a valid operator timezone", () => {

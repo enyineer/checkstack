@@ -79,6 +79,9 @@ Every action that produces output must have an `id`. Its output is then availabl
 {{ artifacts.fetch-status.script_result.result.status }}
 ```
 
+> [!IMPORTANT]
+> The `<artifactType>` segment is required and easy to drop. An `integration-jira.search_issues` action with id `check-existing` produces an `issue_search` artifact, so its result is `{{ artifacts.check-existing.issue_search.found }}` - NOT `{{ artifacts.check-existing.found }}`. Dropping the type segment resolves to `undefined` at run time, so a gate built on it silently misfires. The exact `<artifactType>` for an action is listed by `automation.getCapabilitySchema`.
+
 The built-in roots `trigger`, `vars`, and `now` are always available and are not artifact references.
 
 ## Propose-time validation
@@ -87,6 +90,6 @@ When the assistant calls `automation.propose`, the dry run catches the three fai
 
 - A `runAs` that does not exist or that the caller may not bind is rejected with guidance to call `automation.listServiceAccounts`. A lookup failure degrades to a soft "could not verify" note.
 - A `connectionId` that does not reference a real connection for the action's provider is rejected with guidance to call `automation.listConnections`. Templated connection ids are skipped, and a lookup failure degrades to a soft note.
-- An unwired `{{ artifacts.<id>... }}` reference (the producer id does not exist or does not produce an artifact) is flagged by the definition validator, which walks configs, variables blocks, `choose` `when` clauses, and conditions. Built-in roots and literal prose are left untouched.
+- An unwired `{{ artifacts.<id>... }}` reference (the producer id does not exist or does not produce an artifact), or a reference whose `<artifactType>` segment does not match what the producing action actually produces (e.g. `artifacts.check-existing.found` when the action produces `issue_search`), is flagged by the definition validator, which walks configs, variables blocks, `choose` `when` clauses, and conditions. A bare whole-object `artifacts.<id>` reference, built-in roots, and literal prose are left untouched.
 
 All of these merge into the dry-run errors and are raised before apply, so an operator reviewing the confirm card sees them up front. Existing valid automations still pass unchanged.

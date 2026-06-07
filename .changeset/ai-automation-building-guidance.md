@@ -18,5 +18,7 @@ as a side-effect-free `choose`/`condition` over a prior query action's
 artifact, fall back to a fetch script with `secretEnv` secrets plus
 `variables`-sourced URL/params for non-integrated systems (and tell the
 operator to allowlist egress to that host), give every output-producing action
-an id and wire it downstream with `{{ artifacts.<id>... }}`, and validate any
-script with `automation.testScript` before proposing.
+an id and wire it downstream with the full
+`{{ artifacts.<actionId>.<artifactType>.<field> }}` path (the `<artifactType>`
+segment is required and easy to drop, which silently resolves to `undefined`),
+and validate any script with `automation.testScript` before proposing.

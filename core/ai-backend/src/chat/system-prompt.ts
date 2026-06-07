@@ -85,7 +85,15 @@ export const AUTOMATION_BUILDING_INSTRUCTION =
   "placeholder; also tell the operator the script needs egress allowlisted to " +
   "that host. " +
   "Give every action that produces output an id and wire it downstream with " +
-  "{{ artifacts.<id>... }}. " +
+  "the FULL path {{ artifacts.<actionId>.<artifactType>.<field> }}. The " +
+  "<artifactType> segment is REQUIRED and easy to drop: it is the action's " +
+  "produced artifact type (see automation.getCapabilitySchema), e.g. a search " +
+  "action that produces issue_search is read as " +
+  "{{ artifacts.<actionId>.issue_search.found }}, NOT " +
+  "{{ artifacts.<actionId>.found }} (which silently resolves to undefined and " +
+  "makes any gate misfire). A script action's return value surfaces under " +
+  "script_result.result, so read it as " +
+  "{{ artifacts.<actionId>.script_result.result.<field> }}. " +
   "Validate any script with automation.testScript before calling " +
   "automation.propose.";
 

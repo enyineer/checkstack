@@ -205,50 +205,68 @@ function walkActionId(
 // ─── Artifact / template wiring validation ──────────────────────────────
 
 /**
- * Match `artifacts.<id>` references inside a `{{ ... }}` template. Captures
- * both dot form (`artifacts.foo.bar`) and the bracket form the editor emits
- * for non-identifier ids (`artifacts["foo"].bar`).
+ * Match an `artifacts.<id>.<artifactType>` reference inside a `{{ ... }}`
+ * template, capturing BOTH path segments. Each segment can be written in dot
+ * form (`artifacts.foo.bar`) or the bracket form the editor emits for
+ * non-identifier ids (`artifacts["foo"]["bar"]`); the two forms can be mixed.
+ *
+ *   match[1] / match[2] - the producing action id  (dot / bracket form)
+ *   match[3] / match[4] - the artifact-type segment (dot / bracket form),
+ *                         absent for a bare whole-object `artifacts.<id>` ref
  */
 const ARTIFACT_REF_RE =
-  /\bartifacts\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\])/g;
+  /\bartifacts\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\])(?:\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\]))?/g;
 
 /**
  * Scan every action config + condition in the definition for
- * `{{ artifacts.<id>... }}` references and flag any whose `<id>` is not
- * produced by some action in the automation.
+ * `{{ artifacts.<id>.<artifactType>... }}` references and flag two failure
+ * modes:
+ *
+ *   1. The producer `<id>` does not exist (no action carries that id AND
+ *      declares a `produces`) - a fabricated artifact id.
+ *   2. The `<id>` exists but the `<artifactType>` segment is wrong - the model
+ *      dropped or mistyped it (e.g. `artifacts.search.found` instead of
+ *      `artifacts.search.issue_search.found`), which silently resolves to
+ *      `undefined` at run time and makes any gate misfire.
  *
  * Conservative on purpose: artifacts are keyed in scope by the PRODUCING
- * action's `id` (`artifacts.<actionId>.<localName>`), so a reference is only
- * resolvable when an action carries that id AND its registered action declares
- * a `produces`. We collect producer ids across the WHOLE definition (not just
- * lexically-earlier ones) so legitimate cross-branch / reordered references
- * never false-positive; only a reference to a producer that simply does not
- * exist is flagged - exactly the "fabricated artifact id" failure mode.
+ * action's `id` then its local artifact name (`artifacts.<actionId>.<localName>`),
+ * so we collect producers across the WHOLE definition (not just lexically-earlier
+ * ones) - legitimate cross-branch / reordered references never false-positive. A
+ * bare `artifacts.<id>` (no second segment) is the whole-object ref and is left
+ * alone.
  */
 function validateArtifactWiring(
   definition: AutomationDefinition,
   deps: ValidateDefinitionDeps,
   issues: DefinitionIssue[],
 ): void {
-  const producerIds = collectProducerIds(definition.actions, deps);
-  walkArtifactRefs(definition.actions, ["actions"], producerIds, issues);
+  const producers = collectProducers(definition.actions, deps);
+  walkArtifactRefs(definition.actions, ["actions"], producers, issues);
 }
 
 /**
- * Collect the ids of every action in the tree that produces a referenceable
- * artifact (has an `id` AND its registered action declares `produces`).
+ * The artifact producers in the tree, mapping each producing action's `id` to
+ * the LOCAL artifact name it exposes in scope (the registered `produces` with
+ * the owning plugin prefix stripped, e.g. `integration-jira.issue_search` →
+ * `issue_search`). This mirrors the dispatch engine's scope write exactly, so
+ * the validator and the run-time scope key on the same name.
  */
-function collectProducerIds(
+function collectProducers(
   actions: ActionInput[],
   deps: ValidateDefinitionDeps,
-): Set<string> {
-  const producerIds = new Set<string>();
+): Map<string, string> {
+  const producers = new Map<string, string>();
   const visit = (list: ActionInput[]): void => {
     for (const action of list) {
       if ("action" in action) {
         const registered = deps.actionRegistry.getAction(action.action);
         if (registered?.produces && typeof action.id === "string") {
-          producerIds.add(action.id);
+          const prefix = `${registered.ownerPluginId}.`;
+          const localName = registered.produces.startsWith(prefix)
+            ? registered.produces.slice(prefix.length)
+            : registered.produces;
+          producers.set(action.id, localName);
         }
         continue;
       }
@@ -272,13 +290,13 @@ function collectProducerIds(
     }
   };
   visit(actions);
-  return producerIds;
+  return producers;
 }
 
 function walkArtifactRefs(
   actions: ActionInput[],
   basePath: Array<string | number>,
-  producerIds: Set<string>,
+  producers: Map<string, string>,
   issues: DefinitionIssue[],
 ): void {
   for (const [index, action] of actions.entries()) {
@@ -288,7 +306,7 @@ function walkArtifactRefs(
       scanValueForArtifactRefs(
         action.config,
         [...path, "config"],
-        producerIds,
+        producers,
         issues,
       );
       continue;
@@ -299,18 +317,18 @@ function walkArtifactRefs(
         scanConditionForArtifactRefs(
           branch.when,
           [...path, "choose", branchIndex, "when"],
-          producerIds,
+          producers,
           issues,
         );
         walkArtifactRefs(
           branch.sequence,
           [...path, "choose", branchIndex, "sequence"],
-          producerIds,
+          producers,
           issues,
         );
       }
       if (action.else) {
-        walkArtifactRefs(action.else, [...path, "else"], producerIds, issues);
+        walkArtifactRefs(action.else, [...path, "else"], producers, issues);
       }
       continue;
     }
@@ -319,7 +337,7 @@ function walkArtifactRefs(
       scanConditionForArtifactRefs(
         action.condition,
         [...path, "condition"],
-        producerIds,
+        producers,
         issues,
       );
       continue;
@@ -329,14 +347,14 @@ function walkArtifactRefs(
       scanValueForArtifactRefs(
         action.variables,
         [...path, "variables"],
-        producerIds,
+        producers,
         issues,
       );
       continue;
     }
 
     if ("parallel" in action) {
-      walkArtifactRefs(action.parallel, [...path, "parallel"], producerIds, issues);
+      walkArtifactRefs(action.parallel, [...path, "parallel"], producers, issues);
       continue;
     }
 
@@ -344,14 +362,14 @@ function walkArtifactRefs(
       walkArtifactRefs(
         action.repeat.sequence,
         [...path, "repeat", "sequence"],
-        producerIds,
+        producers,
         issues,
       );
       continue;
     }
 
     if ("sequence" in action) {
-      walkArtifactRefs(action.sequence, [...path, "sequence"], producerIds, issues);
+      walkArtifactRefs(action.sequence, [...path, "sequence"], producers, issues);
       continue;
     }
   }
@@ -365,22 +383,22 @@ function walkArtifactRefs(
 function scanValueForArtifactRefs(
   value: unknown,
   path: Array<string | number>,
-  producerIds: Set<string>,
+  producers: Map<string, string>,
   issues: DefinitionIssue[],
 ): void {
   if (typeof value === "string") {
-    scanStringForArtifactRefs(value, path, producerIds, issues);
+    scanStringForArtifactRefs(value, path, producers, issues);
     return;
   }
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      scanValueForArtifactRefs(item, [...path, index], producerIds, issues);
+      scanValueForArtifactRefs(item, [...path, index], producers, issues);
     }
     return;
   }
   if (value !== null && typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      scanValueForArtifactRefs(item, [...path, key], producerIds, issues);
+      scanValueForArtifactRefs(item, [...path, key], producers, issues);
     }
   }
 }
@@ -392,23 +410,23 @@ function scanValueForArtifactRefs(
 function scanConditionForArtifactRefs(
   condition: unknown,
   path: Array<string | number>,
-  producerIds: Set<string>,
+  producers: Map<string, string>,
   issues: DefinitionIssue[],
 ): void {
   if (typeof condition === "string") {
-    scanStringForArtifactRefs(condition, path, producerIds, issues);
+    scanStringForArtifactRefs(condition, path, producers, issues);
     return;
   }
   // and/or/not nodes nest further conditions; numeric_state/time/state nodes
   // carry no free-form templates we need to wire-check. scanValue handles both
   // by recursing into any string leaves it finds.
-  scanValueForArtifactRefs(condition, path, producerIds, issues);
+  scanValueForArtifactRefs(condition, path, producers, issues);
 }
 
 function scanStringForArtifactRefs(
   text: string,
   path: Array<string | number>,
-  producerIds: Set<string>,
+  producers: Map<string, string>,
   issues: DefinitionIssue[],
 ): void {
   // Only inspect inside `{{ ... }}` spans so a literal mention of the word
@@ -418,11 +436,27 @@ function scanStringForArtifactRefs(
     let match: RegExpExecArray | null;
     while ((match = ARTIFACT_REF_RE.exec(span)) !== null) {
       const id = match[1] ?? match[2];
-      if (!id || producerIds.has(id)) continue;
-      issues.push({
-        path,
-        message: `Template references artifacts.${id} but no earlier action with id "${id}" produces an artifact. Give the producing action that id, or fix the reference.`,
-      });
+      if (!id) continue;
+      if (!producers.has(id)) {
+        issues.push({
+          path,
+          message: `Template references artifacts.${id} but no earlier action with id "${id}" produces an artifact. Give the producing action that id, or fix the reference.`,
+        });
+        continue;
+      }
+      // The producer exists. Its output is exposed as
+      // `artifacts.<id>.<localName>.<field>`, so the segment right after <id>
+      // MUST be the producer's local artifact name. A bare `artifacts.<id>`
+      // (no second segment) is the whole-object ref and is fine; a present-but-
+      // wrong segment silently resolves to undefined at run time.
+      const artifactType = match[3] ?? match[4];
+      const localName = producers.get(id);
+      if (artifactType !== undefined && artifactType !== localName) {
+        issues.push({
+          path,
+          message: `Template references artifacts.${id}.${artifactType} but action "${id}" produces "${localName}". Reference it as artifacts.${id}.${localName}.<field>.`,
+        });
+      }
     }
   }
 }
