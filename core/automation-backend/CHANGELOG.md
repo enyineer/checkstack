@@ -1,5 +1,14 @@
 # @checkstack/automation-backend
 
+## 0.5.6
+
+### Patch Changes
+
+- Updated dependencies [f9cfdae]
+  - @checkstack/ai-backend@0.1.6
+  - @checkstack/sdk@0.101.1
+  - @checkstack/script-packages-backend@0.3.6
+
 ## 0.5.5
 
 ### Patch Changes
