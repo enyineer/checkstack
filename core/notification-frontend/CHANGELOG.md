@@ -1,5 +1,42 @@
 # @checkstack/notification-frontend
 
+## 0.5.5
+
+### Patch Changes
+
+- 56e7c75: Hide navigation, actions and links that the current user cannot use, so anonymous
+  and read-only users no longer see entries that lead to "Access Denied" or to
+  actions the server would reject.
+
+  - **Sidebar**: a nav entry can now declare a dynamic `nav.isVisible({ accessRules, isAuthenticated })` predicate (in addition to the static `accessRule`). A group whose every entry is filtered out is no longer rendered. The filtering/grouping logic is extracted to a pure, unit-tested helper.
+  - **Infrastructure**: its sidebar entry is shown only when the user can READ at least one contributed tab (queue, cache, …), instead of always (it previously had no static rule because tabs are contributed at runtime).
+  - **Notification Settings**: hidden from anonymous users - notifications are per-user, so an anonymous visitor can't have any.
+  - **Anomaly Mute / Suppress**: the "Mute" / "Mute all" controls (a per-user preference) are hidden from anonymous visitors; the "Suppress" control is gated on `anomalyAccess.feed.manage`. Both were previously always visible.
+  - **Dashboard**: the "Open Catalog" actions (which open the manage-only Catalog config page) are hidden from users without `catalogAccess.system.manage`, and the "View catalog" link is gated on `catalogAccess.system.read`.
+  - **Dashboard status signals**: the per-system status rows contributed by plugins (`SystemSignalsSlot`) now render as a LINK only when the user can open the target, and as plain text otherwise. `SystemSignal` gains an optional `accessRule`; the healthcheck, anomaly, and dependency fillers set it for their gated targets (check-history / assignments / dependency-map). Signals pointing at ungated pages (incident / maintenance / SLO detail) stay links.
+  - **Plugin Manager**: the "Install plugin" button (which opens the install-gated page) is hidden from users with only `plugin` view access.
+  - **Satellites**: the page is entirely manage-gated, but its route/sidebar entry was gated on `read`, so read-only users saw the nav item and hit "Access Denied" on click. The route and nav entry now require `satellite.manage`.
+
+  The `@checkstack/ai-backend` bump is only the regenerated bundled docs index
+  (the frontend routing guide gained the `nav.isVisible` section); no code change.
+
+  **BREAKING (`@checkstack/frontend-api`):** the `AccessApi` interface gains a
+  required `useIsAuthenticated()` method. Custom `AccessApi` implementations must
+  add it (it returns `{ loading, isAuthenticated }`). The built-in auth
+  implementation and the no-auth fallback already do. `NavEntry` also gains an
+  optional `isVisible` predicate (purely additive).
+
+- Updated dependencies [0626782]
+- Updated dependencies [56e7c75]
+- Updated dependencies [56e7c75]
+  - @checkstack/auth-frontend@0.7.5
+  - @checkstack/frontend-api@0.9.0
+  - @checkstack/ui@1.15.1
+  - @checkstack/common@0.15.0
+  - @checkstack/notification-common@1.3.3
+  - @checkstack/tips-frontend@0.3.5
+  - @checkstack/signal-frontend@0.2.4
+
 ## 0.5.4
 
 ### Patch Changes

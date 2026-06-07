@@ -1,5 +1,20 @@
 # @checkstack/integration-backend
 
+## 0.4.5
+
+### Patch Changes
+
+- Updated dependencies [0626782]
+- Updated dependencies [56e7c75]
+  - @checkstack/backend-api@0.21.5
+  - @checkstack/common@0.15.0
+  - @checkstack/integration-common@0.7.3
+  - @checkstack/secrets-common@0.2.3
+  - @checkstack/secrets-backend@0.2.5
+  - @checkstack/command-backend@0.2.5
+  - @checkstack/queue-api@0.3.12
+  - @checkstack/signal-common@0.2.9
+
 ## 0.4.4
 
 ### Patch Changes

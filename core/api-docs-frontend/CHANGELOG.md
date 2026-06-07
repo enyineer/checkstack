@@ -1,5 +1,16 @@
 # @checkstack/api-docs-frontend
 
+## 0.3.5
+
+### Patch Changes
+
+- Updated dependencies [56e7c75]
+- Updated dependencies [56e7c75]
+  - @checkstack/frontend-api@0.9.0
+  - @checkstack/ui@1.15.1
+  - @checkstack/common@0.15.0
+  - @checkstack/api-docs-common@0.1.19
+
 ## 0.3.4
 
 ### Patch Changes

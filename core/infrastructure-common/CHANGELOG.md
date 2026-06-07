@@ -1,5 +1,14 @@
 # @checkstack/infrastructure-common
 
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [56e7c75]
+- Updated dependencies [56e7c75]
+  - @checkstack/frontend-api@0.9.0
+  - @checkstack/common@0.15.0
+
 ## 0.3.7
 
 ### Patch Changes

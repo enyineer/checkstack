@@ -1,5 +1,91 @@
 # @checkstack/backend
 
+## 0.18.0
+
+### Minor Changes
+
+- 0626782: Guard the role editor against granting inert (and misleading) permissions to the
+  anonymous role.
+
+  RPC procedures carry two independent axes: `userType` (the hard authentication
+  gate) and `access` rules (authorization). An admin can grant the anonymous role
+  any access rule, but if the procedures needing that rule are `userType:
+"authenticated"`/`"user"`, the grant does nothing - the auth middleware rejects
+  unauthenticated callers BEFORE access rules are checked (so there is no security
+  hole; the grant is simply inert). After anonymous users started seeing
+  permission-gated UI, such a grant would surface as visible-but-broken controls.
+
+  - The backend now computes, from contract metadata, the access rules an anonymous
+    caller can actually use (a rule is "usable" iff at least one `public` procedure
+    requires it) via `pluginManager.getAnonymousUsableAccessRuleIds()`, exposed to
+    plugins through the plugin environment.
+  - `auth.getAccessRules` annotates each rule with `anonymousUsable`.
+  - `auth.updateRole` REFUSES to ADD a non-usable rule to the anonymous role
+    (existing grants are untouched, so no configuration can be wedged). This is a
+    guardrail, not an enforcement change - RPC authorization is unchanged.
+  - The role editor disables non-usable rules (with an explanation) when editing
+    the anonymous role.
+
+  Verified live: `getAccessRules` reports 11 anonymous-usable vs 58 not; granting
+  `incident.incident.manage` to the anonymous role returns HTTP 400 with a clear
+  message.
+
+### Patch Changes
+
+- 56e7c75: Fix frontend access checks to use FULLY-QUALIFIED access-rule ids, and resolve
+  the anonymous role on the frontend.
+
+  Granted access-rule ids are stored fully-qualified as `{pluginId}.{ruleId}` (e.g.
+  `incident.incident.read`) so two plugins defining the same short rule id never
+  collide. The frontend, however, was checking the UNqualified id (`incident.read`)
+  via `isAccessRuleSatisfied`, so every check failed for any user without the `*`
+  (admin) grant - masked in development because dev-auth grants `*`. This silently
+  broke ALL non-admin frontend gating (route guards, sidebar entries, and
+  `useAccess`-based button/link gating).
+
+  - **`@checkstack/common`**: `AccessRule` now carries a REQUIRED owning `pluginId`;
+    `access()` / `accessPair()` require and stamp it; `isAccessRuleSatisfied`
+    qualifies the rule (`{pluginId}.{id}`, plus the manage->read escalation) and
+    matches ONLY the qualified form. There is intentionally NO unqualified fallback
+    - matching a bare id would let one plugin's grant satisfy another plugin's
+      identically-named rule (a cross-plugin privilege-escalation flaw). Every plugin
+      that defines access rules now passes its own `pluginId`.
+  - **`@checkstack/backend`**: `pluginManager.getAllAccessRules()` no longer strips
+    the `pluginId` field (the rule `id` is already fully-qualified for the DB sync).
+  - **Route guard** (`@checkstack/frontend` / `@checkstack/frontend-api`) now
+    checks the FULL rule object (so it qualifies and escalates), not a bare id.
+  - **Anonymous role on the frontend**: the `accessRules` procedure is now
+    `public`, returning the configurable anonymous role's grants to unauthenticated
+    callers; `useAccessRules` fetches them for guests instead of returning an empty
+    set. So anonymous UI now reflects exactly what the anonymous role is allowed -
+    which an admin can change (`isPublic` is only the seeded default).
+  - Incident / maintenance / SLO detail routes are now read-gated (their read rule
+    is an `isPublic` default, so the anonymous role holds it unless an admin
+    revokes it); their dashboard status signals carry that rule and render as a
+    link only when the viewer may open it.
+
+  **BREAKING (`@checkstack/common`):** `AccessRule.pluginId` is now REQUIRED, and
+  `access()` / `accessPair()` require a `pluginId` option. `isAccessRuleSatisfied`
+  matches ONLY the fully-qualified `{pluginId}.{ruleId}` form - the previous
+  unqualified fallback is removed, because it was a cross-plugin
+  privilege-escalation flaw. Any code constructing an `AccessRule` or calling
+  `access()`/`accessPair()` must supply the owning `pluginId`.
+
+  Verified live against an anonymous caller: read pages resolve (qualified match),
+  manage actions are denied, manage->read escalation and `*` still work.
+
+- Updated dependencies [0626782]
+- Updated dependencies [56e7c75]
+  - @checkstack/backend-api@0.21.5
+  - @checkstack/auth-common@0.8.3
+  - @checkstack/common@0.15.0
+  - @checkstack/api-docs-common@0.1.19
+  - @checkstack/pluginmanager-common@0.2.8
+  - @checkstack/signal-backend@0.3.5
+  - @checkstack/cache-api@0.3.12
+  - @checkstack/queue-api@0.3.12
+  - @checkstack/signal-common@0.2.9
+
 ## 0.17.2
 
 ### Patch Changes

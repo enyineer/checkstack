@@ -1,5 +1,100 @@
 # @checkstack/frontend
 
+## 0.9.1
+
+### Patch Changes
+
+- 16f89bd: Disable production source maps by default in the frontend build. Source maps over
+  the bundled Monaco / VS Code (`@codingame/*`) editor stack roughly doubled the
+  build's time and peak memory and shipped several MB of `.js.map` into the image -
+  enough to OOM-thrash a CI runner (the Docker image build hung on the frontend
+  build step). They are now off by default; opt in locally with
+  `VITE_SOURCEMAP=true bun run --filter '@checkstack/frontend' build` when you need
+  to debug the production bundle.
+
+  Also fixes the `@module-federation/vite` `shared` typing (its published type omits
+  `eager` and types `requiredVersion` as `string`, narrower than the MF runtime),
+  so `vite.config.ts` no longer reports type errors.
+
+- 56e7c75: Hide navigation, actions and links that the current user cannot use, so anonymous
+  and read-only users no longer see entries that lead to "Access Denied" or to
+  actions the server would reject.
+
+  - **Sidebar**: a nav entry can now declare a dynamic `nav.isVisible({ accessRules, isAuthenticated })` predicate (in addition to the static `accessRule`). A group whose every entry is filtered out is no longer rendered. The filtering/grouping logic is extracted to a pure, unit-tested helper.
+  - **Infrastructure**: its sidebar entry is shown only when the user can READ at least one contributed tab (queue, cache, …), instead of always (it previously had no static rule because tabs are contributed at runtime).
+  - **Notification Settings**: hidden from anonymous users - notifications are per-user, so an anonymous visitor can't have any.
+  - **Anomaly Mute / Suppress**: the "Mute" / "Mute all" controls (a per-user preference) are hidden from anonymous visitors; the "Suppress" control is gated on `anomalyAccess.feed.manage`. Both were previously always visible.
+  - **Dashboard**: the "Open Catalog" actions (which open the manage-only Catalog config page) are hidden from users without `catalogAccess.system.manage`, and the "View catalog" link is gated on `catalogAccess.system.read`.
+  - **Dashboard status signals**: the per-system status rows contributed by plugins (`SystemSignalsSlot`) now render as a LINK only when the user can open the target, and as plain text otherwise. `SystemSignal` gains an optional `accessRule`; the healthcheck, anomaly, and dependency fillers set it for their gated targets (check-history / assignments / dependency-map). Signals pointing at ungated pages (incident / maintenance / SLO detail) stay links.
+  - **Plugin Manager**: the "Install plugin" button (which opens the install-gated page) is hidden from users with only `plugin` view access.
+  - **Satellites**: the page is entirely manage-gated, but its route/sidebar entry was gated on `read`, so read-only users saw the nav item and hit "Access Denied" on click. The route and nav entry now require `satellite.manage`.
+
+  The `@checkstack/ai-backend` bump is only the regenerated bundled docs index
+  (the frontend routing guide gained the `nav.isVisible` section); no code change.
+
+  **BREAKING (`@checkstack/frontend-api`):** the `AccessApi` interface gains a
+  required `useIsAuthenticated()` method. Custom `AccessApi` implementations must
+  add it (it returns `{ loading, isAuthenticated }`). The built-in auth
+  implementation and the no-auth fallback already do. `NavEntry` also gains an
+  optional `isVisible` predicate (purely additive).
+
+- 56e7c75: Fix frontend access checks to use FULLY-QUALIFIED access-rule ids, and resolve
+  the anonymous role on the frontend.
+
+  Granted access-rule ids are stored fully-qualified as `{pluginId}.{ruleId}` (e.g.
+  `incident.incident.read`) so two plugins defining the same short rule id never
+  collide. The frontend, however, was checking the UNqualified id (`incident.read`)
+  via `isAccessRuleSatisfied`, so every check failed for any user without the `*`
+  (admin) grant - masked in development because dev-auth grants `*`. This silently
+  broke ALL non-admin frontend gating (route guards, sidebar entries, and
+  `useAccess`-based button/link gating).
+
+  - **`@checkstack/common`**: `AccessRule` now carries a REQUIRED owning `pluginId`;
+    `access()` / `accessPair()` require and stamp it; `isAccessRuleSatisfied`
+    qualifies the rule (`{pluginId}.{id}`, plus the manage->read escalation) and
+    matches ONLY the qualified form. There is intentionally NO unqualified fallback
+    - matching a bare id would let one plugin's grant satisfy another plugin's
+      identically-named rule (a cross-plugin privilege-escalation flaw). Every plugin
+      that defines access rules now passes its own `pluginId`.
+  - **`@checkstack/backend`**: `pluginManager.getAllAccessRules()` no longer strips
+    the `pluginId` field (the rule `id` is already fully-qualified for the DB sync).
+  - **Route guard** (`@checkstack/frontend` / `@checkstack/frontend-api`) now
+    checks the FULL rule object (so it qualifies and escalates), not a bare id.
+  - **Anonymous role on the frontend**: the `accessRules` procedure is now
+    `public`, returning the configurable anonymous role's grants to unauthenticated
+    callers; `useAccessRules` fetches them for guests instead of returning an empty
+    set. So anonymous UI now reflects exactly what the anonymous role is allowed -
+    which an admin can change (`isPublic` is only the seeded default).
+  - Incident / maintenance / SLO detail routes are now read-gated (their read rule
+    is an `isPublic` default, so the anonymous role holds it unless an admin
+    revokes it); their dashboard status signals carry that rule and render as a
+    link only when the viewer may open it.
+
+  **BREAKING (`@checkstack/common`):** `AccessRule.pluginId` is now REQUIRED, and
+  `access()` / `accessPair()` require a `pluginId` option. `isAccessRuleSatisfied`
+  matches ONLY the fully-qualified `{pluginId}.{ruleId}` form - the previous
+  unqualified fallback is removed, because it was a cross-plugin
+  privilege-escalation flaw. Any code constructing an `AccessRule` or calling
+  `access()`/`accessPair()` must supply the owning `pluginId`.
+
+  Verified live against an anonymous caller: read pages resolve (qualified match),
+  manage actions are denied, manage->read escalation and `*` still work.
+
+- Updated dependencies [0626782]
+- Updated dependencies [56e7c75]
+- Updated dependencies [56e7c75]
+  - @checkstack/auth-frontend@0.7.5
+  - @checkstack/frontend-api@0.9.0
+  - @checkstack/dependency-frontend@0.5.5
+  - @checkstack/ui@1.15.1
+  - @checkstack/common@0.15.0
+  - @checkstack/catalog-frontend@0.11.5
+  - @checkstack/announcement-frontend@0.4.5
+  - @checkstack/about-frontend@0.3.5
+  - @checkstack/command-frontend@0.3.5
+  - @checkstack/signal-common@0.2.9
+  - @checkstack/signal-frontend@0.2.4
+
 ## 0.9.0
 
 ### Minor Changes
