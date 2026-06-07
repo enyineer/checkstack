@@ -77,7 +77,9 @@ const SignalTextRow: React.FC<{ signal: SystemSignal; isLowPower: boolean }> = (
   signal,
   isLowPower,
 }) => (
-  <li className="flex items-center gap-2.5 px-2 py-1.5">
+  // Same horizontal box as SignalLinkRow (`-mx-2 px-2`) so text and link rows
+  // line up - the link's negative margin would otherwise sit it 0.5rem left.
+  <li className="-mx-2 flex items-center gap-2.5 px-2 py-1.5">
     <SignalInner signal={signal} isLowPower={isLowPower} interactive={false} />
   </li>
 );
