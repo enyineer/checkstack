@@ -25,6 +25,7 @@ import { extractErrorMessage, qualifyAccessRuleId } from "@checkstack/common";
 import { jiraAccess, pluginMetadata } from "@checkstack/integration-jira-common";
 
 import { createJiraClientFromConfig } from "./jira-client";
+import { buildAdditionalFields } from "./additional-fields";
 import type { JiraConnectionConfig } from "./provider";
 import { JIRA_RESOLVERS, JIRA_PROVIDER_QUALIFIED_ID } from "./provider";
 
@@ -293,9 +294,26 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
       }
       const { client, config: connConfig } = loaded;
       try {
-        const additionalFields: Record<string, unknown> = {};
-        for (const mapping of config.fieldMappings ?? []) {
-          additionalFields[mapping.fieldKey] = mapping.value;
+        // Coerce + validate the operator's field mappings against the live Jira
+        // field schema (the config value is always a string, but Jira fields are
+        // typed). This turns e.g. labels `["x"]` into a real array and rejects an
+        // unknown field key / bad option value with a clear error, instead of
+        // sending a malformed payload Jira rejects with an opaque 400.
+        const mappings = config.fieldMappings ?? [];
+        let additionalFields: Record<string, unknown> = {};
+        if (mappings.length > 0) {
+          const fieldMeta = await client.getFields(
+            config.projectKey,
+            config.issueTypeId,
+          );
+          const coerced = buildAdditionalFields({ mappings, fields: fieldMeta });
+          if (coerced.errors.length > 0) {
+            return {
+              success: false,
+              error: `Invalid additional field(s): ${coerced.errors.join(" ")}`,
+            };
+          }
+          additionalFields = coerced.additionalFields;
         }
         const result = await client.createIssue({
           projectKey: config.projectKey,
