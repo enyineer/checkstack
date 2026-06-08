@@ -1,5 +1,30 @@
 # @checkstack/incident-backend
 
+## 1.7.3
+
+### Patch Changes
+
+- Updated dependencies [079369a]
+- Updated dependencies [4134ed9]
+- Updated dependencies [6005271]
+- Updated dependencies [748268c]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+- Updated dependencies [079369a]
+- Updated dependencies [079369a]
+  - @checkstack/ai-backend@0.6.0
+  - @checkstack/ai-common@0.4.0
+  - @checkstack/automation-backend@0.8.0
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/automation-common@0.6.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/integration-backend@0.6.1
+  - @checkstack/catalog-backend@1.4.11
+  - @checkstack/command-backend@0.2.8
+  - @checkstack/catalog-common@2.3.6
+  - @checkstack/incident-common@1.5.2
+
 ## 1.7.2
 
 ### Patch Changes

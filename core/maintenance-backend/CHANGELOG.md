@@ -1,5 +1,50 @@
 # @checkstack/maintenance-backend
 
+## 1.5.3
+
+### Patch Changes
+
+- 079369a: Fix producing automation actions that double-prefixed their artifact type. The
+  action registry qualifies `produces` with the owning plugin id, but several
+  actions set `produces` to an already-qualified id, so it became
+  `plugin.plugin.type` (e.g. `automation.automation.analysis`,
+  `maintenance.maintenance.window`). This stored artifacts under a type that
+  matched no registered artifact type, and — because the run scope exposes a
+  produced artifact under its type's local name — broke the documented downstream
+  reference `artifacts.<actionId>.<name>.<field>` (a `choose`/condition/template
+  referencing the analysis output, a created incident/maintenance/etc. silently
+  saw `undefined` and took the wrong branch).
+
+  Fixed in `ai_analyze` (`analysis`), the built-in `notify_user`
+  (`notify_user_result`), and the catalog (`system_record`), maintenance
+  (`window`), notification (`send_result`), dependency (`edge`), and healthcheck
+  (`assignment`) actions — each now uses the unqualified local id matching its
+  artifact-type definition.
+
+  BREAKING (beta): any automation that referenced one of these artifacts via the
+  old double-prefixed scope key (e.g. `artifacts.x['automation.analysis']`) must
+  switch to the documented form (`artifacts.x.analysis.<field>`). The
+  double-prefixed key was never the intended/documented path.
+
+- Updated dependencies [079369a]
+- Updated dependencies [4134ed9]
+- Updated dependencies [6005271]
+- Updated dependencies [748268c]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+- Updated dependencies [079369a]
+- Updated dependencies [079369a]
+  - @checkstack/ai-backend@0.6.0
+  - @checkstack/ai-common@0.4.0
+  - @checkstack/automation-backend@0.8.0
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/automation-common@0.6.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/catalog-backend@1.4.11
+  - @checkstack/command-backend@0.2.8
+  - @checkstack/catalog-common@2.3.6
+  - @checkstack/maintenance-common@1.5.2
+
 ## 1.5.2
 
 ### Patch Changes

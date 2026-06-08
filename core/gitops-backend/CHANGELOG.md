@@ -1,5 +1,14 @@
 # @checkstack/gitops-backend
 
+## 0.5.8
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/command-backend@0.2.8
+  - @checkstack/secrets-backend@0.2.8
+
 ## 0.5.7
 
 ### Patch Changes
