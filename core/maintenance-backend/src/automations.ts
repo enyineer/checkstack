@@ -260,7 +260,7 @@ export function createMaintenanceActions(
     category: "Maintenance",
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: createConfigSchema }),
-    produces: "maintenance.window",
+    produces: "window",
     execute: async ({ config, logger, runId, scope }) => {
       // Drive the create through the reactive `maintenance` entity (§10.2):
       // the REAL write runs inside `apply` and the deriver fires
@@ -307,7 +307,7 @@ export function createMaintenanceActions(
     category: "Maintenance",
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: updateConfigSchema }),
-    produces: "maintenance.window",
+    produces: "window",
     execute: async ({ config, logger, runId, scope }) => {
       // Probe existence first so a missing window returns a clean failure
       // without driving an entity write (no `prev` to snapshot).
@@ -361,7 +361,7 @@ export function createMaintenanceActions(
     category: "Maintenance",
     icon: "MessageSquarePlus",
     config: new Versioned({ version: 1, schema: addUpdateConfigSchema }),
-    produces: "maintenance.window",
+    produces: "window",
     execute: async ({ config, logger, runId, scope }) => {
       // Drive the update through the reactive `maintenance` entity (§10.2):
       // `apply` posts the update row + (optionally) flips status, then
@@ -418,7 +418,7 @@ export function createMaintenanceActions(
     category: "Maintenance",
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: setSystemConfigSchema }),
-    produces: "maintenance.window",
+    produces: "window",
     execute: async ({ config, logger, runId, scope }) => {
       const startAt = now();
       const endAt = new Date(
@@ -474,7 +474,7 @@ export function createMaintenanceActions(
     category: "Maintenance",
     icon: "Wrench",
     config: new Versioned({ version: 1, schema: clearSystemConfigSchema }),
-    produces: "maintenance.window",
+    produces: "window",
     execute: async ({ config, logger, runId, scope }) => {
       const active = await deps.service.getMaintenancesForSystem(config.systemId);
       const closedIds: string[] = [];

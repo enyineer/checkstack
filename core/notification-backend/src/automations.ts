@@ -149,7 +149,7 @@ export const notificationSendAction: ActionDefinition<
     version: 1,
     schema: notificationSendConfigSchema,
   }),
-  produces: "notification.send_result",
+  produces: "send_result",
   execute: async ({ config, logger, rpcClient }) => {
     const notificationClient = rpcClient.forPlugin(NotificationApi);
     const action =

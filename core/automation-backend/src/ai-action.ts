@@ -190,7 +190,13 @@ export const aiAnalyzeAction: ActionDefinition<
   icon: "Sparkles",
   connectionProviderId: AI_CONNECTION_PROVIDER_ID,
   config: new Versioned({ version: 1, schema: aiActionConfigSchema }),
-  produces: "automation.analysis",
+  // The action registry qualifies `produces` with the owning plugin id, so this
+  // is the UNqualified local id (matching the artifact type's `id: "analysis"`).
+  // It must NOT be pre-qualified — "automation.analysis" here would be
+  // re-qualified to "automation.automation.analysis", which then exposes the
+  // artifact in scope under that double-prefixed key and breaks the documented
+  // reference `artifacts.<actionId>.analysis.data.<field>`.
+  produces: "analysis",
   execute: async ({ config, scope, logger, rpcClient, getService, runAs }) => {
     if (!runAs) {
       return {
