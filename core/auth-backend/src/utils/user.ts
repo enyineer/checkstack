@@ -132,3 +132,71 @@ export const enrichApplicationPrincipal = async (
     teamIds: appTeams.map((t) => t.teamId),
   };
 };
+
+/**
+ * Resolve the effective access rules for EVERY application in a fixed number of
+ * queries (two), regardless of how many applications exist.
+ *
+ * `enrichApplicationPrincipal` resolves a single application with 3-4 queries;
+ * calling it once per application (the old `getBindableApplications` loop) is
+ * `O(apps)` round-trips and showed up as broad slowness on the shared database
+ * once the bind-authority check started resolving every app on every call (the
+ * AI propose / service-account flow hits this on each chat turn). This batches
+ * the role joins instead: one query for all application->role links, one for
+ * the access rules of the involved roles. Teams are intentionally NOT resolved
+ * here — bind authority and the picker only need access rules.
+ *
+ * Returns a map of `applicationId -> effective access rule ids` (`*` for any app
+ * holding the built-in `admin` role, mirroring {@link enrichApplicationPrincipal}).
+ * Applications with no roles are present with an empty array.
+ */
+export const resolveAllApplicationAccessRules = async (
+  db: SafeDatabase<typeof schema>,
+): Promise<Map<string, string[]>> => {
+  const appRoleLinks = await db
+    .select({
+      applicationId: schema.applicationRole.applicationId,
+      roleId: schema.applicationRole.roleId,
+    })
+    .from(schema.applicationRole);
+
+  const nonAdminRoleIds = [
+    ...new Set(
+      appRoleLinks.map((l) => l.roleId).filter((roleId) => roleId !== "admin"),
+    ),
+  ];
+
+  const rulesByRole = new Map<string, string[]>();
+  if (nonAdminRoleIds.length > 0) {
+    const rolePerms = await db
+      .select({
+        roleId: schema.roleAccessRule.roleId,
+        accessRuleId: schema.roleAccessRule.accessRuleId,
+      })
+      .from(schema.roleAccessRule)
+      .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
+    for (const rp of rolePerms) {
+      const existing = rulesByRole.get(rp.roleId);
+      if (existing) existing.push(rp.accessRuleId);
+      else rulesByRole.set(rp.roleId, [rp.accessRuleId]);
+    }
+  }
+
+  const rulesByApp = new Map<string, Set<string>>();
+  for (const link of appRoleLinks) {
+    let set = rulesByApp.get(link.applicationId);
+    if (!set) {
+      set = new Set<string>();
+      rulesByApp.set(link.applicationId, set);
+    }
+    if (link.roleId === "admin") {
+      set.add("*");
+      continue;
+    }
+    for (const rule of rulesByRole.get(link.roleId) ?? []) set.add(rule);
+  }
+
+  return new Map(
+    [...rulesByApp].map(([appId, set]) => [appId, [...set]] as const),
+  );
+};

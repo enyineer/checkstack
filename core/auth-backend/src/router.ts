@@ -22,7 +22,10 @@ import * as schema from "./schema";
 import { eq, inArray, and } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
-import { enrichApplicationPrincipal as resolveApplicationPrincipal } from "./utils/user";
+import {
+  enrichApplicationPrincipal as resolveApplicationPrincipal,
+  resolveAllApplicationAccessRules,
+} from "./utils/user";
 
 /**
  * Type guard to check if user is a RealUser (not a service).
@@ -1537,29 +1540,48 @@ export const createAuthRouter = (
   // An app is bindable only when its access rules are a subset of the caller's
   // (no privilege escalation); `*`-holders may bind anything.
   const getBindableApplications = os.getBindableApplications.handler(
-    async ({ context }) => {
+    async ({ input, context }) => {
+      // The picker (UI) only needs id/name/description; the AI propose /
+      // service-account flow needs each app's effective rules to match against
+      // an action's `requiredAccessRules`, and opts in via `includeAccessRules`.
+      const includeAccessRules = input?.includeAccessRules ?? false;
       const callerRules = isRealUser(context.user)
         ? (context.user.accessRules ?? [])
         : [];
+      const callerIsAdmin = callerRules.includes("*");
 
       const apps = await internalDb.select().from(schema.application);
+
+      // Fast path: a `*` caller may bind every application, and when the caller
+      // did not ask for the apps' rules we can skip rule resolution entirely.
+      // This keeps the editor's "Run as" picker a single query for admins (the
+      // common case) instead of resolving every application on every open.
+      if (callerIsAdmin && !includeAccessRules) {
+        return apps.map((app) => ({
+          id: app.id,
+          name: app.name,
+          description: app.description,
+        }));
+      }
+
+      // Otherwise resolve every application's rules in a fixed number of queries
+      // (not one query per app) — needed for the non-admin subset check and/or
+      // to return `accessRules` when requested.
+      const rulesByApp = await resolveAllApplicationAccessRules(internalDb);
+
       const bindable: {
         id: string;
         name: string;
         description: string | null;
-        accessRules: string[];
+        accessRules?: string[];
       }[] = [];
 
       for (const app of apps) {
-        // Resolve the app's effective rules: needed both for the non-admin
-        // subset check and (always) to return `accessRules` so callers can see
-        // what a chosen runAs is permitted to do. Skip an app that can't be
-        // resolved.
-        const enriched = await resolveApplicationPrincipal(app.id, internalDb);
-        if (!enriched) continue;
+        const appRules = rulesByApp.get(app.id) ?? [];
         if (
+          !callerIsAdmin &&
           !isApplicationBindable({
-            appAccessRules: enriched.accessRules,
+            appAccessRules: appRules,
             callerAccessRules: callerRules,
           })
         ) {
@@ -1569,7 +1591,7 @@ export const createAuthRouter = (
           id: app.id,
           name: app.name,
           description: app.description,
-          accessRules: enriched.accessRules,
+          ...(includeAccessRules ? { accessRules: appRules } : {}),
         });
       }
 
