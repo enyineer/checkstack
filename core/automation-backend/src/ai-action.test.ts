@@ -111,7 +111,10 @@ function makeGetService(opts: {
 describe("aiAnalyzeAction", () => {
   it("is an AI-category action that produces the analysis artifact", () => {
     expect(aiAnalyzeAction.id).toBe("ai_analyze");
-    expect(aiAnalyzeAction.produces).toBe("automation.analysis");
+    // UNqualified local id — the action registry qualifies it to
+    // `automation.analysis` (matching the artifact type). Pre-qualifying here
+    // would double-prefix to `automation.automation.analysis`.
+    expect(aiAnalyzeAction.produces).toBe("analysis");
   });
 
   it("fails clearly when the automation has no service account", async () => {

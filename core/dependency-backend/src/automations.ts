@@ -217,7 +217,7 @@ export function createDependencyActions(
       version: 1,
       schema: dependencyCreateConfigSchema,
     }),
-    produces: "dependency.edge",
+    produces: "edge",
     execute: async ({ config, logger }) => {
       try {
         // Drive the create through the reactive `dependency-edge` entity
@@ -280,7 +280,7 @@ export function createDependencyActions(
       version: 1,
       schema: dependencyRemoveConfigSchema,
     }),
-    produces: "dependency.edge",
+    produces: "edge",
     execute: async ({ config, logger }) => {
       const existing = await deps.service.getDependencyById(config.dependencyId);
       if (!existing) {

@@ -352,7 +352,15 @@ describe("createAgentRunner", () => {
       systemsSeen.push(args.system ?? "");
       attempt += 1;
       if (attempt === 1) {
-        throw new Error("severity must be one of low|medium|high");
+        // Shape of a real AI-SDK NoObjectGeneratedError: a generic top-level
+        // message, with the actionable field-level detail in `cause` and the
+        // model's rejected output in `text`.
+        const err = new Error(
+          "No object generated: response did not match schema.",
+        ) as Error & { text?: string; cause?: { message: string } };
+        err.text = '{"sev":"high"}';
+        err.cause = { message: "severity: expected string, received undefined" };
+        throw err;
       }
       return { object: { severity: "high" }, usage: {} };
     });
@@ -376,9 +384,20 @@ describe("createAgentRunner", () => {
 
     expect(generateObject).toHaveBeenCalledTimes(2);
     expect(result.object).toEqual({ severity: "high" });
-    // The retry's system prompt carries the prior failure as repair guidance.
-    expect(systemsSeen[1]).toContain("rejected");
-    expect(systemsSeen[1]).toContain("severity must be one of");
+    // The system prompt DESCRIBES the required schema (field names) on EVERY
+    // attempt. The OpenAI-compatible provider drops the JSON schema sent via
+    // responseFormat (supportsStructuredOutputs: false), so without this the
+    // model is never told the shape and omits required fields. Regression guard.
+    expect(systemsSeen[0]).toMatch(/JSON Schema/i);
+    expect(systemsSeen[0]).toContain("severity");
+    // The retry's repair guidance surfaces the ACTIONABLE detail, not the
+    // generic "no object generated" line: the field-level validation cause and
+    // the model's own rejected output, so a dumber model can self-correct.
+    expect(systemsSeen[1]).toContain("REJECTED");
+    expect(systemsSeen[1]).toContain("severity: expected string, received undefined");
+    expect(systemsSeen[1]).toContain('You returned: {"sev":"high"}');
+    // The full schema is restated on the retry too.
+    expect(systemsSeen[1]).toMatch(/JSON Schema|"severity"/);
   });
 
   it("gives up after the bounded retries and propagates the last schema error", async () => {

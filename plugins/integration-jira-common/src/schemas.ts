@@ -39,6 +39,8 @@ export const JiraFieldSchema = z.object({
   schema: z
     .object({
       type: z.string(),
+      /** Element type for `type: "array"` fields (e.g. "string" for labels). */
+      items: z.string().optional(),
       system: z.string().optional(),
       custom: z.string().optional(),
       customId: z.number().optional(),

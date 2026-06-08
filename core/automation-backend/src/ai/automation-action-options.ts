@@ -69,7 +69,7 @@ export function createAutomationResolveOptionsTool(): RegisteredAiTool<
   return {
     name: "automation.resolveActionOptions",
     description:
-      "Resolve the VALID values for a dynamic-option config field of an integration action (e.g. a Jira create_issue's projectKey, issueTypeId, or priorityId), fetched live from the connection - the same list the editor dropdown shows. Use this whenever a field's schema has `x-options-resolver` instead of guessing the value. For a cascading field, pass the fields it depends on via `dependencies` (e.g. { projectKey } when resolving issueTypeId), resolving each dependency's options first. Returns { options: [{ value, label }], note }.",
+      "Resolve the VALID values for a dynamic-option config field of an integration action (e.g. a Jira create_issue's projectKey, issueTypeId, or priorityId), fetched live from the connection - the same list the editor dropdown shows. Use this whenever a field's schema has `x-options-resolver` instead of guessing the value. For a cascading field, pass the fields it depends on via `dependencies` (e.g. { projectKey } when resolving issueTypeId), resolving each dependency's options first. A dynamic-option field nested inside an array of rows is referenced by a DOTTED path of its schema location (arrayField.leafField). Returns { options: [{ value, label }], note }.",
     effect: "read",
     input: ResolveActionOptionsInputSchema,
     output: ResolveActionOptionsOutputSchema,

@@ -318,6 +318,7 @@ export function createJiraClient(options: JiraClientOptions) {
           required: boolean;
           schema?: {
             type: string;
+            items?: string;
             system?: string;
             custom?: string;
             customId?: number;
@@ -470,7 +471,14 @@ export function createJiraClient(options: JiraClientOptions) {
         }>;
       }
 
-      const result = await request<SearchResponse>("/search", {
+      // Jira Cloud DEPRECATED the legacy `/search` endpoint on 2024-05-01 and
+      // REMOVED it on 2025-05-01 (Atlassian CHANGE-2046); it now returns HTTP 410
+      // and requires `/search/jql`. The new endpoint is paginated via
+      // `nextPageToken` and returns NO `total`. Jira Data Center / Server (on-prem,
+      // which can be older) still serves the legacy `/search` and has no
+      // `/search/jql`, so choose the endpoint by auth mode.
+      const searchPath = authMode === "datacenter" ? "/search" : "/search/jql";
+      const result = await request<SearchResponse>(searchPath, {
         method: "POST",
         body: JSON.stringify({
           jql,
@@ -486,6 +494,8 @@ export function createJiraClient(options: JiraClientOptions) {
         status: issue.fields?.status?.name,
         summary: issue.fields?.summary,
       }));
+      // `/search/jql` (Cloud) returns no `total`, so existence is derived from the
+      // returned issues; Data Center's `/search` still provides `total`.
       const count = result.total ?? issues.length;
       return {
         found: count > 0,

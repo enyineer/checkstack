@@ -232,7 +232,7 @@ export function createHealthCheckActions(
     category: "Health",
     icon: "Play",
     config: new Versioned({ version: 1, schema: runNowConfigSchema }),
-    produces: "healthcheck.assignment",
+    produces: "assignment",
     execute: async ({ config, logger }) => {
       const queue = deps.queueManager.getQueue<HealthCheckJobPayload>(
         HEALTH_CHECK_QUEUE,
@@ -267,7 +267,7 @@ export function createHealthCheckActions(
     category: "Health",
     icon: "Power",
     config: new Versioned({ version: 1, schema: assignmentToggleConfigSchema }),
-    produces: "healthcheck.assignment",
+    produces: "assignment",
     execute: async ({ config, logger }) => {
       const updated = await deps.service.setAssignmentEnabled(
         config.systemId,
@@ -310,7 +310,7 @@ export function createHealthCheckActions(
     category: "Health",
     icon: "PowerOff",
     config: new Versioned({ version: 1, schema: assignmentToggleConfigSchema }),
-    produces: "healthcheck.assignment",
+    produces: "assignment",
     execute: async ({ config, logger }) => {
       const updated = await deps.service.setAssignmentEnabled(
         config.systemId,

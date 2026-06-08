@@ -30,6 +30,7 @@ import {
   type LanguageModel,
 } from "ai";
 import { z } from "zod";
+import { toJsonSchema } from "@checkstack/backend-api";
 import { toModelSchema } from "./chat/model-schema";
 import {
   buildDateTimeContext,
@@ -337,8 +338,17 @@ async function generateStructuredWithRepair({
   // Same single model-boundary date handling as the tool path: the schema's
   // dates must serialize AND the model's ISO strings coerce back to Date.
   const schema = toModelSchema(outputSchema);
+  // Describe the required shape IN THE PROMPT. The OpenAI-compatible provider has
+  // `supportsStructuredOutputs: false`, so the JSON schema sent via
+  // `responseFormat` is dropped by the SDK (warns + ignored) — without this the
+  // model is never told which fields are required and omits them. Embedding the
+  // JSON Schema makes structured output work on any OpenAI-compatible model.
+  const schemaJson = JSON.stringify(toJsonSchema(outputSchema));
   const baseSystem =
-    "Produce the structured result from the analysis below. Use only information present in it; do not invent values.";
+    "Produce the structured result from the analysis below. Use only information " +
+    "present in it; do not invent values. Respond with ONLY a single JSON object " +
+    "that conforms EXACTLY to this JSON Schema — include every required field and " +
+    `add no extra fields:\n${schemaJson}`;
   let repairNote = "";
   let lastError: unknown;
 
@@ -353,10 +363,50 @@ async function generateStructuredWithRepair({
       return res.object;
     } catch (error) {
       lastError = error;
-      repairNote = ` Your previous output was rejected: ${extractErrorMessage(
-        error,
-      )}. Return ONLY a value that exactly matches the required schema.`;
+      repairNote = buildRepairNote({ error, schemaJson, attempt });
     }
   }
   throw lastError;
+}
+
+/**
+ * Build escalating repair guidance after a structured-output attempt failed.
+ *
+ * The generic `NoObjectGeneratedError` message ("response did not match schema")
+ * is useless to the model — the actionable detail lives in its `cause` (the
+ * field-level validation errors, e.g. "reason: expected string, received
+ * undefined") and its `text` (what the model actually returned). We feed BOTH
+ * back, restate the full schema with "every required field" emphasis, and get
+ * firmer after a repeated miss. This is what "dumber" models that ignore the
+ * schema on the first pass need to self-correct instead of failing the step.
+ */
+function buildRepairNote({
+  error,
+  schemaJson,
+  attempt,
+}: {
+  error: unknown;
+  schemaJson: string;
+  attempt: number;
+}): string {
+  const e = error as { text?: unknown; cause?: unknown };
+  const cause = e.cause as { message?: unknown } | undefined;
+  const detail =
+    typeof cause?.message === "string" && cause.message.trim()
+      ? cause.message
+      : extractErrorMessage(error);
+  const returned =
+    typeof e.text === "string" && e.text.trim()
+      ? ` You returned: ${e.text.slice(0, 600)}.`
+      : "";
+  const firmer =
+    attempt >= 1
+      ? " This has now failed more than once — read the schema again and return EVERY required field, correctly typed, with NOTHING else."
+      : "";
+  return (
+    ` Your previous output was REJECTED because it did not match the required schema.${returned}` +
+    ` Validation errors: ${detail}.` +
+    " Respond with ONLY a single JSON object matching this schema, every required" +
+    ` field present and no extra fields or prose:\n${schemaJson}.${firmer}`
+  );
 }

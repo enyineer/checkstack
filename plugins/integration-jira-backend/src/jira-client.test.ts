@@ -206,6 +206,48 @@ describe("createJiraClient", () => {
     });
   });
 
+  describe("searchIssues endpoint (Cloud removed legacy /search; CHANGE-2046)", () => {
+    it("uses /rest/api/3/search/jql for cloud mode", async () => {
+      fetchFixture = setupFetchMock({ issues: [{ key: "SCRUM-1", fields: {} }] });
+
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "user@example.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+
+      const result = await client.searchIssues({ jql: "project = SCRUM" });
+
+      expect(fetchFixture.calls[0].url).toBe(
+        "https://mycompany.atlassian.net/rest/api/3/search/jql",
+      );
+      // The new endpoint returns no `total`; existence is derived from issues.
+      expect(result.found).toBe(true);
+      expect(result.count).toBe(1);
+    });
+
+    it("keeps the legacy /rest/api/2/search for datacenter (on-prem) mode", async () => {
+      fetchFixture = setupFetchMock({ total: 2, issues: [{ key: "OPS-1", fields: {} }] });
+
+      const client = createJiraClient({
+        authMode: "datacenter",
+        baseUrl: "https://jira.mycompany.com",
+        apiToken: "pat-token",
+        logger: testLogger,
+      });
+
+      const result = await client.searchIssues({ jql: "project = OPS" });
+
+      expect(fetchFixture.calls[0].url).toBe(
+        "https://jira.mycompany.com/rest/api/2/search",
+      );
+      // Data Center still reports `total`.
+      expect(result.count).toBe(2);
+    });
+  });
+
   describe("createIssue description format", () => {
     it("uses Atlassian Document Format for cloud mode", async () => {
       fetchFixture = setupFetchMock({

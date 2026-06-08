@@ -176,7 +176,7 @@ export function createCatalogActions(
       version: 1,
       schema: systemUpdateMetadataConfigSchema,
     }),
-    produces: "catalog.system_record",
+    produces: "system_record",
     execute: async ({ config, logger, runId }) => {
       const existing = await deps.entityService.getSystem(config.systemId);
       if (!existing) {

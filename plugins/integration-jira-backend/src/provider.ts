@@ -11,7 +11,34 @@ import type {
   GetConnectionOptionsParams,
 } from "@checkstack/integration-backend";
 import { pluginMetadata } from "@checkstack/integration-jira-common";
+import type { JiraField } from "@checkstack/integration-jira-common";
 import { createJiraClientFromConfig } from "./jira-client";
+
+/**
+ * Human-readable value TYPE for a Jira field, surfaced as the option's
+ * `description` so the model (and the editor) know how to format the value:
+ * e.g. `array of string (required)`, `number`, or `option; one of: High, Low`.
+ * Without this the model knows the field key but guesses the value shape (e.g.
+ * sends a bare string for `labels`, which Jira expects as an array).
+ */
+function describeFieldType(field: JiraField): string {
+  const parts: string[] = [];
+  const type = field.schema?.type;
+  if (type === "array") {
+    parts.push(field.schema?.items ? `array of ${field.schema.items}` : "array");
+  } else if (type) {
+    parts.push(type);
+  }
+  const allowed = (field.allowedValues ?? [])
+    .map((v) => v.name ?? v.value ?? v.id)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+  if (allowed.length > 0) {
+    const shown = allowed.slice(0, 8).join(", ");
+    parts.push(`one of: ${shown}${allowed.length > 8 ? ", ..." : ""}`);
+  }
+  if (field.required) parts.push("required");
+  return parts.join("; ") || "unknown type";
+}
 
 /**
  * Supported Jira authentication modes.
@@ -271,6 +298,9 @@ If a property is missing, the placeholder will be preserved in the output for de
               .map((f) => ({
                 value: f.key,
                 label: `${f.name}${f.required ? " *" : ""}`,
+                // Surface the field's value TYPE so the model formats the value
+                // correctly (e.g. labels = "array of string", not a bare string).
+                description: describeFieldType(f),
               }));
           }
 

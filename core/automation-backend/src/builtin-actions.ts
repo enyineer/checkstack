@@ -102,7 +102,7 @@ export const notifyUserAction: ActionDefinition<
   category: "Built-in",
   icon: "BellRing",
   config: new Versioned({ version: 1, schema: notifyUserConfigSchema }),
-  produces: "automation.notify_user_result",
+  produces: "notify_user_result",
   execute: async ({ config, logger, rpcClient }) => {
     const notificationClient = rpcClient.forPlugin(NotificationApi);
     try {
