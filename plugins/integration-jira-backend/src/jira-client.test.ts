@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "bun:test";
 
-import { createJiraClient } from "./jira-client";
+import { buildSearchJql, createJiraClient } from "./jira-client";
 import type { Logger } from "@checkstack/backend-api";
 
 /** Minimal no-op logger for tests */
@@ -475,5 +475,35 @@ describe("createJiraClient", () => {
       };
       expect(body.body).toBe("Hello");
     });
+  });
+});
+
+describe("buildSearchJql", () => {
+  it("ANDs the structured clauses", () => {
+    const jql = buildSearchJql({
+      projectKey: "PROJ",
+      status: "Open",
+      summaryContains: "database",
+    });
+    expect(jql).toBe(
+      'project = "PROJ" AND status = "Open" AND summary ~ "database"',
+    );
+  });
+
+  it("wraps raw JQL and ANDs it with structured clauses", () => {
+    const jql = buildSearchJql({
+      projectKey: "PROJ",
+      jql: "labels = incident",
+    });
+    expect(jql).toBe('project = "PROJ" AND (labels = incident)');
+  });
+
+  it("escapes quotes and backslashes inside values", () => {
+    const jql = buildSearchJql({ summaryContains: 'say "hi" \\o/' });
+    expect(jql).toBe('summary ~ "say \\"hi\\" \\\\o/"');
+  });
+
+  it("returns an empty string when nothing is supplied", () => {
+    expect(buildSearchJql({})).toBe("");
   });
 });

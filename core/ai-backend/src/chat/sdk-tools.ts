@@ -2,6 +2,7 @@ import { tool as aiTool, type Tool } from "ai";
 import type { AuthUser } from "@checkstack/backend-api";
 import type { AiPermissionMode, AiFieldDiff } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "../tool-registry";
+import type { ToolValidationIssue } from "../propose-apply/validation-error";
 import { decideToolDisposition } from "./permission-mode.logic";
 import { toModelSchema } from "./model-schema";
 
@@ -41,6 +42,25 @@ export interface ConfirmCardResult {
 export interface DuplicateToolCallResult {
   __duplicate: true;
   toolName: string;
+  note: string;
+}
+
+/**
+ * Returned to the model when its drafted input fails the tool's `dryRun`
+ * semantic validation (a {@link ToolValidationError} - e.g. a fabricated
+ * `runAs`, an unknown `connectionId`, an unwired artifact reference). Carries no
+ * `__confirm`/`__applied`, so the UI renders NO card; the model gets the
+ * structured `issues` and is told to fix them and call the tool again.
+ *
+ * This closes the feedback loop: validation issues are computed specifically so
+ * the model can self-correct, so they must reach the MODEL as a tool result -
+ * not leak to the operator as a raw stream error with the proposal lost.
+ */
+export interface ValidationFeedbackResult {
+  __validationFailed: true;
+  toolName: string;
+  issues: ToolValidationIssue[];
+  /** MODEL-FACING guidance: fix each issue and retry; do not claim success. */
   note: string;
 }
 
@@ -85,7 +105,9 @@ export interface AgentToolCallbacks {
     principal: AuthUser;
     tool: RegisteredAiTool;
     input: unknown;
-  }): Promise<ConfirmCardResult | DuplicateToolCallResult>;
+  }): Promise<
+    ConfirmCardResult | DuplicateToolCallResult | ValidationFeedbackResult
+  >;
   /**
    * AUTO-mode-only: propose AND apply a `mutate` tool SERVER-SIDE in one shot.
    * Runs through the SAME propose/apply service (same `isAllowed` re-check, same
@@ -96,7 +118,9 @@ export interface AgentToolCallbacks {
     principal: AuthUser;
     tool: RegisteredAiTool;
     input: unknown;
-  }): Promise<AutoAppliedResult | DuplicateToolCallResult>;
+  }): Promise<
+    AutoAppliedResult | DuplicateToolCallResult | ValidationFeedbackResult
+  >;
 }
 
 /**

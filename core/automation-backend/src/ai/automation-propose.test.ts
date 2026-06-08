@@ -21,12 +21,28 @@ const validDefinition = {
 function fakeRpcClient({
   validateDefinition,
   createAutomation,
+  getBindableApplications = mock(() =>
+    Promise.resolve([{ id: "app-test", name: "Test" }]),
+  ),
+  listActions = mock(() => Promise.resolve({ items: [] })),
+  listConnectionSummaries = mock(() => Promise.resolve([])),
 }: {
   validateDefinition: ReturnType<typeof mock>;
   createAutomation: ReturnType<typeof mock>;
+  getBindableApplications?: ReturnType<typeof mock>;
+  listActions?: ReturnType<typeof mock>;
+  listConnectionSummaries?: ReturnType<typeof mock>;
 }): RpcClient {
+  // The propose dryRun fans out to several plugins; a single shim object
+  // carrying every method is enough for these unit tests.
   return {
-    forPlugin: () => ({ validateDefinition, createAutomation }),
+    forPlugin: () => ({
+      validateDefinition,
+      createAutomation,
+      getBindableApplications,
+      listActions,
+      listConnectionSummaries,
+    }),
   } as unknown as RpcClient;
 }
 

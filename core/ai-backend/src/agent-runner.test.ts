@@ -298,6 +298,118 @@ describe("createAgentRunner", () => {
     });
   });
 
+  it("injects the headless baseline prompt (boundaries) into the loop", async () => {
+    const resolver = createAiToolResolver({ registry: createAiToolRegistry() });
+    let seenSystem = "";
+    const generateText = mock(async (args: { system?: string }) => {
+      seenSystem = args.system ?? "";
+      return { text: "x", usage: {} };
+    });
+    const runner = createAgentRunner({
+      resolver,
+      resolveConnection: async () => connection,
+      modelFns: { generateText: generateText as never },
+    });
+    await runner({ principal, rpcClient, connectionId: "c", prompt: "go" });
+
+    expect(seenSystem).toContain("UNATTENDED");
+    expect(seenSystem).toContain("takes effect IMMEDIATELY");
+    expect(seenSystem).toContain("do NOT guess");
+  });
+
+  it("appends an author systemPrompt override onto the baseline (never replaces it)", async () => {
+    const resolver = createAiToolResolver({ registry: createAiToolRegistry() });
+    let seenSystem = "";
+    const generateText = mock(async (args: { system?: string }) => {
+      seenSystem = args.system ?? "";
+      return { text: "x", usage: {} };
+    });
+    const runner = createAgentRunner({
+      resolver,
+      resolveConnection: async () => connection,
+      modelFns: { generateText: generateText as never },
+    });
+    await runner({
+      principal,
+      rpcClient,
+      connectionId: "c",
+      prompt: "go",
+      systemPrompt: "You are the triage bot.",
+    });
+
+    // Override is present AND the safety baseline survived.
+    expect(seenSystem).toContain("You are the triage bot.");
+    expect(seenSystem).toContain("takes effect IMMEDIATELY");
+  });
+
+  it("retries the structured-output pass on a schema miss, feeding the error back", async () => {
+    const resolver = createAiToolResolver({ registry: createAiToolRegistry() });
+    const generateText = mock(async () => ({ text: "analysis", usage: {} }));
+    // First attempt rejects (schema miss); second succeeds.
+    const systemsSeen: string[] = [];
+    let attempt = 0;
+    const generateObject = mock(async (args: { system?: string }) => {
+      systemsSeen.push(args.system ?? "");
+      attempt += 1;
+      if (attempt === 1) {
+        throw new Error("severity must be one of low|medium|high");
+      }
+      return { object: { severity: "high" }, usage: {} };
+    });
+
+    const runner = createAgentRunner({
+      resolver,
+      resolveConnection: async () => connection,
+      modelFns: {
+        generateText: generateText as never,
+        generateObject: generateObject as never,
+      },
+    });
+
+    const result = await runner({
+      principal,
+      rpcClient,
+      connectionId: "c",
+      prompt: "classify",
+      outputSchema: z.object({ severity: z.string() }),
+    });
+
+    expect(generateObject).toHaveBeenCalledTimes(2);
+    expect(result.object).toEqual({ severity: "high" });
+    // The retry's system prompt carries the prior failure as repair guidance.
+    expect(systemsSeen[1]).toContain("rejected");
+    expect(systemsSeen[1]).toContain("severity must be one of");
+  });
+
+  it("gives up after the bounded retries and propagates the last schema error", async () => {
+    const resolver = createAiToolResolver({ registry: createAiToolRegistry() });
+    const generateText = mock(async () => ({ text: "analysis", usage: {} }));
+    const generateObject = mock(async () => {
+      throw new Error("still invalid");
+    });
+
+    const runner = createAgentRunner({
+      resolver,
+      resolveConnection: async () => connection,
+      modelFns: {
+        generateText: generateText as never,
+        generateObject: generateObject as never,
+      },
+    });
+
+    await expect(
+      runner({
+        principal,
+        rpcClient,
+        connectionId: "c",
+        prompt: "classify",
+        outputSchema: z.object({ severity: z.string() }),
+      }),
+    ).rejects.toThrow("still invalid");
+    // 1 initial attempt + MAX_OUTPUT_REPAIR_ATTEMPTS (2) = 3 total.
+    expect(generateObject).toHaveBeenCalledTimes(3);
+  });
+
   it("throws a clear error when the connection is invalid", async () => {
     const resolver = createAiToolResolver({ registry: createAiToolRegistry() });
     const runner = createAgentRunner({

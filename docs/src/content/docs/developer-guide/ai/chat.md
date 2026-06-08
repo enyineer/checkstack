@@ -12,7 +12,7 @@ The chat turn is a raw HTTP handler at `/api/ai/chat` (server-sent events, becau
 ```ts
 // Provider-agnostic via base-URL override (OpenAI, Azure, OpenRouter, Ollama, ...).
 const model = buildLanguageModel({ connection, model: conversation.model });
-const result = streamText({ model, system, messages, tools, stopWhen: stepCountIs(8) });
+const result = streamText({ model, system, messages, tools, stopWhen: stepCountIs(16) });
 return result.toUIMessageStreamResponse();
 ```
 
@@ -30,6 +30,12 @@ disposeAgentTool({ toolName, principal, resolver, getTool });
 ```
 
 The same per-principal rate-limit budget that protects MCP is enforced before every tool call in the loop. See [Propose and apply](/checkstack/developer-guide/ai/propose-apply/) for the budget and the confirm-card token lifecycle.
+
+## The turn always ends with an answer
+
+The loop caps tool-call rounds at `stepCountIs(MAX_STEPS)`. Without a guard, a model that keeps calling tools right up to the cap would have the loop terminate on a tool-call step and produce no final text - the operator gets a blank reply. This is especially common with reasoning models, which pour their work into the hidden reasoning channel and will "keep thinking about searching" indefinitely.
+
+To prevent that, `prepareStep` makes the FINAL allowed step a forced answer: it removes all tools for that step (`activeTools: []`) and overrides the step system prompt to tell the model its tool budget is spent and it must write its answer now from what it gathered (saying so plainly if the gathered information does not cover the question, rather than guessing). The same guard runs in the headless agent runner so an AI action never produces an empty summary. Note: `activeTools: []` is used deliberately rather than `toolChoice: "none"` - with some OpenAI-compatible models the latter makes the model emit its raw tool-call markup as the answer text.
 
 ## The model acknowledges a confirm-card decision
 

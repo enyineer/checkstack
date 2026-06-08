@@ -38,7 +38,12 @@ describe("ai-backend's own platform tool set", () => {
   test("docs + probe tools are registered and qualified", () => {
     const registry = buildOwnRegistry();
     const names = registry.getTools().map((t) => t.name);
-    for (const expected of ["ai_searchDocs", "ai_getDoc", "ai_probeUrl"]) {
+    for (const expected of [
+      "ai_listDocs",
+      "ai_searchDocs",
+      "ai_getDoc",
+      "ai_probeUrl",
+    ]) {
       expect(names).toContain(expected);
     }
   });

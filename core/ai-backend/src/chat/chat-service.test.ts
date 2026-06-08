@@ -9,6 +9,7 @@ import {
   type ChatRecordExecuted,
 } from "./chat-service";
 import { ToolBudgetExceededError } from "../rate-limit/tool-budget";
+import { ToolValidationError } from "../propose-apply/validation-error";
 
 const principal: AuthUser = {
   type: "user",
@@ -246,5 +247,99 @@ describe("per-turn mutating-tool dedupe (no triple proposals)", () => {
     });
 
     expect(proposeMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("propose validation feedback loop (model self-corrects)", () => {
+  const issues = [
+    { path: ["runAs"], message: 'Service account "system" does not exist.' },
+    {
+      path: ["actions", 0, "config"],
+      message: "Template references artifacts.x.found but x produces y.",
+    },
+  ];
+
+  test("a ToolValidationError is returned to the model as feedback, not thrown", async () => {
+    const proposeMock = mock(() =>
+      Promise.reject(new ToolValidationError("invalid draft", issues)),
+    );
+    const callbacks = dedupeCallbacks(proposeMock);
+
+    const out = await callbacks.propose({
+      principal,
+      tool: mutateTool,
+      input: { id: "hc1", body: {} },
+    });
+
+    expect("__validationFailed" in out && out.__validationFailed).toBe(true);
+    if ("issues" in out) expect(out.issues).toEqual(issues);
+    if ("note" in out) {
+      expect(out.note).toMatch(/fix/i);
+      expect(out.note).toMatch(/not.*done|nothing has been/i);
+    }
+    // No confirm card / token leaked, and nothing was applied.
+    expect("__confirm" in out).toBe(false);
+  });
+
+  test("the failed propose is NOT turn-deduped, so a corrected retry is allowed", async () => {
+    // First call fails validation; second (corrected) succeeds.
+    const proposeMock = mock(() =>
+      Promise.reject(new ToolValidationError("invalid draft", issues)),
+    );
+    const callbacks = dedupeCallbacks(proposeMock);
+    const input = { id: "hc1", body: {} };
+
+    const first = await callbacks.propose({ principal, tool: mutateTool, input });
+    expect("__validationFailed" in first && first.__validationFailed).toBe(true);
+
+    // The model retries the SAME args after "fixing"; because the failure was
+    // not recorded in handledThisTurn, this is NOT short-circuited as a dup.
+    const second = await callbacks.propose({ principal, tool: mutateTool, input });
+    expect("__duplicate" in second).toBe(false);
+    expect(proposeMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a non-validation error still propagates (genuine fault, not feedback)", async () => {
+    const proposeMock = mock(() =>
+      Promise.reject(new Error("database is down")),
+    );
+    const callbacks = dedupeCallbacks(proposeMock);
+
+    await expect(
+      callbacks.propose({ principal, tool: mutateTool, input: { id: "hc1", body: {} } }),
+    ).rejects.toThrow("database is down");
+  });
+
+  test("auto-apply also feeds a ToolValidationError back instead of applying", async () => {
+    const proposeMock = mock(() =>
+      Promise.reject(new ToolValidationError("invalid draft", issues)),
+    );
+    const applyMock = mock(() =>
+      Promise.resolve({ toolCallId: "row-1", result: { ok: true } }),
+    );
+    const proposeApply = {
+      propose: proposeMock,
+      apply: applyMock,
+    } as unknown as ProposeApplyService;
+    const callbacks = buildChatToolCallbacks({
+      proposeApply,
+      readInvoker: { invoke: () => Promise.resolve({}) },
+      recordExecuted: async () => {},
+      readRouting: new Map(),
+      db: budgetDb(0),
+      conversationId: "conv-1",
+      forwardHeaders: {},
+      internalUrl: "http://localhost:3000",
+    });
+
+    const out = await callbacks.autoApply({
+      principal,
+      tool: mutateTool,
+      input: { id: "hc1", body: {} },
+    });
+
+    expect("__validationFailed" in out && out.__validationFailed).toBe(true);
+    // Crucially, a broken draft is NEVER applied.
+    expect(applyMock).not.toHaveBeenCalled();
   });
 });

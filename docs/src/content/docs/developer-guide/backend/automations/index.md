@@ -56,9 +56,22 @@ tools auto-apply through the service account's own client.
   connection picker in the editor), optional `model` / `systemPrompt` /
   `maxSteps`, the `prompt`, and optional `outputFields` - an author-defined set
   of typed fields (`string`/`number`/`boolean`/`enum`) the agent fills.
+- **System prompt**: the runner always injects a non-negotiable baseline that
+  tells the unattended agent its boundaries - it runs as a bounded service
+  account, any change it makes takes effect immediately and irreversibly (so it
+  only changes state when the task requires it), an empty result may be a
+  permission boundary rather than "nothing exists", and it must ground concepts
+  in the docs and never fabricate values. An author-supplied `systemPrompt`
+  APPENDS role/task framing on top of this baseline; it never replaces it, so an
+  override can add context but can never silently drop a safety line.
 - **Artifact** (`automation.analysis`): `{ summary, data, toolCalls }` where
   `data` is the author-defined structured object. Downstream actions `consume`
-  it and branch on a field (e.g. a "severity" enum).
+  it and branch on a field (e.g. a "severity" enum). When `outputFields` are
+  set, the structured-output pass validates the model's object against the
+  derived schema; on a schema miss the runner feeds the validation error back
+  and retries a bounded number of times before failing the step, so a recoverable
+  near-miss self-corrects but a malformed object never reaches a downstream
+  `choose`/`condition`.
 - **Engine**: the agent loop lives in `@checkstack/ai-backend` and is exposed as
   the `aiAgentRunnerRef` service; `automation-backend` (which already depends on
   ai-backend) drives it. The runner resolves the allowed tools for the run's

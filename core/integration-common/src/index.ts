@@ -29,6 +29,8 @@ export {
   type ProviderConnection,
   ProviderConnectionRedactedSchema,
   type ProviderConnectionRedacted,
+  ConnectionSummarySchema,
+  type ConnectionSummary,
   CreateConnectionInputSchema,
   type CreateConnectionInput,
   UpdateConnectionInputSchema,

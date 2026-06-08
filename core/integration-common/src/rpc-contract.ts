@@ -9,6 +9,7 @@ import {
   IntegrationProviderInfoSchema,
   TestConnectionResultSchema,
   ProviderConnectionRedactedSchema,
+  ConnectionSummarySchema,
   CreateConnectionInputSchema,
   UpdateConnectionInputSchema,
   GetConnectionOptionsInputSchema,
@@ -63,6 +64,22 @@ export const integrationContract = {
   })
     .input(z.object({ providerId: z.string() }))
     .output(z.array(ProviderConnectionRedactedSchema)),
+
+  /**
+   * List name-only connection summaries for a provider. Unlike
+   * `listConnections` (admin-only, returns the redacted config preview), this
+   * returns just `{ id, providerId, name }` and is callable by any
+   * authenticated principal - so an automation author who is NOT an integration
+   * admin can still discover which `connectionId` to wire into an integration
+   * action. Carries no config or secrets.
+   */
+  listConnectionSummaries: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(z.object({ providerId: z.string() }))
+    .output(z.array(ConnectionSummarySchema)),
 
   /** Get a single connection (redacted) */
   getConnection: proc({

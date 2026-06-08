@@ -119,6 +119,23 @@ export function createIntegrationRouter(deps: RouterDeps) {
       return connectionStore.listConnections(providerId);
     }),
 
+    listConnectionSummaries: os.listConnectionSummaries.handler(
+      async ({ input }) => {
+        const { providerId } = input;
+        const provider = providerRegistry.getProvider(providerId);
+        // Unknown / non-connection providers simply have no summaries to list;
+        // this endpoint is non-admin and discovery-oriented, so it returns an
+        // empty list rather than throwing the way the admin listConnections does.
+        if (!provider?.connectionSchema) return [];
+        const connections = await connectionStore.listConnections(providerId);
+        return connections.map((connection) => ({
+          id: connection.id,
+          providerId: connection.providerId,
+          name: connection.name,
+        }));
+      },
+    ),
+
     getConnection: os.getConnection.handler(async ({ input }) => {
       const { connectionId } = input;
       const connection = await connectionStore.getConnection(connectionId);

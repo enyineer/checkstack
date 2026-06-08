@@ -38,8 +38,11 @@ import {
   type ConfirmCardResult,
   type AutoAppliedResult,
   type DuplicateToolCallResult,
+  type ValidationFeedbackResult,
   type AgentToolCallbacks,
 } from "./sdk-tools";
+import { ToolValidationError } from "../propose-apply/validation-error";
+import { prepareFinalAnswerStep } from "../step-budget.logic";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
@@ -158,6 +161,33 @@ function turnKey({
   return `${tool.name}:${hashToolArgs(input)}`;
 }
 
+/**
+ * Turn a {@link ToolValidationError} thrown by a tool's `dryRun` into a
+ * model-facing tool result, so the structured issues reach the MODEL (which can
+ * fix them and re-propose) instead of leaking to the operator as a raw stream
+ * error with the proposal lost. The turn-dedup key is deliberately NOT recorded
+ * for this case, so the corrected retry is allowed.
+ */
+function toValidationFeedback({
+  toolName,
+  error,
+}: {
+  toolName: string;
+  error: ToolValidationError;
+}): ValidationFeedbackResult {
+  return {
+    __validationFailed: true,
+    toolName,
+    issues: error.issues,
+    note:
+      "Your drafted input did not validate. Fix EVERY issue listed above, then " +
+      "call this tool again with the corrected input. Do NOT tell the operator " +
+      "the change is done - nothing has been proposed or applied yet. If an " +
+      "issue is unclear or you are missing a value, ask the operator instead of " +
+      "guessing.",
+  };
+}
+
 /** Audit-key a chat principal (chat is RealUser-only; services are refused). */
 function chatAuditPrincipal(
   principal: AuthUser,
@@ -227,8 +257,15 @@ export interface ChatDecisionInput {
   timeZone?: string;
 }
 
-/** Max agent steps (tool-call round trips) per turn. */
-const MAX_STEPS = 8;
+/**
+ * Max agent steps (tool-call round trips) per turn. The last step is reserved
+ * for the forced answer (tools removed via `prepareStep`), so the model gets
+ * `MAX_STEPS - 1` rounds of actual tool use - enough for a thorough multi-source
+ * investigation (resolve ids, fan out across signal sources, read several docs)
+ * before it must synthesise. The per-principal rate-limit budget and optional
+ * spend cap remain the real cost ceiling.
+ */
+const MAX_STEPS = 16;
 
 /**
  * Build the agent-loop tool callbacks for a single chat turn. Extracted so the
@@ -333,14 +370,25 @@ export function buildChatToolCallbacks({
         };
         return duplicate;
       }
-      const proposal = await proposeApply.propose({
-        principal: proposePrincipal,
-        toolName: tool.name,
-        input: toolInput,
-        transport: "chat",
-        conversationId,
-        rpcClient,
-      });
+      let proposal;
+      try {
+        proposal = await proposeApply.propose({
+          principal: proposePrincipal,
+          toolName: tool.name,
+          input: toolInput,
+          transport: "chat",
+          conversationId,
+          rpcClient,
+        });
+      } catch (error) {
+        // Semantic validation failure: feed the issues back to the model to
+        // self-correct rather than surfacing a raw error to the operator. The
+        // turn-key is NOT recorded, so the corrected retry is allowed.
+        if (error instanceof ToolValidationError) {
+          return toValidationFeedback({ toolName: tool.name, error });
+        }
+        throw error;
+      }
       handledThisTurn.add(key);
       const card: ConfirmCardResult = {
         __confirm: true,
@@ -381,14 +429,25 @@ export function buildChatToolCallbacks({
         };
         return duplicate;
       }
-      const proposal = await proposeApply.propose({
-        principal: applyPrincipal,
-        toolName: tool.name,
-        input: toolInput,
-        transport: "chat",
-        conversationId,
-        rpcClient,
-      });
+      let proposal;
+      try {
+        proposal = await proposeApply.propose({
+          principal: applyPrincipal,
+          toolName: tool.name,
+          input: toolInput,
+          transport: "chat",
+          conversationId,
+          rpcClient,
+        });
+      } catch (error) {
+        // Same self-correction loop as the propose path: a validation failure
+        // becomes model-facing feedback, never a silent auto-apply of a broken
+        // draft or a raw error to the operator.
+        if (error instanceof ToolValidationError) {
+          return toValidationFeedback({ toolName: tool.name, error });
+        }
+        throw error;
+      }
       const applied = await proposeApply.apply({
         principal: applyPrincipal,
         token: proposal.token,
@@ -559,7 +618,16 @@ export function createChatService({
 
     const result = streamText({
       model: languageModel,
-      system: buildChatSystemPrompt({ timeZone }),
+      system: buildChatSystemPrompt({
+        timeZone,
+        mode: conversation.permissionMode,
+      }),
+      // Guarantee the turn ends with an answer: on the final allowed step,
+      // REMOVE all tools (activeTools: []) so the model must synthesize text
+      // from what it gathered instead of spending the last step on a tool call
+      // and leaving the operator with a blank reply.
+      prepareStep: ({ stepNumber }) =>
+        prepareFinalAnswerStep({ stepNumber, maxSteps: MAX_STEPS }),
       // Defensively normalize: drop empty-content rows and merge consecutive
       // same-role messages so a failed prior turn (which persists no assistant
       // reply, leaving consecutive `user` rows) cannot poison the history into a

@@ -33,8 +33,47 @@ export type DocHit = z.infer<typeof DocHitSchema>;
 
 export const SearchDocsOutputSchema = z.object({
   hits: z.array(DocHitSchema),
+  /**
+   * Model-facing guidance on what to do next, derived from the hit quality.
+   * When nothing matches well it tells the model to consult `listDocs` or
+   * conclude the docs do not cover the topic, rather than re-running near-
+   * identical searches (the dominant cause of wasted tool calls).
+   */
+  note: z.string(),
 });
 export type SearchDocsOutput = z.infer<typeof SearchDocsOutputSchema>;
+
+/**
+ * `ai.listDocs` - the documentation sitemap. Returns every page's slug, title,
+ * and description so the model can SEE what is and is not documented and jump
+ * straight to the right page with `getDoc`, instead of fuzzing `searchDocs`.
+ */
+export const ListDocsInputSchema = z.object({
+  /**
+   * Optional top-level section to filter to (the first slug segment, e.g.
+   * "user-guide" or "developer-guide"). Omit to list every page.
+   */
+  section: z.string().min(1).optional(),
+});
+export type ListDocsInput = z.infer<typeof ListDocsInputSchema>;
+
+/** One page in the sitemap: enough to decide whether to getDoc it. */
+export const DocSummarySchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+});
+export type DocSummary = z.infer<typeof DocSummarySchema>;
+
+export const ListDocsOutputSchema = z.object({
+  /** Every page (optionally filtered by `section`), sorted by slug. */
+  pages: z.array(DocSummarySchema),
+  /** The available top-level sections, so the model can narrow a follow-up call. */
+  sections: z.array(z.string()),
+  /** Model-facing guidance (e.g. "if no title fits, the docs don't cover it"). */
+  note: z.string(),
+});
+export type ListDocsOutput = z.infer<typeof ListDocsOutputSchema>;
 
 export const GetDocInputSchema = z.object({
   slug: z.string().min(1),

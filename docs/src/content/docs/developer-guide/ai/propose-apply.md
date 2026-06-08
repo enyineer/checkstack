@@ -25,6 +25,17 @@ const applied = await ai.applyTool({ token: proposal.token });
 // applied = { toolCallId, result }
 ```
 
+## When the dry-run rejects: feedback to the model, not an error to the operator
+
+A `dryRun` can fail in two distinct ways, and they are handled differently:
+
+- A **transport/authz/lifecycle fault** (unknown tool, forbidden, malformed token, expired) is a genuine `ProposeApplyError`. It is exceptional and surfaces as an error.
+- A **semantic validation failure of the model's drafted input** (a fabricated `runAs`, an unknown `connectionId`, an unwired or wrong-typed artifact reference) is FEEDBACK, not a fault. The tool's `dryRun` throws a `ToolValidationError` carrying structured `issues` (`{ path, message }[]`).
+
+In chat, a `ToolValidationError` is caught and returned to the MODEL as the tool result (`{ __validationFailed: true, issues, note }`) instead of being thrown. The model reads the issues, corrects its draft, and calls the tool again - the same self-correction loop the headless agent runner uses for tool errors. The operator never sees a raw "the assistant hit an error" message and the proposal is never lost; the eventual valid draft renders its confirm card as normal. The failed attempt is deliberately NOT counted by the per-turn duplicate guard, so the corrected retry is allowed. This holds in both modes: in `auto` mode a draft that fails validation is fed back rather than auto-applied, so a broken automation is never created.
+
+Any plugin's proposable tool gets this behavior for free by throwing `ToolValidationError` (exported from `@checkstack/ai-backend`) from its `dryRun` when the model's input is semantically invalid.
+
 ## The proposal token
 
 The token format is `propose:<rowId>.<nonce>`. The `proposed` audit row IS the token store: there is no separate ephemeral table.

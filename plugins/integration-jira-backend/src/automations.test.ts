@@ -12,6 +12,7 @@ import { createMockLogger } from "@checkstack/test-utils-backend";
 import {
   createJiraActions,
   jiraIssueArtifactType,
+  jiraIssueSearchArtifactType,
 } from "./automations";
 import {
   connectionStoreRef,
@@ -283,5 +284,125 @@ describe("jira automation actions", () => {
       expect(result.success).toBe(true);
       expect((result.artifact as { commentId: string }).commentId).toBe("5001");
     });
+  });
+
+  describe("jira.search_issues", () => {
+    it("emits found=true with hits when issues match", async () => {
+      fetchFixture = setupFetchSequence([
+        {
+          body: {
+            total: 2,
+            issues: [
+              {
+                key: "PROJ-1",
+                fields: { summary: "DB down", status: { name: "Open" } },
+              },
+              {
+                key: "PROJ-2",
+                fields: { summary: "DB slow", status: { name: "In Progress" } },
+              },
+            ],
+          },
+        },
+      ]);
+      const actions = createJiraActions();
+      const search = actions[3];
+      const result = await search.execute({
+        ...ctxBase,
+        consumedArtifacts: {},
+        config: {
+          connectionId: "conn-1",
+          projectKey: "PROJ",
+          statusCategory: "indeterminate",
+        } as never,
+      });
+      expect(result.success).toBe(true);
+      const artifact = result.artifact as {
+        found: boolean;
+        count: number;
+        firstIssueKey?: string;
+        issues: Array<{ key: string; url: string }>;
+      };
+      expect(artifact.found).toBe(true);
+      expect(artifact.count).toBe(2);
+      expect(artifact.firstIssueKey).toBe("PROJ-1");
+      expect(artifact.issues[0].url).toBe(
+        "https://mycompany.atlassian.net/browse/PROJ-1",
+      );
+
+      // Verify the action hit the read-only search endpoint with JQL.
+      const [call] = fetchFixture.calls;
+      expect(call.url).toContain("/rest/api/3/search");
+      expect(call.init.method).toBe("POST");
+      const sent = JSON.parse(String(call.init.body)) as { jql: string };
+      expect(sent.jql).toContain('project = "PROJ"');
+      expect(sent.jql).toContain('statusCategory = "indeterminate"');
+    });
+
+    it("emits found=false with no hits when nothing matches", async () => {
+      fetchFixture = setupFetchSequence([{ body: { total: 0, issues: [] } }]);
+      const actions = createJiraActions();
+      const search = actions[3];
+      const result = await search.execute({
+        ...ctxBase,
+        consumedArtifacts: {},
+        config: {
+          connectionId: "conn-1",
+          projectKey: "PROJ",
+          status: "Open",
+        } as never,
+      });
+      expect(result.success).toBe(true);
+      const artifact = result.artifact as {
+        found: boolean;
+        count: number;
+        firstIssueKey?: string;
+        issues: unknown[];
+      };
+      expect(artifact.found).toBe(false);
+      expect(artifact.count).toBe(0);
+      expect(artifact.issues).toHaveLength(0);
+      expect(artifact.firstIssueKey).toBeUndefined();
+    });
+
+    it("returns failure when the connection is missing", async () => {
+      const actions = createJiraActions();
+      const search = actions[3];
+      const result = await search.execute({
+        ...ctxBase,
+        consumedArtifacts: {},
+        config: { connectionId: "missing", projectKey: "PROJ" } as never,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/connection not found/i);
+    });
+  });
+});
+
+describe("jiraIssueSearchArtifactType", () => {
+  it("validates a found result with hits", () => {
+    const ok = jiraIssueSearchArtifactType.schema.safeParse({
+      found: true,
+      count: 1,
+      issues: [
+        {
+          key: "PROJ-1",
+          url: "https://mycompany.atlassian.net/browse/PROJ-1",
+          status: "Open",
+          summary: "DB down",
+        },
+      ],
+      firstIssueKey: "PROJ-1",
+    });
+    expect(ok.success).toBe(true);
+  });
+
+  it("validates an empty (not-found) result", () => {
+    const ok = jiraIssueSearchArtifactType.schema.safeParse({
+      found: false,
+      count: 0,
+      issues: [],
+    });
+    expect(ok.success).toBe(true);
   });
 });

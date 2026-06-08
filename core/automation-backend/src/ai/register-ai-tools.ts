@@ -10,6 +10,8 @@ import {
   createAutomationGetScriptContextTool,
   createAutomationTestScriptTool,
 } from "./automation-script-tools";
+import { createAutomationListServiceAccountsTool } from "./automation-service-accounts";
+import { createAutomationListConnectionsTool } from "./automation-connections";
 
 /**
  * The automation plugin's AI tools, registered into the AI registry via
@@ -31,6 +33,15 @@ import {
  * automation test RPC's fail-closed sandbox without persisting anything. Both
  * are gated by the automation manage rule (the same rule that gates the
  * automation editor + the underlying script test RPC).
+ *
+ * The discovery tools (`automation.listServiceAccounts`,
+ * `automation.listConnections`) are `read`-effect introspection that stop the
+ * model fabricating values it must source from the platform: the former lists
+ * the service accounts the caller may bind as a `runAs` (so the model never
+ * invents one), the latter lists configured integration connection ids (so the
+ * model references a real `connectionId` instead of hand-rolling a URL/token).
+ * Both fan out through the user-scoped client and are gated by the automation
+ * read rule.
  */
 export function buildAutomationAiTools(): RegisteredAiTool[] {
   return [
@@ -41,5 +52,7 @@ export function buildAutomationAiTools(): RegisteredAiTool[] {
     createAutomationGetCapabilitySchemaTool(),
     createAutomationGetScriptContextTool(),
     createAutomationTestScriptTool(),
+    createAutomationListServiceAccountsTool(),
+    createAutomationListConnectionsTool(),
   ];
 }

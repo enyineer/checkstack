@@ -11,7 +11,8 @@ import {
 } from "@checkstack/automation-common";
 import { z } from "zod";
 import type { AiProposalPreview } from "@checkstack/ai-common";
-import type { RegisteredAiTool } from "@checkstack/ai-backend";
+import { ToolValidationError, type RegisteredAiTool } from "@checkstack/ai-backend";
+import { collectProposeIssues } from "./automation-propose-validate";
 
 /**
  * Input for the flagship `automation.propose` composite tool.
@@ -37,7 +38,7 @@ export const AutomationProposeInputSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Application (service account) id the automation runs as. The user must be allowed to bind it.",
+      "Service account (application) id the automation runs as, taken VERBATIM from automation.listServiceAccounts. Never invent one (e.g. \"system\"/\"admin\" are not service accounts). The user must be allowed to bind it.",
     ),
 });
 
@@ -46,16 +47,6 @@ export type AutomationProposeInput = z.infer<typeof AutomationProposeInputSchema
 /** Output returned once a human applies the proposal (the created automation). */
 export interface AutomationProposeApplyResult {
   automation: Automation;
-}
-
-class AutomationProposeValidationError extends Error {
-  constructor(
-    message: string,
-    public readonly issues: Array<{ path: Array<string | number>; message: string }>,
-  ) {
-    super(message);
-    this.name = "AutomationProposeValidationError";
-  }
 }
 
 /**
@@ -85,15 +76,21 @@ export function createAutomationProposeTool(): RegisteredAiTool<
     rpcClient: RpcClient;
   }): Promise<AiProposalPreview<AutomationProposeInput>> => {
     const automationClient = rpcClient.forPlugin(AutomationApi);
-    // Reuse the automation plugin's dry-run: structural + semantic validation
-    // against the live registries, WITHOUT creating anything.
-    const validation = await automationClient.validateDefinition({
-      definition: input.definition,
-    });
-    if (!validation.valid) {
-      throw new AutomationProposeValidationError(
+    // Reuse the automation plugin's dry-run: structural + semantic + artifact-
+    // wiring validation against the live registries, WITHOUT creating anything.
+    // Run it alongside the caller-scoped propose-time checks (runAs bindability
+    // + connectionId existence) that the RPC can't see, so a fabricated runAs,
+    // unknown connectionId, or unwired artifact reference is all caught on the
+    // review card rather than at run time.
+    const [validation, proposeIssues] = await Promise.all([
+      automationClient.validateDefinition({ definition: input.definition }),
+      collectProposeIssues({ input, rpcClient }),
+    ]);
+    const errors = [...validation.errors, ...proposeIssues];
+    if (errors.length > 0) {
+      throw new ToolValidationError(
         "The drafted automation is invalid.",
-        validation.errors,
+        errors,
       );
     }
 
