@@ -7,6 +7,7 @@ import {
 } from "@checkstack/common";
 import { automationAccess } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
+import { AutomationTemplateSchema } from "./templates";
 import {
   ReplayScopeInputSchema,
   ReplayScopeResultSchema,
@@ -75,6 +76,17 @@ export const automationContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(AutomationSchema),
+
+  /**
+   * Curated example-automation templates contributed by core + plugins, for
+   * the "create new automation" picker. Read-gated: viewing a starting point
+   * is part of authoring and never creates anything on its own.
+   */
+  listAutomationTemplates: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [automationAccess.read],
+  }).output(z.object({ items: z.array(AutomationTemplateSchema) })),
 
   createAutomation: proc({
     operationType: "mutation",

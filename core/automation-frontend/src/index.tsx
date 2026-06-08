@@ -20,7 +20,8 @@ export {
  * Routes:
  *
  *   - `/automation/`                          → list view
- *   - `/automation/new`                       → blank edit page (create)
+ *   - `/automation/new`                       → template picker (create)
+ *   - `/automation/new/blank`                 → blank / template-seeded editor
  *   - `/automation/:automationId`             → edit page
  *   - `/automation/:automationId/runs`        → run history
  *   - `/automation/:automationId/runs/:runId` → single run drill-down
@@ -53,6 +54,15 @@ export default createFrontendPlugin({
     },
     {
       route: automationRoutes.routes.create,
+      load: () =>
+        import("./pages/AutomationTemplatePickerPage").then((m) => ({
+          default: m.AutomationTemplatePickerPage,
+        })),
+      title: "New automation",
+      accessRule: automationAccess.manage,
+    },
+    {
+      route: automationRoutes.routes.createBlank,
       load: () =>
         import("./pages/AutomationEditPage").then((m) => ({
           default: m.AutomationEditPage,
