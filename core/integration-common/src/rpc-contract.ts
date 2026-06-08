@@ -76,7 +76,7 @@ export const integrationContract = {
   listConnectionSummaries: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [],
+    access: [integrationAccess.read],
   })
     .input(z.object({ providerId: z.string() }))
     .output(z.array(ConnectionSummarySchema)),
@@ -128,11 +128,29 @@ export const integrationContract = {
     .input(z.object({ connectionId: z.string() }))
     .output(TestConnectionResultSchema),
 
-  /** Get dynamic options for cascading dropdowns */
+  /** Get dynamic options for cascading dropdowns (admin connection editor). */
   getConnectionOptions: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [integrationAccess.manage],
+  })
+    .input(GetConnectionOptionsInputSchema)
+    .output(z.array(ConnectionOptionSchema)),
+
+  /**
+   * Resolve a config field's dynamic options for any authenticated principal -
+   * the non-admin counterpart of `getConnectionOptions`, mirroring
+   * `listConnectionSummaries`. Automation authors are not necessarily
+   * integration admins, so they (and the AI assistant authoring on their behalf)
+   * need to resolve a field's valid values (Jira projects, issue types, ...)
+   * without holding `integration.manage`. Returns option labels/values only -
+   * the same data the editor dropdowns show, fetched from the live provider; no
+   * connection config or secrets.
+   */
+  resolveConnectionOptions: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [integrationAccess.read],
   })
     .input(GetConnectionOptionsInputSchema)
     .output(z.array(ConnectionOptionSchema)),

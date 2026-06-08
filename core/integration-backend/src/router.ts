@@ -8,7 +8,11 @@ import {
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import { maskSecrets } from "@checkstack/secrets-common";
-import { integrationContract } from "@checkstack/integration-common";
+import {
+  integrationContract,
+  type GetConnectionOptionsInput,
+  type ConnectionOptionOutput,
+} from "@checkstack/integration-common";
 
 import type { IntegrationProviderRegistry } from "./provider-registry";
 import type { ConnectionStore } from "./connection-store";
@@ -305,47 +309,65 @@ export function createIntegrationRouter(deps: RouterDeps) {
       }));
     }),
 
-    getConnectionOptions: os.getConnectionOptions.handler(async ({ input }) => {
-      const { providerId, connectionId, resolverName, context } = input;
+    // Admin connection editor path (gated by integration.manage).
+    getConnectionOptions: os.getConnectionOptions.handler(({ input }) =>
+      resolveOptions(input),
+    ),
 
-      logger.debug(
-        `getConnectionOptions called: providerId=${providerId}, connectionId=${connectionId}, resolverName=${resolverName}`,
-      );
-
-      const provider = providerRegistry.getProvider(providerId);
-      if (!provider) {
-        throw new ORPCError("NOT_FOUND", {
-          message: `Provider not found: ${providerId}`,
-        });
-      }
-
-      if (!provider.getConnectionOptions) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `Provider ${providerId} does not support dynamic options`,
-        });
-      }
-
-      try {
-        const options = await provider.getConnectionOptions({
-          connectionId,
-          resolverName,
-          context,
-          logger,
-          getConnectionWithCredentials:
-            connectionStore.getConnectionWithCredentials.bind(connectionStore),
-        });
-        logger.debug(
-          `getConnectionOptions returned ${options.length} options for ${resolverName}`,
-        );
-        return options;
-      } catch (error) {
-        logger.error(`Failed to get connection options: ${error}`);
-        throw new ORPCError("INTERNAL_SERVER_ERROR", {
-          message: extractErrorMessage(error, "Failed to fetch options"),
-        });
-      }
-    }),
+    // Non-admin / AI-author path (any authenticated principal), so automation
+    // authors can resolve a field's valid values without integration.manage.
+    // Identical resolution; only the access gate differs (see the contract).
+    resolveConnectionOptions: os.resolveConnectionOptions.handler(({ input }) =>
+      resolveOptions(input),
+    ),
   });
+
+  /**
+   * Shared option resolution for both the admin (`getConnectionOptions`) and the
+   * non-admin (`resolveConnectionOptions`) endpoints: look up the provider,
+   * confirm it supports dynamic options, and run its resolver against the live
+   * connection. Failures surface as a clear ORPCError.
+   */
+  async function resolveOptions(
+    input: GetConnectionOptionsInput,
+  ): Promise<ConnectionOptionOutput[]> {
+    const { providerId, connectionId, resolverName, context } = input;
+    logger.debug(
+      `resolveOptions: providerId=${providerId}, connectionId=${connectionId}, resolverName=${resolverName}`,
+    );
+
+    const provider = providerRegistry.getProvider(providerId);
+    if (!provider) {
+      throw new ORPCError("NOT_FOUND", {
+        message: `Provider not found: ${providerId}`,
+      });
+    }
+    if (!provider.getConnectionOptions) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Provider ${providerId} does not support dynamic options`,
+      });
+    }
+
+    try {
+      const options = await provider.getConnectionOptions({
+        connectionId,
+        resolverName,
+        context,
+        logger,
+        getConnectionWithCredentials:
+          connectionStore.getConnectionWithCredentials.bind(connectionStore),
+      });
+      logger.debug(
+        `resolveOptions returned ${options.length} options for ${resolverName}`,
+      );
+      return options;
+    } catch (error) {
+      logger.error(`Failed to resolve connection options: ${error}`);
+      throw new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: extractErrorMessage(error, "Failed to fetch options"),
+      });
+    }
+  }
 }
 
 export type IntegrationRouter = ReturnType<typeof createIntegrationRouter>;
