@@ -134,3 +134,59 @@ describe("collectProviderActionNodes", () => {
     ]);
   });
 });
+
+/**
+ * A create_issue-shaped schema with a `fieldMappings` array whose per-row
+ * `fieldKey` carries a resolver (the Jira "additional fields" case): the
+ * resolver lives NESTED inside the array's `items.properties`.
+ */
+const SCHEMA_WITH_NESTED_RESOLVER = {
+  type: "object",
+  properties: {
+    connectionId: { type: "string", "x-options-resolver": "connectionOptions" },
+    projectKey: { type: "string", "x-options-resolver": "projectOptions" },
+    issueTypeId: {
+      type: "string",
+      "x-options-resolver": "issueTypeOptions",
+      "x-depends-on": ["connectionId", "projectKey"],
+    },
+    fieldMappings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          fieldKey: {
+            type: "string",
+            "x-options-resolver": "fieldOptions",
+            "x-depends-on": ["connectionId", "projectKey", "issueTypeId"],
+          },
+          value: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+describe("nested (array-item) resolver fields", () => {
+  test("getResolverField resolves a dotted path into an array's row schema", () => {
+    expect(
+      getResolverField(SCHEMA_WITH_NESTED_RESOLVER, "fieldMappings.fieldKey"),
+    ).toEqual({
+      field: "fieldMappings.fieldKey",
+      resolverName: "fieldOptions",
+      dependsOn: ["connectionId", "projectKey", "issueTypeId"],
+    });
+  });
+
+  test("getResolverField returns undefined for a non-resolver nested leaf", () => {
+    expect(
+      getResolverField(SCHEMA_WITH_NESTED_RESOLVER, "fieldMappings.value"),
+    ).toBeUndefined();
+  });
+
+  test("listResolverFields includes the nested field as a dotted path", () => {
+    const fields = listResolverFields(SCHEMA_WITH_NESTED_RESOLVER).map((f) => f.field);
+    expect(fields).toContain("projectKey");
+    expect(fields).toContain("fieldMappings.fieldKey");
+  });
+});

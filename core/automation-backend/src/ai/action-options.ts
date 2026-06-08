@@ -35,40 +35,91 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Descend a JSON-schema by a DOTTED field path, stepping through object
+ * `properties` and array `items.properties` at each segment. So `projectKey`
+ * resolves a top-level field, and `fieldMappings.fieldKey` resolves the
+ * per-row `fieldKey` inside the `fieldMappings` array. Returns the leaf
+ * property schema, or `undefined` if any segment is missing.
+ */
+function resolvePropertySchema(
+  configSchema: unknown,
+  fieldPath: string,
+): Record<string, unknown> | undefined {
+  let container = asRecord(asRecord(configSchema)?.properties);
+  let property: Record<string, unknown> | undefined;
+  for (const segment of fieldPath.split(".")) {
+    if (!container) return undefined;
+    property = asRecord(container[segment]);
+    if (!property) return undefined;
+    // Prepare the container for the NEXT segment: an array exposes its row
+    // shape under `items.properties`; an object under `properties`.
+    container =
+      property.type === "array"
+        ? asRecord(asRecord(property.items)?.properties)
+        : asRecord(property.properties);
+  }
+  return property;
+}
+
+/** Read a resolver declaration off a leaf property schema, if it has one. */
+function asResolverField(
+  field: string,
+  property: Record<string, unknown> | undefined,
+): ResolverField | undefined {
+  if (!property) return undefined;
+  const resolverName = property["x-options-resolver"];
+  if (typeof resolverName !== "string" || resolverName.length === 0) {
+    return undefined;
+  }
+  const rawDependsOn = property["x-depends-on"];
+  const dependsOn = Array.isArray(rawDependsOn)
+    ? rawDependsOn.filter((d): d is string => typeof d === "string")
+    : [];
+  return { field, resolverName, dependsOn };
+}
+
+/**
  * Read one config field's resolver declaration from a JSON config schema (the
- * `configSchema` returned by `automation.listActions`). Returns `undefined` when
- * the field does not exist or carries no `x-options-resolver`.
+ * `configSchema` returned by `automation.listActions`). Accepts a DOTTED path
+ * for a field nested inside an array of rows (e.g. `fieldMappings.fieldKey`).
+ * Returns `undefined` when the field does not exist or carries no
+ * `x-options-resolver`.
  */
 export function getResolverField(
   configSchema: unknown,
   field: string,
 ): ResolverField | undefined {
-  const properties = asRecord(asRecord(configSchema)?.properties);
-  const property = asRecord(properties?.[field]);
-  if (!property) return undefined;
-
-  const resolverName = property["x-options-resolver"];
-  if (typeof resolverName !== "string" || resolverName.length === 0) {
-    return undefined;
-  }
-
-  const rawDependsOn = property["x-depends-on"];
-  const dependsOn = Array.isArray(rawDependsOn)
-    ? rawDependsOn.filter((d): d is string => typeof d === "string")
-    : [];
-
-  return { field, resolverName, dependsOn };
+  return asResolverField(field, resolvePropertySchema(configSchema, field));
 }
 
-/** Every resolver-backed field declared on a config schema. */
+/**
+ * Every resolver-backed field declared on a config schema, INCLUDING fields
+ * nested one or more levels inside arrays/objects (emitted as dotted paths, e.g.
+ * `fieldMappings.fieldKey`). A bounded recursion guards against pathological
+ * schemas (config schemas are shallow trees in practice).
+ */
 export function listResolverFields(configSchema: unknown): ResolverField[] {
-  const properties = asRecord(asRecord(configSchema)?.properties);
-  if (!properties) return [];
   const out: ResolverField[] = [];
-  for (const field of Object.keys(properties)) {
-    const resolved = getResolverField(configSchema, field);
-    if (resolved) out.push(resolved);
-  }
+  const walk = (
+    properties: Record<string, unknown> | undefined,
+    prefix: string,
+    depth: number,
+  ): void => {
+    if (!properties || depth > 5) return;
+    for (const key of Object.keys(properties)) {
+      const property = asRecord(properties[key]);
+      if (!property) continue;
+      const path = prefix ? `${prefix}.${key}` : key;
+      const resolver = asResolverField(path, property);
+      if (resolver) out.push(resolver);
+      const nested =
+        property.type === "array"
+          ? asRecord(asRecord(property.items)?.properties)
+          : asRecord(property.properties);
+      if (nested) walk(nested, path, depth + 1);
+    }
+  };
+  walk(asRecord(asRecord(configSchema)?.properties), "", 0);
   return out;
 }
 
