@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env --watch src/index.ts",
+    "dev:auth": "CHECKSTACK_DEV_AUTH=true bun --env-file=../../.env src/index.ts",
     "typecheck": "tsgo -b",
     "generate": "bun --env-file=../../.env run drizzle-kit generate",
     "lint": "bun run lint:code",
