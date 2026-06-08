@@ -45,6 +45,7 @@ import {
   createTriggerRegistry,
   type TriggerRegistry,
 } from "./trigger-registry";
+import { createAutomationTemplateRegistry } from "./template-registry";
 import type {
   ActionDefinition,
   ArtifactTypeDefinition,
@@ -304,6 +305,7 @@ function makeRouter(): RouterHarness {
     triggerRegistry,
     actionRegistry,
     artifactTypeRegistry,
+    templateRegistry: createAutomationTemplateRegistry(),
     dispatchDeps,
     signalService,
     logger: dispatchDeps.logger,

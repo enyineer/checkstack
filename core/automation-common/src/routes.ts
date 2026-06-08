@@ -6,8 +6,13 @@ import { createRoutes } from "@checkstack/common";
 export const automationRoutes = createRoutes("automation", {
   /** Automation list page */
   list: "/",
-  /** Create new automation */
+  /** Pick a starting point (example-template gallery) for a new automation */
   create: "/new",
+  /**
+   * Blank / template-seeded editor for a new automation. Reached from the
+   * picker; a `?template=<id>` query param seeds the editor from that template.
+   */
+  createBlank: "/new/blank",
   /** Edit a single automation */
   edit: "/:automationId",
   /** Run history for a single automation */

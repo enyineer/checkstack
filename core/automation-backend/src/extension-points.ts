@@ -3,6 +3,7 @@ import {
   createServiceRef,
 } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
+import type { AutomationTemplateInput } from "@checkstack/automation-common";
 import type { Filter } from "@checkstack/template-engine";
 import type {
   ActionDefinition,
@@ -94,6 +95,31 @@ export interface AutomationFilterExtensionPoint {
 export const automationFilterExtensionPoint =
   createExtensionPoint<AutomationFilterExtensionPoint>(
     "automation.filterExtensionPoint",
+  );
+
+/**
+ * Extension point for registering curated **example-automation templates** —
+ * ready-to-use starting points an operator can pick when creating a new
+ * automation. Core and external plugins both contribute here; a contributor
+ * supplies an unqualified `id` (and no `ownerPluginId`), both of which are
+ * stamped from the registering plugin's metadata.
+ *
+ * Each template's `definition` references concrete action / trigger / artifact
+ * ids, so the backend validates every registered template against the LIVE
+ * registries at startup (see `validate-templates.ts`): a template whose
+ * dependencies are not installed is quietly skipped, while one that references
+ * a drifted action/trigger/artifact interface is logged loudly and withheld.
+ */
+export interface AutomationTemplateExtensionPoint {
+  registerTemplate(
+    template: AutomationTemplateInput,
+    pluginMetadata: PluginMetadata,
+  ): void;
+}
+
+export const automationTemplateExtensionPoint =
+  createExtensionPoint<AutomationTemplateExtensionPoint>(
+    "automation.templateExtensionPoint",
   );
 
 // ─── Service refs ─────────────────────────────────────────────────────────
