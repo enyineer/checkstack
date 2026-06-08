@@ -42,6 +42,7 @@ import {
   type AgentToolCallbacks,
 } from "./sdk-tools";
 import { ToolValidationError } from "../propose-apply/validation-error";
+import { prepareFinalAnswerStep } from "../step-budget.logic";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
@@ -614,6 +615,12 @@ export function createChatService({
         timeZone,
         mode: conversation.permissionMode,
       }),
+      // Guarantee the turn ends with an answer: on the final allowed step,
+      // REMOVE all tools (activeTools: []) so the model must synthesize text
+      // from what it gathered instead of spending the last step on a tool call
+      // and leaving the operator with a blank reply.
+      prepareStep: ({ stepNumber }) =>
+        prepareFinalAnswerStep({ stepNumber, maxSteps: MAX_STEPS }),
       // Defensively normalize: drop empty-content rows and merge consecutive
       // same-role messages so a failed prior turn (which persists no assistant
       // reply, leaving consecutive `user` rows) cannot poison the history into a

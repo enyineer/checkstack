@@ -35,6 +35,7 @@ import {
   buildDateTimeContext,
   buildHeadlessSystemPrompt,
 } from "./chat/system-prompt";
+import { prepareFinalAnswerStep } from "./step-budget.logic";
 import {
   createServiceRef,
   type AuthUser,
@@ -248,6 +249,7 @@ export function createAgentRunner({
     // gets the CURRENT instant and the host-zone wire contract. Headless: no
     // operator, so the reference zone is the host/container TZ.
     const dateContext = buildDateTimeContext({ audience: "headless" });
+    const effectiveMaxSteps = maxSteps ?? DEFAULT_MAX_STEPS;
     const { text } = await gen({
       model: languageModel,
       // The non-negotiable headless baseline plus any author override (appended,
@@ -256,7 +258,12 @@ export function createAgentRunner({
       system: `${buildHeadlessSystemPrompt({ override: systemPrompt })} ${dateContext}`,
       prompt,
       tools: sdkTools,
-      stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
+      stopWhen: stepCountIs(effectiveMaxSteps),
+      // On the final step, remove all tools so the action always produces a
+      // text summary instead of an empty one (model spent its last step on a
+      // tool call). activeTools:[] avoids the toolChoice:"none" markup-leak path.
+      prepareStep: ({ stepNumber }) =>
+        prepareFinalAnswerStep({ stepNumber, maxSteps: effectiveMaxSteps }),
     });
 
     let object: unknown;
