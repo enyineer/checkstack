@@ -1,5 +1,115 @@
 # @checkstack/automation-backend
 
+## 0.8.0
+
+### Minor Changes
+
+- 6005271: Add AI "skills" - reusable prompt templates for the chat assistant and the
+  `ai_analyze` automation action. A skill bundles a system-prompt fragment, an
+  optional starter prompt, and (for analyze) suggested output fields, tagged with
+  the surfaces it targets.
+
+  Skills come from two sources merged into one catalogue: builtin skills
+  contributed by core/plugins via the new `aiSkillExtensionPoint`, and GLOBAL
+  user skills authored by operators (new `ai_skill` table) and visible to everyone
+  who can read skills. New access rules `ai.skill.read`, `ai.skill-create.manage`
+  (a dedicated create permission), and `ai.skill.manage` (edit/delete, author-only
+  with admin moderation) gate the feature - all default-on, admin-revocable.
+
+  The chat composer gains a skill picker (its system prompt seeds the turn, its
+  starter prompt seeds the message box); the `ai_analyze` action gains an optional
+  `skillId` that seeds the system prompt, prompt (when blank), and output fields
+  (when none) - explicit config always wins. A new "AI skills" settings page lets
+  operators browse, view full details (prompts + output fields), publish, edit,
+  and delete their global skills. Ships six builtin skills across chat and analyze.
+
+  To support rich pickers, `@checkstack/ui`'s `DynamicForm` gains a `catalog`
+  options style (`x-options-style: "catalog"`, with resolver options carrying an
+  optional `description`) that renders a browsable modal of cards instead of a
+  plain Select, and `@checkstack/backend-api` propagates the new annotation. The
+  shared `PageHeader` now wraps a long subtitle beside its actions instead of
+  letting them overlap.
+
+- 748268c: Add an example-automation template catalogue. Creating a new automation now
+  opens a picker (`/automation/new`) with curated, ready-to-use starting points
+  grouped by category, plus a "Blank automation" option. Selecting a template
+  seeds the editor (the operator still chooses a service account and saves).
+
+  Templates are an extensible registry: external plugins contribute their own via
+  the new `automationTemplateExtensionPoint`, exactly like actions / triggers /
+  artifact types. Every registered template is validated against the LIVE
+  trigger/action/artifact registries at server startup - a template that
+  references a capability that is not installed is withheld with a console
+  warning, and one whose definition no longer validates (interface drift) is
+  withheld with a console error - so a template can never silently drift when an
+  action, trigger, condition, or artifact interface changes.
+
+  Ships five built-in templates spanning incident response and alerting
+  (AI-triage-and-file-Jira-bug, close-Jira-on-recovery, AI-summarize-incident,
+  page-on-call-on-sustained-degradation, AI-severity-escalation).
+
+- 079369a: The AI assistant can now discover dynamic-option values for config fields nested
+  inside an array of rows (e.g. a Jira `create_issue`'s `fieldMappings[].fieldKey`,
+  which lists a project + issue type's additional/custom fields). `getResolverField`
+  and `listResolverFields` (and thus the `automation.resolveActionOptions` tool) now
+  accept a DOTTED field path that steps through object `properties` and array
+  `items.properties`, so the model can resolve `fieldMappings.fieldKey` the same way
+  it resolves top-level fields like `projectKey`. Previously only top-level resolver
+  fields were reachable, so the assistant could not discover (and therefore could
+  not populate) additional Jira fields.
+
+### Patch Changes
+
+- 4134ed9: Fix a performance regression in `getBindableApplications`: it resolved every
+  application's effective access rules with 3-4 queries per application on every
+  call, which the AI propose / service-account flow hits on each chat turn,
+  showing up as broad slowness on the shared database. Rule resolution is now
+  batched into a fixed number of queries regardless of how many applications
+  exist, and an admin (`*`) caller that does not need the rules (the editor's
+  "Run as" picker) skips resolution entirely. The query gains an optional
+  `includeAccessRules` input (default off); `accessRules` is returned only when
+  requested.
+- 079369a: Fix producing automation actions that double-prefixed their artifact type. The
+  action registry qualifies `produces` with the owning plugin id, but several
+  actions set `produces` to an already-qualified id, so it became
+  `plugin.plugin.type` (e.g. `automation.automation.analysis`,
+  `maintenance.maintenance.window`). This stored artifacts under a type that
+  matched no registered artifact type, and — because the run scope exposes a
+  produced artifact under its type's local name — broke the documented downstream
+  reference `artifacts.<actionId>.<name>.<field>` (a `choose`/condition/template
+  referencing the analysis output, a created incident/maintenance/etc. silently
+  saw `undefined` and took the wrong branch).
+
+  Fixed in `ai_analyze` (`analysis`), the built-in `notify_user`
+  (`notify_user_result`), and the catalog (`system_record`), maintenance
+  (`window`), notification (`send_result`), dependency (`edge`), and healthcheck
+  (`assignment`) actions — each now uses the unqualified local id matching its
+  artifact-type definition.
+
+  BREAKING (beta): any automation that referenced one of these artifacts via the
+  old double-prefixed scope key (e.g. `artifacts.x['automation.analysis']`) must
+  switch to the documented form (`artifacts.x.analysis.<field>`). The
+  double-prefixed key was never the intended/documented path.
+
+- Updated dependencies [079369a]
+- Updated dependencies [4134ed9]
+- Updated dependencies [6005271]
+- Updated dependencies [748268c]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+- Updated dependencies [079369a]
+  - @checkstack/ai-backend@0.6.0
+  - @checkstack/ai-common@0.4.0
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/automation-common@0.6.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/template-engine@0.4.4
+  - @checkstack/command-backend@0.2.8
+  - @checkstack/gitops-backend@0.5.8
+  - @checkstack/script-packages-backend@0.3.10
+  - @checkstack/sdk@0.106.1
+  - @checkstack/healthcheck-common@1.6.2
+
 ## 0.7.0
 
 ### Minor Changes

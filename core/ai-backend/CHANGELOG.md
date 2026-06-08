@@ -1,5 +1,82 @@
 # @checkstack/ai-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- 4134ed9: Add persistent "operator memory" for the AI assistant: it can save a durable
+  finding and recall it in later conversations, for knowledge the platform does
+  not otherwise store. Memories are scoped `user` (a private preference/policy) or
+  `system` (a fact about one system, shared with anyone who can read it), and the
+  model picks the scope at save time. Recall is on-demand via a `searchMemory`
+  tool; `saveMemory` is proposed (confirmed in chat, capped per run for the
+  unattended automation agent) and deduplicates by updating a near-match instead
+  of duplicating; `deleteMemory` is destructive (always confirmed, never offered
+  to the agent). Each memory carries an `alwaysInject` flag (the model proposes it,
+  the operator can flip it in the UI): an always-inject memory is prepended to the
+  system prompt every turn, so an always-apply preference (e.g. a writing-style
+  rule) takes effect during generation instead of waiting to be recalled. A new
+  `ai_memory` table backs it; `user` memories are owner-scoped and `system`
+  memories are gated by the same per-system team grants the catalog applies. New `ai.memory.read` / `ai.memory.manage` access rules
+  (default-on, admin-revocable) gate the tools. Memory content is treated as data
+  (never instructions), secret-scrubbed on save, and never used to cache live
+  state. A Memories settings page and a per-system memory card let operators view
+  and prune what the assistant has saved.
+- 6005271: Add AI "skills" - reusable prompt templates for the chat assistant and the
+  `ai_analyze` automation action. A skill bundles a system-prompt fragment, an
+  optional starter prompt, and (for analyze) suggested output fields, tagged with
+  the surfaces it targets.
+
+  Skills come from two sources merged into one catalogue: builtin skills
+  contributed by core/plugins via the new `aiSkillExtensionPoint`, and GLOBAL
+  user skills authored by operators (new `ai_skill` table) and visible to everyone
+  who can read skills. New access rules `ai.skill.read`, `ai.skill-create.manage`
+  (a dedicated create permission), and `ai.skill.manage` (edit/delete, author-only
+  with admin moderation) gate the feature - all default-on, admin-revocable.
+
+  The chat composer gains a skill picker (its system prompt seeds the turn, its
+  starter prompt seeds the message box); the `ai_analyze` action gains an optional
+  `skillId` that seeds the system prompt, prompt (when blank), and output fields
+  (when none) - explicit config always wins. A new "AI skills" settings page lets
+  operators browse, view full details (prompts + output fields), publish, edit,
+  and delete their global skills. Ships six builtin skills across chat and analyze.
+
+  To support rich pickers, `@checkstack/ui`'s `DynamicForm` gains a `catalog`
+  options style (`x-options-style: "catalog"`, with resolver options carrying an
+  optional `description`) that renders a browsable modal of cards instead of a
+  plain Select, and `@checkstack/backend-api` propagates the new annotation. The
+  shared `PageHeader` now wraps a long subtitle beside its actions instead of
+  letting them overlap.
+
+### Patch Changes
+
+- 079369a: Fix the AI analyze action's structured output (`outputFields`) failing on
+  OpenAI-compatible providers without native structured-output support (OpenRouter,
+  DeepSeek, Ollama, ...). The JSON schema sent via `responseFormat` is silently
+  dropped by those providers, and the prompt never described the schema, so the
+  model was never told which fields were required and omitted them ("No object
+  generated: response did not match schema"). The structured-output pass now
+  embeds the JSON Schema in the prompt, so it works on any OpenAI-compatible model.
+  The repair loop is also more effective: on a failed attempt it now feeds back the
+  specific field-level validation errors and the model's rejected output (instead
+  of the generic "did not match schema" message) and reinforces the schema more
+  firmly on repeated misses.
+- 4134ed9: Stop the chat assistant from dead-ending on a guessed documentation slug. The
+  `getDoc` tool now tells the model the slug must come from a `searchDocs` /
+  `listDocs` result, and when an unknown slug is requested its error names the
+  closest real pages (matched on the slug's own words) so the model recovers in
+  one step instead of guessing another slug.
+- Updated dependencies [4134ed9]
+- Updated dependencies [6005271]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+  - @checkstack/ai-common@0.4.0
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/integration-backend@0.6.1
+  - @checkstack/sdk@0.106.1
+  - @checkstack/catalog-common@2.3.6
+
 ## 0.5.0
 
 ### Minor Changes

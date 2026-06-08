@@ -1,5 +1,15 @@
 # @checkstack/backend
 
+## 0.18.3
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+- Updated dependencies [4134ed9]
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/signal-backend@0.3.8
+
 ## 0.18.2
 
 ### Patch Changes

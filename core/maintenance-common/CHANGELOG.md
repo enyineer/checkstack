@@ -1,5 +1,11 @@
 # @checkstack/maintenance-common
 
+## 1.5.2
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.6
+
 ## 1.5.1
 
 ### Patch Changes
