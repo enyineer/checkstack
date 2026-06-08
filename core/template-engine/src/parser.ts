@@ -215,7 +215,13 @@ class Parser {
   }
 
   private parseUnary(): Expr {
-    if (this.check("NOT")) {
+    // Negation: the `!` operator OR the `not` keyword as a prefix. `not` is
+    // tokenized as an identifier, so we accept it positionally here (a bare
+    // leading `not`). The `not` FILTER (`value | not`) is a filter name parsed
+    // after a PIPE and is unaffected; member access (`x.not`) is parsed after a
+    // DOT and is likewise unaffected.
+    const tok = this.peek();
+    if (tok.kind === "NOT" || (tok.kind === "IDENT" && tok.value === "not")) {
       const opTok = this.advance();
       const operand = this.parseUnary();
       return {

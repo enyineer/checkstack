@@ -71,4 +71,19 @@ describe("parseCondition", () => {
   it("rejects malformed input", () => {
     expect(() => parseCondition("foo ==")).toThrow(TemplateParseError);
   });
+
+  it("parses the `not` keyword as prefix negation (like `!`)", () => {
+    // Regression: `when: "not artifacts.x.issue_search.found"` (the documented
+    // negation, which the assistant naturally uses) used to throw
+    // "Expected EXPR_CLOSE but found IDENT".
+    const c = parseCondition("not artifacts.x.issue_search.found");
+    expect(c.root.kind).toBe("unary");
+    expect(parseCondition("!artifacts.x.issue_search.found").root.kind).toBe("unary");
+    expect(parseCondition("not (1 == 2)").root.kind).toBe("unary");
+  });
+
+  it("keeps `not` working as a FILTER name after a pipe (no conflict)", () => {
+    const c = parseCondition("artifacts.x.found | not");
+    expect(c.root.kind).toBe("pipe");
+  });
 });
