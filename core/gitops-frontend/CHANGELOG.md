@@ -1,5 +1,11 @@
 # @checkstack/gitops-frontend
 
+## 0.5.6
+
+### Patch Changes
+
+- @checkstack/tips-frontend@0.3.6
+
 ## 0.5.5
 
 ### Patch Changes

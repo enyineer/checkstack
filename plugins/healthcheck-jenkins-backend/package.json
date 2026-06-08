@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-jenkins-backend",
-  "version": "0.3.31",
+  "version": "0.3.32",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

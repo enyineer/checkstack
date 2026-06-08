@@ -1,5 +1,14 @@
 # @checkstack/ai-frontend
 
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+- Updated dependencies [ebef442]
+  - @checkstack/integration-common@0.9.0
+  - @checkstack/ai-common@0.3.0
+
 ## 0.1.7
 
 ### Patch Changes

@@ -1,5 +1,101 @@
 # @checkstack/automation-backend
 
+## 0.7.0
+
+### Minor Changes
+
+- ebef442: feat(ai): let the assistant resolve dynamic integration-action field values
+
+  Integration action fields like Jira `create_issue`'s `projectKey`, `issueTypeId`,
+  and `priorityId` are not free-form - their valid values come from the connected
+  system (the editor renders them as cascading dropdowns via `x-options-resolver`).
+  The AI assistant had no way to fetch those values, so it guessed, and propose-time
+  validation never checked them - a fabricated `projectKey` only failed at runtime.
+
+  - **New user-callable `integration.resolveConnectionOptions` RPC** (the non-admin
+    counterpart of `getConnectionOptions`, mirroring `listConnectionSummaries`), so
+    automation authors and the assistant can resolve a field's options without
+    `integration.manage`. Returns option labels/values only.
+  - **New `automation.resolveActionOptions` AI tool**: resolves a field's valid
+    values live from the connection, the same source the editor dropdown uses. It
+    is provider-agnostic (reads the field's resolver and `x-depends-on` from the
+    action's own schema) and dependency-aware - for a cascade like `issueTypeId`
+    (depends on `projectKey`), the model resolves the parent first and passes it in
+    `dependencies`.
+  - **Propose-time options validation**: `automation.propose` now checks every
+    literal dynamic-option value against the live options for its connection
+    (sourcing each field's dependency values from the same config so cascades
+    resolve), flagging values the connection does not offer with guidance to call
+    `automation.resolveActionOptions`. Templated values and fields with
+    templated/absent dependencies are skipped; a resolver lookup failure is skipped
+    rather than blocking, so transient provider flakiness never gates a proposal.
+
+  - **Automation editor works for non-admins**: the editor's option-resolver
+    bridge now calls the user-callable `listConnectionSummaries` /
+    `resolveConnectionOptions` instead of the admin-gated `listConnections` /
+    `getConnectionOptions`, so an automation author without `integration.manage`
+    gets working connection pickers and cascading dropdowns instead of empty/
+    forbidden ones.
+
+  The resolver lookup and the dependency handling are factored into reusable
+  helpers that work for any provider's `x-options-resolver` fields.
+
+- ebef442: feat(automation): gate integration actions on the runAs service account's permissions
+
+  **BREAKING.** Integration automation actions resolve credentials through a
+  trusted service rather than the bounded `runAs` client, so they previously
+  bypassed the runAs least-privilege model entirely: anyone able to author an
+  automation could create Jira tickets, send Teams/Webex messages, etc. on any
+  configured connection, with a zero-permission service account. This closes that
+  gap.
+
+  - **Actions declare `requiredAccessRules`** and the dispatch engine enforces
+    them against the resolved `runAs` principal BEFORE the action runs (failing
+    the step if missing) - the authorization point integration actions lacked.
+  - **Each integration plugin defines per-action access rules**, e.g.
+    `integration-jira.create_issue.manage` / `search_issues.read` /
+    `transition_issue.manage` / `add_comment.manage`,
+    `integration-teams.post_message.manage`,
+    `integration-webex.post_message.manage`.
+  - **`automation.propose` checks the same up front**, surfacing a per-action
+    missing-permission error on the review card; `listActions` now exposes each
+    action's `requiredAccessRules`, and `getBindableApplications` now returns each
+    app's effective `accessRules`.
+  - **New `integration.read` rule** gates `listConnectionSummaries` /
+    `resolveConnectionOptions` (previously open to any authenticated user), so
+    discovering connections and resolving their field options requires a grant.
+  - **The AI assistant picks a capable runAs up front.**
+    `automation.listServiceAccounts` now returns each account's `accessRules` and
+    `automation.getCapabilitySchema` returns each action's `requiredAccessRules`,
+    so the model selects a service account whose permissions cover the actions it
+    uses instead of proposing and being rejected. When the operator did not name a
+    runAs and more than one account qualifies, it ASKS which to use rather than
+    choosing the automation's identity itself; when none has the needed rules it
+    says which rule(s) to grant.
+
+  **Migration:** existing automations whose service account does not hold the new
+  rules will fail at the gated action until an admin grants the matching rule(s)
+  to the service account's role (e.g. add `integration-jira.create_issue.manage`).
+  Admin (`*`) service accounts are unaffected. Grant `integration.read` to roles
+  that author integration-using automations so the editor's connection pickers and
+  dropdowns keep working for non-admins.
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+- Updated dependencies [ebef442]
+  - @checkstack/integration-common@0.9.0
+  - @checkstack/automation-common@0.5.0
+  - @checkstack/auth-common@0.9.0
+  - @checkstack/ai-backend@0.5.0
+  - @checkstack/ai-common@0.3.0
+  - @checkstack/sdk@0.105.1
+  - @checkstack/script-packages-backend@0.3.9
+  - @checkstack/healthcheck-common@1.6.1
+  - @checkstack/backend-api@0.21.7
+  - @checkstack/command-backend@0.2.7
+  - @checkstack/gitops-backend@0.5.7
+
 ## 0.6.0
 
 ### Minor Changes

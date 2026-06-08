@@ -1,5 +1,13 @@
 # @checkstack/gitops-backend
 
+## 0.5.7
+
+### Patch Changes
+
+- @checkstack/secrets-backend@0.2.7
+- @checkstack/backend-api@0.21.7
+- @checkstack/command-backend@0.2.7
+
 ## 0.5.6
 
 ### Patch Changes

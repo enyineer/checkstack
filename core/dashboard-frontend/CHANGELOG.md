@@ -1,5 +1,16 @@
 # @checkstack/dashboard-frontend
 
+## 0.8.7
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.5
+- @checkstack/catalog-frontend@0.11.6
+- @checkstack/tips-frontend@0.3.6
+- @checkstack/healthcheck-common@1.6.1
+- @checkstack/incident-common@1.5.1
+- @checkstack/maintenance-common@1.5.1
+
 ## 0.8.6
 
 ### Patch Changes

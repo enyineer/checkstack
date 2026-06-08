@@ -1,5 +1,15 @@
 # @checkstack/dependency-frontend
 
+## 0.5.8
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.5
+- @checkstack/dashboard-frontend@0.8.7
+- @checkstack/dependency-common@1.3.1
+- @checkstack/healthcheck-common@1.6.1
+- @checkstack/gitops-frontend@0.5.6
+
 ## 0.5.7
 
 ### Patch Changes

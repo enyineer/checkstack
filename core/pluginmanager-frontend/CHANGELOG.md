@@ -1,5 +1,11 @@
 # @checkstack/pluginmanager-frontend
 
+## 0.4.6
+
+### Patch Changes
+
+- @checkstack/tips-frontend@0.3.6
+
 ## 0.4.5
 
 ### Patch Changes

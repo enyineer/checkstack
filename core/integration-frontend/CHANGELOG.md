@@ -1,5 +1,14 @@
 # @checkstack/integration-frontend
 
+## 0.6.7
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+- Updated dependencies [ebef442]
+  - @checkstack/integration-common@0.9.0
+  - @checkstack/tips-frontend@0.3.6
+
 ## 0.6.6
 
 ### Patch Changes

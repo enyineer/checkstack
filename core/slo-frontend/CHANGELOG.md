@@ -1,5 +1,16 @@
 # @checkstack/slo-frontend
 
+## 0.5.8
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.5
+- @checkstack/tips-frontend@0.3.6
+- @checkstack/dashboard-frontend@0.8.7
+- @checkstack/dependency-common@1.3.1
+- @checkstack/healthcheck-common@1.6.1
+- @checkstack/slo-common@0.6.1
+
 ## 0.5.7
 
 ### Patch Changes

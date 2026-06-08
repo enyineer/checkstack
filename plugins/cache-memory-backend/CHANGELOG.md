@@ -1,5 +1,11 @@
 # @checkstack/cache-memory-backend
 
+## 0.3.16
+
+### Patch Changes
+
+- @checkstack/backend-api@0.21.7
+
 ## 0.3.15
 
 ### Patch Changes

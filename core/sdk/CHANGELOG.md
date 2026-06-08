@@ -1,5 +1,23 @@
 # @checkstack/sdk
 
+## 0.105.1
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+- Updated dependencies [ebef442]
+  - @checkstack/integration-common@0.9.0
+  - @checkstack/automation-common@0.5.0
+  - @checkstack/auth-common@0.9.0
+  - @checkstack/catalog-common@2.3.5
+  - @checkstack/anomaly-common@1.4.1
+  - @checkstack/dependency-common@1.3.1
+  - @checkstack/healthcheck-common@1.6.1
+  - @checkstack/incident-common@1.5.1
+  - @checkstack/maintenance-common@1.5.1
+  - @checkstack/slo-common@0.6.1
+  - @checkstack/satellite-common@0.8.6
+
 ## 0.104.1
 
 ### Patch Changes

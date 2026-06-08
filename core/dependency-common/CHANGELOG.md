@@ -1,5 +1,11 @@
 # @checkstack/dependency-common
 
+## 1.3.1
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.5
+
 ## 1.3.0
 
 ### Minor Changes

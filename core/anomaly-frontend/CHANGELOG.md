@@ -1,5 +1,15 @@
 # @checkstack/anomaly-frontend
 
+## 0.5.9
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.3.5
+- @checkstack/healthcheck-frontend@0.23.9
+- @checkstack/notification-frontend@0.5.6
+- @checkstack/anomaly-common@1.4.1
+- @checkstack/healthcheck-common@1.6.1
+
 ## 0.5.8
 
 ### Patch Changes

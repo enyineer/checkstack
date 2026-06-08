@@ -1,5 +1,16 @@
 # @checkstack/incident-frontend
 
+## 0.9.7
+
+### Patch Changes
+
+- @checkstack/auth-frontend@0.7.6
+- @checkstack/catalog-common@2.3.5
+- @checkstack/notification-frontend@0.5.6
+- @checkstack/tips-frontend@0.3.6
+- @checkstack/dashboard-frontend@0.8.7
+- @checkstack/incident-common@1.5.1
+
 ## 0.9.6
 
 ### Patch Changes
