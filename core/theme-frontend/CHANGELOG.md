@@ -1,5 +1,11 @@
 # @checkstack/theme-frontend
 
+## 0.2.6
+
+### Patch Changes
+
+- @checkstack/auth-frontend@0.7.6
+
 ## 0.2.5
 
 ### Patch Changes

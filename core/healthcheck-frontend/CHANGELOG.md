@@ -1,5 +1,20 @@
 # @checkstack/healthcheck-frontend
 
+## 0.23.9
+
+### Patch Changes
+
+- @checkstack/auth-frontend@0.7.6
+- @checkstack/catalog-common@2.3.5
+- @checkstack/catalog-frontend@0.11.6
+- @checkstack/script-packages-frontend@0.3.9
+- @checkstack/tips-frontend@0.3.6
+- @checkstack/anomaly-common@1.4.1
+- @checkstack/dashboard-frontend@0.8.7
+- @checkstack/healthcheck-common@1.6.1
+- @checkstack/gitops-frontend@0.5.6
+- @checkstack/satellite-common@0.8.6
+
 ## 0.23.8
 
 ### Patch Changes

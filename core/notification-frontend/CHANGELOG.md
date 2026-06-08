@@ -1,5 +1,12 @@
 # @checkstack/notification-frontend
 
+## 0.5.6
+
+### Patch Changes
+
+- @checkstack/auth-frontend@0.7.6
+- @checkstack/tips-frontend@0.3.6
+
 ## 0.5.5
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @checkstack/secrets-backend-local
 
+## 0.1.9
+
+### Patch Changes
+
+- @checkstack/secrets-backend@0.2.7
+- @checkstack/backend-api@0.21.7
+
 ## 0.1.8
 
 ### Patch Changes

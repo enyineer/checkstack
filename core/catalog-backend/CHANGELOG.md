@@ -1,5 +1,21 @@
 # @checkstack/catalog-backend
 
+## 1.4.10
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+- Updated dependencies [ebef442]
+  - @checkstack/automation-backend@0.7.0
+  - @checkstack/auth-backend@0.6.0
+  - @checkstack/auth-common@0.9.0
+  - @checkstack/ai-backend@0.5.0
+  - @checkstack/ai-common@0.3.0
+  - @checkstack/catalog-common@2.3.5
+  - @checkstack/backend-api@0.21.7
+  - @checkstack/command-backend@0.2.7
+  - @checkstack/gitops-backend@0.5.7
+
 ## 1.4.9
 
 ### Patch Changes

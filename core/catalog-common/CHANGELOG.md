@@ -1,5 +1,12 @@
 # @checkstack/catalog-common
 
+## 2.3.5
+
+### Patch Changes
+
+- Updated dependencies [ebef442]
+  - @checkstack/auth-common@0.9.0
+
 ## 2.3.4
 
 ### Patch Changes
