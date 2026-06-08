@@ -6,14 +6,52 @@ import {
   SearchDocsOutputSchema,
   GetDocInputSchema,
   GetDocOutputSchema,
+  ListDocsInputSchema,
+  ListDocsOutputSchema,
   type SearchDocsInput,
   type SearchDocsOutput,
   type GetDocInput,
   type GetDocOutput,
+  type ListDocsInput,
+  type ListDocsOutput,
 } from "@checkstack/ai-common";
 import { DOCS_INDEX, type DocsIndexEntry } from "../generated/docs-index";
-import { rankDocs } from "./rank-docs";
+import { rankDocs, type RankedDocHit } from "./rank-docs";
 import type { RegisteredAiTool } from "../tool-registry";
+
+/**
+ * A search hit counts as a STRONG match only well above the floor where a single
+ * shared common word (e.g. "system", "health") scrapes a positive BM25 score.
+ * Below this, the result set is noise: we tell the model so, so it consults the
+ * sitemap or concludes the docs do not cover the topic instead of re-searching.
+ */
+const STRONG_HIT_SCORE = 8;
+
+/** The first slug segment is the page's top-level section (""=root landing). */
+function sectionOf(slug: string): string {
+  const seg = slug.split("/")[0];
+  return seg.length > 0 ? seg : "(root)";
+}
+
+/** Guidance steering the model off the re-search loop and onto the sitemap. */
+function searchNote(hits: RankedDocHit[]): string {
+  if (hits.length === 0) {
+    return (
+      "No documentation matched. Do NOT retry with reworded queries - call " +
+      "listDocs to see every page, and if no title fits, the docs do not cover " +
+      "this: say so plainly rather than searching again."
+    );
+  }
+  if ((hits[0]?.score ?? 0) < STRONG_HIT_SCORE) {
+    return (
+      "These are weak matches - they may just share a common word with your " +
+      "query. If none of these titles/snippets actually address the question, do " +
+      "NOT re-search with different wording: call listDocs to confirm coverage, " +
+      "or conclude the docs do not cover it and say so."
+    );
+  }
+  return "Read the most relevant page in full with getDoc before answering.";
+}
 
 /**
  * Documentation-grounding tools (`ai.searchDocs` + `ai.getDoc`, plan §2.5).
@@ -47,16 +85,64 @@ export function createSearchDocsTool({
     name: "searchDocs",
     description:
       "Search Checkstack's own documentation by keyword and return the most " +
-      "relevant pages with a short snippet from each. Use this FIRST to ground " +
-      "any how-to or conceptual answer about Checkstack in the real docs, then " +
-      "call getDoc to read a promising page in full. Read-only.",
+      "relevant pages with a short snippet and a relevance score from each, plus " +
+      "a `note` telling you what to do next. Good for a targeted keyword lookup; " +
+      "for an overview of what topics exist, prefer listDocs. Then call getDoc to " +
+      "read a promising page in full. If the hits are weak/off-topic, do NOT " +
+      "re-search with reworded queries - use listDocs or conclude the docs do " +
+      "not cover it. Read-only.",
     effect: "read",
     input: SearchDocsInputSchema,
     output: SearchDocsOutputSchema,
     requiredAccessRules: [AI_CHAT_READ],
     async execute({ input }) {
       const hits = rankDocs({ index, query: input.query, limit: input.limit });
-      return { hits };
+      return { hits, note: searchNote(hits) };
+    },
+  };
+}
+
+/**
+ * Builds `ai.listDocs`: the documentation sitemap. Returns every page's slug,
+ * title, and description (optionally narrowed to one top-level section) so the
+ * model can see the whole map at a glance, jump straight to the right page with
+ * getDoc, and - crucially - tell when NO page covers a topic instead of looping
+ * on `searchDocs`. Content is intentionally omitted (use getDoc for that).
+ */
+export function createListDocsTool({
+  index = DOCS_INDEX,
+}: {
+  index?: readonly DocsIndexEntry[];
+} = {}): RegisteredAiTool<ListDocsInput, ListDocsOutput> {
+  return {
+    name: "listDocs",
+    description:
+      "List the Checkstack documentation sitemap - every page's slug, title, and " +
+      "description (pass an optional `section` like \"user-guide\" or " +
+      "\"developer-guide\" to narrow). Use this to see what IS and ISN'T " +
+      "documented and pick the exact page to read with getDoc, instead of " +
+      "repeatedly searching. If no page covers the topic, the docs do not cover " +
+      "it - say so rather than searching again. Read-only.",
+    effect: "read",
+    input: ListDocsInputSchema,
+    output: ListDocsOutputSchema,
+    requiredAccessRules: [AI_CHAT_READ],
+    async execute({ input }) {
+      const sections = [
+        ...new Set(index.map((e) => sectionOf(e.slug))),
+      ].toSorted();
+      const pages = index
+        .filter((e) => !input.section || sectionOf(e.slug) === input.section)
+        .map((e) => ({
+          slug: e.slug,
+          title: e.title,
+          ...(e.description ? { description: e.description } : {}),
+        }));
+      const note =
+        pages.length === 0
+          ? `No pages in section "${input.section}". Available sections: ${sections.join(", ")}.`
+          : "Pick the page whose title/description best fits and read it with getDoc. If none fits, the docs do not cover this - say so instead of searching.";
+      return { pages, sections, note };
     },
   };
 }
@@ -111,5 +197,9 @@ export function createDocsTools({
 }: {
   index?: readonly DocsIndexEntry[];
 } = {}): RegisteredAiTool[] {
-  return [createSearchDocsTool({ index }), createGetDocTool({ index })];
+  return [
+    createListDocsTool({ index }),
+    createSearchDocsTool({ index }),
+    createGetDocTool({ index }),
+  ];
 }

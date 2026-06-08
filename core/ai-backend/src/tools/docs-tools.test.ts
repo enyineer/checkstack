@@ -3,6 +3,7 @@ import type { AuthUser, RpcClient } from "@checkstack/backend-api";
 import {
   SearchDocsOutputSchema,
   GetDocOutputSchema,
+  ListDocsOutputSchema,
 } from "@checkstack/ai-common";
 import type { DocsIndexEntry } from "../generated/docs-index";
 import { createAiToolRegistry } from "../tool-registry";
@@ -12,6 +13,7 @@ import { pluginMetadata as aiPluginMetadata } from "@checkstack/ai-common";
 import {
   createDocsTools,
   createGetDocTool,
+  createListDocsTool,
   createSearchDocsTool,
 } from "./docs-tools";
 
@@ -59,6 +61,33 @@ describe("ai.searchDocs tool", () => {
     expect(() => SearchDocsOutputSchema.parse(out)).not.toThrow();
     expect(out.hits.length).toBeGreaterThan(0);
     expect(out.hits[0]?.slug).toBe("user-guide/concepts/health-checks");
+    // A strong match steers the model to read, not to keep searching.
+    expect(out.note).toMatch(/getDoc/);
+  });
+
+  test("weak matches carry a note steering off the re-search loop", async () => {
+    const tool = createSearchDocsTool({ index: FIXTURE_INDEX });
+    // "probes" appears only once in body text -> a low BM25 score (weak match).
+    const out = await tool.execute({
+      input: { query: "probes", limit: 5 },
+      principal: PRINCIPAL,
+      rpcClient,
+    });
+    expect(out.hits.length).toBeGreaterThan(0);
+    expect(out.note).toMatch(/weak matches/i);
+    expect(out.note).toMatch(/listDocs/);
+  });
+
+  test("no match tells the model to stop searching, not reword", async () => {
+    const tool = createSearchDocsTool({ index: FIXTURE_INDEX });
+    const out = await tool.execute({
+      input: { query: "kubernetes helm chart", limit: 5 },
+      principal: PRINCIPAL,
+      rpcClient,
+    });
+    expect(out.hits).toEqual([]);
+    expect(out.note).toMatch(/do not cover this/i);
+    expect(out.note).toMatch(/listDocs/);
   });
 
   test("honours the limit cap", async () => {
@@ -107,6 +136,53 @@ describe("ai.getDoc tool", () => {
   });
 });
 
+describe("ai.listDocs tool", () => {
+  test("returns the full sitemap (slug/title/description) + sections, schema-valid", async () => {
+    const tool = createListDocsTool({ index: FIXTURE_INDEX });
+    const out = await tool.execute({ input: {}, principal: PRINCIPAL, rpcClient });
+    expect(() => ListDocsOutputSchema.parse(out)).not.toThrow();
+    expect(out.pages.map((p) => p.slug).sort()).toEqual([
+      "developer-guide/ai/context-tools",
+      "user-guide/concepts/health-checks",
+    ]);
+    expect(out.sections.sort()).toEqual(["developer-guide", "user-guide"]);
+    // A page without a description omits the field rather than emitting empty.
+    const ctx = out.pages.find((p) => p.slug === "developer-guide/ai/context-tools");
+    expect(ctx?.description).toBeUndefined();
+  });
+
+  test("filters to a single section", async () => {
+    const tool = createListDocsTool({ index: FIXTURE_INDEX });
+    const out = await tool.execute({
+      input: { section: "user-guide" },
+      principal: PRINCIPAL,
+      rpcClient,
+    });
+    expect(out.pages.map((p) => p.slug)).toEqual([
+      "user-guide/concepts/health-checks",
+    ]);
+  });
+
+  test("an unknown section returns no pages and lists the valid ones", async () => {
+    const tool = createListDocsTool({ index: FIXTURE_INDEX });
+    const out = await tool.execute({
+      input: { section: "nope" },
+      principal: PRINCIPAL,
+      rpcClient,
+    });
+    expect(out.pages).toEqual([]);
+    expect(out.note).toMatch(/user-guide/);
+    expect(out.note).toMatch(/developer-guide/);
+  });
+
+  test("is effect:read and gated by ai.chat.read", () => {
+    const tool = createListDocsTool();
+    expect(tool.effect).toBe("read");
+    expect(tool.requiredAccessRules).toEqual(["ai.chat.read"]);
+    expect(tool.dryRun).toBeUndefined();
+  });
+});
+
 describe("docs tools registration + resolution", () => {
   test("both qualify to ai.* and a chat user sees them", () => {
     const registry = createAiToolRegistry();
@@ -120,7 +196,7 @@ describe("docs tools registration + resolution", () => {
       .resolveTools(userWith(["ai.chat.read"]))
       .map((t) => t.name)
       .sort();
-    expect(names).toEqual(["ai_getDoc", "ai_searchDocs"]);
+    expect(names).toEqual(["ai_getDoc", "ai_listDocs", "ai_searchDocs"]);
   });
 
   test("a principal without ai.chat.read sees neither docs tool", () => {

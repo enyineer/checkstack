@@ -111,10 +111,14 @@ export const AUTOMATION_BUILDING_INSTRUCTION =
  * the respective builder.
  */
 export const DOCS_GROUNDING_INSTRUCTION =
-  "For any Checkstack concept or how-to you are unsure about, call searchDocs " +
-  "to find the relevant page and getDoc to read it, and ground your answer in " +
-  "that content rather than prior knowledge. Never fabricate ids, values, or " +
-  "facts, and never present unverified output as fact.";
+  "For any Checkstack concept or how-to you are unsure about, ground your answer " +
+  "in the docs rather than prior knowledge: call listDocs to see the sitemap " +
+  "(every page's title/description) and getDoc to read the right page, or " +
+  "searchDocs for a targeted keyword lookup. Do NOT loop on searchDocs with " +
+  "reworded queries: if listDocs shows no page covers the topic, or searches " +
+  "return only weak/off-topic hits, the docs do not cover it - say so plainly. " +
+  "Never fabricate ids, values, or facts, and never present unverified output " +
+  "as fact.";
 
 /**
  * Results are scoped to the caller's permissions, so an empty result is NOT

@@ -18,7 +18,11 @@ Because the request leaves the CORE BACKEND, the tool is SSRF-guarded: only `htt
 
 ## How grounding works
 
-The assistant calls `searchDocs` first to find the pages relevant to a question, inspects the ranked snippets, then calls `getDoc` on a promising slug to read that page in full before it answers. Because both tools are `effect: "read"`, they run inline in the agent loop with no confirm card; the resolver gate (`ai.chat.read`) is the authorization authority. Any chat user may read the platform's own public documentation, which carries no per-tenant data.
+Three read-only tools ground the assistant in the docs: `ai.listDocs` (the sitemap), `ai.searchDocs` (keyword ranking), and `ai.getDoc` (read one page). The assistant either calls `listDocs` to see every page's title and description and jump straight to the right slug, or `searchDocs` for a targeted keyword lookup, then `getDoc` on a promising slug to read it in full before answering. Because all three are `effect: "read"`, they run inline in the agent loop with no confirm card; the resolver gate (`ai.chat.read`) is the authorization authority. Any chat user may read the platform's own public documentation, which carries no per-tenant data.
+
+### Knowing when to stop
+
+The dominant waste in doc grounding is the model re-running near-identical `searchDocs` queries when nothing relevant exists: a BM25 ranker returns hits for any query that shares a common word ("system", "health"), so "nothing found" never looks like nothing. Two signals fix this. `searchDocs` returns a model-facing `note` alongside the hits: empty results and weak-scoring hits both tell the model to consult `listDocs` or conclude the docs do not cover the topic, rather than reword and retry. And `listDocs` makes coverage explicit - if no page title/description fits, the docs genuinely do not cover it, so the model says so instead of searching again.
 
 ## Where the docs come from
 
@@ -52,9 +56,25 @@ The `version-packages` script also regenerates it, and `bun run generate:docs-in
 
 ## Documentation tool contracts
 
-Both tools register through `aiToolExtensionPoint` as composite read tools and are gated by `ai.chat.read`.
+All three tools register through `aiToolExtensionPoint` as composite read tools and are gated by `ai.chat.read`.
 
-`ai.searchDocs` returns the ranked hits a model uses to decide what to read:
+`ai.listDocs` returns the sitemap so the model can see what exists and pick a page directly:
+
+```ts
+const ListDocsInputSchema = z.object({
+  section: z.string().min(1).optional(), // e.g. "user-guide"; omit for all
+});
+
+const ListDocsOutputSchema = z.object({
+  pages: z.array(
+    z.object({ slug: z.string(), title: z.string(), description: z.string().optional() }),
+  ),
+  sections: z.array(z.string()), // valid top-level sections to filter by
+  note: z.string(), // "if no title fits, the docs don't cover it"
+});
+```
+
+`ai.searchDocs` returns the ranked hits a model uses to decide what to read, plus a `note` that flags weak/empty results so the model stops re-searching:
 
 ```ts
 const SearchDocsInputSchema = z.object({
@@ -70,7 +90,10 @@ const DocHitSchema = z.object({
   score: z.number(), // BM25-ish relevance (opaque ordering hint)
 });
 
-const SearchDocsOutputSchema = z.object({ hits: z.array(DocHitSchema) });
+const SearchDocsOutputSchema = z.object({
+  hits: z.array(DocHitSchema),
+  note: z.string(), // next-step guidance derived from hit quality
+});
 ```
 
 `ai.getDoc` returns one page's full content by slug:
