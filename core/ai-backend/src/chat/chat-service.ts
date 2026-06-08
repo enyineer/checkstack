@@ -257,8 +257,15 @@ export interface ChatDecisionInput {
   timeZone?: string;
 }
 
-/** Max agent steps (tool-call round trips) per turn. */
-const MAX_STEPS = 8;
+/**
+ * Max agent steps (tool-call round trips) per turn. The last step is reserved
+ * for the forced answer (tools removed via `prepareStep`), so the model gets
+ * `MAX_STEPS - 1` rounds of actual tool use - enough for a thorough multi-source
+ * investigation (resolve ids, fan out across signal sources, read several docs)
+ * before it must synthesise. The per-principal rate-limit budget and optional
+ * spend cap remain the real cost ceiling.
+ */
+const MAX_STEPS = 16;
 
 /**
  * Build the agent-loop tool callbacks for a single chat turn. Extracted so the

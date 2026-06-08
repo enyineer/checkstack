@@ -84,9 +84,9 @@ const aiActionConfigSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(20)
+    .max(30)
     .optional()
-    .describe("Max tool-call rounds (defaults to 8)"),
+    .describe("Max tool-call rounds (defaults to 12)"),
   outputFields: z
     .array(outputFieldSchema)
     .max(20)

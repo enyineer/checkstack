@@ -12,7 +12,7 @@ The chat turn is a raw HTTP handler at `/api/ai/chat` (server-sent events, becau
 ```ts
 // Provider-agnostic via base-URL override (OpenAI, Azure, OpenRouter, Ollama, ...).
 const model = buildLanguageModel({ connection, model: conversation.model });
-const result = streamText({ model, system, messages, tools, stopWhen: stepCountIs(8) });
+const result = streamText({ model, system, messages, tools, stopWhen: stepCountIs(16) });
 return result.toUIMessageStreamResponse();
 ```
 

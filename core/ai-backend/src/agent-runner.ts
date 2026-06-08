@@ -50,7 +50,10 @@ import type { AiToolResolver } from "./resolver";
 import { buildLanguageModel } from "./chat/llm-provider";
 import { deferredProjectionExecute } from "./projection";
 
-const DEFAULT_MAX_STEPS = 8;
+// The last step is reserved for the forced answer (tools removed via
+// `prepareStep`), so an action gets `DEFAULT_MAX_STEPS - 1` rounds of tool use
+// by default. Authors can override per-action up to the config schema's cap.
+const DEFAULT_MAX_STEPS = 12;
 
 /**
  * How many times the structured-output pass re-prompts the model after its
