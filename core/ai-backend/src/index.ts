@@ -39,6 +39,9 @@ import { hashToolArgs } from "./propose-apply/args-hash";
 import { createProposeApplyService } from "./propose-apply/service";
 import { createAgentRunner, aiAgentRunnerRef } from "./agent-runner";
 import { createAiConversationStore } from "./chat/conversation-store";
+import { createAiMemoryStore } from "./memory-store";
+import { createMemoryTools } from "./tools/memory-tools";
+import { createSystemAccessResolver } from "./system-signals-contributor";
 import { createChatService } from "./chat/chat-service";
 import type {
   ChatConnectionResolver,
@@ -116,10 +119,11 @@ export default createBackendPlugin({
       deps: {
         logger: coreServices.logger,
         rpc: coreServices.rpc,
+        rpcClient: coreServices.rpcClient,
         auth: coreServices.auth,
         eventBus: coreServices.eventBus,
       },
-      init: async ({ logger, database, rpc, auth, eventBus }) => {
+      init: async ({ logger, database, rpc, rpcClient, auth, eventBus }) => {
         logger.debug("🔌 Initializing AI Backend...");
 
         const db = database as SafeDatabase<typeof schema>;
@@ -142,6 +146,14 @@ export default createBackendPlugin({
         // Phase 4: durable conversation + message persistence (shared Postgres,
         // continuable from any pod — state-and-scale §9).
         const conversations = createAiConversationStore({ db });
+
+        // Durable operator memory (state-and-scale §9). The system-scope access
+        // resolver is built from the TRUSTED service client (the auth
+        // `getAccessibleResourceIds` query is `userType: "service"`); it gates
+        // `system`-scoped recall/save/delete by the SAME team grants the
+        // catalog's own list endpoints apply.
+        const memoryStore = createAiMemoryStore({ db });
+        const systemAccessResolver = createSystemAccessResolver(rpcClient);
 
         // Lists selectable AI integrations for the chat picker (§14.6). Reads
         // the REDACTED connection config (configPreview) — the apiKey is never
@@ -200,6 +212,16 @@ export default createBackendPlugin({
           pluginMetadata,
         );
 
+        // Operator-memory tools (searchMemory / saveMemory / deleteMemory).
+        // Same extension point; offered to chat and (read + mutate only, the
+        // runner filters `destructive`) the automation agent.
+        for (const tool of createMemoryTools({
+          store: memoryStore,
+          resolver: systemAccessResolver,
+        })) {
+          toolExt.registerTool(tool, pluginMetadata);
+        }
+
 
         // Register the OpenAI-compatible integration provider so it appears in
         // the generic Connections settings UI (DynamicForm-driven). Done at
@@ -225,6 +247,8 @@ export default createBackendPlugin({
             resolver,
             proposeApply,
             conversations,
+            memoryStore,
+            systemAccessResolver,
             integrations: chatIntegrationLister,
             internalUrl,
           }),
@@ -351,6 +375,8 @@ export default createBackendPlugin({
           resolver,
           proposeApply,
           conversations,
+          memoryStore,
+          systemAccessResolver,
           connections: chatConnectionResolver,
           readInvoker: createChatReadInvoker({ internalUrl }),
           recordExecuted: async ({

@@ -63,6 +63,24 @@ export const AiConversationSchema = z.object({
 });
 export type AiConversation = z.infer<typeof AiConversationSchema>;
 
+/**
+ * A saved operator memory (for the human view/delete UI). Never carries a
+ * secret (content is scrubbed on the write path). `systemId` is set for the
+ * `system` scope only.
+ */
+export const AiMemorySchema = z.object({
+  id: z.string(),
+  scope: z.enum(["user", "system"]),
+  systemId: z.string().nullable(),
+  recallHint: z.string(),
+  content: z.string(),
+  tags: z.array(z.string()),
+  /** When true, this memory is prepended to the system prompt every turn. */
+  alwaysInject: z.boolean(),
+  savedAt: z.coerce.date(),
+});
+export type AiMemory = z.infer<typeof AiMemorySchema>;
+
 /** A persisted chat message (Phase 4). */
 export const AiMessageSchema = z.object({
   id: z.string(),
@@ -197,6 +215,45 @@ export const aiContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ deleted: z.boolean() })),
+
+  /**
+   * List the saved memories the caller may see: their own `user` memories plus
+   * `system` memories for systems they can read (the handler applies the
+   * per-system access resolver). Powers the Memories settings page and the
+   * system-detail memory card (pass `systemId` to scope to one system).
+   */
+  listMemories: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [aiAccess.memoryRead],
+  })
+    .input(z.object({ systemId: z.string().optional() }).optional())
+    .output(z.object({ memories: z.array(AiMemorySchema) })),
+
+  /**
+   * Delete a saved memory IF the caller is authorized: owner for a `user`
+   * memory, system-manage for a `system` memory.
+   */
+  deleteMemory: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [aiAccess.memoryManage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ deleted: z.boolean() })),
+
+  /**
+   * Toggle whether a memory is always injected into the system prompt (an
+   * always-apply preference) vs recalled on demand. The model proposes the
+   * initial value; this lets the operator change it. Authorized like delete.
+   */
+  setMemoryAlwaysInject: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [aiAccess.memoryManage],
+  })
+    .input(z.object({ id: z.string(), alwaysInject: z.boolean() }))
+    .output(z.object({ updated: z.boolean() })),
 };
 
 export type AiContract = typeof aiContract;

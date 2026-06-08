@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@checkstack/ai-common": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/integration-common": "workspace:*",

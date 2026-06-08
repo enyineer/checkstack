@@ -105,6 +105,7 @@
       "version": "0.1.8",
       "dependencies": {
         "@checkstack/ai-common": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/integration-common": "workspace:*",
@@ -1780,7 +1781,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.105.1",
+      "version": "0.106.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

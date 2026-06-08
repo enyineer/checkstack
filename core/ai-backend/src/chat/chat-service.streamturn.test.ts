@@ -138,6 +138,8 @@ interface ProposalDouble {
 function makeService(
   classifierGenerate: ClassifierTextGenerator,
   describeProposalResult?: ProposalDouble,
+  /** Always-inject memory contents to fold into the system prompt this turn. */
+  alwaysInjectContents: string[] = [],
 ) {
   const appended: Array<{ role: string; text: unknown }> = [];
   const spendInserts: Array<Record<string, unknown>> = [];
@@ -197,6 +199,13 @@ function makeService(
       describeProposal: async () => describeProposalResult,
     } as never,
     conversations: conversations as never,
+    // No always-inject memories in these tests -> empty preamble (no behaviour change).
+    memoryStore: {
+      systemIdsWithMemories: async () => [],
+      listAlwaysInject: async () =>
+        alwaysInjectContents.map((content) => ({ content })),
+    } as never,
+    systemAccessResolver: { accessibleSystemIds: async () => [] } as never,
     connections: { resolve: async () => connection },
     readInvoker: { invoke: async () => ({}) },
     recordExecuted: async () => {},
@@ -304,6 +313,24 @@ describe("streamTurn topical pre-classifier", () => {
     // normalizeModelMessages guarantees a leading user row.
     const first = (messages as Array<{ role: string }>)[0];
     expect(first?.role).toBe("user");
+  });
+
+  test("folds always-inject memories into the system prompt for the turn", async () => {
+    const { service } = makeService(verdict("ON_TOPIC"), undefined, [
+      "Never use em-dashes in chat responses.",
+    ]);
+    await service.streamTurn({ ...turn, userText: "anything" });
+    const system = streamTextCalls[0]?.system;
+    expect(typeof system).toBe("string");
+    expect(system as string).toContain("Never use em-dashes in chat responses.");
+    // Presented as a preference block, not a bare line.
+    expect(system as string).toMatch(/Saved operator preferences/i);
+  });
+
+  test("no always-inject memories -> no preference block in the prompt", async () => {
+    const { service } = makeService(verdict("ON_TOPIC"));
+    await service.streamTurn({ ...turn, userText: "anything" });
+    expect(streamTextCalls[0]?.system).not.toMatch(/Saved operator preferences/i);
   });
 
   test("surfaces a masked provider error (HTTP body) to the UI and the log", async () => {

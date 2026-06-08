@@ -5,6 +5,7 @@ import {
   timestamp,
   index,
   integer,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -66,6 +67,13 @@ export const aiMessageRoleEnum = pgEnum("ai_message_role", [
   "assistant",
   "tool",
 ]);
+
+/**
+ * Scope of an `ai_memory` row. `user` = a private preference/policy owned by the
+ * saving principal; `system` = a durable fact about one catalog system, readable
+ * by anyone who can read that system.
+ */
+export const aiMemoryScopeEnum = pgEnum("ai_memory_scope", ["user", "system"]);
 
 /** Lifecycle of an `ai_tool_calls` row. */
 export const aiToolCallStatusEnum = pgEnum("ai_tool_call_status", [
@@ -274,8 +282,56 @@ export const aiSpend = pgTable(
   }),
 );
 
+/**
+ * Durable "operator memory" the assistant saves and recalls across conversations
+ * (state-and-scale §9: shared Postgres, readable on every pod). Holds only
+ * knowledge the platform does NOT otherwise store — operator preferences/policies
+ * (`user` scope) and durable facts about a system (`system` scope) — never a
+ * cache of live state (health/incident/SLO), which is always queried live.
+ *
+ * Scoping is the enforcement surface: `user` memories are private to `ownerId`;
+ * `system` memories are readable by anyone who can read `systemId` (gated at the
+ * store/handler via the per-system access resolver), with `ownerId` retained for
+ * attribution. No FK to the catalog (cross-plugin tables are not FK-linked).
+ */
+export const aiMemory = pgTable(
+  "ai_memory",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** Principal id that created the memory (attribution + `user`-scope owner). */
+    ownerId: text("owner_id").notNull(),
+    scope: aiMemoryScopeEnum("scope").notNull(),
+    /** Catalog system id; set iff `scope = "system"`. */
+    systemId: text("system_id"),
+    /** "What this is + when to recall it" — the rankable retrieval index. */
+    recallHint: text("recall_hint").notNull(),
+    /** The actual note. Secret-scrubbed on the write path. */
+    content: text("content").notNull(),
+    /**
+     * When true, this memory is prepended to the chat system prompt EVERY turn
+     * (an always-apply preference, e.g. a writing-style rule) instead of only
+     * being surfaced when the model chooses to recall it. The model proposes the
+     * value; the operator can change it. Default false = recall-on-demand.
+     */
+    alwaysInject: boolean("always_inject").notNull().default(false),
+    tags: jsonb("tags").$type<string[]>(),
+    /** Conversation the memory was saved from (provenance; null-safe). */
+    sourceConversationId: text("source_conversation_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    ownerIdx: index("ai_memory_owner_idx").on(t.ownerId, t.updatedAt),
+    systemIdx: index("ai_memory_system_idx").on(t.systemId, t.updatedAt),
+  }),
+);
+
 export type AiSpendRow = typeof aiSpend.$inferSelect;
 export type AiSpendInsert = typeof aiSpend.$inferInsert;
+export type AiMemoryRow = typeof aiMemory.$inferSelect;
+export type AiMemoryInsert = typeof aiMemory.$inferInsert;
 export type AiToolCallRow = typeof aiToolCalls.$inferSelect;
 export type AiToolCallInsert = typeof aiToolCalls.$inferInsert;
 export type AiConversationRow = typeof aiConversations.$inferSelect;

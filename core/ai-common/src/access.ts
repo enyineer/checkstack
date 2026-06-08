@@ -27,6 +27,22 @@ export const aiAccess = {
   mcpManage: access("mcp", "manage", "Manage MCP clients and DCR settings", {
     pluginId: pluginMetadata.pluginId,
   }),
+  /**
+   * Recall saved assistant memories. Qualified id: `ai.memory.read`. Gates the
+   * `searchMemory` tool and the memory list RPC; entity-level gating for the
+   * `system` tier rides on top via the per-system access resolver.
+   */
+  memoryRead: access("memory", "read", "Recall saved AI memories", {
+    pluginId: pluginMetadata.pluginId,
+  }),
+  /**
+   * Save / delete assistant memories. Qualified id: `ai.memory.manage`. Gates the
+   * `saveMemory` (mutate) and `deleteMemory` (destructive) tools and the delete
+   * RPC. System-scoped writes additionally require access to the system.
+   */
+  memoryManage: access("memory", "manage", "Save and delete AI memories", {
+    pluginId: pluginMetadata.pluginId,
+  }),
 };
 
 /**
@@ -36,4 +52,6 @@ export const aiAccessRules = [
   aiAccess.chatUse,
   aiAccess.toolsManage,
   aiAccess.mcpManage,
+  aiAccess.memoryRead,
+  aiAccess.memoryManage,
 ];

@@ -55,6 +55,16 @@ import { deferredProjectionExecute } from "./projection";
 // by default. Authors can override per-action up to the config schema's cap.
 const DEFAULT_MAX_STEPS = 12;
 
+/** Provider-safe name of the memory-save tool (dots map to underscores). */
+const MEMORY_SAVE_TOOL_NAME = "ai_saveMemory";
+/** Max `saveMemory` calls one unattended run may make (see the per-run cap). */
+export const MAX_MEMORY_SAVES_PER_RUN = 3;
+
+/** Whether another `saveMemory` is allowed given how many a run has already done. */
+export function memorySaveAllowed(savesSoFar: number): boolean {
+  return savesSoFar < MAX_MEMORY_SAVES_PER_RUN;
+}
+
 /**
  * How many times the structured-output pass re-prompts the model after its
  * output fails the author's schema before giving up. The validated artifact
@@ -186,6 +196,11 @@ export function createAgentRunner({
       .filter((t) => t.effect !== "destructive");
 
     const toolCalls: AgentTaskToolCall[] = [];
+    // Per-run cap on memory writes: the unattended agent auto-applies mutates
+    // with no human confirm, so bound how many memories one run can save (the
+    // prompt also asks for at most one). Prevents a looping run from flooding
+    // memory. Recall/search is unbounded.
+    let memorySaves = 0;
     const sdkTools: Record<string, Tool> = {};
     for (const t of offered) {
       const isProjected = t.execute === deferredProjectionExecute;
@@ -214,8 +229,16 @@ export function createAgentRunner({
         // Single model-boundary date handling, same as the chat tool path.
         inputSchema: toModelSchema(t.input as z.ZodType),
         execute: async (input: unknown) => {
+          // Enforce the per-run memory-save cap before invoking. Surface the
+          // limit to the model (not a throw) so it adapts gracefully.
+          if (t.name === MEMORY_SAVE_TOOL_NAME && !memorySaveAllowed(memorySaves)) {
+            const message = `Memory save limit for this run reached (${MAX_MEMORY_SAVES_PER_RUN}); not saving again.`;
+            toolCalls.push({ tool: t.name, ok: false });
+            return { error: message };
+          }
           try {
             const result = await invoke(input);
+            if (t.name === MEMORY_SAVE_TOOL_NAME) memorySaves += 1;
             toolCalls.push({ tool: t.name, ok: true });
             if (recordToolCall) {
               await recordToolCall({
