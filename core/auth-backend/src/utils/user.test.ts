@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from "bun:test";
-import { enrichUser } from "./user";
+import { enrichUser, resolveAllApplicationAccessRules } from "./user";
 import { User } from "better-auth/types";
 
 // Mock Drizzle DB
@@ -114,5 +114,82 @@ describe("enrichUser", () => {
     expect(result.teamIds).toContain("team-1");
     expect(result.teamIds).toContain("team-2");
     expect(result.teamIds).toContain("team-3");
+  });
+});
+
+/**
+ * Mock DB that resolves successive `await`s with the supplied rows in order.
+ * `resolveAllApplicationAccessRules` awaits at most two queries: the
+ * application->role links, then (only when there are non-admin roles) the
+ * access rules for those roles.
+ */
+const createSequentialMockDb = (responses: unknown[][]) => {
+  const mockDb: unknown = {
+    select: mock(() => mockDb),
+    from: mock(() => mockDb),
+    where: mock(() => mockDb),
+  };
+  let callCount = 0;
+  // eslint-disable-next-line unicorn/no-thenable
+  (mockDb as { then: unknown }).then = (resolve: (arg0: unknown) => void) => {
+    const rows = responses[callCount] ?? [];
+    callCount++;
+    return resolve(rows);
+  };
+  return mockDb;
+};
+
+describe("resolveAllApplicationAccessRules", () => {
+  type Db = Parameters<typeof resolveAllApplicationAccessRules>[0];
+
+  it("expands the built-in admin role to a wildcard and skips the rule query", async () => {
+    const mockDb = createSequentialMockDb([
+      [{ applicationId: "app-admin", roleId: "admin" }],
+    ]);
+
+    const result = await resolveAllApplicationAccessRules(mockDb as Db);
+
+    expect(result.get("app-admin")).toEqual(["*"]);
+  });
+
+  it("aggregates rules across an application's roles and unions duplicates", async () => {
+    const mockDb = createSequentialMockDb([
+      [
+        { applicationId: "app-1", roleId: "editor" },
+        { applicationId: "app-1", roleId: "reviewer" },
+      ],
+      [
+        { roleId: "editor", accessRuleId: "blog.edit" },
+        { roleId: "editor", accessRuleId: "blog.read" },
+        { roleId: "reviewer", accessRuleId: "blog.read" },
+      ],
+    ]);
+
+    const result = await resolveAllApplicationAccessRules(mockDb as Db);
+
+    expect(result.get("app-1")?.sort()).toEqual(["blog.edit", "blog.read"]);
+  });
+
+  it("resolves multiple applications independently in a single pass", async () => {
+    const mockDb = createSequentialMockDb([
+      [
+        { applicationId: "app-1", roleId: "editor" },
+        { applicationId: "app-2", roleId: "admin" },
+      ],
+      [{ roleId: "editor", accessRuleId: "blog.edit" }],
+    ]);
+
+    const result = await resolveAllApplicationAccessRules(mockDb as Db);
+
+    expect(result.get("app-1")).toEqual(["blog.edit"]);
+    expect(result.get("app-2")).toEqual(["*"]);
+  });
+
+  it("returns an empty map when no application has any role", async () => {
+    const mockDb = createSequentialMockDb([[]]);
+
+    const result = await resolveAllApplicationAccessRules(mockDb as Db);
+
+    expect(result.size).toBe(0);
   });
 });

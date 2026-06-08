@@ -160,9 +160,11 @@ export function createGetDocTool({
   return {
     name: "getDoc",
     description:
-      "Read one Checkstack documentation page in full by its slug (as returned " +
-      "by searchDocs, e.g. \"user-guide/concepts/health-checks\"). Use this " +
-      "after searchDocs to ground an answer in the page's actual content. " +
+      "Read one Checkstack documentation page in full by its slug. The slug MUST " +
+      "be copied verbatim from a searchDocs or listDocs result (e.g. " +
+      "\"user-guide/concepts/health-checks\") - do NOT guess or construct a slug " +
+      "from the topic name, as a made-up slug will not resolve. Use this after " +
+      "searchDocs/listDocs to ground an answer in the page's actual content. " +
       "Read-only.",
     effect: "read",
     input: GetDocInputSchema,
@@ -171,9 +173,26 @@ export function createGetDocTool({
     async execute({ input }) {
       const entry = index.find((e) => e.slug === input.slug);
       if (!entry) {
+        // The model likely constructed the slug from the topic rather than
+        // copying one from searchDocs/listDocs. Point it at the closest real
+        // pages (matched on the slug's own words) so it recovers in one step
+        // instead of guessing again.
+        const suggestions = rankDocs({
+          index,
+          query: input.slug.replaceAll(/[/-]/g, " "),
+          limit: 3,
+        });
+        const didYouMean =
+          suggestions.length > 0
+            ? ` Did you mean one of: ${suggestions
+                .map((s) => `"${s.slug}"`)
+                .join(", ")}?`
+            : "";
         throw new Error(
-          `No documentation page with slug "${input.slug}". Use searchDocs to ` +
-            "find a valid slug.",
+          `No documentation page with slug "${input.slug}". Slugs must come from ` +
+            `searchDocs or listDocs results, not be guessed.${didYouMean} ` +
+            "Call listDocs to see every page, or conclude the docs do not cover " +
+            "this.",
         );
       }
       return {

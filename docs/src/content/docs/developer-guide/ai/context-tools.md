@@ -110,7 +110,7 @@ const GetDocOutputSchema = z.object({
 });
 ```
 
-An unknown slug yields a clear error the model can recover from by searching again.
+The slug must be one returned by `searchDocs` or `listDocs`, not constructed from the topic name. An unknown slug yields a clear error that names the closest real pages (matched on the slug's own words) so the model recovers in one step - by reading a suggested page or calling `listDocs` - instead of guessing another slug.
 
 ## The script-context taxonomy
 

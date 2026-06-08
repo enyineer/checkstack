@@ -129,6 +129,20 @@ describe("ai.getDoc tool", () => {
     ).rejects.toThrow(/searchDocs/);
   });
 
+  test("a guessed slug suggests the closest real page(s)", async () => {
+    const tool = createGetDocTool({ index: FIXTURE_INDEX });
+    // Mirrors the production case: the model constructed a plausible-but-fake
+    // slug from the topic. The error should point at the closest real page so
+    // it recovers in one step instead of guessing again.
+    await expect(
+      tool.execute({
+        input: { slug: "user-guide/concepts/health" },
+        principal: PRINCIPAL,
+        rpcClient,
+      }),
+    ).rejects.toThrow(/Did you mean.*user-guide\/concepts\/health-checks/);
+  });
+
   test("is effect:read and gated by ai.chat.read", () => {
     const tool = createGetDocTool();
     expect(tool.effect).toBe("read");

@@ -18,8 +18,12 @@ import {
 } from "./user-rpc-client";
 
 import type { AiConversationStore } from "./chat/conversation-store";
+import type { AiMemoryStore } from "./memory-store";
+import type { SystemAccessResolver } from "./system-signals-contributor";
+import { accessibleSystems } from "./tools/memory-tools";
 import type {
   AiConversationRow,
+  AiMemoryRow,
   AiMessageRow,
 } from "./schema";
 
@@ -72,9 +76,26 @@ interface AiRouterDeps {
   resolver: AiToolResolver;
   proposeApply: ProposeApplyService;
   conversations: AiConversationStore;
+  memoryStore: AiMemoryStore;
+  /** Trusted-client-backed resolver for `system`-scoped memory access gating. */
+  systemAccessResolver: SystemAccessResolver;
   integrations: ChatIntegrationLister;
   /** Loopback base URL for the user-scoped RPC client (re-enters `/api`). */
   internalUrl: string;
+}
+
+/** Serialize a memory row for the wire (content is already scrubbed on write). */
+function toMemoryDto(row: AiMemoryRow) {
+  return {
+    id: row.id,
+    scope: row.scope,
+    systemId: row.systemId,
+    recallHint: row.recallHint,
+    content: row.content,
+    tags: row.tags ?? [],
+    alwaysInject: row.alwaysInject,
+    savedAt: row.updatedAt,
+  };
 }
 
 /** Serialize a conversation row for the wire (no secret fields exist on it). */
@@ -127,6 +148,8 @@ export function createAiRouter({
   resolver,
   proposeApply,
   conversations,
+  memoryStore,
+  systemAccessResolver,
   integrations,
   internalUrl,
 }: AiRouterDeps) {
@@ -339,6 +362,74 @@ export function createAiRouter({
           userId: principal.id,
         });
         return { deleted };
+      },
+    ),
+
+    listMemories: os.listMemories.handler(async ({ context, input }) => {
+      const principal = context.user;
+      if (!principal || principal.type !== "user") {
+        throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+      }
+      // Systems with memories the caller may read (team grants applied centrally).
+      const readable = await accessibleSystems({
+        principal,
+        resolver: systemAccessResolver,
+        candidateSystemIds: await memoryStore.systemIdsWithMemories(),
+        action: "read",
+      });
+      const rows = await memoryStore.list({
+        ownerId: principal.id,
+        readableSystemIds: [...readable],
+      });
+      // The system-detail card narrows to one system's `system`-scoped memories.
+      const filtered = input?.systemId
+        ? rows.filter(
+            (r) => r.scope === "system" && r.systemId === input.systemId,
+          )
+        : rows;
+      return { memories: filtered.map((row) => toMemoryDto(row)) };
+    }),
+
+    deleteMemory: os.deleteMemory.handler(async ({ context, input }) => {
+      const principal = context.user;
+      if (!principal || principal.type !== "user") {
+        throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+      }
+      const row = await memoryStore.findById(input.id);
+      const manageable = await accessibleSystems({
+        principal,
+        resolver: systemAccessResolver,
+        candidateSystemIds: row?.systemId ? [row.systemId] : [],
+        action: "manage",
+      });
+      const deleted = await memoryStore.delete({
+        id: input.id,
+        ownerId: principal.id,
+        manageableSystemIds: [...manageable],
+      });
+      return { deleted };
+    }),
+
+    setMemoryAlwaysInject: os.setMemoryAlwaysInject.handler(
+      async ({ context, input }) => {
+        const principal = context.user;
+        if (!principal || principal.type !== "user") {
+          throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+        }
+        const row = await memoryStore.findById(input.id);
+        const manageable = await accessibleSystems({
+          principal,
+          resolver: systemAccessResolver,
+          candidateSystemIds: row?.systemId ? [row.systemId] : [],
+          action: "manage",
+        });
+        const updated = await memoryStore.setAlwaysInject({
+          id: input.id,
+          ownerId: principal.id,
+          manageableSystemIds: [...manageable],
+          alwaysInject: input.alwaysInject,
+        });
+        return { updated };
       },
     ),
   });

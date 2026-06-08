@@ -81,6 +81,10 @@ describe("chunkToEvent", () => {
     });
   });
 
+  test("maps a start-step chunk to a step-start event", () => {
+    expect(chunkToEvent({ type: "start-step" })).toEqual({ type: "step-start" });
+  });
+
   test("maps a tool-input-available chunk to a tool-call event", () => {
     expect(
       chunkToEvent({

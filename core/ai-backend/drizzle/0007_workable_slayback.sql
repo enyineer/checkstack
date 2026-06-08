@@ -1,0 +1,1 @@
+ALTER TABLE "ai_memory" ADD COLUMN "always_inject" boolean DEFAULT false NOT NULL;

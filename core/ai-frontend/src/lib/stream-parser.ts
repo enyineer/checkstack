@@ -54,6 +54,11 @@ export type ChatStreamEvent =
   | { type: "tool-error"; toolCallId: string; toolName?: string; message: string }
   | { type: "confirm-card"; toolCallId: string; card: ConfirmCard }
   | { type: "applied-card"; toolCallId: string; card: AppliedCard }
+  // A new agent step (model round) began. The SDK emits one `start-step` per
+  // round; we surface it so the UI can show a live, server-driven progress
+  // heartbeat ("Working... step N") in the gaps between tool calls, which is how
+  // an operator tells a slow-but-progressing turn from a stuck one.
+  | { type: "step-start" }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -143,6 +148,12 @@ function asErrorText(chunk: Record<string, unknown>, fallback: string): string {
 export function chunkToEvent(chunk: unknown): ChatStreamEvent | undefined {
   if (!isRecord(chunk)) return undefined;
   const type = chunk.type;
+
+  // A new agent step began. Used purely for the progress heartbeat; carries no
+  // payload we need.
+  if (type === "start-step") {
+    return { type: "step-start" };
+  }
 
   if (type === "text-delta" && typeof chunk.delta === "string") {
     return { type: "text-delta", delta: chunk.delta };

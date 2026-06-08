@@ -270,6 +270,32 @@ export default createBackendPlugin({
           execute: deferredProjectionExecute,
         });
 
+        // Historical run-by-run check results, filterable by system, time
+        // window, and status. Complements `healthcheck.status` (which is only
+        // CURRENT state): this is how the assistant answers "what issues did
+        // system X have between T1 and T2" or "show the unhealthy runs in the
+        // last hour". Gated by the public, default-on `healthcheck.status` VIEW
+        // rule (the same one the dashboard's history view uses) - it returns the
+        // public run shape with no sensitive `result` payload, so it needs no
+        // special grant. (The detailed variant carrying `result` lives behind
+        // `healthcheck.details` and is intentionally NOT projected.)
+        env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+          procedure: healthCheckContract.getHistory,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getHistory",
+          name: "healthcheck.runHistory",
+          description:
+            "List historical health-check runs (individual timestamped results) " +
+            "for root-cause and timeline questions. Filter by `systemId`, a " +
+            "`startDate`/`endDate` window, and/or `statusFilter` (e.g. " +
+            "[\"unhealthy\",\"degraded\"]) to find when and how a system was " +
+            "failing over a period. Pass `sortOrder` (\"desc\" for most recent " +
+            "first) and use `limit`/`offset` to page. Use this for past/timespan " +
+            "questions; use healthcheck.status for the current state. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+
         // Contribute this plugin's per-system health problems to the AI
         // `system.issues` aggregator. PER-SOURCE access is OUR job: gate on the
         // principal's `healthcheck.status` grant and return {} (never throw)

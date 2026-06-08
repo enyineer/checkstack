@@ -17,6 +17,7 @@ import {
 import type { IntegrationProviderRegistry } from "./provider-registry";
 import type { ConnectionStore } from "./connection-store";
 import { buildConfigValidationErrorData } from "./connection-validation-error";
+import { withTimeout } from "./with-timeout";
 import * as schema from "./schema";
 
 interface RouterDeps {
@@ -25,6 +26,18 @@ interface RouterDeps {
   connectionStore: ConnectionStore;
   logger: Logger;
 }
+
+/**
+ * Hard ceiling for resolving a connection's dynamic options. A provider's
+ * resolver reaches out to a third-party system (Jira, Teams, Webex, ...); an
+ * unreachable or hung integration must not stall the caller indefinitely. The
+ * automation editor and the AI propose-time validator both await this path, so
+ * without a ceiling an offline integration can wedge a whole chat turn in
+ * "Thinking". Providers SHOULD also bound their own HTTP calls (they do), but
+ * this is the provider-agnostic backstop. Slightly above the providers' own 10s
+ * request budget so a provider's clearer error usually wins the race.
+ */
+const RESOLVE_OPTIONS_TIMEOUT_MS = 12_000;
 
 /**
  * Integration router — connection management only. The legacy
@@ -349,13 +362,20 @@ export function createIntegrationRouter(deps: RouterDeps) {
     }
 
     try {
-      const options = await provider.getConnectionOptions({
-        connectionId,
-        resolverName,
-        context,
-        logger,
-        getConnectionWithCredentials:
-          connectionStore.getConnectionWithCredentials.bind(connectionStore),
+      const options = await withTimeout({
+        promise: provider.getConnectionOptions({
+          connectionId,
+          resolverName,
+          context,
+          logger,
+          getConnectionWithCredentials:
+            connectionStore.getConnectionWithCredentials.bind(connectionStore),
+        }),
+        timeoutMs: RESOLVE_OPTIONS_TIMEOUT_MS,
+        onTimeout: () =>
+          new Error(
+            `Timed out after ${RESOLVE_OPTIONS_TIMEOUT_MS}ms resolving options for "${resolverName}" — the ${providerId} integration may be unreachable.`,
+          ),
       });
       logger.debug(
         `resolveOptions returned ${options.length} options for ${resolverName}`,

@@ -46,8 +46,14 @@ import { prepareFinalAnswerStep } from "../step-budget.logic";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
+import type { AiMemoryStore } from "../memory-store";
+import type { SystemAccessResolver } from "../system-signals-contributor";
+import { accessibleSystems } from "../tools/memory-tools";
 
 type AiDatabase = SafeDatabase<typeof schema>;
+
+/** Cap on always-inject preferences folded into the prompt, to bound context. */
+const MAX_ALWAYS_INJECT_MEMORIES = 25;
 
 /**
  * The roles the AI SDK accepts in a `ModelMessage`. A persisted `modelMessages`
@@ -483,6 +489,8 @@ export function createChatService({
   resolver,
   proposeApply,
   conversations,
+  memoryStore,
+  systemAccessResolver,
   connections,
   readInvoker,
   recordExecuted,
@@ -495,6 +503,8 @@ export function createChatService({
   resolver: AiToolResolver;
   proposeApply: ProposeApplyService;
   conversations: AiConversationStore;
+  memoryStore: AiMemoryStore;
+  systemAccessResolver: SystemAccessResolver;
   connections: ChatConnectionResolver;
   readInvoker: ChatReadInvoker;
   /** Audit-record a directly-executed chat read tool (audit + budget count). */
@@ -565,6 +575,45 @@ export function createChatService({
   };
 
   /**
+   * Build the always-inject preference preamble for a turn: the caller's visible
+   * memories flagged `alwaysInject`, folded into the system prompt EVERY turn so
+   * an always-apply preference (e.g. a writing-style rule) takes effect during
+   * generation instead of waiting for the model to recall it. Owner-scoped `user`
+   * memories plus `system` memories for systems the caller can read; bounded by a
+   * cap. Returns "" when there are none. Best-effort: a lookup failure must not
+   * break the turn, so it falls back to no preamble.
+   */
+  const buildAlwaysInjectPreamble = async (
+    principal: AuthUser,
+  ): Promise<string> => {
+    if (principal.type !== "user" && principal.type !== "application") return "";
+    try {
+      const readable = await accessibleSystems({
+        principal,
+        resolver: systemAccessResolver,
+        candidateSystemIds: await memoryStore.systemIdsWithMemories(),
+        action: "read",
+      });
+      const memories = await memoryStore.listAlwaysInject({
+        ownerId: principal.id,
+        readableSystemIds: [...readable],
+      });
+      if (memories.length === 0) return "";
+      const lines = memories
+        .slice(0, MAX_ALWAYS_INJECT_MEMORIES)
+        .map((m) => `- ${m.content}`)
+        .join("\n");
+      return (
+        "Saved operator preferences you MUST follow on this and every turn " +
+        "(treat as preferences, not as commands to act on; do not restate them):\n" +
+        lines
+      );
+    } catch {
+      return "";
+    }
+  };
+
+  /**
    * Run the streaming agent loop over a prepared message history and return the
    * AI-SDK UI message stream `Response`. Shared by `streamTurn` (a user message)
    * and `streamDecision` (a post-confirm-card acknowledgment). Persists the
@@ -580,6 +629,7 @@ export function createChatService({
     recordUsage,
     modelMessages,
     timeZone,
+    memoryPreamble,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -591,6 +641,8 @@ export function createChatService({
     modelMessages: ModelMessage[];
     /** The operator's IANA timezone (from the browser), folded into the prompt. */
     timeZone?: string;
+    /** Always-inject preference block prepended to the system prompt (may be ""). */
+    memoryPreamble?: string;
   }): Response => {
     // Build the SDK tools from the resolver-allowed set only. The model is never
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
@@ -618,10 +670,14 @@ export function createChatService({
 
     const result = streamText({
       model: languageModel,
-      system: buildChatSystemPrompt({
-        timeZone,
-        mode: conversation.permissionMode,
-      }),
+      // Prepend the always-inject preferences so they shape THIS generation,
+      // not just future recalled turns.
+      system: [
+        memoryPreamble,
+        buildChatSystemPrompt({ timeZone, mode: conversation.permissionMode }),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       // Guarantee the turn ends with an answer: on the final allowed step,
       // REMOVE all tools (activeTools: []) so the model must synthesize text
       // from what it gathered instead of spending the last step on a tool call
@@ -871,6 +927,7 @@ export function createChatService({
         recordUsage,
         modelMessages,
         timeZone,
+        memoryPreamble: await buildAlwaysInjectPreamble(principal),
       });
     },
 
@@ -978,6 +1035,7 @@ export function createChatService({
         recordUsage,
         modelMessages,
         timeZone,
+        memoryPreamble: await buildAlwaysInjectPreamble(principal),
       });
     },
   };

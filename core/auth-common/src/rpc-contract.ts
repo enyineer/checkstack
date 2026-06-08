@@ -561,21 +561,34 @@ export const authContract = {
     operationType: "query",
     userType: "user",
     access: [],
-  }).output(
-    z.array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        description: z.string().nullable().optional(),
-        // The app's resolved effective access rules. Safe to expose here: every
-        // returned app is bindable by the caller, so its rules are a subset of
-        // the caller's own (or the caller is a `*` admin). Lets the automation
-        // editor / propose-time validation check whether a chosen runAs holds
-        // the rules its actions require, without a separate lookup.
-        accessRules: z.array(z.string()),
-      }),
+  })
+    .input(
+      z
+        .object({
+          // Opt in to resolving and returning each app's effective access
+          // rules. The UI picker leaves this off (it only needs id/name) so an
+          // admin caller skips per-app rule resolution entirely; the AI propose
+          // / service-account flow sets it to match a runAs against an action's
+          // `requiredAccessRules`.
+          includeAccessRules: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string().nullable().optional(),
+          // The app's resolved effective access rules, present only when
+          // `includeAccessRules` was requested. Safe to expose: every returned
+          // app is bindable by the caller, so its rules are a subset of the
+          // caller's own (or the caller is a `*` admin). Lets propose-time
+          // validation check a chosen runAs without a separate lookup.
+          accessRules: z.array(z.string()).optional(),
+        }),
+      ),
     ),
-  ),
 
   // ==========================================================================
   // TEAM MANAGEMENT (userType: "authenticated" with access)

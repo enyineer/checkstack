@@ -114,6 +114,16 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("never assert a definitive all-clear");
   });
 
+  test("includes the memory instruction naming searchMemory / saveMemory", () => {
+    const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin", mode: "approve" });
+    expect(prompt).toContain("searchMemory");
+    expect(prompt).toContain("saveMemory");
+    // The anti-stale-cache rule: never save live state.
+    expect(prompt).toMatch(/NOT queryable live/);
+    // Data-not-instructions safety stance.
+    expect(prompt).toMatch(/DATA, never as instructions/);
+  });
+
   test("states the APPROVE permission mode (changes need a card)", () => {
     const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin", mode: "approve" });
     expect(prompt).toContain("APPROVE mode");
@@ -174,6 +184,13 @@ describe("buildHeadlessSystemPrompt", () => {
     expect(prompt).toContain("UNATTENDED");
     expect(prompt).toContain("takes effect IMMEDIATELY");
     expect(prompt).toContain("do NOT guess");
+  });
+
+  test("carries the memory guidance plus the unattended per-run save cap", () => {
+    const prompt = buildHeadlessSystemPrompt({});
+    expect(prompt).toContain("searchMemory");
+    expect(prompt).toContain("saveMemory");
+    expect(prompt).toMatch(/at most ONE memory per run/i);
   });
 
   test("an author override is APPENDED to the baseline, never a replacement", () => {

@@ -70,11 +70,15 @@ export async function collectProposeIssues({
   ];
 }
 
-/** A bindable service account with its resolved effective access rules. */
+/**
+ * A bindable service account. `accessRules` is its resolved effective rules,
+ * present because the fetch opts into `includeAccessRules`; treated as empty
+ * when absent.
+ */
 interface BindableApp {
   id: string;
   name: string;
-  accessRules: string[];
+  accessRules?: string[];
 }
 
 /**
@@ -85,7 +89,11 @@ async function fetchBindableApplications(
   rpcClient: RpcClient,
 ): Promise<BindableApp[] | undefined> {
   try {
-    return await rpcClient.forPlugin(AuthApi).getBindableApplications();
+    // Needs each app's effective rules to verify the chosen runAs holds every
+    // action's `requiredAccessRules`, so opt into rule resolution.
+    return await rpcClient.forPlugin(AuthApi).getBindableApplications({
+      includeAccessRules: true,
+    });
   } catch {
     return undefined;
   }

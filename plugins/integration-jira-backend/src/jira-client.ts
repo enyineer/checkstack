@@ -8,6 +8,15 @@ import type { JiraAuthMode } from "./provider";
 import { extractErrorMessage } from "@checkstack/common";
 
 /**
+ * Per-request timeout for every call to the Jira REST API. Without it an
+ * unreachable or hung Jira instance leaves the underlying `fetch` pending
+ * indefinitely, which can wedge a whole automation step or AI chat turn (the
+ * propose-time option resolver awaits this client). Matches the 10s budget the
+ * Teams/Webex actions already use.
+ */
+const JIRA_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
  * Connection config for generic connection management.
  * Mirrors the structure from provider.ts.
  */
@@ -196,6 +205,7 @@ export function createJiraClient(options: JiraClientOptions) {
         Accept: "application/json",
         ...init?.headers,
       },
+      signal: init?.signal ?? AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -566,6 +576,7 @@ export function createJiraClient(options: JiraClientOptions) {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
+        signal: AbortSignal.timeout(JIRA_REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         const errorText = await response.text();

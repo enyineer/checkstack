@@ -99,7 +99,11 @@ export async function listBindableServiceAccounts({
   rpcClient: RpcClient;
 }): Promise<z.infer<typeof ServiceAccountEntrySchema>[]> {
   const authClient = rpcClient.forPlugin(AuthApi);
-  const bindable = await authClient.getBindableApplications();
+  // Needs each app's effective rules to match a runAs against the actions'
+  // `requiredAccessRules`, so opt into rule resolution.
+  const bindable = await authClient.getBindableApplications({
+    includeAccessRules: true,
+  });
 
   return bindable.map((app) => ({
     id: app.id,

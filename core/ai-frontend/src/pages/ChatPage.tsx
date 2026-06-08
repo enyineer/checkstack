@@ -51,6 +51,7 @@ import {
   buildModeUpdate,
 } from "../lib/mode-toggle.logic";
 import type { ChatMessage, AssistantPart } from "../lib/chat-state";
+import { toolActivityLabel } from "../lib/tool-activity-label";
 
 /**
  * A single tool-call status line, rendered at the point in the turn where the
@@ -66,6 +67,9 @@ function ToolStatusLine({
   isLowPower: boolean;
 }) {
   const isError = part.status === "error";
+  // Friendly verb phrase instead of the raw tool id ("Searching documentation"
+  // not "ai_searchDocs"), so the line reads as the assistant narrating its work.
+  const label = toolActivityLabel(part.toolName);
   return (
     <div
       className={`flex items-center gap-1.5 text-xs ${
@@ -83,8 +87,11 @@ function ToolStatusLine({
       ) : (
         <Check className="h-3 w-3 shrink-0" />
       )}
-      <span className="font-medium">{part.toolName}</span>
-      {part.status === "running" ? <span>running...</span> : null}
+      {/* Raw tool id kept in the tooltip for operators who want it. */}
+      <span className="font-medium" title={part.toolName}>
+        {label}
+      </span>
+      {part.status === "running" ? <span>...</span> : null}
       {isError && part.errorText ? (
         <span className="min-w-0 truncate" title={part.errorText}>
           - {part.errorText}
@@ -130,6 +137,13 @@ function MessageRow({
       lastPart.kind === "confirm" ||
       lastPart.kind === "applied" ||
       (lastPart.kind === "tool" && lastPart.status !== "running"));
+  // A server-driven progress heartbeat: the step number climbs with each agent
+  // round (an SDK `start-step`), so a slow-but-progressing turn reads as
+  // "Working... (step 3)" rather than a static "Thinking...", letting an
+  // operator tell live progress from a stuck turn.
+  const stepCount = message.stepCount ?? 0;
+  const thinkingLabel =
+    stepCount > 0 ? `Working... (step ${stepCount})` : "Thinking...";
 
   return (
     <div className="flex justify-start">
@@ -174,7 +188,7 @@ function MessageRow({
         {thinking ? (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {isLowPower ? null : <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
-            <span>Thinking...</span>
+            <span>{thinkingLabel}</span>
           </div>
         ) : null}
       </div>
