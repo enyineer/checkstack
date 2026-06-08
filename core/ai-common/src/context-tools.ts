@@ -199,6 +199,15 @@ export const GetCapabilitySchemaOutputSchema = z.object({
    * (e.g. `equals`, `greaterThanOrEqual`), never an abbreviation like `eq`.
    */
   assertionOperators: z.record(z.string(), z.array(z.string())).optional(),
+  /**
+   * Automation ACTIONS only: the access rules the automation's `runAs` service
+   * account must hold for this action to execute (e.g.
+   * `integration-jira.create_issue.manage`). Match these against a service
+   * account's `accessRules` (from `automation.listServiceAccounts`) to choose a
+   * `runAs` that can actually run the automation. Omitted/empty when the action
+   * needs no special grant.
+   */
+  requiredAccessRules: z.array(z.string()).optional(),
 });
 export type GetCapabilitySchemaOutput = z.infer<
   typeof GetCapabilitySchemaOutputSchema

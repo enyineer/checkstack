@@ -8,12 +8,15 @@ import { pluginMetadata } from "./plugin-metadata";
 import { teamsProvider } from "./provider";
 import {
   createTeamsActions,
+  teamsAccessRules,
   teamsMessageArtifactType,
 } from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
+    // A runAs service account must hold this rule to post Teams messages.
+    env.registerAccessRules(teamsAccessRules);
     env
       .getExtensionPoint(providerExtensionPoint)
       .addProvider(teamsProvider, pluginMetadata);

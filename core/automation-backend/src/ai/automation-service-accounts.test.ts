@@ -7,6 +7,7 @@ interface BindableApp {
   id: string;
   name: string;
   description?: string | null;
+  accessRules?: string[];
 }
 
 /**
@@ -29,10 +30,11 @@ function fakeAuthRpcClient({ apps }: { apps: BindableApp[] }): RpcClient {
     forPlugin: () => ({
       getBindableApplications: mock(() =>
         Promise.resolve(
-          apps.map(({ id, name, description }) => ({
+          apps.map(({ id, name, description, accessRules }) => ({
             id,
             name,
             description: description ?? null,
+            accessRules: accessRules ?? [],
           })),
         ),
       ),
@@ -69,7 +71,14 @@ describe("automation.listServiceAccounts tool", () => {
       principal: user({ accessRules: ["incident.read", "incident.manage"] }),
       input: {},
       rpcClient: fakeAuthRpcClient({
-        apps: [{ id: "bindable", name: "Subset app", description: "ok" }],
+        apps: [
+          {
+            id: "bindable",
+            name: "Subset app",
+            description: "ok",
+            accessRules: ["incident.read"],
+          },
+        ],
       }),
     });
     expect(out.serviceAccounts.map((s) => s.id)).toEqual(["bindable"]);
@@ -77,6 +86,7 @@ describe("automation.listServiceAccounts tool", () => {
       id: "bindable",
       name: "Subset app",
       description: "ok",
+      accessRules: ["incident.read"],
     });
     expect(out.note).toMatch(/runAs/i);
   });
@@ -94,15 +104,35 @@ describe("automation.listServiceAccounts tool", () => {
       }),
     });
     expect(out.serviceAccounts).toEqual([
-      { id: "a", name: "A" },
-      { id: "b", name: "B" },
+      { id: "a", name: "A", accessRules: [] },
+      { id: "b", name: "B", accessRules: [] },
     ]);
+  });
+
+  test("surfaces each account's accessRules and asks when multiple are available", async () => {
+    const tool = createAutomationListServiceAccountsTool();
+    const out = await tool.execute({
+      principal: user({ accessRules: ["*"] }),
+      input: {},
+      rpcClient: fakeAuthRpcClient({
+        apps: [
+          { id: "a", name: "Jira SA", accessRules: ["integration-jira.create_issue.manage"] },
+          { id: "b", name: "Notify SA", accessRules: ["notification.send"] },
+        ],
+      }),
+    });
+    expect(out.serviceAccounts.find((s) => s.id === "a")?.accessRules).toEqual([
+      "integration-jira.create_issue.manage",
+    ]);
+    // With more than one bindable account, the model is told to ASK which to use.
+    expect(out.note).toMatch(/ask the operator/i);
+    expect(out.note).toMatch(/requiredAccessRules/);
   });
 
   test("uses getBindableApplications and never the service-only enrich RPC", async () => {
     const tool = createAutomationListServiceAccountsTool();
     const getBindableApplications = mock(() =>
-      Promise.resolve([{ id: "a", name: "A", description: null }]),
+      Promise.resolve([{ id: "a", name: "A", description: null, accessRules: [] }]),
     );
     const enrichApplicationPrincipal = mock(() =>
       Promise.reject(new Error("must not be called")),

@@ -12,6 +12,7 @@ import {
 } from "./automation-script-tools";
 import { createAutomationListServiceAccountsTool } from "./automation-service-accounts";
 import { createAutomationListConnectionsTool } from "./automation-connections";
+import { createAutomationResolveOptionsTool } from "./automation-action-options";
 
 /**
  * The automation plugin's AI tools, registered into the AI registry via
@@ -42,6 +43,13 @@ import { createAutomationListConnectionsTool } from "./automation-connections";
  * model references a real `connectionId` instead of hand-rolling a URL/token).
  * Both fan out through the user-scoped client and are gated by the automation
  * read rule.
+ *
+ * `automation.resolveActionOptions` completes the discovery set: it resolves a
+ * dynamic-option (cascading dropdown) field's valid values - e.g. a Jira
+ * action's projectKey / issueTypeId / priorityId - live from the connection, so
+ * the model picks a real value instead of guessing one the editor would have
+ * constrained. Provider-agnostic (reads the field's resolver + dependencies from
+ * the action schema) and gated by the automation read rule.
  */
 export function buildAutomationAiTools(): RegisteredAiTool[] {
   return [
@@ -54,5 +62,6 @@ export function buildAutomationAiTools(): RegisteredAiTool[] {
     createAutomationTestScriptTool(),
     createAutomationListServiceAccountsTool(),
     createAutomationListConnectionsTool(),
+    createAutomationResolveOptionsTool(),
   ];
 }

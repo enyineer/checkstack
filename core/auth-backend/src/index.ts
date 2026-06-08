@@ -524,6 +524,32 @@ export default createBackendPlugin({
 
         db = database;
 
+        // Dev-auth seed: with CHECKSTACK_DEV_AUTH, every request authenticates
+        // as a stable synthetic "dev-user" (see core/backend `dev-auth.ts`) that
+        // has no row in this table - so any insert recording a `created_by` /
+        // `user` foreign key (e.g. creating an application or a team) fails with
+        // "a referenced record does not exist". Seed that row here, in the table
+        // OWNER, so dev-auth is fully functional. Idempotent and strictly
+        // dev-only; the production auth path never reaches this. The identity
+        // MUST match the synthetic user in `dev-auth.ts` (id "dev-user").
+        if (process.env.CHECKSTACK_DEV_AUTH === "true") {
+          const now = new Date();
+          await database
+            .insert(schema.user)
+            .values({
+              id: "dev-user",
+              name: "Dev User",
+              email: "dev@checkstack.local",
+              emailVerified: true,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing();
+          logger.warn(
+            "[auth-backend] Seeded synthetic dev-auth user (CHECKSTACK_DEV_AUTH).",
+          );
+        }
+
         // Function to initialize/reinitialize better-auth
         const initializeBetterAuth = async () => {
           const socialProviders: Record<string, unknown> = {};

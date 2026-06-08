@@ -1547,31 +1547,29 @@ export const createAuthRouter = (
         id: string;
         name: string;
         description: string | null;
+        accessRules: string[];
       }[] = [];
 
-      const callerIsAdmin = callerRules.includes("*");
       for (const app of apps) {
-        // Admins bind anything without resolving rules; others need the
-        // per-app subset check.
-        if (!callerIsAdmin) {
-          const enriched = await resolveApplicationPrincipal(
-            app.id,
-            internalDb,
-          );
-          if (!enriched) continue;
-          if (
-            !isApplicationBindable({
-              appAccessRules: enriched.accessRules,
-              callerAccessRules: callerRules,
-            })
-          ) {
-            continue;
-          }
+        // Resolve the app's effective rules: needed both for the non-admin
+        // subset check and (always) to return `accessRules` so callers can see
+        // what a chosen runAs is permitted to do. Skip an app that can't be
+        // resolved.
+        const enriched = await resolveApplicationPrincipal(app.id, internalDb);
+        if (!enriched) continue;
+        if (
+          !isApplicationBindable({
+            appAccessRules: enriched.accessRules,
+            callerAccessRules: callerRules,
+          })
+        ) {
+          continue;
         }
         bindable.push({
           id: app.id,
           name: app.name,
           description: app.description,
+          accessRules: enriched.accessRules,
         });
       }
 

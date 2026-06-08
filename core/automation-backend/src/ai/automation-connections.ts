@@ -29,11 +29,16 @@ const AUTOMATION_READ_RULE = qualifyAccessRuleId(
 
 const AutomationListConnectionsInputSchema = z.object({
   /**
-   * Optional fully-qualified provider id (`{pluginId}.{providerId}`) to filter
-   * to a single provider. Omit to list connections for every connection-capable
-   * provider.
+   * Optional FULLY-QUALIFIED provider id (`{pluginId}.{providerId}`) to filter
+   * to a single provider. Omit to list every connection-capable provider.
    */
-  providerId: z.string().min(1).optional(),
+  providerId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Optional filter: the FULLY-QUALIFIED provider id, e.g. "integration-jira.jira" - NOT a short name like "jira" (which matches nothing and looks like "no connections"). It is the action\'s connectionProviderId from automation.getCapabilitySchema. PREFER omitting this and reading all connections from the result.',
+    ),
 });
 type AutomationListConnectionsInput = z.infer<
   typeof AutomationListConnectionsInputSchema
@@ -85,7 +90,7 @@ export function createAutomationListConnectionsTool(): RegisteredAiTool<
   return {
     name: "automation.listConnections",
     description:
-      "List the configured integration connections you can reference as a connectionId in an integration action's config (e.g. jira.create_issue's connectionId). Pass an optional providerId to filter to one provider. ALWAYS use one of these real connectionIds; NEVER hand-roll a URL, token, or other credential in an action config or script. Returns connections grouped by provider as { providerId, connections: [{ id, name }] }.",
+      "List the configured integration connections you can reference as a connectionId in an integration action's config (e.g. jira.create_issue's connectionId). PREFER calling this with NO providerId so you see every provider's connections; only pass providerId to narrow, and then it MUST be the FULLY-QUALIFIED id (e.g. \"integration-jira.jira\"), never a short name like \"jira\" (a short/unknown providerId returns an empty list - do NOT conclude no connections exist; re-call without the filter). ALWAYS use one of these real connectionIds; NEVER hand-roll a URL, token, or credential. Returns connections grouped by provider as { providerId, connections: [{ id, name }] }.",
     effect: "read",
     input: AutomationListConnectionsInputSchema,
     output: AutomationListConnectionsOutputSchema,

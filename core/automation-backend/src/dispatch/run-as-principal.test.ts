@@ -134,3 +134,105 @@ describe("automation runs as its `runAs` service account", () => {
     expect(factoryCalled).toBe(false);
   });
 });
+
+/**
+ * The runAs service account must hold an action's `requiredAccessRules` for it
+ * to run - the only authorization point for actions (e.g. integration actions)
+ * that resolve credentials through a trusted service rather than the bounded
+ * `rpcClient`. Without this, merely being able to author automations would grant
+ * the ability to act on any integration.
+ */
+describe("action requiredAccessRules enforced against runAs", () => {
+  /** A probe action that requires `test.thing.manage` to run. */
+  function makeGatedProbe(): {
+    definition: ActionDefinition<Record<string, never>, undefined>;
+    ran: { value: boolean };
+  } {
+    const ran = { value: false };
+    return {
+      ran,
+      definition: {
+        id: "gated",
+        displayName: "Gated",
+        config: new Versioned({ version: 1, schema: z.object({}) }),
+        requiredAccessRules: ["test.thing.manage"],
+        execute: async () => {
+          ran.value = true;
+          return { success: true };
+        },
+      },
+    };
+  }
+
+  function wire(
+    deps: DispatchDeps,
+    resolveRunAsAccessRules?: (id: string) => Promise<string[]>,
+  ): DispatchDeps {
+    return {
+      ...deps,
+      rpcClientForApplication: async () =>
+        ({ forPlugin: () => ({}) }) as unknown as RpcClient,
+      resolveRunAsAccessRules,
+    };
+  }
+
+  async function run(deps: DispatchDeps) {
+    return dispatchTrigger(deps, {
+      automation: automation(
+        [{ id: "g", action: "test.gated", config: {} }],
+        "svc-1",
+      ),
+      triggerId: "test_event",
+      triggerEventId: "test.event",
+      payload: {},
+      contextKey: null,
+    });
+  }
+
+  it("runs when the runAs holds the required rule", async () => {
+    const actions = createActionRegistry();
+    const probe = makeGatedProbe();
+    actions.register(probe.definition as ActionDefinition<unknown, unknown>, testPlugin);
+    const { deps } = makeDispatchDeps({ actions });
+
+    const result = await run(wire(deps, async () => ["test.thing.manage"]));
+    expect(result.status).toBe("success");
+    expect(probe.ran.value).toBe(true);
+  });
+
+  it("fails the action when the runAs lacks the rule, and never runs it", async () => {
+    const actions = createActionRegistry();
+    const probe = makeGatedProbe();
+    actions.register(probe.definition as ActionDefinition<unknown, unknown>, testPlugin);
+    const { deps, runs } = makeDispatchDeps({ actions });
+
+    const result = await run(wire(deps, async () => ["something.else.read"]));
+    expect(result.status).toBe("failed");
+    expect(probe.ran.value).toBe(false);
+    const step = runs.steps.find((s) => s.actionId === "g");
+    expect(step?.errorMessage).toMatch(/not permitted|missing access rule/i);
+    expect(step?.errorMessage).toMatch(/test\.thing\.manage/);
+  });
+
+  it("a wildcard runAs satisfies the rule", async () => {
+    const actions = createActionRegistry();
+    const probe = makeGatedProbe();
+    actions.register(probe.definition as ActionDefinition<unknown, unknown>, testPlugin);
+    const { deps } = makeDispatchDeps({ actions });
+
+    const result = await run(wire(deps, async () => ["*"]));
+    expect(result.status).toBe("success");
+    expect(probe.ran.value).toBe(true);
+  });
+
+  it("fails closed when no rule resolver is wired", async () => {
+    const actions = createActionRegistry();
+    const probe = makeGatedProbe();
+    actions.register(probe.definition as ActionDefinition<unknown, unknown>, testPlugin);
+    const { deps } = makeDispatchDeps({ actions });
+
+    const result = await run(wire(deps, undefined));
+    expect(result.status).toBe("failed");
+    expect(probe.ran.value).toBe(false);
+  });
+});

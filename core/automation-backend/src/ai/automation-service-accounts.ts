@@ -29,6 +29,13 @@ const ServiceAccountEntrySchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().optional(),
+  /**
+   * The account's effective access rules (qualified ids; `["*"]` for an admin).
+   * Match these against each action's `requiredAccessRules` (from
+   * `automation.getCapabilitySchema`) to pick a `runAs` that can actually run
+   * the automation - rather than proposing and being rejected.
+   */
+  accessRules: z.array(z.string()),
 });
 
 const AutomationListServiceAccountsOutputSchema = z.object({
@@ -62,7 +69,7 @@ export function createAutomationListServiceAccountsTool(): RegisteredAiTool<
   return {
     name: "automation.listServiceAccounts",
     description:
-      "List the service accounts (applications) you may bind as an automation's runAs. Call this BEFORE automation.propose and pick one of the returned ids for the propose tool's `runAs`. NEVER invent a runAs - values like \"system\" are NOT valid and will make the automation fail to save. Returns each account's id, name, and optional description.",
+      "List the service accounts (applications) you may bind as an automation's runAs, EACH WITH ITS access rules. Call this BEFORE automation.propose and pick one whose accessRules cover every requiredAccessRules of the actions you use (see automation.getCapabilitySchema) - so the automation can actually run, instead of being rejected at propose time. NEVER invent a runAs - values like \"system\" are NOT valid. Returns each account's id, name, optional description, and accessRules.",
     effect: "read",
     input: AutomationListServiceAccountsInputSchema,
     output: AutomationListServiceAccountsOutputSchema,
@@ -71,10 +78,7 @@ export function createAutomationListServiceAccountsTool(): RegisteredAiTool<
       const serviceAccounts = await listBindableServiceAccounts({ rpcClient });
       return {
         serviceAccounts,
-        note:
-          serviceAccounts.length > 0
-            ? "Pick exactly one of these ids for automation.propose's runAs. Do not invent a runAs."
-            : "You have no bindable service accounts. Ask an admin to create one (or grant you a matching one) before proposing an automation; do not invent a runAs.",
+        note: buildServiceAccountsNote(serviceAccounts),
       };
     },
   };
@@ -101,5 +105,24 @@ export async function listBindableServiceAccounts({
     id: app.id,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
+    accessRules: app.accessRules ?? [],
   }));
+}
+
+/**
+ * Model-facing guidance for picking a `runAs`: match the account's `accessRules`
+ * to the actions' `requiredAccessRules`, and - crucially - ASK the operator when
+ * the choice is ambiguous, rather than guessing the identity an automation runs
+ * as (a security-relevant decision).
+ */
+function buildServiceAccountsNote(
+  serviceAccounts: z.infer<typeof ServiceAccountEntrySchema>[],
+): string {
+  if (serviceAccounts.length === 0) {
+    return "You have no bindable service accounts. Ask an admin to create one (or grant you a matching one) before proposing an automation; do not invent a runAs.";
+  }
+  if (serviceAccounts.length === 1) {
+    return "Use this account's id as runAs. Confirm its accessRules cover every requiredAccessRules of the actions you use; if not, tell the operator which rule(s) to grant rather than proposing a draft that will be rejected.";
+  }
+  return "Multiple service accounts are available. Pick one whose accessRules cover every requiredAccessRules of the actions you use. If more than one qualifies (or the operator did not say which to use), ASK the operator which service account to run as - do not pick the automation's identity for them. If none has the needed rules, say which rule(s) to grant.";
 }

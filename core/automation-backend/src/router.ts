@@ -529,6 +529,7 @@ export function createAutomationRouter(deps: RouterDeps) {
         produces: a.produces,
         consumes: a.consumes ?? [],
         connectionProviderId: a.connectionProviderId,
+        requiredAccessRules: a.requiredAccessRules ?? [],
       }));
       return { items };
     }),

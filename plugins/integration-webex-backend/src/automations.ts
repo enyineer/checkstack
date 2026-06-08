@@ -13,13 +13,32 @@ import {
 } from "@checkstack/backend-api";
 import type { ActionDefinition } from "@checkstack/automation-backend";
 import { connectionStoreRef } from "@checkstack/integration-backend";
-import { extractErrorMessage } from "@checkstack/common";
+import {
+  access,
+  extractErrorMessage,
+  qualifyAccessRuleId,
+} from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 import {
   WEBEX_RESOLVERS,
   WEBEX_PROVIDER_QUALIFIED_ID,
   type WebexConnectionConfig,
 } from "./provider";
+
+/**
+ * Access rule a runAs service account must hold to post Webex messages from an
+ * automation. Enforced by the dispatch engine before the action runs.
+ */
+export const webexAccess = {
+  postMessage: access(
+    "post_message",
+    "manage",
+    "Post Webex messages from an automation",
+    { pluginId: pluginMetadata.pluginId },
+  ),
+};
+export const webexAccessRules = Object.values(webexAccess);
 
 const WEBEX_API_BASE = "https://webexapis.com/v1";
 
@@ -96,6 +115,9 @@ export function createWebexActions(): ActionDefinition<unknown, unknown>[] {
     category: "Webex",
     icon: "MessageSquare",
     connectionProviderId: WEBEX_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [
+      qualifyAccessRuleId(pluginMetadata, webexAccess.postMessage),
+    ],
     config: new Versioned({
       version: 1,
       schema: webexPostMessageConfigSchema,

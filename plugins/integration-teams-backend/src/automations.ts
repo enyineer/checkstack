@@ -14,7 +14,12 @@ import {
 } from "@checkstack/backend-api";
 import type { ActionDefinition } from "@checkstack/automation-backend";
 import { connectionStoreRef } from "@checkstack/integration-backend";
-import { extractErrorMessage } from "@checkstack/common";
+import {
+  access,
+  extractErrorMessage,
+  qualifyAccessRuleId,
+} from "@checkstack/common";
+import { pluginMetadata } from "./plugin-metadata";
 
 import {
   getAppToken,
@@ -22,6 +27,22 @@ import {
   TEAMS_PROVIDER_QUALIFIED_ID,
   type TeamsConnectionConfig,
 } from "./provider";
+
+/**
+ * Access rule a runAs service account must hold to post Teams messages from an
+ * automation. The dispatch engine enforces it before the action runs, so the
+ * capability is granted deliberately to a service account's role rather than
+ * implied by being able to author automations.
+ */
+export const teamsAccess = {
+  postMessage: access(
+    "post_message",
+    "manage",
+    "Post Microsoft Teams messages from an automation",
+    { pluginId: pluginMetadata.pluginId },
+  ),
+};
+export const teamsAccessRules = Object.values(teamsAccess);
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -153,6 +174,9 @@ export function createTeamsActions(): ActionDefinition<unknown, unknown>[] {
     category: "Microsoft Teams",
     icon: "MessageSquareMore",
     connectionProviderId: TEAMS_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [
+      qualifyAccessRuleId(pluginMetadata, teamsAccess.postMessage),
+    ],
     config: new Versioned({
       version: 1,
       schema: teamsPostMessageConfigSchema,

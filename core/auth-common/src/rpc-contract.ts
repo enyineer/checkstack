@@ -567,6 +567,12 @@ export const authContract = {
         id: z.string(),
         name: z.string(),
         description: z.string().nullable().optional(),
+        // The app's resolved effective access rules. Safe to expose here: every
+        // returned app is bindable by the caller, so its rules are a subset of
+        // the caller's own (or the caller is a `*` admin). Lets the automation
+        // editor / propose-time validation check whether a chosen runAs holds
+        // the rules its actions require, without a separate lookup.
+        accessRules: z.array(z.string()),
       }),
     ),
   ),

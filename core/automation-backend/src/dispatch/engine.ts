@@ -66,7 +66,7 @@ import type {
   TemplateContext,
 } from "@checkstack/template-engine";
 
-import type { ActionRunScope } from "../action-types";
+import type { ActionRunScope, RegisteredAction } from "../action-types";
 import { detectActionKind, type ActionKind } from "./action-kind";
 import { wrapGetServiceForRun } from "./run-secret-registry";
 import { reseedRunSecretRegistry } from "./reseed-run-secrets";
@@ -159,6 +159,44 @@ async function resolveRunRpcClient(
   }
   ctx.runRpcClient = await factory(runAs);
   return ctx.runRpcClient;
+}
+
+/**
+ * Verify the run's `runAs` service account holds every access rule the action
+ * declares in `requiredAccessRules`. Returns an error string to fail the step,
+ * or `undefined` when the action is allowed. Fails CLOSED: an action that
+ * declares rules cannot run without a `runAs` and a way to resolve its rules.
+ *
+ * The runAs rules are resolved once and cached on the context. The match
+ * mirrors the RPC middleware's global-rule predicate: a rule is satisfied by an
+ * exact id or the `"*"` admin wildcard.
+ */
+async function checkActionAccess(
+  registered: RegisteredAction,
+  ctx: DispatchContext,
+): Promise<string | undefined> {
+  const required = registered.requiredAccessRules ?? [];
+  if (required.length === 0) return undefined;
+
+  const runAs = ctx.run.automation.runAs;
+  if (!runAs) {
+    return `Action "${registered.qualifiedId}" requires access rules (${required.join(", ")}) but the automation has no service account (runAs) assigned.`;
+  }
+
+  if (!ctx.runAsAccessRules) {
+    const resolve = ctx.deps.resolveRunAsAccessRules;
+    if (!resolve) {
+      return `Action "${registered.qualifiedId}" requires access rules but the dispatch engine cannot resolve the service account's permissions.`;
+    }
+    ctx.runAsAccessRules = await resolve(runAs);
+  }
+
+  const granted = ctx.runAsAccessRules;
+  if (granted.includes("*")) return undefined;
+  const missing = required.filter((rule) => !granted.includes(rule));
+  if (missing.length === 0) return undefined;
+
+  return `Service account "${runAs}" is not permitted to run "${registered.qualifiedId}": missing access rule(s) ${missing.join(", ")}. Grant the rule(s) to the service account's role.`;
 }
 
 /**
@@ -1122,6 +1160,20 @@ async function executeProviderAction(
       errorMessage: error,
     });
     return { kind: "failed", error };
+  }
+
+  // Enforce the action's declared access rules against the run's `runAs`
+  // service account BEFORE doing any work. Integration actions resolve
+  // credentials through a TRUSTED service (not the bounded `rpcClient`), so this
+  // is the only place their authorization is checked - without it, merely being
+  // able to author an automation would let it act on any integration.
+  const authzError = await checkActionAccess(registered, ctx);
+  if (authzError) {
+    await ctx.deps.runStore.updateStep(stepId, {
+      status: "failed",
+      errorMessage: authzError,
+    });
+    return { kind: "failed", error: authzError };
   }
 
   let renderedConfig: unknown;

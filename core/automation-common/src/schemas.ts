@@ -1004,6 +1004,12 @@ export const ActionInfoSchema = z.object({
     .describe(
       "Fully-qualified integration provider id whose connection store + option resolvers supply this action's config dropdowns",
     ),
+  requiredAccessRules: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Access rules (qualified ids) the automation's runAs service account must hold for this action to execute",
+    ),
 });
 
 export type ActionInfo = z.infer<typeof ActionInfoSchema>;

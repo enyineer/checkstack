@@ -4,7 +4,7 @@ import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
 } from "@checkstack/automation-backend";
-import { pluginMetadata } from "@checkstack/integration-jira-common";
+import { pluginMetadata, jiraAccessRules } from "@checkstack/integration-jira-common";
 import { createJiraProvider } from "./provider";
 import {
   createJiraActions,
@@ -16,6 +16,11 @@ export const jiraPlugin = createBackendPlugin({
   metadata: pluginMetadata,
 
   register(env) {
+    // Per-action access rules: a runAs service account must hold the matching
+    // rule for the dispatch engine to run that Jira action. Registered so they
+    // appear in the access catalog and can be granted to roles.
+    env.registerAccessRules(jiraAccessRules);
+
     // Register the jira.issue artifact type early so downstream
     // plugins / the editor can see it. Safe in `register()` since the
     // extension point is buffered.

@@ -7,9 +7,9 @@ import type { OptionsResolver } from "@checkstack/ui";
  * Resolver name for the connection picker itself. Mirrors the
  * `CONNECTION_OPTIONS` constant every integration provider defines
  * (`provider.ts` → `*_RESOLVERS.CONNECTION_OPTIONS`). The bridge resolves
- * this one via `listConnections` (no connection is selected yet) and every
- * other resolver name via `getConnectionOptions` (cascading dropdowns that
- * depend on the chosen `connectionId`).
+ * this one via `listConnectionSummaries` (no connection is selected yet) and
+ * every other resolver name via `resolveConnectionOptions` (cascading dropdowns
+ * that depend on the chosen `connectionId`).
  */
 const CONNECTION_RESOLVER_NAME = "connectionOptions";
 
@@ -20,8 +20,13 @@ const CONNECTION_RESOLVER_NAME = "connectionOptions";
  *
  * Returns a stable, name-agnostic resolver map: the `connectionOptions`
  * resolver lists the provider's connections, and any other resolver name is
- * forwarded to `getConnectionOptions` for the currently selected connection,
- * passing the live form values as `context` for dependent fields.
+ * forwarded to `resolveConnectionOptions` for the currently selected
+ * connection, passing the live form values as `context` for dependent fields.
+ *
+ * Both calls are the USER-CALLABLE integration endpoints (`listConnectionSummaries`
+ * + `resolveConnectionOptions`), NOT the admin-gated `listConnections` /
+ * `getConnectionOptions`: an automation author needs working dropdowns without
+ * holding `integration.manage`. They return labels/ids only (no config/secrets).
  *
  * When `connectionProviderId` is undefined (a non-connection action such as
  * Log or Run Script), an empty map is returned so nothing tries to resolve.
@@ -45,7 +50,7 @@ export function useConnectionOptionResolvers(
 
         const resolver: OptionsResolver = async (formValues) => {
           if (resolverName === CONNECTION_RESOLVER_NAME) {
-            const connections = await client.listConnections.call({
+            const connections = await client.listConnectionSummaries.call({
               providerId,
             });
             return connections.map((connection) => ({
@@ -59,7 +64,7 @@ export function useConnectionOptionResolvers(
             return [];
           }
 
-          const options = await client.getConnectionOptions.call({
+          const options = await client.resolveConnectionOptions.call({
             providerId,
             connectionId,
             resolverName,
