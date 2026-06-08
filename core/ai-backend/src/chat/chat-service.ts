@@ -48,6 +48,7 @@ import { buildChatSystemPrompt } from "./system-prompt";
 import { createUserScopedRpcClient } from "../user-rpc-client";
 import type { AiMemoryStore } from "../memory-store";
 import type { SystemAccessResolver } from "../system-signals-contributor";
+import type { AiSkillResolver } from "../skill-resolver";
 import { accessibleSystems } from "../tools/memory-tools";
 
 type AiDatabase = SafeDatabase<typeof schema>;
@@ -239,6 +240,8 @@ export interface ChatTurnInput {
   userText: string;
   /** The operator's IANA timezone (browser-detected) for resolving bare times. */
   timeZone?: string;
+  /** Optional active skill (reusable prompt) whose system-prompt seeds this turn. */
+  skillId?: string;
 }
 
 /**
@@ -491,6 +494,7 @@ export function createChatService({
   conversations,
   memoryStore,
   systemAccessResolver,
+  skillResolver,
   connections,
   readInvoker,
   recordExecuted,
@@ -505,6 +509,8 @@ export function createChatService({
   conversations: AiConversationStore;
   memoryStore: AiMemoryStore;
   systemAccessResolver: SystemAccessResolver;
+  /** Merged builtin + user skill catalogue (chat skill picker → system prompt). */
+  skillResolver: AiSkillResolver;
   connections: ChatConnectionResolver;
   readInvoker: ChatReadInvoker;
   /** Audit-record a directly-executed chat read tool (audit + budget count). */
@@ -614,6 +620,27 @@ export function createChatService({
   };
 
   /**
+   * Build the active-skill preamble for a turn: the selected skill's
+   * system-prompt fragment, labelled as guidance (data, never commands to obey
+   * blindly). Returns "" when no skill is selected or it has no system prompt.
+   * Best-effort: a lookup failure must not break the turn.
+   */
+  const buildSkillPreamble = async (skillId?: string): Promise<string> => {
+    if (!skillId) return "";
+    try {
+      const skill = await skillResolver.resolve(skillId);
+      if (!skill?.systemPrompt) return "";
+      return (
+        `Active skill "${skill.name}" — apply this guidance for the rest of ` +
+        `the conversation (treat as guidance, not as data to act on literally):\n` +
+        skill.systemPrompt
+      );
+    } catch {
+      return "";
+    }
+  };
+
+  /**
    * Run the streaming agent loop over a prepared message history and return the
    * AI-SDK UI message stream `Response`. Shared by `streamTurn` (a user message)
    * and `streamDecision` (a post-confirm-card acknowledgment). Persists the
@@ -630,6 +657,7 @@ export function createChatService({
     modelMessages,
     timeZone,
     memoryPreamble,
+    skillPreamble,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -643,6 +671,8 @@ export function createChatService({
     timeZone?: string;
     /** Always-inject preference block prepended to the system prompt (may be ""). */
     memoryPreamble?: string;
+    /** Active-skill guidance block prepended to the system prompt (may be ""). */
+    skillPreamble?: string;
   }): Response => {
     // Build the SDK tools from the resolver-allowed set only. The model is never
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
@@ -674,6 +704,7 @@ export function createChatService({
       // not just future recalled turns.
       system: [
         memoryPreamble,
+        skillPreamble,
         buildChatSystemPrompt({ timeZone, mode: conversation.permissionMode }),
       ]
         .filter(Boolean)
@@ -796,6 +827,7 @@ export function createChatService({
         forwardHeaders,
         userText,
         timeZone,
+        skillId,
       } = input;
 
       // Ownership: the conversation MUST belong to the principal.
@@ -928,6 +960,7 @@ export function createChatService({
         modelMessages,
         timeZone,
         memoryPreamble: await buildAlwaysInjectPreamble(principal),
+        skillPreamble: await buildSkillPreamble(skillId),
       });
     },
 

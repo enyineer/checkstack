@@ -18,6 +18,12 @@ export interface ConfigMeta {
   "x-hidden"?: boolean;
   /** Name of the resolver function for dynamic options dropdown */
   "x-options-resolver"?: string;
+  /**
+   * How resolved options render: a compact `select` (default) or a browsable
+   * `catalog` modal that shows each option's description (use when a label
+   * alone is not enough to choose, e.g. an AI skill picker).
+   */
+  "x-options-style"?: "select" | "catalog";
   /** Field names this field depends on (triggers refetch when they change) */
   "x-depends-on"?: string[];
   /** If true, renders a searchable/filterable dropdown */

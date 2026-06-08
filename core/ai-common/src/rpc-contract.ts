@@ -4,6 +4,12 @@ import { aiAccess } from "./access";
 import { AiPermissionModeSchema } from "./permission";
 import { pluginMetadata } from "./plugin-metadata";
 import { AiToolDescriptorSchema } from "./tool";
+import {
+  AiSkillSchema,
+  AiSkillTargetSchema,
+  CreateSkillInputSchema,
+  UpdateSkillInputSchema,
+} from "./skill";
 
 /**
  * AI platform RPC contract.
@@ -254,6 +260,48 @@ export const aiContract = {
   })
     .input(z.object({ id: z.string(), alwaysInject: z.boolean() }))
     .output(z.object({ updated: z.boolean() })),
+
+  // ─── Skills (reusable prompt templates) ─────────────────────────────────
+
+  /**
+   * Every skill the caller can use (builtin + global user skills), optionally
+   * filtered to a target surface. Powers the chat / analyze skill pickers and
+   * the Skills settings page.
+   */
+  listSkills: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [aiAccess.skillRead],
+  })
+    .input(z.object({ target: AiSkillTargetSchema.optional() }).optional())
+    .output(z.object({ skills: z.array(AiSkillSchema) })),
+
+  /** Publish a new global user skill. Gated by the dedicated create permission. */
+  createSkill: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [aiAccess.skillCreate],
+  })
+    .input(CreateSkillInputSchema)
+    .output(AiSkillSchema),
+
+  /** Edit an existing user skill (author only; builtins are immutable). */
+  updateSkill: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [aiAccess.skillManage],
+  })
+    .input(UpdateSkillInputSchema)
+    .output(AiSkillSchema),
+
+  /** Delete a user skill (author only; builtins cannot be deleted). */
+  deleteSkill: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [aiAccess.skillManage],
+  })
+    .input(z.object({ id: z.string() }))
+    .output(z.object({ deleted: z.boolean() })),
 };
 
 export type AiContract = typeof aiContract;

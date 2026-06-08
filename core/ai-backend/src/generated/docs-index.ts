@@ -220,6 +220,19 @@ export const DOCS_INDEX: readonly DocsIndexEntry[] = [
     "truncated": false
   },
   {
+    "slug": "developer-guide/ai/skills",
+    "title": "AI skills",
+    "description": "Reusable prompt templates for the chat assistant and the AI Analyze action, contributed by plugins or authored by operators.",
+    "headings": [
+      "Targets",
+      "Contributing a builtin skill from a plugin",
+      "User skills + access",
+      "Safety + scale"
+    ],
+    "content": "AI skills are reusable prompt templates that help operators write good prompts and start quickly. A skill bundles a system-prompt fragment, an optional starter prompt, and (for the analyze action) suggested output fields. Skills are tagged with the surfaces they target, so each picker shows only the relevant ones.\n\nSkills come from two sources merged into one catalogue: builtin skills contributed in code by core and plugins, and global user skills authored by operators and stored in the `ai_skill` table. A user skill is visible to everyone who can read skills.\n\n## Targets\n\nA skill targets one or both surfaces:\n\n- `chat` - selectable in the chat composer; its system prompt is folded into the conversation and its starter prompt seeds the message box.\n- `ai_analyze` - selectable on the `ai_analyze` automation action; it seeds the action's `systemPrompt`, `prompt` (when blank), and `outputFields` (when none are set). Explicit action config always wins.\n\n## Contributing a builtin skill from a plugin\n\nResolve the extension point and register during your plugin's `register()` or `init()`. Supply an unqualified `id`; the registry qualifies it and stamps `source: \"builtin\"`.\n\n```ts\nimport { aiSkillExtensionPoint } from \"@checkstack/ai-backend\";\n\nconst skills = env.getExtensionPoint(aiSkillExtensionPoint);\nskills.registerSkill(\n  {\n    id: \"failure-root-cause\",\n    name: \"Failure root-cause summary\",\n    description: \"Summarize a failure and identify the single most likely cause.\",\n    targets: [\"ai_analyze\"],\n    systemPrompt: \"You analyze an operational failure from the provided context only.\",\n    promptTemplate: \"Summarize this failure and identify the most likely cause.\",\n    suggestedOutputFields: [\n      { key: \"summary\", type: \"string\", description: \"One-line summary.\" },\n      { key: \"likely_cause\", type: \"string\", description: \"Most likely cause.\" },\n    ],\n  },\n  pluginMetadata,\n);\n```\n\n## User skills + access\n\nOperators manage global skills on the **AI skills** settings page. Three access rules gate the surface (all default-on, admin-revocable):\n\n- `ai.skill.read` - list and use skills (the pickers + the settings page).\n- `ai.skill-create.manage` - publish a new global skill (a dedicated create permission, so an admin can stop new-skill creation without affecting use or editing).\n- `ai.skill.manage` - edit / delete a skill. Restricted to the skill's author; a wildcard-holding admin may moderate any. Builtin skills are never editable.\n\n> [!IMPORTANT]\n> Skill content is DATA, not commands. When a skill is active the model treats its system prompt as guidance to apply, never as instructions to execute blindly. Secrets are scrubbed from skill text on save.\n\n## Safety + scale\n\nUser skills live in shared Postgres (`ai_skill`), so the catalogue is identical on every pod. The resolver merges builtin + user skills on read; there is no pod-local skill state.",
+    "truncated": false
+  },
+  {
     "slug": "developer-guide/ai/system-issues",
     "title": "The system.issues tool and system-signals contributors",
     "description": "How the system.issues AI tool aggregates \"needs attention\" signals across plugins, and how a plugin contributes its own problem signals via the systemSignalsExtensionPoint.",
@@ -3133,4 +3146,4 @@ export const DOCS_INDEX: readonly DocsIndexEntry[] = [
 ];
 
 /** A content hash of the source tree, so a CI check can detect drift. */
-export const DOCS_INDEX_HASH = "43dc9ac17d1d5e1cc76d3af6ebc01a6cbf5db34df967df101902c3c009357813";
+export const DOCS_INDEX_HASH = "7f58b38d9659c5c4d0c9d04054836697d884784b94ccd176512432e3530e7784";

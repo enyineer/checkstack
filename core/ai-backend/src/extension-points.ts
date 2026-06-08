@@ -2,6 +2,7 @@ import { createExtensionPoint } from "@checkstack/backend-api";
 import type { AuthUser } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
 import type { SystemSignalsMap } from "@checkstack/catalog-common";
+import type { AiSkillDefinitionInput } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "./tool-registry";
 import type { ProjectToolInput } from "./projection";
 
@@ -21,6 +22,24 @@ export interface AiToolExtensionPoint {
 
 export const aiToolExtensionPoint = createExtensionPoint<AiToolExtensionPoint>(
   "ai.toolExtensionPoint",
+);
+
+/**
+ * Extension point for contributing builtin AI "skills" - reusable prompt
+ * templates surfaced in the chat skill picker and the `ai_analyze` action
+ * config. A contributor supplies an unqualified `id`; the registry qualifies it
+ * with the plugin id and stamps `source: "builtin"`. Builtin skills are
+ * read-only (operators author their own GLOBAL skills via the `ai_skill` table).
+ */
+export interface AiSkillExtensionPoint {
+  registerSkill(
+    skill: AiSkillDefinitionInput,
+    pluginMetadata: PluginMetadata,
+  ): void;
+}
+
+export const aiSkillExtensionPoint = createExtensionPoint<AiSkillExtensionPoint>(
+  "ai.skillExtensionPoint",
 );
 
 /**

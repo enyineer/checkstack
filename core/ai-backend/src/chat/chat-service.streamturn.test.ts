@@ -206,6 +206,7 @@ function makeService(
         alwaysInjectContents.map((content) => ({ content })),
     } as never,
     systemAccessResolver: { accessibleSystemIds: async () => [] } as never,
+    skillResolver: { list: async () => [], resolve: async () => undefined } as never,
     connections: { resolve: async () => connection },
     readInvoker: { invoke: async () => ({}) },
     recordExecuted: async () => {},

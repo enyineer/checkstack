@@ -32,7 +32,7 @@ import type {
 import { useAutomationRegistry } from "./registry-context";
 import { ItemPicker } from "./ItemPicker";
 import { ConditionEditor } from "./ConditionEditor";
-import { useConnectionOptionResolvers } from "./useConnectionOptionResolvers";
+import { useActionOptionResolvers } from "./useActionOptionResolvers";
 import { automationScriptTestRenderer } from "./ScriptTestRenderer";
 import {
   useScriptPackageTypeAcquisition,
@@ -127,7 +127,7 @@ export const ProviderActionBody: React.FC<{
   // `connectionProviderId`; the bridge turns their `x-options-resolver`
   // fields into a live connection picker + cascading provider dropdowns.
   // Non-connection actions get an empty map (no-op) since the id is absent.
-  const optionsResolvers = useConnectionOptionResolvers(
+  const optionsResolvers = useActionOptionResolvers(
     selected?.connectionProviderId,
   );
 

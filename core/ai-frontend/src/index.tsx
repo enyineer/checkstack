@@ -4,7 +4,7 @@ import {
 } from "@checkstack/frontend-api";
 import { aiRoutes, pluginMetadata, aiAccess } from "@checkstack/ai-common";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
-import { Sparkles, Brain } from "lucide-react";
+import { Sparkles, Brain, Lightbulb } from "lucide-react";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -31,6 +31,19 @@ export default createFrontendPlugin({
       nav: {
         group: "Workspace",
         icon: Brain,
+      },
+    },
+    {
+      route: aiRoutes.routes.skills,
+      load: () =>
+        import("./pages/SkillsPage").then((m) => ({
+          default: m.SkillsPage,
+        })),
+      title: "AI skills",
+      accessRule: aiAccess.skillRead,
+      nav: {
+        group: "Workspace",
+        icon: Lightbulb,
       },
     },
   ],

@@ -3,6 +3,7 @@ export * from "./docs-tools";
 export * from "./permission";
 export * from "./plugin-metadata";
 export * from "./tool";
+export * from "./skill";
 export * from "./context-tools";
 export * from "./field-diff";
 export * from "./capability-summary";

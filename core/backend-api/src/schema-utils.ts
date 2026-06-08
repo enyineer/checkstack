@@ -84,6 +84,8 @@ function addSchemaMetadata(
         if (meta["x-depends-on"])
           jsonField["x-depends-on"] = meta["x-depends-on"];
         if (meta["x-searchable"]) jsonField["x-searchable"] = true;
+        if (meta["x-options-style"])
+          jsonField["x-options-style"] = meta["x-options-style"];
       }
     }
 

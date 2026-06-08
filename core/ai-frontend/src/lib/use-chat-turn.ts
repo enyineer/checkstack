@@ -119,14 +119,16 @@ export function useChatTurn({
       connectionId,
       model,
       text,
+      skillId,
     }: {
       conversationId: string;
       connectionId: string;
       model?: string;
       text: string;
+      skillId?: string;
     }) =>
       runStream({
-        body: { conversationId, connectionId, model, message: text },
+        body: { conversationId, connectionId, model, message: text, skillId },
         userText: text,
       }),
     [runStream],

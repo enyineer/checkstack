@@ -2,6 +2,12 @@ import React from "react";
 import { ChevronDown } from "lucide-react";
 
 import {
+  Badge,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
   Input,
   Label,
   Select,
@@ -30,6 +36,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   resolverName,
   dependsOn,
   searchable,
+  optionsStyle,
   formValues,
   optionsResolvers,
   onChange,
@@ -39,6 +46,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   const [error, setError] = React.useState<string | undefined>();
   const [searchQuery, setSearchQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [catalogOpen, setCatalogOpen] = React.useState(false);
 
   // Use ref to store formValues to avoid re-renders when unrelated fields change
   const formValuesRef = React.useRef(formValues);
@@ -110,6 +118,106 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   }, [options, value]);
 
   const cleanDesc = getCleanDescription(description);
+
+  // Catalog style: a trigger button + a browsable modal of cards showing each
+  // option's label AND description, so the operator can tell options apart by
+  // more than a one-word label (e.g. picking an AI skill). Falls back to the
+  // loading/error chrome the Select style uses.
+  if (optionsStyle === "catalog") {
+    const selected = options.find((opt) => opt.value === value);
+    return (
+      <div className="space-y-2">
+        <div>
+          <Label htmlFor={id}>
+            {label} {isRequired && "*"}
+          </Label>
+          {cleanDesc && (
+            <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
+          )}
+        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-muted/50">
+            <Spinner size="sm" className="text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">
+              Loading options...
+            </span>
+          </div>
+        ) : error ? (
+          <div className="flex items-center h-10 px-3 border border-destructive rounded-md bg-destructive/10">
+            <span className="text-sm text-destructive">{error}</span>
+          </div>
+        ) : (
+          <button
+            id={id}
+            type="button"
+            onClick={() => setCatalogOpen(true)}
+            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-left ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            <span className={selected ? "" : "text-muted-foreground"}>
+              {selected?.label ?? `Choose ${label}`}
+            </span>
+            <ChevronDown className="h-4 w-4 opacity-50" />
+          </button>
+        )}
+        <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Choose {label}</DialogTitle>
+              {cleanDesc && <DialogDescription>{cleanDesc}</DialogDescription>}
+            </DialogHeader>
+            <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+              {!isRequired && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange();
+                    setCatalogOpen(false);
+                  }}
+                  className={`w-full rounded-md border px-3 py-2 text-left text-sm text-muted-foreground hover:border-primary ${
+                    value ? "" : "border-primary bg-primary/5"
+                  }`}
+                >
+                  None
+                </button>
+              )}
+              {options.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setCatalogOpen(false);
+                  }}
+                  className={`flex w-full flex-col gap-1 rounded-md border p-3 text-left transition-colors hover:border-primary ${
+                    opt.value === value ? "border-primary bg-primary/5" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{opt.label}</span>
+                    {opt.value === value && (
+                      <Badge variant="secondary" className="ml-auto">
+                        Selected
+                      </Badge>
+                    )}
+                  </div>
+                  {opt.description && (
+                    <p className="text-sm text-muted-foreground">
+                      {opt.description}
+                    </p>
+                  )}
+                </button>
+              ))}
+              {options.length === 0 && (
+                <p className="py-2 text-center text-sm text-muted-foreground">
+                  No options available.
+                </p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   // Render searchable dropdown with search inside
   if (searchable && !loading && !error && options.length > 0) {

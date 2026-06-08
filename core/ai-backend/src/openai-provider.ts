@@ -10,6 +10,7 @@ import {
   OPENAI_COMPATIBLE_PROVIDER_LOCAL_ID,
   type OpenAiCompatibleConnection,
 } from "@checkstack/ai-common";
+import type { AiSkillResolver } from "./skill-resolver";
 
 /**
  * Connection schema for an OpenAI-compatible LLM provider (OpenAI, Azure,
@@ -91,7 +92,16 @@ export const OpenAiCompatibleConnectionSchema = z.object({
  * exactly like every other integration provider — no AI-specific Settings page
  * is required for credential management.
  */
-export function createOpenAiCompatibleProvider(): IntegrationProvider<OpenAiCompatibleConnection> {
+export function createOpenAiCompatibleProvider({
+  skillResolver,
+}: {
+  /**
+   * Optional skill resolver. When present, the provider serves the
+   * `aiSkillOptions` dropdown for the `ai_analyze` action's `skillId` field so
+   * the automation editor renders a real skill picker (not a raw text input).
+   */
+  skillResolver?: AiSkillResolver;
+} = {}): IntegrationProvider<OpenAiCompatibleConnection> {
   return {
     id: OPENAI_COMPATIBLE_PROVIDER_LOCAL_ID,
     displayName: "OpenAI-compatible",
@@ -141,6 +151,19 @@ Configure credentials for any OpenAI-compatible chat-completions endpoint.
           message: `Failed to reach provider: ${extractErrorMessage(error)}`,
         };
       }
+    },
+    /**
+     * Dropdown options for the `ai_analyze` action's resolver-backed fields.
+     * `aiSkillOptions` lists the skills targeting the analyze action (builtin +
+     * global user skills); the `connectionId` is intentionally ignored - skills
+     * are not connection-scoped.
+     */
+    async getConnectionOptions({ resolverName }) {
+      if (resolverName === "aiSkillOptions" && skillResolver) {
+        const skills = await skillResolver.list("ai_analyze");
+        return skills.map((skill) => ({ value: skill.id, label: skill.name }));
+      }
+      return [];
     },
   };
 }

@@ -31,19 +31,24 @@ export const PageHeader = React.forwardRef<HTMLDivElement, PageHeaderProps>(
     <div
       ref={ref}
       className={cn(
-        "flex flex-col md:flex-row items-center justify-between py-3 pb-2 md:py-6 md:pb-2",
+        "flex flex-col md:flex-row items-center justify-between gap-3 py-3 pb-2 md:py-6 md:pb-2",
         className,
       )}
       {...props}
     >
-      <div className="space-y-1">
+      {/* `md:min-w-0 md:flex-1` lets a long subtitle WRAP inside the available
+          width instead of running under the actions; the actions get
+          `shrink-0` so they keep their size beside it. */}
+      <div className="space-y-1 md:min-w-0 md:flex-1">
         <div className="flex items-center gap-3">
           <Icon className="h-6 w-6 text-primary" />
           <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
         </div>
         {subtitle && <p className="text-muted-foreground">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center space-x-2">{actions}</div>}
+      {actions && (
+        <div className="flex shrink-0 items-center space-x-2">{actions}</div>
+      )}
     </div>
   ),
 );

@@ -4,12 +4,18 @@ import {
   Card,
   CardContent,
   Button,
+  Badge,
   Textarea,
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
   LoadingSpinner,
   EmptyState,
   MarkdownBlock,
@@ -249,6 +255,27 @@ export function ChatPage() {
     [integrations, connectionId],
   );
 
+  // Skills available for chat (builtin + global user skills), for the picker.
+  const skillsQuery = ai.listSkills.useQuery({ target: "chat" });
+  const chatSkills = useMemo(
+    () => skillsQuery.data?.skills ?? [],
+    [skillsQuery.data],
+  );
+  const [skillId, setSkillId] = useState<string | undefined>();
+  const [skillBrowserOpen, setSkillBrowserOpen] = useState(false);
+  const activeSkill = useMemo(
+    () => chatSkills.find((s) => s.id === skillId),
+    [chatSkills, skillId],
+  );
+  const applySkill = (id?: string) => {
+    setSkillId(id);
+    setSkillBrowserOpen(false);
+    const skill = id ? chatSkills.find((s) => s.id === id) : undefined;
+    if (skill?.promptTemplate && input.trim().length === 0) {
+      setInput(skill.promptTemplate);
+    }
+  };
+
   const createConversation = ai.createConversation.useMutation();
   const updateConversation = ai.updateConversation.useMutation();
   const archiveConversation = ai.archiveConversation.useMutation();
@@ -391,7 +418,7 @@ export function ChatPage() {
     }
     const text = input;
     setInput("");
-    await send({ conversationId: convId, connectionId, model, text });
+    await send({ conversationId: convId, connectionId, model, text, skillId });
     // The chat turn streams via a raw fetch (not an oRPC mutation), so it does
     // not auto-invalidate this plugin's queries. After the turn completes the
     // backend may have set an auto-title on a previously untitled conversation,
@@ -645,27 +672,80 @@ export function ChatPage() {
             </div>
           ) : null}
 
-          <div className="border-t p-2 flex gap-2">
-            <Textarea
-              className="flex-1 resize-none"
-              rows={2}
-              placeholder="Message the assistant..."
-              value={input}
-              disabled={streaming || integrations.length === 0}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void onSend();
-                }
-              }}
-            />
-            <Button
-              onClick={() => void onSend()}
-              disabled={streaming || !input.trim() || !connectionId}
-            >
-              <Send className="w-4 h-4" />
-            </Button>
+          <div className="border-t p-2 space-y-2">
+            {/* Active-skill banner: makes the persona EXPLICIT — it names the
+                skill and describes how it changes the assistant's behavior, so
+                the system-prompt framing is never hidden. Clearable. */}
+            {activeSkill && (
+              <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm">
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">
+                    Skill active: {activeSkill.name}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {activeSkill.description}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  title="Turn off this skill"
+                  onClick={() => setSkillId(undefined)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Textarea
+                className="flex-1 resize-none"
+                rows={2}
+                placeholder="Message the assistant..."
+                value={input}
+                disabled={streaming || integrations.length === 0}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSend();
+                  }
+                }}
+              />
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="icon"
+                  onClick={() => void onSend()}
+                  disabled={streaming || !input.trim() || !connectionId}
+                  title="Send message"
+                  aria-label="Send message"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+                {/* Skill picker lives WITH the composer (a per-message authoring
+                    choice), not in the connection/model header. Icon-only,
+                    stacked under Send; opens a browsable catalogue so each
+                    skill's description is visible BEFORE choosing. Tinted when
+                    a skill is active. */}
+                {chatSkills.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={activeSkill ? "border-primary text-primary" : ""}
+                    onClick={() => setSkillBrowserOpen(true)}
+                    title={
+                      activeSkill
+                        ? `Skill active: ${activeSkill.name} — change or turn off`
+                        : "Browse skills (reusable prompts) and apply one"
+                    }
+                    aria-label="Browse skills"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
           {browserTimeZone ? (
             <p className="px-2 pb-2 -mt-1 text-xs text-muted-foreground">
@@ -690,6 +770,59 @@ export function ChatPage() {
         variant="danger"
         isLoading={archiveConversation.isPending}
       />
+
+      {/* Skill catalogue: browse every available chat skill WITH its
+          description before choosing, instead of picking blind from a list. */}
+      <Dialog open={skillBrowserOpen} onOpenChange={setSkillBrowserOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Apply a skill</DialogTitle>
+            <DialogDescription>
+              A skill shapes how the assistant responds for this conversation.
+              Pick one to apply its guidance; you can turn it off any time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+            {activeSkill && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => applySkill()}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Turn off the active skill
+              </Button>
+            )}
+            {chatSkills.map((skill) => {
+              const isActive = skill.id === skillId;
+              return (
+                <button
+                  key={skill.id}
+                  type="button"
+                  onClick={() => applySkill(skill.id)}
+                  className={`flex w-full flex-col gap-1 rounded-md border p-3 text-left transition-colors hover:border-primary ${
+                    isActive ? "border-primary bg-primary/5" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="font-medium">{skill.name}</span>
+                    {isActive && (
+                      <Badge variant="secondary" className="ml-auto">
+                        Active
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {skill.description}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 }

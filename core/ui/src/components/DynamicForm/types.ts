@@ -28,6 +28,7 @@ export interface JsonSchemaProperty extends JsonSchemaPropertyCore<JsonSchemaPro
   "x-secret"?: boolean; // Field contains sensitive data
   "x-color"?: boolean; // Field is a color picker
   "x-options-resolver"?: string; // Name of resolver function for dynamic options
+  "x-options-style"?: "select" | "catalog"; // How resolved options render: a compact Select (default) or a browsable catalog modal showing each option's description
   "x-depends-on"?: string[]; // Field names this field depends on (triggers refetch)
   "x-hidden"?: boolean; // Field should be hidden in form (auto-populated)
   "x-searchable"?: boolean; // Shows search input for filtering dropdown options
@@ -79,6 +80,12 @@ export type ScriptTestRenderer = (args: {
 export interface ResolverOption {
   value: string;
   label: string;
+  /**
+   * Optional longer description. Shown in the `catalog` options style (a
+   * browsable modal of cards) so the operator can tell options apart by more
+   * than their label. Ignored by the default `select` style.
+   */
+  description?: string;
 }
 
 /** Function that resolves dynamic options, receives form values as context */
@@ -262,6 +269,8 @@ export interface DynamicOptionsFieldProps {
   resolverName: string;
   dependsOn?: string[];
   searchable?: boolean;
+  /** Render style: compact `select` (default) or a browsable `catalog` modal. */
+  optionsStyle?: "select" | "catalog";
   formValues: Record<string, unknown>;
   optionsResolvers: Record<string, OptionsResolver>;
   /** Callback when value changes. Omit val to clear the field. */
