@@ -1,5 +1,21 @@
 # @checkstack/catalog-backend
 
+## 1.4.9
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [0ffe357]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/ai-backend@0.4.0
+  - @checkstack/automation-backend@0.6.0
+  - @checkstack/ai-common@0.2.0
+
 ## 1.4.8
 
 ### Patch Changes

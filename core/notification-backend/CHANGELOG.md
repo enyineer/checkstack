@@ -1,5 +1,15 @@
 # @checkstack/notification-backend
 
+## 1.5.9
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/automation-backend@0.6.0
+
 ## 1.5.8
 
 ### Patch Changes

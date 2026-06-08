@@ -1,5 +1,152 @@
 # @checkstack/ai-backend
 
+## 0.4.0
+
+### Minor Changes
+
+- c4bebbb: feat(ai): close the agent feedback loop and harden boundary awareness
+
+  Tighten the agentic workflows so the model understands its context, grounds
+  itself in the docs, asks instead of guessing, and never surfaces unvalidated
+  output to the user.
+
+  - **Propose validation feedback loop.** A proposable tool's `dryRun` now throws
+    the shared `ToolValidationError` (exported from `@checkstack/ai-backend`) when
+    the model's drafted input is semantically invalid (fabricated `runAs`, unknown
+    `connectionId`, unwired/wrong-typed artifact reference). Chat catches it and
+    returns the structured `issues` to the MODEL as the tool result so it
+    self-corrects and re-proposes, instead of throwing a raw "the assistant hit an
+    error" at the operator and losing the proposal. Holds in both modes: in `auto`
+    mode a draft that fails validation is fed back, never auto-applied, so a broken
+    automation is never created. The failed attempt is not counted by the per-turn
+    duplicate guard, so the corrected retry is allowed.
+  - **Headless AI action hardening.** The unattended agent runner now injects a
+    shared baseline prompt stating its boundaries (bounded service account;
+    changes apply immediately and irreversibly; an empty result may be a
+    permission boundary, not "nothing exists"; ground concepts in the docs; never
+    fabricate). An author-supplied `systemPrompt` now APPENDS to this baseline
+    instead of replacing it, so an override can never silently drop a safety line.
+    The structured-output pass gained a bounded repair loop: on a schema miss it
+    feeds the validation error back and retries before failing, so a recoverable
+    near-miss self-corrects while a malformed object still never reaches a
+    downstream `choose`/`condition`.
+  - **Chat prompt clarity.** The chat system prompt now names the `searchDocs` /
+    `getDoc` tools and tells the model to ground concept/how-to answers in the
+    docs, to ASK the operator a clarifying question rather than invent a missing
+    value, that an empty/short result may be its own access scope (never assert a
+    definitive all-clear), and which permission mode the conversation is in.
+  - **Schema polish.** `system.issues` `systemIds` and `automation.propose`
+    `runAs` now carry field-level `.describe()` guidance steering the model to real
+    ids from `catalog_listSystems` / `automation.listServiceAccounts` (never a name
+    or an invented value). The propose-time connection check now emits a soft
+    "could not verify" issue when the action catalog cannot be loaded, instead of
+    silently skipping the check and letting a fabricated `connectionId` through.
+
+- c4bebbb: feat(ai): teach the chat assistant how to build working automations
+
+  The AI assistant fabricated values it should have sourced from the platform -
+  an invented `runAs`, a hand-rolled HTTP fetch with a placeholder URL/token, or
+  a script return value that was never wired downstream - so its proposed
+  automations failed to save or run.
+
+  The chat system prompt now carries an automation-building playbook that tells
+  the model to discover before drafting: introspect capabilities and schemas,
+  pick a real `runAs` from `automation.listServiceAccounts` (never invent one),
+  reference a real `connectionId` from `automation.listConnections` for
+  integrated systems (never hand-roll an HTTP fetch), model decisions and gates
+  as a side-effect-free `choose`/`condition` over a prior query action's
+  artifact, fall back to a fetch script with `secretEnv` secrets plus
+  `variables`-sourced URL/params for non-integrated systems (and tell the
+  operator to allowlist egress to that host), give every output-producing action
+  an id and wire it downstream with the full
+  `{{ artifacts.<actionId>.<artifactType>.<field> }}` path (the `<artifactType>`
+  segment is required and easy to drop, which silently resolves to `undefined`),
+  and validate any script with `automation.testScript` before proposing.
+
+- c4bebbb: feat(ai): add a docs sitemap and stop the assistant looping on doc search
+
+  On an under-documented conceptual question the assistant burned dozens of tool
+  calls re-running near-identical `searchDocs` queries: the BM25 ranker returns
+  hits for any query that shares a common word ("system", "health"), so "nothing
+  found" never looked like nothing, and the model had no map of what pages exist.
+
+  Two changes:
+
+  - **New `ai.listDocs` tool** returns the documentation sitemap (every page's
+    slug, title, description; optional `section` filter). The model can see what
+    IS and ISN'T documented and jump straight to the right page with `getDoc`,
+    instead of fuzzing `searchDocs` - and when no page fits, conclude the docs do
+    not cover the topic.
+  - **`ai.searchDocs` now returns a `note`** alongside the hits: empty results and
+    weak-scoring hits tell the model to consult `listDocs` or say the docs do not
+    cover it, rather than reword and retry. The system prompt's docs-grounding
+    guidance leads with `listDocs` and forbids the re-search loop.
+
+  Verified end-to-end: the conceptual question that previously took ~54 calls
+  (mostly repeated junk searches) now resolves in ~21 distinct, purposeful calls
+  (sitemap + a handful of distinct page reads) and returns a more precise,
+  docs-grounded answer.
+
+- c4bebbb: fix(ai): guarantee the agent turn always ends with an answer
+
+  The chat loop and the headless AI action cap tool-call rounds with
+  `stepCountIs(MAX_STEPS)`. A model that kept calling tools right up to the cap
+  made the loop terminate on a tool-call step with NO final text - the operator
+  got a blank reply and the AI action an empty summary. This was acute with
+  reasoning models (e.g. DeepSeek-R1 style), which put their work in the hidden
+  reasoning channel and "keep thinking about searching" indefinitely when a doc
+  search does not surface a clean answer.
+
+  The final allowed step is now a forced answer: `prepareStep` removes all tools
+  for that step (`activeTools: []`) and overrides the step system prompt to tell
+  the model its tool budget is spent and it must answer now from what it gathered
+  (saying so plainly if the docs do not cover the question, rather than guessing).
+  The same guard runs in the headless agent runner.
+
+  `activeTools: []` is used deliberately instead of `toolChoice: "none"`: with some
+  OpenAI-compatible models the latter makes the model emit its raw tool-call markup
+  as the answer text. Verified end-to-end against a reasoning model: a hard
+  conceptual question that previously returned an empty reply now returns a
+  grounded answer that correctly distinguishes what the docs cover from what they
+  do not.
+
+- c4bebbb: feat(ai): allow more tool-call rounds per turn
+
+  The agent loop's per-turn step budget was tight enough that a thorough
+  investigation (resolve ids, fan out across signal sources, read several docs)
+  could exhaust it before answering. Raise the budgets:
+
+  - Chat: `MAX_STEPS` 8 -> 16 (the final step is the forced answer, so ~15 rounds
+    of actual tool use).
+  - AI action (headless runner): default `maxSteps` 8 -> 12, and the per-action
+    config cap 20 -> 30 so authors can dial it higher for deep tasks.
+
+  The per-principal tool rate-limit budget and the optional per-connection spend
+  cap remain the real cost ceilings, so this only widens how much investigating a
+  single turn may do, not how much a principal may spend overall.
+
+### Patch Changes
+
+- 0ffe357: fix(ai): make the chat off-topic classifier a deny-list (fewer false refusals)
+
+  The topical pre-classifier refused legitimate operations questions such as
+  "analyze the problems <system> has in <environment>" with "That looks outside
+  my scope". The system prompt was an allow-list that enumerated resources and
+  CRUD verbs, so anything phrased with an unlisted verb (analyze, investigate,
+  diagnose, ...) or about an unlisted concept could fall through to OFF_TOPIC.
+
+  The classifier is now a deny-list: everything is ON_TOPIC by default and only a
+  few clearly-unrelated categories (general-purpose coding help, creative
+  writing, math/homework, general trivia/world knowledge) are rejected. It no
+  longer enumerates resources, tools, or verbs, so adding new tools/resources
+  never requires a prompt edit. The fail-open parser is unchanged.
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/ai-common@0.2.0
+  - @checkstack/integration-backend@0.5.0
+  - @checkstack/sdk@0.104.1
+
 ## 0.3.0
 
 ### Minor Changes

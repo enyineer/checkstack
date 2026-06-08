@@ -1,5 +1,12 @@
 # @checkstack/sdk
 
+## 0.104.1
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+  - @checkstack/integration-common@0.8.0
+
 ## 0.103.1
 
 ### Patch Changes

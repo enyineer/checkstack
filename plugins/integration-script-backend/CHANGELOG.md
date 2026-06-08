@@ -1,5 +1,16 @@
 # @checkstack/integration-script-backend
 
+## 0.6.9
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/automation-backend@0.6.0
+  - @checkstack/script-packages-backend@0.3.8
+
 ## 0.6.8
 
 ### Patch Changes
