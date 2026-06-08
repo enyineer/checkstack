@@ -91,8 +91,15 @@ import {
   automationArtifactTypeExtensionPoint,
   automationFilterExtensionPoint,
   automationRegistriesRef,
+  automationTemplateExtensionPoint,
   automationTriggerExtensionPoint,
 } from "./extension-points";
+import {
+  createAutomationTemplateRegistry,
+  type AutomationTemplateRegistry,
+} from "./template-registry";
+import { validateTemplates } from "./validate-templates";
+import { builtinAutomationTemplates } from "./builtin-templates";
 import {
   registerBuiltinTriggerConsumer,
   registerBuiltinTriggers,
@@ -127,6 +134,7 @@ interface EnvStash {
   triggerRegistry: TriggerRegistry;
   actionRegistry: ActionRegistry;
   artifactTypeRegistry: ArtifactTypeRegistry;
+  templateRegistry: AutomationTemplateRegistry;
   dispatchDeps: DispatchDeps;
   automationStore: ReturnType<typeof createAutomationStore>;
   entityRegistry: EntityRegistry;
@@ -153,6 +161,10 @@ export default createBackendPlugin({
     const triggerRegistry = createTriggerRegistry();
     const actionRegistry = createActionRegistry();
     const artifactTypeRegistry = createArtifactTypeRegistry();
+    // Curated example-automation templates contributed by core + plugins.
+    // Validated against the live registries in `afterPluginsReady` before
+    // any are served (see `validate-templates.ts`).
+    const templateRegistry = createAutomationTemplateRegistry();
     // Shared filter registry — seeded with the built-in defaults (incl.
     // the Wave-2 duration helpers) and extended by plugins via the
     // filter extension point in Phase 1. The dispatch engine reads from
@@ -233,6 +245,19 @@ export default createBackendPlugin({
         );
       },
     });
+
+    env.registerExtensionPoint(automationTemplateExtensionPoint, {
+      registerTemplate: (template, metadata) => {
+        templateRegistry.register(template, metadata);
+      },
+    });
+
+    // Register this plugin's own built-in example templates. They reference
+    // ids by string (incl. other plugins' actions); the startup validator
+    // skips any whose capabilities aren't installed.
+    for (const template of builtinAutomationTemplates) {
+      templateRegistry.register(template, pluginMetadata);
+    }
 
     // Filters registered by plugins in Phase 1 are collected here and
     // applied (with collision-warning) in `init()` where a logger is
@@ -477,6 +502,7 @@ export default createBackendPlugin({
         stash.triggerRegistry = triggerRegistry;
         stash.actionRegistry = actionRegistry;
         stash.artifactTypeRegistry = artifactTypeRegistry;
+        stash.templateRegistry = templateRegistry;
         stash.dispatchDeps = dispatchDeps;
         stash.automationStore = automationStore;
         stash.entityRegistry = entityRegistry;
@@ -490,6 +516,7 @@ export default createBackendPlugin({
           triggerRegistry,
           actionRegistry,
           artifactTypeRegistry,
+          templateRegistry,
           dispatchDeps,
           signalService,
           logger,
@@ -588,6 +615,38 @@ export default createBackendPlugin({
               ? ": " + artifactTypes.map((t) => t.qualifiedId).join(", ")
               : ""
           }`,
+        );
+
+        // Validate every registered example-automation template against the
+        // now fully-populated live registries. Templates whose capabilities
+        // aren't installed are skipped silently; templates that reference a
+        // DRIFTED action/trigger/artifact interface are logged loudly and
+        // withheld, so a stale template can never reach an operator.
+        const templateValidation = await validateTemplates({
+          templates: stash.templateRegistry.list(),
+          triggerRegistry: stash.triggerRegistry,
+          actionRegistry: stash.actionRegistry,
+        });
+        // A withheld template is never silent: a missing-capability template
+        // (an optional integration is not installed) WARNS so an operator can
+        // see why it is absent, and a drifted template (capabilities present
+        // but the definition no longer validates) is an ERROR.
+        for (const { template, missing } of templateValidation.unavailable) {
+          logger.warn(
+            `⚠️  Automation template "${template.id}" withheld — requires capabilities not installed on this instance: ${missing.join(", ")}`,
+          );
+        }
+        for (const { template, issues } of templateValidation.invalid) {
+          logger.error(
+            `❌ Automation template "${template.id}" is INVALID against the current capability registries (interface drift?). It will be withheld from the catalogue. Issues: ${issues
+              .map((i) => `${i.path.join(".")}: ${i.message}`)
+              .join("; ")}`,
+          );
+        }
+        stash.templateRegistry.setValidated(templateValidation.valid);
+        logger.debug(
+          `⚙️  ${templateValidation.valid.length} automation template(s) available` +
+            ` (${templateValidation.unavailable.length} unavailable, ${templateValidation.invalid.length} invalid)`,
         );
 
         // Trigger fan-in: subscribe to every registered hook-backed

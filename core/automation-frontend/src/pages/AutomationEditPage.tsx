@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   History as HistoryIcon,
@@ -99,6 +99,7 @@ type EditTab = "visual" | "yaml";
  */
 const AutomationEditContent: React.FC = () => {
   const { automationId } = useParams<{ automationId: string }>();
+  const [searchParams] = useSearchParams();
   const isNew = !automationId || automationId === "new";
   const client = usePluginClient(AutomationApi);
   const accessApi = useApi(accessApiRef);
@@ -178,6 +179,35 @@ const AutomationEditContent: React.FC = () => {
       setGroup(a.group ?? "");
       setRunAsApplicationId(a.runAs ?? "");
       setStatusEnabled(a.status === "enabled");
+      setDefinition(normalized);
+      setYamlText(stringifyYaml(normalized));
+    },
+  );
+
+  // Template seeding (new automations only): `/automation/new/blank?template=<id>`
+  // pre-fills the editor from a curated example template. The template's
+  // `definition` seeds the canonical state once; the operator still picks a
+  // `runAs` service account and saves. `enabled: false` on the query keeps it
+  // off the wire for blank (no-template) and existing-automation editors.
+  const templateId = isNew ? searchParams.get("template") : null;
+  const templatesQuery = client.listAutomationTemplates.useQuery(undefined, {
+    enabled: Boolean(templateId),
+    gcTime: 0,
+  });
+  const selectedTemplate = templateId
+    ? templatesQuery.data?.items.find((t) => t.id === templateId)
+    : undefined;
+  useInitOnceForKey(
+    templatesQuery.isFetchedAfterMount ? selectedTemplate : undefined,
+    selectedTemplate?.id,
+    (template) => {
+      const normalized: AutomationDefinition = {
+        ...template.definition,
+        triggers: assignDefaultTriggerIds(template.definition.triggers),
+        actions: assignDefaultIds(template.definition.actions, new Set()),
+      };
+      setName(template.definition.name);
+      setDescription(template.definition.description ?? "");
       setDefinition(normalized);
       setYamlText(stringifyYaml(normalized));
     },

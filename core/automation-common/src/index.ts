@@ -2,6 +2,7 @@ export * from "./access";
 export * from "./plugin-metadata";
 export * from "./routes";
 export * from "./schemas";
+export * from "./templates";
 export * from "./rpc-contract";
 export * from "./signals";
 export * from "./variable-scope";

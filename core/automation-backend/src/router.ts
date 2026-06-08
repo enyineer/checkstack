@@ -40,6 +40,7 @@ import { ZodError } from "zod";
 import type { ActionRegistry } from "./action-registry";
 import type { ArtifactTypeRegistry } from "./artifact-type-registry";
 import type { TriggerRegistry } from "./trigger-registry";
+import type { AutomationTemplateRegistry } from "./template-registry";
 import type { AutomationStore } from "./automation-store";
 import { dispatchTrigger } from "./dispatch/engine";
 import type { DispatchDeps } from "./dispatch/types";
@@ -58,6 +59,7 @@ interface RouterDeps {
   triggerRegistry: TriggerRegistry;
   actionRegistry: ActionRegistry;
   artifactTypeRegistry: ArtifactTypeRegistry;
+  templateRegistry: AutomationTemplateRegistry;
   dispatchDeps: DispatchDeps;
   signalService: SignalService;
   logger: Logger;
@@ -139,6 +141,7 @@ export function createAutomationRouter(deps: RouterDeps) {
     triggerRegistry,
     actionRegistry,
     artifactTypeRegistry,
+    templateRegistry,
     dispatchDeps,
     signalService,
     logger,
@@ -204,6 +207,12 @@ export function createAutomationRouter(deps: RouterDeps) {
     listAutomationGroups: os.listAutomationGroups.handler(async () => {
       const groups = await automationStore.listGroups();
       return { groups };
+    }),
+
+    listAutomationTemplates: os.listAutomationTemplates.handler(async () => {
+      // Serve only templates that passed startup validation against the live
+      // registries (set in `afterPluginsReady`).
+      return { items: templateRegistry.listValidated() };
     }),
 
     getAutomation: os.getAutomation.handler(async ({ input }) => {
