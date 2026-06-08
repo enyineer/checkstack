@@ -31,6 +31,13 @@ export interface ChatMessage {
   parts: AssistantPart[];
   /** A streaming assistant message is still being appended to. */
   streaming: boolean;
+  /**
+   * How many agent steps (model rounds) the turn has started, counted from the
+   * SDK's `start-step` events. Drives the progress heartbeat so a slow turn that
+   * is still advancing is distinguishable from a stuck one. Absent on a
+   * hydrated/replayed message (its live step events are gone).
+   */
+  stepCount?: number;
 }
 
 /** Append a user message. */
@@ -59,7 +66,7 @@ export function startAssistantMessage({
 }): ChatMessage[] {
   return [
     ...messages,
-    { id, role: "assistant", text: "", parts: [], streaming: true },
+    { id, role: "assistant", text: "", parts: [], streaming: true, stepCount: 0 },
   ];
 }
 
@@ -171,7 +178,12 @@ export function applyStreamEvent({
 
   let parts = last.parts;
   let streaming = last.streaming;
+  let stepCount = last.stepCount;
   switch (event.type) {
+    case "step-start": {
+      stepCount = (stepCount ?? 0) + 1;
+      break;
+    }
     case "text-delta": {
       parts = appendText(parts, event.delta);
       break;
@@ -215,8 +227,14 @@ export function applyStreamEvent({
       break;
     }
   }
-  if (parts === last.parts && streaming === last.streaming) return messages;
-  return [...messages.slice(0, -1), { ...last, parts, streaming }];
+  if (
+    parts === last.parts &&
+    streaming === last.streaming &&
+    stepCount === last.stepCount
+  ) {
+    return messages;
+  }
+  return [...messages.slice(0, -1), { ...last, parts, streaming, stepCount }];
 }
 
 /** Mark the last assistant message as finished (stream ended). */

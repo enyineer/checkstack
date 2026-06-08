@@ -174,6 +174,21 @@ describe("chat-state reducer (DOM-free)", () => {
     }
   });
 
+  test("a new assistant message starts at step 0", () => {
+    const msgs = startAssistantMessage({ messages: [], id: "a1" });
+    expect(msgs[0].stepCount).toBe(0);
+  });
+
+  test("each step-start event increments the step count (the heartbeat)", () => {
+    let msgs = startAssistantMessage({ messages: [], id: "a1" });
+    msgs = applyStreamEvent({ messages: msgs, event: { type: "step-start" } });
+    expect(msgs[0].stepCount).toBe(1);
+    msgs = applyStreamEvent({ messages: msgs, event: { type: "step-start" } });
+    expect(msgs[0].stepCount).toBe(2);
+    // The step count is independent of parts: a step that emits no part still counts.
+    expect(partsOf(msgs)).toEqual([]);
+  });
+
   test("done marks the assistant message non-streaming", () => {
     let msgs = startAssistantMessage({ messages: [], id: "a1" });
     msgs = applyStreamEvent({ messages: msgs, event: { type: "done" } });
