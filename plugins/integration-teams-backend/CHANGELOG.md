@@ -1,5 +1,17 @@
 # @checkstack/integration-teams-backend
 
+## 0.1.12
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/automation-backend@0.6.0
+  - @checkstack/integration-backend@0.5.0
+
 ## 0.1.11
 
 ### Patch Changes

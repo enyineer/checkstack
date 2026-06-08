@@ -1,5 +1,134 @@
 # @checkstack/automation-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- c4bebbb: feat(ai): close the agent feedback loop and harden boundary awareness
+
+  Tighten the agentic workflows so the model understands its context, grounds
+  itself in the docs, asks instead of guessing, and never surfaces unvalidated
+  output to the user.
+
+  - **Propose validation feedback loop.** A proposable tool's `dryRun` now throws
+    the shared `ToolValidationError` (exported from `@checkstack/ai-backend`) when
+    the model's drafted input is semantically invalid (fabricated `runAs`, unknown
+    `connectionId`, unwired/wrong-typed artifact reference). Chat catches it and
+    returns the structured `issues` to the MODEL as the tool result so it
+    self-corrects and re-proposes, instead of throwing a raw "the assistant hit an
+    error" at the operator and losing the proposal. Holds in both modes: in `auto`
+    mode a draft that fails validation is fed back, never auto-applied, so a broken
+    automation is never created. The failed attempt is not counted by the per-turn
+    duplicate guard, so the corrected retry is allowed.
+  - **Headless AI action hardening.** The unattended agent runner now injects a
+    shared baseline prompt stating its boundaries (bounded service account;
+    changes apply immediately and irreversibly; an empty result may be a
+    permission boundary, not "nothing exists"; ground concepts in the docs; never
+    fabricate). An author-supplied `systemPrompt` now APPENDS to this baseline
+    instead of replacing it, so an override can never silently drop a safety line.
+    The structured-output pass gained a bounded repair loop: on a schema miss it
+    feeds the validation error back and retries before failing, so a recoverable
+    near-miss self-corrects while a malformed object still never reaches a
+    downstream `choose`/`condition`.
+  - **Chat prompt clarity.** The chat system prompt now names the `searchDocs` /
+    `getDoc` tools and tells the model to ground concept/how-to answers in the
+    docs, to ASK the operator a clarifying question rather than invent a missing
+    value, that an empty/short result may be its own access scope (never assert a
+    definitive all-clear), and which permission mode the conversation is in.
+  - **Schema polish.** `system.issues` `systemIds` and `automation.propose`
+    `runAs` now carry field-level `.describe()` guidance steering the model to real
+    ids from `catalog_listSystems` / `automation.listServiceAccounts` (never a name
+    or an invented value). The propose-time connection check now emits a soft
+    "could not verify" issue when the action catalog cannot be loaded, instead of
+    silently skipping the check and letting a fabricated `connectionId` through.
+
+- c4bebbb: feat(ai): allow more tool-call rounds per turn
+
+  The agent loop's per-turn step budget was tight enough that a thorough
+  investigation (resolve ids, fan out across signal sources, read several docs)
+  could exhaust it before answering. Raise the budgets:
+
+  - Chat: `MAX_STEPS` 8 -> 16 (the final step is the forced answer, so ~15 rounds
+    of actual tool use).
+  - AI action (headless runner): default `maxSteps` 8 -> 12, and the per-action
+    config cap 20 -> 30 so authors can dial it higher for deep tasks.
+
+  The per-principal tool rate-limit budget and the optional per-connection spend
+  cap remain the real cost ceilings, so this only widens how much investigating a
+  single turn may do, not how much a principal may spend overall.
+
+- c4bebbb: feat(automation): add AI discovery tools for runAs and integration connections
+
+  The automation AI assistant could fabricate values it should source from the
+  platform - inventing a `runAs` (e.g. "system") that does not exist, or
+  hand-rolling a URL/token instead of referencing a configured integration
+  connection - so the proposed automations failed to save or run.
+
+  Two new read-effect AI tools let the model discover real values before
+  proposing:
+
+  - `automation.listServiceAccounts` lists the service accounts (applications)
+    the calling user may bind as an automation's `runAs`, filtered by the same
+    `isApplicationBindable` subset check the create/update handler enforces at
+    save time. The model picks one of these ids for `automation.propose` instead
+    of inventing one.
+  - `automation.listConnections` lists the configured integration connections
+    (grouped by provider, optionally filtered by `providerId`) so the model
+    references a real `connectionId` in an integration action's config instead of
+    hand-rolling credentials.
+
+  Both are gated by the automation read rule and fan out through the user-scoped
+  client, so handler-side authorization applies.
+
+  `automation.listConnections` discovers connection-capable providers from the
+  action catalog (`automation.listActions`, gated by the same `automation.read`
+  rule) via each action's `connectionProviderId`, NOT from the integration
+  plugin's admin-only `listProviders`. A caller who can read automations but lacks
+  `integration.manage` can therefore use the tool without hitting FORBIDDEN, and
+  every read degrades gracefully: a failed catalog fetch yields an empty result
+  and a failed per-provider connection listing yields an empty connection list,
+  so the model always gets a usable partial result instead of a hard tool error.
+
+- c4bebbb: feat(automation): validate AI-proposed automations at propose time
+
+  `automation.propose`'s dry run now catches the three ways an AI-authored
+  automation silently fails before it is applied, surfacing each as a clear,
+  actionable error on the review card instead of a runtime failure:
+
+  - A `runAs` that does not exist or that the caller may not bind is rejected
+    with guidance to call `automation.listServiceAccounts`, using the same
+    bindable-application check the create/update gate enforces at save time.
+  - A `connectionId` that does not reference a real connection for the action's
+    provider is rejected with guidance to call `automation.listConnections`.
+    Templated connection ids are skipped, and a lookup failure degrades to a soft
+    "could not verify" note rather than a hard error.
+  - An unwired artifact/template reference (`{{ artifacts.<id>... }}` whose
+    producer action id does not exist or does not produce an artifact) is flagged
+    by the definition validator, which now walks configs, variables blocks,
+    `choose` `when` clauses, and conditions. Built-in roots (trigger/vars/now)
+    and literal prose are left untouched.
+  - A reference whose `<artifactType>` segment does not match the producing
+    action's artifact type (e.g. `artifacts.check.found` when the action produces
+    `issue_search`, so the correct path is `artifacts.check.issue_search.found`)
+    is now flagged too. Dropping that segment otherwise resolves to `undefined` at
+    run time and makes a gate built on it silently misfire. A bare whole-object
+    `artifacts.<id>` reference is still accepted.
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [0ffe357]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/ai-backend@0.4.0
+  - @checkstack/ai-common@0.2.0
+  - @checkstack/integration-common@0.8.0
+  - @checkstack/sdk@0.104.1
+  - @checkstack/script-packages-backend@0.3.8
+
 ## 0.5.8
 
 ### Patch Changes

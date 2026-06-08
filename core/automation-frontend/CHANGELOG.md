@@ -1,5 +1,13 @@
 # @checkstack/automation-frontend
 
+## 0.4.8
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+  - @checkstack/integration-common@0.8.0
+  - @checkstack/script-packages-frontend@0.3.8
+
 ## 0.4.7
 
 ### Patch Changes

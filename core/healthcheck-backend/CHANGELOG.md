@@ -1,5 +1,26 @@
 # @checkstack/healthcheck-backend
 
+## 1.7.1
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [0ffe357]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+- Updated dependencies [c4bebbb]
+  - @checkstack/ai-backend@0.4.0
+  - @checkstack/automation-backend@0.6.0
+  - @checkstack/ai-common@0.2.0
+  - @checkstack/catalog-backend@1.4.9
+  - @checkstack/incident-backend@1.7.1
+  - @checkstack/satellite-backend@0.6.9
+  - @checkstack/sdk@0.104.1
+  - @checkstack/script-packages-backend@0.3.8
+
 ## 1.7.0
 
 ### Minor Changes

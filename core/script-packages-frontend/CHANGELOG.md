@@ -1,5 +1,11 @@
 # @checkstack/script-packages-frontend
 
+## 0.3.8
+
+### Patch Changes
+
+- @checkstack/sdk@0.104.1
+
 ## 0.3.7
 
 ### Patch Changes

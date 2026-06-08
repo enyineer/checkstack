@@ -1,5 +1,12 @@
 # @checkstack/integration-frontend
 
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [c4bebbb]
+  - @checkstack/integration-common@0.8.0
+
 ## 0.6.5
 
 ### Patch Changes
