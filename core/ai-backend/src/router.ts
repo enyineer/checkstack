@@ -19,6 +19,8 @@ import {
 
 import type { AiConversationStore } from "./chat/conversation-store";
 import type { AiMemoryStore } from "./memory-store";
+import type { AiSkillStore } from "./skill-store";
+import type { AiSkillResolver } from "./skill-resolver";
 import type { SystemAccessResolver } from "./system-signals-contributor";
 import { accessibleSystems } from "./tools/memory-tools";
 import type {
@@ -79,6 +81,10 @@ interface AiRouterDeps {
   memoryStore: AiMemoryStore;
   /** Trusted-client-backed resolver for `system`-scoped memory access gating. */
   systemAccessResolver: SystemAccessResolver;
+  /** User-skill persistence (create/update/delete). */
+  skillStore: AiSkillStore;
+  /** Merged builtin + user skill catalogue (for listSkills). */
+  skillResolver: AiSkillResolver;
   integrations: ChatIntegrationLister;
   /** Loopback base URL for the user-scoped RPC client (re-enters `/api`). */
   internalUrl: string;
@@ -150,6 +156,8 @@ export function createAiRouter({
   conversations,
   memoryStore,
   systemAccessResolver,
+  skillStore,
+  skillResolver,
   integrations,
   internalUrl,
 }: AiRouterDeps) {
@@ -432,5 +440,58 @@ export function createAiRouter({
         return { updated };
       },
     ),
+
+    // ─── Skills (reusable prompt templates) ───────────────────────────────
+
+    listSkills: os.listSkills.handler(async ({ input }) => {
+      // Skills are GLOBAL: everyone who can read skills sees the same catalogue
+      // (no per-viewer scoping). Filtered to a target surface when requested.
+      const skills = await skillResolver.list(input?.target);
+      return { skills };
+    }),
+
+    createSkill: os.createSkill.handler(async ({ context, input }) => {
+      const principal = context.user;
+      if (!principal || principal.type !== "user") {
+        throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+      }
+      return skillStore.create({ ...input, ownerId: principal.id });
+    }),
+
+    updateSkill: os.updateSkill.handler(async ({ context, input }) => {
+      const principal = context.user;
+      if (!principal || principal.type !== "user") {
+        throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+      }
+      // Author may edit their own skill; a wildcard-holding admin may moderate
+      // any. Builtins are not in the store, so they can never be edited.
+      const allowAnyOwner = principal.accessRules?.includes("*") ?? false;
+      const updated = await skillStore.update({
+        ...input,
+        ownerId: principal.id,
+        allowAnyOwner,
+      });
+      if (!updated) {
+        throw new ORPCError("NOT_FOUND", {
+          message:
+            "Skill not found, or you are not its author (builtin skills cannot be edited).",
+        });
+      }
+      return updated;
+    }),
+
+    deleteSkill: os.deleteSkill.handler(async ({ context, input }) => {
+      const principal = context.user;
+      if (!principal || principal.type !== "user") {
+        throw new ORPCError("UNAUTHORIZED", { message: "Not authenticated" });
+      }
+      const allowAnyOwner = principal.accessRules?.includes("*") ?? false;
+      const deleted = await skillStore.delete({
+        id: input.id,
+        ownerId: principal.id,
+        allowAnyOwner,
+      });
+      return { deleted };
+    }),
   });
 }

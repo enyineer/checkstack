@@ -18,8 +18,13 @@ import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
+  aiSkillExtensionPoint,
   systemSignalsExtensionPoint,
 } from "./extension-points";
+import { createAiSkillRegistry } from "./skill-registry";
+import { createAiSkillStore } from "./skill-store";
+import { createAiSkillResolver, aiSkillResolverRef } from "./skill-resolver";
+import { builtinAiSkills } from "./builtin-skills";
 import { createAiToolRegistry } from "./tool-registry";
 import { createAiToolResolver } from "./resolver";
 import {
@@ -102,6 +107,18 @@ export default createBackendPlugin({
     );
     env.registerExtensionPoint(systemSignalsExtensionPoint, systemSignalsExt);
 
+    // Builtin AI skills (reusable prompt templates). The registry is created in
+    // register() so plugins can contribute via the extension point during their
+    // own register/init; the DB-backed user-skill store + resolver are bound in
+    // init() (after migrations).
+    const skillRegistry = createAiSkillRegistry();
+    env.registerExtensionPoint(aiSkillExtensionPoint, {
+      registerSkill: (skill, metadata) => skillRegistry.register(skill, metadata),
+    });
+    for (const skill of builtinAiSkills) {
+      skillRegistry.register(skill, pluginMetadata);
+    }
+
     // Live MCP connection registry — the ONE allowed pod-local thing
     // (declareNonReactiveState({ reason: "bookkeeping" }), decision 9). Created
     // in register() and reused by the HTTP handler; never a source of truth.
@@ -154,6 +171,16 @@ export default createBackendPlugin({
         // catalog's own list endpoints apply.
         const memoryStore = createAiMemoryStore({ db });
         const systemAccessResolver = createSystemAccessResolver(rpcClient);
+
+        // AI skills: user-authored skills (DB) + builtin skills (registry),
+        // merged by the resolver. Exposed as a service so automation-backend's
+        // `ai_analyze` action + its option resolver can read the catalogue.
+        const skillStore = createAiSkillStore({ db });
+        const skillResolver = createAiSkillResolver({
+          registry: skillRegistry,
+          store: skillStore,
+        });
+        env.registerService(aiSkillResolverRef, skillResolver);
 
         // Lists selectable AI integrations for the chat picker (§14.6). Reads
         // the REDACTED connection config (configPreview) — the apiKey is never
@@ -230,7 +257,9 @@ export default createBackendPlugin({
           integrationProviderExtensionPoint,
         );
         integrationExt.addProvider(
-          createOpenAiCompatibleProvider() as IntegrationProvider<unknown>,
+          createOpenAiCompatibleProvider({
+            skillResolver,
+          }) as IntegrationProvider<unknown>,
           pluginMetadata,
         );
 
@@ -249,6 +278,8 @@ export default createBackendPlugin({
             conversations,
             memoryStore,
             systemAccessResolver,
+            skillStore,
+            skillResolver,
             integrations: chatIntegrationLister,
             internalUrl,
           }),
@@ -377,6 +408,7 @@ export default createBackendPlugin({
           conversations,
           memoryStore,
           systemAccessResolver,
+          skillResolver,
           connections: chatConnectionResolver,
           readInvoker: createChatReadInvoker({ internalUrl }),
           recordExecuted: async ({
@@ -459,16 +491,20 @@ export default createBackendPlugin({
 export {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
+  aiSkillExtensionPoint,
   systemSignalsExtensionPoint,
   principalGrantedRuleIds,
 } from "./extension-points";
 export type {
   AiToolExtensionPoint,
   AiToolProjectionExtensionPoint,
+  AiSkillExtensionPoint,
   SystemSignalsExtensionPoint,
   SystemSignalsContributor,
   SystemSignalsContribution,
 } from "./extension-points";
+export { aiSkillResolverRef } from "./skill-resolver";
+export type { AiSkillResolver } from "./skill-resolver";
 export {
   createGatedSystemSignalsContributor,
   createSystemAccessResolver,

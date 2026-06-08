@@ -12,6 +12,8 @@ const ChatTurnBodySchema = z.object({
   message: z.string().min(1),
   /** Browser IANA timezone, used to resolve bare times the operator types. */
   timeZone: z.string().optional(),
+  /** Optional active skill (reusable prompt) for this turn. */
+  skillId: z.string().optional(),
 });
 
 /**
@@ -106,6 +108,7 @@ export function createChatRequestHandler({
         forwardHeaders,
         userText: body.message,
         timeZone: body.timeZone,
+        skillId: body.skillId,
       });
     } catch (error) {
       return Response.json(

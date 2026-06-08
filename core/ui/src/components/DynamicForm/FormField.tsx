@@ -81,6 +81,7 @@ export const FormField: React.FC<FormFieldProps> = ({
         resolverName={resolverName}
         dependsOn={propSchema["x-depends-on"]}
         searchable={propSchema["x-searchable"] === true}
+        optionsStyle={propSchema["x-options-style"]}
         formValues={formValues}
         optionsResolvers={optionsResolvers}
         onChange={onChange}

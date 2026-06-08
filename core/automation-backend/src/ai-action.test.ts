@@ -7,9 +7,55 @@ import {
   aiAnalyzeAction,
   buildAgentPrompt,
   buildOutputSchema,
+  composeSkillSeed,
 } from "./ai-action";
 
 const logger = createMockLogger() as Logger;
+
+// ─── composeSkillSeed (skill seeds the blanks; explicit config wins) ───────
+
+describe("composeSkillSeed", () => {
+  const skill = {
+    systemPrompt: "skill-system",
+    promptTemplate: "skill-prompt",
+    suggestedOutputFields: [
+      { key: "sev", type: "string" as const, description: "severity" },
+    ],
+  };
+
+  it("uses the skill to fill blank prompt / systemPrompt / outputFields", () => {
+    const seed = composeSkillSeed({
+      config: { prompt: "", systemPrompt: undefined, outputFields: [] },
+      skill,
+    });
+    expect(seed.prompt).toBe("skill-prompt");
+    expect(seed.systemPrompt).toBe("skill-system");
+    expect(seed.outputFields).toHaveLength(1);
+  });
+
+  it("lets explicit config win over the skill", () => {
+    const seed = composeSkillSeed({
+      config: {
+        prompt: "my prompt",
+        systemPrompt: "my system",
+        outputFields: [{ key: "x", type: "number", description: "x" }],
+      },
+      skill,
+    });
+    expect(seed.prompt).toBe("my prompt");
+    expect(seed.systemPrompt).toBe("my system");
+    expect(seed.outputFields[0]?.key).toBe("x");
+  });
+
+  it("yields an undefined prompt when neither config nor skill provides one", () => {
+    const seed = composeSkillSeed({
+      config: { prompt: "  ", systemPrompt: undefined, outputFields: [] },
+      skill: undefined,
+    });
+    expect(seed.prompt).toBeUndefined();
+    expect(seed.outputFields).toEqual([]);
+  });
+});
 
 // ─── buildOutputSchema ──────────────────────────────────────────────────
 

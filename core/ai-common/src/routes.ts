@@ -4,4 +4,5 @@ import { createRoutes } from "@checkstack/common";
 export const aiRoutes = createRoutes("ai", {
   chat: "/chat",
   memories: "/memories",
+  skills: "/skills",
 });

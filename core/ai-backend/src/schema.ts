@@ -328,8 +328,45 @@ export const aiMemory = pgTable(
   }),
 );
 
+/**
+ * User-authored AI "skills" (reusable prompt templates). GLOBAL: a skill is
+ * visible to every principal that can read skills (no per-user/per-system
+ * scoping), with `ownerId` retained for attribution + edit/delete authority.
+ * Builtin skills live in code (not this table). Shared Postgres, identical on
+ * every pod (state-and-scale §9). No FK (cross-plugin tables are not FK-linked).
+ */
+export const aiSkill = pgTable(
+  "ai_skill",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** Principal id that authored the skill (attribution + edit/delete owner). */
+    ownerId: text("owner_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    /** Surfaces the skill targets: subset of ["chat","ai_analyze"]. */
+    targets: jsonb("targets").$type<string[]>().notNull(),
+    /** Instruction fragment folded into the system prompt. Scrubbed on write. */
+    systemPrompt: text("system_prompt"),
+    /** Starter prompt seeded into the composer / analyze prompt. Scrubbed on write. */
+    promptTemplate: text("prompt_template"),
+    /** Suggested ai_analyze output fields ({key,type,description,options?}). */
+    suggestedOutputFields:
+      jsonb("suggested_output_fields").$type<Array<Record<string, unknown>>>(),
+    tags: jsonb("tags").$type<string[]>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    ownerIdx: index("ai_skill_owner_idx").on(t.ownerId, t.updatedAt),
+  }),
+);
+
 export type AiSpendRow = typeof aiSpend.$inferSelect;
 export type AiSpendInsert = typeof aiSpend.$inferInsert;
+export type AiSkillRow = typeof aiSkill.$inferSelect;
+export type AiSkillInsert = typeof aiSkill.$inferInsert;
 export type AiMemoryRow = typeof aiMemory.$inferSelect;
 export type AiMemoryInsert = typeof aiMemory.$inferInsert;
 export type AiToolCallRow = typeof aiToolCalls.$inferSelect;

@@ -20,10 +20,11 @@ import {
   type AuthUser,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
-import { aiAgentRunnerRef } from "@checkstack/ai-backend";
+import { aiAgentRunnerRef, aiSkillResolverRef } from "@checkstack/ai-backend";
 import {
   pluginMetadata as aiPluginMetadata,
   OPENAI_COMPATIBLE_PROVIDER_LOCAL_ID,
+  type AiSkill,
 } from "@checkstack/ai-common";
 import { AuthApi } from "@checkstack/auth-common";
 
@@ -70,11 +71,28 @@ const aiActionConfigSchema = z.object({
     .string()
     .optional()
     .describe("Model override; defaults to the connection's default model"),
+  /**
+   * Optional reusable "skill" (a curated prompt template). When set, it seeds
+   * the system prompt, the prompt (if `prompt` is left blank), and the output
+   * fields (if none are set). Explicit `prompt` / `systemPrompt` / `outputFields`
+   * always win over the skill.
+   */
+  // `aiSkillOptions` renders a real skill dropdown in the editor. It is NOT
+  // connection-scoped (no `x-depends-on`): the automation editor resolves it
+  // directly via `listSkills` (see `useActionOptionResolvers`), and the AI
+  // provider's `getConnectionOptions` serves the same list for the
+  // chat-assistant's `resolveActionOptions` path.
+  skillId: configString({
+    "x-options-resolver": "aiSkillOptions",
+    "x-options-style": "catalog",
+  })
+    .optional()
+    .describe("Optional AI skill (reusable prompt) to seed this action from"),
   prompt: z
     .string()
-    .min(1)
+    .optional()
     .describe(
-      "What the AI should do. The automation's trigger payload and upstream artifacts are appended automatically.",
+      "What the AI should do. The automation's trigger payload and upstream artifacts are appended automatically. May be left blank when a skill supplies a starter prompt.",
     ),
   systemPrompt: z
     .string()
@@ -161,6 +179,44 @@ export function buildOutputSchema(fields: AiOutputField[]): z.ZodType {
   return z.object(shape);
 }
 
+/**
+ * Resolve the effective prompt / system prompt / output fields for a run,
+ * letting an optional skill fill the blanks. Explicit config ALWAYS wins:
+ *   - `prompt`: explicit non-empty `config.prompt`, else the skill's starter.
+ *   - `systemPrompt`: explicit `config.systemPrompt`, else the skill's.
+ *   - `outputFields`: explicit fields when any, else the skill's suggestions.
+ * Pure + unit-tested; the action wires it to the run context.
+ */
+export function composeSkillSeed({
+  config,
+  skill,
+}: {
+  config: Pick<AiActionConfig, "prompt" | "systemPrompt" | "outputFields">;
+  skill?: {
+    systemPrompt?: string;
+    promptTemplate?: string;
+    suggestedOutputFields?: AiOutputField[];
+  };
+}): {
+  prompt: string | undefined;
+  systemPrompt: string | undefined;
+  outputFields: AiOutputField[];
+} {
+  const prompt =
+    config.prompt && config.prompt.trim().length > 0
+      ? config.prompt
+      : skill?.promptTemplate;
+  const outputFields =
+    config.outputFields.length > 0
+      ? config.outputFields
+      : (skill?.suggestedOutputFields ?? []);
+  return {
+    prompt,
+    systemPrompt: config.systemPrompt ?? skill?.systemPrompt,
+    outputFields,
+  };
+}
+
 /** Compose the agent prompt: the author's instruction + the run context. */
 export function buildAgentPrompt(
   userPrompt: string,
@@ -230,10 +286,32 @@ export const aiAnalyzeAction: ActionDefinition<
         teamIds: enriched.teamIds,
       };
 
+      // Optionally seed from a reusable skill. Explicit config always wins;
+      // the skill fills in the blanks. A missing/unknown skill id is a warning,
+      // not a failure.
+      let skill: AiSkill | undefined;
+      if (config.skillId) {
+        const skillResolver = await getService(aiSkillResolverRef);
+        skill = await skillResolver.resolve(config.skillId);
+        if (!skill) {
+          logger.warn(
+            `ai_analyze: skill "${config.skillId}" not found; ignoring it.`,
+          );
+        }
+      }
+      const seed = composeSkillSeed({ config, skill });
+      if (!seed.prompt) {
+        return {
+          success: false,
+          error:
+            "The AI action needs a prompt: set `prompt`, or choose a skill that provides a starter prompt.",
+        };
+      }
+
       const runner = await getService(aiAgentRunnerRef);
       const outputSchema =
-        config.outputFields.length > 0
-          ? buildOutputSchema(config.outputFields)
+        seed.outputFields.length > 0
+          ? buildOutputSchema(seed.outputFields)
           : undefined;
 
       const result = await runner({
@@ -241,8 +319,8 @@ export const aiAnalyzeAction: ActionDefinition<
         rpcClient,
         connectionId: config.connectionId,
         model: config.model,
-        systemPrompt: config.systemPrompt,
-        prompt: buildAgentPrompt(config.prompt, scope),
+        systemPrompt: seed.systemPrompt,
+        prompt: buildAgentPrompt(seed.prompt, scope),
         outputSchema,
         maxSteps: config.maxSteps,
       });

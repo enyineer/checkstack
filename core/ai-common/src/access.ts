@@ -43,6 +43,32 @@ export const aiAccess = {
   memoryManage: access("memory", "manage", "Save and delete AI memories", {
     pluginId: pluginMetadata.pluginId,
   }),
+  /**
+   * Use (list + apply) AI skills - reusable prompt templates. Qualified id:
+   * `ai.skill.read`. Default-on, admin-revocable. Gates `listSkills` and the
+   * skill pickers.
+   */
+  skillRead: access("skill", "read", "Use AI skills (reusable prompts)", {
+    pluginId: pluginMetadata.pluginId,
+  }),
+  /**
+   * Author (publish) a new GLOBAL AI skill. Qualified id:
+   * `ai.skill-create.manage` - the verb rides the resource segment because the
+   * `access()` factory only models `read`/`manage`. Default-on, admin-revocable
+   * so an admin can stop new-skill creation without affecting use/editing.
+   */
+  skillCreate: access("skill-create", "manage", "Create global AI skills", {
+    pluginId: pluginMetadata.pluginId,
+  }),
+  /**
+   * Edit / delete an AI skill. Qualified id: `ai.skill.manage`. Default-on,
+   * admin-revocable. The handler additionally restricts edit/delete to the
+   * skill's author (with an admin/privileged override for moderation); builtin
+   * skills are never editable.
+   */
+  skillManage: access("skill", "manage", "Edit and delete AI skills", {
+    pluginId: pluginMetadata.pluginId,
+  }),
 };
 
 /**
@@ -54,4 +80,7 @@ export const aiAccessRules = [
   aiAccess.mcpManage,
   aiAccess.memoryRead,
   aiAccess.memoryManage,
+  aiAccess.skillRead,
+  aiAccess.skillCreate,
+  aiAccess.skillManage,
 ];

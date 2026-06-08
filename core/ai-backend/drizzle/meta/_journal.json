@@ -57,6 +57,13 @@
       "when": 1780925140884,
       "tag": "0007_workable_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780948808827,
+      "tag": "0008_cuddly_chronomancer",
+      "breakpoints": true
     }
   ]
 }
