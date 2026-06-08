@@ -8,12 +8,15 @@ import { pluginMetadata } from "./plugin-metadata";
 import { webexProvider } from "./provider";
 import {
   createWebexActions,
+  webexAccessRules,
   webexMessageArtifactType,
 } from "./automations";
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
+    // A runAs service account must hold this rule to post Webex messages.
+    env.registerAccessRules(webexAccessRules);
     env
       .getExtensionPoint(providerExtensionPoint)
       .addProvider(webexProvider, pluginMetadata);

@@ -47,6 +47,15 @@ export interface DispatchDeps {
    * Optional so unit harnesses that don't exercise action RPC can omit it.
    */
   rpcClientForApplication?: (applicationId: string) => Promise<RpcClient>;
+  /**
+   * Resolve the EFFECTIVE access rules of the run's `runAs` service account
+   * (qualified rule ids, including `"*"` for an admin-roled app). The engine
+   * uses these to enforce each action's `requiredAccessRules` BEFORE execute, so
+   * an integration action that bypasses the bounded `rpcClient` is still gated
+   * by the runAs's permissions. Optional so unit harnesses can omit it; when
+   * omitted, actions that declare `requiredAccessRules` fail closed.
+   */
+  resolveRunAsAccessRules?: (applicationId: string) => Promise<string[]>;
   /** Persistence backend for runs / steps / wait locks. */
   runStore: RunStore;
   /** Per-run scope snapshot + heartbeat + advisory-lock helpers. */
@@ -210,6 +219,12 @@ export interface DispatchContext {
    * the engine's `resolveRunRpcClient` helper.
    */
   runRpcClient?: RpcClient;
+  /**
+   * Lazily-resolved effective access rules of the `runAs` service account,
+   * cached for the lifetime of this context (resolved once, checked per action).
+   * Built on first provider-action execution from `deps.resolveRunAsAccessRules`.
+   */
+  runAsAccessRules?: string[];
 }
 
 // ─── Run-store interface ─────────────────────────────────────────────────

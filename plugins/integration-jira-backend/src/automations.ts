@@ -21,7 +21,8 @@ import {
   connectionStoreRef,
   type ConnectionStore,
 } from "@checkstack/integration-backend";
-import { extractErrorMessage } from "@checkstack/common";
+import { extractErrorMessage, qualifyAccessRuleId } from "@checkstack/common";
+import { jiraAccess, pluginMetadata } from "@checkstack/integration-jira-common";
 
 import { createJiraClientFromConfig } from "./jira-client";
 import type { JiraConnectionConfig } from "./provider";
@@ -274,6 +275,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     category: "Jira",
     icon: "Ticket",
     connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [qualifyAccessRuleId(pluginMetadata, jiraAccess.createIssue)],
     config: new Versioned({
       version: 1,
       schema: jiraCreateIssueConfigSchema,
@@ -348,6 +350,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     category: "Jira",
     icon: "ArrowRightLeft",
     connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [qualifyAccessRuleId(pluginMetadata, jiraAccess.transitionIssue)],
     config: new Versioned({
       version: 1,
       schema: jiraTransitionIssueConfigSchema,
@@ -417,6 +420,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     category: "Jira",
     icon: "MessageSquare",
     connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [qualifyAccessRuleId(pluginMetadata, jiraAccess.addComment)],
     config: new Versioned({
       version: 1,
       schema: jiraAddCommentConfigSchema,
@@ -470,6 +474,7 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
     category: "Jira",
     icon: "Search",
     connectionProviderId: JIRA_PROVIDER_QUALIFIED_ID,
+    requiredAccessRules: [qualifyAccessRuleId(pluginMetadata, jiraAccess.searchIssues)],
     config: new Versioned({
       version: 1,
       schema: jiraSearchIssuesConfigSchema,

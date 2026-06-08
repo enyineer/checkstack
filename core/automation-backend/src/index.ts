@@ -18,6 +18,7 @@ import {
   type FilterRegistry,
 } from "@checkstack/template-engine";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { AuthApi } from "@checkstack/auth-common";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
 import { aiToolExtensionPoint } from "@checkstack/ai-backend";
 import { buildAutomationAiTools } from "./ai/register-ai-tools";
@@ -431,6 +432,17 @@ export default createBackendPlugin({
           // every action's `context.rpcClient`, so ALL action data access
           // authenticates as the bounded service account (never god mode).
           rpcClientForApplication: rpcClientAs,
+          // Resolve the runAs service account's effective access rules (a
+          // trusted S2S read of the app's own rules) so the engine can enforce
+          // each action's `requiredAccessRules` against the bounded principal -
+          // the only authz point for integration actions, which resolve
+          // credentials through a trusted service rather than the bounded client.
+          resolveRunAsAccessRules: async (applicationId) => {
+            const enriched = await rpcClient
+              .forPlugin(AuthApi)
+              .enrichApplicationPrincipal({ applicationId });
+            return enriched?.accessRules ?? [];
+          },
           // Kind-agnostic entity resolver for reactive `wait_until` wake
           // re-evaluation (Model B): the registry routes each kind to its
           // plugin `read` accessor. Unknown kinds

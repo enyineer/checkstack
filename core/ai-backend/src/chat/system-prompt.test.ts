@@ -70,8 +70,11 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("automation.listServiceAccounts");
     expect(prompt).toContain("automation.listConnections");
     expect(prompt).toContain("automation.testScript");
-    // Never invent a runAs service account.
-    expect(prompt).toContain("NEVER invent a service account");
+    // Never invent a runAs; pick one whose rules cover the actions, and ask
+    // the operator to disambiguate when several qualify.
+    expect(prompt).toContain("never invent a service account");
+    expect(prompt).toContain("whose accessRules cover");
+    expect(prompt).toContain("ASK which to use");
     // Never hand-roll HTTP / invent a connectionId for an integrated system.
     expect(prompt).toContain("never hand-roll");
     expect(prompt).toContain("never invent a connectionId");

@@ -353,6 +353,21 @@ export interface ActionDefinition<
   connectionProviderId?: string;
 
   /**
+   * Access rules (fully-qualified ids) the automation's `runAs` SERVICE ACCOUNT
+   * must hold for this action to execute. The dispatch engine enforces these
+   * against the resolved runAs principal BEFORE calling `execute`, so an action
+   * that bypasses the bounded `rpcClient` (e.g. an integration action resolving
+   * credentials through a trusted service) is still gated by the runAs's
+   * permissions - closing the gap where merely being able to author automations
+   * would grant the ability to act on any integration. Omit for actions that
+   * need no special grant (e.g. `log`, `delay`).
+   *
+   * The check mirrors the global-rule predicate the RPC middleware uses: a rule
+   * is satisfied by an exact match or the `"*"` admin wildcard.
+   */
+  requiredAccessRules?: string[];
+
+  /**
    * Run the action.
    */
   execute: (

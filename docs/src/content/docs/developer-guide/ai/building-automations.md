@@ -14,6 +14,7 @@ The model never drafts an action config from memory. It first introspects the re
 - `automation.listCapabilities` and `automation.getCapabilitySchema` enumerate the available triggers, actions, and artifact types and return one action's full config schema. See [Capability catalog tools](/checkstack/developer-guide/ai/capability-catalog/).
 - `automation.listServiceAccounts` lists the service accounts (applications) the calling user may bind as an automation's `runAs`. The list is filtered by the same `isApplicationBindable` subset check the create and update handler enforces at save time, so every id the model sees is a `runAs` it is allowed to use.
 - `automation.listConnections` lists the configured integration connections, grouped by provider, optionally narrowed by a `providerId`. Each entry is a real `connectionId` the model can place in an integration action's config.
+- `automation.resolveActionOptions` resolves the valid values for a dynamic-option field (one whose schema carries `x-options-resolver`), fetched live from the connection - see [Resolving dynamic field values](#resolving-dynamic-field-values).
 
 > [!IMPORTANT]
 > `runAs` is a service-account (application) id, not a free-form string. Values like `system` or `admin` do not exist and are rejected. The model must pick one returned by `automation.listServiceAccounts`.
@@ -37,6 +38,22 @@ When the target system has a configured integration (Jira, Teams, and so on), th
 ```
 
 The `connectionId` here comes from `automation.listConnections`. A hand-rolled fetch against `jira.example.com` with a placeholder token is exactly the anti-pattern this replaces.
+
+### Resolving dynamic field values
+
+Many integration-action fields are NOT free-form: their valid values live in the connected system. In the editor these render as cascading dropdowns; the action's config schema marks such a field with `x-options-resolver` (and `x-depends-on` for fields that cascade). For Jira `create_issue` that is `projectKey`, `issueTypeId` (depends on `projectKey`), `priorityId`, and custom `fieldKey`s.
+
+The model must not guess these. It resolves them with `automation.resolveActionOptions`, which fetches the live options for a field from the connection - the same source the dropdown uses - and is provider-agnostic (it reads the resolver and dependencies from the action's own schema):
+
+```text
+resolveActionOptions({ action: "integration-jira.create_issue", field: "projectKey", connectionId })
+  -> [{ value: "OPS", label: "Ops (OPS)" }, ...]
+resolveActionOptions({ action: "integration-jira.create_issue", field: "issueTypeId",
+                       connectionId, dependencies: { projectKey: "OPS" } })
+  -> [{ value: "10001", label: "Bug" }, ...]
+```
+
+For a cascading field, resolve its parent first and pass the chosen value in `dependencies`. Use the option's `value` (not the human label) in the config.
 
 ## Non-integrated systems use a fetch script
 
@@ -86,10 +103,12 @@ The built-in roots `trigger`, `vars`, and `now` are always available and are not
 
 ## Propose-time validation
 
-When the assistant calls `automation.propose`, the dry run catches the three failure modes before anything is applied, surfacing each as a clear error on the review card rather than a runtime failure:
+When the assistant calls `automation.propose`, the dry run catches these failure modes before anything is applied, surfacing each as a clear error on the review card rather than a runtime failure:
 
 - A `runAs` that does not exist or that the caller may not bind is rejected with guidance to call `automation.listServiceAccounts`. A lookup failure degrades to a soft "could not verify" note.
+- A `runAs` that is bindable but lacks the access rules an action requires (each action declares `requiredAccessRules`, e.g. `integration-jira.create_issue.manage`) is flagged per action, so the author learns on the review card that the chosen service account cannot run that action - rather than the automation failing on first run. The dispatch engine enforces the same rules at execute time.
 - A `connectionId` that does not reference a real connection for the action's provider is rejected with guidance to call `automation.listConnections`. Templated connection ids are skipped, and a lookup failure degrades to a soft note.
+- A literal dynamic-option value the connection does not offer (e.g. a `projectKey` or `issueTypeId` that is not a real Jira project / issue type) is rejected with guidance to call `automation.resolveActionOptions`. This reuses the same per-field resolvers, sourcing each field's dependency values from the same literal config so a cascade (issueTypeId needs projectKey) resolves. Templated values, and fields whose dependencies are templated/absent, are skipped; a resolver lookup failure is skipped rather than blocking (the connection itself is already validated), so transient provider flakiness never gates a proposal - only a definitively-invalid value is flagged.
 - An unwired `{{ artifacts.<id>... }}` reference (the producer id does not exist or does not produce an artifact), or a reference whose `<artifactType>` segment does not match what the producing action actually produces (e.g. `artifacts.check-existing.found` when the action produces `issue_search`), is flagged by the definition validator, which walks configs, variables blocks, `choose` `when` clauses, and conditions. A bare whole-object `artifacts.<id>` reference, built-in roots, and literal prose are left untouched.
 
 All of these merge into the dry-run errors and are raised before apply, so an operator reviewing the confirm card sees them up front. Existing valid automations still pass unchanged.

@@ -39,6 +39,8 @@ const AUTOMATION_READ_RULE = qualifyAccessRuleId(
  */
 interface AutomationCatalogEntry extends RawCapabilityEntry {
   configSchema: Record<string, unknown>;
+  /** Access rules the runAs must hold to run this kind (actions only). */
+  requiredAccessRules?: string[];
 }
 
 /**
@@ -82,6 +84,7 @@ async function fetchCatalog({
       role: "action",
       category: action.category,
       configSchema: action.configSchema,
+      requiredAccessRules: action.requiredAccessRules,
       configSummary: summarizeConfigSchema({
         configSchema: action.configSchema,
       }),
@@ -189,6 +192,9 @@ export function createAutomationGetCapabilitySchemaTool(): RegisteredAiTool<
         description: match.description,
         role: match.role,
         configSchema: match.configSchema,
+        ...(match.requiredAccessRules && match.requiredAccessRules.length > 0
+          ? { requiredAccessRules: match.requiredAccessRules }
+          : {}),
       };
       return result;
     },

@@ -1,6 +1,9 @@
 // Plugin Metadata
 export { pluginMetadata } from "./plugin-metadata";
 
+// Per-action access rules (a runAs service account must hold these to run the action)
+export { jiraAccess, jiraAccessRules } from "./access";
+
 // API response schemas
 export {
   JiraProjectSchema,

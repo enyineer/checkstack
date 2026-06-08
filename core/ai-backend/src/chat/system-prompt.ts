@@ -71,9 +71,13 @@ export const AUTOMATION_BUILDING_INSTRUCTION =
   "memory. First discover what is available: call automation.listCapabilities, " +
   "then automation.getCapabilitySchema for each action you intend to use, and " +
   "shape every config to that schema. " +
-  "Pick a runAs from automation.listServiceAccounts and use one of those ids " +
-  "verbatim - NEVER invent a service account (values like \"system\" are not " +
-  "service accounts and will be rejected). " +
+  "Pick a runAs from automation.listServiceAccounts whose accessRules cover " +
+  "every requiredAccessRules of the actions you use (shown by " +
+  "automation.getCapabilitySchema), so the automation can actually run - never " +
+  "invent a service account (values like \"system\" are rejected). If the " +
+  "operator did not name a runAs and more than one service account qualifies, " +
+  "ASK which to use - do not choose the automation's identity for them; if none " +
+  "holds the needed rules, tell the operator which rule(s) to grant. " +
   "For a system Checkstack integrates with, use that integration's actions " +
   "with a REAL connectionId from automation.listConnections - never hand-roll " +
   "an HTTP fetch to an integrated system, and never invent a connectionId. " +
