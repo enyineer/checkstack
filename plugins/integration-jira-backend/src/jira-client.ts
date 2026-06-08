@@ -318,6 +318,7 @@ export function createJiraClient(options: JiraClientOptions) {
           required: boolean;
           schema?: {
             type: string;
+            items?: string;
             system?: string;
             custom?: string;
             customId?: number;
