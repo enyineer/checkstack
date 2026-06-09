@@ -1,5 +1,12 @@
 # @checkstack/sdk
 
+## 0.107.1
+
+### Patch Changes
+
+- Updated dependencies [bb6f0fe]
+  - @checkstack/maintenance-common@1.6.0
+
 ## 0.106.1
 
 ### Patch Changes
