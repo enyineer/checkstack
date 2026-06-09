@@ -58,6 +58,20 @@ curl "https://your-checkstack-instance.com/rest/foo/getItems?filter[status]=acti
   -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET"
 ```
 
+#### Typed query parameters
+
+Query-string values are always strings on the wire, but the REST surface coerces each one to the type its procedure declares, so you pass `true` / `false` and numbers as plain text:
+
+```bash
+# includeResolved is a boolean; count is a number. Both are coerced from the
+# query string, so this returns resolved incidents too.
+curl "https://your-checkstack-instance.com/rest/incident/listIncidents?includeResolved=true" \
+  -H "Authorization: Bearer ck_YOUR_APP_ID_YOUR_SECRET"
+```
+
+> [!NOTE]
+> Coercion is type-aware: `includeResolved=false` is read as the boolean `false` (not "any non-empty string is true"). Booleans accept `true` / `false`, numbers accept their decimal text, and dates accept ISO-8601 strings. This applies only to the REST surface; the native oRPC surface already carries real JSON types.
+
 **Create (`POST`):**
 
 ```bash
