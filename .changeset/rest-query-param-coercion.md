@@ -1,5 +1,6 @@
 ---
 "@checkstack/backend": patch
+"@checkstack/ai-backend": patch
 ---
 
 Fix REST query-parameter coercion. Query-string values arrive as strings, but
@@ -12,3 +13,6 @@ correctly mapping the string `"false"` to the boolean `false` (rather than the
 `Boolean("false") === true` trap). Booleans, numbers, and ISO-8601 dates now
 work as query params across every plugin's REST surface. The native oRPC
 surface is unaffected (it already carries real JSON types).
+
+Also regenerates the bundled docs index (`@checkstack/ai-backend`) to pick up
+the new "Typed query parameters" section in the public REST API reference.
