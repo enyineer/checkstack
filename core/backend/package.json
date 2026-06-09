@@ -28,6 +28,7 @@
     "@hono/zod-validator": "^0.7.6",
     "@orpc/client": "^1.14.4",
     "@orpc/contract": "^1.14.4",
+    "@orpc/json-schema": "^1.14.4",
     "@orpc/openapi": "^1.14.4",
     "@orpc/server": "^1.14.4",
     "@orpc/zod": "^1.14.4",

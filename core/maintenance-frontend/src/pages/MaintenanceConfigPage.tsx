@@ -71,6 +71,10 @@ const MaintenanceConfigPageContent: React.FC = () => {
     "all",
   );
 
+  // Completed maintenances are hidden by default (the list endpoint excludes
+  // them unless `includeCompleted` is set); this toggle opts them back in.
+  const [showCompleted, setShowCompleted] = useState(false);
+
   // Editor state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMaintenance, setEditingMaintenance] = useState<
@@ -85,7 +89,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
   // Fetch maintenances with useQuery
   const maintenancesQuery = maintenanceClient.listMaintenances.useQuery(
-    statusFilter === "all" ? {} : { status: statusFilter },
+    statusFilter === "all"
+      ? { includeCompleted: showCompleted }
+      : { status: statusFilter, includeCompleted: showCompleted },
   );
   const {
     data: maintenancesData,
@@ -205,23 +211,34 @@ const MaintenanceConfigPageContent: React.FC = () => {
               <Wrench className="h-5 w-5 text-muted-foreground" />
               <CardTitle>Maintenances</CardTitle>
             </div>
-            <Select
-              value={statusFilter}
-              onValueChange={(v) =>
-                setStatusFilter(v as MaintenanceStatus | "all")
-              }
-            >
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="scheduled">Scheduled</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={showCompleted}
+                  onChange={(e) => setShowCompleted(e.target.checked)}
+                  className="rounded border-border"
+                />
+                Show completed
+              </label>
+              <Select
+                value={statusFilter}
+                onValueChange={(v) =>
+                  setStatusFilter(v as MaintenanceStatus | "all")
+                }
+              >
+                <SelectTrigger className="w-full sm:w-40">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="scheduled">Scheduled</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeaderRow>
         </CardHeader>
         <CardContent className="p-0">

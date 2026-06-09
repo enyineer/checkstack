@@ -2,6 +2,8 @@ import type { Hono, Context } from "hono";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { RPCHandler } from "@orpc/server/fetch";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
+import { SmartCoercionPlugin } from "@orpc/json-schema";
+import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import {
   coreServices,
   AuthService,
@@ -356,6 +358,21 @@ export function createRestRouteHandler({
         typeof OpenAPIHandler
       >[0],
       {
+        // REST query/path/header values are ALWAYS strings on the wire, but
+        // contract input schemas declare real types (e.g. `includeResolved:
+        // z.boolean()`, numbers, dates). Without coercion, oRPC validation
+        // rejects `?includeResolved=true` with "expected boolean, received
+        // string". SmartCoercionPlugin reads each procedure's JSON schema and
+        // coerces the string into the declared type BEFORE validation -
+        // crucially mapping the string "false" to `false` (unlike
+        // `z.coerce.boolean()`, where `Boolean("false") === true`). The native
+        // RPC handler at /api/* needs no coercion: its wire codec already
+        // preserves booleans/numbers, so this plugin is REST-only.
+        plugins: [
+          new SmartCoercionPlugin({
+            schemaConverters: [new ZodToJsonSchemaConverter()],
+          }),
+        ],
         interceptors: [
           async ({ next, ...rest }) => {
             try {

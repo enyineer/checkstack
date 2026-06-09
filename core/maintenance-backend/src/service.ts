@@ -1,4 +1,4 @@
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, or, ne, inArray } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
@@ -34,8 +34,19 @@ export class MaintenanceService {
   async listMaintenances(filters?: {
     status?: MaintenanceStatus;
     systemId?: string;
+    includeCompleted?: boolean;
   }): Promise<MaintenanceWithSystems[]> {
     let maintenanceRows;
+
+    // Mirrors the incident plugin's `includeResolved`: an explicit `status`
+    // filter wins; otherwise completed maintenances are hidden unless
+    // `includeCompleted` is set, so the default list shows only active /
+    // upcoming windows.
+    const statusFilter = filters?.status
+      ? eq(maintenances.status, filters.status)
+      : filters?.includeCompleted
+        ? undefined
+        : ne(maintenances.status, "completed");
 
     if (filters?.systemId) {
       // Filter by system - need to join
@@ -50,21 +61,12 @@ export class MaintenanceService {
       maintenanceRows = await this.db
         .select()
         .from(maintenances)
-        .where(
-          and(
-            inArray(maintenances.id, ids),
-            filters.status
-              ? eq(maintenances.status, filters.status)
-              : undefined,
-          ),
-        );
+        .where(and(inArray(maintenances.id, ids), statusFilter));
     } else {
       maintenanceRows = await this.db
         .select()
         .from(maintenances)
-        .where(
-          filters?.status ? eq(maintenances.status, filters.status) : undefined,
-        );
+        .where(statusFilter);
     }
 
     // Fetch all system associations
