@@ -3,4 +3,4 @@
 // script-context helper builders.
 
 /** The platform release version this SDK was stamped to. */
-export const SDK_RELEASE_VERSION = "0.107.0";
+export const SDK_RELEASE_VERSION = "0.108.0";

@@ -1,5 +1,14 @@
 # @checkstack/automation-backend
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [bb6f0fe]
+  - @checkstack/ai-backend@0.6.1
+  - @checkstack/sdk@0.107.1
+  - @checkstack/script-packages-backend@0.3.11
+
 ## 0.8.0
 
 ### Minor Changes

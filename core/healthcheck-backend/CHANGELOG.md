@@ -1,5 +1,21 @@
 # @checkstack/healthcheck-backend
 
+## 1.8.1
+
+### Patch Changes
+
+- Updated dependencies [bb6f0fe]
+- Updated dependencies [bb6f0fe]
+  - @checkstack/maintenance-common@1.6.0
+  - @checkstack/ai-backend@0.6.1
+  - @checkstack/sdk@0.107.1
+  - @checkstack/automation-backend@0.8.1
+  - @checkstack/secrets-backend@0.2.8
+  - @checkstack/catalog-backend@1.4.12
+  - @checkstack/incident-backend@1.7.4
+  - @checkstack/satellite-backend@0.6.12
+  - @checkstack/script-packages-backend@0.3.11
+
 ## 1.8.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @checkstack/script-packages-backend
 
+## 0.3.11
+
+### Patch Changes
+
+- @checkstack/sdk@0.107.1
+- @checkstack/secrets-backend@0.2.8
+
 ## 0.3.10
 
 ### Patch Changes
