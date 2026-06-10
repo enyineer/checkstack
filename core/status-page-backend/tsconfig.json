@@ -1,0 +1,35 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../catalog-common"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../incident-common"
+    },
+    {
+      "path": "../maintenance-common"
+    },
+    {
+      "path": "../status-page-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
+  ]
+}

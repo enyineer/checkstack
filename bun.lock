@@ -2057,6 +2057,67 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/status-page-backend": {
+      "name": "@checkstack/status-page-backend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/incident-common": "workspace:*",
+        "@checkstack/maintenance-common": "workspace:*",
+        "@checkstack/status-page-common": "workspace:*",
+        "@orpc/client": "^1.14.4",
+        "@orpc/server": "^1.14.4",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/status-page-common": {
+      "name": "@checkstack/status-page-common",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@orpc/contract": "^1.14.4",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/status-page-frontend": {
+      "name": "@checkstack/status-page-frontend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/status-page-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^1.17.0",
+        "react": "19.2.7",
+        "react-router-dom": "^7.16.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^19.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/template-engine": {
       "name": "@checkstack/template-engine",
       "version": "0.4.4",
@@ -3343,6 +3404,12 @@
     "@checkstack/slo-common": ["@checkstack/slo-common@workspace:core/slo-common"],
 
     "@checkstack/slo-frontend": ["@checkstack/slo-frontend@workspace:core/slo-frontend"],
+
+    "@checkstack/status-page-backend": ["@checkstack/status-page-backend@workspace:core/status-page-backend"],
+
+    "@checkstack/status-page-common": ["@checkstack/status-page-common@workspace:core/status-page-common"],
+
+    "@checkstack/status-page-frontend": ["@checkstack/status-page-frontend@workspace:core/status-page-frontend"],
 
     "@checkstack/template-engine": ["@checkstack/template-engine@workspace:core/template-engine"],
 
