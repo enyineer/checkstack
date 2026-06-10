@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-postgres-backend
 
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/healthcheck-common@1.6.2
+
 ## 0.2.31
 
 ### Patch Changes

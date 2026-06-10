@@ -1,5 +1,76 @@
 # @checkstack/automation-frontend
 
+## 0.6.1
+
+### Patch Changes
+
+- @checkstack/script-packages-frontend@0.3.11
+
+## 0.6.0
+
+### Minor Changes
+
+- 6005271: Add AI "skills" - reusable prompt templates for the chat assistant and the
+  `ai_analyze` automation action. A skill bundles a system-prompt fragment, an
+  optional starter prompt, and (for analyze) suggested output fields, tagged with
+  the surfaces it targets.
+
+  Skills come from two sources merged into one catalogue: builtin skills
+  contributed by core/plugins via the new `aiSkillExtensionPoint`, and GLOBAL
+  user skills authored by operators (new `ai_skill` table) and visible to everyone
+  who can read skills. New access rules `ai.skill.read`, `ai.skill-create.manage`
+  (a dedicated create permission), and `ai.skill.manage` (edit/delete, author-only
+  with admin moderation) gate the feature - all default-on, admin-revocable.
+
+  The chat composer gains a skill picker (its system prompt seeds the turn, its
+  starter prompt seeds the message box); the `ai_analyze` action gains an optional
+  `skillId` that seeds the system prompt, prompt (when blank), and output fields
+  (when none) - explicit config always wins. A new "AI skills" settings page lets
+  operators browse, view full details (prompts + output fields), publish, edit,
+  and delete their global skills. Ships six builtin skills across chat and analyze.
+
+  To support rich pickers, `@checkstack/ui`'s `DynamicForm` gains a `catalog`
+  options style (`x-options-style: "catalog"`, with resolver options carrying an
+  optional `description`) that renders a browsable modal of cards instead of a
+  plain Select, and `@checkstack/backend-api` propagates the new annotation. The
+  shared `PageHeader` now wraps a long subtitle beside its actions instead of
+  letting them overlap.
+
+- 748268c: Add an example-automation template catalogue. Creating a new automation now
+  opens a picker (`/automation/new`) with curated, ready-to-use starting points
+  grouped by category, plus a "Blank automation" option. Selecting a template
+  seeds the editor (the operator still chooses a service account and saves).
+
+  Templates are an extensible registry: external plugins contribute their own via
+  the new `automationTemplateExtensionPoint`, exactly like actions / triggers /
+  artifact types. Every registered template is validated against the LIVE
+  trigger/action/artifact registries at server startup - a template that
+  references a capability that is not installed is withheld with a console
+  warning, and one whose definition no longer validates (interface drift) is
+  withheld with a console error - so a template can never silently drift when an
+  action, trigger, condition, or artifact interface changes.
+
+  Ships five built-in templates spanning incident response and alerting
+  (AI-triage-and-file-Jira-bug, close-Jira-on-recovery, AI-summarize-incident,
+  page-on-call-on-sustained-degradation, AI-severity-escalation).
+
+### Patch Changes
+
+- Updated dependencies [4134ed9]
+- Updated dependencies [6005271]
+- Updated dependencies [748268c]
+- Updated dependencies [4134ed9]
+- Updated dependencies [079369a]
+  - @checkstack/ai-common@0.4.0
+  - @checkstack/ui@1.16.0
+  - @checkstack/automation-common@0.6.0
+  - @checkstack/auth-common@0.9.1
+  - @checkstack/template-engine@0.4.4
+  - @checkstack/gitops-frontend@0.5.7
+  - @checkstack/script-packages-frontend@0.3.10
+  - @checkstack/secrets-frontend@0.2.6
+  - @checkstack/catalog-common@2.3.6
+
 ## 0.5.0
 
 ### Minor Changes

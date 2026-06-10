@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/script-packages-store-postgres",
-  "version": "0.2.11",
+  "version": "0.2.13",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",

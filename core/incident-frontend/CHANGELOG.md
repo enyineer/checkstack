@@ -1,5 +1,24 @@
 # @checkstack/incident-frontend
 
+## 0.9.9
+
+### Patch Changes
+
+- @checkstack/dashboard-frontend@0.8.9
+
+## 0.9.8
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/ui@1.16.0
+  - @checkstack/auth-frontend@0.7.7
+  - @checkstack/dashboard-frontend@0.8.8
+  - @checkstack/notification-frontend@0.5.7
+  - @checkstack/tips-frontend@0.3.7
+  - @checkstack/catalog-common@2.3.6
+  - @checkstack/incident-common@1.5.2
+
 ## 0.9.7
 
 ### Patch Changes

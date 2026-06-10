@@ -1,5 +1,34 @@
 # @checkstack/release
 
+## 0.108.0
+
+### Minor Changes
+
+- bb6f0fe: Add an `includeCompleted` filter to `listMaintenances`, mirroring the incident
+  plugin's `includeResolved`. The maintenance config page gains a "Show completed"
+  toggle, and the system maintenance history page opts in so completed windows
+  still appear there.
+
+  BREAKING CHANGE: `listMaintenances` now hides `completed` maintenances by
+  default (`includeCompleted` defaults to `false`), matching how `listIncidents`
+  hides `resolved` incidents. API/SDK consumers that relied on `listMaintenances`
+  returning completed windows must now pass `includeCompleted: true` (or an
+  explicit `status: "completed"` filter, which still wins regardless of the flag).
+
+## 0.107.0
+
+### Minor Changes
+
+- 079369a: Fix the Jira `search_issues` action failing with HTTP 410 on Jira Cloud. Atlassian
+  deprecated the legacy `/rest/api/3/search` endpoint on 2024-05-01 and removed it on
+  2025-05-01 (CHANGE-2046), so every Cloud search (and the "create a ticket only if
+  none is open" pattern that depends on it) broke. The client now calls
+  `/rest/api/3/search/jql` for Cloud connections (deriving result existence from the
+  returned issues, since the new endpoint returns no `total`), while Jira Data
+  Center / Server (on-prem) connections keep using the legacy `/search`, which they
+  still serve and where `/search/jql` does not exist. The endpoint is selected by the
+  connection's auth mode (cloud vs datacenter).
+
 ## 0.106.0
 
 ### Minor Changes

@@ -35,7 +35,7 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
   // Fetch maintenances with useQuery
   const { data: maintenancesData, isLoading: maintenancesLoading } =
     maintenanceClient.listMaintenances.useQuery(
-      { systemId },
+      { systemId, includeCompleted: true },
       { enabled: !!systemId },
     );
 

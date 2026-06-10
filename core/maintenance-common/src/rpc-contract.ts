@@ -32,6 +32,7 @@ export const maintenanceContract = {
         .object({
           status: MaintenanceStatusEnum.optional(),
           systemId: z.string().optional(),
+          includeCompleted: z.boolean().optional().default(false),
         })
         .optional(),
     )

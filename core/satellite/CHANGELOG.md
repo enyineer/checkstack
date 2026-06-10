@@ -1,5 +1,20 @@
 # @checkstack/satellite
 
+## 0.5.11
+
+### Patch Changes
+
+- @checkstack/script-packages-backend@0.3.11
+
+## 0.5.10
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/script-packages-backend@0.3.10
+  - @checkstack/satellite-common@0.8.7
+
 ## 0.5.9
 
 ### Patch Changes

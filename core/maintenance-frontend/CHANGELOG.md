@@ -1,5 +1,39 @@
 # @checkstack/maintenance-frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- bb6f0fe: Add an `includeCompleted` filter to `listMaintenances`, mirroring the incident
+  plugin's `includeResolved`. The maintenance config page gains a "Show completed"
+  toggle, and the system maintenance history page opts in so completed windows
+  still appear there.
+
+  BREAKING CHANGE: `listMaintenances` now hides `completed` maintenances by
+  default (`includeCompleted` defaults to `false`), matching how `listIncidents`
+  hides `resolved` incidents. API/SDK consumers that relied on `listMaintenances`
+  returning completed windows must now pass `includeCompleted: true` (or an
+  explicit `status: "completed"` filter, which still wins regardless of the flag).
+
+### Patch Changes
+
+- Updated dependencies [bb6f0fe]
+  - @checkstack/maintenance-common@1.6.0
+  - @checkstack/dashboard-frontend@0.8.9
+
+## 0.8.8
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/ui@1.16.0
+  - @checkstack/auth-frontend@0.7.7
+  - @checkstack/dashboard-frontend@0.8.8
+  - @checkstack/notification-frontend@0.5.7
+  - @checkstack/tips-frontend@0.3.7
+  - @checkstack/catalog-common@2.3.6
+  - @checkstack/maintenance-common@1.5.2
+
 ## 0.8.7
 
 ### Patch Changes

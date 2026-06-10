@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/integration-teams-backend",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

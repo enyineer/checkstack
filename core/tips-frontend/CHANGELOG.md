@@ -1,5 +1,13 @@
 # @checkstack/tips-frontend
 
+## 0.3.7
+
+### Patch Changes
+
+- Updated dependencies [6005271]
+  - @checkstack/ui@1.16.0
+  - @checkstack/auth-frontend@0.7.7
+
 ## 0.3.6
 
 ### Patch Changes

@@ -1,5 +1,59 @@
 # @checkstack/integration-jira-backend
 
+## 0.5.2
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.8.1
+
+## 0.5.1
+
+### Patch Changes
+
+- 4134ed9: Bound integration option-resolution with a timeout so an unreachable or hung
+  integration can no longer wedge a chat turn (stuck "Thinking") or an automation
+  editor field. The Jira client's REST calls now carry a 10s request timeout
+  (matching the Teams/Webex actions, which already did), and the
+  provider-agnostic `resolveOptions` path races every provider resolver against a
+  12s ceiling so any provider that hangs fails with a clear error instead of
+  blocking indefinitely.
+- 079369a: Coerce and validate `create_issue` field mappings against the live Jira field
+  schema. The mapping value is always a config string, but Jira fields are typed,
+  so the action now fetches the project+issue-type field metadata and converts each
+  value to the shape Jira expects: `labels` (array of string) becomes a real array,
+  a number field becomes a number, a select maps to `{ id }` from its allowed
+  values, etc. It also VALIDATES up front — an unknown field key or an option value
+  outside the field's allowed set fails the step with a clear message instead of an
+  opaque Jira 400. Scalar fields were already fine; array/object/option fields now
+  work.
+- 079369a: Surface each Jira field's value TYPE in the `create_issue` additional-fields
+  option list (`fieldOptions`), via the option's `description` — e.g. `labels` is
+  shown as "array of string", a story-points field as "number", and a select as
+  "option; one of: …". Previously the resolver returned only the field key + name,
+  so the model (and the editor) knew the field but had to guess the value shape and
+  would, for example, send a bare string for an array-typed field like `labels`.
+  The field's `schema.items` (array element type) is now also captured.
+- 079369a: Fix the Jira `search_issues` action failing with HTTP 410 on Jira Cloud. Atlassian
+  deprecated the legacy `/rest/api/3/search` endpoint on 2024-05-01 and removed it on
+  2025-05-01 (CHANGE-2046), so every Cloud search (and the "create a ticket only if
+  none is open" pattern that depends on it) broke. The client now calls
+  `/rest/api/3/search/jql` for Cloud connections (deriving result existence from the
+  returned issues, since the new endpoint returns no `total`), while Jira Data
+  Center / Server (on-prem) connections keep using the legacy `/search`, which they
+  still serve and where `/search/jql` does not exist. The endpoint is selected by the
+  connection's auth mode (cloud vs datacenter).
+- Updated dependencies [6005271]
+- Updated dependencies [748268c]
+- Updated dependencies [4134ed9]
+- Updated dependencies [4134ed9]
+- Updated dependencies [079369a]
+- Updated dependencies [079369a]
+- Updated dependencies [079369a]
+  - @checkstack/automation-backend@0.8.0
+  - @checkstack/backend-api@0.22.0
+  - @checkstack/integration-backend@0.6.1
+  - @checkstack/integration-jira-common@0.2.1
+
 ## 0.5.0
 
 ### Minor Changes
