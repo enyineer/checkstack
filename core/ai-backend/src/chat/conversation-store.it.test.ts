@@ -71,7 +71,9 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
           permission_mode text NOT NULL DEFAULT 'approve',
           created_at timestamp NOT NULL DEFAULT now(),
           updated_at timestamp NOT NULL DEFAULT now(),
-          archived_at timestamp
+          archived_at timestamp,
+          summary text,
+          summarized_through_message_id text
         )
       `);
       await admin.query(`
