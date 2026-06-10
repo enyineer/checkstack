@@ -428,3 +428,42 @@ export const AggregatedBucketSchema = AggregatedBucketBaseSchema.extend({
 });
 
 export type AggregatedBucket = z.infer<typeof AggregatedBucketSchema>;
+
+/**
+ * Compact run-statistics shape behind the `getRunStats` query (and the
+ * `healthcheck.runStats` AI tool). Window totals + a small, capped bucket series
+ * answering "how often / how much downtime / uptime over a period" WITHOUT
+ * returning raw rows. Timestamps are ISO strings (not Date) so the shape stays
+ * cheap and stable at the model boundary.
+ */
+export const RunStatsBucketSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+  runCount: z.number(),
+  healthy: z.number(),
+  degraded: z.number(),
+  unhealthy: z.number(),
+  /** Percent of runs healthy, 0-100. */
+  uptimePct: z.number(),
+  avgLatencyMs: z.number().optional(),
+  p95LatencyMs: z.number().optional(),
+});
+
+export const RunStatsSchema = z.object({
+  window: z.object({ start: z.string(), end: z.string() }),
+  bucketIntervalSeconds: z.number(),
+  total: z.object({
+    runCount: z.number(),
+    healthy: z.number(),
+    degraded: z.number(),
+    unhealthy: z.number(),
+    uptimePct: z.number(),
+    avgLatencyMs: z.number().optional(),
+    minLatencyMs: z.number().optional(),
+    maxLatencyMs: z.number().optional(),
+    p95LatencyMs: z.number().optional(),
+  }),
+  buckets: z.array(RunStatsBucketSchema),
+});
+
+export type RunStats = z.infer<typeof RunStatsSchema>;

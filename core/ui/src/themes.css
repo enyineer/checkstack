@@ -1,6 +1,12 @@
 /* Base theme colors using CSS custom properties */
 @layer base {
   :root {
+    /* Tell the browser which scheme native UI (scrollbars, form controls,
+       spinners) should use. Without this, Chromium/Edge and Firefox paint a
+       light scrollbar even in dark mode, which looks out of place (e.g. the
+       sidebar). Overridden to `dark` under the .dark class below. */
+    color-scheme: light;
+
     /* Primary - Purple/Indigo brand color */
     --primary: 262 83% 58%;
     --primary-foreground: 0 0% 100%;
@@ -67,6 +73,9 @@
   }
 
   .dark {
+    /* Dark native UI (scrollbars, form controls) to match the dark theme. */
+    color-scheme: dark;
+
     /* Primary - Brighter in dark mode */
     --primary: 263 70% 65%;
     --primary-foreground: 0 0% 100%;

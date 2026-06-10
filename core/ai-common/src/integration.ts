@@ -23,6 +23,14 @@ export interface OpenAiCompatibleConnection {
   defaultModel: string;
   availableModels?: string[];
   spendCap?: AiSpendCap;
+  /**
+   * OPTIONAL context-window size (in tokens) of the configured model. When set,
+   * the chat loop estimates the prompt size and COMPACTS old turns (folds them
+   * into a running summary) before they overflow the window, instead of letting
+   * the provider 400. Leave blank to use a conservative built-in default. Set it
+   * to your model's real window (e.g. 128000) for tighter, more accurate use.
+   */
+  contextWindowTokens?: number;
 }
 
 /**

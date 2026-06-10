@@ -11,7 +11,9 @@ import {
   DEFAULT_NOTIFICATION_POLICY,
   type CollectorConfigEntry,
   type HealthcheckSignalStatuses,
+  type RunStats,
 } from "@checkstack/healthcheck-common";
+import { summarizeRuns, type StatRun } from "./run-stats.logic";
 import type { ConfigService } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import type { CatalogApi } from "@checkstack/catalog-common";
@@ -919,6 +921,67 @@ export class HealthCheckService {
       })),
       total,
     };
+  }
+
+  /**
+   * Compact run statistics over a window: totals + a small, capped bucket series.
+   * Backs the `healthcheck.runStats` AI tool so the assistant can answer
+   * "how often / how much downtime / uptime over the last N days" WITHOUT pulling
+   * thousands of raw rows into its context. Selects only the three columns the
+   * stats need and aggregates with the pure `summarizeRuns` helper. Same public
+   * gate as `getHistory` (no `result` payload is read).
+   */
+  async getRunStats(props: {
+    systemId?: string;
+    configurationId?: string;
+    startDate: Date;
+    endDate: Date;
+    sourceFilter?: string;
+    statusFilter?: HealthCheckStatus[];
+    maxBuckets?: number;
+  }): Promise<RunStats> {
+    const {
+      systemId,
+      configurationId,
+      startDate,
+      endDate,
+      sourceFilter,
+      statusFilter,
+      maxBuckets = 24,
+    } = props;
+
+    const conditions = [
+      gte(healthCheckRuns.timestamp, startDate),
+      lte(healthCheckRuns.timestamp, endDate),
+    ];
+    if (systemId) conditions.push(eq(healthCheckRuns.systemId, systemId));
+    if (configurationId)
+      conditions.push(eq(healthCheckRuns.configurationId, configurationId));
+    if (sourceFilter === "local") {
+      conditions.push(isNull(healthCheckRuns.sourceId));
+    } else if (sourceFilter) {
+      conditions.push(eq(healthCheckRuns.sourceId, sourceFilter));
+    }
+    if (statusFilter && statusFilter.length > 0) {
+      conditions.push(inArray(healthCheckRuns.status, statusFilter));
+    }
+
+    const rows = await this.db
+      .select({
+        timestamp: healthCheckRuns.timestamp,
+        status: healthCheckRuns.status,
+        latencyMs: healthCheckRuns.latencyMs,
+      })
+      .from(healthCheckRuns)
+      .where(and(...conditions));
+
+    const runs: StatRun[] = rows.map((r) => ({
+      timestamp: r.timestamp,
+      status: r.status,
+      latencyMs: r.latencyMs ?? undefined,
+    }));
+
+    return summarizeRuns({ runs, startDate, endDate, maxBuckets });
   }
 
   /**

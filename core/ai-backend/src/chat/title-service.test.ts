@@ -44,6 +44,7 @@ function storeStub() {
     getConversation: notImplemented,
     appendMessage: notImplemented,
     listMessages: notImplemented,
+    setSummary: notImplemented,
     archiveConversation: notImplemented,
     deleteConversation: notImplemented,
   };

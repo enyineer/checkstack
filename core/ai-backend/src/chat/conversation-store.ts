@@ -76,6 +76,20 @@ export interface AiConversationStore {
   }): Promise<AiConversationRow | undefined>;
 
   /**
+   * Persist a context-compaction step: store the running `summary` and advance
+   * `summarizedThroughMessageId` to the last message row the summary now covers.
+   * Durable + shared-Postgres so any pod resumes from the SAME summary/marker.
+   * Owner-scoped. Does not bump `updatedAt` (compaction is housekeeping, not a
+   * user-visible edit, so it must not reorder the sidebar).
+   */
+  setSummary(args: {
+    id: string;
+    userId: string;
+    summary: string;
+    summarizedThroughMessageId: string;
+  }): Promise<void>;
+
+  /**
    * SOFT-DELETE (archive) a conversation IF it belongs to the user: stamps
    * `archivedAt = now` so the row + its messages are RETAINED (later abuse
    * introspection) but the chat disappears from `listConversations`. This is the
@@ -202,6 +216,18 @@ export function createAiConversationStore({
         )
         .returning();
       return row;
+    },
+
+    async setSummary({ id, userId, summary, summarizedThroughMessageId }) {
+      await db
+        .update(schema.aiConversations)
+        .set({ summary, summarizedThroughMessageId })
+        .where(
+          and(
+            eq(schema.aiConversations.id, id),
+            eq(schema.aiConversations.userId, userId),
+          ),
+        );
     },
 
     async archiveConversation({ id, userId }) {

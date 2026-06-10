@@ -148,6 +148,22 @@ spendCap: { tokenBudget: 200000, windowMinutes: 60 } // optional; omit for no ca
 
 When a cap is set, the loop refuses a new turn once the principal's token usage against that integration in the trailing `windowMinutes` reaches `tokenBudget`, returning a clear spend-exceeded error (HTTP 429). Spend is a rolling-window SUM over the shared `ai_spend` ledger: every completed turn appends one row with the AI SDK's reported input and output tokens, keyed by integration and principal. Because the sum is read from the same shared table every pod writes to, the cap holds across all pods, exactly like the per-principal tool rate-limit budget. An in-memory per-pod token counter would let N pods each allow the cap, which a single-process test could never catch, so the ledger is durable Postgres and the cross-pod count is verified in `core/ai-backend/src/rate-limit/spend-ledger.it.test.ts`.
 
+## Context window: result clamp and compaction
+
+A long conversation, or one verbose tool pull, would otherwise overflow the model's context window: the loop replays the full message history verbatim every turn, so accumulated tool results keep costing tokens turn after turn. Two layers keep the prompt within budget.
+
+First, every read tool result is size-clamped before it enters the context. Reads flow through one chokepoint (`runRead`), which applies the owning plugin's optional lean projection (see `projectResult` in [registering tools](/checkstack/developer-guide/ai/registering-tools/)) and then a generic clamp: a result that serializes past a character budget has its largest arrays head-trimmed and gains a `_truncated` note telling the model how much was dropped and to narrow filters, paginate, or use an aggregate tool. The clamp is pure and unit-tested in `core/ai-backend/src/chat/result-clamp.logic.ts`.
+
+Second, the conversation is compacted before it overflows. Each turn the loop estimates the prompt's tokens (a provider-agnostic ~4-chars-per-token heuristic, since the model is an arbitrary OpenAI-compatible endpoint) against a budget derived from the connection's context window. When the history would exceed it, the oldest turns are summarized into a durable running summary and dropped from the verbatim replay; the summary is folded into the system prompt so the model keeps their gist. The split happens at message-ROW boundaries, never inside a turn, so a tool-call is never orphaned from its result (the malformed sequence a provider rejects). The summary and a marker (the last message it covers) are persisted on the conversation row in shared Postgres, so any pod resumes from the same compacted state. The planner and token estimate are pure and unit-tested (`compaction.logic.ts`, `token-estimate.logic.ts`); the summarization call is fail-open, so a hiccup falls back to the full history rather than crashing the turn.
+
+The context window is configured per connection:
+
+```ts
+contextWindowTokens: 128000 // optional; blank uses a conservative default
+```
+
+Set it to your model's real window for tighter use; leave it blank to use a conservative built-in default. The budget reserves headroom for the model's own reply and for the (uncounted) tool-schema overhead, so the heuristic stays on the safe side.
+
 ## Dates and timezones
 
 The model produces dates as text, so the chat enforces an unambiguous wire contract: every date-time a tool receives must be RFC 3339 with an EXPLICIT timezone offset (`2026-07-01T22:00:00Z` or `2026-07-01T22:00:00+02:00`). Zone-less values (`2026-07-01T22:00:00`) and date-only values (`2026-07-01`) are rejected, because feeding a zone-less string to `new Date()` would interpret it in the pod's local zone and the same string could then resolve to different instants on different pods. A rejected value comes back to the model as a tool-input error naming the field and the requirement, so the model repairs the call itself. The contract is enforced centrally for every tool input and structured output, gated to date fields, in `core/ai-backend/src/chat/model-schema.ts`.
