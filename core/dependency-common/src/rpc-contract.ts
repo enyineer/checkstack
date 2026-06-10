@@ -48,6 +48,7 @@ export const dependencyContract = {
     operationType: "query",
     userType: "public",
     access: [dependencyAccess.dependency.read],
+    instanceAccess: { recordKey: "warnings" },
   })
     .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
@@ -62,6 +63,7 @@ export const dependencyContract = {
     operationType: "query",
     userType: "public",
     access: [dependencyAccess.dependency.read],
+    instanceAccess: { idParam: "systemId" },
   })
     .input(z.object({ systemId: z.string() }))
     .output(DependencyWarningSchema.nullable()),

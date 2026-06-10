@@ -4,12 +4,14 @@ import type {
   CollectorDto,
   HealthCheckStrategyDto,
 } from "@checkstack/healthcheck-common";
+import { healthCheckAccess } from "@checkstack/healthcheck-common";
 import type { TreeNodeId } from "./EditorTree";
 import { GeneralSection } from "./GeneralSection";
 import { CollectorSection } from "./CollectorSection";
 import { CollectorPicker } from "./CollectorPicker";
 import { SystemsSection } from "./SystemsSection";
-import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { TeamAccessEditor, TeamOwnershipPicker } from "@checkstack/auth-frontend";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import type { Environment } from "@checkstack/catalog-frontend";
 
 // =============================================================================
@@ -65,6 +67,14 @@ interface EditorPanelProps {
    * fields, built from the chosen environment. `undefined` when none chosen.
    */
   templatePreviewContext?: Record<string, unknown>;
+  /**
+   * Owning-team selection for create mode. `null` means global (no team).
+   * Only used when `!isEditMode` — ignored in edit mode.
+   */
+  ownerTeamId?: string | null;
+  onOwnerTeamIdChange?: (teamId: string | null) => void;
+  /** Inline error to display on the TeamOwnershipPicker (create mode only). */
+  ownerTeamError?: string | null;
 }
 
 // =============================================================================
@@ -98,7 +108,14 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   previewEnvironmentId = null,
   onPreviewEnvironmentChange,
   templatePreviewContext,
+  ownerTeamId = null,
+  onOwnerTeamIdChange,
+  ownerTeamError = null,
 }) => {
+  const accessApi = useApi(accessApiRef);
+  const { allowed: allowGlobal } = accessApi.useAccess(
+    healthCheckAccess.configuration.manage,
+  );
   // --- General Section ---
   if (selectedNode === "general") {
     return (
@@ -165,9 +182,18 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
               expanded
             />
           ) : (
-            <p className="text-sm text-muted-foreground italic">
-              Access control is available after saving the configuration.
-            </p>
+            <div className="space-y-4">
+              <TeamOwnershipPicker
+                value={ownerTeamId}
+                onChange={(teamId) => onOwnerTeamIdChange?.(teamId)}
+                allowGlobal={allowGlobal}
+                error={ownerTeamError}
+              />
+              <p className="text-sm text-muted-foreground italic">
+                Fine-grained team access control is available after saving the
+                configuration.
+              </p>
+            </div>
           )}
         </div>
       </div>

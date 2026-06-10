@@ -42,7 +42,7 @@ Users cannot modify their own role assignments. The backend enforces this even i
 Roles answer "what kinds of things may you do?" Teams answer "which resources may you do them to?" A team carries:
 
 - A list of **members**, by user or application ID.
-- A list of **team managers**, who can manage membership and grants for that specific team without holding global admin.
+- A list of **team managers**, who can manage that team's membership and managers without holding global admin (granting the team access to resources stays an admin action - see the permissions table below).
 - A list of **resource grants**, each of which says "this team may `read` or `manage` resource `<resourceType>/<resourceId>`".
 
 A user has access to a resource when at least one of these is true:
@@ -55,14 +55,40 @@ In other words: roles let you cut access "wide" (everyone can read everything), 
 > [!IMPORTANT]
 > Resources you mark **team-only** opt out of the global path entirely. A team-only system requires team membership; even a user with the global `catalog.systems.read` rule cannot see it unless they are on a team with a grant for it. Use this for sensitive systems.
 
+> [!NOTE]
+> Team-only is enforced on the resource you set it on. A system's sub-records (its health checks, contacts, and links) are gated by the **system's** access, so making the system team-only also hides them. Marking a sub-record team-only on its own does not hide it behind a system that everyone can still read - lock down the parent system instead.
+
 ## Admin vs member
 
 Two practical distinctions you will hit:
 
 - **Platform admins** (users with the `admin` role) can do anything. They manage users, roles, teams, and resource access settings across the whole platform.
-- **Team managers** (users in a team's `team_manager` list) can manage that specific team's membership and grants. They cannot touch other teams or do platform-wide admin work.
+- **Team managers** (users in a team's `team_manager` list) can manage that specific team's **membership and managers**. They cannot touch other teams, grant the team access to resources, or do platform-wide admin work.
 
 This is the usual delegation pattern: a small number of platform admins, and per-team managers who run their own corner.
+
+## Who can do what (permissions)
+
+Every team-related action maps to an access rule (granted via a role) and, for some actions, to being a manager of the specific team. "Admin" below means holding `auth.teams.manage` (the `admin` role has it).
+
+| Action | What you need |
+|--------|---------------|
+| View teams, members, and "who can change this" on a resource | `auth.teams.read` |
+| Create a team | `auth.teams.manage` (admin) |
+| Delete a team | `auth.teams.manage` (admin) |
+| Rename / edit a team's details | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
+| Add / remove team members | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
+| Promote / demote team managers | `auth.teams.read` **and** be a manager of that team (or `auth.teams.manage`) |
+| Grant or revoke a team's access to a resource (the **Team access** editor, **Scope to team**) | `auth.teams.manage` (admin) |
+| Make a resource **team-only** (private) | `auth.teams.manage` |
+| Allow a team to **create** a resource type (create-capability) | `auth.teams.manage` |
+| Create a resource **owned by a team** | one of: the global `<plugin>.<resource>.manage` rule; membership of a team that has a create-capability grant for that type; or (incidents/maintenances) manage access to the target system |
+
+Key takeaways:
+
+- **Team managers** are about running a team (members + managers), not about handing out resource access. Granting a team access to a system, or the right to create a resource type, is an admin (`auth.teams.manage`) action.
+- **Reading** is broad: anyone with `auth.teams.read` can see teams and what manages a resource. Read of the resources themselves stays global unless the resource is marked team-only.
+- **Creating** a team-owned resource has three independent paths (global manage, a per-type create grant, or managing the parent system) - a user needs only one of them.
 
 ## How resource access is enforced
 
@@ -87,11 +113,20 @@ A few patterns that show up often:
 
 | Where to go | What you do there |
 |-------------|-------------------|
-| **Infrastructure -> Auth -> Users** | Add users (credential auth), assign roles, deactivate. |
-| **Infrastructure -> Auth -> Roles** | Create and edit roles, manage their access-rule lists. |
-| **Infrastructure -> Auth -> Teams** | Create teams, set membership, assign team managers, add resource grants. |
-| **Infrastructure -> Auth -> Applications** | Issue API keys, assign them roles and team memberships. |
-| **System detail -> Access** | Grant a team access to this specific system (team manager view). |
+| **Configuration -> Auth Settings -> Users** | Add users (credential auth), assign roles, deactivate. (Admin.) |
+| **Configuration -> Auth Settings -> Roles** | Create and edit roles, manage their access-rule lists. (Admin.) |
+| **Configuration -> Teams** | A standalone page (gated on `auth.teams.read`, **not** part of admin Auth Settings): create teams (admin), manage a team's members and managers (a team's own managers can do this), search the directory to add members, and (admin) review/edit/revoke/add the team's resource grants **by name**. |
+| **Configuration -> Auth Settings -> Applications** | Issue API keys, assign them roles and team memberships. (Admin.) |
+| **Resource detail -> Who can change this** | See who can change a resource (and the people by name), and (admin) grant a team access to it. The same editor appears on systems, health-check configurations, incidents, and maintenances. |
+
+## Two ways to manage grants
+
+There are two complementary places to wire teams to resources, and they share one engine:
+
+- **From the resource** ("Who can change this" editor on a system / health-check / incident / maintenance): scope *this* resource to one or more teams. Best when you are already looking at the resource.
+- **From the team** (Teams page): review everything a team can touch **by name**, change a grant's level, revoke it, or add a new grant by searching for a resource. Best for review, offboarding, or setting a team up across many resources at once.
+
+Create forms also expose an **Owning team** picker to assign a new resource to a team at creation time.
 
 ## Deferred for later
 
@@ -99,7 +134,8 @@ A few things are intentionally out of scope for the current release and tracked 
 
 - **Audit log.** Checkstack does not yet ship a built-in audit log of role/team/grant changes.
 - **CSV exports.** Bulk export of users and teams is not built in; the data is queryable via the API.
-- **Resource-side team UI.** Today, team grants are managed from the Teams tab. A future enhancement will let resource owners share their resources to a team directly from the resource detail page without round-tripping through Auth settings.
+- **SLO objective labels.** SLO objectives have no human-readable name, so in the Teams grant list they show the owning system id rather than a friendly label.
+- **Health-check "who can change this" reach.** The read-only access indicator on a health-check configuration currently lives on the configuration detail page, which is gated on `healthcheck.configuration.manage`. So it is visible to people who can already manage the check, not to a read-only viewer wanting to know who to ask. The system, incident, and maintenance indicators sit on read-accessible pages and do not have this limitation; surfacing the health-check one on a read-level view is a follow-up.
 
 ## Where to go next
 

@@ -66,7 +66,7 @@ describe("catalog.deleteSystem tool", () => {
     ).rejects.toThrow(/No system found/);
   });
 
-  test("execute (apply) deletes via deleteSystem with the POSITIONAL id", async () => {
+  test("execute (apply) deletes via deleteSystem with an { id } payload", async () => {
     const deleteSystem = mock(() => Promise.resolve({ success: true }));
     const rpcClient = fakeRpcClient({
       getSystem: mock(() => Promise.resolve(system)),
@@ -78,7 +78,7 @@ describe("catalog.deleteSystem tool", () => {
       principal,
       rpcClient,
     });
-    expect(deleteSystem).toHaveBeenCalledWith("sys1");
+    expect(deleteSystem).toHaveBeenCalledWith({ id: "sys1" });
     expect(result).toEqual({ id: "sys1", deleted: true });
   });
 });

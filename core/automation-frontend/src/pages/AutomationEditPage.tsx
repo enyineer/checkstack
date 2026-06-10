@@ -50,6 +50,7 @@ import {
   GitOpsLockBanner,
   useProvenanceLock,
 } from "@checkstack/gitops-frontend";
+import { TeamOwnershipPicker, teamCreateErrorMessage } from "@checkstack/auth-frontend";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { AutomationDefinitionEditor } from "../editor/AutomationDefinitionEditor";
 import { assignDefaultIds } from "../editor/action-helpers";
@@ -112,6 +113,9 @@ const AutomationEditContent: React.FC = () => {
   const { allowed: hasManageAccess } = accessApi.useAccess(
     automationAccess.manage,
   );
+  // allowGlobal: reuse the manage access check — global manage permission
+  // means the caller may create a resource not scoped to any team.
+  const allowGlobal = hasManageAccess;
 
   // GitOps provenance lock: when this automation is declaratively managed,
   // disable manual edits + show a banner. `entityId` is the automation id
@@ -139,6 +143,10 @@ const AutomationEditContent: React.FC = () => {
   // "not chosen yet" — save is blocked until one is selected.
   const [runAsApplicationId, setRunAsApplicationId] = React.useState("");
   const [statusEnabled, setStatusEnabled] = React.useState(true);
+  // Owning team — create mode only. null means global (no team owner).
+  const [ownerTeamId, setOwnerTeamId] = React.useState<string | null>(null);
+  // Inline error for team-create failures (e.g. OWNER_TEAM_REQUIRED).
+  const [ownerTeamError, setOwnerTeamError] = React.useState<string | null>(null);
 
   // Existing group values for the picker's "pick existing" suggestions.
   const groupsQuery = client.listAutomationGroups.useQuery();
@@ -299,7 +307,14 @@ const AutomationEditContent: React.FC = () => {
         resolveRoute(automationRoutes.routes.edit, { automationId: data.id }),
       );
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error) => {
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+        return;
+      }
+      toast.error(extractErrorMessage(error));
+    },
   });
 
   const updateMutation = client.updateAutomation.useMutation({
@@ -343,6 +358,7 @@ const AutomationEditContent: React.FC = () => {
   };
 
   const handleSave = async () => {
+    setOwnerTeamError(null);
     const committed = commitActiveTab();
     if (!committed) return;
 
@@ -375,6 +391,7 @@ const AutomationEditContent: React.FC = () => {
         runAs: runAsApplicationId,
         status: statusEnabled ? "enabled" : "disabled",
         definition: merged,
+        teamId: ownerTeamId ?? undefined,
       });
     } else if (automationId) {
       updateMutation.mutate({
@@ -555,6 +572,19 @@ const AutomationEditContent: React.FC = () => {
                 disabled={!canManage}
                 showError={!!runAsError}
               />
+              {/* Owning team — shown only when creating a new automation */}
+              {isNew && (
+                <TeamOwnershipPicker
+                  value={ownerTeamId}
+                  onChange={(id) => {
+                    setOwnerTeamId(id);
+                    setOwnerTeamError(null);
+                  }}
+                  allowGlobal={allowGlobal}
+                  disabled={!canManage}
+                  error={ownerTeamError}
+                />
+              )}
               <div className="flex items-center justify-between">
                 <Label htmlFor="enabled">Enabled</Label>
                 <Toggle

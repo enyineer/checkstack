@@ -2,6 +2,7 @@ export * from "./access";
 export * from "./schemas";
 export * from "./zod-health-result";
 export * from "./strategy-category";
+export * from "./slots";
 
 // --- DTOs for API Responses ---
 

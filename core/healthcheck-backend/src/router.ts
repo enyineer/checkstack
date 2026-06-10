@@ -199,20 +199,20 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     deleteConfiguration: os.deleteConfiguration.handler(async ({ input }) => {
-      await enforceNotGitOpsLocked("Healthcheck", input);
-      await service.deleteConfiguration(input);
+      await enforceNotGitOpsLocked("Healthcheck", input.id);
+      await service.deleteConfiguration(input.id);
       await cache.invalidateAllSystems();
     }),
 
     pauseConfiguration: os.pauseConfiguration.handler(async ({ input }) => {
-      await enforceNotGitOpsLocked("Healthcheck", input);
-      await service.pauseConfiguration(input);
+      await enforceNotGitOpsLocked("Healthcheck", input.id);
+      await service.pauseConfiguration(input.id);
       await cache.invalidateAllSystems();
     }),
 
     resumeConfiguration: os.resumeConfiguration.handler(async ({ input }) => {
-      await enforceNotGitOpsLocked("Healthcheck", input);
-      await service.resumeConfiguration(input);
+      await enforceNotGitOpsLocked("Healthcheck", input.id);
+      await service.resumeConfiguration(input.id);
       await cache.invalidateAllSystems();
     }),
 

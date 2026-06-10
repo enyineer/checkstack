@@ -90,6 +90,9 @@ export const CreateMaintenanceInputSchema = z
     startAt: z.date(),
     endAt: z.date(),
     systemIds: z.array(z.string()).min(1, "At least one system is required"),
+    /** Optional owning-team id. Consumed by autoAuthMiddleware (create-mode team
+     * ownership); ignored by the backend handler and never written to the DB row. */
+    teamId: z.string().optional(),
   })
   .refine((data) => data.endAt > data.startAt, {
     message: "End date must be after start date",

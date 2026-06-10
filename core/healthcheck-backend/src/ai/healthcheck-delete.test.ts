@@ -75,7 +75,7 @@ describe("healthcheck.delete tool", () => {
     });
     const tool = createHealthcheckDeleteTool();
     const result = await tool.execute({ input: { id: "hc1" }, principal, rpcClient });
-    expect(deleteConfiguration).toHaveBeenCalledWith("hc1");
+    expect(deleteConfiguration).toHaveBeenCalledWith({ id: "hc1" });
     expect(result).toEqual({ id: "hc1", deleted: true });
   });
 });

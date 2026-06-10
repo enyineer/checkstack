@@ -14,12 +14,11 @@ import {
   AccessRuleEntry,
 } from "../api";
 import { authAccess, AuthApi } from "@checkstack/auth-common";
-import { Shield, Settings2, Users, Key, Users2 } from "lucide-react";
+import { Shield, Settings2, Users, Key } from "lucide-react";
 import { UsersTab } from "./UsersTab";
 import { RolesTab } from "./RolesTab";
 import { StrategiesTab } from "./StrategiesTab";
 import { ApplicationsTab } from "./ApplicationsTab";
-import { TeamsTab } from "./TeamsTab";
 
 export const AuthSettingsPage: React.FC = () => {
   const authApi = useApi(authApiRef);
@@ -30,7 +29,7 @@ export const AuthSettingsPage: React.FC = () => {
   const session = authApi.useSession();
 
   const [activeTab, setActiveTab] = useState<
-    "users" | "roles" | "teams" | "strategies" | "applications"
+    "users" | "roles" | "strategies" | "applications"
   >("users");
 
   const canReadUsers = accessApi.useAccess(authAccess.users.read);
@@ -41,10 +40,10 @@ export const AuthSettingsPage: React.FC = () => {
 
     if (
       tab &&
-      ["users", "roles", "teams", "strategies", "applications"].includes(tab)
+      ["users", "roles", "strategies", "applications"].includes(tab)
     ) {
       setActiveTab(
-        tab as "users" | "roles" | "teams" | "strategies" | "applications",
+        tab as "users" | "roles" | "strategies" | "applications",
       );
     }
 
@@ -66,8 +65,6 @@ export const AuthSettingsPage: React.FC = () => {
   const canManageStrategies = accessApi.useAccess(authAccess.strategies);
   const canManageRegistration = accessApi.useAccess(authAccess.registration);
   const canManageApplications = accessApi.useAccess(authAccess.applications);
-  const canReadTeams = accessApi.useAccess(authAccess.teams.read);
-  const canManageTeams = accessApi.useAccess(authAccess.teams.manage);
 
   // Queries: Fetch data from API
   const {
@@ -105,15 +102,13 @@ export const AuthSettingsPage: React.FC = () => {
     canReadUsers.loading ||
     canReadRoles.loading ||
     canManageStrategies.loading ||
-    canManageApplications.loading ||
-    canReadTeams.loading;
+    canManageApplications.loading;
 
   const hasAnyAccess =
     canReadUsers.allowed ||
     canReadRoles.allowed ||
     canManageStrategies.allowed ||
-    canManageApplications.allowed ||
-    canReadTeams.allowed;
+    canManageApplications.allowed;
 
   // Special case: if user is not logged in, show access denied
   const isAllowed = session.data?.user ? hasAnyAccess : false;
@@ -121,7 +116,7 @@ export const AuthSettingsPage: React.FC = () => {
   // Compute visible tabs based on access rules
   const visibleTabs = useMemo(() => {
     const tabs: Array<{
-      id: "users" | "roles" | "teams" | "strategies" | "applications";
+      id: "users" | "roles" | "strategies" | "applications";
       label: string;
       icon: React.ReactNode;
     }> = [];
@@ -136,12 +131,6 @@ export const AuthSettingsPage: React.FC = () => {
         id: "roles",
         label: "Roles & Access Rules",
         icon: <Shield size={18} />,
-      });
-    if (canReadTeams.allowed)
-      tabs.push({
-        id: "teams",
-        label: "Teams",
-        icon: <Users2 size={18} />,
       });
     if (canManageStrategies.allowed)
       tabs.push({
@@ -159,7 +148,6 @@ export const AuthSettingsPage: React.FC = () => {
   }, [
     canReadUsers.allowed,
     canReadRoles.allowed,
-    canReadTeams.allowed,
     canManageStrategies.allowed,
     canManageApplications.allowed,
   ]);
@@ -200,12 +188,7 @@ export const AuthSettingsPage: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tabId) =>
           setActiveTab(
-            tabId as
-              | "users"
-              | "roles"
-              | "teams"
-              | "strategies"
-              | "applications",
+            tabId as "users" | "roles" | "strategies" | "applications",
           )
         }
         className="mb-6"
@@ -234,15 +217,6 @@ export const AuthSettingsPage: React.FC = () => {
           canCreateRoles={canCreateRoles.allowed}
           canUpdateRoles={canUpdateRoles.allowed}
           canDeleteRoles={canDeleteRoles.allowed}
-          onDataChange={handleDataChange}
-        />
-      </TabPanel>
-
-      <TabPanel id="teams" activeTab={activeTab}>
-        <TeamsTab
-          users={typedUsers}
-          canReadTeams={canReadTeams.allowed}
-          canManageTeams={canManageTeams.allowed}
           onDataChange={handleDataChange}
         />
       </TabPanel>

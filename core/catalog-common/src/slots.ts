@@ -56,6 +56,28 @@ export const CatalogSystemActionsSlot = createSlot<{
 }>("plugin.catalog.system-actions");
 
 /**
+ * Slot for adding BULK actions to the catalog systems management list, rendered
+ * in the multi-select action bar. Extensions receive the currently-selected
+ * systems and an `onDone` callback to clear the selection after a successful
+ * bulk operation. Mirrors {@link CatalogSystemActionsSlot} but for many systems
+ * at once (e.g. "Scope selected systems to a team"). Catalog gains no
+ * dependency on the filler.
+ *
+ * @example
+ * extensions: [{
+ *   id: "my-plugin.system-bulk-actions",
+ *   slotId: CatalogSystemBulkActionsSlot.id,
+ *   component: ({ systems, onDone }) => (
+ *     <MyBulkAction systems={systems} onDone={onDone} />
+ *   ),
+ * }]
+ */
+export const CatalogSystemBulkActionsSlot = createSlot<{
+  systems: Array<{ id: string; name: string }>;
+  onDone: () => void;
+}>("plugin.catalog.system-bulk-actions");
+
+/**
  * Slot for displaying system state badges.
  * Plugins use this to contribute state indicators (e.g., health status, maintenance status).
  * Extensions receive the system and should render badge components.
@@ -72,6 +94,23 @@ export const CatalogSystemActionsSlot = createSlot<{
  */
 export const SystemStateBadgesSlot = createSlot<{ system: System }>(
   "plugin.catalog.system-state-badges"
+);
+
+/**
+ * Slot for read-only metadata sections in the System Details right sidebar
+ * (alongside About / Contacts / Links / Groups). Use for quiet, contextual
+ * facts about the system — e.g. auth-frontend contributes a "who can change
+ * this" access indicator. Extensions receive the full system.
+ *
+ * @example
+ * extensions: [{
+ *   id: "my-plugin.system-meta",
+ *   slotId: SystemMetaSlot.id,
+ *   component: ({ system }) => <MyMetaSection system={system} />,
+ * }]
+ */
+export const SystemMetaSlot = createSlot<{ system: System }>(
+  "plugin.catalog.system-meta"
 );
 
 /**

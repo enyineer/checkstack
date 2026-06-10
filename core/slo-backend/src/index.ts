@@ -16,6 +16,7 @@ import {
   AchievementTypeSchema,
 } from "@checkstack/slo-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { inArray, ilike } from "drizzle-orm";
 import {
   automationTriggerExtensionPoint,
   entityExtensionPoint,
@@ -237,6 +238,7 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         cacheManager: coreServices.cacheManager,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
         logger,
@@ -245,10 +247,12 @@ export default createBackendPlugin({
         signalService,
         rpcClient,
         cacheManager,
+        resourceResolverRegistry,
       }) => {
         logger.debug("🔧 Initializing SLO Backend...");
 
-        const service = new SloService(database as SafeDatabase<typeof schema>);
+        const typedDb = database as SafeDatabase<typeof schema>;
+        const service = new SloService(typedDb);
         gitopsService = service;
         const engine = new SloEngine({
           service,
@@ -268,6 +272,35 @@ export default createBackendPlugin({
           cache,
         });
         rpc.registerRouter(router, sloContract);
+
+        // Resolve/search SLO objectives by name for the Teams admin UI (team
+        // grants are stored as opaque slo.slo:<objectiveId> rows). The
+        // objectives table has no human label column, so the owning system id
+        // is used as the display name.
+        resourceResolverRegistry.register("slo.slo", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({
+                id: schema.sloObjectives.id,
+                name: schema.sloObjectives.systemId,
+              })
+              .from(schema.sloObjectives)
+              .where(inArray(schema.sloObjectives.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({
+                id: schema.sloObjectives.id,
+                name: schema.sloObjectives.systemId,
+              })
+              .from(schema.sloObjectives)
+              .where(ilike(schema.sloObjectives.systemId, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
 
         // Contribute breaching/degraded/at-risk SLOs to the `system.issues` AI
         // tool. `read` enforces this source's read access on the originating

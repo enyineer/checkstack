@@ -10,6 +10,7 @@ import {
   SystemDetailsSlot,
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
+  SystemMetaSlot,
   catalogSystemTarget,
 } from "@checkstack/catalog-common";
 import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
@@ -194,6 +195,10 @@ export const SystemDetailPage: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {/* Access — "who can change this" (filled by auth-frontend; renders
+                nothing when the system is not team-scoped). */}
+            <ExtensionSlot slot={SystemMetaSlot} context={{ system }} />
 
             <div className="h-px bg-border" />
 

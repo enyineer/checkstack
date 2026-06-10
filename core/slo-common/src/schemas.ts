@@ -203,6 +203,11 @@ export const SloWindowDaysSchema = z
 
 /**
  * Input for creating a new SLO objective.
+ *
+ * `teamId` is an optional hint for the create-mode team-ownership middleware
+ * (`instanceAccess.create.teamIdParam`). The backend handler and service layer
+ * never read this field — the middleware consumes it before the handler runs
+ * and writes the owning-team grant after the handler returns.
  */
 export const CreateSloObjectiveInputSchema = z.object({
   systemId: z.string().min(1, "System is required"),
@@ -221,6 +226,8 @@ export const CreateSloObjectiveInputSchema = z.object({
     criticalPercent: 80,
     fastBurnMultiplier: 5,
   }),
+  /** Optional owning-team id; consumed by autoAuthMiddleware, ignored by the handler. */
+  teamId: z.string().optional(),
 });
 export type CreateSloObjectiveInput = z.infer<
   typeof CreateSloObjectiveInputSchema

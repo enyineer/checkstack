@@ -72,7 +72,7 @@ function buildHandler({
     authenticate: () => Promise.resolve(principal),
     getCredentials: () => Promise.resolve({ headers: {} }),
     getAnonymousAccessRules: () => Promise.resolve([]),
-    checkResourceTeamAccess: () => Promise.resolve(false),
+    check: () => Promise.resolve(false),
   } as unknown as AuthService;
 
   return createMcpRequestHandler({

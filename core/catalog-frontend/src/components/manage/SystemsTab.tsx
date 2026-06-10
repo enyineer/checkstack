@@ -15,6 +15,7 @@ import {
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import {
   CatalogSystemActionsSlot,
+  CatalogSystemBulkActionsSlot,
   SystemStateBadgesSlot,
 } from "@checkstack/catalog-common";
 import {
@@ -156,6 +157,16 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
                 }
               }
               clearSelection();
+            }}
+          />
+          <ExtensionSlot
+            slot={CatalogSystemBulkActionsSlot}
+            context={{
+              systems: selectedVisible.map((id) => ({
+                id,
+                name: systems.find((s) => s.id === id)?.name ?? id,
+              })),
+              onDone: clearSelection,
             }}
           />
           <Button

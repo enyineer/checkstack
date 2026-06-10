@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { Hono } from "hono";
+import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import {
@@ -15,7 +16,7 @@ import {
   HookSubscribeOptions,
   RpcContext,
 } from "@checkstack/backend-api";
-import type { AccessRule } from "@checkstack/common";
+import type { AccessRule, InstanceAccessConfig } from "@checkstack/common";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -49,6 +50,12 @@ export interface PluginLoaderDeps {
   registeredAccessRules: (AccessRule & { pluginId: string })[];
   getAllAccessRules: () => AccessRule[];
   getAnonymousUsableAccessRuleIds: () => string[];
+  getResourceKinds: () => {
+    resourceType: string;
+    label: string;
+    pluginId: string;
+    createCapable: boolean;
+  }[];
   db: SafeDatabase<Record<string, unknown>>;
   /**
    * Map of pluginId -> PluginMetadata for request-time context injection.
@@ -239,6 +246,7 @@ export function registerPlugin({
       getAllAccessRules: () => deps.getAllAccessRules(),
       getAnonymousUsableAccessRuleIds: () =>
         deps.getAnonymousUsableAccessRuleIds(),
+      getResourceKinds: () => deps.getResourceKinds(),
     },
   });
 }
@@ -623,18 +631,24 @@ export async function loadPlugins({
       registeredRuleIds,
       validationErrors,
     });
+    // Catch silently-ignored team-scoping misconfig: a per-proc instanceAccess
+    // that names more than one mode (the middleware would silently honor only
+    // one and ignore the rest) or none at all.
+    validateContractInstanceAccess({
+      pluginId,
+      contract,
+      validationErrors,
+    });
   }
 
   if (validationErrors.length > 0) {
-    rootLogger.error("❌ Unregistered access rules found in contracts:");
+    rootLogger.error("❌ Contract validation failed:");
     for (const error of validationErrors) {
       rootLogger.error(`   • ${error}`);
     }
-    throw new Error(
-      `Unregistered access rules in contracts:\n${validationErrors.join("\n")}`,
-    );
+    throw new Error(`Contract validation failed:\n${validationErrors.join("\n")}`);
   }
-  rootLogger.debug("✅ All access rules in contracts are registered");
+  rootLogger.debug("✅ Contract access rules and instanceAccess are valid");
 
   // Phase 3: Run afterPluginsReady callbacks
   rootLogger.debug("🔄 Running afterPluginsReady callbacks...");
@@ -795,6 +809,256 @@ function validateContractAccessRules({
       }
     }
   }
+}
+
+/**
+ * Boot-time guard for per-procedure `instanceAccess` (team-scoping) wiring.
+ *
+ * The auth middleware classifies a procedure's scoping mode by which field of
+ * `instanceAccess` is set (`idParam` -> single, `listKey` -> list, `recordKey`
+ * -> record, `create` -> create). If more than one is set, the middleware
+ * silently honors one and ignores the rest — a misconfiguration that yields
+ * either an unscoped leak or a broken filter, with no error. This validator
+ * makes that loud at boot: a per-proc `instanceAccess` MUST name exactly one
+ * mode. (Pure function over the contract; exported for unit testing.)
+ *
+ * It additionally cross-checks any INPUT-derived path (`idParam`, and create
+ * mode's `teamIdParam` / `parent.idParam`) against the procedure's input
+ * schema. The auth middleware now fails CLOSED when an `idParam` does not
+ * resolve at runtime (see `core/backend-api/src/rpc.ts`), so a typo'd or absent
+ * field would deny every call — this validator surfaces that at boot instead of
+ * in production, where the cause is far less obvious.
+ */
+export function validateContractInstanceAccess({
+  pluginId,
+  contract,
+  validationErrors,
+}: {
+  pluginId: string;
+  contract: AnyContractRouter;
+  validationErrors: string[];
+}): void {
+  type ProcMeta = {
+    instanceAccess?: InstanceAccessConfig;
+    userType?: string;
+    access?: ReadonlyArray<{ resource: string; pluginId: string }>;
+  };
+  type ProcEntry = {
+    name: string;
+    ia?: InstanceAccessConfig;
+    userType?: string;
+    inputSchema?: unknown;
+    accessTypes: string[];
+  };
+
+  // Pass 1: collect every procedure's (instanceAccess, access-rule resource
+  // types) and the set of resource types that ARE team-scoped somewhere in
+  // this contract (any proc that declares a real scoping mode for them).
+  const procs: ProcEntry[] = [];
+  const scopableTypes = new Set<string>();
+  for (const [name, procedure] of Object.entries(
+    contract as Record<string, unknown>,
+  )) {
+    if (!procedure || typeof procedure !== "object") continue;
+    const orpcData = (procedure as Record<string, unknown>)["~orpc"] as
+      | { meta?: ProcMeta; inputSchema?: unknown }
+      | undefined;
+    const meta = orpcData?.meta;
+    const ia = meta?.instanceAccess;
+    const accessTypes = (meta?.access ?? []).map(
+      (r) => `${r.pluginId}.${r.resource}`,
+    );
+    procs.push({
+      name,
+      ia,
+      userType: meta?.userType,
+      inputSchema: orpcData?.inputSchema,
+      accessTypes,
+    });
+    // A "real" scoping mode (not the global opt-out) marks the type scopable.
+    const hasScopingMode =
+      !!ia && (!!ia.idParam || !!ia.listKey || !!ia.recordKey || !!ia.create);
+    if (hasScopingMode) {
+      for (const t of accessTypes) scopableTypes.add(t);
+    }
+  }
+
+  // Pass 2: validate each procedure.
+  for (const proc of procs) {
+    const { name: procedureName, ia, userType, inputSchema, accessTypes } =
+      proc;
+
+    if (!ia) {
+      // No instanceAccess declared. That is fine for a type that is never
+      // team-scoped, and for service/anonymous endpoints (the middleware
+      // bypasses instance checks for them entirely). But if this endpoint
+      // touches a resource type that IS scoped elsewhere, the omission is the
+      // dangerous fail-open case: require an explicit decision.
+      const bypassesInstanceChecks =
+        userType === "service" || userType === "anonymous";
+      const touchesScopable = accessTypes.some((t) => scopableTypes.has(t));
+      if (!bypassesInstanceChecks && touchesScopable) {
+        const scoped = accessTypes.filter((t) => scopableTypes.has(t));
+        validationErrors.push(
+          `Plugin "${pluginId}" procedure "${procedureName}" is gated on a ` +
+            `team-scopable resource type (${scoped.join(", ")}) but declares no ` +
+            `instanceAccess. This silently fails OPEN (enforced only at the ` +
+            `global-rule level). Declare a scoping mode (idParam/listKey/` +
+            `recordKey/create), or assert it is intentionally unscoped with ` +
+            `instanceAccess: { global: true }.`,
+        );
+      }
+      continue;
+    }
+
+    const modes: string[] = [];
+    if (ia.global) modes.push("global");
+    if (ia.idParam) modes.push("idParam");
+    if (ia.listKey) modes.push("listKey");
+    if (ia.recordKey) modes.push("recordKey");
+    if (ia.create) modes.push("create");
+    if (ia.parentScope) modes.push("parentScope");
+
+    if (modes.length === 0) {
+      validationErrors.push(
+        `Plugin "${pluginId}" procedure "${procedureName}" declares an empty instanceAccess ` +
+          `(no global/idParam/listKey/recordKey/create/parentScope). Remove it, or set exactly one mode.`,
+      );
+      continue;
+    }
+    if (modes.length > 1) {
+      validationErrors.push(
+        `Plugin "${pluginId}" procedure "${procedureName}" declares multiple instanceAccess modes ` +
+          `(${modes.join(", ")}); exactly one is allowed — the middleware would otherwise silently ` +
+          `honor one and ignore the rest. (\`global\` is mutually exclusive with the scoping modes.)`,
+      );
+      continue;
+    }
+
+    // Cross-check input-derived paths against the input schema. Only a
+    // DEFINITE mismatch (the schema is an object and lacks the segment) is an
+    // error; anything we cannot introspect is left alone to avoid false boot
+    // failures.
+    const pathCtx = { pluginId, procedureName, inputSchema, validationErrors };
+
+    if (ia.idParam) {
+      flagMissingInputPath({ ...pathCtx, configKey: "idParam", path: ia.idParam });
+    }
+    if (ia.create) {
+      flagMissingInputPath({
+        ...pathCtx,
+        configKey: "create.teamIdParam",
+        path: ia.create.teamIdParam ?? "teamId",
+      });
+      if (ia.create.parent) {
+        flagMissingInputPath({
+          ...pathCtx,
+          configKey: "create.parent.idParam",
+          path: ia.create.parent.idParam,
+        });
+      }
+    }
+    if (ia.parentScope) {
+      const ps = ia.parentScope;
+      if (!ps.resourceType) {
+        validationErrors.push(
+          `Plugin "${pluginId}" procedure "${procedureName}" parentScope is missing ` +
+            `the required \`resourceType\` (the qualified parent type, e.g. "catalog.system").`,
+        );
+      }
+      const psModes = [
+        ps.idParam && "idParam",
+        ps.recordKey && "recordKey",
+      ].filter(Boolean);
+      if (psModes.length !== 1) {
+        validationErrors.push(
+          `Plugin "${pluginId}" procedure "${procedureName}" parentScope must set EXACTLY one of ` +
+            `idParam (pre-check) or recordKey (post-filter); found ${psModes.length}.`,
+        );
+      }
+      // idParam is an INPUT path — cross-check it; recordKey is an output key.
+      if (ps.idParam) {
+        flagMissingInputPath({
+          ...pathCtx,
+          configKey: "parentScope.idParam",
+          path: ps.idParam,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Push a validation error when an instanceAccess input path does not exist in
+ * the procedure's input schema. Module-scoped (not nested in the loop) so the
+ * closure isn't re-created per procedure.
+ */
+function flagMissingInputPath({
+  pluginId,
+  procedureName,
+  inputSchema,
+  configKey,
+  path,
+  validationErrors,
+}: {
+  pluginId: string;
+  procedureName: string;
+  inputSchema: unknown;
+  configKey: string;
+  path: string;
+  validationErrors: string[];
+}): void {
+  if (resolveZodInputPath(inputSchema, path) === "missing") {
+    validationErrors.push(
+      `Plugin "${pluginId}" procedure "${procedureName}" instanceAccess.${configKey} ` +
+        `"${path}" does not exist in the procedure's input schema. The auth ` +
+        `middleware resolves the value from the input, so it would never match — ` +
+        `idParam fails closed (denies every call) and create paths silently skip ` +
+        `ownership/parent gating. Fix the path or add the field to the input.`,
+    );
+  }
+}
+
+/**
+ * Resolve whether a dot-notation input path is reachable inside a zod input
+ * schema. Returns "present" when the full path resolves, "missing" when an
+ * object shape definitively lacks a segment, and "unknown" when the schema
+ * cannot be introspected (non-object, union, record, transform, ...) so the
+ * caller skips it rather than emitting a false-positive boot error.
+ */
+function resolveZodInputPath(
+  schema: unknown,
+  path: string,
+): "present" | "missing" | "unknown" {
+  let current: unknown = schema;
+  for (const segment of path.split(".")) {
+    current = unwrapZodWrappers(current);
+    if (!(current instanceof z.ZodObject)) return "unknown";
+    const shape = current.shape as Record<string, unknown>;
+    if (!(segment in shape)) return "missing";
+    current = shape[segment];
+  }
+  return "present";
+}
+
+/**
+ * Peel shape-preserving zod wrappers (optional, nullable, default) so a path
+ * lookup sees the underlying object. Unknown wrappers fall through unchanged
+ * and resolve to "unknown" at the object check above.
+ */
+function unwrapZodWrappers(schema: unknown): unknown {
+  let current = schema;
+  while (
+    current instanceof z.ZodOptional ||
+    current instanceof z.ZodNullable ||
+    current instanceof z.ZodDefault
+  ) {
+    current =
+      current instanceof z.ZodDefault
+        ? current.def.innerType
+        : current.unwrap();
+  }
+  return current;
 }
 
 /**

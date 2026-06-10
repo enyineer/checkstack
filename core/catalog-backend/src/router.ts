@@ -235,13 +235,19 @@ export const createCatalogRouter = ({
   );
 
   const createSystem = os.createSystem.handler(async ({ input }) => {
+    // Destructure out `teamId` — it is consumed exclusively by the
+    // autoAuthMiddleware's create-mode pre/post hooks (ownership grant) and
+    // must NOT reach the service layer or the DB insert (the `systems` table
+    // has no `teamId` column, and the NewSystem type doesn't include it).
+    const { teamId: _teamId, ...systemInput } = input;
+
     // Reject duplicate names up front for a clean error on the common path.
     // The DB also has a unique index on `name` (see migration 0004); the catch
     // below converts a race-induced unique violation into the same CONFLICT.
-    const nameClash = await entityService.getSystemByName(input.name);
+    const nameClash = await entityService.getSystemByName(systemInput.name);
     if (nameClash) {
       throw new ORPCError("CONFLICT", {
-        message: `A system named "${input.name}" already exists`,
+        message: `A system named "${systemInput.name}" already exists`,
       });
     }
 
@@ -258,7 +264,7 @@ export const createCatalogRouter = ({
         handle: getSystemEntity?.(),
         systemId,
         apply: async () => {
-          result = await entityService.createSystem(input, systemId);
+          result = await entityService.createSystem(systemInput, systemId);
           return toCatalogSystemState({
             name: result.name,
             description: result.description,
@@ -269,7 +275,7 @@ export const createCatalogRouter = ({
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ORPCError("CONFLICT", {
-          message: `A system named "${input.name}" already exists`,
+          message: `A system named "${systemInput.name}" already exists`,
         });
       }
       throw error;
@@ -378,7 +384,8 @@ export const createCatalogRouter = ({
   });
 
   const deleteSystem = os.deleteSystem.handler(async ({ input }) => {
-    await enforceNotGitOpsLocked("System", input);
+    const systemId = input.id;
+    await enforceNotGitOpsLocked("System", systemId);
 
     // Drive the delete through the reactive `catalog-system` entity tombstone
     // (§10.4). The REAL delete runs INSIDE `apply`, so `prev` is snapshotted
@@ -387,20 +394,20 @@ export const createCatalogRouter = ({
     // subscribe to that `catalog-system` tombstone via onEntityChanged.
     await removeCatalogEntity({
       handle: getSystemEntity?.(),
-      id: input,
+      id: systemId,
       apply: async () => {
-        await entityService.deleteSystem(input);
+        await entityService.deleteSystem(systemId);
       },
     });
 
-    await removeSystemResource(input);
+    await removeSystemResource(systemId);
 
     // Drop catalog topology + this system's contacts so downstream plugins
     // (e.g. healthcheck) and any frontend that refetches in response see
     // fresh data.
     await Promise.all([
       cache.invalidateTopology(),
-      cache.invalidateContacts(input),
+      cache.invalidateContacts(systemId),
     ]);
 
     return { success: true };
@@ -646,15 +653,18 @@ export const createCatalogRouter = ({
 
   const removeSystemContact = os.removeSystemContact.handler(
     async ({ input }) => {
-      const contacts = await database.select().from(schema.systemContacts).where(eq(schema.systemContacts.id, input));
-      if (contacts[0]) {
-        await enforceNotGitOpsLocked("System", contacts[0].systemId);
+      await enforceNotGitOpsLocked("System", input.systemId);
+      // Delete is scoped to both the contact id AND its parent systemId so a
+      // manager of `systemId` cannot delete a contact belonging to a different
+      // system (the instanceAccess check only proved manage on `systemId`).
+      const removed = await entityService.removeContact({
+        contactId: input.id,
+        systemId: input.systemId,
+      });
+      if (removed) {
+        await cache.invalidateContacts(input.systemId);
       }
-      await entityService.removeContact(input);
-      if (contacts[0]) {
-        await cache.invalidateContacts(contacts[0].systemId);
-      }
-      return { success: true };
+      return { success: !!removed };
     },
   );
 
@@ -677,10 +687,15 @@ export const createCatalogRouter = ({
   });
 
   const removeSystemLink = os.removeSystemLink.handler(async ({ input }) => {
-    const removed = await entityService.removeLink(input);
+    await enforceNotGitOpsLocked("System", input.systemId);
+    // Scoped to both the link id AND its parent systemId so a manager of
+    // `systemId` cannot delete a link belonging to a different system.
+    const removed = await entityService.removeLink({
+      linkId: input.id,
+      systemId: input.systemId,
+    });
     if (removed) {
-      await enforceNotGitOpsLocked("System", removed.systemId);
-      await cache.invalidateLinks(removed.systemId);
+      await cache.invalidateLinks(input.systemId);
     }
     return { success: !!removed };
   });

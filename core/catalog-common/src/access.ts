@@ -28,8 +28,6 @@ export const catalogAccess = {
     },
     {
       pluginId: pluginMetadata.pluginId,
-      idParam: "systemId",
-      listKey: "systems",
     },
   ),
 

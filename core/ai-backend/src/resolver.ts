@@ -14,7 +14,7 @@ import type { AiToolRegistry } from "./tool-registry";
  * `accessRules` set, and the intersection only ever shrinks the visible tools.
  *
  * Team reach is NOT pre-filtered here. Instance (team-scoped) rules are
- * enforced per-call handler-side via the existing S2S `checkResourceTeamAccess`,
+ * enforced per-call handler-side via the existing S2S `check`,
  * so the resolver filters by the access-rule VOCABULARY only and the surfaced
  * tool set matches exactly what the principal could invoke in the UI.
  */

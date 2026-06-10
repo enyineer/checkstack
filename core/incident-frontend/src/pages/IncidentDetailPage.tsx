@@ -5,10 +5,15 @@ import {
   accessApiRef,
   useApi,
   wrapInSuspense,
+  ExtensionSlot,
 } from "@checkstack/frontend-api";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import { IncidentApi } from "../api";
-import { incidentRoutes, incidentAccess } from "@checkstack/incident-common";
+import {
+  incidentRoutes,
+  incidentAccess,
+  IncidentDetailsSlot,
+} from "@checkstack/incident-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
@@ -174,6 +179,9 @@ const IncidentDetailPageContent: React.FC = () => {
             </CardHeaderRow>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
+            {/* "Who can change this" — filled by auth-frontend; renders nothing
+                when the incident is not team-scoped. */}
+            <ExtensionSlot slot={IncidentDetailsSlot} context={{ incident }} />
             {incident.description && (
               <div>
                 <h4 className="text-sm font-medium text-muted-foreground mb-1">

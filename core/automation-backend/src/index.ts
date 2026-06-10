@@ -12,6 +12,7 @@ import {
 } from "@checkstack/automation-common";
 import { resolveRoute, extractErrorMessage } from "@checkstack/common";
 import type { PluginMetadata } from "@checkstack/common";
+import { inArray, ilike } from "drizzle-orm";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import {
   createDefaultFilterRegistry,
@@ -327,6 +328,7 @@ export default createBackendPlugin({
         queueManager: coreServices.queueManager,
         signalService: coreServices.signalService,
         advisoryLock: coreServices.advisoryLock,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
         logger,
@@ -337,11 +339,43 @@ export default createBackendPlugin({
         queueManager,
         signalService,
         advisoryLock,
+        resourceResolverRegistry,
       }) => {
         logger.debug("⚙️  Initializing Automation Backend...");
 
         // Populate the mutable DB ref the GitOps reconcile closures read.
         gitopsDb = database as SafeDatabase<typeof schema>;
+
+        const typedDb = database as SafeDatabase<typeof schema>;
+
+        // Resolve/search automations by name for the Teams admin UI (team
+        // grants are stored as opaque automation.automation:<id> rows). Lets
+        // the auth backend render grants by name and power the grant picker
+        // without depending on automation.
+        resourceResolverRegistry.register("automation.automation", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({
+                id: schema.automations.id,
+                name: schema.automations.name,
+              })
+              .from(schema.automations)
+              .where(inArray(schema.automations.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({
+                id: schema.automations.id,
+                name: schema.automations.name,
+              })
+              .from(schema.automations)
+              .where(ilike(schema.automations.name, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
 
         // Run-scoped secret registry: created in `register()` (the SAME
         // instance) so it accumulates every secret value resolved during a

@@ -8,6 +8,7 @@ import {
   CacheManager,
 } from "@checkstack/cache-api";
 import {
+  type AccessLevel,
   ProcedureMetadata,
   qualifyAccessRuleId,
   qualifyResourceType,
@@ -134,9 +135,17 @@ export const autoAuthMiddleware = os.middleware(
       ),
     }));
 
-    // Separate rules by type
-    const globalOnlyRules = qualifiedRules.filter((r) => !r.instanceAccess);
-    const instanceRules = qualifiedRules.filter((r) => r.instanceAccess);
+    // Separate rules by type. A rule with no instanceAccess, OR an explicit
+    // `instanceAccess: { global: true }` (the deliberate "this endpoint is not
+    // team-scoped" marker), is enforced purely at the global-rule level — no
+    // per-resource team check. `global` and the scoping modes are mutually
+    // exclusive (enforced by the boot validator).
+    const globalOnlyRules = qualifiedRules.filter(
+      (r) => !r.instanceAccess || r.instanceAccess.global === true,
+    );
+    const instanceRules = qualifiedRules.filter(
+      (r) => r.instanceAccess && r.instanceAccess.global !== true,
+    );
     const singleResourceRules = instanceRules.filter(
       (r) =>
         r.instanceAccess?.idParam &&
@@ -148,6 +157,14 @@ export const autoAuthMiddleware = os.middleware(
     );
     const recordResourceRules = instanceRules.filter(
       (r) => r.instanceAccess?.recordKey,
+    );
+    const createResourceRules = instanceRules.filter(
+      (r) => r.instanceAccess?.create,
+    );
+    // Parent-scoped rules delegate the per-resource decision to a PARENT type
+    // (e.g. "you may see incidents for system X iff you may see system X").
+    const parentScopeRules = instanceRules.filter(
+      (r) => r.instanceAccess?.parentScope,
     );
 
     // 1. Handle anonymous endpoints - no auth required, no access checks
@@ -270,30 +287,44 @@ export const autoAuthMiddleware = os.middleware(
     // For these, user MUST have either global access OR team grant
     for (const rule of singleResourceRules) {
       const resourceId = getNestedValue(input, rule.instanceAccess!.idParam!);
-      if (!resourceId) continue;
 
-      // If no user (anonymous on public endpoint), check if anonymous role has global access
+      // Resolve the caller's global-rule verdict once (anonymous callers use
+      // the anonymous role's rules; everyone else uses their own granted set).
+      let hasGlobalAccess: boolean;
       if (!userId || !userType) {
         const anonymousAccessRules =
           await context.auth.getAnonymousAccessRules();
-        const hasGlobalAccess =
+        hasGlobalAccess =
           anonymousAccessRules.includes("*") ||
           anonymousAccessRules.includes(rule.qualifiedId);
+      } else {
+        hasGlobalAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+      }
 
-        if (hasGlobalAccess) {
-          // Anonymous user has global access - allow access to this resource
-          continue;
-        }
+      // FAIL CLOSED: if the configured idParam does not resolve to a resource
+      // id (a typo in the contract, an optional/absent field, or a malformed
+      // request) we cannot evaluate a team grant for it. Silently skipping the
+      // check would grant access, so we require global access and otherwise
+      // deny. The boot-time contract validator additionally cross-checks
+      // idParam against the input schema to catch the typo case before any
+      // traffic arrives.
+      if (!resourceId) {
+        if (hasGlobalAccess) continue;
+        throw new ORPCError("FORBIDDEN", {
+          message: `Access denied: missing resource identifier '${rule.instanceAccess!.idParam!}' for ${rule.resource}`,
+        });
+      }
 
-        // No global access and can't have team grants - deny access
+      // Anonymous callers cannot hold team grants, so a resolved resource id
+      // is reachable only via global access.
+      if (!userId || !userType) {
+        if (hasGlobalAccess) continue;
         throw new ORPCError("FORBIDDEN", {
           message: `Authentication required to access ${rule.resource}:${resourceId}`,
         });
       }
-
-      const hasGlobalAccess =
-        userAccessRules.includes("*") ||
-        userAccessRules.includes(rule.qualifiedId);
 
       const hasAccess = await checkResourceAccessViaS2S({
         auth: context.auth,
@@ -312,8 +343,177 @@ export const autoAuthMiddleware = os.middleware(
       }
     }
 
+    // Pre-check: Parent-scoped endpoints (single/multi parent id).
+    // "You may access this resource iff you may access its PARENT (e.g. system)."
+    // The endpoint's own rule was already checked globally above; here we add the
+    // per-resource decision against the parent type, consulting the parent's
+    // global rule AND the caller's team grants on the parent.
+    for (const rule of parentScopeRules) {
+      const ps = rule.instanceAccess!.parentScope!;
+      // The recordKey variant is a post-filter, handled after the handler runs.
+      if (!ps.idParam) continue;
+      const action = ps.action ?? "read";
+      const parentGlobalRuleId = `${ps.resourceType}.${action}`;
+      const parentIds = getNestedValues(input, ps.idParam);
+
+      // Caller's GLOBAL verdict on the PARENT type (anonymous uses the anonymous
+      // role's rules; everyone else uses their own granted set).
+      let hasGlobalParentAccess: boolean;
+      if (!userId || !userType) {
+        const anon = await context.auth.getAnonymousAccessRules();
+        hasGlobalParentAccess =
+          anon.includes("*") || anon.includes(parentGlobalRuleId);
+      } else {
+        hasGlobalParentAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(parentGlobalRuleId);
+      }
+
+      // FAIL CLOSED: no resolvable parent id means we cannot evaluate scope.
+      if (parentIds.length === 0) {
+        if (hasGlobalParentAccess) continue;
+        throw new ORPCError("FORBIDDEN", {
+          message: `Access denied: missing parent identifier '${ps.idParam}' for ${ps.resourceType}`,
+        });
+      }
+
+      // Anonymous callers cannot hold team grants — only global parent access.
+      if (!userId || !userType) {
+        if (hasGlobalParentAccess) continue;
+        throw new ORPCError("FORBIDDEN", {
+          message: `Authentication required to access ${ps.resourceType}`,
+        });
+      }
+
+      // Authenticated: require `action` access to EVERY referenced parent.
+      for (const parentId of parentIds) {
+        const ok = await checkResourceAccessViaS2S({
+          auth: context.auth,
+          userId,
+          userType,
+          resourceType: ps.resourceType,
+          resourceId: parentId,
+          action,
+          hasGlobalAccess: hasGlobalParentAccess,
+        });
+        if (!ok) {
+          throw new ORPCError("FORBIDDEN", {
+            message: `Access denied to ${ps.resourceType}:${parentId}`,
+          });
+        }
+      }
+    }
+
+    // Pre-check: Create endpoints
+    // Authorize the create via the auth service, which lets a team member who
+    // holds a create-capability grant through (not just global-manage holders),
+    // resolves the owning team, or throws FORBIDDEN / OWNER_TEAM_REQUIRED. The
+    // resolved owner is remembered and written AFTER the handler (the resource
+    // id only exists then). Only reachable for authenticated users — services
+    // short-circuit earlier and anonymous fails the auth requirement.
+    const pendingOwnerWrites: Array<{
+      resourceType: string;
+      idField: string;
+      teamId: string;
+      isPrivate: boolean;
+    }> = [];
+    if (createResourceRules.length > 0 && userId && userType) {
+      for (const rule of createResourceRules) {
+        const createCfg = rule.instanceAccess!.create!;
+        const requestedTeamId = getNestedValue(
+          input,
+          createCfg.teamIdParam ?? "teamId",
+        );
+        const hasGlobalManage =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+
+        // Parent-gated create: a caller who can MANAGE the referenced parent
+        // resource(s) (e.g. the system(s) an incident is "for") is authorized to
+        // create, without needing a per-type create-capability grant. They must
+        // be able to manage ALL referenced parents.
+        let parentAuthorized = false;
+        if (createCfg.parent) {
+          const parentIds = getNestedValues(input, createCfg.parent.idParam);
+          if (parentIds.length > 0) {
+            const parentType = createCfg.parent.resourceType;
+            const hasGlobalParentManage =
+              userAccessRules.includes("*") ||
+              userAccessRules.includes(`${parentType}.manage`);
+            const checks = await Promise.all(
+              parentIds.map((parentId) =>
+                checkResourceAccessViaS2S({
+                  auth: context.auth,
+                  userId,
+                  userType,
+                  resourceType: parentType,
+                  resourceId: parentId,
+                  action: "manage",
+                  hasGlobalAccess: hasGlobalParentManage,
+                }),
+              ),
+            );
+            parentAuthorized = checks.every(Boolean);
+          }
+        }
+
+        // Propagates ORPCError (FORBIDDEN / BAD_REQUEST OWNER_TEAM_REQUIRED) to
+        // the caller. Not fail-open: a create that cannot be authorized must be
+        // rejected. `alreadyAuthorized` short-circuits the per-type
+        // create-capability requirement when the parent gate already passed.
+        const { ownerTeamId, isPrivate } =
+          await context.auth.authorizeCreate({
+            userId,
+            userType,
+            objectType: rule.qualifiedResourceType,
+            requestedTeamId,
+            hasGlobalManage,
+            alreadyAuthorized: parentAuthorized,
+          });
+
+        if (ownerTeamId) {
+          pendingOwnerWrites.push({
+            resourceType: rule.qualifiedResourceType,
+            idField: createCfg.idField ?? "id",
+            teamId: ownerTeamId,
+            isPrivate,
+          });
+        }
+      }
+    }
+
     // Execute handler
     const result = await next({});
+
+    // Post-grant: write the owning-team grant for newly-created resources, now
+    // that the handler has produced the resource id. The handler has ALREADY
+    // committed the resource row at this point, so there is no rollback: if the
+    // owner write fails the auth client re-throws and the create surfaces a
+    // 5xx, leaving the resource ownerless (it falls back to global-rule access,
+    // not the intended team — a consistency gap, not a leak). Re-throwing keeps
+    // the failure loud; a cross-store saga/reconciler would be the real fix.
+    if (
+      pendingOwnerWrites.length > 0 &&
+      result.output &&
+      typeof result.output === "object"
+    ) {
+      for (const write of pendingOwnerWrites) {
+        const resourceId = getNestedValue(result.output, write.idField);
+        if (!resourceId) {
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: `Create succeeded but no resource id found at "${write.idField}" to record team ownership`,
+          });
+        }
+        await context.auth.setOwner({
+          objectType: write.resourceType,
+          objectId: resourceId,
+          teamId: write.teamId,
+          // Only mark private when explicitly requested. The default is a
+          // team-managed, globally-readable object (a `public` viewer marker).
+          isPrivate: write.isPrivate ? true : undefined,
+        });
+      }
+    }
 
     // Post-filter: List endpoints
     // For these, return only resources user has access to (via global perm OR team grant)
@@ -384,10 +584,30 @@ export const autoAuthMiddleware = os.middleware(
         });
 
         const accessibleSet = new Set(accessibleIds);
-        mutableOutput[outputKey] = items.filter((item) => {
+        const filtered = items.filter((item) => {
           const id = (item as { id?: string }).id;
           return id && accessibleSet.has(id);
         });
+
+        // G11: an empty result for an authenticated caller with no global
+        // access could mean "scoped to an empty subset" (200) OR "categorically
+        // unauthorized" (403). Disambiguate via a type-level grant check and
+        // surface a meaningful 403 in the latter case instead of a silent [].
+        if (
+          filtered.length === 0 &&
+          (await isCategoricallyUnauthorizedViaS2S({
+            auth: context.auth,
+            userId,
+            userType,
+            resourceType: rule.qualifiedResourceType,
+            action: rule.level,
+            hasGlobalAccess,
+          }))
+        ) {
+          throw resourceScopeDenied(rule);
+        }
+
+        mutableOutput[outputKey] = filtered;
       }
     }
 
@@ -468,6 +688,117 @@ export const autoAuthMiddleware = os.middleware(
             filteredRecord[key] = value;
           }
         }
+
+        // G11: same disambiguation as the list branch — a categorically
+        // unauthorized caller gets a 403, not a silently-emptied record.
+        if (
+          Object.keys(filteredRecord).length === 0 &&
+          (await isCategoricallyUnauthorizedViaS2S({
+            auth: context.auth,
+            userId,
+            userType,
+            resourceType: rule.qualifiedResourceType,
+            action: rule.level,
+            hasGlobalAccess,
+          }))
+        ) {
+          throw resourceScopeDenied(rule);
+        }
+
+        mutableOutput[outputKey] = filteredRecord;
+      }
+    }
+
+    // Post-filter: Parent-scoped record endpoints (bulk queries returning
+    // Record<parentId, data>). Strip keys whose PARENT the caller cannot access.
+    if (
+      parentScopeRules.length > 0 &&
+      result.output &&
+      typeof result.output === "object"
+    ) {
+      const mutableOutput = result.output as Record<string, unknown>;
+
+      for (const rule of parentScopeRules) {
+        const ps = rule.instanceAccess!.parentScope!;
+        // The idParam variant is a pre-check, handled before the handler ran.
+        if (!ps.recordKey) continue;
+        const action = ps.action ?? "read";
+        const parentGlobalRuleId = `${ps.resourceType}.${action}`;
+        const outputKey = ps.recordKey;
+        const record = mutableOutput[outputKey];
+
+        if (record === undefined) {
+          context.logger.error(
+            `resourceAccess: expected "${outputKey}" in response but not found`,
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+        if (
+          typeof record !== "object" ||
+          record === null ||
+          Array.isArray(record)
+        ) {
+          context.logger.error(
+            `resourceAccess: "${outputKey}" must be an object (record)`,
+          );
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "Invalid response shape for filtered endpoint",
+          });
+        }
+
+        const recordObj = record as Record<string, unknown>;
+        const parentIds = Object.keys(recordObj);
+
+        if (!userId || !userType) {
+          const anon = await context.auth.getAnonymousAccessRules();
+          const hasGlobalParentAccess =
+            anon.includes("*") || anon.includes(parentGlobalRuleId);
+          if (hasGlobalParentAccess) continue;
+          mutableOutput[outputKey] = {};
+          continue;
+        }
+
+        const hasGlobalParentAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(parentGlobalRuleId);
+
+        const accessibleIds = await getAccessibleResourceIdsViaS2S({
+          auth: context.auth,
+          userId,
+          userType,
+          resourceType: ps.resourceType,
+          resourceIds: parentIds,
+          action,
+          hasGlobalAccess: hasGlobalParentAccess,
+        });
+
+        const accessibleSet = new Set(accessibleIds);
+        const filteredRecord: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(recordObj)) {
+          if (accessibleSet.has(key)) filteredRecord[key] = value;
+        }
+
+        if (
+          Object.keys(filteredRecord).length === 0 &&
+          (await isCategoricallyUnauthorizedViaS2S({
+            auth: context.auth,
+            userId,
+            userType,
+            resourceType: ps.resourceType,
+            action,
+            hasGlobalAccess: hasGlobalParentAccess,
+          }))
+        ) {
+          throw resourceScopeDenied({
+            resource: ps.resourceType,
+            level: action,
+            qualifiedId: parentGlobalRuleId,
+            qualifiedResourceType: ps.resourceType,
+          });
+        }
+
         mutableOutput[outputKey] = filteredRecord;
       }
     }
@@ -576,6 +907,25 @@ function getNestedValue(obj: unknown, path: string): string | undefined {
 }
 
 /**
+ * Like getNestedValue, but resolves a value that may be a single string or an
+ * array of strings (e.g. an incident's `systemIds`) to a string array. Returns
+ * an empty array when absent. Used by parent-gated create authorization.
+ */
+function getNestedValues(obj: unknown, path: string): string[] {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return [];
+    current = (current as Record<string, unknown>)[part];
+  }
+  if (typeof current === "string") return [current];
+  if (Array.isArray(current)) {
+    return current.filter((v): v is string => typeof v === "string");
+  }
+  return [];
+}
+
+/**
  * Check resource access via auth service S2S endpoint.
  */
 async function checkResourceAccessViaS2S({
@@ -596,11 +946,11 @@ async function checkResourceAccessViaS2S({
   hasGlobalAccess: boolean;
 }): Promise<boolean> {
   try {
-    const result = await auth.checkResourceTeamAccess({
+    const result = await auth.check({
       userId,
       userType,
-      resourceType,
-      resourceId,
+      objectType: resourceType,
+      objectId: resourceId,
       action,
       hasGlobalAccess,
     });
@@ -634,11 +984,11 @@ async function getAccessibleResourceIdsViaS2S({
   if (resourceIds.length === 0) return [];
 
   try {
-    return await auth.getAccessibleResourceIds({
+    return await auth.listAccessibleObjectIds({
       userId,
       userType,
-      resourceType,
-      resourceIds,
+      objectType: resourceType,
+      objectIds: resourceIds,
       action,
       hasGlobalAccess,
     });
@@ -646,6 +996,72 @@ async function getAccessibleResourceIdsViaS2S({
     // SECURITY: Fail-Closed — return empty set when S2S check fails
     return [];
   }
+}
+
+/**
+ * Decide whether an authenticated caller is *categorically* unauthorized for a
+ * resource type on a list/record endpoint: they have no global access rule AND
+ * hold no team grant of the required level for the type. Such a caller should
+ * receive a meaningful 403 rather than a silently-emptied 200 (G11).
+ *
+ * Fails OPEN (returns false = "not categorically unauthorized") when the S2S
+ * lookup errors: the data is already protected by the post-filter, so a
+ * transient auth blip should degrade to a 200-empty response, never escalate to
+ * a hard 403 for a caller who may in fact have access.
+ */
+async function isCategoricallyUnauthorizedViaS2S({
+  auth,
+  userId,
+  userType,
+  resourceType,
+  action,
+  hasGlobalAccess,
+}: {
+  auth: AuthService;
+  userId: string;
+  userType: "user" | "application";
+  resourceType: string;
+  action: "read" | "manage";
+  hasGlobalAccess: boolean;
+}): Promise<boolean> {
+  if (hasGlobalAccess) return false;
+  try {
+    const { hasGrant } = await auth.hasAnyTypeGrant({
+      userId,
+      userType,
+      objectType: resourceType,
+      action,
+    });
+    return !hasGrant;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Structured 403 body for a categorically-unauthorized list/record read.
+ * Surfaced in `ORPCError.data` so callers (and API clients) get an actionable
+ * reason and the exact missing access rule instead of a silent empty payload.
+ */
+function resourceScopeDenied(rule: {
+  resource: string;
+  level: AccessLevel;
+  qualifiedId: string;
+  qualifiedResourceType: string;
+}): ORPCError<"FORBIDDEN", unknown> {
+  return new ORPCError("FORBIDDEN", {
+    message: `Not authorized to ${rule.level} ${rule.qualifiedResourceType}`,
+    data: {
+      reason: "resource_scope_denied",
+      resourceType: rule.qualifiedResourceType,
+      requiredAccess: rule.level,
+      missingGlobalRule: rule.qualifiedId,
+      hint:
+        `You have no global access to this resource type and belong to no ` +
+        `team granted access. Ask an administrator to grant your team access ` +
+        `or assign the '${rule.qualifiedId}' access rule.`,
+    },
+  });
 }
 
 // =============================================================================

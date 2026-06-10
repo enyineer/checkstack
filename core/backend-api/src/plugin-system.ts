@@ -145,6 +145,18 @@ export type BackendPluginRegistry = {
      * editor against granting inert permissions to the anonymous role.
      */
     getAnonymousUsableAccessRuleIds: () => string[];
+    /**
+     * Team-scopable resource kinds derived from the registered contracts (any
+     * procedure whose access rule carries `instanceAccess`). `createCapable` is
+     * true when a team can be granted the authority to create that type. Used
+     * by the teams admin UI.
+     */
+    getResourceKinds: () => {
+      resourceType: string;
+      label: string;
+      pluginId: string;
+      createCapable: boolean;
+    }[];
   };
 };
 

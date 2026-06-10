@@ -10,6 +10,7 @@ import {
   EventBus as IEventBus,
   AuthenticationStrategy,
   createAdvisoryLockService,
+  ResourceResolverRegistry,
 } from "@checkstack/backend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -227,36 +228,83 @@ export function registerCoreServices({
         }
       },
 
-      checkResourceTeamAccess: async (params) => {
+      check: async (params) => {
         try {
           const rpcClient = await registry.get(coreServices.rpcClient, {
             pluginId: "core",
           });
           const authClient = rpcClient.forPlugin(AuthApi);
-          return await authClient.checkResourceTeamAccess(params);
+          return await authClient.check(params);
         } catch (error) {
           // SECURITY: Fail-Closed — deny access when auth service is unavailable
           rootLogger.error(
-            `[auth] checkResourceTeamAccess: S2S call failed for resource ${params.resourceType}:${params.resourceId}. Denying access (Fail-Closed). Error: ${error}`,
+            `[auth] check: S2S call failed for ${params.objectType}:${params.objectId}. Denying access (Fail-Closed). Error: ${error}`,
           );
           return { hasAccess: false };
         }
       },
 
-      getAccessibleResourceIds: async (params) => {
+      listAccessibleObjectIds: async (params) => {
         try {
           const rpcClient = await registry.get(coreServices.rpcClient, {
             pluginId: "core",
           });
           const authClient = rpcClient.forPlugin(AuthApi);
-          return await authClient.getAccessibleResourceIds(params);
+          return await authClient.listAccessibleObjectIds(params);
         } catch (error) {
           // SECURITY: Fail-Closed — return empty set when auth service is unavailable
           rootLogger.error(
-            `[auth] getAccessibleResourceIds: S2S call failed for resource type ${params.resourceType}. Denying access (Fail-Closed). Error: ${error}`,
+            `[auth] listAccessibleObjectIds: S2S call failed for type ${params.objectType}. Denying access (Fail-Closed). Error: ${error}`,
           );
           return [];
         }
+      },
+
+      hasAnyTypeGrant: async (params) => {
+        try {
+          const rpcClient = await registry.get(coreServices.rpcClient, {
+            pluginId: "core",
+          });
+          const authClient = rpcClient.forPlugin(AuthApi);
+          return await authClient.hasAnyTypeGrant(params);
+        } catch (error) {
+          // Fail OPEN here: this gates an ADDITIONAL 403 on already-filtered
+          // (empty) results. A transient auth failure should degrade to a
+          // 200-empty response, never escalate to a hard 403. Reporting
+          // hasGrant:true makes the caller look "scoped to empty", not
+          // "categorically unauthorized".
+          rootLogger.error(
+            `[auth] hasAnyTypeGrant: S2S call failed for type ${params.objectType}. Assuming a grant exists to avoid a spurious 403. Error: ${error}`,
+          );
+          return { hasGrant: true };
+        }
+      },
+
+      authorizeCreate: async (params) => {
+        // Fail-Closed: a create authorization that cannot be resolved must NOT
+        // silently succeed. Re-throw so the create is rejected.
+        const rpcClient = await registry.get(coreServices.rpcClient, {
+          pluginId: "core",
+        });
+        const authClient = rpcClient.forPlugin(AuthApi);
+        return await authClient.authorizeCreate(params);
+      },
+
+      setOwner: async (params) => {
+        // Re-throw on failure rather than swallowing it. NOTE: this runs in the
+        // auth middleware AFTER the create handler has already returned and
+        // committed the resource row (see rpc.ts post-handler write), so there
+        // is no automatic rollback — the throw surfaces a 5xx to the caller and
+        // the object is left WITHOUT its owner tuple. An ownerless object has
+        // zero team grants and no public marker, so access falls back to the
+        // global rule (visible to global-rule holders, NOT to the intended
+        // team) — a consistency gap, not a leak. There is no reconciler yet;
+        // re-throwing at least makes the failure loud instead of silent.
+        const rpcClient = await registry.get(coreServices.rpcClient, {
+          pluginId: "core",
+        });
+        const authClient = rpcClient.forPlugin(AuthApi);
+        await authClient.setOwner(params);
       },
     };
     return authService;
@@ -403,6 +451,16 @@ export function registerCoreServices({
   const globalCollectorRegistry = new CoreCollectorRegistry();
   registry.registerFactory(coreServices.collectorRegistry, (metadata) =>
     createScopedCollectorRegistry(globalCollectorRegistry, metadata),
+  );
+
+  // 6c. Resource Resolver Registry (in-process singleton). Owning plugins
+  // register a name/search resolver for their team-scopable resource types at
+  // init; the auth backend reads it to render team grants by name and power the
+  // grant picker. Same instance for every consumer in this process.
+  const globalResourceResolverRegistry = new ResourceResolverRegistry();
+  registry.registerFactory(
+    coreServices.resourceResolverRegistry,
+    () => globalResourceResolverRegistry,
   );
 
   // 7. RPC Service (Scoped Factory - uses pluginId for path derivation)

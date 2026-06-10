@@ -16,7 +16,6 @@ export const anomalyAccess = {
       },
     },
     {
-      idParam: "systemId",
       pluginId: pluginMetadata.pluginId,
     }
   ),

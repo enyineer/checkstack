@@ -160,6 +160,11 @@ export function createRouter(
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;
 
+      // `teamId` is consumed exclusively by autoAuthMiddleware (create-mode
+      // ownership grant). Strip it here so it is never forwarded to the
+      // service layer or written into the incident row.
+      const { teamId: _teamId, ...serviceInput } = input;
+
       // Drive the create through the reactive `incident` entity (§10.1):
       // `apply` performs the REAL `incidents`/junction write (the plugin's own
       // db/tx) and returns the new reactive state; the deriver fires
@@ -172,7 +177,7 @@ export function createRouter(
         handle: getIncidentEntity?.(),
         incidentId,
         apply: async () => {
-          result = await service.createIncident(input, userId, incidentId);
+          result = await service.createIncident(serviceInput, userId, incidentId);
           return toIncidentEntityState(result);
         },
       });

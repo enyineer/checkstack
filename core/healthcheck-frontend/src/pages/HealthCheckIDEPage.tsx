@@ -25,6 +25,7 @@ import {
   findSelectedEnvironment,
 } from "@checkstack/catalog-frontend";
 import { buildTemplatePreviewContext } from "../components/editor/collector-preview-context.logic";
+import { teamCreateErrorMessage } from "@checkstack/auth-frontend";
 
 
 // =============================================================================
@@ -149,6 +150,10 @@ const HealthCheckIDEPageContent = () => {
   const [previewEnvironmentId, setPreviewEnvironmentId] = useState<
     string | null
   >(null);
+
+  // Owning-team selection for create mode only. null = global (no team).
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
 
   // Initialize form from existing configuration (edit mode).
   //
@@ -405,6 +410,11 @@ const HealthCheckIDEPageContent = () => {
       }
     },
     onError: (error) => {
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+        return;
+      }
       toast.error(extractErrorMessage(error, "Failed to create"));
     },
   });
@@ -421,6 +431,7 @@ const HealthCheckIDEPageContent = () => {
   });
 
   const handleSave = () => {
+    setOwnerTeamError(null);
     if (!isValid || !activeStrategyId) return;
 
     const payload = {
@@ -434,7 +445,10 @@ const HealthCheckIDEPageContent = () => {
     if (isEditMode && configId) {
       updateMutation.mutate({ id: configId, body: payload });
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate({
+        ...payload,
+        teamId: ownerTeamId ?? undefined,
+      });
     }
   };
 
@@ -540,6 +554,12 @@ const HealthCheckIDEPageContent = () => {
               previewEnvironmentId={previewEnvironmentId}
               onPreviewEnvironmentChange={setPreviewEnvironmentId}
               templatePreviewContext={templatePreviewContext}
+              ownerTeamId={ownerTeamId}
+              onOwnerTeamIdChange={(id) => {
+                setOwnerTeamId(id);
+                setOwnerTeamError(null);
+              }}
+              ownerTeamError={ownerTeamError}
             />
             {configId && (
               <ExtensionSlot

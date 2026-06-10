@@ -16,3 +16,6 @@ docs/.astro/
 **/playwright-report/
 **/playwright/.cache/
 **/playwright/.auth/
+
+# Local DB backups (pg_dump) — never commit
+backups/

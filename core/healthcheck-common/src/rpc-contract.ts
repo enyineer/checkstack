@@ -128,12 +128,16 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Global utility: lists all strategy types, not scoped to any config or system.
+    instanceAccess: { global: true },
   }).output(z.array(HealthCheckStrategyDtoSchema)),
 
   getCollectors: proc({
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Global utility: lists collectors for a strategy type, not scoped to a config instance.
+    instanceAccess: { global: true },
   })
     .input(z.object({ strategyId: z.string() }))
     .output(z.array(CollectorDtoSchema)),
@@ -152,6 +156,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Global utility: runs a sandboxed script test with no config/system instance to scope on.
+    instanceAccess: { global: true },
   })
     .input(CollectorScriptTestInputSchema)
     .output(CollectorScriptTestResultSchema),
@@ -164,6 +170,9 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // List post-filter: each item has a string `.id` matching the
+    // `healthcheck.configuration` grant resourceId.
+    instanceAccess: { listKey: "configurations" },
   }).output(
     z.object({ configurations: z.array(HealthCheckConfigurationSchema) }),
   ),
@@ -172,6 +181,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Single-config read scoped by the configuration's own id.
+    instanceAccess: { idParam: "id" },
   })
     .input(z.object({ id: z.string() }))
     .output(HealthCheckConfigurationSchema.optional()),
@@ -180,8 +191,18 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Create-mode: an optional requested owning team (`teamId`) lets a
+    // team member with a create-capability grant create the config; the
+    // middleware writes the owning-team grant for the created `id`.
+    instanceAccess: { create: { teamIdParam: "teamId", idField: "id" } },
   })
-    .input(CreateHealthCheckConfigurationSchema)
+    // Extend (not mutate the base schema) so `teamId` does NOT leak into
+    // Update/Validate inputs, which derive from CreateHealthCheckConfigurationSchema.
+    .input(
+      CreateHealthCheckConfigurationSchema.extend({
+        teamId: z.string().optional(),
+      }),
+    )
     .output(HealthCheckConfigurationSchema),
 
   /**
@@ -195,6 +216,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Global utility: validates a proposed config without persisting; no existing instance id to scope on.
+    instanceAccess: { global: true },
   })
     .input(ValidateConfigurationInputSchema)
     .output(ValidateConfigurationResultSchema),
@@ -203,6 +226,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Update scoped by the configuration's own id.
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "PATCH" })
     .input(
@@ -217,25 +242,30 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Scoped by the configuration's own id. Input reshaped from a bare
+    // `z.string()` to `{ id }` so the middleware can read `input.id`.
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "DELETE" })
-    .input(z.string())
+    .input(z.object({ id: z.string() }))
     .output(z.void()),
 
   pauseConfiguration: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    instanceAccess: { idParam: "id" },
   })
-    .input(z.string())
+    .input(z.object({ id: z.string() }))
     .output(z.void()),
 
   resumeConfiguration: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    instanceAccess: { idParam: "id" },
   })
-    .input(z.string())
+    .input(z.object({ id: z.string() }))
     .output(z.void()),
 
   // ==========================================================================
@@ -246,6 +276,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Reads all health-check configs associated with a specific system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "read", idParam: "systemId" } },
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(HealthCheckConfigurationSchema)),
@@ -254,6 +286,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Reads association details (per-assignment config) for a specific system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "read", idParam: "systemId" } },
   })
     .input(z.object({ systemId: z.string() }))
     .output(
@@ -282,6 +316,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Mutation that adds a check association to a system — requires manage on the system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "manage", idParam: "systemId" } },
   })
     .input(
       z.object({
@@ -301,6 +337,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Global utility: platform-wide defaults are not scoped to any config or system instance.
+    instanceAccess: { global: true },
   }).output(NotificationPolicySchema),
 
   /**
@@ -312,6 +350,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Global utility: updates platform-wide defaults, not scoped to any config or system instance.
+    instanceAccess: { global: true },
   })
     .input(NotificationPolicySchema)
     .output(z.void()),
@@ -320,6 +360,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Mutation that removes a check association from a system — requires manage on the system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "manage", idParam: "systemId" } },
   })
     .input(
       z.object({
@@ -337,6 +379,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
+    // Scoped to the health-check configuration by its own id.
+    instanceAccess: { idParam: "configurationId" },
   })
     .input(
       z.object({
@@ -354,6 +398,8 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
+    // Scoped to the health-check configuration by its own id.
+    instanceAccess: { idParam: "configurationId" },
   })
     .route({ method: "PATCH" })
     .input(
@@ -373,6 +419,9 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "public",
     access: [healthCheckAccess.status],
+    // Both systemId and configurationId are optional — this is a cross-cutting history query
+    // with no guaranteed single resource id to scope on; safe global fallback.
+    instanceAccess: { global: true },
   })
     .input(
       z.object({
@@ -439,6 +488,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "public",
     access: [healthCheckAccess.status],
+    // Scoped to a specific health-check configuration by its own id.
+    instanceAccess: { idParam: "configurationId" },
   })
     .input(
       z.object({
@@ -487,6 +538,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "public",
     access: [healthCheckAccess.status],
+    // Per-system status read scoped to the catalog system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "read", idParam: "systemId" } },
   })
     .input(z.object({ systemId: z.string() }))
     .output(SystemHealthStatusResponseSchema),
@@ -509,6 +562,8 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "public",
     access: [healthCheckAccess.status],
+    // Per-system overview scoped to the catalog system.
+    instanceAccess: { parentScope: { resourceType: "catalog.system", action: "read", idParam: "systemId" } },
   })
     .input(z.object({ systemId: z.string() }))
     .output(

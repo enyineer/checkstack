@@ -19,8 +19,14 @@ import {
 import { qualifyAccessRuleId } from "@checkstack/common";
 import { hashPassword } from "better-auth/crypto";
 import * as schema from "./schema";
-import { eq, inArray, and } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { RelationTupleStore } from "./relation-tuple-store";
+
+/** Narrow the store's string relation to the access-relation union. */
+function asRelation(r: string): "viewer" | "editor" | "owner" {
+  return r === "owner" ? "owner" : r === "editor" ? "editor" : "viewer";
+}
+import { eq, inArray, and, or, ilike } from "drizzle-orm";
+import type { SafeDatabase, ResourceResolver } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
 import {
   enrichApplicationPrincipal as resolveApplicationPrincipal,
@@ -196,6 +202,13 @@ export const createAuthRouter = (
       /** Whether an anonymous caller can actually use this rule (a public RPC requires it). */
       anonymousUsable?: boolean;
     }[];
+    /** Team-scopable resource kinds for the teams admin UI (optional in tests). */
+    getResourceKinds?: () => {
+      resourceType: string;
+      label: string;
+      pluginId: string;
+      createCapable: boolean;
+    }[];
   },
   getBetterAuth: () =>
     | { handler: (request: Request) => Promise<Response> }
@@ -205,6 +218,14 @@ export const createAuthRouter = (
     error: (msg: string, metadata?: Record<string, unknown>) => void;
     debug: (msg: string, metadata?: Record<string, unknown>) => void;
   } = DEFAULT_LOGGER,
+  /**
+   * Cross-plugin resource resolver registry (optional in tests). Lets the Teams
+   * UI render grants by name and search resources to grant. Each owning plugin
+   * populates it at init.
+   */
+  resourceResolverRegistry?: {
+    get(resourceType: string): ResourceResolver | undefined;
+  },
 ) => {
   // Public endpoint for enabled strategies (no authentication required)
   const getEnabledStrategies = os.getEnabledStrategies.handler(async () => {
@@ -284,6 +305,59 @@ export const createAuthRouter = (
         .filter((ur) => ur.userId === u.id)
         .map((ur) => ur.roleId),
     }));
+  });
+
+  const searchUsers = os.searchUsers.handler(async ({ input, context }) => {
+    // `auth.teams.read` is a DEFAULT rule (every authenticated user holds it),
+    // so the contract gate alone would let any logged-in user enumerate the
+    // full user directory (names + emails). This endpoint exists only to feed
+    // the team add-member picker, so we further restrict it to callers who
+    // actually administer a team: a global team-manager (admin) OR a manager of
+    // at least one specific team. A plain member with no management role has no
+    // reason to search the directory and is denied.
+    const user = context.user;
+    if (user?.type === "service") {
+      // Trusted S2S caller; no directory restriction.
+    } else {
+      const hasGlobalManage =
+        user?.accessRules?.includes("*") ||
+        user?.accessRules?.includes(
+          qualifyAccessRuleId(pluginMetadata, authAccess.teams.manage),
+        );
+      if (!hasGlobalManage) {
+        let managesAnyTeam = false;
+        if (isRealUser(user)) {
+          const [managerRecord] = await internalDb
+            .select({ teamId: schema.teamManager.teamId })
+            .from(schema.teamManager)
+            .where(eq(schema.teamManager.userId, user.id))
+            .limit(1);
+          managesAnyTeam = !!managerRecord;
+        }
+        if (!managesAnyTeam) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "Searching the user directory requires managing at least one team.",
+          });
+        }
+      }
+    }
+
+    const q = input.query.trim();
+    if (q.length === 0) return [];
+    const pattern = `%${q}%`;
+    const rows = await internalDb
+      .select({
+        id: schema.user.id,
+        name: schema.user.name,
+        email: schema.user.email,
+      })
+      .from(schema.user)
+      .where(
+        or(ilike(schema.user.name, pattern), ilike(schema.user.email, pattern)),
+      )
+      .limit(20);
+    return rows;
   });
 
   const deleteUser = os.deleteUser.handler(async ({ input: id, context }) => {
@@ -1730,9 +1804,17 @@ export const createAuthRouter = (
       await tx
         .delete(schema.applicationTeam)
         .where(eq(schema.applicationTeam.teamId, id));
+      // relation_tuple has no FK (polymorphic subject), so its rows for this
+      // team must be cleared explicitly (this also removes the team's grants +
+      // create-capability tuples).
       await tx
-        .delete(schema.resourceTeamAccess)
-        .where(eq(schema.resourceTeamAccess.teamId, id));
+        .delete(schema.relationTuple)
+        .where(
+          and(
+            eq(schema.relationTuple.subjectType, "team"),
+            eq(schema.relationTuple.subjectId, id),
+          ),
+        );
       await tx.delete(schema.team).where(eq(schema.team.id, id));
     });
     context.logger.info(`[auth-backend] Deleted team: ${id}`);
@@ -1800,264 +1882,403 @@ export const createAuthRouter = (
     },
   );
 
-  const getResourceTeamAccess = os.getResourceTeamAccess.handler(
+  // The single ReBAC store (relation tuples) backing the whole access layer.
+  const tupleStore = new RelationTupleStore(internalDb);
+
+  // Resolve a principal's team ids (users and applications use distinct tables).
+  const resolveUserTeamIds = async (
+    userId: string,
+    userType: "user" | "application",
+  ): Promise<string[]> => {
+    const isUser = userType === "user";
+    const teamTable = isUser ? schema.userTeam : schema.applicationTeam;
+    const idCol = isUser
+      ? schema.userTeam.userId
+      : schema.applicationTeam.applicationId;
+    const teamIdCol = isUser
+      ? schema.userTeam.teamId
+      : schema.applicationTeam.teamId;
+    const rows = await internalDb
+      .select({ teamId: teamIdCol })
+      .from(teamTable)
+      .where(eq(idCol, userId));
+    return rows.map((r) => r.teamId);
+  };
+
+  // Reject grants for a resource type no plugin registers. The kinds come from
+  // the contracts (`getResourceKinds`), so this catches typos and junk types
+  // that would create inert "phantom" tuples. When the registry is unavailable
+  // (e.g. unit tests), validation is skipped rather than failing closed.
+  const assertKnownResourceType = (resourceType: string) => {
+    const kinds = accessRuleRegistry.getResourceKinds?.();
+    if (!kinds) return;
+    if (!kinds.some((k) => k.resourceType === resourceType)) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Unknown resource type "${resourceType}". It is not registered by any installed plugin.`,
+      });
+    }
+  };
+
+  // Who has access to an object + whether it is public (the privacy marker).
+  const listObjectRelations = os.listObjectRelations.handler(
     async ({ input }) => {
-      const rows = await internalDb
-        .select()
-        .from(schema.resourceTeamAccess)
-        .innerJoin(
-          schema.team,
-          eq(schema.resourceTeamAccess.teamId, schema.team.id),
-        )
+      const { teams, isPublic } = await tupleStore.listObjectRelations({
+        objectType: input.objectType,
+        objectId: input.objectId,
+      });
+      if (teams.length === 0) return { teams: [], isPublic };
+      const nameRows = await internalDb
+        .select({ id: schema.team.id, name: schema.team.name })
+        .from(schema.team)
         .where(
-          and(
-            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
-            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
+          inArray(
+            schema.team.id,
+            teams.map((t) => t.teamId),
           ),
         );
-      return rows.map((r) => ({
-        teamId: r.resource_team_access.teamId,
-        teamName: r.team.name,
-        canRead: r.resource_team_access.canRead,
-        canManage: r.resource_team_access.canManage,
-      }));
+      const nameById = new Map(nameRows.map((r) => [r.id, r.name]));
+      return {
+        teams: teams.map((t) => ({
+          teamId: t.teamId,
+          teamName: nameById.get(t.teamId) ?? t.teamId,
+          relation: asRelation(t.relation),
+        })),
+        isPublic,
+      };
     },
   );
 
-  const setResourceTeamAccess = os.setResourceTeamAccess.handler(
+  const writeRelation = os.writeRelation.handler(async ({ input }) => {
+    assertKnownResourceType(input.objectType);
+    await tupleStore.setTeamRelation({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      teamId: input.teamId,
+      relation: input.relation,
+    });
+  });
+
+  const removeRelation = os.removeRelation.handler(async ({ input }) => {
+    await tupleStore.removeTeamFromObject({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      teamId: input.teamId,
+    });
+  });
+
+  const setObjectPublic = os.setObjectPublic.handler(async ({ input }) => {
+    assertKnownResourceType(input.objectType);
+    await tupleStore.setObjectPublic({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      isPublic: input.isPublic,
+    });
+  });
+
+  // S2S engine endpoints (called by the auth middleware).
+  const check = os.check.handler(async ({ input }) => {
+    const userTeamIds = await resolveUserTeamIds(input.userId, input.userType);
+    const hasAccess = await tupleStore.check({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      userTeamIds,
+      action: input.action,
+      hasGlobalAccess: input.hasGlobalAccess,
+    });
+    return { hasAccess };
+  });
+
+  const listAccessibleObjectIds = os.listAccessibleObjectIds.handler(
     async ({ input }) => {
-      const { resourceType, resourceId, teamId, canRead, canManage } = input;
-      await internalDb
-        .insert(schema.resourceTeamAccess)
-        .values({
-          resourceType,
-          resourceId,
-          teamId,
-          canRead: canRead ?? true,
-          canManage: canManage ?? false,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.resourceTeamAccess.resourceType,
-            schema.resourceTeamAccess.resourceId,
-            schema.resourceTeamAccess.teamId,
-          ],
-          set: {
-            canRead: canRead ?? true,
-            canManage: canManage ?? false,
-          },
-        });
-    },
-  );
-
-  const removeResourceTeamAccess = os.removeResourceTeamAccess.handler(
-    async ({ input }) => {
-      await internalDb
-        .delete(schema.resourceTeamAccess)
-        .where(
-          and(
-            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
-            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
-            eq(schema.resourceTeamAccess.teamId, input.teamId),
-          ),
-        );
-    },
-  );
-
-  // Resource-level access settings
-  const getResourceAccessSettings = os.getResourceAccessSettings.handler(
-    async ({ input }) => {
-      const rows = await internalDb
-        .select()
-        .from(schema.resourceAccessSettings)
-        .where(
-          and(
-            eq(schema.resourceAccessSettings.resourceType, input.resourceType),
-            eq(schema.resourceAccessSettings.resourceId, input.resourceId),
-          ),
-        )
-        .limit(1);
-      return { teamOnly: rows[0]?.teamOnly ?? false };
-    },
-  );
-
-  const setResourceAccessSettings = os.setResourceAccessSettings.handler(
-    async ({ input }) => {
-      const { resourceType, resourceId, teamOnly } = input;
-      await internalDb
-        .insert(schema.resourceAccessSettings)
-        .values({ resourceType, resourceId, teamOnly })
-        .onConflictDoUpdate({
-          target: [
-            schema.resourceAccessSettings.resourceType,
-            schema.resourceAccessSettings.resourceId,
-          ],
-          set: { teamOnly },
-        });
-    },
-  );
-
-  // S2S Endpoints for middleware
-  const checkResourceTeamAccess = os.checkResourceTeamAccess.handler(
-    async ({ input }) => {
-      const {
-        userId,
-        userType,
-        resourceType,
-        resourceId,
-        action,
-        hasGlobalAccess,
-      } = input;
-
-      const grants = await internalDb
-        .select()
-        .from(schema.resourceTeamAccess)
-        .where(
-          and(
-            eq(schema.resourceTeamAccess.resourceType, resourceType),
-            eq(schema.resourceTeamAccess.resourceId, resourceId),
-          ),
-        );
-
-      // No grants = global access applies
-      if (grants.length === 0) {
-        // SECURITY NOTE: No team grants configured for this resource.
-        // Defaulting to global access check. If this resource should be restricted,
-        // configure team grants or enable 'teamOnly' on the resource access settings.
-        return { hasAccess: hasGlobalAccess };
-      }
-
-      // Check resource-level settings for teamOnly
-      const settingsRows = await internalDb
-        .select()
-        .from(schema.resourceAccessSettings)
-        .where(
-          and(
-            eq(schema.resourceAccessSettings.resourceType, resourceType),
-            eq(schema.resourceAccessSettings.resourceId, resourceId),
-          ),
-        )
-        .limit(1);
-      const isTeamOnly = settingsRows[0]?.teamOnly ?? false;
-
-      if (!isTeamOnly && hasGlobalAccess) return { hasAccess: true };
-
-      // Get user's teams
-      const teamTable =
-        userType === "user" ? schema.userTeam : schema.applicationTeam;
-      const userIdCol =
-        userType === "user"
-          ? schema.userTeam.userId
-          : schema.applicationTeam.applicationId;
-      const userTeams = await internalDb
-        .select({
-          teamId:
-            userType === "user"
-              ? schema.userTeam.teamId
-              : schema.applicationTeam.teamId,
-        })
-        .from(teamTable)
-        .where(eq(userIdCol, userId));
-      const userTeamIds = new Set(userTeams.map((t) => t.teamId));
-
-      const field = action === "manage" ? "canManage" : "canRead";
-      const hasAccess = grants.some(
-        (g) => userTeamIds.has(g.teamId) && g[field],
+      if (input.objectIds.length === 0) return [];
+      const userTeamIds = await resolveUserTeamIds(
+        input.userId,
+        input.userType,
       );
-      return { hasAccess };
-    },
-  );
-
-  const getAccessibleResourceIds = os.getAccessibleResourceIds.handler(
-    async ({ input }) => {
-      const {
-        userId,
-        userType,
-        resourceType,
-        resourceIds,
-        action,
-        hasGlobalAccess,
-      } = input;
-      if (resourceIds.length === 0) return [];
-
-      // Get all grants for these resources
-      const grants = await internalDb
-        .select()
-        .from(schema.resourceTeamAccess)
-        .where(
-          and(
-            eq(schema.resourceTeamAccess.resourceType, resourceType),
-            inArray(schema.resourceTeamAccess.resourceId, resourceIds),
-          ),
-        );
-
-      // Get resource-level settings for teamOnly
-      const settingsRows = await internalDb
-        .select()
-        .from(schema.resourceAccessSettings)
-        .where(
-          and(
-            eq(schema.resourceAccessSettings.resourceType, resourceType),
-            inArray(schema.resourceAccessSettings.resourceId, resourceIds),
-          ),
-        );
-      const teamOnlyByResource = new Map(
-        settingsRows.map((s) => [s.resourceId, s.teamOnly]),
-      );
-
-      // Get user's teams
-      const teamTable =
-        userType === "user" ? schema.userTeam : schema.applicationTeam;
-      const userIdCol =
-        userType === "user"
-          ? schema.userTeam.userId
-          : schema.applicationTeam.applicationId;
-      const userTeams = await internalDb
-        .select({
-          teamId:
-            userType === "user"
-              ? schema.userTeam.teamId
-              : schema.applicationTeam.teamId,
-        })
-        .from(teamTable)
-        .where(eq(userIdCol, userId));
-      const userTeamIds = new Set(userTeams.map((t) => t.teamId));
-
-      const field = action === "manage" ? "canManage" : "canRead";
-      const grantsByResource = new Map<string, typeof grants>();
-      for (const g of grants) {
-        const existing = grantsByResource.get(g.resourceId) || [];
-        existing.push(g);
-        grantsByResource.set(g.resourceId, existing);
-      }
-
-      return resourceIds.filter((id) => {
-        const resourceGrants = grantsByResource.get(id) || [];
-        if (resourceGrants.length === 0) {
-          // No team grants configured — fall through to global access
-          return hasGlobalAccess;
-        }
-        const isTeamOnly = teamOnlyByResource.get(id) ?? false;
-        if (!isTeamOnly && hasGlobalAccess) return true;
-        return resourceGrants.some(
-          (g) => userTeamIds.has(g.teamId) && g[field],
-        );
+      return tupleStore.listAccessibleObjectIds({
+        objectType: input.objectType,
+        candidateIds: input.objectIds,
+        userTeamIds,
+        action: input.action,
+        hasGlobalAccess: input.hasGlobalAccess,
       });
     },
   );
 
-  const deleteResourceGrants = os.deleteResourceGrants.handler(
+  const deleteObjectRelations = os.deleteObjectRelations.handler(
     async ({ input }) => {
       await internalDb
-        .delete(schema.resourceTeamAccess)
+        .delete(schema.relationTuple)
         .where(
           and(
-            eq(schema.resourceTeamAccess.resourceType, input.resourceType),
-            eq(schema.resourceTeamAccess.resourceId, input.resourceId),
+            eq(schema.relationTuple.objectType, input.objectType),
+            eq(schema.relationTuple.objectId, input.objectId),
           ),
         );
     },
   );
+
+  const hasAnyTypeGrant = os.hasAnyTypeGrant.handler(async ({ input }) => {
+    const userTeamIds = await resolveUserTeamIds(input.userId, input.userType);
+    if (userTeamIds.length === 0) return { hasGrant: false };
+    const hasGrant = await tupleStore.hasAnyTypeGrant({
+      objectType: input.objectType,
+      userTeamIds,
+      action: input.action,
+    });
+    return { hasGrant };
+  });
+
+  const getResourceKinds = os.getResourceKinds.handler(async () => {
+    return { kinds: accessRuleRegistry.getResourceKinds?.() ?? [] };
+  });
+
+  // Resolve opaque grant resourceIds to display names via the owning plugin's
+  // registered resolver. Unknown types/ids are simply omitted (the UI falls
+  // back to the raw id). Resolver failures degrade to an empty map, never a 5xx.
+  const resolveResourceNames = os.resolveResourceNames.handler(
+    async ({ input }) => {
+      const resolver = resourceResolverRegistry?.get(input.resourceType);
+      if (!resolver || input.resourceIds.length === 0) return { names: {} };
+      try {
+        const map = await resolver.resolveNames(input.resourceIds);
+        return { names: Object.fromEntries(map) };
+      } catch (error) {
+        logger.error(
+          `resolveResourceNames failed for ${input.resourceType}: ${String(error)}`,
+        );
+        return { names: {} };
+      }
+    },
+  );
+
+  // Search an owning plugin's resources for the team-grant picker.
+  const searchResources = os.searchResources.handler(async ({ input }) => {
+    const resolver = resourceResolverRegistry?.get(input.resourceType);
+    if (!resolver) return { results: [] };
+    try {
+      const results = await resolver.search(input.query, input.limit ?? 20);
+      return { results };
+    } catch (error) {
+      logger.error(
+        `searchResources failed for ${input.resourceType}: ${String(error)}`,
+      );
+      return { results: [] };
+    }
+  });
+
+  const listSubjectRelations = os.listSubjectRelations.handler(
+    async ({ input }) => {
+      const rows = await tupleStore.listSubjectRelations({
+        teamId: input.teamId,
+      });
+      return {
+        grants: rows.map((r) => ({
+          objectType: r.objectType,
+          objectId: r.objectId,
+          relation: asRelation(r.relation),
+        })),
+      };
+    },
+  );
+
+  const getMyTeams = os.getMyTeams.handler(async ({ context }) => {
+    const user = context.user;
+    if (!user || (user.type !== "user" && user.type !== "application")) {
+      return { teams: [] };
+    }
+    const isUser = user.type === "user";
+    const teamTable = isUser ? schema.userTeam : schema.applicationTeam;
+    const idCol = isUser
+      ? schema.userTeam.userId
+      : schema.applicationTeam.applicationId;
+    const teamIdCol = isUser
+      ? schema.userTeam.teamId
+      : schema.applicationTeam.teamId;
+    const rows = await internalDb
+      .select({ id: schema.team.id, name: schema.team.name })
+      .from(teamTable)
+      .innerJoin(schema.team, eq(teamIdCol, schema.team.id))
+      .where(eq(idCol, user.id));
+    return { teams: rows };
+  });
+
+  const setCreateGrant = os.setCreateGrant.handler(async ({ input }) => {
+    assertKnownResourceType(input.objectType);
+    await tupleStore.setCreator({
+      objectType: input.objectType,
+      teamId: input.teamId,
+      allowed: input.allowed,
+    });
+  });
+
+  const getMyManagingTeams = os.getMyManagingTeams.handler(
+    async ({ context, input }) => {
+      const user = context.user;
+      if (!user || (user.type !== "user" && user.type !== "application")) {
+        return { teamIds: [] };
+      }
+      const resourceIds = [...new Set(input.resourceIds)];
+      if (resourceIds.length === 0) return { teamIds: [] };
+
+      const isUser = user.type === "user";
+      const teamTable = isUser ? schema.userTeam : schema.applicationTeam;
+      const idCol = isUser
+        ? schema.userTeam.userId
+        : schema.applicationTeam.applicationId;
+      const teamIdCol = isUser
+        ? schema.userTeam.teamId
+        : schema.applicationTeam.teamId;
+      const memberRows = await internalDb
+        .select({ teamId: teamIdCol })
+        .from(teamTable)
+        .where(eq(idCol, user.id));
+      const myTeamIds = memberRows.map((r) => r.teamId);
+      if (myTeamIds.length === 0) return { teamIds: [] };
+
+      // MANAGE relations (editor|owner) on these objects held by the caller's
+      // teams. A team qualifies only if it manages EVERY requested object.
+      const grants = await internalDb
+        .select({
+          teamId: schema.relationTuple.subjectId,
+          objectId: schema.relationTuple.objectId,
+        })
+        .from(schema.relationTuple)
+        .where(
+          and(
+            eq(schema.relationTuple.objectType, input.resourceType),
+            inArray(schema.relationTuple.objectId, resourceIds),
+            eq(schema.relationTuple.subjectType, "team"),
+            inArray(schema.relationTuple.subjectId, myTeamIds),
+            inArray(schema.relationTuple.relation, ["editor", "owner"]),
+          ),
+        );
+
+      const byTeam = new Map<string, Set<string>>();
+      for (const g of grants) {
+        const set = byTeam.get(g.teamId) ?? new Set<string>();
+        set.add(g.objectId);
+        byTeam.set(g.teamId, set);
+      }
+      const teamIds = [...byTeam.entries()]
+        .filter(([, set]) => set.size === resourceIds.length)
+        .map(([teamId]) => teamId);
+      return { teamIds };
+    },
+  );
+
+  const listTeamCreateGrants = os.listTeamCreateGrants.handler(
+    async ({ input }) => {
+      const resourceTypes = await tupleStore.listCreateGrants({
+        teamId: input.teamId,
+      });
+      return { resourceTypes };
+    },
+  );
+
+  const authorizeCreate = os.authorizeCreate.handler(async ({ input }) => {
+    const {
+      userId,
+      userType,
+      objectType,
+      requestedTeamId,
+      hasGlobalManage,
+      alreadyAuthorized,
+    } = input;
+
+    const memberTeamIds = new Set(
+      await resolveUserTeamIds(userId, userType),
+    );
+
+    // Global manage: create globally (no owner) or on behalf of any team.
+    // Admin-created objects stay globally readable (not private).
+    if (hasGlobalManage) {
+      if (requestedTeamId) {
+        const exists = await internalDb
+          .select({ id: schema.team.id })
+          .from(schema.team)
+          .where(eq(schema.team.id, requestedTeamId))
+          .limit(1);
+        if (exists.length === 0) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: `Unknown team: ${requestedTeamId}`,
+          });
+        }
+        return { ownerTeamId: requestedTeamId, isPrivate: false };
+      }
+      return { ownerTeamId: null, isPrivate: false };
+    }
+
+    // Authorized by a parent gate (e.g. manage on the system an incident is
+    // for): no per-type creator grant needed; just resolve the optional owning
+    // team, which must be one the caller belongs to.
+    if (alreadyAuthorized) {
+      if (requestedTeamId) {
+        if (!memberTeamIds.has(requestedTeamId)) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "You are not a member of the requested team.",
+            data: { code: "RESOURCE_TEAM_FORBIDDEN", resourceType: objectType },
+          });
+        }
+        return { ownerTeamId: requestedTeamId, isPrivate: false };
+      }
+      return { ownerTeamId: null, isPrivate: false };
+    }
+
+    // No global manage: only the caller's teams holding a `creator` grant for
+    // this type may own a new object.
+    const eligibleTeamIds = await tupleStore.creatorTeamIds({
+      objectType,
+      userTeamIds: [...memberTeamIds],
+    });
+
+    if (requestedTeamId) {
+      if (!memberTeamIds.has(requestedTeamId)) {
+        throw new ORPCError("FORBIDDEN", {
+          message: "You are not a member of the requested team.",
+          data: { code: "RESOURCE_TEAM_FORBIDDEN", resourceType: objectType },
+        });
+      }
+      if (!eligibleTeamIds.includes(requestedTeamId)) {
+        throw new ORPCError("FORBIDDEN", {
+          message: "Your team is not permitted to create this resource type.",
+          data: { code: "RESOURCE_CREATE_FORBIDDEN", resourceType: objectType },
+        });
+      }
+      // Member-created object is MANAGED by the owning team but stays globally
+      // readable by default (privacy is an explicit opt-in via setObjectPublic).
+      return { ownerTeamId: requestedTeamId, isPrivate: false };
+    }
+
+    if (eligibleTeamIds.length === 0) {
+      throw new ORPCError("FORBIDDEN", {
+        message: "You do not have permission to create this resource.",
+        data: { code: "RESOURCE_CREATE_FORBIDDEN", resourceType: objectType },
+      });
+    }
+    if (eligibleTeamIds.length > 1) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "Choose which team should own the new resource.",
+        data: {
+          code: "OWNER_TEAM_REQUIRED",
+          resourceType: objectType,
+          eligibleTeamIds,
+        },
+      });
+    }
+    return { ownerTeamId: eligibleTeamIds[0], isPrivate: false };
+  });
+
+  const setOwner = os.setOwner.handler(async ({ input }) => {
+    // The store writes the `public` marker unless the object is private; a
+    // freshly-created object is globally readable by default (isPrivate=false).
+    await tupleStore.setOwner({
+      objectType: input.objectType,
+      objectId: input.objectId,
+      teamId: input.teamId,
+      isPublic: !(input.isPrivate ?? false),
+    });
+  });
 
   const getOwnStrategyConfig = os.getOwnStrategyConfig.handler(
     async ({ context }) => {
@@ -2107,6 +2328,7 @@ export const createAuthRouter = (
     getEnabledStrategies,
     accessRules: accessRulesHandler,
     getUsers,
+    searchUsers,
     deleteUser,
     getRoles,
     getAccessRules,
@@ -2152,14 +2374,24 @@ export const createAuthRouter = (
     removeUserFromTeam,
     addTeamManager,
     removeTeamManager,
-    getResourceTeamAccess,
-    setResourceTeamAccess,
-    removeResourceTeamAccess,
-    getResourceAccessSettings,
-    setResourceAccessSettings,
-    checkResourceTeamAccess,
-    getAccessibleResourceIds,
-    deleteResourceGrants,
+    listObjectRelations,
+    writeRelation,
+    removeRelation,
+    setObjectPublic,
+    check,
+    listAccessibleObjectIds,
+    deleteObjectRelations,
+    hasAnyTypeGrant,
+    getResourceKinds,
+    resolveResourceNames,
+    searchResources,
+    listSubjectRelations,
+    getMyTeams,
+    getMyManagingTeams,
+    setCreateGrant,
+    listTeamCreateGrants,
+    authorizeCreate,
+    setOwner,
   });
 };
 

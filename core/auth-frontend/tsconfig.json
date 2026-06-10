@@ -8,10 +8,22 @@
       "path": "../auth-common"
     },
     {
+      "path": "../catalog-common"
+    },
+    {
       "path": "../common"
     },
     {
       "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../incident-common"
+    },
+    {
+      "path": "../maintenance-common"
     },
     {
       "path": "../test-utils-frontend"

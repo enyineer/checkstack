@@ -20,6 +20,11 @@ export const incidentContract = {
     operationType: "query",
     userType: "public",
     access: [incidentAccess.incident.read],
+    // Grants are keyed by INCIDENT id (frontend `TeamAccessEditor` writes
+    // `resourceType="incident.incident"`, `resourceId={incident.id}`). Each
+    // returned item is an `IncidentWithSystems` whose `.id` is the incident id,
+    // so the list post-filter matches grants correctly.
+    instanceAccess: { listKey: "incidents" },
   })
     .input(
       z
@@ -37,6 +42,11 @@ export const incidentContract = {
     operationType: "query",
     userType: "public",
     access: [incidentAccess.incident.read],
+    // Object-scoped: gate on the incident's OWN grant. The shared `incident`
+    // access rule declares `idParam: "systemId"`, but grants are keyed by
+    // incident id and this input carries `id` (no `systemId`), so without this
+    // override the middleware would find no id and SKIP the check (G9 bug).
+    instanceAccess: { idParam: "id" },
   })
     .input(z.object({ id: z.string() }))
     .output(IncidentDetailSchema.nullable()),
@@ -46,6 +56,12 @@ export const incidentContract = {
     operationType: "query",
     userType: "public",
     access: [incidentAccess.incident.read],
+    // SYSTEM-scoped read: input carries `systemId` and this endpoint returns
+    // incidents FOR that system. Access follows "can you read that system"
+    // (catalog.system / read), not incident-level grants.
+    instanceAccess: {
+      parentScope: { resourceType: "catalog.system", action: "read", idParam: "systemId" },
+    },
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(IncidentWithSystemsSchema)),
@@ -57,7 +73,13 @@ export const incidentContract = {
     operationType: "query",
     userType: "public",
     access: [incidentAccess.incident.read],
-    instanceAccess: { recordKey: "incidents" },
+    // SYSTEM-scoped bulk read: output is `{ incidents: Record<systemId, ...> }`.
+    // The record is keyed by system id, so access follows per-system catalog
+    // visibility — the validator post-filters the record to only the system ids
+    // the caller can read.
+    instanceAccess: {
+      parentScope: { resourceType: "catalog.system", action: "read", recordKey: "incidents" },
+    },
   })
     .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
@@ -72,6 +94,22 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // CREATE-mode team ownership: the autoAuthMiddleware reads `input.teamId`
+    // (optional) to resolve the owning team and, post-handler, writes a
+    // team-scoped grant keyed `incident.incident / {incident.id}` via
+    // `setResourceOwner`. The `idField: "id"` tells the middleware which field
+    // of the response carries the new resource's id. Grants are keyed by
+    // incident id, matching the `TeamAccessEditor` usage in IncidentEditor.
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        // Anyone who can MANAGE a referenced system may create one for it; the
+        // result stays globally readable. Falls back to a per-type
+        // create-capability grant when no parent gate matches.
+        parent: { resourceType: "catalog.system", idParam: "systemIds" },
+      },
+    },
   })
     .input(CreateIncidentInputSchema)
     .output(IncidentWithSystemsSchema),
@@ -81,6 +119,9 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // Object-scoped: gate on the incident's OWN grant via the `id` input.
+    // Overrides the rule's `idParam: "systemId"` (G9 bug — no `systemId` here).
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "PATCH" })
     .input(UpdateIncidentInputSchema)
@@ -91,6 +132,10 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // Object-scoped: gate on the incident's OWN grant. This input carries the
+    // incident id as `incidentId` (not `id`). Overrides the rule's
+    // `idParam: "systemId"` (G9 bug — no `systemId` here).
+    instanceAccess: { idParam: "incidentId" },
   })
     .input(AddIncidentUpdateInputSchema)
     .output(IncidentUpdateSchema),
@@ -100,6 +145,9 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // Object-scoped: gate on the incident's OWN grant via the `id` input.
+    // Overrides the rule's `idParam: "systemId"` (G9 bug — no `systemId` here).
+    instanceAccess: { idParam: "id" },
   })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(IncidentWithSystemsSchema),
@@ -109,6 +157,9 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // Object-scoped: gate on the incident's OWN grant via the `incidentId`
+    // input. Overrides the rule's `idParam: "systemId"` (G9 bug).
+    instanceAccess: { idParam: "incidentId" },
   })
     .input(AddIncidentLinkInputSchema)
     .output(IncidentLinkSchema),
@@ -118,6 +169,12 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // global:true — input carries only a LINK id (`incidentLinks.id`), not an
+    // incident id or system id. The owning incident id is only resolvable
+    // server-side after the lookup, so no pre-check can scope this to a resource.
+    // `idParam: "id"` would compare a link id against incident grants and always
+    // 403. The `incident.manage` access rule still gates this endpoint globally.
+    instanceAccess: { global: true },
   })
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
@@ -128,6 +185,9 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
+    // Object-scoped: gate on the incident's OWN grant via the `id` input.
+    // Overrides the rule's `idParam: "systemId"` (G9 bug — no `systemId` here).
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))

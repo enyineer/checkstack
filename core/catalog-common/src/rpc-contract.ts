@@ -30,6 +30,12 @@ const CreateSystemInputSchema = z.object({
   name: NameSchema,
   description: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  // Optional requested owning-team id consumed by autoAuthMiddleware's
+  // create-mode (instanceAccess.create.teamIdParam). Existing callers that
+  // omit it are unaffected; the middleware — not the handler — reads this
+  // field. The handler MUST destructure it out before passing data to the
+  // service layer (the `systems` table has no `teamId` column).
+  teamId: z.string().optional(),
 });
 
 const UpdateSystemInputSchema = z.object({
@@ -70,6 +76,8 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.system.read],
+    // Filters the systems array to those the caller has access to; each system has .id.
+    instanceAccess: { listKey: "systems" },
   }).output(
     z.object({
       systems: z.array(SystemSchema),
@@ -81,6 +89,8 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.system.read],
+    // Output is { systems: SystemSchema[] }; each item has .id = system id.
+    instanceAccess: { listKey: "systems" },
   }).output(z.object({ systems: z.array(SystemSchema) })),
 
   getSystem: proc({
@@ -121,26 +131,44 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    // Create-mode team ownership: middleware pre-handler checks create-capability
+    // grants (or falls back to global-manage), resolves the owning team from
+    // `input.teamId`, and post-handler writes a teamOnly grant keyed by
+    // `catalog.system` / `response.id`. idField "id" matches SystemSchema.id.
+    instanceAccess: { create: { teamIdParam: "teamId", idField: "id" } },
   })
     .input(CreateSystemInputSchema)
     .output(SystemSchema),
 
+  // The `system.manage` rule carries `idParam: "systemId"`, but this proc
+  // targets a system by its own `id` field (not `systemId`). Override the
+  // instance keying so the middleware checks manage access to THAT system's
+  // grant (resourceType "catalog.system", resourceId = system id). Without
+  // this override the middleware looks for a non-existent `input.systemId`,
+  // finds nothing, and silently skips the per-system check (the G9 gap).
   updateSystem: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "PATCH" })
     .input(UpdateSystemInputSchema)
     .output(SystemSchema),
 
+  // Input reshaped from a bare `z.string()` to `{ id }` so the per-system
+  // manage check can resolve the target id by field name (the middleware
+  // reads `idParam` off a named object field; a bare string has no field to
+  // point at, so scoping was impossible before). Keystone G9 fix: deleting a
+  // system now requires manage on THAT system.
   deleteSystem: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "DELETE" })
-    .input(z.string())
+    .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
@@ -177,13 +205,19 @@ export const catalogContract = {
     )
     .output(SystemContactSchema),
 
+  // Input reshaped from a bare `z.string()` (the contact id) to
+  // `{ id, systemId }` so the per-system manage check can resolve the parent
+  // system. Removing a contact is scoped by its PARENT system, not the
+  // contact id (grants are keyed on "catalog.system"), so `idParam` points at
+  // `systemId`. The frontend already holds the systemId, so passing it is free.
   removeSystemContact: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
   })
     .route({ method: "DELETE" })
-    .input(z.string())
+    .input(z.object({ id: z.string(), systemId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
@@ -215,13 +249,19 @@ export const catalogContract = {
     )
     .output(SystemLinkSchema),
 
+  // Input reshaped from a bare `z.string()` (the link id) to
+  // `{ id, systemId }` so the per-system manage check can resolve the parent
+  // system. Removing a link is scoped by its PARENT system (grants are keyed
+  // on "catalog.system"), so `idParam` points at `systemId`. The frontend
+  // already holds the systemId.
   removeSystemLink: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
   })
     .route({ method: "DELETE" })
-    .input(z.string())
+    .input(z.object({ id: z.string(), systemId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================
@@ -258,10 +298,15 @@ export const catalogContract = {
   // SYSTEM-GROUP RELATIONSHIPS (userType: "authenticated" with manage access)
   // ==========================================================================
 
+  // Group membership mutations are scoped by the PARENT system (groups are
+  // global). The `system.manage` rule already carries `idParam: "systemId"`,
+  // but both procs are spelled explicitly here for clarity and to guard the
+  // keying with a regression test.
   addSystemToGroup: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
   })
     .input(
       z.object({
@@ -275,6 +320,7 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
   })
     .route({ method: "DELETE" })
     .input(
@@ -294,12 +340,16 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.environment.read],
+    // Environments are instance-wide global primitives — no team-based scoping.
+    instanceAccess: { global: true },
   }).output(z.array(EnvironmentSchema)),
 
   getEnvironment: proc({
     operationType: "query",
     userType: "public",
     access: [catalogAccess.environment.read],
+    // Environments are instance-wide global primitives — no team-based scoping.
+    instanceAccess: { global: true },
   })
     .input(z.object({ environmentId: z.string() }))
     .output(EnvironmentSchema.nullable()),
@@ -308,6 +358,8 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
+    // Environments are instance-wide global primitives — no team-based scoping.
+    instanceAccess: { global: true },
   })
     .input(CreateEnvironmentSchema)
     .output(EnvironmentSchema),
@@ -316,6 +368,8 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
+    // Environments are instance-wide global primitives — no team-based scoping.
+    instanceAccess: { global: true },
   })
     .route({ method: "PATCH" })
     .input(
@@ -330,6 +384,8 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
+    // Environments are instance-wide global primitives — no team-based scoping.
+    instanceAccess: { global: true },
   })
     .route({ method: "DELETE" })
     .input(z.object({ environmentId: z.string() }))
@@ -344,7 +400,16 @@ export const catalogContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [catalogAccess.environment.manage],
-    instanceAccess: { idParam: "systemId" },
+    // This is a system-scoped operation (mutating a system's env memberships),
+    // not an environment-scoped one. Scope by the parent system's manage grant
+    // so catalog.environment stays non-scopable.
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "manage",
+        idParam: "systemId",
+      },
+    },
   })
     .input(
       z.object({
@@ -363,7 +428,16 @@ export const catalogContract = {
     operationType: "query",
     userType: "public",
     access: [catalogAccess.environment.read],
-    instanceAccess: { idParam: "systemId" },
+    // This is a system-scoped read (a system's env memberships), not an
+    // environment-scoped one. Scope by the parent system's read grant so
+    // catalog.environment stays non-scopable.
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "read",
+        idParam: "systemId",
+      },
+    },
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(EnvironmentSchema)),

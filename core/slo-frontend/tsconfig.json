@@ -5,6 +5,9 @@
   ],
   "references": [
     {
+      "path": "../auth-frontend"
+    },
+    {
       "path": "../catalog-common"
     },
     {

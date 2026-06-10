@@ -70,7 +70,7 @@ export function createCatalogDeleteSystemTool(): RegisteredAiTool<
     dryRun,
     async execute({ input, rpcClient }) {
       const catalogClient = rpcClient.forPlugin(CatalogApi);
-      await catalogClient.deleteSystem(input.id);
+      await catalogClient.deleteSystem({ id: input.id });
       return { id: input.id, deleted: true };
     },
   };

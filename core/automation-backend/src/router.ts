@@ -226,10 +226,16 @@ export function createAutomationRouter(deps: RouterDeps) {
     }),
 
     createAutomation: os.createAutomation.handler(async ({ input, context }) => {
-      await assertCanBindRunAs(input.runAs, context);
+      // Destructure `teamId` out: it is consumed by `autoAuthMiddleware` for
+      // owning-team grant wiring and must NOT be forwarded to the store (the
+      // store's `CreateAutomationInput` type does not include it, and passing
+      // it would cause a strict-object Drizzle insert to fail or silently
+      // insert an unknown column).
+      const { teamId: _teamId, ...storeInput } = input;
+      await assertCanBindRunAs(storeInput.runAs, context);
       let created: Automation;
       try {
-        created = await automationStore.create(input);
+        created = await automationStore.create(storeInput);
       } catch (error) {
         if (error instanceof ZodError) {
           throw new ORPCError("BAD_REQUEST", {

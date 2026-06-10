@@ -25,14 +25,29 @@ import { getAuthClientLazy } from "./lib/auth-client";
 import { AuthAccessApi } from "./lib/AuthAccessApi";
 import { useSessionContext } from "./lib/SessionProvider";
 
-import { Settings2 } from "lucide-react";
+import { Settings2, Users2 } from "lucide-react";
 import { AuthSettingsPage } from "./components/AuthSettingsPage";
+import { TeamsPage } from "./components/TeamsPage";
 import {
   authAccess,
   authRoutes,
   pluginMetadata,
 } from "@checkstack/auth-common";
 import { resolveRoute } from "@checkstack/common";
+import {
+  CatalogSystemActionsSlot,
+  CatalogSystemBulkActionsSlot,
+  SystemMetaSlot,
+} from "@checkstack/catalog-common";
+import { IncidentDetailsSlot } from "@checkstack/incident-common";
+import { MaintenanceDetailsSlot } from "@checkstack/maintenance-common";
+import { HealthCheckConfigDetailsSlot } from "@checkstack/healthcheck-common";
+import { BulkScopeToTeamSystems } from "./components/BulkScopeToTeamSystems";
+import { ScopeSystemToTeamAction } from "./components/ScopeSystemToTeamAction";
+import { SystemAccessMeta } from "./components/SystemAccessMeta";
+import { IncidentAccessMeta } from "./components/IncidentAccessMeta";
+import { MaintenanceAccessMeta } from "./components/MaintenanceAccessMeta";
+import { HealthCheckConfigAccessMeta } from "./components/HealthCheckConfigAccessMeta";
 import { OnboardingCheck } from "./components/OnboardingCheck";
 
 /**
@@ -113,6 +128,17 @@ class BetterAuthApi implements AuthApi {
 export { TeamAccessEditor } from "./components/TeamAccessEditor";
 export type { TeamAccessEditorProps } from "./components/TeamAccessEditor";
 
+// Re-export TeamOwnershipPicker for create forms (choose the owning team).
+export { TeamOwnershipPicker } from "./components/TeamOwnershipPicker";
+export type { TeamOwnershipPickerProps } from "./components/TeamOwnershipPicker";
+
+// Maps a failed-create error to an inline message for the ownership picker.
+export { teamCreateErrorMessage } from "./lib/teamCreateError";
+
+// Read-only "who can change this" indicator for resource detail pages.
+export { ResourceManagedBy } from "./components/ResourceManagedBy";
+export type { ResourceManagedByProps } from "./components/ResourceManagedBy";
+
 // Re-export SessionProvider for App.tsx to wrap the component tree
 export { SessionProvider } from "./lib/SessionProvider";
 
@@ -156,6 +182,19 @@ export const authPlugin = createFrontendPlugin({
       },
     },
     {
+      // Standalone team management — gated on teams.read so team managers can
+      // reach it without the admin rules the Auth Settings page requires.
+      route: authRoutes.routes.teams,
+      element: <TeamsPage />,
+      accessRule: authAccess.teams.read,
+      nav: {
+        group: "Configuration",
+        icon: Users2,
+        label: "Teams",
+        accessRule: authAccess.teams.read,
+      },
+    },
+    {
       route: authRoutes.routes.forgotPassword,
       element: <ForgotPasswordPage />,
     },
@@ -193,6 +232,30 @@ export const authPlugin = createFrontendPlugin({
     createSlotExtension(NavbarLeftSlot, {
       id: "auth.onboarding-guard",
       component: OnboardingCheck,
+    }),
+    createSlotExtension(CatalogSystemBulkActionsSlot, {
+      id: "auth.catalog.system-bulk-scope-to-team",
+      component: BulkScopeToTeamSystems,
+    }),
+    createSlotExtension(CatalogSystemActionsSlot, {
+      id: "auth.catalog.system-scope-to-team",
+      component: ScopeSystemToTeamAction,
+    }),
+    createSlotExtension(SystemMetaSlot, {
+      id: "auth.catalog.system-access-meta",
+      component: SystemAccessMeta,
+    }),
+    createSlotExtension(IncidentDetailsSlot, {
+      id: "auth.incident.access-meta",
+      component: IncidentAccessMeta,
+    }),
+    createSlotExtension(MaintenanceDetailsSlot, {
+      id: "auth.maintenance.access-meta",
+      component: MaintenanceAccessMeta,
+    }),
+    createSlotExtension(HealthCheckConfigDetailsSlot, {
+      id: "auth.healthcheck.config-access-meta",
+      component: HealthCheckConfigAccessMeta,
     }),
   ],
 });

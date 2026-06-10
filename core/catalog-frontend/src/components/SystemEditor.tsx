@@ -11,7 +11,13 @@ import {
   DialogFooter,
   useToast,
 } from "@checkstack/ui";
-import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import {
+  TeamAccessEditor,
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+} from "@checkstack/auth-frontend";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { catalogAccess } from "@checkstack/catalog-common";
 import { ContactsEditor } from "./ContactsEditor";
 import { SystemLinksEditor } from "./SystemLinksEditor";
 import { SystemEnvironmentsEditor } from "./SystemEnvironmentsEditor";
@@ -22,7 +28,7 @@ import { extractErrorMessage } from "@checkstack/common";
 interface SystemEditorProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: { name: string; description?: string }) => Promise<void>;
+  onSave: (data: { name: string; description?: string; teamId?: string }) => Promise<void>;
   initialData?: { id: string; name: string; description?: string };
 }
 
@@ -36,14 +42,21 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
   const [description, setDescription] = useState(
     initialData?.description || "",
   );
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const toast = useToast();
+
+  const accessApi = useApi(accessApiRef);
+  const { allowed: allowGlobal } = accessApi.useAccess(catalogAccess.system.manage);
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       setName(initialData?.name || "");
       setDescription(initialData?.description || "");
+      setOwnerTeamId(null);
+      setOwnerTeamError(null);
     }
   }, [open, initialData]);
 
@@ -52,16 +65,22 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
     if (!name.trim()) return;
 
     setLoading(true);
+    setOwnerTeamError(null);
     try {
       await onSave({
         name: name.trim(),
         description: description.trim() || undefined,
+        ...(initialData?.id ? {} : { teamId: ownerTeamId ?? undefined }),
       });
       onClose();
     } catch (error) {
-      const message =
-        extractErrorMessage(error, "Failed to save system");
-      toast.error(message);
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+      } else {
+        const message = extractErrorMessage(error, "Failed to save system");
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -105,6 +124,21 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
                 rows={3}
               />
             </div>
+
+            {/* Owning team picker - only shown when creating a new system */}
+            {!initialData?.id && (
+              <div className="space-y-2">
+                <TeamOwnershipPicker
+                  value={ownerTeamId}
+                  onChange={(id) => {
+                    setOwnerTeamId(id);
+                    setOwnerTeamError(null);
+                  }}
+                  allowGlobal={allowGlobal}
+                  error={ownerTeamError}
+                />
+              </div>
+            )}
 
             {/* Contacts Editor - only shown for existing systems */}
             {initialData?.id && <ContactsEditor systemId={initialData.id} />}

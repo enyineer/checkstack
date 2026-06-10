@@ -15,7 +15,6 @@ export const healthCheckAccess = {
    * override at the contract level.
    */
   status: access("healthcheck.status", "read", "View Health Check Status", {
-    idParam: "systemId",
     isDefault: true,
     isPublic: true,
     pluginId: pluginMetadata.pluginId,

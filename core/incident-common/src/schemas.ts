@@ -96,6 +96,15 @@ export const CreateIncidentInputSchema = z.object({
     .string()
     .optional()
     .describe("Optional initial status update message"),
+  /**
+   * Optional owning-team id. When supplied by an authenticated team member, the
+   * autoAuthMiddleware create-mode writes a team-scoped ownership grant for the
+   * newly created incident. Omitting it (or calling with global-manage) creates
+   * the incident without team scoping, exactly as before. Never written to the
+   * incident row — the router handler ignores this field before delegating to
+   * the service.
+   */
+  teamId: z.string().optional(),
 });
 export type CreateIncidentInput = z.infer<typeof CreateIncidentInputSchema>;
 

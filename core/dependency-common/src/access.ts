@@ -27,7 +27,6 @@ export const dependencyAccess = {
       },
     },
     {
-      idParam: "systemId",
       pluginId: pluginMetadata.pluginId,
     },
   ),

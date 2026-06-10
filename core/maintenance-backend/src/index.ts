@@ -12,6 +12,7 @@ import {
 } from "@checkstack/maintenance-common";
 
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { inArray, ilike } from "drizzle-orm";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
@@ -144,6 +145,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         queueManager: coreServices.queueManager,
         cacheManager: coreServices.cacheManager,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
         logger,
@@ -152,6 +154,7 @@ export default createBackendPlugin({
         rpcClient,
         signalService,
         cacheManager,
+        resourceResolverRegistry,
       }) => {
         logger.debug("🔧 Initializing Maintenance Backend...");
 
@@ -160,12 +163,33 @@ export default createBackendPlugin({
         notificationClient = rpcClient.forPlugin(NotificationApi);
         const authClient = rpcClient.forPlugin(AuthApi);
 
-        maintenanceService = new MaintenanceService(
-          database as SafeDatabase<typeof schema>,
-        );
+        const typedDb = database as SafeDatabase<typeof schema>;
+
+        maintenanceService = new MaintenanceService(typedDb);
         // Publish the service for the PLUGIN-BACKED entity `read` accessor
         // (defined in register()). Mutations only run from here onward.
         maintenanceServiceRef = maintenanceService;
+
+        // Resolve/search maintenances by title for cross-plugin grant display
+        // (e.g. Teams admin UI rendering maintenance.maintenance:<id> grants).
+        resourceResolverRegistry.register("maintenance.maintenance", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({ id: schema.maintenances.id, title: schema.maintenances.title })
+              .from(schema.maintenances)
+              .where(inArray(schema.maintenances.id, ids));
+            return new Map(rows.map((r) => [r.id, r.title]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({ id: schema.maintenances.id, title: schema.maintenances.title })
+              .from(schema.maintenances)
+              .where(ilike(schema.maintenances.title, `%${query}%`))
+              .limit(limit);
+            return rows.map((r) => ({ id: r.id, name: r.title }));
+          },
+        });
         const cache = createMaintenanceCache({ cacheManager, logger });
         const router = createRouter(
           maintenanceService,
