@@ -60,6 +60,13 @@ export const OpenAiCompatibleConnectionSchema = z.object({
     .array(z.string().min(1))
     .optional()
     .describe("Optional allowlist of selectable model ids"),
+  contextWindowTokens: configNumber({})
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Model context window in tokens (e.g. 128000). When set, the chat compacts old turns before they overflow it. Blank uses a conservative default.",
+    ),
   spendCap: z
     .preprocess(
       normalizeSpendCap,

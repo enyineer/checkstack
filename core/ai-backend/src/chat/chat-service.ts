@@ -22,6 +22,7 @@ import {
 import { hashToolArgs } from "../propose-apply/args-hash";
 import { resolveModelId } from "./llm-provider";
 import * as schema from "../schema";
+import type { AiMessageRow } from "../schema";
 import type { AiConversationStore } from "./conversation-store";
 import { buildLanguageModel } from "./llm-provider";
 import { applyAutoTitle } from "./title-service";
@@ -42,6 +43,13 @@ import {
   type AgentToolCallbacks,
 } from "./sdk-tools";
 import { ToolValidationError } from "../propose-apply/validation-error";
+import { clampToolResult } from "./result-clamp.logic";
+import {
+  estimateMessagesTokens,
+  estimateTextTokens,
+} from "./token-estimate.logic";
+import { planCompaction } from "./compaction.logic";
+import { renderRowsForSummary, summarizeTurns } from "./summarize-turns";
 import { prepareFinalAnswerStep } from "../step-budget.logic";
 import type { ChatReadInvoker } from "./read-invoker";
 import { buildChatSystemPrompt } from "./system-prompt";
@@ -55,6 +63,21 @@ type AiDatabase = SafeDatabase<typeof schema>;
 
 /** Cap on always-inject preferences folded into the prompt, to bound context. */
 const MAX_ALWAYS_INJECT_MEMORIES = 25;
+
+/**
+ * Conservative context-window assumed when a connection does not configure
+ * `contextWindowTokens`. Big enough not to over-compact a modern model, small
+ * enough to still protect against a runaway transcript on a smaller one.
+ */
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
+/** Tokens reserved for the model's OWN reply (kept out of the input budget). */
+const RESERVED_OUTPUT_TOKENS = 4096;
+/**
+ * Fixed input overhead NOT in `modelMessages`: the base system prompt and the
+ * tool JSON schemas. Subtracted from the window so the heuristic stays
+ * conservative (we never count tool schemas exactly).
+ */
+const SYSTEM_OVERHEAD_TOKENS = 6000;
 
 /**
  * The roles the AI SDK accepts in a `ModelMessage`. A persisted `modelMessages`
@@ -155,6 +178,16 @@ function usageTokens(usage: LanguageModelUsage): {
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
   };
+}
+
+/**
+ * Routing for a projected read tool: which source procedure to re-enter, plus
+ * the owning plugin's optional model-facing result projection (lean shape).
+ */
+export interface ChatReadRoute {
+  pluginId: string;
+  procedureKey: string;
+  projectResult?: (output: unknown) => unknown;
 }
 
 /** Per-turn dedupe key for a mutating tool call: `<tool>:<argsHash>`. */
@@ -301,7 +334,7 @@ export function buildChatToolCallbacks({
   proposeApply: ProposeApplyService;
   readInvoker: ChatReadInvoker;
   recordExecuted: ChatRecordExecuted;
-  readRouting: ReadonlyMap<string, { pluginId: string; procedureKey: string }>;
+  readRouting: ReadonlyMap<string, ChatReadRoute>;
   db: AiDatabase;
   conversationId: string;
   forwardHeaders: Record<string, string>;
@@ -342,7 +375,7 @@ export function buildChatToolCallbacks({
       //     re-check the principal's per-context access in its own `execute`
       //     (the service client is trusted and skips principal checks).
       const executable = readRouting.get(tool.name);
-      const result = executable
+      const raw = executable
         ? await readInvoker.invoke({
             pluginId: executable.pluginId,
             procedureKey: executable.procedureKey,
@@ -356,14 +389,23 @@ export function buildChatToolCallbacks({
           });
       // Audit-record the executed read (transport "chat"): keeps chat reads in
       // the audit log AND makes them count toward the per-principal rate-limit
-      // budget. Records the args hash, never the raw args.
+      // budget. Records the args hash, never the raw args. Recorded against the
+      // FULL result (the lean/clamp shaping below is a model-context concern, not
+      // an audit one).
       await recordExecuted({
         principal: chatAuditPrincipal(readPrincipal),
         conversationId,
         toolName: tool.name,
         argsHash: hashToolArgs(toolInput),
       });
-      return result;
+      // Shape the result for the MODEL's context window (never for authz/audit):
+      //  1. the owning plugin's optional lean projection (projected reads only),
+      //  2. a generic size clamp so one wide read can't blow the context — and,
+      //     since history is replayed verbatim every turn, keep blowing it.
+      const projected = executable?.projectResult
+        ? executable.projectResult(raw)
+        : raw;
+      return clampToolResult({ result: projected }).value;
     },
     propose: async ({ principal: proposePrincipal, tool, input: toolInput }) => {
       const key = turnKey({ tool, input: toolInput });
@@ -531,10 +573,7 @@ export function createChatService({
   // Read-tool name -> source routing. Populated by the plugin at init (the
   // projected read tools' routing is only known then). Shared by reference with
   // the closure below and the public property on the returned object.
-  const readRouting = new Map<
-    string,
-    { pluginId: string; procedureKey: string }
-  >();
+  const readRouting = new Map<string, ChatReadRoute>();
 
   /**
    * Resolve the per-turn model context shared by every model call in a turn:
@@ -578,6 +617,110 @@ export function createChatService({
       }
     };
     return { resolvedModel, languageModel, recordUsage };
+  };
+
+  /**
+   * CONTEXT COMPACTION. Turn the conversation's persisted rows into the model
+   * messages for THIS turn, summarizing the oldest not-yet-covered turns into a
+   * durable running summary when the prompt would exceed the connection's
+   * context window. Returns the (possibly trimmed) `modelMessages` plus the
+   * `summaryPreamble` to fold into the system prompt.
+   *
+   * Splitting at ROW boundaries (a row carries a whole turn, incl. its
+   * tool-call/result parts) guarantees we never orphan a tool message. The
+   * summary + marker are persisted to shared Postgres so any pod resumes from
+   * the same compacted state. FAIL-OPEN: a summarizer error falls back to the
+   * full uncovered history (a provider overflow then surfaces as a normal error,
+   * never a crash here).
+   */
+  const compactHistoryForTurn = async ({
+    conversation,
+    conversationId,
+    userId,
+    rows,
+    connection,
+    languageModel,
+    recordUsage,
+    memoryPreamble,
+    skillPreamble,
+  }: {
+    conversation: {
+      summary: string | null;
+      summarizedThroughMessageId: string | null;
+    };
+    conversationId: string;
+    userId: string;
+    rows: AiMessageRow[];
+    connection: OpenAiCompatibleConnection;
+    languageModel: ReturnType<typeof buildLanguageModel>;
+    recordUsage: (usage: LanguageModelUsage) => Promise<void>;
+    memoryPreamble: string;
+    skillPreamble: string;
+  }): Promise<{ modelMessages: ModelMessage[]; summaryPreamble: string }> => {
+    let summary = conversation.summary ?? "";
+    const marker = conversation.summarizedThroughMessageId;
+
+    // Rows the running summary does NOT yet cover (everything after the marker).
+    const markerIdx = marker ? rows.findIndex((r) => r.id === marker) : -1;
+    const uncovered = markerIdx >= 0 ? rows.slice(markerIdx + 1) : rows;
+
+    const windowTokens =
+      connection.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+    const budgetTokens = Math.max(
+      1,
+      windowTokens - RESERVED_OUTPUT_TOKENS - SYSTEM_OVERHEAD_TOKENS,
+    );
+    const fixedTokens =
+      estimateTextTokens(memoryPreamble) +
+      estimateTextTokens(skillPreamble) +
+      estimateTextTokens(summary);
+
+    const plan = planCompaction({
+      rows: uncovered.map((r) => ({
+        id: r.id,
+        tokens: estimateMessagesTokens(toModelMessages(r)),
+      })),
+      fixedTokens,
+      budgetTokens,
+    });
+
+    let kept = uncovered;
+    if (plan.needsSummary) {
+      const summarizeIds = new Set(plan.summarizeRowIds);
+      const keepIds = new Set(plan.keepRowIds);
+      const toSummarize = uncovered.filter((r) => summarizeIds.has(r.id));
+      const newMarker = plan.summarizeRowIds.at(-1);
+      try {
+        const { summary: merged, usage } = await summarizeTurns({
+          model: languageModel,
+          priorSummary: summary,
+          transcript: renderRowsForSummary({ rows: toSummarize }),
+        });
+        summary = merged;
+        await recordUsage(usage); // the summary call counts against the ledger
+        if (newMarker) {
+          await conversations.setSummary({
+            id: conversationId,
+            userId,
+            summary,
+            summarizedThroughMessageId: newMarker,
+          });
+        }
+        kept = uncovered.filter((r) => keepIds.has(r.id));
+      } catch {
+        // FAIL-OPEN: keep the full uncovered history on a summarizer error.
+        kept = uncovered;
+      }
+    }
+
+    const modelMessages: ModelMessage[] = [];
+    for (const row of kept) modelMessages.push(...toModelMessages(row));
+
+    const summaryPreamble = summary
+      ? "Summary of earlier conversation (older turns were compacted to fit " +
+        `the context window):\n${summary}`
+      : "";
+    return { modelMessages, summaryPreamble };
   };
 
   /**
@@ -658,6 +801,7 @@ export function createChatService({
     timeZone,
     memoryPreamble,
     skillPreamble,
+    summaryPreamble,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -673,6 +817,12 @@ export function createChatService({
     memoryPreamble?: string;
     /** Active-skill guidance block prepended to the system prompt (may be ""). */
     skillPreamble?: string;
+    /**
+     * Running-summary block of earlier, compacted turns (may be ""). Folded into
+     * the system prompt so the model retains the gist of history that has been
+     * dropped from the verbatim `modelMessages` to fit the context window.
+     */
+    summaryPreamble?: string;
   }): Response => {
     // Build the SDK tools from the resolver-allowed set only. The model is never
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
@@ -705,6 +855,7 @@ export function createChatService({
       system: [
         memoryPreamble,
         skillPreamble,
+        summaryPreamble,
         buildChatSystemPrompt({ timeZone, mode: conversation.permissionMode }),
       ]
         .filter(Boolean)
@@ -871,12 +1022,6 @@ export function createChatService({
       });
 
       const history = await conversations.listMessages({ conversationId });
-      const modelMessages: ModelMessage[] = [];
-      for (const row of history) {
-        // Tool-call REPLAY: one row can expand into several model messages
-        // (assistant + tool messages) when it carries canonical SDK messages.
-        modelMessages.push(...toModelMessages(row));
-      }
 
       const { resolvedModel, languageModel, recordUsage } = buildModelContext({
         principal,
@@ -949,6 +1094,28 @@ export function createChatService({
         });
       }
 
+      // Preambles feed BOTH the prompt and the compaction token budget (they
+      // share the input window), so build them before compacting. Done after the
+      // off-topic short-circuit so a refused turn never triggers a summary call.
+      const memoryPreamble = await buildAlwaysInjectPreamble(principal);
+      const skillPreamble = await buildSkillPreamble(skillId);
+
+      // CONTEXT COMPACTION: summarize the oldest turns into a running summary
+      // when the full history would exceed the window. Tool-call REPLAY is
+      // preserved for the KEPT rows (each row expands into its assistant + tool
+      // messages); compacted rows are represented by `summaryPreamble`.
+      const { modelMessages, summaryPreamble } = await compactHistoryForTurn({
+        conversation,
+        conversationId,
+        userId,
+        rows: history,
+        connection,
+        languageModel,
+        recordUsage,
+        memoryPreamble,
+        skillPreamble,
+      });
+
       return streamModel({
         principal,
         conversation,
@@ -959,8 +1126,9 @@ export function createChatService({
         recordUsage,
         modelMessages,
         timeZone,
-        memoryPreamble: await buildAlwaysInjectPreamble(principal),
-        skillPreamble: await buildSkillPreamble(skillId),
+        memoryPreamble,
+        skillPreamble,
+        summaryPreamble,
       });
     },
 
@@ -1032,11 +1200,32 @@ export function createChatService({
       });
       if (capped) return capped;
 
+      const userId = principal.type === "user" ? principal.id : "";
       const history = await conversations.listMessages({ conversationId });
-      const modelMessages: ModelMessage[] = [];
-      for (const row of history) {
-        modelMessages.push(...toModelMessages(row));
-      }
+
+      const { resolvedModel, languageModel, recordUsage } = buildModelContext({
+        principal,
+        conversation,
+        connectionId,
+        conversationId,
+        connection,
+        model,
+      });
+
+      const memoryPreamble = await buildAlwaysInjectPreamble(principal);
+      // Same context compaction as a normal turn (a long conversation can hit
+      // the window on an acknowledgment too).
+      const { modelMessages, summaryPreamble } = await compactHistoryForTurn({
+        conversation,
+        conversationId,
+        userId,
+        rows: history,
+        connection,
+        languageModel,
+        recordUsage,
+        memoryPreamble,
+        skillPreamble: "",
+      });
       // Ephemeral, NON-persisted note delivering the human decision to the model
       // (server-derived; no client text reaches the model). The assistant's
       // streamed reply is what gets persisted and carries the outcome forward.
@@ -1049,15 +1238,6 @@ export function createChatService({
         }),
       });
 
-      const { resolvedModel, languageModel, recordUsage } = buildModelContext({
-        principal,
-        conversation,
-        connectionId,
-        conversationId,
-        connection,
-        model,
-      });
-
       return streamModel({
         principal,
         conversation,
@@ -1068,7 +1248,8 @@ export function createChatService({
         recordUsage,
         modelMessages,
         timeZone,
-        memoryPreamble: await buildAlwaysInjectPreamble(principal),
+        memoryPreamble,
+        summaryPreamble,
       });
     },
   };

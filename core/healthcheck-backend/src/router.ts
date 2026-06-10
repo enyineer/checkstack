@@ -313,6 +313,10 @@ export const createHealthCheckRouter = (opts: {
       return service.getHistory(input);
     }),
 
+    getRunStats: os.getRunStats.handler(async ({ input }) => {
+      return service.getRunStats(input);
+    }),
+
     getDetailedHistory: os.getDetailedHistory.handler(async ({ input }) => {
       return service.getDetailedHistory(input);
     }),

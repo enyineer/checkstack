@@ -26,6 +26,7 @@ import {
 } from "@checkstack/ai-backend";
 import { buildHealthcheckAiTools } from "./ai/register-ai-tools";
 import { createHealthcheckSignalsContributor } from "./ai/system-signals-contributor";
+import { projectRunHistoryForModel } from "./ai-projections";
 import {
   createBackendPlugin,
   coreServices,
@@ -319,13 +320,42 @@ export default createBackendPlugin({
           procedureKey: "getHistory",
           name: "healthcheck.runHistory",
           description:
-            "List historical health-check runs (individual timestamped results) " +
-            "for root-cause and timeline questions. Filter by `systemId`, a " +
-            "`startDate`/`endDate` window, and/or `statusFilter` (e.g. " +
-            "[\"unhealthy\",\"degraded\"]) to find when and how a system was " +
-            "failing over a period. Pass `sortOrder` (\"desc\" for most recent " +
-            "first) and use `limit`/`offset` to page. Use this for past/timespan " +
-            "questions; use healthcheck.status for the current state. Read-only.",
+            "List INDIVIDUAL historical health-check runs for a SMALL window or " +
+            "a few specific failures. Filter by `systemId`, a `startDate`/" +
+            "`endDate` window, and/or `statusFilter` (e.g. [\"unhealthy\"," +
+            "\"degraded\"]); keep `limit` small (each run is a row). For a WIDE " +
+            "window or 'how often / how much downtime / uptime over the last N " +
+            "days' questions, use healthcheck.runStats instead — it returns " +
+            "counts and latency stats without thousands of rows. Use " +
+            "healthcheck.status for the current state. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+          // Lean shape for the model: drop the opaque ids it merely echoes and
+          // keep time/status/latency/source, so a page of runs doesn't blow the
+          // context window (and keep doing so on every verbatim history replay).
+          projectResult: projectRunHistoryForModel,
+        });
+
+        // Aggregate run statistics over a window: counts by status, uptime %,
+        // and latency stats, plus a small capped time series — the COMPACT way
+        // to answer "how often / how much downtime / uptime over the last N
+        // days" without pulling thousands of raw rows into the model's context.
+        // Same public `healthcheck.status` gate as runHistory (no `result`
+        // payload). Output is already small and bounded, so no projectResult.
+        env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+          procedure: healthCheckContract.getRunStats,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getRunStats",
+          name: "healthcheck.runStats",
+          description:
+            "Summarize health-check runs over a window: total and per-bucket " +
+            "counts by status, uptime %, and latency stats (avg/min/max/p95). " +
+            "PREFER THIS over healthcheck.runHistory for any 'how often / how " +
+            "much downtime / uptime / latency trend over the last N hours or " +
+            "days' question — it returns compact aggregates, not raw rows. " +
+            "Filter by `systemId`, `configurationId`, `startDate`/`endDate`, " +
+            "`statusFilter`; set `maxBuckets` for the time-series resolution " +
+            "(default 24). Read-only.",
           effect: "read",
           execute: deferredProjectionExecute,
         });

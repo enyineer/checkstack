@@ -75,6 +75,26 @@ env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
 
 `ai-backend` collects each exposed projection's routing (`{ pluginId, procedureKey }`) in its `afterPluginsReady` phase - once every plugin has exposed - and wires it into the MCP transport and the chat read-loop. You never tell `ai-backend` your plugin exists; it discovers your projection through the extension point.
 
+### Lean the result for the model with `projectResult`
+
+A read procedure built for the UI often returns more than the model needs (opaque ids it only echoes, denormalized fields). Since the chat loop replays history verbatim every turn, verbose rows burn context repeatedly. An optional `projectResult` maps the procedure's FULL output into a leaner model-facing shape - applied only on the chat/MCP read path, after the transport re-enters the live router as the principal, so authorization and the audit log see the full result unchanged:
+
+```ts
+env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+  procedure: myContract.listThings,
+  sourcePluginMetadata: pluginMetadata,
+  procedureKey: "listThings",
+  name: "my.list",
+  description: "List things. Read-only.",
+  effect: "read",
+  execute: deferredProjectionExecute,
+  // Drop fields the model doesn't need before they enter its context window.
+  projectResult: (out) => ({ things: out.things.map((t) => ({ name: t.name, status: t.status })) }),
+});
+```
+
+Keep `projectResult` defensive (return the input unchanged on an unexpected shape): the generic [result clamp](/checkstack/developer-guide/ai/chat/) is the backstop, so a mismatch never crashes the read. For broad "how often / how much over a period" questions, prefer exposing an AGGREGATE procedure (counts/percentiles) over a row-returning one - far cheaper than leaning thousands of rows. `healthcheck.runStats` is the reference example; `healthcheck.runHistory` keeps a `projectResult` for the small-window case.
+
 ## Why ai-backend stays plugin-agnostic
 
 `ai-backend` is the AI platform: the tool registry + resolver, the projection mechanism, the chat agent loop, the MCP server, propose/apply, and a few genuinely cross-plugin tools (docs grounding, URL probe). It imports no capability plugin's `*-common`. Pure, shareable helpers a tool author needs - `computeFieldDiff`, the capability-summary helpers, `ScriptContextKind` - live in `@checkstack/ai-common`; `resolveScriptContext` and `buildProjectedTool` are exported from `@checkstack/ai-backend`. So a third-party plugin can author rich AI tools (including assertion diffs and script-context grounding) using only the platform packages, and adding or removing a plugin never touches `ai-backend`.

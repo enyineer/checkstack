@@ -19,6 +19,7 @@ import {
   RetentionConfigSchema,
   AggregatedBucketBaseSchema,
   AggregatedBucketSchema,
+  RunStatsSchema,
   NotificationPolicySchema,
 } from "./schemas";
 
@@ -444,6 +445,30 @@ export const healthCheckContract = {
         total: z.number(),
       }),
     ),
+
+  getRunStats: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+    // Cross-cutting aggregate: systemId/configurationId are optional so it can
+    // summarize broadly; no single guaranteed resource id to scope on.
+    instanceAccess: { global: true },
+  })
+    .input(
+      z.object({
+        systemId: z.string().optional(),
+        configurationId: z.string().optional(),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
+        /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
+        sourceFilter: z.string().optional(),
+        /** Restrict the runs counted to the listed statuses. Omitted/empty = all. */
+        statusFilter: z.array(HealthCheckStatusSchema).optional(),
+        /** Max time-series buckets to return (default 24, max 100). */
+        maxBuckets: z.number().min(1).max(100).optional().default(24),
+      }),
+    )
+    .output(RunStatsSchema),
 
   getDetailedHistory: proc({
     operationType: "query",

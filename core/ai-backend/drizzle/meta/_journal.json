@@ -64,6 +64,13 @@
       "when": 1780948808827,
       "tag": "0008_cuddly_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781124791894,
+      "tag": "0009_outgoing_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

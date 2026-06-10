@@ -124,6 +124,19 @@ export const aiConversations = pgTable(
      * but the rows (and their messages) live on. Null = active.
      */
     archivedAt: timestamp("archived_at"),
+    /**
+     * Running CONTEXT-COMPACTION summary. When a conversation grows past the
+     * model's context window, the oldest turns are folded into this prose
+     * summary (durable + shared-Postgres so any pod resumes consistently) and
+     * dropped from the verbatim replay. Null = nothing summarized yet.
+     */
+    summary: text("summary"),
+    /**
+     * The id of the LAST message row covered by `summary`. Rows up to and
+     * including this id are represented by the summary; rows after it are
+     * replayed verbatim. Null = no compaction has happened.
+     */
+    summarizedThroughMessageId: text("summarized_through_message_id"),
   },
   (t) => ({
     userIdx: index("ai_conversations_user_idx").on(t.userId, t.updatedAt),

@@ -476,6 +476,7 @@ export default createBackendPlugin({
             chatService?.readRouting.set(tool.name, {
               pluginId: route.pluginId,
               procedureKey: route.procedureKey,
+              projectResult: route.projectResult,
             });
           }
         }

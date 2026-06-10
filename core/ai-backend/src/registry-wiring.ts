@@ -33,6 +33,14 @@ export interface ExposedProjectionRoute {
   toolName: string;
   pluginId: string;
   procedureKey: string;
+  /**
+   * Optional model-facing result projection (see `ProjectToolInput.projectResult`).
+   * Applied by the chat read-loop AFTER the routed call returns the procedure's
+   * full output, before the result enters the model context. Typed as
+   * `(output: unknown)` here because the route array is non-generic; the wrapped
+   * function narrows to the procedure's output type at the call site.
+   */
+  projectResult?: (output: unknown) => unknown;
 }
 
 export function createRegistryExtensionPoints({
@@ -59,6 +67,10 @@ export function createRegistryExtensionPoints({
     expose: (input) => {
       const tool = buildProjectedTool(input);
       registry.register(tool);
+      // Wrap the (typed) projectResult into an (output: unknown) signature for
+      // the non-generic route. The routed call returns this projection's own
+      // procedure output, so narrowing it to that output type is sound.
+      const projectResult = input.projectResult;
       exposedProjections.push({
         // Match the registry's canonical (provider-safe) key so the chat
         // read-loop and MCP transport resolve this route by the same name the
@@ -66,6 +78,9 @@ export function createRegistryExtensionPoints({
         toolName: toProviderToolName(tool.name),
         pluginId: input.sourcePluginMetadata.pluginId,
         procedureKey: input.procedureKey,
+        projectResult: projectResult
+          ? (output: unknown) => projectResult(output as never)
+          : undefined,
       });
     },
   };

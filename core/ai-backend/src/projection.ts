@@ -52,6 +52,16 @@ export interface ProjectToolInput<TInput = unknown, TOutput = unknown> {
   execute(args: { input: TInput; principal: AuthUser }): Promise<TOutput>;
   /** Optional dry-run for mutate / destructive projections (Phase 3). */
   dryRun?: RegisteredAiTool<TInput, TOutput>["dryRun"];
+  /**
+   * Optional MODEL-FACING result projection (read tools only). The transport
+   * still re-enters the live router as the principal and gets the procedure's
+   * FULL output (so authz + the audit log are unchanged); this maps that output
+   * into a LEANER shape before it enters the model's context window. Use it to
+   * drop fields the model does not need (e.g. ids it merely echoes) so verbose
+   * rows don't blow the context. The UI / RPC callers are unaffected — only the
+   * chat/MCP read-loop applies it. Omit it to send the full output.
+   */
+  projectResult?: (output: TOutput) => unknown;
 }
 
 /**
