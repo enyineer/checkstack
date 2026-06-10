@@ -20,6 +20,10 @@
   "dependencies": {
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
+    "@checkstack/incident-common": "workspace:*",
+    "@checkstack/maintenance-common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "react": "19.2.7",
     "react-router-dom": "^7.16.0",

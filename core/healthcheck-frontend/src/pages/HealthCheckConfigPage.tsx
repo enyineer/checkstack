@@ -121,7 +121,7 @@ const HealthCheckConfigPageContent = () => {
   const pauseMutation = healthCheckClient.pauseConfiguration.useMutation<{
     previous: ConfigurationsQueryData | undefined;
   }>({
-    onMutate: async (configId) => {
+    onMutate: async ({ id: configId }) => {
       await queryClient.cancelQueries({ queryKey: configurationsQueryKey });
       const previous = queryClient.getQueryData<ConfigurationsQueryData>(
         configurationsQueryKey,
@@ -157,7 +157,7 @@ const HealthCheckConfigPageContent = () => {
   const resumeMutation = healthCheckClient.resumeConfiguration.useMutation<{
     previous: ConfigurationsQueryData | undefined;
   }>({
-    onMutate: async (configId) => {
+    onMutate: async ({ id: configId }) => {
       await queryClient.cancelQueries({ queryKey: configurationsQueryKey });
       const previous = queryClient.getQueryData<ConfigurationsQueryData>(
         configurationsQueryKey,
@@ -205,7 +205,7 @@ const HealthCheckConfigPageContent = () => {
 
   const confirmDelete = () => {
     if (!idToDelete) return;
-    deleteMutation.mutate(idToDelete);
+    deleteMutation.mutate({ id: idToDelete });
   };
 
   return (
@@ -258,8 +258,8 @@ const HealthCheckConfigPageContent = () => {
           strategies={strategies}
           onEdit={handleEdit}
           onDelete={handleDelete}
-          onPause={(id) => pauseMutation.mutate(id)}
-          onResume={(id) => resumeMutation.mutate(id)}
+          onPause={(id) => pauseMutation.mutate({ id })}
+          onResume={(id) => resumeMutation.mutate({ id })}
           canManage={canManage}
         />
       )}

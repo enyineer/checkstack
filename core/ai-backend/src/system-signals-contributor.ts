@@ -11,7 +11,7 @@ import {
 /**
  * Resolves the subset of `systemIds` a non-global principal may see for a
  * resource type, applying the SAME team/instance grants the RPC middleware
- * enforces for list/record endpoints (via auth's `getAccessibleResourceIds`).
+ * enforces for list/record endpoints (via auth's `listAccessibleObjectIds`).
  */
 export interface SystemAccessResolver {
   accessibleSystemIds(args: {
@@ -26,7 +26,7 @@ export interface SystemAccessResolver {
 
 /**
  * Build a {@link SystemAccessResolver} backed by the auth plugin's
- * `getAccessibleResourceIds` S2S query - the exact primitive the RPC middleware
+ * `listAccessibleObjectIds` S2S query - the exact primitive the RPC middleware
  * uses to filter list/record endpoints by team grants. A plugin gets its
  * `rpcClient` from `coreServices.rpcClient` in `init`.
  */
@@ -43,11 +43,11 @@ export function createSystemAccessResolver(
       action,
       hasGlobalAccess,
     }) =>
-      authClient.getAccessibleResourceIds({
+      authClient.listAccessibleObjectIds({
         userId,
         userType,
-        resourceType,
-        resourceIds: systemIds,
+        objectType: resourceType,
+        objectIds: systemIds,
         action,
         hasGlobalAccess,
       }),

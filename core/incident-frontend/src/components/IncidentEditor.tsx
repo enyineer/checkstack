@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
 import type {
   IncidentWithSystems,
   IncidentSeverity,
   IncidentUpdate,
 } from "@checkstack/incident-common";
+import { incidentAccess } from "@checkstack/incident-common";
 import type { System } from "@checkstack/catalog-common";
 import {
   Dialog,
@@ -33,7 +34,7 @@ import {
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
-import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { TeamAccessEditor, TeamOwnershipPicker, teamCreateErrorMessage } from "@checkstack/auth-frontend";
 
 interface Props {
   open: boolean;
@@ -51,7 +52,16 @@ export const IncidentEditor: React.FC<Props> = ({
   onSave,
 }) => {
   const incidentClient = usePluginClient(IncidentApi);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  const { allowed: allowGlobal } = accessApi.useAccess(
+    incidentAccess.incident.manage,
+  );
+
+  // Owning-team selection — create mode only
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
 
   // Incident fields
   const [title, setTitle] = useState("");
@@ -74,6 +84,11 @@ export const IncidentEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+        return;
+      }
       toastError(toast, "Failed to create incident", error);
     },
   });
@@ -136,6 +151,8 @@ export const IncidentEditor: React.FC<Props> = ({
       setSuppressNotifications(false);
       setUpdates([]);
       setShowUpdateForm(false);
+      setOwnerTeamId(null);
+      setOwnerTeamError(null);
     }
   }, [incident, open]);
 
@@ -152,6 +169,7 @@ export const IncidentEditor: React.FC<Props> = ({
   };
 
   const handleSubmit = () => {
+    setOwnerTeamError(null);
     if (!title.trim()) {
       toast.error("Title is required");
       return;
@@ -177,6 +195,7 @@ export const IncidentEditor: React.FC<Props> = ({
         severity,
         suppressNotifications,
         systemIds: [...selectedSystemIds],
+        teamId: ownerTeamId ?? undefined,
       });
     }
   };
@@ -305,6 +324,21 @@ export const IncidentEditor: React.FC<Props> = ({
                 </div>
               </div>
             </div>
+
+            {/* Owning team — create mode only */}
+            {!incident && (
+              <TeamOwnershipPicker
+                value={ownerTeamId}
+                onChange={(id) => {
+                  setOwnerTeamId(id);
+                  setOwnerTeamError(null);
+                }}
+                allowGlobal={allowGlobal}
+                error={ownerTeamError}
+                parentResourceType="catalog.system"
+                parentResourceIds={[...selectedSystemIds]}
+              />
+            )}
           </div>
 
           {/* Status Updates Section - Only show when editing */}

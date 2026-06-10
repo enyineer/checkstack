@@ -64,7 +64,7 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
     const context = createMockRpcContext({ user: mockUser, emitHook: mock(() => Promise.resolve()) });
 
     try {
-      await call(router.deleteSystem, "sys-1", { context });
+      await call(router.deleteSystem, { id: "sys-1" }, { context });
     } catch (e: any) {
       expect(e.code).not.toBe("FORBIDDEN");
     }
@@ -86,7 +86,7 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
 
     let error;
     try {
-      await call(router.deleteSystem, "sys-1", { context });
+      await call(router.deleteSystem, { id: "sys-1" }, { context });
     } catch (e) {
       error = e;
     }

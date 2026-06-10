@@ -114,6 +114,8 @@ export const anomalyContract = {
     operationType: "query",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
+    // Config templates are shared (no systemId in input); no per-system scope possible.
+    instanceAccess: { global: true },
   })
     .input(z.object({
       configurationId: z.string(),
@@ -124,6 +126,8 @@ export const anomalyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
+    // Config templates are shared (no systemId in input); no per-system scope possible.
+    instanceAccess: { global: true },
   })
     .route({ method: "PATCH" })
     .input(z.object({

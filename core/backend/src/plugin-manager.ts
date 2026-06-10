@@ -60,6 +60,69 @@ export function collectAnonymousUsableRuleIds(
   return [...usable];
 }
 
+/**
+ * A team-scopable resource kind, derived from the contracts: any procedure
+ * whose access rule carries `instanceAccess` contributes its `{pluginId}.{resource}`
+ * type. `createCapable` is true when at least one procedure for that type opts
+ * into create-mode (`instanceAccess.create`), i.e. a team can be granted the
+ * authority to create resources of this type. Used by the teams admin UI to
+ * enumerate the resource types it can manage create-capability grants for.
+ */
+export interface ResourceKind {
+  resourceType: string;
+  label: string;
+  pluginId: string;
+  createCapable: boolean;
+}
+
+/** Title-case a resource segment for display ("system" -> "System"). */
+function humanizeResource(resource: string): string {
+  return resource
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * Collect the team-scopable resource kinds from a set of contracts. Pure +
+ * exported for unit testing. Dedupes by `resourceType`, OR-ing `createCapable`
+ * across procedures.
+ */
+export function collectResourceKinds(
+  contracts: Iterable<unknown>,
+): ResourceKind[] {
+  const kinds = new Map<string, ResourceKind>();
+  for (const contract of contracts) {
+    for (const procedure of Object.values(
+      contract as Record<string, unknown>,
+    )) {
+      const meta = (
+        procedure as { ["~orpc"]?: { meta?: ProcedureMetadata } } | undefined
+      )?.["~orpc"]?.meta;
+      if (!meta?.instanceAccess) continue;
+      const createCapable = Boolean(meta.instanceAccess.create);
+      for (const rule of meta.access ?? []) {
+        const resourceType = `${rule.pluginId}.${rule.resource}`;
+        const existing = kinds.get(resourceType);
+        if (existing) {
+          existing.createCapable = existing.createCapable || createCapable;
+        } else {
+          kinds.set(resourceType, {
+            resourceType,
+            label: humanizeResource(rule.resource),
+            pluginId: rule.pluginId,
+            createCapable,
+          });
+        }
+      }
+    }
+  }
+  return [...kinds.values()].toSorted((a, b) =>
+    a.resourceType.localeCompare(b.resourceType),
+  );
+}
+
 export interface DeregisterOptions {
   deleteSchema: boolean;
 }
@@ -254,6 +317,15 @@ export class PluginManager {
     );
   }
 
+  /**
+   * Team-scopable resource kinds derived from the registered contracts. Used by
+   * the teams admin UI to enumerate resource types and which ones support
+   * team-based creation (create-capability grants).
+   */
+  getResourceKinds(): ResourceKind[] {
+    return collectResourceKinds(this.pluginContractRegistry.values());
+  }
+
   async loadPlugins(
     rootRouter: Hono,
     manualPlugins: BackendPlugin[] = [],
@@ -276,6 +348,7 @@ export class PluginManager {
         getAllAccessRules: () => this.getAllAccessRules(),
         getAnonymousUsableAccessRuleIds: () =>
           this.getAnonymousUsableAccessRuleIds(),
+        getResourceKinds: () => this.getResourceKinds(),
         db,
         pluginMetadataRegistry: this.pluginMetadataRegistry,
         cleanupHandlers: this.cleanupHandlers,
@@ -822,6 +895,7 @@ export class PluginManager {
           getAllAccessRules: () => this.getAllAccessRules(),
           getAnonymousUsableAccessRuleIds: () =>
             this.getAnonymousUsableAccessRuleIds(),
+          getResourceKinds: () => this.getResourceKinds(),
         },
       });
 

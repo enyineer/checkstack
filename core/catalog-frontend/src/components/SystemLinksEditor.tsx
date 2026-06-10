@@ -56,7 +56,7 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
         await addMutation.mutateAsync({ systemId, label, url });
       }}
       onRemove={async (link) => {
-        await removeMutation.mutateAsync(link.id);
+        await removeMutation.mutateAsync({ id: link.id, systemId });
       }}
     />
   );

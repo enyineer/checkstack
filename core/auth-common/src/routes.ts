@@ -8,6 +8,7 @@ export const authRoutes = createRoutes("auth", {
   register: "/register",
   error: "/error",
   settings: "/settings",
+  teams: "/teams",
   forgotPassword: "/forgot-password",
   resetPassword: "/reset-password",
   changePassword: "/change-password",

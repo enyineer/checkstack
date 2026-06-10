@@ -3,6 +3,7 @@ import {
   type SafeDatabase,
 } from "@checkstack/backend-api";
 import { coreServices } from "@checkstack/backend-api";
+import { inArray, ilike } from "drizzle-orm";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
@@ -405,15 +406,46 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         logger: coreServices.logger,
         cacheManager: coreServices.cacheManager,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       // Phase 2: Register router only - no RPC calls to other plugins
-      init: async ({ database, rpc, rpcClient, logger, cacheManager }) => {
+      init: async ({
+        database,
+        rpc,
+        rpcClient,
+        logger,
+        cacheManager,
+        resourceResolverRegistry,
+      }) => {
         logger.debug("Initializing Catalog Backend...");
 
         // Populate the mutable DB reference for GitOps reconcile closures
         gitopsDb = database as SafeDatabase<typeof schema>;
 
         const typedDb = database as SafeDatabase<typeof schema>;
+
+        // Resolve/search systems by name for the Teams admin UI (team grants
+        // are stored as opaque catalog.system:<id> rows). Lets the auth backend
+        // render grants by name and power the grant picker without depending on
+        // catalog.
+        resourceResolverRegistry.register("catalog.system", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({ id: schema.systems.id, name: schema.systems.name })
+              .from(schema.systems)
+              .where(inArray(schema.systems.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({ id: schema.systems.id, name: schema.systems.name })
+              .from(schema.systems)
+              .where(ilike(schema.systems.name, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
 
         // Publish the EntityService for the PLUGIN-BACKED catalog entity
         // `read` accessors (defined in register()). Mutations only run from

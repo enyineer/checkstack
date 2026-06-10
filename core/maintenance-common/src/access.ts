@@ -27,7 +27,6 @@ export const maintenanceAccess = {
       },
     },
     {
-      idParam: "systemId",
       pluginId: pluginMetadata.pluginId,
     },
   ),

@@ -166,7 +166,7 @@ export default createBackendPlugin({
 
         // Durable operator memory (state-and-scale §9). The system-scope access
         // resolver is built from the TRUSTED service client (the auth
-        // `getAccessibleResourceIds` query is `userType: "service"`); it gates
+        // `listAccessibleObjectIds` query is `userType: "service"`); it gates
         // `system`-scoped recall/save/delete by the SAME team grants the
         // catalog's own list endpoints apply.
         const memoryStore = createAiMemoryStore({ db });

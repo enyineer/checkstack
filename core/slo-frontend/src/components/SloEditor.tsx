@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { SloApi, type SloObjective } from "../api";
 import type { System } from "@checkstack/catalog-common";
 import type { DependencyExclusionMode } from "@checkstack/slo-common";
+import { sloAccess } from "@checkstack/slo-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import {
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+} from "@checkstack/auth-frontend";
 import {
   Dialog,
   DialogContent,
@@ -40,10 +45,15 @@ export const SloEditor: React.FC<Props> = ({
 }) => {
   const sloClient = usePluginClient(SloApi);
   const hcClient = usePluginClient(HealthCheckApi);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  const { allowed: allowGlobal } = accessApi.useAccess(sloAccess.slo.manage);
 
   // Form state
   const [systemId, setSystemId] = useState("");
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
   const [target, setTarget] = useState("99.9");
   const [windowDays, setWindowDays] = useState("30");
   const [dependencyExclusion, setDependencyExclusion] =
@@ -84,6 +94,7 @@ export const SloEditor: React.FC<Props> = ({
       setWarningPercent("50");
       setCriticalPercent("80");
       setHealthCheckConfigurationId(undefined);
+      setOwnerTeamId(null);
     }
   }, [objective, open]);
 
@@ -94,6 +105,11 @@ export const SloEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+        return;
+      }
       toast.error(extractErrorMessage(error, "Failed to create"));
     },
   });
@@ -109,6 +125,7 @@ export const SloEditor: React.FC<Props> = ({
   });
 
   const handleSubmit = () => {
+    setOwnerTeamError(null);
     const targetNum = Number.parseFloat(target);
     const windowNum = Number.parseInt(windowDays, 10);
     const warningNum = Number.parseFloat(warningPercent);
@@ -151,6 +168,7 @@ export const SloEditor: React.FC<Props> = ({
           criticalPercent: criticalNum,
           fastBurnMultiplier: 5,
         },
+        teamId: ownerTeamId ?? undefined,
       });
     }
   };
@@ -174,23 +192,34 @@ export const SloEditor: React.FC<Props> = ({
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
-          {/* System selector - only for create */}
+          {/* System selector and ownership — only for create */}
           {!objective && (
-            <div className="grid gap-2">
-              <Label htmlFor="slo-system">System</Label>
-              <Select value={systemId} onValueChange={setSystemId}>
-                <SelectTrigger id="slo-system">
-                  <SelectValue placeholder="Select a system" />
-                </SelectTrigger>
-                <SelectContent>
-                  {systems.map((system) => (
-                    <SelectItem key={system.id} value={system.id}>
-                      {system.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="slo-system">System</Label>
+                <Select value={systemId} onValueChange={setSystemId}>
+                  <SelectTrigger id="slo-system">
+                    <SelectValue placeholder="Select a system" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {systems.map((system) => (
+                      <SelectItem key={system.id} value={system.id}>
+                        {system.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <TeamOwnershipPicker
+                value={ownerTeamId}
+                onChange={(id) => {
+                  setOwnerTeamId(id);
+                  setOwnerTeamError(null);
+                }}
+                allowGlobal={allowGlobal}
+                error={ownerTeamError}
+              />
+            </>
           )}
 
           {/* Health Check scope - only show when system has associated HCs */}

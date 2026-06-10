@@ -181,9 +181,9 @@ export const CatalogConfigPage = () => {
       setIsSystemEditorOpen(false);
       void refetchSystems();
     },
-    onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create system"));
-    },
+    // Error is handled in SystemEditor's catch block (inline for team-create
+    // errors, generic toast for everything else). No onError here to avoid
+    // double-reporting when mutateAsync throws.
   });
 
   const updateSystemMutation = catalogClient.updateSystem.useMutation({
@@ -315,11 +315,14 @@ export const CatalogConfigPage = () => {
   const handleSaveSystem = async (data: {
     name: string;
     description?: string;
+    teamId?: string;
   }) => {
     if (editingSystem) {
-      updateSystemMutation.mutate({ id: editingSystem.id, data });
+      updateSystemMutation.mutate({ id: editingSystem.id, data: { name: data.name, description: data.description } });
     } else {
-      createSystemMutation.mutate(data);
+      // mutateAsync so errors propagate to SystemEditor's catch block, which
+      // routes team-create errors inline to the TeamOwnershipPicker.
+      await createSystemMutation.mutateAsync(data);
     }
   };
 
@@ -333,7 +336,7 @@ export const CatalogConfigPage = () => {
       isOpen: true,
       title: "Delete System",
       message: `Are you sure you want to delete "${system?.name}"? This will remove the system from all groups as well.`,
-      onConfirm: () => deleteSystemMutation.mutate(id),
+      onConfirm: () => deleteSystemMutation.mutate({ id }),
     });
   };
 
@@ -348,7 +351,7 @@ export const CatalogConfigPage = () => {
       title: `Delete ${ids.length} systems`,
       message: `Are you sure you want to delete these ${ids.length} systems? This will remove them from all groups as well.`,
       onConfirm: () => {
-        for (const id of ids) deleteSystemMutation.mutate(id);
+        for (const id of ids) deleteSystemMutation.mutate({ id });
       },
     });
   };

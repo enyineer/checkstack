@@ -71,13 +71,13 @@ mock.module(coreServicesPath, () => ({
     registry.registerFactory(coreServices.auth, () => ({
       authenticate: async () => {},
       getCredentials: async () => ({ headers: {} }),
-      getAnonymousPermissions: async () => [],
-      checkResourceTeamAccess: async () => ({ hasAccess: true }),
-      getAccessibleResourceIds: async ({
-        resourceIds,
+      getAnonymousAccessRules: async () => [],
+      check: async () => ({ hasAccess: true }),
+      listAccessibleObjectIds: async ({
+        objectIds,
       }: {
-        resourceIds: string[];
-      }) => resourceIds,
+        objectIds: string[];
+      }) => objectIds,
     }));
 
     // Register mock fetch factory

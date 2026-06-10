@@ -52,11 +52,20 @@ export function createMockRpcContext(
       authenticate: mock(),
       getCredentials: mock().mockResolvedValue({ headers: {} }),
       getAnonymousAccessRules: mock().mockResolvedValue([]),
-      checkResourceTeamAccess: mock().mockResolvedValue({ hasAccess: true }),
-      getAccessibleResourceIds: mock().mockImplementation(
-        (params: { resourceIds: string[] }) =>
-          Promise.resolve(params.resourceIds),
+      check: mock().mockResolvedValue({ hasAccess: true }),
+      listAccessibleObjectIds: mock().mockImplementation(
+        (params: { objectIds: string[] }) => Promise.resolve(params.objectIds),
       ),
+      // Default: assume the caller holds some grant for the type, so an empty
+      // filtered result is treated as "legitimately scoped to empty" (200),
+      // not "categorically unauthorized" (403). Tests targeting the 403 path
+      // override this to return { hasGrant: false }.
+      hasAnyTypeGrant: mock().mockResolvedValue({ hasGrant: true }),
+      authorizeCreate: mock().mockResolvedValue({
+        ownerTeamId: null,
+        isPrivate: false,
+      }),
+      setOwner: mock(() => Promise.resolve()),
     },
     healthCheckRegistry: {
       register: mock(),

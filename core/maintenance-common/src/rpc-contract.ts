@@ -20,6 +20,12 @@ export const maintenanceContract = {
     operationType: "query",
     userType: "public",
     access: [maintenanceAccess.maintenance.read],
+    // The shared `maintenance` rule declares `idParam: "systemId"`, but grants
+    // are keyed per-MAINTENANCE id (see frontend TeamAccessEditor
+    // resourceType="maintenance.maintenance" resourceId={maintenance.id}). This
+    // list returns `{ maintenances: [...] }`; each item has a string `.id` that
+    // equals the grant resourceId, so post-filter by `maintenances`.
+    instanceAccess: { listKey: "maintenances" },
   })
     .input(
       z
@@ -37,15 +43,29 @@ export const maintenanceContract = {
     operationType: "query",
     userType: "public",
     access: [maintenanceAccess.maintenance.read],
+    // OBJECT-scoped: grants are keyed per-MAINTENANCE id, so pre-check the
+    // maintenance's own id. Without this override the shared rule's
+    // `idParam: "systemId"` finds nothing on `{ id }` and skips the check (G9).
+    instanceAccess: { idParam: "id" },
   })
     .input(z.object({ id: z.string() }))
     .output(MaintenanceDetailSchema.nullable()),
 
   /** Get active or upcoming maintenances for a specific system */
+  // SYSTEM-scoped: input has `systemId`; output is a bare array so `listKey` is
+  // not applicable, but `parentScope` with `idParam` gates on the owning system
+  // grant directly — no wrapper key required.
   getMaintenancesForSystem: proc({
     operationType: "query",
     userType: "public",
     access: [maintenanceAccess.maintenance.read],
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "read",
+        idParam: "systemId",
+      },
+    },
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.array(MaintenanceWithSystemsSchema)),
@@ -53,11 +73,19 @@ export const maintenanceContract = {
   /** Get active maintenances for multiple systems in a single request.
    * Used for efficient dashboard rendering to avoid N+1 queries.
    */
+  // SYSTEM-scoped bulk: output `maintenances` is `Record<systemId, Maintenance[]>`,
+  // so `parentScope` with `recordKey` gates on catalog.system access for each key.
   getBulkMaintenancesForSystems: proc({
     operationType: "query",
     userType: "public",
     access: [maintenanceAccess.maintenance.read],
-    instanceAccess: { recordKey: "maintenances" },
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "read",
+        recordKey: "maintenances",
+      },
+    },
   })
     .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
@@ -75,6 +103,21 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // CREATE-MODE team ownership: middleware pre-checks create-capability and
+    // post-write sets the owning-team grant keyed as
+    // `maintenance.maintenance / <created id>` (the idField "id" on the
+    // MaintenanceWithSystemsSchema response). The `teamId` input field is
+    // optional so existing callers that omit it continue to work globally.
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        // Anyone who can MANAGE a referenced system may create one for it; the
+        // result stays globally readable. Falls back to a per-type
+        // create-capability grant when no parent gate matches.
+        parent: { resourceType: "catalog.system", idParam: "systemIds" },
+      },
+    },
   })
     .input(CreateMaintenanceInputSchema)
     .output(MaintenanceWithSystemsSchema),
@@ -84,6 +127,8 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // OBJECT-scoped: pre-check the maintenance's own grant (G9 fix).
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "PATCH" })
     .input(UpdateMaintenanceInputSchema)
@@ -94,6 +139,8 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // OBJECT-scoped: input carries the maintenance id as `maintenanceId`.
+    instanceAccess: { idParam: "maintenanceId" },
   })
     .input(AddMaintenanceUpdateInputSchema)
     .output(MaintenanceUpdateSchema),
@@ -103,6 +150,8 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // OBJECT-scoped: pre-check the maintenance's own grant (G9 fix).
+    instanceAccess: { idParam: "id" },
   })
     .input(z.object({ id: z.string(), message: z.string().optional() }))
     .output(MaintenanceWithSystemsSchema),
@@ -112,6 +161,8 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // OBJECT-scoped: input carries the maintenance id as `maintenanceId`.
+    instanceAccess: { idParam: "maintenanceId" },
   })
     .input(AddMaintenanceLinkInputSchema)
     .output(MaintenanceLinkSchema),
@@ -121,6 +172,10 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // GLOBAL: `id` is the LINK id, not the maintenance id. There is no
+    // maintenanceId or systemId in the input to scope on without a breaking
+    // schema change. `global: true` preserves current behavior safely.
+    instanceAccess: { global: true },
   })
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
@@ -131,6 +186,8 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
+    // OBJECT-scoped: `id` is the maintenance's own id (G9 fix).
+    instanceAccess: { idParam: "id" },
   })
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))

@@ -74,7 +74,7 @@ export function createHealthcheckDeleteTool(): RegisteredAiTool<
     dryRun,
     async execute({ input, rpcClient }) {
       const healthcheckClient = rpcClient.forPlugin(HealthCheckApi);
-      await healthcheckClient.deleteConfiguration(input.id);
+      await healthcheckClient.deleteConfiguration({ id: input.id });
       return { id: input.id, deleted: true };
     },
   };

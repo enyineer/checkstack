@@ -26,6 +26,11 @@ export const MaintenanceCreateInputSchema = z
     startAt: z.coerce.date(),
     endAt: z.coerce.date(),
     systemIds: z.array(z.string()).min(1),
+    /** Optional owning-team id forwarded to the RPC; consumed by
+     * autoAuthMiddleware (create-mode team ownership) and ignored by the
+     * backend handler. AI tools generally omit this and let the operator
+     * context resolve ownership. */
+    teamId: z.string().optional(),
   })
   .refine((v) => v.endAt > v.startAt, {
     message: "endAt must be after startAt",

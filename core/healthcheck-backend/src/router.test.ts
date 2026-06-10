@@ -334,7 +334,7 @@ describe("HealthCheck Router", () => {
       const context = createMockRpcContext({ user: mockUser });
       
       try {
-        await call(router.deleteConfiguration, "config-1", { context });
+        await call(router.deleteConfiguration, { id: "config-1" }, { context });
       } catch (e: any) {
         // If it throws anything other than FORBIDDEN, it passed the lock check
         expect(e.code).not.toBe("FORBIDDEN");
@@ -357,7 +357,7 @@ describe("HealthCheck Router", () => {
       
       let error;
       try {
-        await call(router.deleteConfiguration, "config-1", { context });
+        await call(router.deleteConfiguration, { id: "config-1" }, { context });
       } catch (e) {
         error = e;
       }

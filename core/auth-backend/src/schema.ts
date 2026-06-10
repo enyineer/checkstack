@@ -6,7 +6,9 @@ import {
   primaryKey,
   integer,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // --- Better Auth Schema ---
 // Tables use pgTable (schemaless) - runtime schema is set via search_path
@@ -245,39 +247,67 @@ export const teamManager = pgTable(
   })
 );
 
-/**
- * Resource-level access settings.
- * Controls whether a resource requires team membership (teamOnly) vs allowing global access.
- */
-export const resourceAccessSettings = pgTable(
-  "resource_access_settings",
-  {
-    resourceType: text("resource_type").notNull(), // e.g., "catalog.system"
-    resourceId: text("resource_id").notNull(),
-    teamOnly: boolean("team_only").notNull().default(false), // If true, global access doesn't apply
-  },
-  (t) => ({
-    pk: primaryKey({ columns: [t.resourceType, t.resourceId] }),
-  })
-);
+// resource_access_settings, resource_team_access, and resource_create_grant
+// were collapsed into the single `relation_tuple` store below (Target B). Their
+// data is backfilled and the tables dropped in migration 0008.
 
 /**
- * Centralized resource-level access control.
- * Stores team grants for all resource types across the platform.
+ * Relation tuples — the single ReBAC store (Target B) that replaces
+ * `resource_team_access` (read/manage/owner), `resource_access_settings`
+ * (teamOnly), and `resource_create_grant` (create-capability). One row =
+ * "<subject> has <relation> on <object>".
+ *
+ * - object = (objectType, objectId). `objectId = "*"` is the type-level object
+ *   used by the `creator` relation ("team may create this type").
+ * - relation ∈ { viewer, editor, owner, creator } with implication
+ *   owner ⊃ editor ⊃ viewer (resolved in code, not stored).
+ * - subject = (subjectType, subjectId): `team:<id>` for team grants, or the
+ *   special `public:*` whose `viewer` tuple is the PRIVACY MARKER — its presence
+ *   means "the global RBAC path is open for this object" (today's `teamOnly =
+ *   false`); its absence (when team grants exist) means private.
+ *
+ * `subject_id` is polymorphic so it has no FK; team existence is enforced in the
+ * write path and team deletion cascades by deleting the team's tuples in the
+ * team-delete handler.
  */
-export const resourceTeamAccess = pgTable(
-  "resource_team_access",
+export const relationTuple = pgTable(
+  "relation_tuple",
   {
-    resourceType: text("resource_type").notNull(), // e.g., "catalog.system"
-    resourceId: text("resource_id").notNull(),
-    teamId: text("team_id")
-      .notNull()
-      .references(() => team.id, { onDelete: "cascade" }),
-    canRead: boolean("can_read").notNull().default(true),
-    canManage: boolean("can_manage").notNull().default(false),
+    objectType: text("object_type").notNull(), // e.g. "catalog.system"
+    objectId: text("object_id").notNull(), // resource id, or "*" for type-level
+    relation: text("relation").notNull(), // viewer | editor | owner | creator
+    subjectType: text("subject_type").notNull(), // team | public
+    subjectId: text("subject_id").notNull(), // teamId, or "*" for public
+    createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({
-    pk: primaryKey({ columns: [t.resourceType, t.resourceId, t.teamId] }),
+    pk: primaryKey({
+      columns: [
+        t.objectType,
+        t.objectId,
+        t.relation,
+        t.subjectType,
+        t.subjectId,
+      ],
+    }),
+    // "what can this team touch" + team-delete cleanup.
+    bySubject: index("relation_tuple_by_subject").on(
+      t.subjectType,
+      t.subjectId,
+      t.objectType,
+      t.relation
+    ),
+    // "does this team hold any grant of a relation on this type" (G11 403).
+    byTypeRelation: index("relation_tuple_by_type_relation").on(
+      t.objectType,
+      t.relation,
+      t.subjectType,
+      t.subjectId
+    ),
+    // At most one owning team per object (replaces is_owner partial unique).
+    ownerUnique: uniqueIndex("relation_tuple_owner_unique")
+      .on(t.objectType, t.objectId)
+      .where(sql`${t.relation} = 'owner' AND ${t.subjectType} = 'team'`),
   })
 );
 

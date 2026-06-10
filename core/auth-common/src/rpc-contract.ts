@@ -231,6 +231,63 @@ export const authContract = {
     access: [authAccess.users.read],
   }).output(z.array(UserDtoSchema)),
 
+  // Minimal user directory search for team management. Gated on `teams.read`
+  // (NOT `users.read`) so a team manager — who needs to find users to add to
+  // their team but is not a platform admin — can use it. Returns only
+  // id/name/email, not full admin user data.
+  searchUsers: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.teams.read],
+  })
+    .input(z.object({ query: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          email: z.string(),
+        }),
+      ),
+    ),
+
+  // Resolve opaque (resourceType, resourceId) grant rows to display names via
+  // the owning plugin's registered resolver, so the Teams page can show a
+  // team's grants by name instead of raw ids. Read-level (anyone viewing teams).
+  resolveResourceNames: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.teams.read],
+  })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        resourceIds: z.array(z.string()),
+      }),
+    )
+    .output(z.object({ names: z.record(z.string(), z.string()) })),
+
+  // Search an owning plugin's resources of a type, for the "grant a team access
+  // to a resource" picker on the Teams page. Gated on teams.manage — granting a
+  // team access to a resource is an admin action.
+  searchResources: proc({
+    operationType: "query",
+    userType: "user",
+    access: [authAccess.teams.manage],
+  })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        query: z.string(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        results: z.array(z.object({ id: z.string(), name: z.string() })),
+      }),
+    ),
+
   deleteUser: proc({
     operationType: "mutation",
     userType: "user",
@@ -669,10 +726,17 @@ export const authContract = {
     .input(z.string())
     .output(z.void()),
 
+  // Membership & manager mutations are gated at `teams.read` (NOT
+  // `teams.manage`): the real authorization is the handler's
+  // `assertTeamManagementAccess`, which allows a GLOBAL `teams.manage` holder OR
+  // a manager of THIS specific team. Gating at `teams.manage` here would make
+  // the middleware reject a team manager (who lacks the global rule) before the
+  // handler runs, so a team manager could never manage their own team's
+  // membership. Team CREATE/DELETE stay at `teams.manage` (admin-only).
   addUserToTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [authAccess.teams.read],
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -680,7 +744,7 @@ export const authContract = {
   removeUserFromTeam: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [authAccess.teams.read],
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
@@ -689,7 +753,7 @@ export const authContract = {
   addTeamManager: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [authAccess.teams.read],
   })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
@@ -697,46 +761,60 @@ export const authContract = {
   removeTeamManager: proc({
     operationType: "mutation",
     userType: "authenticated",
-    access: [authAccess.teams.manage],
+    access: [authAccess.teams.read],
   })
     .route({ method: "DELETE" })
     .input(z.object({ teamId: z.string(), userId: z.string() }))
     .output(z.void()),
 
-  getResourceTeamAccess: proc({
+  // --- Generic relation-tuple API (Target B) ---------------------------------
+  // The access layer is one relation store. A team holds `viewer` (read),
+  // `editor` (read+manage), or `owner` on an object `{objectType}:{objectId}`;
+  // a `public` viewer marker (isPublic) means "the global RBAC path is open"
+  // (its absence, with team grants, = private). `creator` is a type-level grant
+  // (see setCreateGrant). The frontend maps read=viewer, manage=editor.
+
+  // Who has access to an object + whether it is public (powers "Who can change
+  // this"). Replaces getResourceTeamAccess + getResourceAccessSettings.
+  listObjectRelations: proc({
     operationType: "query",
     userType: "authenticated",
     access: [authAccess.teams.read],
   })
-    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
+    .input(z.object({ objectType: z.string(), objectId: z.string() }))
     .output(
-      z.array(
-        z.object({
-          teamId: z.string(),
-          teamName: z.string(),
-          canRead: z.boolean(),
-          canManage: z.boolean(),
-        }),
-      ),
+      z.object({
+        teams: z.array(
+          z.object({
+            teamId: z.string(),
+            teamName: z.string(),
+            relation: z.enum(["viewer", "editor", "owner"]),
+          }),
+        ),
+        isPublic: z.boolean(),
+      }),
     ),
 
-  setResourceTeamAccess: proc({
+  // Set a team's access relation on an object (replaces its existing relation
+  // there). Replaces setResourceTeamAccess.
+  writeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
     .input(
       z.object({
-        resourceType: z.string(),
-        resourceId: z.string(),
+        objectType: z.string(),
+        objectId: z.string(),
         teamId: z.string(),
-        canRead: z.boolean().optional(),
-        canManage: z.boolean().optional(),
+        relation: z.enum(["viewer", "editor"]),
       }),
     )
     .output(z.void()),
 
-  removeResourceTeamAccess: proc({
+  // Remove all of a team's access relations on an object. Replaces
+  // removeResourceTeamAccess.
+  removeRelation: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [authAccess.teams.manage],
@@ -744,40 +822,134 @@ export const authContract = {
     .route({ method: "DELETE" })
     .input(
       z.object({
-        resourceType: z.string(),
-        resourceId: z.string(),
+        objectType: z.string(),
+        objectId: z.string(),
         teamId: z.string(),
       }),
     )
     .output(z.void()),
 
-  getResourceAccessSettings: proc({
-    operationType: "query",
-    userType: "authenticated",
-    access: [authAccess.teams.read],
-  })
-    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
-    .output(z.object({ teamOnly: z.boolean() })),
-
-  setResourceAccessSettings: proc({
+  // Toggle the public marker (privacy). Replaces setResourceAccessSettings.
+  setObjectPublic: proc({
     operationType: "mutation",
     userType: "authenticated",
     access: [authAccess.teams.manage],
   })
     .input(
       z.object({
-        resourceType: z.string(),
-        resourceId: z.string(),
-        teamOnly: z.boolean(),
+        objectType: z.string(),
+        objectId: z.string(),
+        isPublic: z.boolean(),
       }),
     )
     .output(z.void()),
+
+  // The teams the CALLER belongs to. No access rule: a caller may always read
+  // their own memberships. Used by the create-form team-ownership picker.
+  getMyTeams: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  }).output(
+    z.object({
+      teams: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
+  ),
+
+  // All object relations held by a team (the inverse of listObjectRelations).
+  // Drives the per-team grant list on the Teams page. objectId is opaque; the
+  // UI resolves names via resolveResourceNames.
+  listSubjectRelations: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
+    .input(z.object({ teamId: z.string() }))
+    .output(
+      z.object({
+        grants: z.array(
+          z.object({
+            objectType: z.string(),
+            objectId: z.string(),
+            relation: z.enum(["viewer", "editor", "owner"]),
+          }),
+        ),
+      }),
+    ),
+
+  // The team-scopable resource kinds known to the platform (derived from
+  // registered contracts). Drives the teams admin UI for create-capability.
+  getResourceKinds: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  }).output(
+    z.object({
+      kinds: z.array(
+        z.object({
+          resourceType: z.string(),
+          label: z.string(),
+          pluginId: z.string(),
+          createCapable: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+
+  // The caller's own teams that hold MANAGE on ALL of the given resources.
+  // Used by create forms to restrict the owning-team picker to teams that
+  // actually manage the selected parent(s) — e.g. for an incident, the teams
+  // that manage every selected system. Empty resourceIds => no teams.
+  getMyManagingTeams: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(
+      z.object({
+        resourceType: z.string(),
+        resourceIds: z.array(z.string()),
+      }),
+    )
+    .output(z.object({ teamIds: z.array(z.string()) })),
+
+  // --- Create-capability grants: which teams may CREATE a resource type ---
+  // Distinct from membership: an admin grants a team the authority to create
+  // resources of a type; members of that team may then create (and own) them
+  // without the global manage rule. Absence => team-based create not allowed.
+
+  // Grant/revoke a team's `creator` relation on a type-level object (its
+  // authority to CREATE resources of a type). Replaces grantResourceCreate +
+  // revokeResourceCreate with one toggle.
+  setCreateGrant: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [authAccess.teams.manage],
+  })
+    .input(
+      z.object({
+        objectType: z.string(),
+        teamId: z.string(),
+        allowed: z.boolean(),
+      }),
+    )
+    .output(z.void()),
+
+  // The resource types a given team is allowed to create. Drives the per-team
+  // create-capability UI. (maps to the team's `creator` tuples.)
+  listTeamCreateGrants: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [authAccess.teams.read],
+  })
+    .input(z.object({ teamId: z.string() }))
+    .output(z.object({ resourceTypes: z.array(z.string()) })),
 
   // ==========================================================================
   // S2S ENDPOINTS FOR TEAM ACCESS (userType: "service")
   // ==========================================================================
 
-  checkResourceTeamAccess: proc({
+  check: proc({
     operationType: "query",
     userType: "service",
     access: [],
@@ -786,15 +958,15 @@ export const authContract = {
       z.object({
         userId: z.string(),
         userType: z.enum(["user", "application"]),
-        resourceType: z.string(),
-        resourceId: z.string(),
+        objectType: z.string(),
+        objectId: z.string(),
         action: z.enum(["read", "manage"]),
         hasGlobalAccess: z.boolean(),
       }),
     )
     .output(z.object({ hasAccess: z.boolean() })),
 
-  getAccessibleResourceIds: proc({
+  listAccessibleObjectIds: proc({
     operationType: "query",
     userType: "service",
     access: [],
@@ -803,21 +975,95 @@ export const authContract = {
       z.object({
         userId: z.string(),
         userType: z.enum(["user", "application"]),
-        resourceType: z.string(),
-        resourceIds: z.array(z.string()),
+        objectType: z.string(),
+        objectIds: z.array(z.string()),
         action: z.enum(["read", "manage"]),
         hasGlobalAccess: z.boolean(),
       }),
     )
     .output(z.array(z.string())),
 
-  deleteResourceGrants: proc({
+  // Delete every tuple for an object (called when a resource is deleted, to
+  // clean up its grants). Replaces deleteResourceGrants.
+  deleteObjectRelations: proc({
     operationType: "mutation",
     userType: "service",
     access: [],
   })
     .route({ method: "DELETE" })
-    .input(z.object({ resourceType: z.string(), resourceId: z.string() }))
+    .input(z.object({ objectType: z.string(), objectId: z.string() }))
+    .output(z.void()),
+
+  // Does the caller hold ANY team grant of the given level on a concrete object
+  // of this TYPE? Lets the list/record post-filter tell a categorically
+  // unauthorized caller (-> 403) from one legitimately scoped to empty (-> 200).
+  hasAnyTypeGrant: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        userId: z.string(),
+        userType: z.enum(["user", "application"]),
+        objectType: z.string(),
+        action: z.enum(["read", "manage"]),
+      }),
+    )
+    .output(z.object({ hasGrant: z.boolean() })),
+
+  // Decide whether a caller may CREATE an object of `objectType`, and which team
+  // (if any) should own it. Resolves the create-authorization matrix:
+  //  - global manage + no team        -> { ownerTeamId: null }   (global object)
+  //  - global manage + team T          -> { ownerTeamId: T }      (admin for team)
+  //  - member, requested team T (in T, T has creator grant) -> { ownerTeamId: T }
+  //  - member, no team, exactly 1 eligible team -> { ownerTeamId: that team }
+  //  - member, no team, >1 eligible    -> BAD_REQUEST OWNER_TEAM_REQUIRED
+  //  - otherwise                        -> FORBIDDEN
+  authorizeCreate: proc({
+    operationType: "query",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        userId: z.string(),
+        userType: z.enum(["user", "application"]),
+        objectType: z.string(),
+        requestedTeamId: z.string().optional(),
+        hasGlobalManage: z.boolean(),
+        // When the caller was already authorized to create by another gate
+        // (e.g. manage on a parent object), skip the per-type creator
+        // requirement and only resolve the owning team.
+        alreadyAuthorized: z.boolean().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        ownerTeamId: z.string().nullable(),
+        // Whether the new object should default to private. True when a team
+        // member (without global manage) creates for their team; false for
+        // admin/global creates (which stay globally readable).
+        isPrivate: z.boolean(),
+      }),
+    ),
+
+  // Record ownership of a freshly-created object: the team gets the `owner`
+  // relation and, unless isPrivate, the `public` viewer marker. Called by create
+  // handlers after the object row is persisted.
+  setOwner: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        objectType: z.string(),
+        objectId: z.string(),
+        teamId: z.string(),
+        isPrivate: z.boolean().optional(),
+      }),
+    )
     .output(z.void()),
 
   getOwnStrategyConfig: proc({

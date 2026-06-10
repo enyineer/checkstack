@@ -133,7 +133,7 @@ export const ContactsEditor: React.FC<ContactsEditorProps> = ({ systemId }) => {
   };
 
   const handleRemoveContact = (contactId: string) => {
-    removeContactMutation.mutate(contactId);
+    removeContactMutation.mutate({ id: contactId, systemId });
   };
 
   // Filter out users who are already contacts

@@ -123,34 +123,34 @@ describe("createDevAuthService", () => {
     expect(creds.headers.Authorization).toBe("Bearer svc:notification");
   });
 
-  it("checkResourceTeamAccess always grants", async () => {
+  it("check always grants", async () => {
     const svc = createDevAuthService({
       getAllAccessRules: () => [],
       pluginId: "dev",
     });
     expect(
-      await svc.checkResourceTeamAccess({
+      await svc.check({
         userId: "x",
         userType: "user",
-        resourceType: "system",
-        resourceId: "abc",
+        objectType: "system",
+        objectId: "abc",
         action: "manage",
         hasGlobalAccess: false,
       }),
     ).toEqual({ hasAccess: true });
   });
 
-  it("getAccessibleResourceIds returns the input list unfiltered", async () => {
+  it("listAccessibleObjectIds returns the input list unfiltered", async () => {
     const svc = createDevAuthService({
       getAllAccessRules: () => [],
       pluginId: "dev",
     });
     expect(
-      await svc.getAccessibleResourceIds({
+      await svc.listAccessibleObjectIds({
         userId: "x",
         userType: "user",
-        resourceType: "system",
-        resourceIds: ["one", "two", "three"],
+        objectType: "system",
+        objectIds: ["one", "two", "three"],
         action: "read",
         hasGlobalAccess: false,
       }),

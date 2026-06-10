@@ -26,7 +26,6 @@ export const incidentAccess = {
       },
     },
     {
-      idParam: "systemId",
       pluginId: pluginMetadata.pluginId,
     },
   ),

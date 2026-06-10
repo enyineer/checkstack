@@ -4,11 +4,13 @@ import {
   accessApiRef,
   useApi,
   usePluginClient,
+  ExtensionSlot,
 } from "@checkstack/frontend-api";
 import {
   healthcheckRoutes,
   healthCheckAccess,
   HealthCheckApi,
+  HealthCheckConfigDetailsSlot,
 } from "@checkstack/healthcheck-common";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
@@ -133,6 +135,17 @@ const HealthCheckHistoryDetailPageContent = () => {
         </BackLink>
       }
     >
+      {/* "Who can change this" — filled by auth-frontend; renders nothing when
+          the configuration is not team-scoped. */}
+      {configurationId && (
+        <div className="mb-4">
+          <ExtensionSlot
+            slot={HealthCheckConfigDetailsSlot}
+            context={{ configurationId }}
+          />
+        </div>
+      )}
+
       {/* Highlighted specific run when navigated with runId */}
       {runId && specificRun && (
         <Card className="mb-4 border-primary/50 bg-primary/5">

@@ -902,6 +902,14 @@ export const CreateAutomationInputSchema = z.object({
    * the caller's). See `isApplicationBindable`.
    */
   runAs: z.string().min(1, "A service account is required"),
+  /**
+   * Optional owning-team id. When present, `autoAuthMiddleware` resolves the
+   * team and writes the owning-team grant for the created automation (via
+   * `instanceAccess.create`). The field is intentionally NOT written to the
+   * automation row — it is consumed exclusively by the middleware. The handler
+   * destructures it out before passing the remainder to the store.
+   */
+  teamId: z.string().optional(),
 });
 
 export type CreateAutomationInput = z.infer<typeof CreateAutomationInputSchema>;

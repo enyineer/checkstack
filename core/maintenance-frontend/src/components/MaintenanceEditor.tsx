@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { usePluginClient } from "@checkstack/frontend-api";
+import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { MaintenanceApi } from "../api";
 import type {
   MaintenanceWithSystems,
   MaintenanceUpdate,
 } from "@checkstack/maintenance-common";
+import { maintenanceAccess } from "@checkstack/maintenance-common";
 import type { System } from "@checkstack/catalog-common";
 import {
   Dialog,
@@ -28,7 +29,11 @@ import {
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
 import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
 import { getMaintenanceStatusBadge } from "../utils/badges";
-import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import {
+  TeamAccessEditor,
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+} from "@checkstack/auth-frontend";
 
 interface Props {
   open: boolean;
@@ -46,7 +51,15 @@ export const MaintenanceEditor: React.FC<Props> = ({
   onSave,
 }) => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
+  const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  // Owning-team picker state (create mode only)
+  const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
+  const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
+  const { allowed: allowGlobal } = accessApi.useAccess(
+    maintenanceAccess.maintenance.manage,
+  );
 
   // Maintenance fields
   const [title, setTitle] = useState("");
@@ -76,6 +89,11 @@ export const MaintenanceEditor: React.FC<Props> = ({
       onSave();
     },
     onError: (error) => {
+      const inline = teamCreateErrorMessage(error);
+      if (inline) {
+        setOwnerTeamError(inline);
+        return;
+      }
       toastError(toast, "Failed to create maintenance", error);
     },
   });
@@ -137,6 +155,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setSuppressNotifications(false);
       setUpdates([]);
       setShowUpdateForm(false);
+      setOwnerTeamId(null);
     }
   }, [maintenance, open]);
 
@@ -181,6 +200,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
         systemIds: [...selectedSystemIds],
       });
     } else {
+      setOwnerTeamError(null);
       createMutation.mutate({
         title,
         description,
@@ -188,6 +208,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
         startAt,
         endAt,
         systemIds: [...selectedSystemIds],
+        teamId: ownerTeamId ?? undefined,
       });
     }
   };
@@ -391,6 +412,23 @@ export const MaintenanceEditor: React.FC<Props> = ({
                 onRemove={async (link) => {
                   await removeLinkMutation.mutateAsync({ id: link.id });
                 }}
+              />
+            </div>
+          )}
+
+          {/* Owning-team picker - only shown when creating a new maintenance */}
+          {!maintenance?.id && (
+            <div className="border-t pt-4">
+              <TeamOwnershipPicker
+                value={ownerTeamId}
+                onChange={(teamId) => {
+                  setOwnerTeamId(teamId);
+                  setOwnerTeamError(null);
+                }}
+                allowGlobal={allowGlobal}
+                error={ownerTeamError}
+                parentResourceType="catalog.system"
+                parentResourceIds={[...selectedSystemIds]}
               />
             </div>
           )}

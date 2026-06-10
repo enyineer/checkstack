@@ -82,11 +82,20 @@ const anonymousAuth: AuthService = {
   async getAnonymousAccessRules() {
     return [];
   },
-  async checkResourceTeamAccess() {
+  async check() {
     return { hasAccess: false };
   },
-  async getAccessibleResourceIds({ resourceIds }) {
-    return resourceIds;
+  async listAccessibleObjectIds({ objectIds }) {
+    return objectIds;
+  },
+  async hasAnyTypeGrant() {
+    return { hasGrant: false };
+  },
+  async authorizeCreate() {
+    return { ownerTeamId: null, isPrivate: false };
+  },
+  async setOwner() {
+    return;
   },
 };
 

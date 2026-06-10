@@ -336,6 +336,7 @@ export default createBackendPlugin({
           anonymousUsable: usable.has(rule.id),
         }));
       },
+      getResourceKinds: () => env.pluginManager.getResourceKinds(),
     };
 
     env.registerAccessRules(authAccessRules);
@@ -511,6 +512,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         auth: coreServices.auth,
         config: coreServices.config,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
         database,
@@ -519,6 +521,7 @@ export default createBackendPlugin({
         logger,
         auth: _auth,
         config,
+        resourceResolverRegistry,
       }) => {
         logger.debug("[auth-backend] Initializing Auth Backend...");
 
@@ -914,6 +917,7 @@ export default createBackendPlugin({
           accessRuleRegistry,
           () => auth,
           logger,
+          resourceResolverRegistry,
         );
         rpc.registerRouter(authRouter, authContract);
 

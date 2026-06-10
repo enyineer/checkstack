@@ -18,6 +18,27 @@ function inputSchemaFor(procName: keyof typeof healthCheckContract): ZodType {
   return orpc.inputSchema;
 }
 
+interface InstanceAccessMeta {
+  idParam?: string;
+  listKey?: string;
+  recordKey?: string;
+  create?: { teamIdParam?: string; idField?: string };
+}
+
+function metaFor(procName: keyof typeof healthCheckContract): {
+  userType?: string;
+  instanceAccess?: InstanceAccessMeta;
+} {
+  const proc = healthCheckContract[procName] as unknown as Record<
+    string,
+    unknown
+  >;
+  const orpc = proc["~orpc"] as {
+    meta?: { userType?: string; instanceAccess?: InstanceAccessMeta };
+  };
+  return orpc.meta ?? {};
+}
+
 describe("history endpoints coerce string date params (REST compatibility)", () => {
   test("getAggregatedHistory accepts ISO date strings", () => {
     const parsed = inputSchemaFor("getAggregatedHistory").safeParse({
@@ -40,5 +61,116 @@ describe("history endpoints coerce string date params (REST compatibility)", () 
       sortOrder: "desc",
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+/**
+ * Team-scoping regression guards. Grants for health-check configurations are
+ * keyed by `resourceType="healthcheck.configuration"`, `resourceId={configId}`
+ * (see the frontend `TeamAccessEditor` usage in editor/EditorPanel.tsx). The
+ * autoAuthMiddleware reads each proc's `instanceAccess` (a per-proc
+ * `meta.instanceAccess` override wins over the access rule's). For per-config
+ * enforcement to fire, `idParam`/`listKey`(item.id) MUST resolve to the
+ * configuration id used in grants. These tests pin the keying so the
+ * "mutating a config skips the per-config check" class of bug cannot regress.
+ */
+describe("healthcheck configuration-scoped procs carry the right instanceAccess", () => {
+  test("getConfigurations filters its `configurations` list by item id", () => {
+    expect(metaFor("getConfigurations").instanceAccess).toEqual({
+      listKey: "configurations",
+    });
+  });
+
+  test("getConfiguration keys the per-config read on its `id` input field", () => {
+    expect(metaFor("getConfiguration").instanceAccess).toEqual({
+      idParam: "id",
+    });
+  });
+
+  test("updateConfiguration keys the per-config check on its `id` input field", () => {
+    expect(metaFor("updateConfiguration").instanceAccess).toEqual({
+      idParam: "id",
+    });
+    // Input must carry both `id` and `body`.
+    expect(
+      inputSchemaFor("updateConfiguration").safeParse({
+        id: "cfg-1",
+        body: {},
+      }).success,
+    ).toBe(true);
+  });
+
+  // These were reshaped from a bare `z.string()` to `{ id }` so the middleware
+  // can read `input.id`. The bare-string form must now be rejected.
+  const idObjectScoped: Array<keyof typeof healthCheckContract> = [
+    "deleteConfiguration",
+    "pauseConfiguration",
+    "resumeConfiguration",
+  ];
+
+  for (const procName of idObjectScoped) {
+    test(`${String(procName)} keys the per-config check on \`id\` and takes \`{ id }\``, () => {
+      expect(metaFor(procName).instanceAccess).toEqual({ idParam: "id" });
+      const schema = inputSchemaFor(procName);
+      expect(schema.safeParse({ id: "cfg-1" }).success).toBe(true);
+      // Breaking input reshape: a bare string id no longer validates.
+      expect(schema.safeParse("cfg-1").success).toBe(false);
+    });
+  }
+});
+
+/**
+ * Create-mode guard: a team member holding a create-capability grant may
+ * create a config and have the owning-team grant written for the returned id.
+ * The proc opts in via `instanceAccess.create`, and the input gains an
+ * OPTIONAL `teamId` (existing callers omit it harmlessly).
+ */
+describe("healthcheck createConfiguration is wired for create-mode team ownership", () => {
+  test("carries instanceAccess.create keyed on teamId/id", () => {
+    expect(metaFor("createConfiguration").instanceAccess).toEqual({
+      create: { teamIdParam: "teamId", idField: "id" },
+    });
+  });
+
+  const validCreate = {
+    name: "my check",
+    strategyId: "http",
+    config: {},
+    intervalSeconds: 60,
+  };
+
+  test("accepts a create payload WITHOUT teamId (backward compatible)", () => {
+    expect(
+      inputSchemaFor("createConfiguration").safeParse(validCreate).success,
+    ).toBe(true);
+  });
+
+  test("accepts an optional teamId", () => {
+    const parsed = inputSchemaFor("createConfiguration").safeParse({
+      ...validCreate,
+      teamId: "team-1",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect((parsed.data as { teamId?: string }).teamId).toBe("team-1");
+    }
+  });
+
+  test("teamId does NOT leak into updateConfiguration / validateConfiguration inputs", () => {
+    // updateConfiguration's body is UpdateHealthCheckConfigurationSchema; the
+    // body schema must not strip-accept a teamId-as-update field. validate's
+    // input is the create skeleton WITHOUT the contract-level teamId extend.
+    const validateParsed = inputSchemaFor("validateConfiguration").safeParse({
+      ...validCreate,
+      teamId: "team-1",
+    });
+    // zod objects strip unknown keys by default, so parse succeeds but teamId
+    // is dropped (not carried as an owning-team signal on validate).
+    expect(validateParsed.success).toBe(true);
+    if (validateParsed.success) {
+      expect(
+        (validateParsed.data as Record<string, unknown>).teamId,
+      ).toBeUndefined();
+    }
   });
 });

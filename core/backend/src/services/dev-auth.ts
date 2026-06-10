@@ -83,11 +83,22 @@ export function createDevAuthService({
       // identity in dev mode.
       return [];
     },
-    async checkResourceTeamAccess() {
+    async check() {
       return { hasAccess: true };
     },
-    async getAccessibleResourceIds({ resourceIds }) {
-      return resourceIds;
+    async listAccessibleObjectIds({ objectIds }) {
+      return objectIds;
+    },
+    async hasAnyTypeGrant() {
+      // The dev user is implicitly all-powerful; never categorically denied.
+      return { hasGrant: true };
+    },
+    async authorizeCreate() {
+      // Dev user has global manage; create globally with no owning team.
+      return { ownerTeamId: null, isPrivate: false };
+    },
+    async setOwner() {
+      // No team store in dev mode; ownership is a no-op.
     },
   };
 }

@@ -17,8 +17,10 @@ import type { EventBus } from "./event-bus-types";
 import type { WebSocketRouteRegistry } from "./ws-registry";
 import type { ReadinessRegistry } from "./readiness-registry";
 import type { AdvisoryLockService } from "./advisory-lock";
+import type { ResourceResolverRegistry } from "./resource-resolver";
 
 export * from "./types";
+export * from "./resource-resolver";
 
 export const authenticationStrategyServiceRef = createServiceRef<unknown>(
   "internal.authenticationStrategy",
@@ -35,6 +37,14 @@ export const coreServices = {
   ),
   collectorRegistry: createServiceRef<CollectorRegistry>(
     "core.collectorRegistry",
+  ),
+  /**
+   * Cross-plugin resource name/search registry. Owning plugins register a
+   * resolver for their team-scopable resource types at init; the auth backend
+   * reads it to render team grants by name and to power the grant picker.
+   */
+  resourceResolverRegistry: createServiceRef<ResourceResolverRegistry>(
+    "core.resourceResolverRegistry",
   ),
   /**
    * Per-source installer registry used by the runtime plugin system.

@@ -1,5 +1,6 @@
 import * as schema from "./schema";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { inArray, ilike } from "drizzle-orm";
 import {
   aiToolExtensionPoint,
   aiToolProjectionExtensionPoint,
@@ -137,6 +138,7 @@ export default createBackendPlugin({
         signalService: coreServices.signalService,
         cacheManager: coreServices.cacheManager,
         advisoryLock: coreServices.advisoryLock,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
         logger,
@@ -146,6 +148,7 @@ export default createBackendPlugin({
         signalService,
         cacheManager,
         advisoryLock,
+        resourceResolverRegistry,
       }) => {
         logger.debug("🔧 Initializing Incident Backend...");
 
@@ -153,13 +156,34 @@ export default createBackendPlugin({
         const authClient = rpcClient.forPlugin(AuthApi);
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
-        const service = new IncidentService(
-          database as SafeDatabase<typeof schema>,
-          advisoryLock,
-        );
+        const typedDb = database as SafeDatabase<typeof schema>;
+        const service = new IncidentService(typedDb, advisoryLock);
         // Publish the service for the PLUGIN-BACKED entity `read` accessor
         // (defined in register()). Mutations only run from here onward.
         incidentServiceRef = service;
+
+        // Resolve/search incidents by name for the Teams admin UI (team grants
+        // are stored as opaque incident.incident:<id> rows). Lets the auth
+        // backend render grants by name and power the grant picker.
+        resourceResolverRegistry.register("incident.incident", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({ id: schema.incidents.id, title: schema.incidents.title })
+              .from(schema.incidents)
+              .where(inArray(schema.incidents.id, ids));
+            return new Map(rows.map((r) => [r.id, r.title]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({ id: schema.incidents.id, title: schema.incidents.title })
+              .from(schema.incidents)
+              .where(ilike(schema.incidents.title, `%${query}%`))
+              .limit(limit);
+            return rows.map((r) => ({ id: r.id, name: r.title }));
+          },
+        });
+
         const cache = createIncidentCache({ cacheManager, logger });
         incidentCache = cache;
         const router = createRouter(

@@ -69,6 +69,7 @@ import { GitOpsApi } from "@checkstack/gitops-common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
 import { createHealthCheckCache } from "./cache";
+import { inArray, ilike } from "drizzle-orm";
 
 // Store emitHook reference for use during Phase 2 init
 let storedEmitHook: EmitHookFn | undefined;
@@ -208,6 +209,7 @@ export default createBackendPlugin({
         config: coreServices.config,
         secretResolver: secretResolverRef,
         advisoryLock: coreServices.advisoryLock,
+        resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       // Phase 2: Register router and setup worker
       init: async ({
@@ -223,8 +225,40 @@ export default createBackendPlugin({
         config,
         secretResolver,
         advisoryLock,
+        resourceResolverRegistry,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
+
+        const typedDb = database as SafeDatabase<typeof schema>;
+
+        // Resolve/search health-check configurations by name for the Teams admin
+        // UI (team grants are stored as opaque healthcheck.configuration:<id>
+        // rows). Lets the auth backend render grants by name and power the grant
+        // picker without depending on healthcheck internals.
+        resourceResolverRegistry.register("healthcheck.configuration", {
+          resolveNames: async (ids) => {
+            if (ids.length === 0) return new Map();
+            const rows = await typedDb
+              .select({
+                id: schema.healthCheckConfigurations.id,
+                name: schema.healthCheckConfigurations.name,
+              })
+              .from(schema.healthCheckConfigurations)
+              .where(inArray(schema.healthCheckConfigurations.id, ids));
+            return new Map(rows.map((r) => [r.id, r.name]));
+          },
+          search: async (query, limit) => {
+            const rows = await typedDb
+              .select({
+                id: schema.healthCheckConfigurations.id,
+                name: schema.healthCheckConfigurations.name,
+              })
+              .from(schema.healthCheckConfigurations)
+              .where(ilike(schema.healthCheckConfigurations.name, `%${query}%`))
+              .limit(limit);
+            return rows;
+          },
+        });
 
         // Populate mutable refs for GitOps reconcile closures
         gitopsDb = database;

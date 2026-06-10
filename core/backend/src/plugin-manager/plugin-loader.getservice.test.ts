@@ -32,6 +32,7 @@ function makeDeps(registry: ServiceRegistry): PluginLoaderDeps {
     extensionPointManager: createExtensionPointManager(),
     registeredAccessRules: [] as (AccessRule & { pluginId: string })[],
     getAllAccessRules: () => [],
+    getResourceKinds: () => [],
     getAnonymousUsableAccessRuleIds: () => [],
     db: {} as PluginLoaderDeps["db"],
     pluginMetadataRegistry: new Map<string, PluginMetadata>(),

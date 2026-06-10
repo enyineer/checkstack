@@ -76,26 +76,66 @@ export interface AuthService {
   /**
    * Check if a user has access to a specific resource via team grants.
    */
-  checkResourceTeamAccess(params: {
+  check(params: {
     userId: string;
     userType: "user" | "application";
-    resourceType: string;
-    resourceId: string;
+    objectType: string;
+    objectId: string;
     action: "read" | "manage";
     hasGlobalAccess: boolean;
   }): Promise<{ hasAccess: boolean }>;
   /**
-   * Get IDs of resources the user can access from a given list.
-   * Used for bulk filtering of list endpoints.
+   * Filter a list of object ids of one type to those the caller can access.
+   * Used for bulk filtering of list/record endpoints.
    */
-  getAccessibleResourceIds(params: {
+  listAccessibleObjectIds(params: {
     userId: string;
     userType: "user" | "application";
-    resourceType: string;
-    resourceIds: string[];
+    objectType: string;
+    objectIds: string[];
     action: "read" | "manage";
     hasGlobalAccess: boolean;
   }): Promise<string[]>;
+  /**
+   * Whether the caller holds ANY team grant of the given level on a concrete
+   * object of this TYPE, independent of a specific id. Lets the list/record
+   * post-filter tell a categorically-unauthorized caller (no global access AND
+   * no grant for the type) from one legitimately scoped to an empty subset.
+   */
+  hasAnyTypeGrant(params: {
+    userId: string;
+    userType: "user" | "application";
+    objectType: string;
+    action: "read" | "manage";
+  }): Promise<{ hasGrant: boolean }>;
+  /**
+   * Decide whether a caller may CREATE an object of `objectType` and which team
+   * (if any) should own it. Resolves the create-authorization matrix (global
+   * manage, `creator` grants, single vs multi eligible team). Throws FORBIDDEN /
+   * BAD_REQUEST (with a `data.code`) when creation is not allowed or an owning
+   * team must be chosen.
+   */
+  authorizeCreate(params: {
+    userId: string;
+    userType: "user" | "application";
+    objectType: string;
+    requestedTeamId?: string;
+    hasGlobalManage: boolean;
+    /** Already authorized by another gate (e.g. parent manage); only resolve the owner. */
+    alreadyAuthorized?: boolean;
+  }): Promise<{ ownerTeamId: string | null; isPrivate: boolean }>;
+  /**
+   * Record ownership of a freshly-created object: the team gets the `owner`
+   * relation and, unless `isPrivate`, the `public` viewer marker (team-managed,
+   * globally readable by default). Called by create handlers after the row is
+   * persisted.
+   */
+  setOwner(params: {
+    objectType: string;
+    objectId: string;
+    teamId: string;
+    isPrivate?: boolean;
+  }): Promise<void>;
 }
 
 /**

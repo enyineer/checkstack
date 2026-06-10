@@ -25,25 +25,14 @@ import {
   Label,
   Textarea,
   LoadingSpinner,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from "@checkstack/ui";
-import {
-  Plus,
-  Edit,
-  Trash2,
-  Users2,
-  Crown,
-  UserPlus,
-  UserMinus,
-} from "lucide-react";
+import { Plus, Edit, Trash2, Users2, Crown, UserMinus } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import type { AuthUser } from "../api";
 import { extractErrorMessage } from "@checkstack/common";
+import { TeamCreateGrantsEditor } from "./TeamCreateGrantsEditor";
+import { TeamResourceGrantsEditor } from "./TeamResourceGrantsEditor";
+import { UserPickerCombobox } from "./UserPickerCombobox";
 
 interface Team {
   id: string;
@@ -62,14 +51,12 @@ interface TeamDetail {
 }
 
 export interface TeamsTabProps {
-  users: AuthUser[];
   canReadTeams: boolean;
   canManageTeams: boolean;
   onDataChange: () => Promise<void>;
 }
 
 export const TeamsTab: React.FC<TeamsTabProps> = ({
-  users,
   canReadTeams,
   canManageTeams,
   onDataChange,
@@ -86,9 +73,6 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
   // Team form state
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
-
-  // Member management state
-  const [selectedUserId, setSelectedUserId] = useState("");
 
   // Query: Teams list
   const {
@@ -153,7 +137,6 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
   const addMemberMutation = authClient.addUserToTeam.useMutation({
     onSuccess: () => {
       toast.success("Member added successfully");
-      setSelectedUserId("");
       void refetchTeamDetail();
       void refetchTeams();
     },
@@ -261,11 +244,11 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
     setMembersDialogOpen(true);
   };
 
-  const handleAddMember = () => {
-    if (!selectedTeamId || !selectedUserId) return;
+  const handleAddMember = (userId: string) => {
+    if (!selectedTeamId) return;
     addMemberMutation.mutate({
       teamId: selectedTeamId,
-      userId: selectedUserId,
+      userId,
     });
   };
 
@@ -295,9 +278,12 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
 
   // Get users not already in the team
   const teamDetailData = selectedTeamDetail as TeamDetail | undefined;
-  const availableUsers = teamDetailData
-    ? users.filter((u) => !teamDetailData.members.some((m) => m.id === u.id))
-    : [];
+  // A global manager OR a manager of THIS team may manage its members/managers
+  // (matches the backend: membership/manager mutations require teams.read +
+  // assertTeamManagementAccess). Create/delete team stay global-only.
+  const canManageThisTeam =
+    canManageTeams ||
+    (teams.find((t) => t.id === selectedTeamId)?.isManager ?? false);
 
   const formSaving =
     createTeamMutation.isPending || updateTeamMutation.isPending;
@@ -365,7 +351,8 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                             variant="ghost"
                             size="sm"
                             onClick={() => openMembersDialog(team.id)}
-                            title="Manage members"
+                            title="Manage team (members & creation rights)"
+                            aria-label={`Manage ${team.name} (members & creation rights)`}
                           >
                             <Users2 className="h-4 w-4" />
                           </Button>
@@ -374,6 +361,11 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                             size="sm"
                             onClick={() => handleEditTeam(team)}
                             disabled={!team.isManager && !canManageTeams}
+                            title={
+                              !team.isManager && !canManageTeams
+                                ? "You can only edit teams you manage"
+                                : "Edit team name & description"
+                            }
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
@@ -382,6 +374,11 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                             size="sm"
                             onClick={() => setTeamToDelete(team.id)}
                             disabled={!canManageTeams}
+                            title={
+                              canManageTeams
+                                ? "Delete team"
+                                : "Only a platform admin can delete teams"
+                            }
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -453,9 +450,9 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
       <Dialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{teamDetailData?.name ?? "Team"} Members</DialogTitle>
+            <DialogTitle>Manage {teamDetailData?.name ?? "team"}</DialogTitle>
             <DialogDescription>
-              Manage team membership and assign managers.
+              Members &amp; managers, and what this team is allowed to create.
             </DialogDescription>
           </DialogHeader>
 
@@ -465,41 +462,15 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
             </div>
           ) : teamDetailData ? (
             <div className="space-y-4">
-              {/* Add Member Form */}
-              {(teamDetailData.managers.some((m) =>
-                users.some((u) => u.id === m.id),
-              ) ||
-                canManageTeams) && (
+              <p className="text-sm font-medium">Members</p>
+              {/* Add Member: search the directory and click a result to add. */}
+              {canManageThisTeam && (
                 <div className="flex gap-2">
-                  <Select
-                    value={selectedUserId}
-                    onValueChange={setSelectedUserId}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Select user to add" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableUsers.length === 0 ? (
-                        <SelectItem value="_none" disabled>
-                          No available users
-                        </SelectItem>
-                      ) : (
-                        availableUsers.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name} ({user.email})
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={handleAddMember}
-                    disabled={!selectedUserId || addingMember}
-                    size="sm"
-                  >
-                    <UserPlus className="h-4 w-4 mr-1" />
-                    Add
-                  </Button>
+                  <UserPickerCombobox
+                    onSelect={(user) => handleAddMember(user.id)}
+                    excludeUserIds={teamDetailData.members.map((m) => m.id)}
+                    disabled={addingMember}
+                  />
                 </div>
               )}
 
@@ -532,7 +503,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                               Manager
                             </Badge>
                           )}
-                          {canManageTeams && (
+                          {canManageThisTeam && (
                             <>
                               <Button
                                 variant="ghost"
@@ -568,6 +539,20 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
                   })
                 )}
               </div>
+
+              {selectedTeamId && (
+                <TeamCreateGrantsEditor
+                  teamId={selectedTeamId}
+                  canManage={canManageTeams}
+                />
+              )}
+
+              {selectedTeamId && (
+                <TeamResourceGrantsEditor
+                  teamId={selectedTeamId}
+                  canManage={canManageTeams}
+                />
+              )}
             </div>
           ) : undefined}
 
@@ -582,6 +567,7 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
         isOpen={!!teamToDelete}
         onClose={() => setTeamToDelete(undefined)}
         onConfirm={handleDeleteTeam}
+        isLoading={deleteTeamMutation.isPending}
         title="Delete Team"
         message="Are you sure you want to delete this team? All resource access grants associated with this team will be removed. This action cannot be undone."
         variant="danger"

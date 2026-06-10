@@ -342,8 +342,12 @@
       "version": "0.7.7",
       "dependencies": {
         "@checkstack/auth-common": "workspace:*",
+        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/incident-common": "workspace:*",
+        "@checkstack/maintenance-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "better-auth": "^1.6.13",
         "lucide-react": "^1.17.0",
@@ -424,6 +428,7 @@
       "dependencies": {
         "@checkstack/ai-common": "workspace:*",
         "@checkstack/auth-common": "workspace:*",
+        "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/automation-common": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
@@ -1100,6 +1105,7 @@
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "zod": "^4.2.1",
@@ -1783,7 +1789,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.107.1",
+      "version": "0.108.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -2027,6 +2033,7 @@
       "name": "@checkstack/slo-frontend",
       "version": "0.5.10",
       "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/dashboard-frontend": "workspace:*",

@@ -15,6 +15,53 @@ export type AccessLevel = "read" | "manage";
  */
 export interface InstanceAccessConfig {
   /**
+   * Explicit opt-out of instance (team) scoping: this endpoint is INTENTIONALLY
+   * gated only by its global access rule, with no per-resource team check.
+   *
+   * This exists so the boot validator can tell "the author forgot to scope a
+   * team-scopable endpoint" (a fail-open hazard) from "the author deliberately
+   * left it global". An endpoint whose access rule names a team-scopable resource
+   * type MUST declare exactly one instanceAccess mode — `idParam`/`listKey`/
+   * `recordKey`/`create` to scope it, or `global: true` to assert it is meant to
+   * be unscoped. `global` is mutually exclusive with the other modes.
+   */
+  global?: boolean;
+
+  /**
+   * Scope this endpoint by access to a PARENT resource type (a cross-plugin,
+   * single-hop delegation) instead of by grants on this endpoint's own resource
+   * type. Use this for "for-system" reads: "you may see incidents/maintenances/
+   * SLOs/health for system X iff you may see system X". The endpoint's own
+   * `access` rule stays the feature-level global gate; `parentScope` adds the
+   * per-resource decision against the parent (e.g. `catalog.system`).
+   *
+   * The parent's own grants and its global rule (`{resourceType}.{action}`) are
+   * consulted via the same auth engine used for native scoping, so a team grant
+   * on the parent system flows through. Exactly one of `idParam` / `recordKey`
+   * is set (pre-check vs post-filter); `parentScope` is itself one top-level
+   * mode (mutually exclusive with idParam/listKey/recordKey/create/global).
+   */
+  parentScope?: {
+    /** Qualified parent resource type, e.g. "catalog.system". */
+    resourceType: string;
+    /** Required access level on the parent. Defaults to "read". */
+    action?: "read" | "manage";
+    /**
+     * Single/multi pre-check: input path to the parent id, or an array of parent
+     * ids (dot notation). The caller must have `action` access to ALL of them or
+     * the call is denied (403).
+     */
+    idParam?: string;
+    /**
+     * Bulk post-filter: output key holding a `Record<parentId, data>`; keys the
+     * caller cannot access are stripped (and a categorically-unauthorized caller
+     * gets a 403 rather than a silently-empty record), exactly like `recordKey`
+     * but evaluated against the parent type.
+     */
+    recordKey?: string;
+  };
+
+  /**
    * For single-resource endpoints: parameter path in request input to extract resource ID.
    * Uses dot notation for nested params (e.g., "params.systemId").
    */
@@ -33,6 +80,43 @@ export interface InstanceAccessConfig {
    * Example: "statuses" for response { statuses: { [systemId]: {...} } }
    */
   recordKey?: string;
+
+  /**
+   * For CREATE endpoints: marks the procedure as creating a new resource of the
+   * rule's resource type. The middleware then (1) authorizes the create via the
+   * auth service — allowing a team member who holds a create-capability grant
+   * (not just a global-manage holder) through, resolving the owning team or
+   * throwing FORBIDDEN / OWNER_TEAM_REQUIRED — and (2) after the handler
+   * succeeds, writes the owning-team grant for the newly-created resource id.
+   *
+   * Because creation has no pre-existing resource id, this is the only mode
+   * that resolves its id from the RESPONSE (idField) rather than the request.
+   */
+  create?: {
+    /**
+     * Input path carrying the optional requested owning-team id. Default "teamId".
+     */
+    teamIdParam?: string;
+    /**
+     * Response path carrying the created resource's id (used to write the owner
+     * grant). Default "id".
+     */
+    idField?: string;
+    /**
+     * Optional PARENT gate: authorize the create by MANAGE access on a parent
+     * resource instead of (or in addition to) a per-type create-capability
+     * grant. For example, an incident "for a system" can be created by anyone
+     * who can manage that system. `resourceType` is the qualified parent type
+     * (e.g. "catalog.system"); `idParam` is the input path to the parent id, or
+     * an array of parent ids (the caller must be able to manage ALL of them).
+     * When the parent check passes, the per-type create-capability is not
+     * required; the result is still globally readable.
+     */
+    parent?: {
+      resourceType: string;
+      idParam: string;
+    };
+  };
 }
 
 /**
@@ -195,16 +279,17 @@ export function access(
   options: {
     /** Owning plugin id (REQUIRED) - rules are matched only as `{pluginId}.{id}`. */
     pluginId: string;
-    idParam?: string;
-    listKey?: string;
-    recordKey?: string;
     isDefault?: boolean;
     isPublic?: boolean;
   },
 ): AccessRule {
-  const hasInstanceAccess =
-    options.idParam || options.listKey || options.recordKey;
-
+  // Access rules NEVER carry instance config. Instance (team) scoping is
+  // declared per-procedure via `proc({ instanceAccess })`, which is the single
+  // source of truth. A rule-level default used to be allowed here, but a baked
+  // `idParam` silently applied to every procedure that forgot its own override
+  // (the "loaded gun" that masked the systemId-vs-object-id mis-scoping in
+  // getSystems / getIncidentsForSystem). Scoping is now always explicit at the
+  // call site, and the boot validator requires it for team-scopable types.
   return {
     id: `${resource}.${level}`,
     resource,
@@ -213,13 +298,7 @@ export function access(
     pluginId: options.pluginId,
     isDefault: options.isDefault,
     isPublic: options.isPublic,
-    instanceAccess: hasInstanceAccess
-      ? {
-          idParam: options.idParam,
-          listKey: options.listKey,
-          recordKey: options.recordKey,
-        }
-      : undefined,
+    instanceAccess: undefined,
   };
 }
 
@@ -249,31 +328,20 @@ export interface AccessLevelConfig {
  *
  * @param resource - The resource name (e.g., "system", "incident")
  * @param levels - Configuration for read and manage levels
- * @param instanceAccess - Optional configuration for instance-level (team-based) access
  * @returns An object with `read` and `manage` AccessRule properties
+ *
+ * Instance (team) scoping is NOT configured here - it is declared per-procedure
+ * via `proc({ instanceAccess })`. See `access()` for the rationale.
  *
  * @example
  * ```typescript
- * const incidentAccess = accessPair(
- *   "incident",
- *   {
- *     read: {
- *       description: "View incidents",
- *       isDefault: true,
- *       isPublic: true,
- *     },
- *     manage: {
- *       description: "Manage incidents - create, edit, resolve, and delete",
- *     },
- *   },
- *   {
- *     idParam: "systemId",
- *   }
- * );
+ * const incidentAccess = accessPair("incident", {
+ *   read: { description: "View incidents", isDefault: true, isPublic: true },
+ *   manage: { description: "Manage incidents - create, edit, resolve, delete" },
+ * }, { pluginId: pluginMetadata.pluginId });
  *
- * // Usage in contract:
- * getIncidents: proc({ access: [incidentAccess.read] }),
- * updateIncident: proc({ access: [incidentAccess.manage] }),
+ * // Usage in contract - scoping is explicit at the call site:
+ * getIncident: proc({ access: [incidentAccess.incident.read], instanceAccess: { idParam: "id" } }),
  * ```
  */
 export function accessPair(
@@ -282,24 +350,18 @@ export function accessPair(
     read: AccessLevelConfig;
     manage: AccessLevelConfig;
   },
-  options: InstanceAccessConfig & {
+  options: {
     /** Owning plugin id (REQUIRED) - rules are matched only as `{pluginId}.{id}`. */
     pluginId: string;
   },
 ): { read: AccessRule; manage: AccessRule } {
   return {
     read: access(resource, "read", levels.read.description, {
-      idParam: options.idParam,
-      listKey: options.listKey,
-      recordKey: options.recordKey,
       isDefault: levels.read.isDefault,
       isPublic: levels.read.isPublic,
       pluginId: options.pluginId,
     }),
     manage: access(resource, "manage", levels.manage.description, {
-      idParam: options.idParam,
-      // Note: manage doesn't typically use listKey (you don't "manage" a list in bulk)
-      // but we include idParam for single-resource manage checks
       isDefault: levels.manage.isDefault,
       isPublic: levels.manage.isPublic,
       pluginId: options.pluginId,

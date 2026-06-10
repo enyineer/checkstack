@@ -177,10 +177,27 @@ export class EntityService {
     return result[0];
   }
 
-  async removeContact(contactId: string) {
-    await this.database
+  // Scoped by BOTH the contact id and its parent systemId so a manager of one
+  // system cannot delete another system's contact by passing a foreign contact
+  // id (the instanceAccess check only proves manage on `systemId`). Returns the
+  // deleted row, or undefined when nothing matched both predicates.
+  async removeContact({
+    contactId,
+    systemId,
+  }: {
+    contactId: string;
+    systemId: string;
+  }) {
+    const result = await this.database
       .delete(schema.systemContacts)
-      .where(eq(schema.systemContacts.id, contactId));
+      .where(
+        and(
+          eq(schema.systemContacts.id, contactId),
+          eq(schema.systemContacts.systemId, systemId),
+        ),
+      )
+      .returning();
+    return result[0];
   }
 
   async deleteContactsByUserId(userId: string) {
@@ -205,10 +222,19 @@ export class EntityService {
     return result[0];
   }
 
-  async removeLink(linkId: string) {
+  // Scoped by BOTH the link id and its parent systemId so a manager of one
+  // system cannot delete another system's link by passing a foreign link id
+  // (the instanceAccess check only proves manage on `systemId`). Returns the
+  // deleted row, or undefined when nothing matched both predicates.
+  async removeLink({ linkId, systemId }: { linkId: string; systemId: string }) {
     const result = await this.database
       .delete(schema.systemLinks)
-      .where(eq(schema.systemLinks.id, linkId))
+      .where(
+        and(
+          eq(schema.systemLinks.id, linkId),
+          eq(schema.systemLinks.systemId, systemId),
+        ),
+      )
       .returning();
     return result[0];
   }
