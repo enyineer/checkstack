@@ -1,6 +1,18 @@
 import { z } from "zod";
 
 /**
+ * An http(s) URL. Status pages render these as `<a href>` / `<img src>` on a
+ * public surface, so disallow `javascript:` / `data:` / `file:` schemes that
+ * `z.string().url()` would otherwise accept (operator-side stored-XSS guard).
+ */
+export const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine((v) => /^https?:\/\//i.test(v), {
+    message: "Must be an http(s) URL",
+  });
+
+/**
  * Built-in widget catalogue for status pages. Each widget has:
  *  - a CONFIG schema (what an operator edits + what is stored in the layout), and
  *  - a public DTO schema (the field-ALLOW-LISTED shape the public resolver emits).
@@ -89,14 +101,14 @@ export const HeadingConfigSchema = z.object({
 
 export const LinkSchema = z.object({
   label: z.string().trim().min(1).max(120),
-  url: z.string().url(),
+  url: HttpUrlSchema,
 });
 export const LinksConfigSchema = z.object({
   links: z.array(LinkSchema).max(20).default([]),
 });
 
 export const ImageConfigSchema = z.object({
-  url: z.string().url(),
+  url: HttpUrlSchema,
   alt: z.string().trim().max(200).optional(),
   maxHeight: z.number().int().min(16).max(400).optional(),
 });

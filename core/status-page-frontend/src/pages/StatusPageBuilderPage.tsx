@@ -8,6 +8,7 @@ import {
   Label,
   Textarea,
   Toggle,
+  Checkbox,
   Badge,
   LoadingSpinner,
   Select,
@@ -16,6 +17,7 @@ import {
   SelectContent,
   SelectItem,
   useToast,
+  QueryErrorState,
 } from "@checkstack/ui";
 import {
   ArrowUp,
@@ -80,34 +82,106 @@ function defaultConfig(type: string): unknown {
 }
 
 type SystemOption = { id: string; name: string };
+type GroupOption = { id: string; name: string };
 
-/** Checklist multi-select of systems (functional v1; a combobox is a follow-up). */
+/** Searchable, counted multi-select of systems. */
 const SystemMultiSelect: React.FC<{
   systems: SystemOption[];
   selected: string[];
   onChange: (ids: string[]) => void;
 }> = ({ systems, selected, onChange }) => {
+  const [query, setQuery] = useState("");
   const set = new Set(selected);
+  const filtered = query
+    ? systems.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
+    : systems;
+  const toggle = (id: string, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    onChange([...next]);
+  };
   return (
-    <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
-      {systems.length === 0 && (
-        <p className="text-xs text-muted-foreground">No systems available.</p>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search systems…"
+          className="h-8"
+        />
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {selected.length} selected
+        </span>
+      </div>
+      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+        {systems.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No systems available.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No matches.</p>
+        ) : (
+          filtered.map((s) => (
+            <label
+              key={s.id}
+              className="flex cursor-pointer items-center gap-2 text-sm"
+            >
+              <Checkbox
+                checked={set.has(s.id)}
+                onCheckedChange={(c) => toggle(s.id, Boolean(c))}
+              />
+              {s.name}
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** Inline editor for a list of labelled links (the links widget config). */
+const LinksConfigEditor: React.FC<{
+  links: Array<{ label: string; url: string }>;
+  onChange: (links: Array<{ label: string; url: string }>) => void;
+}> = ({ links, onChange }) => {
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
+  return (
+    <div className="space-y-2">
+      {links.length > 0 && (
+        <ul className="space-y-1">
+          {links.map((l, i) => (
+            <li key={i} className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate">
+                {l.label} <span className="text-muted-foreground">{l.url}</span>
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onChange(links.filter((_, j) => j !== i))}
+                aria-label="Remove link"
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </li>
+          ))}
+        </ul>
       )}
-      {systems.map((s) => (
-        <label key={s.id} className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={set.has(s.id)}
-            onChange={(e) => {
-              const next = new Set(selected);
-              if (e.target.checked) next.add(s.id);
-              else next.delete(s.id);
-              onChange([...next]);
-            }}
-          />
-          {s.name}
-        </label>
-      ))}
+      <div className="flex gap-2">
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label" />
+        <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!label.trim() || !url.trim()}
+          onClick={() => {
+            onChange([...links, { label: label.trim(), url: url.trim() }]);
+            setLabel("");
+            setUrl("");
+          }}
+        >
+          Add
+        </Button>
+      </div>
     </div>
   );
 };
@@ -115,8 +189,9 @@ const SystemMultiSelect: React.FC<{
 const BlockConfigEditor: React.FC<{
   block: StatusPageBlock;
   systems: SystemOption[];
+  groups: GroupOption[];
   onChange: (config: unknown) => void;
-}> = ({ block, systems, onChange }) => {
+}> = ({ block, systems, groups, onChange }) => {
   const config = (block.config ?? {}) as Record<string, unknown>;
   const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
 
@@ -233,6 +308,38 @@ const BlockConfigEditor: React.FC<{
         </div>
       );
     }
+    case BUILTIN_WIDGET_IDS.groupStatus: {
+      return (
+        <Select
+          value={(config.groupId as string) || ""}
+          onValueChange={(v) => set({ groupId: v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a group" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.length === 0 ? (
+              <SelectItem value="_none" disabled>
+                No groups available
+              </SelectItem>
+            ) : (
+              groups.map((g) => (
+                <SelectItem key={g.id} value={g.id}>
+                  {g.name}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+      );
+    }
+    case BUILTIN_WIDGET_IDS.links: {
+      const links =
+        (config.links as Array<{ label: string; url: string }>) ?? [];
+      return (
+        <LinksConfigEditor links={links} onChange={(l) => set({ links: l })} />
+      );
+    }
     case BUILTIN_WIDGET_IDS.divider: {
       return <p className="text-xs text-muted-foreground">A horizontal divider.</p>;
     }
@@ -253,13 +360,18 @@ export const StatusPageBuilderPage: React.FC = () => {
   const client = usePluginClient(StatusPageApi);
   const catalog = usePluginClient(CatalogApi);
 
-  const { data: page, isLoading } = client.getStatusPage.useQuery(
-    { id },
-    { gcTime: 0 },
-  );
+  const {
+    data: page,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = client.getStatusPage.useQuery({ id }, { gcTime: 0 });
   const { data: widgetTypesData } = client.listWidgetTypes.useQuery({});
   const { data: systemsData } = catalog.getSystems.useQuery({});
+  const { data: groupsData } = catalog.getGroups.useQuery({});
   const systems: SystemOption[] = systemsData?.systems ?? [];
+  const groups: GroupOption[] = groupsData ?? [];
   const widgetTypes = widgetTypesData?.widgetTypes ?? [];
 
   const [title, setTitle] = useState("");
@@ -282,6 +394,34 @@ export const StatusPageBuilderPage: React.FC = () => {
   const updateMutation = client.updateStatusPage.useMutation();
   const publishMutation = client.publishStatusPage.useMutation();
   const unpublishMutation = client.unpublishStatusPage.useMutation();
+  const busy =
+    updateMutation.isPending ||
+    publishMutation.isPending ||
+    unpublishMutation.isPending;
+
+  // Dirty = local edits diverge from the loaded snapshot. Drives the unsaved
+  // guard + Save/Publish enablement (there is no autosave).
+  const dirty = page
+    ? JSON.stringify([title, slug, visibility, brandColor, logoUrl, blocks]) !==
+      JSON.stringify([
+        page.title,
+        page.slug,
+        page.visibility,
+        page.theme.brandColorHsl ?? "",
+        page.theme.logoUrl ?? "",
+        page.draftLayout,
+      ])
+    : false;
+
+  React.useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   const buildPatch = () => ({
     id,
@@ -306,12 +446,19 @@ export const StatusPageBuilderPage: React.FC = () => {
   };
 
   const publish = async () => {
+    // Publish always snapshots the current draft first, so save then publish —
+    // and if only the publish leg fails, say the save DID land.
     try {
       await updateMutation.mutateAsync(buildPatch());
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Couldn't save"));
+      return;
+    }
+    try {
       await publishMutation.mutateAsync({ id });
       toast.success("Published");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Couldn't publish"));
+      toast.error(extractErrorMessage(error, "Saved, but couldn't publish"));
     }
   };
 
@@ -339,25 +486,46 @@ export const StatusPageBuilderPage: React.FC = () => {
       </div>
     );
   }
-  if (!page) {
+  if (isError) {
     return (
       <PageLayout title="Status page" icon={MonitorCheck}>
-        Not found.
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       </PageLayout>
     );
   }
+  if (!page) {
+    return (
+      <PageLayout title="Status page" icon={MonitorCheck}>
+        <p className="text-sm text-muted-foreground">
+          This status page no longer exists.
+        </p>
+      </PageLayout>
+    );
+  }
+
+  const goBack = () => {
+    if (
+      !dirty ||
+      globalThis.confirm("You have unsaved changes. Discard them and leave?")
+    ) {
+      navigate(resolveRoute(statusPageRoutes.routes.list));
+    }
+  };
 
   return (
     <PageLayout
       title={title || "Status page"}
       icon={MonitorCheck}
+      subtitle={
+        page.published
+          ? `Published${page.publishedAt ? ` · ${new Date(page.publishedAt).toLocaleString()}` : ""}${dirty ? " · unsaved changes" : ""}`
+          : dirty
+            ? "Draft · unsaved changes"
+            : "Draft · not yet public"
+      }
       actions={
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(resolveRoute(statusPageRoutes.routes.list))}
-          >
+          <Button variant="ghost" size="sm" onClick={goBack}>
             <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
           </Button>
           {page.published && (
@@ -365,15 +533,22 @@ export const StatusPageBuilderPage: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={() => unpublishMutation.mutate({ id })}
+              disabled={busy}
             >
               <EyeOff className="mr-1.5 h-4 w-4" /> Unpublish
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={save} disabled={updateMutation.isPending}>
-            <Save className="mr-1.5 h-4 w-4" /> Save
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={save}
+            disabled={busy || !dirty}
+          >
+            <Save className="mr-1.5 h-4 w-4" /> Save draft
           </Button>
-          <Button size="sm" onClick={publish} disabled={publishMutation.isPending}>
-            <Send className="mr-1.5 h-4 w-4" /> Publish
+          <Button size="sm" onClick={publish} disabled={busy}>
+            <Send className="mr-1.5 h-4 w-4" />{" "}
+            {page.published ? "Publish changes" : "Publish"}
           </Button>
         </div>
       }
@@ -381,6 +556,11 @@ export const StatusPageBuilderPage: React.FC = () => {
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
         {/* Builder */}
         <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            <strong>Save draft</strong> stores your changes privately.{" "}
+            <strong>Publish</strong> makes the current draft public at{" "}
+            <code>/status/{slug || "your-slug"}</code>.
+          </p>
           <Card className="space-y-3 p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -464,6 +644,7 @@ export const StatusPageBuilderPage: React.FC = () => {
                 <BlockConfigEditor
                   block={block}
                   systems={systems}
+                  groups={groups}
                   onChange={(config) =>
                     setBlocks(
                       blocks.map((b) => (b.id === block.id ? { ...b, config } : b)),

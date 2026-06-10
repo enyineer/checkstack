@@ -20,6 +20,14 @@ import type { WidgetBindingKind } from "@checkstack/status-page-common";
 export interface WidgetResolveContext {
   /** Trusted service RPC client for reading bound resources' public-safe data. */
   rpcClient: RpcClient;
+  /**
+   * All systems' id -> display name, fetched ONCE per page resolve and memoized.
+   * Avoids each widget re-pulling the full catalog (the catalog has no
+   * fetch-by-ids read), which would be O(widgets) full scans per public hit.
+   */
+  systemNames(): Promise<Map<string, string>>;
+  /** All catalog groups, fetched once per page resolve and memoized. */
+  groups(): Promise<Array<{ id: string; name: string; systemIds: string[] }>>;
 }
 
 /** A resource a widget binds to, for edit-time access checks + publish audit. */

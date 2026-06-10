@@ -17,6 +17,10 @@ Three gates enforce this end to end:
 
 The overall-status banner rolls up only the systems bound to the page, so a private system can never bleed into the public indicator. Each binding carries an optional public `label` so internal names need not be exposed.
 
+## Publishing is a deliberate, audited exposure
+
+Publishing is a one-time, deliberate decision to expose the bound resources' public-safe status, recorded by the `statuspage.page.published` audit hook (which lists exactly which resources were exposed, by whom). It is NOT re-gated on every public request: the data a widget shows was published because the operator chose to expose it, so tying a public page's availability to one editor's later, mutable role would be both a reliability risk on an anonymous surface and arguably less correct than the explicit-publish model. The revocation path is **unpublish** (or removing the widget and re-publishing — which re-emits the audit hook with the new exposed set). Bindings resolve live by id, so deleting a bound resource degrades the widget to nothing; recreating a resource under the same id would re-expose it (ids are UUIDs, so reuse does not happen in practice).
+
 ## Team scoping (RLAC)
 
 A status page is a team-scopable resource (`statuspage.page`). It is created through the standard create-mode flow (`instanceAccess: { create }` + the owning-team picker), team-owned via the relation-tuple store, and resolvable by name in the Teams admin through the `ResourceResolverRegistry`. `page.read` / `page.manage` gate the authenticated builder; the public read is a separate `published.read` rule, default-granted to the anonymous role (revoke it to switch public status pages off platform-wide). Per-page `visibility` (`public` or `authenticated`) is enforced in the handler on top of that.

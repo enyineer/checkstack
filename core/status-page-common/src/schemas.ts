@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HttpUrlSchema } from "./widget-types";
 
 /**
  * Page visibility. `public` = anyone (gated by the anonymous `published.read`
@@ -14,7 +15,7 @@ export const StatusPageThemeSchema = z.object({
     .string()
     .regex(/^\d{1,3} \d{1,3}% \d{1,3}%$/)
     .optional(),
-  logoUrl: z.string().url().optional(),
+  logoUrl: HttpUrlSchema.optional(),
   mode: z.enum(["light", "dark", "auto"]).default("auto"),
 });
 export type StatusPageTheme = z.infer<typeof StatusPageThemeSchema>;
@@ -32,7 +33,23 @@ export const StatusPageBlockSchema = z.object({
 });
 export type StatusPageBlock = z.infer<typeof StatusPageBlockSchema>;
 
-export const StatusPageLayoutSchema = z.array(StatusPageBlockSchema);
+export const StatusPageLayoutSchema = z
+  .array(StatusPageBlockSchema)
+  .max(100)
+  .superRefine((blocks, ctx) => {
+    // Block ids are client-generated; reject duplicates so a layout can't carry
+    // two blocks with the same id (which would break React keys + per-block ops).
+    const seen = new Set<string>();
+    for (const block of blocks) {
+      if (seen.has(block.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate block id: ${block.id}`,
+        });
+      }
+      seen.add(block.id);
+    }
+  });
 export type StatusPageLayout = z.infer<typeof StatusPageLayoutSchema>;
 
 /** Slug: lowercase, url-safe; the public page lives at /status/<slug>. */

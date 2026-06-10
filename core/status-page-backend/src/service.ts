@@ -17,7 +17,11 @@ import {
 } from "@checkstack/status-page-common";
 import * as schema from "./schema";
 import { statusPages, type StatusPageRow } from "./schema";
-import type { BoundResource, WidgetTypeRegistry } from "./widget-registry";
+import type {
+  BoundResource,
+  WidgetResolveContext,
+  WidgetTypeRegistry,
+} from "./widget-registry";
 
 type Db = SafeDatabase<typeof schema>;
 
@@ -65,6 +69,10 @@ function rowToSummary(row: StatusPageRow): StatusPageSummary {
 
 const SYSTEM_TYPE = "catalog.system";
 const GROUP_TYPE = "catalog.group";
+
+function forbidden(message: string): never {
+  throw new ORPCError("FORBIDDEN", { message });
+}
 
 export interface StatusPageServiceDeps {
   db: Db;
@@ -222,44 +230,79 @@ export class StatusPageService {
     }));
   }
 
-  /** "Cannot publish what you cannot see" — checks bound systems/groups AS the user. */
+  /**
+   * "Cannot publish what you cannot see." Verifies, AS THE USER, that the editor
+   * can read every resource the page's widgets bind. FAILS CLOSED: a bound
+   * resource type this gate does not know how to verify rejects the publish
+   * (rather than silently passing). Bound GROUPS are expanded to their member
+   * systems — a group can be visible while containing systems the editor cannot
+   * read, which the group widget would otherwise expose.
+   */
   private async assertEditorCanAccess(
     userClient: RpcClient,
     bound: BoundResource[],
   ): Promise<void> {
-    const systemIds = [
-      ...new Set(
-        bound.filter((b) => b.resourceType === SYSTEM_TYPE).map((b) => b.resourceId),
-      ),
-    ];
+    const known = new Set([SYSTEM_TYPE, GROUP_TYPE]);
+    const unknown = bound.find((b) => !known.has(b.resourceType));
+    if (unknown) {
+      forbidden(
+        `Cannot verify publish access for resource type "${unknown.resourceType}". ` +
+          "Remove that widget, or register an access verifier for its type.",
+      );
+    }
+
+    const catalog = userClient.forPlugin(CatalogApi);
+    const systemIds = new Set(
+      bound.filter((b) => b.resourceType === SYSTEM_TYPE).map((b) => b.resourceId),
+    );
     const groupIds = [
       ...new Set(
         bound.filter((b) => b.resourceType === GROUP_TYPE).map((b) => b.resourceId),
       ),
     ];
-    const catalog = userClient.forPlugin(CatalogApi);
+    if (groupIds.length > 0) {
+      const groups = await catalog.getGroups().catch(() => []);
+      const byId = new Map(groups.map((g) => [g.id, g]));
+      for (const groupId of groupIds) {
+        const group = byId.get(groupId);
+        if (!group) {
+          forbidden(
+            "You can only publish widgets bound to groups you can access.",
+          );
+          continue;
+        }
+        for (const systemId of group.systemIds) systemIds.add(systemId);
+      }
+    }
     for (const systemId of systemIds) {
       const system = await catalog.getSystem({ systemId }).catch(() => null);
       if (!system) {
-        throw new ORPCError("FORBIDDEN", {
-          message:
-            "You can only publish widgets bound to resources you can access. " +
-            "Remove the inaccessible system, or ask for access.",
-        });
+        forbidden(
+          "You can only publish widgets bound to systems you can access. " +
+            "Remove the inaccessible system (or group member), or ask for access.",
+        );
       }
     }
-    if (groupIds.length > 0) {
-      const groups = await catalog.getGroups().catch(() => []);
-      const visible = new Set(groups.map((g) => g.id));
-      for (const groupId of groupIds) {
-        if (!visible.has(groupId)) {
-          throw new ORPCError("FORBIDDEN", {
-            message:
-              "You can only publish widgets bound to resources you can access.",
-          });
-        }
-      }
-    }
+  }
+
+  /** All systems' id -> name (trusted read; memoized per resolve by the caller). */
+  private async loadSystemNames(): Promise<Map<string, string>> {
+    const { systems } = await this.deps.rpcClient
+      .forPlugin(CatalogApi)
+      .getSystems();
+    return new Map(systems.map((s) => [s.id, s.name]));
+  }
+
+  /** All catalog groups (trusted read; memoized per resolve by the caller). */
+  private async loadGroups(): Promise<
+    Array<{ id: string; name: string; systemIds: string[] }>
+  > {
+    const groups = await this.deps.rpcClient.forPlugin(CatalogApi).getGroups();
+    return groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      systemIds: g.systemIds,
+    }));
   }
 
   /**
@@ -283,6 +326,18 @@ export class StatusPageService {
     const visibility = rowVisibility(row);
     if (visibility === "authenticated" && !input.isAuthenticated) return null;
 
+    // Memoize the full-catalog reads ONCE per page resolve, so a page with many
+    // widgets doesn't re-scan the catalog per widget on every public request.
+    let systemNamesCache: Promise<Map<string, string>> | undefined;
+    let groupsCache:
+      | Promise<Array<{ id: string; name: string; systemIds: string[] }>>
+      | undefined;
+    const ctx: WidgetResolveContext = {
+      rpcClient: this.deps.rpcClient,
+      systemNames: () => (systemNamesCache ??= this.loadSystemNames()),
+      groups: () => (groupsCache ??= this.loadGroups()),
+    };
+
     const blocks: ResolvedBlock[] = [];
     for (const block of row.publishedLayout) {
       const widget = this.deps.registry.get(block.type);
@@ -291,7 +346,7 @@ export class StatusPageService {
       try {
         const raw = await widget.resolvePublic({
           config: block.config,
-          ctx: { rpcClient: this.deps.rpcClient },
+          ctx,
         });
         data = widget.dtoSchema.parse(raw);
       } catch (error) {

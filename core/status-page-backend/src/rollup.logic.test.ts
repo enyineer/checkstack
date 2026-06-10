@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   mapHealthStatus,
   rollupStatus,
+  overallBannerStatus,
   statusBannerTitle,
 } from "./rollup.logic";
 
@@ -35,6 +36,32 @@ describe("rollupStatus", () => {
   test("unknown only wins when nothing else is present", () => {
     expect(rollupStatus(["operational", "unknown"])).toBe("operational");
     expect(rollupStatus(["unknown", "unknown"])).toBe("unknown");
+  });
+});
+
+describe("overallBannerStatus", () => {
+  test("all operational -> operational; empty/all-unknown -> unknown", () => {
+    expect(overallBannerStatus(["operational", "operational"])).toBe("operational");
+    expect(overallBannerStatus([])).toBe("unknown");
+    expect(overallBannerStatus(["unknown", "unknown"])).toBe("unknown");
+  });
+  test("SOME (not all) systems down -> partial_outage", () => {
+    expect(overallBannerStatus(["operational", "major_outage"])).toBe(
+      "partial_outage",
+    );
+    expect(
+      overallBannerStatus(["major_outage", "degraded", "operational"]),
+    ).toBe("partial_outage");
+  });
+  test("ALL known systems down -> major_outage (ignoring unknowns)", () => {
+    expect(overallBannerStatus(["major_outage", "major_outage"])).toBe(
+      "major_outage",
+    );
+    expect(overallBannerStatus(["major_outage", "unknown"])).toBe("major_outage");
+  });
+  test("no hard outages -> worst of the rest", () => {
+    expect(overallBannerStatus(["degraded", "operational"])).toBe("degraded");
+    expect(overallBannerStatus(["maintenance", "degraded"])).toBe("maintenance");
   });
 });
 

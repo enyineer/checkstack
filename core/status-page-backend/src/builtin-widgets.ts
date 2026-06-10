@@ -1,4 +1,3 @@
-import { CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -32,6 +31,7 @@ import type { RpcClient } from "@checkstack/backend-api";
 import {
   mapHealthStatus,
   rollupStatus,
+  overallBannerStatus,
   statusBannerTitle,
 } from "./rollup.logic";
 import { toPublicIncident, toPublicMaintenance } from "./public-dto.logic";
@@ -51,19 +51,20 @@ function uptimeToStatus(pct: number): PublicStatus {
   return "major_outage";
 }
 
-/** Resolve system ids -> public label (their catalog name). Trusted read. */
+/** Resolve system ids -> public label (their catalog name), via the memoized
+ *  per-resolve name map (so the catalog is scanned once per page, not per widget). */
 async function fetchSystemNames(
-  rpcClient: RpcClient,
+  ctx: WidgetResolveContext,
   ids: string[],
 ): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
-  const wanted = new Set(ids);
-  const { systems } = await rpcClient.forPlugin(CatalogApi).getSystems();
-  return new Map(
-    systems
-      .filter((s) => wanted.has(s.id))
-      .map((s) => [s.id, s.name] as const),
-  );
+  const all = await ctx.systemNames();
+  const out = new Map<string, string>();
+  for (const id of ids) {
+    const name = all.get(id);
+    if (name !== undefined) out.set(id, name);
+  }
+  return out;
 }
 
 /** System ids that have an in-progress maintenance right now (trusted read). */
@@ -120,7 +121,7 @@ const banner: WidgetTypeDefinition = {
           .getBulkSystemHealthStatus({ systemIds: ids })
       : { statuses: {} };
     const inMaint = await fetchInMaintenance(ctx.rpcClient, ids);
-    const status = rollupStatus(
+    const status = overallBannerStatus(
       ids.map((systemId) =>
         systemPublicStatus({ systemId, healthStatuses: statuses, inMaintenance: inMaint }),
       ),
@@ -153,7 +154,7 @@ const systemHealth: WidgetTypeDefinition = {
           .getBulkSystemHealthStatus({ systemIds: ids })
       : { statuses: {} };
     const inMaint = await fetchInMaintenance(ctx.rpcClient, ids);
-    const names = await fetchSystemNames(ctx.rpcClient, ids);
+    const names = await fetchSystemNames(ctx, ids);
     const uptime = c.showUptime
       ? await fetchUptimeMap(ctx, ids)
       : undefined;
@@ -182,14 +183,18 @@ async function fetchUptimeMap(
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 86_400_000);
   const out = new Map<string, number>();
-  await Promise.all(
+  // allSettled: one system with no health data must not blank the whole column.
+  const results = await Promise.allSettled(
     ids.map(async (systemId) => {
       const stats = await ctx.rpcClient
         .forPlugin(HealthCheckApi)
         .getRunStats({ systemId, startDate: start, endDate: end, maxBuckets: 1 });
-      out.set(systemId, stats.total.uptimePct);
+      return [systemId, stats.total.uptimePct] as const;
     }),
   );
+  for (const r of results) {
+    if (r.status === "fulfilled") out.set(r.value[0], r.value[1]);
+  }
   return out;
 }
 
@@ -207,7 +212,7 @@ const groupStatus: WidgetTypeDefinition = {
   },
   async resolvePublic({ config, ctx }) {
     const c = GroupStatusConfigSchema.parse(config);
-    const groups = await ctx.rpcClient.forPlugin(CatalogApi).getGroups();
+    const groups = await ctx.groups();
     const group = groups.find((g) => g.id === c.groupId);
     const ids = group?.systemIds ?? [];
     const { statuses } = ids.length > 0
@@ -216,7 +221,7 @@ const groupStatus: WidgetTypeDefinition = {
           .getBulkSystemHealthStatus({ systemIds: ids })
       : { statuses: {} };
     const inMaint = await fetchInMaintenance(ctx.rpcClient, ids);
-    const names = await fetchSystemNames(ctx.rpcClient, ids);
+    const names = await fetchSystemNames(ctx, ids);
     const systems = ids.map((systemId) => ({
       label: names.get(systemId) ?? systemId,
       status: systemPublicStatus({ systemId, healthStatuses: statuses, inMaintenance: inMaint }),
@@ -252,7 +257,7 @@ const uptime: WidgetTypeDefinition = {
       endDate: end,
       maxBuckets: c.days,
     });
-    const names = await fetchSystemNames(ctx.rpcClient, [c.systemId]);
+    const names = await fetchSystemNames(ctx, [c.systemId]);
     const bars = stats.buckets.map((b) => ({
       date: b.start,
       uptimePct: b.uptimePct,
@@ -280,24 +285,24 @@ const incidents: WidgetTypeDefinition = {
   },
   async resolvePublic({ config, ctx }) {
     const c = IncidentsConfigSchema.parse(config);
+    const bound = new Set(c.systemIds);
+    // FAIL CLOSED: with no systems bound there is nothing the operator chose to
+    // expose. Never fall back to "all incidents" — as a trusted service caller
+    // that would publish every incident on the platform (S1). The widget shows
+    // nothing until the operator binds the systems it should cover.
+    if (bound.size === 0) return IncidentsDtoSchema.parse({ incidents: [] });
     const inc = ctx.rpcClient.forPlugin(IncidentApi);
     const { incidents: all } = await inc.listIncidents({ includeResolved: false });
-    const bound = new Set(c.systemIds);
-    const filtered = bound.size > 0
-      ? all.filter((i) => i.systemIds.some((s) => bound.has(s)))
-      : all;
-    const sorted = filtered
+    const sorted = all
+      .filter((i) => i.systemIds.some((s) => bound.has(s)))
       .toSorted(
         (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       )
       .slice(0, c.limit);
     // Only label BOUND systems (an unbound co-affected system must not leak).
-    const labelIds = bound.size > 0
-      ? [...bound]
-      : [...new Set(sorted.flatMap((i) => i.systemIds))];
-    const names = await fetchSystemNames(ctx.rpcClient, labelIds);
-    const items = await Promise.all(
+    const names = await fetchSystemNames(ctx, [...bound]);
+    const items = await Promise.allSettled(
       sorted.map(async (i) => {
         const detail = await inc.getIncident({ id: i.id });
         return toPublicIncident({
@@ -314,7 +319,11 @@ const incidents: WidgetTypeDefinition = {
         });
       }),
     );
-    return IncidentsDtoSchema.parse({ incidents: items });
+    return IncidentsDtoSchema.parse({
+      incidents: items
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value),
+    });
   },
 };
 
@@ -332,24 +341,24 @@ const maintenance: WidgetTypeDefinition = {
   },
   async resolvePublic({ config, ctx }) {
     const c = MaintenanceConfigSchema.parse(config);
+    const bound = new Set(c.systemIds);
+    // FAIL CLOSED (see incidents): no systems bound -> expose nothing, never
+    // "all maintenances on the platform".
+    if (bound.size === 0) {
+      return MaintenanceDtoSchema.parse({ maintenances: [] });
+    }
     const mc = ctx.rpcClient.forPlugin(MaintenanceApi);
     const { maintenances: all } = await mc.listMaintenances({
       includeCompleted: false,
     });
-    const bound = new Set(c.systemIds);
-    const filtered = bound.size > 0
-      ? all.filter((m) => m.systemIds.some((s) => bound.has(s)))
-      : all;
-    const sorted = filtered
+    const sorted = all
+      .filter((m) => m.systemIds.some((s) => bound.has(s)))
       .toSorted(
         (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
       )
       .slice(0, c.limit);
-    const labelIds = bound.size > 0
-      ? [...bound]
-      : [...new Set(sorted.flatMap((m) => m.systemIds))];
-    const names = await fetchSystemNames(ctx.rpcClient, labelIds);
-    const items = await Promise.all(
+    const names = await fetchSystemNames(ctx, [...bound]);
+    const items = await Promise.allSettled(
       sorted.map(async (m) => {
         const detail = await mc.getMaintenance({ id: m.id });
         return toPublicMaintenance({
@@ -366,7 +375,11 @@ const maintenance: WidgetTypeDefinition = {
         });
       }),
     );
-    return MaintenanceDtoSchema.parse({ maintenances: items });
+    return MaintenanceDtoSchema.parse({
+      maintenances: items
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value),
+    });
   },
 };
 

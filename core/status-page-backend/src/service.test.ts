@@ -190,6 +190,51 @@ describe("resolvePublished — isolation + visibility", () => {
   });
 });
 
+/** A user-scoped client that denies access to every system/group. */
+const denyingUserClient: RpcClient = {
+  forPlugin: () =>
+    ({
+      getSystem: async () => null,
+      getGroups: async () => [],
+    }) as never,
+};
+
+describe("publish gate — cannot publish what you cannot see", () => {
+  test("refuses when a bound system is not accessible to the editor", async () => {
+    const sysWidget = widget({
+      id: "sys",
+      qualifiedId: "test.sys",
+      boundResources: () => [
+        { resourceType: "catalog.system", resourceId: "s1" },
+      ],
+    });
+    const svc = service({
+      row: row({ draftLayout: [{ id: "b", type: "test.sys", config: {} }] }),
+      widgets: [sysWidget],
+    });
+    await expect(
+      svc.publish({ id: "p1", userClient: denyingUserClient }),
+    ).rejects.toThrow(/access/i);
+  });
+
+  test("FAILS CLOSED on a bound resource type it cannot verify", async () => {
+    const otherWidget = widget({
+      id: "other",
+      qualifiedId: "test.other",
+      boundResources: () => [
+        { resourceType: "other.thing", resourceId: "x" },
+      ],
+    });
+    const svc = service({
+      row: row({ draftLayout: [{ id: "b", type: "test.other", config: {} }] }),
+      widgets: [otherWidget],
+    });
+    await expect(
+      svc.publish({ id: "p1", userClient: denyingUserClient }),
+    ).rejects.toThrow(/verify publish access/i);
+  });
+});
+
 describe("collectBoundResources", () => {
   test("dedupes bound resources across blocks", () => {
     const svc = service({

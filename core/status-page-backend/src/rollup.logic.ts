@@ -49,6 +49,21 @@ export function rollupStatus(statuses: PublicStatus[]): PublicStatus {
   return "unknown";
 }
 
+/**
+ * Overall BANNER status. Like {@link rollupStatus} but distinguishes a PARTIAL
+ * outage (some, not all, known systems are down) from a MAJOR one (all known
+ * systems down) — the industry-standard banner semantics. `unknown` systems are
+ * ignored unless everything is unknown.
+ */
+export function overallBannerStatus(statuses: PublicStatus[]): PublicStatus {
+  const known = statuses.filter((s) => s !== "unknown");
+  if (known.length === 0) return "unknown";
+  const majors = known.filter((s) => s === "major_outage").length;
+  if (majors > 0) return majors === known.length ? "major_outage" : "partial_outage";
+  // No hard outages: fall back to the worst of the remaining states.
+  return rollupStatus(known);
+}
+
 /** Human banner title for an overall status. */
 export function statusBannerTitle(status: PublicStatus): string {
   switch (status) {

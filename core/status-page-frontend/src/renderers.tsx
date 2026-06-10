@@ -143,6 +143,8 @@ const UptimeRenderer: React.FC<RendererProps> = ({ data, label }) => {
         {parsed.data.bars.map((bar, i) => (
           <div
             key={i}
+            role="img"
+            aria-label={`${bar.date}: ${bar.uptimePct.toFixed(1)}% uptime`}
             title={`${bar.date}: ${bar.uptimePct.toFixed(1)}%`}
             className={`h-8 flex-1 rounded-sm ${STATUS_CLASS[bar.status]}`}
           />
