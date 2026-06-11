@@ -101,30 +101,41 @@ const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
 type RendererProps = { data: unknown; label?: string };
 
 /** A titled card section — the building block for most widgets. */
-const Section: React.FC<{ label?: string; children: React.ReactNode }> = ({
-  label,
-  children,
-}) => (
-  <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-    {label && (
-      <h3 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
-        {label}
-      </h3>
+const Section: React.FC<{
+  label?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ label, action, children }) => (
+  <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    {(label || action) && (
+      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </h3>
+        {action}
+      </div>
     )}
-    {children}
+    <div className="p-5">{children}</div>
   </section>
 );
 
+/** The hero status banner — the most prominent block on the page. */
 const BannerRenderer: React.FC<RendererProps> = ({ data }) => {
   const parsed = BannerDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   const meta = STATUS[parsed.data.status];
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl px-5 py-4 text-base font-semibold ring-1 ${meta.hero}`}
+      className={`flex items-center gap-4 rounded-2xl px-6 py-5 ring-1 ${meta.hero}`}
     >
-      <meta.Icon className="size-5 shrink-0" />
-      <span>{parsed.data.title}</span>
+      <span
+        className={`flex size-11 shrink-0 items-center justify-center rounded-full ${meta.soft}`}
+      >
+        <meta.Icon className="size-6" />
+      </span>
+      <span className="text-lg font-semibold sm:text-xl">
+        {parsed.data.title}
+      </span>
     </div>
   );
 };
@@ -167,12 +178,11 @@ const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = GroupStatusDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   return (
-    <Section label={label ?? parsed.data.label}>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-semibold">{parsed.data.label}</span>
-        <StatusPill status={parsed.data.status} />
-      </div>
-      <div className="divide-y divide-border border-t border-border">
+    <Section
+      label={label ?? parsed.data.label}
+      action={<StatusPill status={parsed.data.status} />}
+    >
+      <div className="divide-y divide-border">
         {parsed.data.systems.map((s, i) => (
           <StatusRow key={i} label={s.label} status={s.status} />
         ))}
@@ -192,15 +202,16 @@ const UptimeRenderer: React.FC<RendererProps> = ({ data, label }) => {
   // misleading "0.00%" (a healthy system with no history is not 0% uptime).
   const hasData = bars.length > 0;
   return (
-    <Section label={label}>
-      <div className="mb-2 flex items-baseline justify-between">
-        <span className="text-sm font-semibold">{parsed.data.label}</span>
-        {hasData && (
+    <Section
+      label={label ?? parsed.data.label}
+      action={
+        hasData ? (
           <span className="text-xs font-medium tabular-nums text-muted-foreground">
             {parsed.data.uptimePct.toFixed(2)}% uptime
           </span>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
       {hasData ? (
         <>
           <div className="flex h-9 items-stretch gap-[3px]">
