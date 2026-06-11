@@ -10,6 +10,7 @@ import {
   StatusPageLayoutSchema,
   StatusPageSlugSchema,
   PublishedStatusPageSchema,
+  CustomDomainSchema,
 } from "./schemas";
 import { WidgetTypeDescriptorSchema } from "./widget-types";
 
@@ -104,6 +105,47 @@ export const statusPageContract = {
   })
     .input(z.object({ id: z.string() }))
     .output(z.object({ deleted: z.boolean() })),
+
+  // ----- Custom domain (authenticated, team-scoped via the page) -----
+
+  /**
+   * Set (or replace) the page's custom domain. Generates a fresh DNS TXT
+   * verification token and clears any prior verification, so the domain does
+   * NOT route until `verifyCustomDomain` succeeds. The domain is unique across
+   * pages.
+   */
+  setCustomDomain: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [statusPageAccess.page.manage],
+    instanceAccess: { idParam: "id" },
+  })
+    .input(z.object({ id: z.string(), domain: CustomDomainSchema }))
+    .output(StatusPageSchema),
+
+  /**
+   * Check the DNS TXT record for the page's custom domain and, if it matches
+   * the verification token, mark the domain verified (it then begins routing).
+   * Idempotent; safe to call repeatedly while DNS propagates.
+   */
+  verifyCustomDomain: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [statusPageAccess.page.manage],
+    instanceAccess: { idParam: "id" },
+  })
+    .input(z.object({ id: z.string() }))
+    .output(StatusPageSchema),
+
+  /** Remove the page's custom domain (it stops routing immediately). */
+  removeCustomDomain: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [statusPageAccess.page.manage],
+    instanceAccess: { idParam: "id" },
+  })
+    .input(z.object({ id: z.string() }))
+    .output(StatusPageSchema),
 
   /** Widget catalogue for the builder (built-ins + plugin-contributed types). */
   listWidgetTypes: proc({

@@ -44,6 +44,14 @@ export interface WidgetTypeDefinition {
   category: string;
   binding: WidgetBindingKind;
   /**
+   * The npm package of the FRONTEND plugin that ships this widget's renderer,
+   * when it is NOT bundled into the status-page frontend (i.e. a third-party
+   * widget). Built-in widgets omit it. Used only to tell the minimal
+   * custom-domain public bundle which renderer remote to load for a page that
+   * uses this widget; it is never required for the in-app `/status/<slug>` page.
+   */
+  rendererRemote?: string;
+  /**
    * Validates + defaults the stored config. The service parses with this BEFORE
    * `resolvePublic`/`boundResources`, but each implementation also re-parses
    * (`config: unknown`) so it is independently type-safe and cast-free.

@@ -76,6 +76,18 @@ export function createStatusPageRouter({
     async ({ input }) => service.unpublish(input.id),
   );
 
+  const setCustomDomain = os.setCustomDomain.handler(async ({ input }) =>
+    service.setCustomDomain(input),
+  );
+
+  const verifyCustomDomain = os.verifyCustomDomain.handler(async ({ input }) =>
+    service.verifyCustomDomain(input),
+  );
+
+  const removeCustomDomain = os.removeCustomDomain.handler(async ({ input }) =>
+    service.removeCustomDomain(input),
+  );
+
   const deleteStatusPage = os.deleteStatusPage.handler(async ({ input }) => ({
     deleted: await service.remove(input.id),
   }));
@@ -99,6 +111,9 @@ export function createStatusPageRouter({
     updateStatusPage,
     publishStatusPage,
     unpublishStatusPage,
+    setCustomDomain,
+    verifyCustomDomain,
+    removeCustomDomain,
     deleteStatusPage,
     listWidgetTypes,
     getPublishedStatusPage,

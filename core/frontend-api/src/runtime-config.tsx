@@ -7,6 +7,15 @@ import { createContext, useContext, useState, useEffect } from "react";
 export interface RuntimeConfig {
   /** Base URL for API calls and WebSocket connections */
   baseUrl: string;
+  /**
+   * Present only when this page is served on a custom public-domain host. The
+   * backend's `/api/config` injects it so the minimal public bundle knows which
+   * published page to render without a URL path. Absent on the admin origin.
+   */
+  publicHost?: {
+    kind: string;
+    slug: string;
+  };
 }
 
 interface RuntimeConfigContextValue {

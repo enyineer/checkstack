@@ -25,7 +25,72 @@ Publishing is a one-time, deliberate decision to expose the bound resources' pub
 
 A status page is a team-scopable resource (`statuspage.page`). It is created through the standard create-mode flow (`instanceAccess: { create }` + the owning-team picker), team-owned via the relation-tuple store, and resolvable by name in the Teams admin through the `ResourceResolverRegistry`. `page.read` / `page.manage` gate the authenticated builder; the public read is a separate `published.read` rule, default-granted to the anonymous role (revoke it to switch public status pages off platform-wide). Per-page `visibility` (`public` or `authenticated`) is enforced in the handler on top of that.
 
+## Custom domains
+
+A published page can be served on its own host - `status.acme.com` - so visitors never see a Checkstack admin URL. The public surface is isolated from the admin app at three layers: data, network, and code. This page covers the model; for the operator walkthrough (DNS records, ingress and Caddy/Cloudflare TLS, troubleshooting) see [Serve a status page on a custom domain](/checkstack/user-guide/guides/serve-a-status-page-on-a-custom-domain/).
+
+### Setting one up
+
+In the builder, open the **Custom domain** panel, enter the host, and Save. Checkstack issues a one-time DNS TXT verification token; add it as a TXT record, then click **Verify**:
+
+```env
+# DNS record proving ownership (exact values are shown in the builder)
+_checkstack-verify.status.acme.com  TXT  cs-verify-3f2a...
+```
+
+A domain routes only once it is verified AND the page is published AND its visibility is `public` - the backend gates on all three (`resolveByHost`), so an unverified, unpublished, or `authenticated`-only page serves nothing on a custom domain. Point the domain at your Checkstack ingress (CNAME or A record) and make sure your edge terminates TLS for it (see below).
+
+Host lookups are cached per pod for about 60 seconds (both hits and misses). So a freshly verified+published domain begins routing within ~60s, and - the inverse operators hit most - if the domain was visited before setup was finished, the cached negative result means it can keep showing "not available" for up to ~60s after you finish. Removing a custom domain likewise stops routing within that window (the page content, however, respects unpublish immediately - it is read live, not host-cached).
+
+### The locked-down surface
+
+When a request arrives on a verified custom domain, the platform serves ONLY the public surface and refuses everything else with a 404. This is enforced server-side in a host-routing middleware, so it holds regardless of what any client tries:
+
+- Allowed: the single public read (`getPublishedStatusPage`), `/api/config` (which returns only `{ baseUrl, publicHost: { slug } }`), the public bundle's static assets, and the on-demand-TLS hook.
+- Refused: every other `/api/*`, all of `/rest/*`, the admin docs (`/checkstack/*`), and the platform endpoints (`/.checkstack/*` readiness, `/.well-known/jwks.json`).
+
+On a custom domain, `/api/config` returns THAT domain as `baseUrl` (never the admin origin), so the bundle's RPC client can only ever call back into this same locked-down host. The net effect: a published page can reach exactly one data endpoint, and that endpoint already enforces published + visibility + the field allow-list. There is no path from the public host to any other plugin's data.
+
+### A separate public bundle
+
+The custom-domain host loads a minimal public bundle that ships NONE of the admin app - no sidebar, auth, signals, command palette, or general plugin loader. The frontend entry fetches `/api/config` first and, when it sees a `publicHost`, dynamically imports only the public bundle; the admin app chunk is never fetched. So a public host downloads a few KB of public code plus shared vendor, and admin code never reaches the visitor's browser.
+
+Built-in widget renderers are bundled in. For a THIRD-PARTY widget type, the published-page response lists exactly the renderer remotes that page needs (each widget type can declare a `rendererRemote` - its frontend npm package); the bundle then loads only those, on demand, via Module Federation. The set of remotes comes entirely from the page's widget types (operator-controlled, never visitor input), the loaded code is the operator's own installed plugin (trusted, as in the admin app), and its renderers are pure - and even if one tried an RPC, the only data endpoint reachable on this origin is the public read. So third-party widgets render on custom domains without widening the data surface.
+
+### TLS at the edge
+
+Checkstack terminates no TLS itself; an ingress or reverse proxy does, exactly as for the primary domain. For arbitrary customer domains there are two common patterns:
+
+- A wildcard or per-domain certificate managed by your ingress (for example, cert-manager creating a `Certificate` per domain - see the [Kubernetes installation guide](/checkstack/user-guide/installation/kubernetes/) and the [custom-domain how-to](/checkstack/user-guide/guides/serve-a-status-page-on-a-custom-domain/)).
+- On-demand TLS at the edge (Caddy `on_demand_tls`, Cloudflare for SaaS), gated by the platform's authorization hook so certificates are minted ONLY for domains an operator has verified:
+
+```caddy
+{
+  on_demand_tls {
+    # Caddy asks Checkstack before minting a cert for an unknown host.
+    ask http://checkstack-backend:3000/.well-known/checkstack/authorize-domain
+  }
+}
+
+https:// {
+  tls {
+    on_demand
+  }
+  reverse_proxy checkstack-backend:3000
+}
+```
+
+`GET /.well-known/checkstack/authorize-domain?domain=<host>` returns 200 for a verified custom domain (or the primary host) and 404 otherwise, so the edge never provisions a certificate for a domain that is not configured in Checkstack.
+
+### Contributing another public-host surface
+
+Custom-domain routing is a platform mechanism, not status-page-specific. Any plugin can own public hosts by contributing a resolver to `publicHostResolverExtensionPoint` (in `@checkstack/backend-api`). The platform consults registered resolvers per request; the resolver returns the host's bootstrap hint and the exhaustive list of `/api` paths the surface may call. The platform stays ignorant of the surface and enforces that allow-list.
+
 ## Contributing a widget type
+
+A widget has two halves: a backend **type** (config + DTO + how the public data is resolved) and a frontend **renderer** (a pure component that draws the DTO). A plugin contributes both, and the widget then works on every status page.
+
+### Backend: the widget type
 
 Widget types live in an extension-point registry, so any plugin can add one:
 
@@ -54,11 +119,46 @@ env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
 );
 ```
 
-> [!IMPORTANT]
-> A widget's public RENDERER (frontend) must be a PURE, prop-only component: it receives the resolved DTO and has no RPC client or `fetch`. That is what keeps third-party widgets unable to leak — a renderer can only draw the DTO it is handed.
-
 `resolvePublic` may read anything via the trusted `ctx.rpcClient`, but must return only `dtoSchema` fields. The service validates the result against `dtoSchema` before it leaves the backend.
+
+### Frontend: the renderer
+
+Contribute the renderer from your frontend plugin with `defineStatusWidgetRenderer` (in `@checkstack/status-page-common`), keyed by the same qualified widget-type id. It lands in your plugin's `extensions[]` and is collected through the plugin registry - no extra lifecycle:
+
+```tsx
+import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { defineStatusWidgetRenderer } from "@checkstack/status-page-common";
+import { pluginMetadata } from "@checkstack/myplugin-common";
+import { LatencyRenderer } from "./LatencyRenderer";
+
+export default createFrontendPlugin({
+  metadata: pluginMetadata,
+  extensions: [
+    defineStatusWidgetRenderer({
+      pluginMetadata,
+      id: "latency", // same local id as the backend type -> "myplugin.latency"
+      component: LatencyRenderer,
+    }),
+  ],
+});
+```
+
+Pass the LOCAL id and your plugin metadata; the qualified id (`${pluginId}.latency`) is computed for you, exactly like the backend `registerWidgetType`, so the renderer always matches the block type. The status-page frontend resolves each block's renderer by that id, merging built-ins with plugin-contributed ones (built-ins win on a clash, so the `statuspage.*` namespace cannot be shadowed). A block whose type has no registered renderer simply does not draw.
+
+> [!IMPORTANT]
+> A renderer MUST be a PURE, prop-only component: it receives the resolved DTO and has no RPC client or `fetch`. That is what keeps third-party widgets unable to leak - a renderer can only draw the DTO it is handed.
+
+Plugin-contributed renderers load on the admin builder preview and the in-app page at `/status/<slug>` (where the admin app has already loaded every plugin). For a page served on a **custom domain**, the minimal public bundle loads your renderer on demand - declare its frontend package as `rendererRemote` on the backend widget type so the page knows which remote to fetch:
+
+```ts
+env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
+  { id: "latency", /* ... */ rendererRemote: "@acme/widgets-frontend" },
+  pluginMetadata,
+);
+```
+
+Built-in widgets omit `rendererRemote` (they are bundled). See [Custom domains](#a-separate-public-bundle) for how the bundle loads remotes securely.
 
 ## Phases
 
-Phase 1 (this release) ships the secure core, the admin builder, and the public page as a no-access-rule route. A fully separate public bundle, custom domains with edge-delegated TLS, drag-to-reorder, live-data preview, and distribution (embeds, SVG badges, RSS, subscriptions) are the next phases. The data-isolation guarantee is server-enforced and holds regardless of how the public page is bundled.
+Phase 1 shipped the secure core, the admin builder, and the public page as a no-access-rule route at `/status/<slug>`. Custom domains (with a separate public bundle, edge-delegated TLS, and on-demand loading of third-party widget renderers) now ship too (see [Custom domains](#custom-domains)), as does pluggable widget rendering (see [Contributing a widget type](#contributing-a-widget-type)). Drag-to-reorder, live-data preview, and distribution (embeds, SVG badges, RSS, subscriptions) are the next phases. The data-isolation guarantee is server-enforced and holds regardless of how the public page is bundled or hosted.

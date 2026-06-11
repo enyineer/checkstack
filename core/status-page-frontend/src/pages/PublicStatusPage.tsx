@@ -3,18 +3,29 @@ import { useParams } from "react-router-dom";
 import { LoadingSpinner } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { StatusPageApi } from "@checkstack/status-page-common";
-import { BlockRenderer } from "../renderers";
+import { BlockRenderer, useStatusWidgetRenderers } from "../renderers";
+import { useLoadRendererRemotes } from "../remote-renderers";
 
 /**
- * The PUBLIC status page. Renders ENTIRELY from the single
+ * The PUBLIC status page view. Renders ENTIRELY from the single
  * `getPublishedStatusPage` response — it makes no other data call, so it can
- * only ever show what the publisher placed on the page. Registered as a
- * `standalone` route, so it renders with NO admin chrome.
+ * only ever show what the publisher placed on the page. Takes `slug` as a prop
+ * so it can be driven by the in-app standalone route (slug from the URL) OR by
+ * the separate custom-domain public bundle (slug from `/api/config`).
  */
-export const PublicStatusPage: React.FC = () => {
-  const { slug = "" } = useParams();
+export const PublicStatusPageView: React.FC<{ slug: string }> = ({ slug }) => {
   const client = usePluginClient(StatusPageApi);
+  const renderers = useStatusWidgetRenderers();
+  const loadRendererRemotes = useLoadRendererRemotes();
   const { data, isLoading } = client.getPublishedStatusPage.useQuery({ slug });
+
+  // Load any third-party renderer remotes this page needs. No-op in the admin
+  // app (renderers already present); the custom-domain bundle loads them, after
+  // which the renderer map updates reactively. Built-in widgets need nothing.
+  const remotes = data?.rendererRemotes;
+  useEffect(() => {
+    if (remotes && remotes.length > 0) loadRendererRemotes(remotes);
+  }, [remotes, loadRendererRemotes]);
 
   // Reflect the page name in the browser tab (restored on unmount).
   useEffect(() => {
@@ -84,7 +95,11 @@ export const PublicStatusPage: React.FC = () => {
           ) : (
             <div className="space-y-5">
               {data.blocks.map((block) => (
-                <BlockRenderer key={block.id} block={block} />
+                <BlockRenderer
+                  key={block.id}
+                  block={block}
+                  renderers={renderers}
+                />
               ))}
             </div>
           )}
@@ -106,4 +121,13 @@ export const PublicStatusPage: React.FC = () => {
       </div>
     </div>
   );
+};
+
+/**
+ * Route wrapper: the in-app standalone route at `/status/:slug`. Reads the slug
+ * from the URL and renders the shared view.
+ */
+export const PublicStatusPage: React.FC = () => {
+  const { slug = "" } = useParams();
+  return <PublicStatusPageView slug={slug} />;
 };

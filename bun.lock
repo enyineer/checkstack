@@ -938,6 +938,8 @@
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
+        "@checkstack/status-page-common": "workspace:*",
+        "@checkstack/status-page-frontend": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "@module-federation/runtime": "^2.5",
         "@module-federation/vite": "^1.16",
@@ -1795,7 +1797,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.108.1",
+      "version": "0.109.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -2090,12 +2092,15 @@
       "version": "0.1.0",
       "dependencies": {
         "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
         "@orpc/contract": "^1.14.4",
         "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^19.0.0",
+        "react": "19.2.7",
         "typescript": "^5.7.2",
       },
     },

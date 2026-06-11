@@ -7,6 +7,18 @@ import {
   statusPageAccess,
 } from "@checkstack/status-page-common";
 
+// Re-exported for the separate custom-domain public bundle (core/frontend's
+// public-app), which renders the page WITHOUT the admin app or its router,
+// driving the slug from `/api/config` instead of the URL. The bundle also
+// provides `RendererRemotesProvider` so third-party widget renderers load on
+// custom domains.
+export { PublicStatusPageView } from "./pages/PublicStatusPage";
+export {
+  RendererRemotesProvider,
+  useLoadRendererRemotes,
+  type LoadRendererRemotes,
+} from "./remote-renderers";
+
 export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [

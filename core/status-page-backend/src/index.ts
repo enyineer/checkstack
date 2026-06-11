@@ -1,4 +1,8 @@
-import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+  publicHostResolverExtensionPoint,
+} from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { inArray, ilike } from "drizzle-orm";
 import {
@@ -10,6 +14,7 @@ import * as schema from "./schema";
 import { statusPages } from "./schema";
 import { createStatusPageRouter } from "./router";
 import { StatusPageService } from "./service";
+import { systemTxtResolver } from "./custom-domain";
 import {
   createWidgetTypeRegistry,
   statusWidgetTypeExtensionPoint,
@@ -51,16 +56,42 @@ export default createBackendPlugin({
       }) => {
         const db = database as SafeDatabase<typeof schema>;
 
+        const primaryHost = process.env.BASE_URL
+          ? new URL(process.env.BASE_URL).hostname.toLowerCase()
+          : null;
         const service = new StatusPageService({
           db,
           registry,
           rpcClient,
           logger,
+          txtResolver: systemTxtResolver,
+          primaryHost,
         });
         const internalUrl =
           process.env.INTERNAL_URL || "http://localhost:3000";
         const router = createStatusPageRouter({ service, internalUrl });
         rpc.registerRouter(router, statusPageContract);
+
+        // Contribute the public-host resolver so a published page with a
+        // verified custom domain is served on that host. The platform locks the
+        // host down to exactly the public read endpoint below (+ /api/config).
+        const publicApiPath = `/api/${pluginMetadata.pluginId}/getPublishedStatusPage`;
+        env
+          .getExtensionPoint(publicHostResolverExtensionPoint)
+          .registerResolver(
+            {
+              resolve: async (host) => {
+                const found = await service.resolveByHost(host);
+                if (!found) return null;
+                return {
+                  pluginId: pluginMetadata.pluginId,
+                  bootstrap: { kind: "status-page", slug: found.slug },
+                  allowedApiPaths: [publicApiPath],
+                };
+              },
+            },
+            pluginMetadata,
+          );
 
         // Let the Teams admin resolve `statuspage.page` grants by name + search.
         resourceResolverRegistry.register(STATUS_PAGE_RESOURCE_TYPE, {

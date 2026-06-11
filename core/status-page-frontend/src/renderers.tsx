@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -8,8 +8,10 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { MarkdownBlock } from "@checkstack/ui";
+import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
+  StatusWidgetRendererSlot,
   BannerDtoSchema,
   SystemHealthDtoSchema,
   GroupStatusDtoSchema,
@@ -20,9 +22,21 @@ import {
   HeadingDtoSchema,
   LinksDtoSchema,
   ImageDtoSchema,
+  type StatusWidgetRendererProps,
   type PublicStatus,
   type ResolvedBlock,
 } from "@checkstack/status-page-common";
+import {
+  mergeWidgetRenderers,
+  type WidgetRenderer,
+  type WidgetRendererMap,
+} from "./renderer-map";
+
+export {
+  mergeWidgetRenderers,
+  type WidgetRenderer,
+  type WidgetRendererMap,
+} from "./renderer-map";
 
 /**
  * PURE public widget renderers. The single security rule for this layer: a
@@ -99,7 +113,7 @@ const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
   );
 };
 
-type RendererProps = { data: unknown; label?: string };
+type RendererProps = StatusWidgetRendererProps;
 
 /** A titled card section — the building block for most widgets. */
 const Section: React.FC<{
@@ -458,8 +472,8 @@ const DividerRenderer: React.FC<RendererProps> = () => (
   <hr className="border-border" />
 );
 
-/** Map widget type id -> pure renderer. Third-party renderers register here. */
-export const WIDGET_RENDERERS: Record<string, React.FC<RendererProps>> = {
+/** The renderers status-page ships itself, keyed by widget-type id. */
+export const BUILTIN_WIDGET_RENDERERS: Record<string, WidgetRenderer> = {
   [BUILTIN_WIDGET_IDS.banner]: BannerRenderer,
   [BUILTIN_WIDGET_IDS.systemHealth]: SystemHealthRenderer,
   [BUILTIN_WIDGET_IDS.groupStatus]: GroupStatusRenderer,
@@ -473,9 +487,34 @@ export const WIDGET_RENDERERS: Record<string, React.FC<RendererProps>> = {
   [BUILTIN_WIDGET_IDS.divider]: DividerRenderer,
 };
 
-/** Render one resolved block via the registry (skips unknown / null data). */
-export const BlockRenderer: React.FC<{ block: ResolvedBlock }> = ({ block }) => {
-  const Renderer = WIDGET_RENDERERS[block.type];
+/**
+ * Resolve the full renderer map: built-ins plus any renderers contributed by
+ * plugins via `StatusWidgetRendererSlot`. Reactive — re-resolves when plugins
+ * register/unregister. In the minimal custom-domain public bundle no plugins are
+ * loaded, so this is just the built-ins.
+ */
+export function useStatusWidgetRenderers(): WidgetRendererMap {
+  const extensions = useSlotExtensions(StatusWidgetRendererSlot);
+  return useMemo(
+    () =>
+      mergeWidgetRenderers(
+        BUILTIN_WIDGET_RENDERERS,
+        extensions.flatMap((ext) =>
+          ext.component
+            ? [{ widgetTypeId: ext.metadata.widgetTypeId, component: ext.component }]
+            : [],
+        ),
+      ),
+    [extensions],
+  );
+}
+
+/** Render one resolved block via a resolved renderer map (skips unknown / null data). */
+export const BlockRenderer: React.FC<{
+  block: ResolvedBlock;
+  renderers: WidgetRendererMap;
+}> = ({ block, renderers }) => {
+  const Renderer = renderers.get(block.type);
   if (!Renderer || block.data === null || block.data === undefined) return null;
   return <Renderer data={block.data} label={block.label} />;
 };
