@@ -1,5 +1,12 @@
 # @checkstack/about-common
 
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+
 ## 0.2.11
 
 ### Patch Changes

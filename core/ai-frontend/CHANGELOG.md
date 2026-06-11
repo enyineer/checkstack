@@ -1,5 +1,21 @@
 # @checkstack/ai-frontend
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [551eaa9]
+- Updated dependencies [d2077bd]
+- Updated dependencies [551eaa9]
+- Updated dependencies [9ab73c5]
+- Updated dependencies [5c6393f]
+  - @checkstack/ai-common@0.5.0
+  - @checkstack/common@0.16.0
+  - @checkstack/catalog-common@2.4.0
+  - @checkstack/ui@1.16.1
+  - @checkstack/frontend-api@0.10.0
+  - @checkstack/integration-common@0.9.1
+
 ## 0.2.0
 
 ### Minor Changes

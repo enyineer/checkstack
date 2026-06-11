@@ -1,5 +1,15 @@
 # @checkstack/secrets-backend-local
 
+## 0.1.11
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/backend-api@0.23.0
+  - @checkstack/common@0.16.0
+  - @checkstack/secrets-backend@0.2.9
+  - @checkstack/secrets-common@0.2.4
+
 ## 0.1.10
 
 ### Patch Changes

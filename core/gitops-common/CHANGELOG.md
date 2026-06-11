@@ -1,5 +1,13 @@
 # @checkstack/gitops-common
 
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+  - @checkstack/secrets-common@0.2.4
+
 ## 0.6.3
 
 ### Patch Changes

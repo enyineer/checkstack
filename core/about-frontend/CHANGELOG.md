@@ -1,5 +1,17 @@
 # @checkstack/about-frontend
 
+## 0.3.7
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+- Updated dependencies [551eaa9]
+- Updated dependencies [9ab73c5]
+  - @checkstack/common@0.16.0
+  - @checkstack/ui@1.16.1
+  - @checkstack/frontend-api@0.10.0
+  - @checkstack/about-common@0.2.12
+
 ## 0.3.6
 
 ### Patch Changes

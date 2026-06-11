@@ -1,5 +1,13 @@
 # @checkstack/integration-common
 
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+  - @checkstack/signal-common@0.2.10
+
 ## 0.9.0
 
 ### Minor Changes

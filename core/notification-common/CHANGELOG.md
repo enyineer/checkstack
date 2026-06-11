@@ -1,5 +1,13 @@
 # @checkstack/notification-common
 
+## 1.3.4
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+  - @checkstack/signal-common@0.2.10
+
 ## 1.3.3
 
 ### Patch Changes

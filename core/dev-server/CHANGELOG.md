@@ -1,5 +1,12 @@
 # @checkstack/dev-server
 
+## 2.2.2
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+
 ## 2.2.1
 
 ### Patch Changes

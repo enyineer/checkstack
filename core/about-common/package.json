@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/about-common",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {

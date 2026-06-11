@@ -1,5 +1,12 @@
 # @checkstack/cache-api
 
+## 0.3.13
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+
 ## 0.3.12
 
 ### Patch Changes
