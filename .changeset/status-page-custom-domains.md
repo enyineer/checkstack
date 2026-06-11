@@ -6,6 +6,7 @@
 "@checkstack/status-page-common": minor
 "@checkstack/status-page-backend": minor
 "@checkstack/status-page-frontend": minor
+"@checkstack/ai-backend": patch
 ---
 
 Status pages: first-class custom domains with a locked-down public surface.
@@ -62,6 +63,6 @@ unit-tested.
 
 NOT breaking. New `status-page-common` contract procedures (`setCustomDomain`,
 `verifyCustomDomain`, `removeCustomDomain`) and `customDomain*` columns on the
-`status_pages` table (additive migration). Third-party widget renderers do not
-yet load on a custom domain (they still render at `/status/<slug>`); this is a
-documented follow-up and does not affect data isolation.
+`status_pages` table (additive migration).
+
+(`@checkstack/ai-backend` is a patch only: its generated docs index now includes the custom-domain documentation.)
