@@ -277,6 +277,15 @@
       "path": "./core/slo-frontend"
     },
     {
+      "path": "./core/status-page-backend"
+    },
+    {
+      "path": "./core/status-page-common"
+    },
+    {
+      "path": "./core/status-page-frontend"
+    },
+    {
       "path": "./core/template-engine"
     },
     {

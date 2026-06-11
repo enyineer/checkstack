@@ -1,0 +1,34 @@
+{
+  "name": "@checkstack/status-page-backend",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "generate": "drizzle-kit generate",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/status-page-common": "workspace:*",
+    "drizzle-orm": "^0.45.0",
+    "zod": "^4.2.1",
+    "@orpc/server": "^1.14.4",
+    "@orpc/client": "^1.14.4"
+  },
+  "devDependencies": {
+    "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/test-utils-backend": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.0.0"
+  }
+}

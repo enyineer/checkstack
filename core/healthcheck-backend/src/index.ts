@@ -27,6 +27,8 @@ import {
 import { buildHealthcheckAiTools } from "./ai/register-ai-tools";
 import { createHealthcheckSignalsContributor } from "./ai/system-signals-contributor";
 import { projectRunHistoryForModel } from "./ai-projections";
+import { statusWidgetTypeExtensionPoint } from "@checkstack/status-page-backend";
+import { registerHealthcheckStatusWidgets } from "./status-page/widgets";
 import {
   createBackendPlugin,
   coreServices,
@@ -98,6 +100,13 @@ export default createBackendPlugin({
       healthcheckSystemSubscription,
       healthcheckGroupSubscription,
     ]);
+
+    // Status-page widgets owned by healthcheck (system health, uptime, banner,
+    // group status). Buffered behind the extension point until status-page-backend
+    // registers it — so the status-page platform never depends on healthcheck.
+    registerHealthcheckStatusWidgets(
+      env.getExtensionPoint(statusWidgetTypeExtensionPoint),
+    );
 
     // ─── Automation Platform: triggers + artifact type ─────────────────
     // Buffered behind the extension point until automation-backend's

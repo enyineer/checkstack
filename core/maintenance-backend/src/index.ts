@@ -12,6 +12,8 @@ import {
 } from "@checkstack/maintenance-common";
 
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { statusWidgetTypeExtensionPoint } from "@checkstack/status-page-backend";
+import { registerMaintenanceStatusWidgets } from "./status-page-widget";
 import { inArray, ilike } from "drizzle-orm";
 import {
   aiToolExtensionPoint,
@@ -71,6 +73,13 @@ export default createBackendPlugin({
       maintenanceSystemSubscription,
       maintenanceGroupSubscription,
     ]);
+
+    // Status-page "Scheduled maintenance" widget, owned by maintenance-backend.
+    // Buffered behind the status-page extension point — status-page never
+    // depends on maintenance.
+    registerMaintenanceStatusWidgets(
+      env.getExtensionPoint(statusWidgetTypeExtensionPoint),
+    );
 
     // ─── Automation Platform: entity + artifact type ───────────────────
     // Buffered behind the extension point until automation-backend's
