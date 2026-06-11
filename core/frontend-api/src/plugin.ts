@@ -150,6 +150,13 @@ interface PluginRouteBase {
   accessRule?: AccessRule;
   /** Optional sidebar navigation entry for this route. */
   nav?: NavEntry;
+  /**
+   * Render this route WITHOUT the app chrome (no header, sidebar, ambient
+   * background, command palette). Use for public/standalone surfaces — e.g. a
+   * published status page — that must not show the authenticated admin UI. The
+   * route still lives inside the API/session providers, so it can call the API.
+   */
+  standalone?: boolean;
 }
 
 /**

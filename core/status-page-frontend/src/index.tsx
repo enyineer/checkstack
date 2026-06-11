@@ -30,15 +30,17 @@ export default createFrontendPlugin({
       accessRule: statusPageAccess.page.manage,
     },
     {
-      // PUBLIC: no access rule -> renders for anonymous visitors. Only calls the
-      // single public endpoint, which enforces published + visibility + the
-      // field allow-list server-side.
+      // PUBLIC: no access rule -> renders for anonymous visitors. `standalone`
+      // renders it WITHOUT the admin chrome (no sidebar/header/command palette).
+      // Only calls the single public endpoint, which enforces published +
+      // visibility + the field allow-list server-side.
       route: statusPublicRoutes.routes.page,
       load: () =>
         import("./pages/PublicStatusPage").then((m) => ({
           default: m.PublicStatusPage,
         })),
       title: "Status",
+      standalone: true,
     },
   ],
 });

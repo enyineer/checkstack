@@ -8,12 +8,8 @@ import { BlockRenderer } from "../renderers";
 /**
  * The PUBLIC status page. Renders ENTIRELY from the single
  * `getPublishedStatusPage` response — it makes no other data call, so it can
- * only ever show what the publisher placed on the page. Carries no access rule,
- * so it renders for anonymous visitors.
- *
- * NOTE: this currently renders inside the main app's route tree. A fully
- * separate public bundle + custom-domain host routing is the next phase; the
- * data-isolation guarantee is server-enforced regardless.
+ * only ever show what the publisher placed on the page. Registered as a
+ * `standalone` route, so it renders with NO admin chrome.
  */
 export const PublicStatusPage: React.FC = () => {
   const { slug = "" } = useParams();
@@ -22,7 +18,7 @@ export const PublicStatusPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <LoadingSpinner />
       </div>
     );
@@ -30,7 +26,7 @@ export const PublicStatusPage: React.FC = () => {
 
   if (!data) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-center">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background px-4 text-center">
         <h1 className="text-xl font-semibold">Status page not found</h1>
         <p className="text-sm text-muted-foreground">
           This status page does not exist or is not published.
@@ -44,21 +40,37 @@ export const PublicStatusPage: React.FC = () => {
   if (data.theme.brandColorHsl) style["--primary"] = data.theme.brandColorHsl;
 
   return (
-    <div style={style} className="mx-auto min-h-screen max-w-3xl px-4 py-10">
-      <header className="mb-8 flex items-center gap-3">
-        {data.theme.logoUrl && (
-          <img src={data.theme.logoUrl} alt="" className="h-8 object-contain" />
-        )}
-        <h1 className="text-2xl font-bold">{data.title}</h1>
-      </header>
-      <div className="space-y-4">
-        {data.blocks.map((block) => (
-          <BlockRenderer key={block.id} block={block} />
-        ))}
+    <div style={style} className="min-h-screen bg-background text-foreground">
+      {/* Thin brand accent line at the very top. */}
+      <div className="h-1 w-full bg-primary" />
+      <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:py-14">
+        <header className="mb-8 flex flex-col items-center gap-3 text-center">
+          {data.theme.logoUrl && (
+            <img
+              src={data.theme.logoUrl}
+              alt=""
+              className="h-10 object-contain"
+            />
+          )}
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {data.title}
+          </h1>
+        </header>
+
+        <div className="space-y-5">
+          {data.blocks.map((block) => (
+            <BlockRenderer key={block.id} block={block} />
+          ))}
+        </div>
+
+        <footer className="mt-12 border-t border-border pt-5 text-center text-xs text-muted-foreground">
+          Updated{" "}
+          {new Date(data.generatedAt).toLocaleString(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}
+        </footer>
       </div>
-      <footer className="mt-10 text-center text-xs text-muted-foreground">
-        Updated {new Date(data.generatedAt).toLocaleString()}
-      </footer>
     </div>
   );
 };
