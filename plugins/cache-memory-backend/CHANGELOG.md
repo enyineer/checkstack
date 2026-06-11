@@ -1,5 +1,15 @@
 # @checkstack/cache-memory-backend
 
+## 0.3.18
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/backend-api@0.23.0
+  - @checkstack/common@0.16.0
+  - @checkstack/cache-api@0.3.13
+  - @checkstack/cache-memory-common@0.2.10
+
 ## 0.3.17
 
 ### Patch Changes

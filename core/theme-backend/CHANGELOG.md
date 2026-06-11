@@ -1,5 +1,15 @@
 # @checkstack/theme-backend
 
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/auth-backend@0.7.0
+  - @checkstack/backend-api@0.23.0
+  - @checkstack/common@0.16.0
+  - @checkstack/theme-common@0.2.4
+
 ## 0.2.8
 
 ### Patch Changes

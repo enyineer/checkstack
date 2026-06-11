@@ -1,5 +1,13 @@
 # @checkstack/announcement-common
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+  - @checkstack/signal-common@0.2.10
+
 ## 0.5.3
 
 ### Patch Changes

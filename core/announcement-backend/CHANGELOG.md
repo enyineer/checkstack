@@ -1,5 +1,19 @@
 # @checkstack/announcement-backend
 
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/auth-backend@0.7.0
+  - @checkstack/backend-api@0.23.0
+  - @checkstack/common@0.16.0
+  - @checkstack/command-backend@0.2.9
+  - @checkstack/announcement-common@0.5.4
+  - @checkstack/cache-api@0.3.13
+  - @checkstack/signal-common@0.2.10
+  - @checkstack/cache-utils@0.2.18
+
 ## 0.4.8
 
 ### Patch Changes

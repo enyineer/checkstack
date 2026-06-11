@@ -1,5 +1,22 @@
 # @checkstack/ui
 
+## 1.16.1
+
+### Patch Changes
+
+- 551eaa9: Fix native scrollbars and form controls staying light in dark mode.
+
+  The app never declared a `color-scheme`, so Chromium/Edge and Firefox painted
+  native scrollbars (e.g. the sidebar) and form controls in the OS default (light)
+  regardless of the active theme. Declaring `color-scheme: light` / `dark` on
+  `:root` / `.dark` makes them follow the theme.
+
+- Updated dependencies [d2077bd]
+- Updated dependencies [9ab73c5]
+  - @checkstack/common@0.16.0
+  - @checkstack/frontend-api@0.10.0
+  - @checkstack/template-engine@0.4.5
+
 ## 1.16.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @checkstack/scripts
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/common@0.16.0
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @checkstack/gitops-backend
 
+## 0.5.9
+
+### Patch Changes
+
+- Updated dependencies [d2077bd]
+  - @checkstack/backend-api@0.23.0
+  - @checkstack/common@0.16.0
+  - @checkstack/secrets-backend@0.2.9
+  - @checkstack/command-backend@0.2.9
+  - @checkstack/gitops-common@0.6.4
+  - @checkstack/queue-api@0.3.13
+
 ## 0.5.8
 
 ### Patch Changes
