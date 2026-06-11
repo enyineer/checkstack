@@ -18,6 +18,8 @@ import {
   incidentGroupSubscription,
 } from "@checkstack/incident-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { statusWidgetTypeExtensionPoint } from "@checkstack/status-page-backend";
+import { registerIncidentStatusWidgets } from "./status-page-widget";
 import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
@@ -76,6 +78,13 @@ export default createBackendPlugin({
       incidentSystemSubscription,
       incidentGroupSubscription,
     ]);
+
+    // Status-page "Incidents" widget, owned by incident-backend (it owns
+    // incidents + their public-safe projection). Buffered behind the
+    // status-page extension point — status-page never depends on incident.
+    registerIncidentStatusWidgets(
+      env.getExtensionPoint(statusWidgetTypeExtensionPoint),
+    );
 
     // Register triggers — buffered until the automation plugin's
     // `register()` runs and the extension point resolves. Triggers expose

@@ -27,6 +27,8 @@
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/status-page-backend": "workspace:*",
+    "@checkstack/status-page-common": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/automation-common": "workspace:*",
     "drizzle-orm": "^0.45.0",

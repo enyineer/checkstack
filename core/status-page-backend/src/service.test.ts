@@ -48,6 +48,7 @@ function widget(
     boundResources: over.boundResources ?? (() => []),
     resolvePublic:
       over.resolvePublic ?? (async () => ({ value: "ok" })),
+    assertBindingsReadable: over.assertBindingsReadable,
   };
 }
 
@@ -190,48 +191,65 @@ describe("resolvePublished — isolation + visibility", () => {
   });
 });
 
-/** A user-scoped client that denies access to every system/group. */
-const denyingUserClient: RpcClient = {
-  forPlugin: () =>
-    ({
-      getSystem: async () => null,
-      getGroups: async () => [],
-    }) as never,
-};
-
-describe("publish gate — cannot publish what you cannot see", () => {
-  test("refuses when a bound system is not accessible to the editor", async () => {
+describe("publish gate — delegates to the widget, fails closed", () => {
+  test("propagates a widget's access-check failure as FORBIDDEN", async () => {
     const sysWidget = widget({
       id: "sys",
       qualifiedId: "test.sys",
       boundResources: () => [
         { resourceType: "catalog.system", resourceId: "s1" },
       ],
+      assertBindingsReadable: async () => {
+        throw new Error("System s1 is not accessible");
+      },
     });
     const svc = service({
       row: row({ draftLayout: [{ id: "b", type: "test.sys", config: {} }] }),
       widgets: [sysWidget],
     });
     await expect(
-      svc.publish({ id: "p1", userClient: denyingUserClient }),
-    ).rejects.toThrow(/access/i);
+      svc.publish({ id: "p1", userClient: noRpc }),
+    ).rejects.toThrow(/not accessible/i);
   });
 
-  test("FAILS CLOSED on a bound resource type it cannot verify", async () => {
-    const otherWidget = widget({
-      id: "other",
-      qualifiedId: "test.other",
+  test("FAILS CLOSED when a binding widget provides no access check", async () => {
+    const noCheck = widget({
+      id: "nocheck",
+      qualifiedId: "test.nocheck",
       boundResources: () => [
-        { resourceType: "other.thing", resourceId: "x" },
+        { resourceType: "catalog.system", resourceId: "s1" },
       ],
+      // no assertBindingsReadable
     });
     const svc = service({
-      row: row({ draftLayout: [{ id: "b", type: "test.other", config: {} }] }),
-      widgets: [otherWidget],
+      row: row({ draftLayout: [{ id: "b", type: "test.nocheck", config: {} }] }),
+      widgets: [noCheck],
     });
     await expect(
-      svc.publish({ id: "p1", userClient: denyingUserClient }),
-    ).rejects.toThrow(/verify publish access/i);
+      svc.publish({ id: "p1", userClient: noRpc }),
+    ).rejects.toThrow(/cannot be published/i);
+  });
+
+  test("allows publish when the widget's access check passes", async () => {
+    let checked = false;
+    const okWidget = widget({
+      id: "ok",
+      qualifiedId: "test.okbind",
+      boundResources: () => [
+        { resourceType: "catalog.system", resourceId: "s1" },
+      ],
+      assertBindingsReadable: async () => {
+        checked = true;
+      },
+    });
+    const svc = service({
+      row: row({ draftLayout: [{ id: "b", type: "test.okbind", config: {} }] }),
+      widgets: [okWidget],
+    });
+    // The select-only fake DB can't service the post-gate UPDATE, so we only
+    // assert the gate ran + passed (the update path is covered elsewhere).
+    await svc.publish({ id: "p1", userClient: noRpc }).catch(() => undefined);
+    expect(checked).toBe(true);
   });
 });
 

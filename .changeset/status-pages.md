@@ -2,6 +2,10 @@
 "@checkstack/status-page-common": minor
 "@checkstack/status-page-backend": minor
 "@checkstack/status-page-frontend": minor
+"@checkstack/catalog-common": minor
+"@checkstack/healthcheck-backend": minor
+"@checkstack/incident-backend": minor
+"@checkstack/maintenance-backend": minor
 ---
 
 Add operator-built public Status Pages (phase 1: secure, extensible core).
@@ -37,6 +41,15 @@ Coherence + extensibility:
   never leak.
 - Draft vs published layouts; per-page visibility (public / authenticated-only)
   and theming (brand color, logo).
+
+Dependency direction: the status-page platform owns the widget-type registry and
+the content widgets, but the DOMAIN widgets are contributed by their owning
+plugins via the `statusWidgetTypeExtensionPoint` — system health / uptime /
+banner / group status by `healthcheck-backend`, incidents by `incident-backend`,
+scheduled maintenance by `maintenance-backend`. So `status-page-backend` depends
+only on `backend-api` / `common` / `status-page-common`; the owning plugins
+depend on the platform, never the reverse. `catalog-common` gains
+`assertCatalogResourcesReadable` for the publish-time access check.
 
 Phase 1 scope: the secure core, the admin builder, and the public page (served as
 a no-access-rule route). A fully separate public bundle, custom domains + TLS,

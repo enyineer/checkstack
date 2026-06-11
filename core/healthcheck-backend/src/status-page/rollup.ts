@@ -1,12 +1,12 @@
 import type { PublicStatus } from "@checkstack/status-page-common";
 
 /**
- * Pure status mapping + rollup for the public surface. Deterministic and
- * DB-free, so it is unit-tested directly. The INTERNAL health enum is never
- * exposed; it is mapped onto the public vocabulary here.
+ * Pure status mapping + rollup for the status-page health widgets. The INTERNAL
+ * health enum is never exposed; it is mapped onto the public vocabulary here.
+ * (Moved here from status-page-backend: the rollup is health-domain logic, so it
+ * lives with the plugin that owns health.)
  */
 
-/** Map the internal health status onto the public vocabulary. */
 export function mapHealthStatus(
   internal: "healthy" | "degraded" | "unhealthy" | string,
 ): PublicStatus {
@@ -26,12 +26,6 @@ export function mapHealthStatus(
   }
 }
 
-/**
- * Worst-of rollup precedence for the overall banner. Outages dominate; planned
- * maintenance ranks above a soft "degraded" (a degraded reading during a
- * maintenance window is expected) but below a hard outage; `unknown` only wins
- * when there is nothing else to report.
- */
 const PRECEDENCE: PublicStatus[] = [
   "major_outage",
   "partial_outage",
@@ -50,21 +44,20 @@ export function rollupStatus(statuses: PublicStatus[]): PublicStatus {
 }
 
 /**
- * Overall BANNER status. Like {@link rollupStatus} but distinguishes a PARTIAL
- * outage (some, not all, known systems are down) from a MAJOR one (all known
- * systems down) — the industry-standard banner semantics. `unknown` systems are
- * ignored unless everything is unknown.
+ * Overall BANNER status: distinguishes a PARTIAL outage (some, not all, known
+ * systems down) from a MAJOR one (all known systems down). `unknown` is ignored
+ * unless everything is unknown.
  */
 export function overallBannerStatus(statuses: PublicStatus[]): PublicStatus {
   const known = statuses.filter((s) => s !== "unknown");
   if (known.length === 0) return "unknown";
   const majors = known.filter((s) => s === "major_outage").length;
-  if (majors > 0) return majors === known.length ? "major_outage" : "partial_outage";
-  // No hard outages: fall back to the worst of the remaining states.
+  if (majors > 0) {
+    return majors === known.length ? "major_outage" : "partial_outage";
+  }
   return rollupStatus(known);
 }
 
-/** Human banner title for an overall status. */
 export function statusBannerTitle(status: PublicStatus): string {
   switch (status) {
     case "operational": {

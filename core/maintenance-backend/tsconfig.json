@@ -53,6 +53,12 @@
       "path": "../signal-common"
     },
     {
+      "path": "../status-page-backend"
+    },
+    {
+      "path": "../status-page-common"
+    },
+    {
       "path": "../test-utils-backend"
     }
   ]

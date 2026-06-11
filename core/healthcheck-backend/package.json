@@ -38,6 +38,8 @@
     "@checkstack/satellite-backend": "workspace:*",
     "@checkstack/sdk": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/status-page-backend": "workspace:*",
+    "@checkstack/status-page-common": "workspace:*",
     "@hono/zod-validator": "^0.7.6",
     "drizzle-orm": "^0.45.0",
     "hono": "^4.12.23",

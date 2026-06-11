@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { extractErrorMessage } from "@checkstack/common";
 import type { SafeDatabase, RpcClient, Logger } from "@checkstack/backend-api";
-import { CatalogApi } from "@checkstack/catalog-common";
 import {
   StatusPageVisibilitySchema,
   StatusPageThemeSchema,
@@ -67,12 +66,6 @@ function rowToSummary(row: StatusPageRow): StatusPageSummary {
   };
 }
 
-const SYSTEM_TYPE = "catalog.system";
-const GROUP_TYPE = "catalog.group";
-
-function forbidden(message: string): never {
-  throw new ORPCError("FORBIDDEN", { message });
-}
 
 export interface StatusPageServiceDeps {
   db: Db;
@@ -191,8 +184,8 @@ export class StatusPageService {
     userClient: RpcClient;
   }): Promise<{ page: StatusPage; exposed: BoundResource[] }> {
     const row = await this.requireRow(input.id);
+    await this.assertEditorCanAccess(input.userClient, row.draftLayout);
     const bound = this.collectBoundResources(row.draftLayout);
-    await this.assertEditorCanAccess(input.userClient, bound);
     const now = new Date();
     const [updated] = await this.deps.db
       .update(statusPages)
@@ -231,78 +224,44 @@ export class StatusPageService {
   }
 
   /**
-   * "Cannot publish what you cannot see." Verifies, AS THE USER, that the editor
-   * can read every resource the page's widgets bind. FAILS CLOSED: a bound
-   * resource type this gate does not know how to verify rejects the publish
-   * (rather than silently passing). Bound GROUPS are expanded to their member
-   * systems — a group can be visible while containing systems the editor cannot
-   * read, which the group widget would otherwise expose.
+   * "Cannot publish what you cannot see." For each widget that binds resources,
+   * delegate the access check to the widget's own `assertBindingsReadable` (the
+   * OWNING plugin knows how to verify its resource types). FAILS CLOSED: a
+   * binding widget that provides no such check rejects the publish — the
+   * platform never silently passes an unverifiable binding.
    */
   private async assertEditorCanAccess(
     userClient: RpcClient,
-    bound: BoundResource[],
+    layout: StatusPageLayout,
   ): Promise<void> {
-    const known = new Set([SYSTEM_TYPE, GROUP_TYPE]);
-    const unknown = bound.find((b) => !known.has(b.resourceType));
-    if (unknown) {
-      forbidden(
-        `Cannot verify publish access for resource type "${unknown.resourceType}". ` +
-          "Remove that widget, or register an access verifier for its type.",
-      );
-    }
-
-    const catalog = userClient.forPlugin(CatalogApi);
-    const systemIds = new Set(
-      bound.filter((b) => b.resourceType === SYSTEM_TYPE).map((b) => b.resourceId),
-    );
-    const groupIds = [
-      ...new Set(
-        bound.filter((b) => b.resourceType === GROUP_TYPE).map((b) => b.resourceId),
-      ),
-    ];
-    if (groupIds.length > 0) {
-      const groups = await catalog.getGroups().catch(() => []);
-      const byId = new Map(groups.map((g) => [g.id, g]));
-      for (const groupId of groupIds) {
-        const group = byId.get(groupId);
-        if (!group) {
-          forbidden(
-            "You can only publish widgets bound to groups you can access.",
-          );
-          continue;
-        }
-        for (const systemId of group.systemIds) systemIds.add(systemId);
+    for (const block of layout) {
+      const widget = this.deps.registry.get(block.type);
+      if (!widget) continue;
+      let binds: BoundResource[] = [];
+      try {
+        binds = widget.boundResources(block.config);
+      } catch {
+        binds = [];
+      }
+      if (binds.length === 0) continue;
+      if (!widget.assertBindingsReadable) {
+        throw new ORPCError("FORBIDDEN", {
+          message:
+            `The "${widget.displayName}" widget binds resources but provides ` +
+            "no access check, so it cannot be published.",
+        });
+      }
+      try {
+        await widget.assertBindingsReadable({ userClient, config: block.config });
+      } catch (error) {
+        throw new ORPCError("FORBIDDEN", {
+          message: extractErrorMessage(
+            error,
+            "You can only publish widgets bound to resources you can access.",
+          ),
+        });
       }
     }
-    for (const systemId of systemIds) {
-      const system = await catalog.getSystem({ systemId }).catch(() => null);
-      if (!system) {
-        forbidden(
-          "You can only publish widgets bound to systems you can access. " +
-            "Remove the inaccessible system (or group member), or ask for access.",
-        );
-      }
-    }
-  }
-
-  /** All systems' id -> name (trusted read; memoized per resolve by the caller). */
-  private async loadSystemNames(): Promise<Map<string, string>> {
-    const { systems } = await this.deps.rpcClient
-      .forPlugin(CatalogApi)
-      .getSystems();
-    return new Map(systems.map((s) => [s.id, s.name]));
-  }
-
-  /** All catalog groups (trusted read; memoized per resolve by the caller). */
-  private async loadGroups(): Promise<
-    Array<{ id: string; name: string; systemIds: string[] }>
-  > {
-    const groups = await this.deps.rpcClient.forPlugin(CatalogApi).getGroups();
-    return groups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      systemIds: g.systemIds,
-    }));
   }
 
   /**
@@ -326,16 +285,18 @@ export class StatusPageService {
     const visibility = rowVisibility(row);
     if (visibility === "authenticated" && !input.isAuthenticated) return null;
 
-    // Memoize the full-catalog reads ONCE per page resolve, so a page with many
-    // widgets doesn't re-scan the catalog per widget on every public request.
-    let systemNamesCache: Promise<Map<string, string>> | undefined;
-    let groupsCache:
-      | Promise<Array<{ id: string; name: string; systemIds: string[] }>>
-      | undefined;
+    // Per-resolve memo so a page with many widgets shares expensive reads (e.g.
+    // the full catalog) instead of re-fetching per widget on every public hit.
+    const memo = new Map<string, Promise<unknown>>();
     const ctx: WidgetResolveContext = {
       rpcClient: this.deps.rpcClient,
-      systemNames: () => (systemNamesCache ??= this.loadSystemNames()),
-      groups: () => (groupsCache ??= this.loadGroups()),
+      cache: <T,>(key: string, loader: () => Promise<T>): Promise<T> => {
+        const existing = memo.get(key);
+        if (existing) return existing as Promise<T>;
+        const created = loader();
+        memo.set(key, created);
+        return created;
+      },
     };
 
     const blocks: ResolvedBlock[] = [];

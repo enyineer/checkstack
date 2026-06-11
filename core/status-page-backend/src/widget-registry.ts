@@ -21,13 +21,12 @@ export interface WidgetResolveContext {
   /** Trusted service RPC client for reading bound resources' public-safe data. */
   rpcClient: RpcClient;
   /**
-   * All systems' id -> display name, fetched ONCE per page resolve and memoized.
-   * Avoids each widget re-pulling the full catalog (the catalog has no
-   * fetch-by-ids read), which would be O(widgets) full scans per public hit.
+   * Per-page-resolve memoization. A resolver wraps an expensive read (e.g. the
+   * full catalog, which has no fetch-by-ids endpoint) in `cache(key, loader)` so
+   * many widgets on one page share a single fetch instead of O(widgets) scans
+   * per public hit. Keys are resolver-chosen and scoped to a single resolve.
    */
-  systemNames(): Promise<Map<string, string>>;
-  /** All catalog groups, fetched once per page resolve and memoized. */
-  groups(): Promise<Array<{ id: string; name: string; systemIds: string[] }>>;
+  cache<T>(key: string, loader: () => Promise<T>): Promise<T>;
 }
 
 /** A resource a widget binds to, for edit-time access checks + publish audit. */
@@ -59,6 +58,18 @@ export interface WidgetTypeDefinition {
     config: unknown;
     ctx: WidgetResolveContext;
   }): Promise<unknown>;
+  /**
+   * Publish-time gate: throw if the EDITOR (the `userClient`, scoped to the
+   * caller) cannot read every resource this config binds — "you cannot publish
+   * what you cannot see". REQUIRED for any widget whose `boundResources` is
+   * non-empty: the platform fails the publish CLOSED for a binding widget that
+   * does not provide this (it owns the resource type, so it owns the check).
+   * Content widgets (no bindings) omit it.
+   */
+  assertBindingsReadable?(args: {
+    userClient: RpcClient;
+    config: unknown;
+  }): Promise<void>;
 }
 
 export interface RegisteredWidgetType extends WidgetTypeDefinition {

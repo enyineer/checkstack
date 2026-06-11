@@ -14,7 +14,7 @@ import {
   createWidgetTypeRegistry,
   statusWidgetTypeExtensionPoint,
 } from "./widget-registry";
-import { registerBuiltinWidgets } from "./builtin-widgets";
+import { registerContentWidgets } from "./content-widgets";
 
 const STATUS_PAGE_RESOURCE_TYPE = "statuspage.page";
 
@@ -28,7 +28,7 @@ export default createBackendPlugin({
     // the built-ins, then exposed so ANY plugin can contribute widget types via
     // the extension point during its own register/init.
     const registry = createWidgetTypeRegistry();
-    registerBuiltinWidgets(registry);
+    registerContentWidgets(registry);
     env.registerExtensionPoint(statusWidgetTypeExtensionPoint, {
       registerWidgetType: (definition, meta) =>
         registry.register(definition, meta),
