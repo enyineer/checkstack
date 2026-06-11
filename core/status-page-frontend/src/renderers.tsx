@@ -252,20 +252,67 @@ const SEVERITY_CLASS: Record<string, string> = {
   minor: "bg-muted text-muted-foreground",
 };
 
+type Update = { message: string; statusChange?: string; at: string };
+
+const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
+  if (updates.length === 0) return null;
+  return (
+    <ol className="mt-3 space-y-3 border-l border-border pl-4">
+      {updates.map((u, i) => (
+        <li key={i} className="relative">
+          <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
+          {u.statusChange && (
+            <span className="mb-0.5 inline-block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {u.statusChange}
+            </span>
+          )}
+          <p className="text-sm text-foreground">{u.message}</p>
+          <p className="text-[11px] tabular-nums text-muted-foreground">
+            {formatAt(u.at)}
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+};
+
+/** Section divider label for the "recently resolved / past" subsection. */
+const PastHeader: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="border-t border-border pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    {children}
+  </p>
+);
+
+/** A compact past (resolved/completed) row: check + title + when. */
+const PastRow: React.FC<{ title: string; at?: string }> = ({ title, at }) => (
+  <div className="flex items-center justify-between gap-2 py-1.5 text-sm">
+    <span className="flex min-w-0 items-center gap-2">
+      <CheckCircle2 className="size-4 shrink-0 text-success" />
+      <span className="truncate text-muted-foreground">{title}</span>
+    </span>
+    {at && (
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        {shortDate(at)}
+      </span>
+    )}
+  </div>
+);
+
 const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = IncidentsDtoSchema.safeParse(data);
   if (!parsed.success) return null;
-  const { incidents } = parsed.data;
+  const active = parsed.data.incidents.filter((i) => i.status !== "resolved");
+  const past = parsed.data.incidents.filter((i) => i.status === "resolved");
   return (
     <Section label={label ?? "Incidents"}>
-      {incidents.length === 0 ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-success" />
-          No active incidents.
-        </p>
-      ) : (
-        <div className="space-y-5">
-          {incidents.map((inc) => (
+      <div className="space-y-5">
+        {active.length === 0 ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-success" />
+            No active incidents.
+          </p>
+        ) : (
+          active.map((inc) => (
             <article key={inc.id}>
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="font-semibold">{inc.title}</h4>
@@ -283,21 +330,19 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affected: {inc.systems.join(", ")}
                 </p>
               )}
-              <ol className="mt-3 space-y-3 border-l border-border pl-4">
-                {inc.updates.map((u, i) => (
-                  <li key={i} className="relative">
-                    <span className="absolute -left-[21px] top-1 size-2 rounded-full bg-border" />
-                    <p className="text-sm text-foreground">{u.message}</p>
-                    <p className="text-[11px] tabular-nums text-muted-foreground">
-                      {formatAt(u.at)}
-                    </p>
-                  </li>
-                ))}
-              </ol>
+              <UpdatesTimeline updates={inc.updates} />
             </article>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+        {past.length > 0 && (
+          <div className="space-y-1">
+            <PastHeader>Recently resolved</PastHeader>
+            {past.map((inc) => (
+              <PastRow key={inc.id} title={inc.title} at={inc.resolvedAt} />
+            ))}
+          </div>
+        )}
+      </div>
     </Section>
   );
 };
@@ -305,17 +350,18 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
 const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = MaintenanceDtoSchema.safeParse(data);
   if (!parsed.success) return null;
-  const { maintenances } = parsed.data;
+  const active = parsed.data.maintenances.filter((m) => m.status !== "completed");
+  const past = parsed.data.maintenances.filter((m) => m.status === "completed");
   return (
     <Section label={label ?? "Scheduled maintenance"}>
-      {maintenances.length === 0 ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <CalendarCheck className="size-4 text-muted-foreground" />
-          No scheduled maintenance.
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {maintenances.map((m) => (
+      <div className="space-y-4">
+        {active.length === 0 ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <CalendarCheck className="size-4 text-muted-foreground" />
+            No scheduled maintenance.
+          </p>
+        ) : (
+          active.map((m) => (
             <article key={m.id} className="rounded-lg bg-info/5 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Wrench className="size-4 text-info" />
@@ -332,10 +378,19 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                   Affecting: {m.systems.join(", ")}
                 </p>
               )}
+              <UpdatesTimeline updates={m.updates} />
             </article>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+        {past.length > 0 && (
+          <div className="space-y-1">
+            <PastHeader>Past maintenance</PastHeader>
+            {past.map((m) => (
+              <PastRow key={m.id} title={m.title} at={m.endAt} />
+            ))}
+          </div>
+        )}
+      </div>
     </Section>
   );
 };

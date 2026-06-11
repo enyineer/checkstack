@@ -6,6 +6,7 @@ import {
   MaintenanceDtoSchema,
   toPublicUpdate,
   type InternalUpdate,
+  type PublicUpdate,
 } from "@checkstack/status-page-common";
 import type {
   WidgetResolveContext,
@@ -14,6 +15,16 @@ import type {
 } from "@checkstack/status-page-backend";
 
 const SYSTEM_TYPE = "catalog.system";
+
+/** Newest `max` updates, most-recent first. */
+function latestUpdates(updates: InternalUpdate[], max: number): PublicUpdate[] {
+  return updates
+    .toSorted(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, max)
+    .map((u) => toPublicUpdate(u));
+}
 
 async function labelsFor(
   ctx: WidgetResolveContext,
@@ -62,18 +73,31 @@ const maintenance: WidgetTypeDefinition = {
     if (bound.size === 0) return MaintenanceDtoSchema.parse({ maintenances: [] });
     const mc = ctx.rpcClient.forPlugin(MaintenanceApi);
     const { maintenances: all } = await mc.listMaintenances({
-      includeCompleted: false,
+      includeCompleted: c.includePast,
     });
-    const sorted = all
-      .filter((m) => m.systemIds.some((s) => bound.has(s)))
-      .toSorted(
-        (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
-      )
+    const inScope = all.filter((m) => m.systemIds.some((s) => bound.has(s)));
+    // Active (scheduled/in-progress) shown SOONEST-first (by start); recently
+    // completed shown most-recent-first and age-filtered by window end. (Done
+    // inline rather than via selectEvents because active and past sort on
+    // different timestamps here.)
+    const at = (v: string | Date) =>
+      v instanceof Date ? v.getTime() : new Date(v).getTime();
+    const active = inScope
+      .filter((m) => m.status === "scheduled" || m.status === "in_progress")
+      .toSorted((a, b) => at(a.startAt) - at(b.startAt))
       .slice(0, c.limit);
+    const cutoff = Date.now() - c.pastMaxAgeDays * 86_400_000;
+    const past = c.includePast
+      ? inScope
+          .filter((m) => m.status === "completed" && at(m.endAt) >= cutoff)
+          .toSorted((a, b) => at(b.endAt) - at(a.endAt))
+          .slice(0, c.limit)
+      : [];
     const names = await labelsFor(ctx, [...bound]);
     const items = await Promise.allSettled(
-      sorted.map(async (m) => {
-        const detail = await mc.getMaintenance({ id: m.id });
+      [...active, ...past].map(async (m) => {
+        // showUpdates=false also skips the per-item detail fetch (perf).
+        const detail = c.showUpdates ? await mc.getMaintenance({ id: m.id }) : null;
         return {
           id: m.id,
           title: m.title,
@@ -83,8 +107,9 @@ const maintenance: WidgetTypeDefinition = {
           systems: m.systemIds
             .map((id) => names.get(id))
             .filter((l): l is string => l !== undefined),
-          updates: ((detail?.updates ?? []) as InternalUpdate[]).map((u) =>
-            toPublicUpdate(u),
+          updates: latestUpdates(
+            (detail?.updates ?? []) as InternalUpdate[],
+            c.maxUpdates,
           ),
         };
       }),

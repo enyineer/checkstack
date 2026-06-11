@@ -5,7 +5,9 @@ import {
   IncidentsConfigSchema,
   IncidentsDtoSchema,
   toPublicUpdate,
+  selectEvents,
   type InternalUpdate,
+  type PublicUpdate,
 } from "@checkstack/status-page-common";
 import type {
   WidgetResolveContext,
@@ -14,6 +16,20 @@ import type {
 } from "@checkstack/status-page-backend";
 
 const SYSTEM_TYPE = "catalog.system";
+
+function iso(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+/** Newest `max` updates, most-recent first (the current progress at the top). */
+function latestUpdates(updates: InternalUpdate[], max: number): PublicUpdate[] {
+  return updates
+    .toSorted(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, max)
+    .map((u) => toPublicUpdate(u));
+}
 
 async function labelsFor(
   ctx: WidgetResolveContext,
@@ -59,19 +75,31 @@ const incidents: WidgetTypeDefinition = {
     // of every incident on the platform).
     if (bound.size === 0) return IncidentsDtoSchema.parse({ incidents: [] });
     const inc = ctx.rpcClient.forPlugin(IncidentApi);
-    const { incidents: all } = await inc.listIncidents({ includeResolved: false });
-    const sorted = all
-      .filter((i) => i.systemIds.some((s) => bound.has(s)))
-      .toSorted(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
-      .slice(0, c.limit);
+    const { incidents: all } = await inc.listIncidents({
+      includeResolved: c.includePast,
+    });
+    const inScope = all.filter((i) => i.systemIds.some((s) => bound.has(s)));
+    // Active first, then recently-resolved within the configured max age.
+    const { active, past } = selectEvents({
+      items: inScope,
+      isPast: (i) => i.status === "resolved",
+      timestampOf: (i) => i.updatedAt,
+      includePast: c.includePast,
+      pastMaxAgeDays: c.pastMaxAgeDays,
+      limit: c.limit,
+      now: Date.now(),
+    });
     // Only label BOUND systems; an unbound co-affected system must not leak.
     const names = await labelsFor(ctx, [...bound]);
     const items = await Promise.allSettled(
-      sorted.map(async (i) => {
-        const detail = await inc.getIncident({ id: i.id });
+      [...active, ...past].map(async (i) => {
+        // showUpdates=false also skips the per-item detail fetch (perf).
+        const detail = c.showUpdates ? await inc.getIncident({ id: i.id }) : null;
+        const updates = latestUpdates(
+          (detail?.updates ?? []) as InternalUpdate[],
+          c.maxUpdates,
+        );
+        const resolved = i.status === "resolved";
         return {
           id: i.id,
           title: i.title,
@@ -80,13 +108,9 @@ const incidents: WidgetTypeDefinition = {
           systems: i.systemIds
             .map((id) => names.get(id))
             .filter((l): l is string => l !== undefined),
-          startedAt:
-            i.createdAt instanceof Date
-              ? i.createdAt.toISOString()
-              : String(i.createdAt),
-          updates: ((detail?.updates ?? []) as InternalUpdate[]).map((u) =>
-            toPublicUpdate(u),
-          ),
+          startedAt: iso(i.createdAt),
+          ...(resolved ? { resolvedAt: iso(i.updatedAt) } : {}),
+          updates,
         };
       }),
     );

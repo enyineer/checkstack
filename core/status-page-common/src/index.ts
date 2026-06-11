@@ -5,3 +5,4 @@ export { statusPageRoutes, statusPublicRoutes } from "./routes";
 export * from "./schemas";
 export * from "./widget-types";
 export * from "./public-mappers";
+export * from "./select-events";
