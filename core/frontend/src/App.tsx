@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   Link,
+  Outlet,
   useNavigate,
 } from "react-router-dom";
 import { Menu } from "lucide-react";
@@ -150,20 +151,38 @@ const RouteGuard: React.FC<{
  * Inner component that handles plugin lifecycle and reactive routing.
  * Must be inside SignalProvider to receive plugin signals.
  */
-function AppContent() {
-  // Enable dynamic plugin loading/unloading via signals
+/** Build the element for a plugin route (lazy `load` thunk or eager `element`). */
+function routeElement(route: {
+  path: string;
+  load?: () => Promise<{ default: React.ComponentType }>;
+  element?: React.ReactNode;
+}): React.ReactNode {
+  if (route.load) {
+    const PageElement = getLazyContribution({
+      id: route.path,
+      load: route.load,
+      suspenseFallback: ROUTE_SUSPENSE_FALLBACK,
+      errorFallback: ROUTE_ERROR_FALLBACK,
+    });
+    return <PageElement />;
+  }
+  return route.element;
+}
+
+/**
+ * The authenticated app chrome: header, sidebar, ambient background, command
+ * palette. A LAYOUT route (`<Outlet/>`); only non-`standalone` routes render
+ * inside it. Standalone routes (e.g. a public status page) render as siblings,
+ * so they show none of this.
+ */
+function AppShellLayout() {
   const { isLowPower } = usePerformance();
-  usePluginLifecycle();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
-    <BrowserRouter>
-      {/* Global keyboard shortcuts for commands */}
+    <>
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
-        {/* App shell: a full-height column - the header spans the FULL width on
-            top, and below it a row holds the left nav (persistent on desktop,
-            drawer on mobile) beside the scrollable content. */}
         <div className="flex flex-col h-screen overflow-hidden">
           <AnnouncementBanner />
           <header
@@ -172,34 +191,31 @@ function AppContent() {
               isLowPower ? "bg-card" : "bg-card/80 backdrop-blur-sm",
             )}
           >
-              <div className="flex items-center justify-between gap-4">
-                {/* Left: hamburger (mobile), logo, optional navbar-left slot */}
-                <div className="flex items-center gap-4 md:gap-8 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setMobileNavOpen(true)}
-                    aria-label="Open navigation"
-                    className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </button>
-                  <Link to="/" className="flex items-center gap-2">
-                    <img src="/favicon.svg" alt="" className="w-7 h-7" />
-                    <h1 className="text-xl font-bold text-primary">Checkstack</h1>
-                  </Link>
-                  <nav className="hidden md:flex gap-1">
-                    <ExtensionSlot slot={NavbarLeftSlot} />
-                  </nav>
-                </div>
-                {/* Center: Search (flexible width, centered) */}
-                <div className="flex-1 flex justify-center max-w-md">
-                  <ExtensionSlot slot={NavbarCenterSlot} />
-                </div>
-                {/* Right: Other navbar items */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <ExtensionSlot slot={NavbarRightSlot} />
-                </div>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 md:gap-8 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMobileNavOpen(true)}
+                  aria-label="Open navigation"
+                  className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <Link to="/" className="flex items-center gap-2">
+                  <img src="/favicon.svg" alt="" className="w-7 h-7" />
+                  <h1 className="text-xl font-bold text-primary">Checkstack</h1>
+                </Link>
+                <nav className="hidden md:flex gap-1">
+                  <ExtensionSlot slot={NavbarLeftSlot} />
+                </nav>
               </div>
+              <div className="flex-1 flex justify-center max-w-md">
+                <ExtensionSlot slot={NavbarCenterSlot} />
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <ExtensionSlot slot={NavbarRightSlot} />
+              </div>
+            </div>
           </header>
           <div className="flex flex-1 min-h-0">
             <Sidebar
@@ -209,59 +225,67 @@ function AppContent() {
             <main className="flex flex-1 min-w-0 flex-col overflow-y-auto">
               {/* `flex-1 min-h-0 flex flex-col` establishes a bounded height
                   chain so a page can fill the viewport (PageLayout `fillHeight`)
-                  and scroll an inner pane instead of the whole page. Tall normal
-                  pages still overflow into `main`'s scroll (verified). */}
+                  and scroll an inner pane instead of the whole page. */}
               <div className="flex flex-1 min-h-0 flex-col px-3 py-4 md:p-8 w-full max-w-7xl mx-auto">
-                <Routes>
-            <Route
-              path="/"
-              element={
-                <div className="space-y-6">
-                  <ExtensionSlot slot={DashboardSlot} />
-                </div>
-              }
-            />
-            {/* Plugin Routes. Each plugin declares its page via a `load` thunk;
-                the framework (`getLazyContribution`) code-splits it and wraps it
-                in Suspense + a per-plugin error boundary, so the page chunk is
-                fetched on navigation (not in the initial load) and a failing
-                page degrades gracefully instead of crashing the shell. */}
-            {pluginRegistry.getAllRoutes().map((route) => {
-              // A route is either lazy (`load`, the default — framework wraps it
-              // in Suspense + error boundary) or eager (`element`, rare — e.g.
-              // the login page on the critical path).
-              let element: React.ReactNode;
-              if (route.load) {
-                const PageElement = getLazyContribution({
-                  id: route.path,
-                  load: route.load,
-                  suspenseFallback: ROUTE_SUSPENSE_FALLBACK,
-                  errorFallback: ROUTE_ERROR_FALLBACK,
-                });
-                element = <PageElement />;
-              } else {
-                element = route.element;
-              }
-              return (
-                <Route
-                  key={route.path}
-                  path={route.path}
-                  element={
-                    <RouteGuard accessRule={route.accessRule}>
-                      {element}
-                    </RouteGuard>
-                  }
-                />
-              );
-            })}
-                  {/* Catch-all: show Not Found for unmatched routes */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
+                <Outlet />
               </div>
             </main>
           </div>
         </div>
       </AmbientBackground>
+    </>
+  );
+}
+
+function AppContent() {
+  // Enable dynamic plugin loading/unloading via signals
+  usePluginLifecycle();
+
+  const allRoutes = pluginRegistry.getAllRoutes();
+  const standaloneRoutes = allRoutes.filter((r) => r.standalone);
+  const shellRoutes = allRoutes.filter((r) => !r.standalone);
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Standalone routes: no chrome (public surfaces, e.g. status pages). */}
+        {standaloneRoutes.map((route) => (
+          <Route
+            key={route.path}
+            path={route.path}
+            element={
+              <RouteGuard accessRule={route.accessRule}>
+                {routeElement(route)}
+              </RouteGuard>
+            }
+          />
+        ))}
+        {/* Everything else renders inside the authenticated app shell. */}
+        <Route element={<AppShellLayout />}>
+          <Route
+            path="/"
+            element={
+              <div className="space-y-6">
+                <ExtensionSlot slot={DashboardSlot} />
+              </div>
+            }
+          />
+          {/* Plugin Routes — code-split via `load` (Suspense + error boundary). */}
+          {shellRoutes.map((route) => (
+            <Route
+              key={route.path}
+              path={route.path}
+              element={
+                <RouteGuard accessRule={route.accessRule}>
+                  {routeElement(route)}
+                </RouteGuard>
+              }
+            />
+          ))}
+          {/* Catch-all: show Not Found for unmatched routes */}
+          <Route path="*" element={<NotFound />} />
+        </Route>
+      </Routes>
     </BrowserRouter>
   );
 }

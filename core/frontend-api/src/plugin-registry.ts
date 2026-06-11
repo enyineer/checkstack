@@ -27,6 +27,8 @@ interface ResolvedRoute {
    * escalation. A bare id string could do neither.
    */
   accessRule?: AccessRule;
+  /** Render outside the app chrome (public/standalone surfaces). */
+  standalone?: boolean;
 }
 
 class PluginRegistry {
@@ -196,6 +198,7 @@ class PluginRegistry {
           element: route.element,
           title: route.title,
           accessRule: route.accessRule,
+          standalone: route.standalone,
           // Resolved sidebar entry (defaults applied) for routes that opt in.
           // `accessRule` here is the EFFECTIVE rule object (nav override, else
           // the route's own rule) the sidebar gates visibility on.

@@ -54,6 +54,8 @@ export const StatusPagesListPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
+  // The slug auto-follows the title UNTIL the user edits the slug themselves.
+  const [slugEdited, setSlugEdited] = useState(false);
   const [teamId, setTeamId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -63,6 +65,7 @@ export const StatusPagesListPage: React.FC = () => {
       setCreating(false);
       setTitle("");
       setSlug("");
+      setSlugEdited(false);
       navigate(resolveRoute(statusPageRoutes.routes.builder, { id: page.id }));
     },
     onError: (e) => setCreateError(extractErrorMessage(e, "Couldn't create page")),
@@ -80,7 +83,16 @@ export const StatusPagesListPage: React.FC = () => {
       title="Status pages"
       icon={MonitorCheck}
       actions={
-        <Button onClick={() => setCreating(true)}>
+        <Button
+          onClick={() => {
+            setTitle("");
+            setSlug("");
+            setSlugEdited(false);
+            setTeamId(null);
+            setCreateError(null);
+            setCreating(true);
+          }}
+        >
           <Plus className="mr-1.5 h-4 w-4" /> New status page
         </Button>
       }
@@ -173,7 +185,7 @@ export const StatusPagesListPage: React.FC = () => {
                 value={title}
                 onChange={(e) => {
                   setTitle(e.target.value);
-                  if (!slug) setSlug(slugify(e.target.value));
+                  if (!slugEdited) setSlug(slugify(e.target.value));
                 }}
                 placeholder="Acme Status"
               />
@@ -182,7 +194,10 @@ export const StatusPagesListPage: React.FC = () => {
               <Label>Slug</Label>
               <Input
                 value={slug}
-                onChange={(e) => setSlug(slugify(e.target.value))}
+                onChange={(e) => {
+                  setSlugEdited(true);
+                  setSlug(slugify(e.target.value));
+                }}
                 placeholder="acme"
               />
               <p className="text-xs text-muted-foreground">

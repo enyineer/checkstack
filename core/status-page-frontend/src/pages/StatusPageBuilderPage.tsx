@@ -61,7 +61,14 @@ function defaultConfig(type: string): unknown {
     }
     case BUILTIN_WIDGET_IDS.incidents:
     case BUILTIN_WIDGET_IDS.maintenance: {
-      return { systemIds: [], limit: 5 };
+      return {
+        systemIds: [],
+        limit: 5,
+        showUpdates: true,
+        maxUpdates: 3,
+        includePast: false,
+        pastMaxAgeDays: 7,
+      };
     }
     case BUILTIN_WIDGET_IDS.text: {
       return { markdown: "" };
@@ -186,6 +193,64 @@ const LinksConfigEditor: React.FC<{
   );
 };
 
+const clamp = (n: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, n));
+
+/** Shared config controls for the event-feed widgets (incidents, maintenance). */
+const EventFeedControls: React.FC<{
+  config: Record<string, unknown>;
+  set: (patch: Record<string, unknown>) => void;
+}> = ({ config, set }) => {
+  const showUpdates = config.showUpdates !== false;
+  const includePast = Boolean(config.includePast);
+  return (
+    <div className="space-y-2.5 border-t pt-3">
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span>Show updates</span>
+        <Toggle
+          checked={showUpdates}
+          onCheckedChange={(v) => set({ showUpdates: v })}
+        />
+      </label>
+      {showUpdates && (
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs text-muted-foreground">
+            Max updates per item
+          </Label>
+          <Input
+            type="number"
+            className="h-8 w-20"
+            value={Number(config.maxUpdates ?? 3)}
+            onChange={(e) =>
+              set({ maxUpdates: clamp(Number(e.target.value) || 3, 1, 10) })
+            }
+          />
+        </div>
+      )}
+      <label className="flex items-center justify-between gap-2 text-sm">
+        <span>Show recently resolved / completed</span>
+        <Toggle
+          checked={includePast}
+          onCheckedChange={(v) => set({ includePast: v })}
+        />
+      </label>
+      {includePast && (
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-xs text-muted-foreground">Max age (days)</Label>
+          <Input
+            type="number"
+            className="h-8 w-20"
+            value={Number(config.pastMaxAgeDays ?? 7)}
+            onChange={(e) =>
+              set({ pastMaxAgeDays: clamp(Number(e.target.value) || 7, 1, 90) })
+            }
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const BlockConfigEditor: React.FC<{
   block: StatusPageBlock;
   systems: SystemOption[];
@@ -196,15 +261,26 @@ const BlockConfigEditor: React.FC<{
   const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
 
   switch (block.type) {
-    case BUILTIN_WIDGET_IDS.banner:
-    case BUILTIN_WIDGET_IDS.incidents:
-    case BUILTIN_WIDGET_IDS.maintenance: {
+    case BUILTIN_WIDGET_IDS.banner: {
       return (
         <SystemMultiSelect
           systems={systems}
           selected={(config.systemIds as string[]) ?? []}
           onChange={(ids) => set({ systemIds: ids })}
         />
+      );
+    }
+    case BUILTIN_WIDGET_IDS.incidents:
+    case BUILTIN_WIDGET_IDS.maintenance: {
+      return (
+        <div className="space-y-3">
+          <SystemMultiSelect
+            systems={systems}
+            selected={(config.systemIds as string[]) ?? []}
+            onChange={(ids) => set({ systemIds: ids })}
+          />
+          <EventFeedControls config={config} set={set} />
+        </div>
       );
     }
     case BUILTIN_WIDGET_IDS.systemHealth: {

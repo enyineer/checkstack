@@ -78,13 +78,29 @@ export const UptimeConfigSchema = z.object({
   days: z.number().int().min(1).max(90).default(90),
 });
 
-export const IncidentsConfigSchema = z.object({
+/**
+ * Shared config for the event-feed widgets (incidents, maintenance): whether to
+ * show the update timeline + how many, and whether to include recently
+ * resolved/completed items within a max age.
+ */
+export const EventFeedConfigSchema = z.object({
+  /** Render the per-item update timeline. */
+  showUpdates: z.boolean().default(true),
+  /** Cap the latest updates shown per item. */
+  maxUpdates: z.number().int().min(1).max(10).default(3),
+  /** Include resolved incidents / completed maintenances (not just active). */
+  includePast: z.boolean().default(false),
+  /** Only past items resolved/completed within the last N days. */
+  pastMaxAgeDays: z.number().int().min(1).max(90).default(7),
+});
+
+export const IncidentsConfigSchema = EventFeedConfigSchema.extend({
   /** Restrict to incidents touching these systems. Empty = all visible. */
   systemIds: z.array(z.string().min(1)).default([]),
   limit: z.number().int().min(1).max(20).default(5),
 });
 
-export const MaintenanceConfigSchema = z.object({
+export const MaintenanceConfigSchema = EventFeedConfigSchema.extend({
   systemIds: z.array(z.string().min(1)).default([]),
   limit: z.number().int().min(1).max(20).default(5),
 });
@@ -165,6 +181,8 @@ export const IncidentDtoItemSchema = z.object({
   severity: z.string(),
   systems: z.array(z.string()),
   startedAt: z.string(),
+  /** When the incident was resolved (present only for resolved incidents). */
+  resolvedAt: z.string().optional(),
   updates: z.array(PublicUpdateSchema),
 });
 export const IncidentsDtoSchema = z.object({
