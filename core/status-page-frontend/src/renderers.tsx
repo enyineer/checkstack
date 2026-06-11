@@ -181,34 +181,48 @@ const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
 const UptimeRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = UptimeDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   const { bars } = parsed.data;
+  // No buckets => no run history in the window. Show "no data" rather than a
+  // misleading "0.00%" (a healthy system with no history is not 0% uptime).
+  const hasData = bars.length > 0;
   return (
     <Section label={label}>
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-sm font-semibold">{parsed.data.label}</span>
-        <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {parsed.data.uptimePct.toFixed(2)}% uptime
-        </span>
+        {hasData && (
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+            {parsed.data.uptimePct.toFixed(2)}% uptime
+          </span>
+        )}
       </div>
-      <div className="flex h-9 items-stretch gap-[3px]">
-        {bars.map((bar, i) => (
-          <div
-            key={i}
-            role="img"
-            aria-label={`${bar.date}: ${bar.uptimePct.toFixed(1)}% uptime`}
-            title={`${bar.date}: ${bar.uptimePct.toFixed(1)}%`}
-            className={`flex-1 rounded-[2px] transition-opacity hover:opacity-70 ${STATUS[bar.status].solid}`}
-          />
-        ))}
-      </div>
-      {bars.length > 0 && (
-        <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
-          <span>{bars.length} days ago</span>
-          <span>Today</span>
-        </div>
+      {hasData ? (
+        <>
+          <div className="flex h-9 items-stretch gap-[3px]">
+            {bars.map((bar, i) => (
+              <div
+                key={i}
+                role="img"
+                aria-label={`${shortDate(bar.date)}: ${bar.uptimePct.toFixed(1)}% uptime`}
+                title={`${shortDate(bar.date)}: ${bar.uptimePct.toFixed(1)}%`}
+                className={`flex-1 rounded-[2px] transition-opacity hover:opacity-70 ${STATUS[bar.status].solid}`}
+              />
+            ))}
+          </div>
+          <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
+            <span>{shortDate(bars[0].date)}</span>
+            <span>{shortDate(bars.at(-1)?.date ?? bars[0].date)}</span>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No uptime data for this period yet.
+        </p>
       )}
     </Section>
   );

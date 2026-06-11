@@ -20,3 +20,7 @@ Status pages: render the public page without the admin chrome, fix slug auto-fil
   real status page: a brand-accent top bar, a centered header, card sections with
   proper spacing, an icon-led status banner, clearer status pills, nicer uptime
   bars, an incident timeline, and severity-coloured incident badges.
+- **Uptime "no data" fix.** A system with no run history in the window showed a
+  misleading "0.00%"; the uptime widget now shows "No uptime data for this period
+  yet" (a healthy system with no history is not 0% uptime), with accurate
+  start/end date labels under the bars.
