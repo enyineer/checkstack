@@ -197,11 +197,14 @@ async function uptimeMap(
       const stats = await ctx.rpcClient
         .forPlugin(HealthCheckApi)
         .getRunStats({ systemId, startDate: start, endDate: end, maxBuckets: 1 });
+      // No runs in the window => no uptime to report (don't surface a
+      // misleading 0.00% for a system with no history).
+      if (stats.total.runCount === 0) return null;
       return [systemId, stats.total.uptimePct] as const;
     }),
   );
   for (const r of results) {
-    if (r.status === "fulfilled") out.set(r.value[0], r.value[1]);
+    if (r.status === "fulfilled" && r.value) out.set(r.value[0], r.value[1]);
   }
   return out;
 }

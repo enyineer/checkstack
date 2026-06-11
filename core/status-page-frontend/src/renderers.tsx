@@ -5,6 +5,7 @@ import {
   AlertOctagon,
   Wrench,
   HelpCircle,
+  CalendarCheck,
 } from "lucide-react";
 import { MarkdownBlock } from "@checkstack/ui";
 import {
@@ -308,7 +309,10 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   return (
     <Section label={label ?? "Scheduled maintenance"}>
       {maintenances.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No scheduled maintenance.</p>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CalendarCheck className="size-4 text-muted-foreground" />
+          No scheduled maintenance.
+        </p>
       ) : (
         <div className="space-y-4">
           {maintenances.map((m) => (
