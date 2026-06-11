@@ -90,7 +90,17 @@ export const PublicStatusPage: React.FC = () => {
           )}
 
           <footer className="mt-16 flex flex-col items-center gap-1 border-t border-border pt-6 text-center text-xs text-muted-foreground">
-            <span>Powered by Checkstack</span>
+            <span>
+              Powered by{" "}
+              <a
+                href="https://checkstack.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground hover:text-primary hover:underline"
+              >
+                Checkstack
+              </a>
+            </span>
           </footer>
         </div>
       </div>
