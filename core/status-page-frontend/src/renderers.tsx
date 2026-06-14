@@ -115,6 +115,19 @@ const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
 
 type RendererProps = StatusWidgetRendererProps;
 
+/**
+ * The optional per-block heading ("Block heading" in the builder) for content
+ * widgets that are not wrapped in a {@link Section} (which renders the label
+ * itself). Matches the Section title styling so headings look consistent down
+ * the page.
+ */
+const BlockLabel: React.FC<{ label?: string }> = ({ label }) =>
+  label ? (
+    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {label}
+    </h3>
+  ) : null;
+
 /** A titled card section — the building block for most widgets. */
 const Section: React.FC<{
   label?: string;
@@ -409,17 +422,20 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
-const TextRenderer: React.FC<RendererProps> = ({ data }) => {
+const TextRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = TextDtoSchema.safeParse(data);
   if (!parsed.success || !parsed.data.markdown.trim()) return null;
   return (
-    <div className="text-sm leading-relaxed text-muted-foreground">
-      <MarkdownBlock>{parsed.data.markdown}</MarkdownBlock>
+    <div>
+      <BlockLabel label={label} />
+      <div className="text-sm leading-relaxed text-muted-foreground">
+        <MarkdownBlock>{parsed.data.markdown}</MarkdownBlock>
+      </div>
     </div>
   );
 };
 
-const HeadingRenderer: React.FC<RendererProps> = ({ data }) => {
+const HeadingRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = HeadingDtoSchema.safeParse(data);
   if (!parsed.success || !parsed.data.text) return null;
   const size =
@@ -429,42 +445,53 @@ const HeadingRenderer: React.FC<RendererProps> = ({ data }) => {
         ? "text-xl"
         : "text-lg";
   return (
-    <h2 className={`pt-2 font-semibold tracking-tight ${size}`}>
-      {parsed.data.text}
-    </h2>
-  );
-};
-
-const LinksRenderer: React.FC<RendererProps> = ({ data }) => {
-  const parsed = LinksDtoSchema.safeParse(data);
-  if (!parsed.success || parsed.data.links.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2">
-      {parsed.data.links.map((l, i) => (
-        <a
-          key={i}
-          href={l.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          {l.label}
-        </a>
-      ))}
+    <div>
+      <BlockLabel label={label} />
+      <h2 className={`pt-2 font-semibold tracking-tight ${size}`}>
+        {parsed.data.text}
+      </h2>
     </div>
   );
 };
 
-const ImageRenderer: React.FC<RendererProps> = ({ data }) => {
+const LinksRenderer: React.FC<RendererProps> = ({ data, label }) => {
+  const parsed = LinksDtoSchema.safeParse(data);
+  if (!parsed.success || parsed.data.links.length === 0) return null;
+  return (
+    <div>
+      <BlockLabel label={label} />
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {parsed.data.links.map((l, i) => (
+          <a
+            key={i}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ImageRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = ImageDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   return (
-    <img
-      src={parsed.data.url}
-      alt={parsed.data.alt ?? ""}
-      style={parsed.data.maxHeight ? { maxHeight: parsed.data.maxHeight } : undefined}
-      className="object-contain"
-    />
+    <div>
+      <BlockLabel label={label} />
+      <img
+        src={parsed.data.url}
+        alt={parsed.data.alt ?? ""}
+        style={
+          parsed.data.maxHeight ? { maxHeight: parsed.data.maxHeight } : undefined
+        }
+        className="object-contain"
+      />
+    </div>
   );
 };
 
