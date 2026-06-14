@@ -1,5 +1,11 @@
 # @checkstack/anomaly-common
 
+## 1.5.1
+
+### Patch Changes
+
+- @checkstack/catalog-common@2.4.1
+
 ## 1.5.0
 
 ### Minor Changes

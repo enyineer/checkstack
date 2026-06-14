@@ -1,5 +1,24 @@
 # @checkstack/healthcheck-frontend
 
+## 0.24.1
+
+### Patch Changes
+
+- Updated dependencies [b1a5f3c]
+  - @checkstack/frontend-api@0.11.0
+  - @checkstack/auth-frontend@0.8.1
+  - @checkstack/catalog-common@2.4.1
+  - @checkstack/catalog-frontend@0.12.1
+  - @checkstack/dashboard-frontend@0.8.11
+  - @checkstack/gitops-frontend@0.5.9
+  - @checkstack/healthcheck-common@1.7.1
+  - @checkstack/script-packages-frontend@0.3.13
+  - @checkstack/secrets-frontend@0.2.8
+  - @checkstack/tips-frontend@0.3.9
+  - @checkstack/ui@1.16.2
+  - @checkstack/anomaly-common@1.5.1
+  - @checkstack/satellite-common@0.8.9
+
 ## 0.24.0
 
 ### Minor Changes

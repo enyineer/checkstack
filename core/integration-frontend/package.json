@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/integration-frontend",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.tsx",

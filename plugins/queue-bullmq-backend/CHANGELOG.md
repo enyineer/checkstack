@@ -1,5 +1,12 @@
 # @checkstack/queue-bullmq-backend
 
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies [b1a5f3c]
+  - @checkstack/backend-api@0.24.0
+
 ## 0.4.11
 
 ### Patch Changes

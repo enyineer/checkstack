@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/catalog-backend",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",
