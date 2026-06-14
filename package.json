@@ -50,7 +50,8 @@
     "semver": "^7.8.1",
     "syncpack": "^15.3.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.59.3"
+    "typescript-eslint": "^8.59.3",
+    "zod": "^4.2.1"
   },
   "dependencies": {
     "@orpc/contract": "^1.14.4"
