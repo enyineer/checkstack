@@ -29,6 +29,8 @@ import {
   Send,
   EyeOff,
   MonitorCheck,
+  Globe,
+  Copy,
 } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { useInitOnceForKey } from "@checkstack/ui";
@@ -41,8 +43,9 @@ import {
   BUILTIN_WIDGET_IDS,
   type StatusPageBlock,
   type StatusPageVisibility,
+  type CustomDomainInfo,
 } from "@checkstack/status-page-common";
-import { BlockRenderer } from "../renderers";
+import { BlockRenderer, useStatusWidgetRenderers } from "../renderers";
 
 /** Minimal default config per widget type (matches the config schemas). */
 function defaultConfig(type: string): unknown {
@@ -429,6 +432,225 @@ const BlockConfigEditor: React.FC<{
   }
 };
 
+/**
+ * Custom-domain panel. Independent of the draft save/publish flow — setting,
+ * verifying, and removing a domain are immediate mutations on the saved page.
+ * A domain only routes once it is BOTH verified (DNS TXT) AND the page is
+ * published; the backend enforces that, this UI just guides the operator.
+ */
+/** Docs how-to for the full custom-domain + TLS walkthrough. */
+const CUSTOM_DOMAIN_DOCS =
+  "/checkstack/user-guide/guides/serve-a-status-page-on-a-custom-domain/";
+
+/** A monospace value with a copy-to-clipboard button. */
+const CopyableValue: React.FC<{ label: string; value: string }> = ({
+  label,
+  value,
+}) => {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Couldn't copy to clipboard");
+    }
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1 text-foreground">
+        {value}
+      </code>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={copy}
+        aria-label={`Copy ${label}`}
+        className="shrink-0"
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+};
+
+const CustomDomainSection: React.FC<{
+  pageId: string;
+  published: boolean;
+  customDomain: CustomDomainInfo | null;
+}> = ({ pageId, published, customDomain }) => {
+  const client = usePluginClient(StatusPageApi);
+  const toast = useToast();
+  const [input, setInput] = useState(customDomain?.domain ?? "");
+  const setMutation = client.setCustomDomain.useMutation();
+  const verifyMutation = client.verifyCustomDomain.useMutation();
+  const removeMutation = client.removeCustomDomain.useMutation();
+  const busy =
+    setMutation.isPending ||
+    verifyMutation.isPending ||
+    removeMutation.isPending;
+
+  const trimmed = input.trim();
+  const unchanged = trimmed === (customDomain?.domain ?? "");
+
+  const onSet = async () => {
+    try {
+      await setMutation.mutateAsync({ id: pageId, domain: trimmed });
+      toast.success("Domain saved. Add the DNS TXT record, then verify.");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Couldn't save the domain"));
+    }
+  };
+  const onVerify = async () => {
+    try {
+      await verifyMutation.mutateAsync({ id: pageId });
+      toast.success("Domain verified.");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Verification failed"));
+    }
+  };
+  const onRemove = async () => {
+    // A verified domain may be serving real visitors; confirm before pulling it.
+    if (
+      customDomain?.verified &&
+      !globalThis.confirm(
+        `Remove ${customDomain.domain}? The page will stop serving on it.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await removeMutation.mutateAsync({ id: pageId });
+      setInput("");
+      toast.success("Custom domain removed.");
+    } catch (error) {
+      toast.error(extractErrorMessage(error, "Couldn't remove the domain"));
+    }
+  };
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Globe className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-medium">Custom domain</h3>
+            <p className="text-xs text-muted-foreground">
+              Serve this page on your own domain, fully isolated from the admin
+              UI.{" "}
+              <a
+                href={CUSTOM_DOMAIN_DOCS}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                Setup guide
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+        {customDomain && (
+          <Badge variant={customDomain.verified ? "success" : "warning"}>
+            {customDomain.verified ? "Verified" : "Pending verification"}
+          </Badge>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="status.example.com"
+          disabled={busy}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={onSet}
+          disabled={busy || trimmed.length === 0 || unchanged}
+        >
+          Save
+        </Button>
+      </div>
+
+      {customDomain && (
+        <div className="space-y-3">
+          {!customDomain.verified && (
+            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs">
+              <p className="text-muted-foreground">
+                Add this DNS <strong>TXT</strong> record, then click Verify (DNS
+                can take a few minutes to propagate):
+              </p>
+              <div className="space-y-1.5">
+                <div className="text-muted-foreground">Name</div>
+                <CopyableValue
+                  label="Record name"
+                  value={customDomain.verification.recordName}
+                />
+                <div className="text-muted-foreground">Value</div>
+                <CopyableValue
+                  label="Record value"
+                  value={customDomain.verification.recordValue}
+                />
+              </div>
+              <p className="text-muted-foreground">
+                Then point <code>{customDomain.domain}</code> at this Checkstack
+                instance (CNAME or A record) and terminate TLS for it at your
+                edge.{" "}
+                <a
+                  href={CUSTOM_DOMAIN_DOCS}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  How
+                </a>
+                .
+              </p>
+            </div>
+          )}
+          {customDomain.verified &&
+            (published ? (
+              <p className="text-xs text-muted-foreground">
+                Live at{" "}
+                <a
+                  href={`https://${customDomain.domain}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground hover:text-primary hover:underline"
+                >
+                  https://{customDomain.domain}
+                </a>
+                .
+              </p>
+            ) : (
+              <p className="text-xs text-warning">
+                Verified. Publish the page to make https://{customDomain.domain}{" "}
+                go live.
+              </p>
+            ))}
+          <div className="flex gap-2">
+            {!customDomain.verified && (
+              <Button size="sm" onClick={onVerify} disabled={busy}>
+                Verify
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onRemove}
+              disabled={busy}
+            >
+              Remove
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 export const StatusPageBuilderPage: React.FC = () => {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -679,6 +901,12 @@ export const StatusPageBuilderPage: React.FC = () => {
             </div>
           </Card>
 
+          <CustomDomainSection
+            pageId={id}
+            published={page.published}
+            customDomain={page.customDomain}
+          />
+
           {blocks.map((block, i) => {
             const descriptor = widgetTypes.find((w) => w.id === block.type);
             return (
@@ -789,6 +1017,7 @@ export const StatusPageBuilderPage: React.FC = () => {
  * published page, which resolves through the secure public endpoint).
  */
 const PreviewBlock: React.FC<{ block: StatusPageBlock }> = ({ block }) => {
+  const renderers = useStatusWidgetRenderers();
   const content = new Set<string>([
     BUILTIN_WIDGET_IDS.text,
     BUILTIN_WIDGET_IDS.heading,
@@ -798,7 +1027,10 @@ const PreviewBlock: React.FC<{ block: StatusPageBlock }> = ({ block }) => {
   ]);
   if (content.has(block.type)) {
     return (
-      <BlockRenderer block={{ id: block.id, type: block.type, label: block.label, data: block.config }} />
+      <BlockRenderer
+        block={{ id: block.id, type: block.type, label: block.label, data: block.config }}
+        renderers={renderers}
+      />
     );
   }
   return (

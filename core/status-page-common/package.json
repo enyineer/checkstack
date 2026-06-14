@@ -10,13 +10,16 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
     "@orpc/contract": "^1.14.4",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
     "@checkstack/tsconfig": "workspace:*",
-    "@checkstack/scripts": "workspace:*"
+    "@checkstack/scripts": "workspace:*",
+    "@types/react": "^19.0.0",
+    "react": "19.2.7"
   },
   "scripts": {
     "typecheck": "tsgo -b",

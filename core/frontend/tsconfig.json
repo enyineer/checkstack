@@ -41,6 +41,12 @@
       "path": "../signal-frontend"
     },
     {
+      "path": "../status-page-common"
+    },
+    {
+      "path": "../status-page-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

@@ -60,6 +60,46 @@ export const StatusPageSlugSchema = z
   .max(63)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers and dashes");
 
+/**
+ * DNS label of the TXT record an operator adds to prove ownership of a custom
+ * domain: `<prefix>.<domain>` must contain the page's verification token.
+ */
+export const CUSTOM_DOMAIN_TXT_PREFIX = "_checkstack-verify";
+
+/** The TXT record name an operator must create to verify `domain`. */
+export function customDomainTxtRecordName(domain: string): string {
+  return `${CUSTOM_DOMAIN_TXT_PREFIX}.${domain}`;
+}
+
+/**
+ * A custom domain (FQDN) a status page can be served on, e.g.
+ * `status.acme.com`. No scheme, port, path, or wildcard; 2+ dotted labels, each
+ * starting/ending alphanumeric. Stored lowercased by the backend.
+ */
+export const CustomDomainSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(253)
+  .regex(
+    /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i,
+    "Enter a domain like status.example.com (no scheme, port or path)",
+  );
+
+/** Custom-domain state surfaced to the builder. */
+export const CustomDomainInfoSchema = z.object({
+  domain: z.string(),
+  /** The DNS TXT record the operator must add to verify ownership. */
+  verification: z.object({
+    recordName: z.string(),
+    recordValue: z.string(),
+  }),
+  /** True once DNS ownership has been verified (the domain then routes). */
+  verified: z.boolean(),
+  verifiedAt: z.string().nullable(),
+});
+export type CustomDomainInfo = z.infer<typeof CustomDomainInfoSchema>;
+
 /** Full admin-facing status page (the builder's working copy). */
 export const StatusPageSchema = z.object({
   id: z.string(),
@@ -71,6 +111,8 @@ export const StatusPageSchema = z.object({
   publishedLayout: StatusPageLayoutSchema.nullable(),
   published: z.boolean(),
   publishedAt: z.string().nullable(),
+  /** Custom domain config, or null when the page is served only at /status/<slug>. */
+  customDomain: CustomDomainInfoSchema.nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -84,6 +126,8 @@ export const StatusPageSummarySchema = z.object({
   visibility: StatusPageVisibilitySchema,
   published: z.boolean(),
   publishedAt: z.string().nullable(),
+  /** Custom domain (FQDN) if configured, else null. Verified state lives on the full page. */
+  customDomain: z.string().nullable(),
   updatedAt: z.string(),
 });
 export type StatusPageSummary = z.infer<typeof StatusPageSummarySchema>;
@@ -106,11 +150,29 @@ export const ResolvedBlockSchema = z.object({
 });
 export type ResolvedBlock = z.infer<typeof ResolvedBlockSchema>;
 
+/**
+ * A frontend renderer remote a page needs because one of its blocks is a
+ * THIRD-PARTY widget type whose renderer is not bundled. The minimal
+ * custom-domain public bundle loads exactly these (and no others) so it can draw
+ * the block; built-in widgets never appear here. `packageName` is the owning
+ * frontend plugin's npm package (served at `/assets/plugins/<packageName>/`).
+ */
+export const RendererRemoteSchema = z.object({
+  widgetTypeId: z.string(),
+  packageName: z.string(),
+});
+export type RendererRemote = z.infer<typeof RendererRemoteSchema>;
+
 export const PublishedStatusPageSchema = z.object({
   slug: z.string(),
   title: z.string(),
   theme: StatusPageThemeSchema,
   blocks: z.array(ResolvedBlockSchema),
+  /**
+   * Renderer remotes this page needs for third-party widget types (deduped).
+   * Empty for built-in-only pages. The public bundle loads exactly these.
+   */
+  rendererRemotes: z.array(RendererRemoteSchema).default([]),
   /** When the resolver assembled this snapshot (drives client cache hints). */
   generatedAt: z.string(),
 });

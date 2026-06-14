@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -8,8 +8,10 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { MarkdownBlock } from "@checkstack/ui";
+import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
+  StatusWidgetRendererSlot,
   BannerDtoSchema,
   SystemHealthDtoSchema,
   GroupStatusDtoSchema,
@@ -20,9 +22,21 @@ import {
   HeadingDtoSchema,
   LinksDtoSchema,
   ImageDtoSchema,
+  type StatusWidgetRendererProps,
   type PublicStatus,
   type ResolvedBlock,
 } from "@checkstack/status-page-common";
+import {
+  mergeWidgetRenderers,
+  type WidgetRenderer,
+  type WidgetRendererMap,
+} from "./renderer-map";
+
+export {
+  mergeWidgetRenderers,
+  type WidgetRenderer,
+  type WidgetRendererMap,
+} from "./renderer-map";
 
 /**
  * PURE public widget renderers. The single security rule for this layer: a
@@ -99,7 +113,20 @@ const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
   );
 };
 
-type RendererProps = { data: unknown; label?: string };
+type RendererProps = StatusWidgetRendererProps;
+
+/**
+ * The optional per-block heading ("Block heading" in the builder) for content
+ * widgets that are not wrapped in a {@link Section} (which renders the label
+ * itself). Matches the Section title styling so headings look consistent down
+ * the page.
+ */
+const BlockLabel: React.FC<{ label?: string }> = ({ label }) =>
+  label ? (
+    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {label}
+    </h3>
+  ) : null;
 
 /** A titled card section — the building block for most widgets. */
 const Section: React.FC<{
@@ -395,17 +422,20 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   );
 };
 
-const TextRenderer: React.FC<RendererProps> = ({ data }) => {
+const TextRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = TextDtoSchema.safeParse(data);
   if (!parsed.success || !parsed.data.markdown.trim()) return null;
   return (
-    <div className="text-sm leading-relaxed text-muted-foreground">
-      <MarkdownBlock>{parsed.data.markdown}</MarkdownBlock>
+    <div>
+      <BlockLabel label={label} />
+      <div className="text-sm leading-relaxed text-muted-foreground">
+        <MarkdownBlock>{parsed.data.markdown}</MarkdownBlock>
+      </div>
     </div>
   );
 };
 
-const HeadingRenderer: React.FC<RendererProps> = ({ data }) => {
+const HeadingRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = HeadingDtoSchema.safeParse(data);
   if (!parsed.success || !parsed.data.text) return null;
   const size =
@@ -415,42 +445,53 @@ const HeadingRenderer: React.FC<RendererProps> = ({ data }) => {
         ? "text-xl"
         : "text-lg";
   return (
-    <h2 className={`pt-2 font-semibold tracking-tight ${size}`}>
-      {parsed.data.text}
-    </h2>
-  );
-};
-
-const LinksRenderer: React.FC<RendererProps> = ({ data }) => {
-  const parsed = LinksDtoSchema.safeParse(data);
-  if (!parsed.success || parsed.data.links.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2">
-      {parsed.data.links.map((l, i) => (
-        <a
-          key={i}
-          href={l.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          {l.label}
-        </a>
-      ))}
+    <div>
+      <BlockLabel label={label} />
+      <h2 className={`pt-2 font-semibold tracking-tight ${size}`}>
+        {parsed.data.text}
+      </h2>
     </div>
   );
 };
 
-const ImageRenderer: React.FC<RendererProps> = ({ data }) => {
+const LinksRenderer: React.FC<RendererProps> = ({ data, label }) => {
+  const parsed = LinksDtoSchema.safeParse(data);
+  if (!parsed.success || parsed.data.links.length === 0) return null;
+  return (
+    <div>
+      <BlockLabel label={label} />
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {parsed.data.links.map((l, i) => (
+          <a
+            key={i}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ImageRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = ImageDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   return (
-    <img
-      src={parsed.data.url}
-      alt={parsed.data.alt ?? ""}
-      style={parsed.data.maxHeight ? { maxHeight: parsed.data.maxHeight } : undefined}
-      className="object-contain"
-    />
+    <div>
+      <BlockLabel label={label} />
+      <img
+        src={parsed.data.url}
+        alt={parsed.data.alt ?? ""}
+        style={
+          parsed.data.maxHeight ? { maxHeight: parsed.data.maxHeight } : undefined
+        }
+        className="object-contain"
+      />
+    </div>
   );
 };
 
@@ -458,8 +499,8 @@ const DividerRenderer: React.FC<RendererProps> = () => (
   <hr className="border-border" />
 );
 
-/** Map widget type id -> pure renderer. Third-party renderers register here. */
-export const WIDGET_RENDERERS: Record<string, React.FC<RendererProps>> = {
+/** The renderers status-page ships itself, keyed by widget-type id. */
+export const BUILTIN_WIDGET_RENDERERS: Record<string, WidgetRenderer> = {
   [BUILTIN_WIDGET_IDS.banner]: BannerRenderer,
   [BUILTIN_WIDGET_IDS.systemHealth]: SystemHealthRenderer,
   [BUILTIN_WIDGET_IDS.groupStatus]: GroupStatusRenderer,
@@ -473,9 +514,34 @@ export const WIDGET_RENDERERS: Record<string, React.FC<RendererProps>> = {
   [BUILTIN_WIDGET_IDS.divider]: DividerRenderer,
 };
 
-/** Render one resolved block via the registry (skips unknown / null data). */
-export const BlockRenderer: React.FC<{ block: ResolvedBlock }> = ({ block }) => {
-  const Renderer = WIDGET_RENDERERS[block.type];
+/**
+ * Resolve the full renderer map: built-ins plus any renderers contributed by
+ * plugins via `StatusWidgetRendererSlot`. Reactive — re-resolves when plugins
+ * register/unregister. In the minimal custom-domain public bundle no plugins are
+ * loaded, so this is just the built-ins.
+ */
+export function useStatusWidgetRenderers(): WidgetRendererMap {
+  const extensions = useSlotExtensions(StatusWidgetRendererSlot);
+  return useMemo(
+    () =>
+      mergeWidgetRenderers(
+        BUILTIN_WIDGET_RENDERERS,
+        extensions.flatMap((ext) =>
+          ext.component
+            ? [{ widgetTypeId: ext.metadata.widgetTypeId, component: ext.component }]
+            : [],
+        ),
+      ),
+    [extensions],
+  );
+}
+
+/** Render one resolved block via a resolved renderer map (skips unknown / null data). */
+export const BlockRenderer: React.FC<{
+  block: ResolvedBlock;
+  renderers: WidgetRendererMap;
+}> = ({ block, renderers }) => {
+  const Renderer = renderers.get(block.type);
   if (!Renderer || block.data === null || block.data === undefined) return null;
   return <Renderer data={block.data} label={block.label} />;
 };

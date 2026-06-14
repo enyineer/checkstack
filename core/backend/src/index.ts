@@ -7,8 +7,18 @@ import { db } from "./db";
 import path from "node:path";
 import fs from "node:fs";
 import { rootLogger } from "./logger";
-import { coreServices, coreHooks } from "@checkstack/backend-api";
+import {
+  coreServices,
+  coreHooks,
+  publicHostResolverExtensionPoint,
+  type PublicHostMatch,
+} from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
+import {
+  createPublicHostRegistry,
+  normalizeHost,
+} from "./public-host/registry";
+import { createHostRoutingMiddleware } from "./public-host/middleware";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
@@ -76,6 +86,45 @@ import { cors } from "hono/cors";
 // loadSinglePlugin(), so we need an incremental router.
 const app = new Hono({ router: new TrieRouter() });
 const pluginManager = new PluginManager();
+
+// Registry of plugin-contributed public-host resolvers (custom domains). The
+// platform OWNS it and consults it from the host-routing middleware below;
+// owning plugins contribute their resolver via `publicHostResolverExtensionPoint`
+// (buffered until set, so registration order does not matter).
+const publicHostRegistry = createPublicHostRegistry();
+pluginManager.registerExtensionPoint(
+  publicHostResolverExtensionPoint,
+  publicHostRegistry.extensionPoint,
+);
+
+/** The app's own host (from BASE_URL); requests on it skip host resolution. */
+const primaryHost = normalizeHost(
+  new URL(process.env.BASE_URL || "http://localhost:3000").host,
+);
+
+/**
+ * Resolve the public surface for this request's `Host`, or null when the host
+ * is the primary app host or not a configured public domain. Cached, so the
+ * config endpoint and SPA fallback can both consult it cheaply.
+ */
+async function matchPublicHost(c: Context): Promise<PublicHostMatch | null> {
+  const host = normalizeHost(c.req.header("host"));
+  if (!host || host === primaryHost) return null;
+  return publicHostRegistry.resolve(host);
+}
+
+/**
+ * The origin a request actually arrived on (honoring the edge's forwarding
+ * headers). On a public host this is the custom domain itself — the public
+ * bundle MUST use it as its API base so every call stays on THIS locked-down
+ * origin, never the admin origin.
+ */
+function requestOrigin(c: Context): string {
+  const proto = c.req.header("x-forwarded-proto") ?? "https";
+  const host =
+    c.req.header("x-forwarded-host") ?? c.req.header("host") ?? "";
+  return `${proto}://${host}`;
+}
 
 /**
  * Init lifecycle state.
@@ -162,6 +211,46 @@ app.use("*", async (c, next) => {
 });
 
 // =============================================================================
+// PUBLIC CUSTOM-DOMAIN HOST ROUTING
+// =============================================================================
+//
+// A status page (or any plugin-owned public surface) can be served on its own
+// host, e.g. `status.acme.com`. On such a host we expose ONLY the public
+// surface: the resolver's allow-listed API path(s) plus `/api/config`, the
+// public bundle's static assets, and the public bundle itself. EVERYTHING else
+// under `/api`, all of `/rest`, and the admin docs are 404'd, and navigational
+// routes serve the SEPARATE public bundle (never the admin SPA shell — see the
+// SPA fallback below).
+//
+// TLS for these hosts is terminated at the edge (ingress / on-demand-TLS proxy);
+// the on-demand path is gated by `/.well-known/checkstack/authorize-domain`.
+//
+// Requests on the primary host (and any unknown host) skip resolution entirely,
+// so this adds ~one string compare to the hot path; only configured custom
+// domains pay for a (cached) lookup.
+app.use(
+  "*",
+  createHostRoutingMiddleware({ registry: publicHostRegistry, primaryHost }),
+);
+
+/**
+ * On-demand-TLS authorization hook. An edge proxy that issues certificates on
+ * demand (Caddy `on_demand_tls` `ask`, Cloudflare for SaaS, a cert-manager
+ * automation, ...) calls this to confirm a host is a CONFIGURED public domain
+ * BEFORE minting a certificate, so the platform never causes certs to be minted
+ * for arbitrary hosts. Returns 200 for the primary host or any resolved public
+ * domain, 404 otherwise. Public + unauthenticated; reveals only yes/no for the
+ * single queried host.
+ */
+app.get("/.well-known/checkstack/authorize-domain", async (c) => {
+  const host = normalizeHost(c.req.query("domain") ?? c.req.header("host"));
+  if (!host) return c.notFound();
+  if (host === primaryHost) return c.text("ok");
+  const match = await publicHostRegistry.resolve(host);
+  return match ? c.text("ok") : c.notFound();
+});
+
+// =============================================================================
 // PLATFORM ENDPOINTS — /.checkstack/*
 // =============================================================================
 //
@@ -214,8 +303,19 @@ app.use("/api/*", async (c, next) => {
   c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 });
 
-// Runtime config endpoint - returns BASE_URL for frontend
-app.get("/api/config", (c) => {
+// Runtime config endpoint - returns BASE_URL for frontend. On a custom-domain
+// public host it ALSO returns `publicHost` (the resolver's opaque bootstrap
+// hint, e.g. `{ kind: "status-page", slug }`) so the public bundle knows what
+// to render without a URL path. This is one of the two endpoints allow-listed
+// on a public host.
+app.get("/api/config", async (c) => {
+  const match = await matchPublicHost(c);
+  if (match) {
+    // CRITICAL: on a public host the bundle must talk ONLY to this (locked-down)
+    // origin. Returning the admin BASE_URL here would point the bundle's RPC
+    // client at the unrestricted admin origin and defeat the host allow-list.
+    return c.json({ baseUrl: requestOrigin(c), publicHost: match.bootstrap });
+  }
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   return c.json({ baseUrl });
 });
@@ -403,10 +503,20 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
       return next();
     }
 
+    // On a custom-domain public host we serve the SEPARATE public bundle and
+    // NEVER the admin SPA shell (the host middleware already 404'd /api, /rest,
+    // and docs). Resolve once here, for both the direct-file guard and the
+    // fallback below.
+    const publicMatch = await matchPublicHost(c);
+    const indexFile = publicMatch ? "public.html" : "index.html";
+
     // Check if the request maps to an actual file in the dist root
-    // (e.g., /favicon.svg -> dist/favicon.svg)
+    // (e.g., /favicon.svg -> dist/favicon.svg). Never serve a bundle HTML entry
+    // by path here — that is the host-dependent fallback's job, so a public host
+    // cannot fetch the admin `index.html` directly.
     const reqPath = c.req.path.slice(1); // Remove leading "/"
-    if (reqPath && reqPath !== "" && !reqPath.includes("..")) {
+    const isBundleHtml = reqPath === "index.html" || reqPath === "public.html";
+    if (reqPath && !isBundleHtml && !reqPath.includes("..")) {
       const staticFilePath = path.join(frontendDistPath, reqPath);
       // Only serve if it's a file (not a directory) and exists
       if (fs.existsSync(staticFilePath) && fs.statSync(staticFilePath).isFile()) {
@@ -414,8 +524,10 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
       }
     }
 
-    // SPA fallback: serve index.html for all remaining non-API routes
-    const indexPath = path.join(frontendDistPath, "index.html");
+    // SPA fallback: serve the host-appropriate bundle for all remaining
+    // non-API routes. On a public host whose public bundle is missing (e.g. an
+    // older dist), fail safe with 404 rather than leaking the admin shell.
+    const indexPath = path.join(frontendDistPath, indexFile);
     if (fs.existsSync(indexPath)) {
       return serveFile(c, indexPath);
     }
@@ -1029,6 +1141,23 @@ const fetch = async (
   // Give the WebSocket handler the server reference if needed
   // Cast is safe: signal handler only reads its own fields via connectionType guard
   wsHandler?.setServer(server as unknown as Server<WebSocketData>);
+
+  // SECURITY: WebSocket upgrades are handled here, BEFORE the Hono app — so the
+  // host-routing middleware (which enforces the public-host allow-list) never
+  // sees them. Gate them explicitly: a matched custom-domain public host exposes
+  // ONLY its allow-listed HTTP endpoints (status pages declare no WS), so refuse
+  // any WS upgrade there. Unknown / primary hosts are unaffected.
+  const wsHost = normalizeHost(req.headers.get("host"));
+  if (
+    wsHost &&
+    wsHost !== primaryHost &&
+    (url.pathname === "/api/signals/ws" || url.pathname.startsWith("/api/ws/"))
+  ) {
+    const match = await publicHostRegistry.resolve(wsHost);
+    if (match && !match.allowedApiPaths.includes(url.pathname)) {
+      return new Response("Not Found", { status: 404 });
+    }
+  }
 
   // Handle WebSocket upgrade for signals
   if (url.pathname === "/api/signals/ws") {

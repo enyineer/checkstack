@@ -6,3 +6,4 @@ export * from "./schemas";
 export * from "./widget-types";
 export * from "./public-mappers";
 export * from "./select-events";
+export * from "./slots";

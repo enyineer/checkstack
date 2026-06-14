@@ -49,6 +49,7 @@ function widget(
     resolvePublic:
       over.resolvePublic ?? (async () => ({ value: "ok" })),
     assertBindingsReadable: over.assertBindingsReadable,
+    rendererRemote: over.rendererRemote,
   };
 }
 
@@ -71,6 +72,9 @@ function row(over: Partial<StatusPageRow>): StatusPageRow {
     draftLayout: [],
     publishedLayout: null,
     publishedAt: null,
+    customDomain: null,
+    customDomainToken: null,
+    customDomainVerifiedAt: null,
     createdAt: new Date("2026-06-01T00:00:00Z"),
     updatedAt: new Date("2026-06-01T00:00:00Z"),
     ...over,
@@ -80,12 +84,15 @@ function row(over: Partial<StatusPageRow>): StatusPageRow {
 function service(args: {
   row?: StatusPageRow;
   widgets?: RegisteredWidgetType[];
+  primaryHost?: string | null;
 }): StatusPageService {
   return new StatusPageService({
     db: fakeDb(args.row),
     registry: registryOf(args.widgets ?? []),
     rpcClient: noRpc,
     logger: noopLogger,
+    txtResolver: async () => [],
+    primaryHost: args.primaryHost ?? null,
   });
 }
 
@@ -272,5 +279,111 @@ describe("collectBoundResources", () => {
     expect(bound).toEqual([
       { resourceType: "catalog.system", resourceId: "s1" },
     ]);
+  });
+});
+
+describe("resolveByHost — routing gate (verified AND published)", () => {
+  const verified = new Date("2026-06-02T00:00:00Z");
+  const published = new Date("2026-06-02T00:00:00Z");
+
+  test("returns the slug only when the domain is verified AND published", async () => {
+    const svc = service({
+      row: row({
+        slug: "acme",
+        customDomain: "status.acme.com",
+        customDomainVerifiedAt: verified,
+        publishedAt: published,
+        publishedLayout: [],
+      }),
+    });
+    expect(await svc.resolveByHost("status.acme.com")).toEqual({ slug: "acme" });
+  });
+
+  test("returns null when the domain is not yet verified", async () => {
+    const svc = service({
+      row: row({
+        customDomain: "status.acme.com",
+        customDomainVerifiedAt: null,
+        publishedAt: published,
+        publishedLayout: [],
+      }),
+    });
+    expect(await svc.resolveByHost("status.acme.com")).toBeNull();
+  });
+
+  test("returns null when the page is verified but not published", async () => {
+    const svc = service({
+      row: row({
+        customDomain: "status.acme.com",
+        customDomainVerifiedAt: verified,
+        publishedAt: null,
+        publishedLayout: null,
+      }),
+    });
+    expect(await svc.resolveByHost("status.acme.com")).toBeNull();
+  });
+
+  test("returns null for an unknown host", async () => {
+    const svc = service({ row: undefined });
+    expect(await svc.resolveByHost("nope.example.com")).toBeNull();
+  });
+
+  test("returns null for an empty host", async () => {
+    const svc = service({ row: undefined });
+    expect(await svc.resolveByHost("   ")).toBeNull();
+  });
+
+  test("returns null for an authenticated-visibility page (custom domains are public-only)", async () => {
+    const svc = service({
+      row: row({
+        visibility: "authenticated",
+        customDomain: "status.acme.com",
+        customDomainVerifiedAt: verified,
+        publishedAt: published,
+        publishedLayout: [],
+      }),
+    });
+    expect(await svc.resolveByHost("status.acme.com")).toBeNull();
+  });
+});
+
+describe("resolvePublished — renderer remotes (third-party widgets)", () => {
+  test("lists the remote for a third-party widget, dedupes, and omits built-ins", async () => {
+    const svc = service({
+      row: row({
+        publishedLayout: [
+          { id: "a", type: "test.builtin", config: {} },
+          { id: "b", type: "test.remote", config: {} },
+          { id: "c", type: "test.remote", config: {} }, // same type -> deduped
+        ],
+      }),
+      widgets: [
+        widget({ id: "builtin", qualifiedId: "test.builtin" }),
+        widget({
+          id: "remote",
+          qualifiedId: "test.remote",
+          rendererRemote: "@acme/widgets-frontend",
+        }),
+      ],
+    });
+    const result = await svc.resolvePublished({
+      slug: "acme",
+      isAuthenticated: false,
+    });
+    expect(result?.rendererRemotes).toEqual([
+      { widgetTypeId: "test.remote", packageName: "@acme/widgets-frontend" },
+    ]);
+  });
+
+  test("is empty for a built-in-only page", async () => {
+    const svc = service({
+      row: row({ publishedLayout: [{ id: "a", type: "test.builtin", config: {} }] }),
+      widgets: [widget({ id: "builtin", qualifiedId: "test.builtin" })],
+    });
+    const result = await svc.resolvePublished({
+      slug: "acme",
+      isAuthenticated: false,
+    });
+    expect(result?.rendererRemotes).toEqual([]);
   });
 });

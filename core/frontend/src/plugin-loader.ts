@@ -3,16 +3,7 @@ import {
   pluginRegistry,
 } from "@checkstack/frontend-api";
 import { loadRemote, registerRemotes } from "@module-federation/runtime";
-
-/**
- * Module Federation remote name for a runtime plugin, derived deterministically
- * from its npm package name so the host and the scaffolded plugin's federation
- * config agree without coordination. MF remote names must be identifier-safe.
- * e.g. `@checkstackit/widget-frontend` -> `checkstackit_widget_frontend`.
- */
-function mfRemoteName(packageName: string): string {
-  return packageName.replace(/^@/, "").replaceAll(/[^a-zA-Z0-9]/g, "_");
-}
+import { mfRemoteName, remoteEntryFor } from "./mf-remote";
 
 /**
  * Register a runtime plugin as a Module Federation remote (manifest served by
@@ -22,12 +13,7 @@ function mfRemoteName(packageName: string): string {
  */
 async function loadRemotePluginModule(packageName: string): Promise<unknown> {
   const name = mfRemoteName(packageName);
-  registerRemotes([
-    {
-      name,
-      entry: `/assets/plugins/${packageName}/mf-manifest.json`,
-    },
-  ]);
+  registerRemotes([{ name, entry: remoteEntryFor(packageName) }]);
   return loadRemote(`${name}/plugin`);
 }
 

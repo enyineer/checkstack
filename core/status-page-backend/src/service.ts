@@ -5,6 +5,7 @@ import type { SafeDatabase, RpcClient, Logger } from "@checkstack/backend-api";
 import {
   StatusPageVisibilitySchema,
   StatusPageThemeSchema,
+  customDomainTxtRecordName,
   type StatusPage,
   type StatusPageSummary,
   type StatusPageLayout,
@@ -13,9 +14,15 @@ import {
   type PublishedStatusPage,
   type ResolvedBlock,
   type WidgetTypeDescriptor,
+  type CustomDomainInfo,
 } from "@checkstack/status-page-common";
 import * as schema from "./schema";
 import { statusPages, type StatusPageRow } from "./schema";
+import {
+  verifyDomainTxt,
+  reservedDomainReason,
+  type TxtResolver,
+} from "./custom-domain";
 import type {
   BoundResource,
   WidgetResolveContext,
@@ -38,6 +45,19 @@ function rowTheme(row: StatusPageRow): StatusPageTheme {
   return parsed.success ? parsed.data : { mode: "auto" };
 }
 
+function rowToCustomDomain(row: StatusPageRow): CustomDomainInfo | null {
+  if (!row.customDomain) return null;
+  return {
+    domain: row.customDomain,
+    verification: {
+      recordName: customDomainTxtRecordName(row.customDomain),
+      recordValue: row.customDomainToken ?? "",
+    },
+    verified: row.customDomainVerifiedAt !== null,
+    verifiedAt: iso(row.customDomainVerifiedAt),
+  };
+}
+
 function rowToPage(row: StatusPageRow): StatusPage {
   return {
     id: row.id,
@@ -49,6 +69,7 @@ function rowToPage(row: StatusPageRow): StatusPage {
     publishedLayout: row.publishedLayout ?? null,
     published: row.publishedLayout !== null,
     publishedAt: iso(row.publishedAt),
+    customDomain: rowToCustomDomain(row),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -62,10 +83,10 @@ function rowToSummary(row: StatusPageRow): StatusPageSummary {
     visibility: rowVisibility(row),
     published: row.publishedLayout !== null,
     publishedAt: iso(row.publishedAt),
+    customDomain: row.customDomain ?? null,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
-
 
 export interface StatusPageServiceDeps {
   db: Db;
@@ -73,6 +94,10 @@ export interface StatusPageServiceDeps {
   /** Trusted service client for the public resolver (reads bound resources). */
   rpcClient: RpcClient;
   logger: Logger;
+  /** DNS TXT resolver for custom-domain ownership verification. */
+  txtResolver: TxtResolver;
+  /** The platform's own host (from BASE_URL); custom domains may not use it. */
+  primaryHost: string | null;
 }
 
 export class StatusPageService {
@@ -205,6 +230,127 @@ export class StatusPageService {
     return rowToPage(row);
   }
 
+  // ----- Custom domain -----
+
+  /**
+   * Resolve a custom domain to its slug, or null. This is the read behind the
+   * public-host resolver, so it gates on ALL of: `customDomainVerifiedAt` (DNS
+   * ownership proven), `publishedAt` (there is a public snapshot), AND
+   * `visibility === "public"`. Custom domains serve only PUBLIC pages: an
+   * `authenticated` page has no way to sign in on its anonymous custom-domain
+   * surface, and gating here avoids even leaking its slug via `/api/config`.
+   *
+   * The host is assumed already normalized by the platform registry (lowercased,
+   * port-stripped); we lowercase again defensively. Registry results are cached
+   * (~60s), so a freshly verified+published domain begins routing within that
+   * window; conversely a REMOVED domain may keep serving its (already-public)
+   * page for up to that window per pod.
+   */
+  async resolveByHost(host: string): Promise<{ slug: string } | null> {
+    const normalized = host.trim().toLowerCase();
+    if (normalized.length === 0) return null;
+    const [row] = await this.deps.db
+      .select({
+        slug: statusPages.slug,
+        visibility: statusPages.visibility,
+        customDomainVerifiedAt: statusPages.customDomainVerifiedAt,
+        publishedAt: statusPages.publishedAt,
+      })
+      .from(statusPages)
+      .where(eq(statusPages.customDomain, normalized))
+      .limit(1);
+    if (
+      !row ||
+      row.customDomainVerifiedAt === null ||
+      row.publishedAt === null ||
+      row.visibility !== "public"
+    ) {
+      return null;
+    }
+    return { slug: row.slug };
+  }
+
+  async setCustomDomain(input: {
+    id: string;
+    domain: string;
+  }): Promise<StatusPage> {
+    await this.requireRow(input.id);
+    const domain = input.domain.trim().toLowerCase();
+    const reserved = reservedDomainReason({
+      domain,
+      primaryHost: this.deps.primaryHost,
+    });
+    if (reserved) throw new ORPCError("BAD_REQUEST", { message: reserved });
+    const [clash] = await this.deps.db
+      .select({ id: statusPages.id })
+      .from(statusPages)
+      .where(eq(statusPages.customDomain, domain))
+      .limit(1);
+    if (clash && clash.id !== input.id) {
+      throw new ORPCError("CONFLICT", {
+        message: `The domain "${domain}" is already used by another status page.`,
+      });
+    }
+    // New domain (or re-set) starts unverified with a fresh token, so it does
+    // not route until ownership is proven via verifyCustomDomain.
+    const token = `cs-verify-${crypto.randomUUID()}`;
+    const [row] = await this.deps.db
+      .update(statusPages)
+      .set({
+        customDomain: domain,
+        customDomainToken: token,
+        customDomainVerifiedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(statusPages.id, input.id))
+      .returning();
+    return rowToPage(row);
+  }
+
+  async verifyCustomDomain(input: { id: string }): Promise<StatusPage> {
+    const row = await this.requireRow(input.id);
+    if (!row.customDomain || !row.customDomainToken) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "No custom domain is configured for this page.",
+      });
+    }
+    const recordName = customDomainTxtRecordName(row.customDomain);
+    const ok = await verifyDomainTxt({
+      recordName,
+      token: row.customDomainToken,
+      resolveTxt: this.deps.txtResolver,
+    });
+    if (!ok) {
+      throw new ORPCError("BAD_REQUEST", {
+        message:
+          `No TXT record "${recordName}" with the expected value was found. ` +
+          "DNS changes can take a few minutes to propagate; try again shortly.",
+      });
+    }
+    const now = new Date();
+    const [updated] = await this.deps.db
+      .update(statusPages)
+      .set({ customDomainVerifiedAt: now, updatedAt: now })
+      .where(eq(statusPages.id, input.id))
+      .returning();
+    return rowToPage(updated);
+  }
+
+  async removeCustomDomain(input: { id: string }): Promise<StatusPage> {
+    await this.requireRow(input.id);
+    const [row] = await this.deps.db
+      .update(statusPages)
+      .set({
+        customDomain: null,
+        customDomainToken: null,
+        customDomainVerifiedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(statusPages.id, input.id))
+      .returning();
+    return rowToPage(row);
+  }
+
   async remove(id: string): Promise<boolean> {
     const deleted = await this.deps.db
       .delete(statusPages)
@@ -299,10 +445,17 @@ export class StatusPageService {
       },
     };
 
+    // Renderer remotes this page needs (third-party widgets only; built-ins are
+    // bundled). Deduped by widget type so the public bundle loads each once.
+    const remoteByType = new Map<string, string>();
+
     const blocks: ResolvedBlock[] = [];
     for (const block of row.publishedLayout) {
       const widget = this.deps.registry.get(block.type);
       if (!widget) continue;
+      if (widget.rendererRemote) {
+        remoteByType.set(block.type, widget.rendererRemote);
+      }
       let data: unknown = null;
       try {
         const raw = await widget.resolvePublic({
@@ -331,6 +484,10 @@ export class StatusPageService {
       title: row.title,
       theme: rowTheme(row),
       blocks,
+      rendererRemotes: [...remoteByType].map(([widgetTypeId, packageName]) => ({
+        widgetTypeId,
+        packageName,
+      })),
       generatedAt: new Date().toISOString(),
     };
   }

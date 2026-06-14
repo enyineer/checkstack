@@ -29,6 +29,17 @@ export const statusPages = pgTable(
     title: text("title").notNull(),
     /** "public" | "authenticated" */
     visibility: text("visibility").notNull().default("public"),
+    /**
+     * Optional custom domain this page is served on (e.g. `status.acme.com`),
+     * lowercased FQDN. Unique across pages; many pages have none (Postgres
+     * unique indexes permit multiple NULLs). Only routes once
+     * `customDomainVerifiedAt` is set AND the page is published.
+     */
+    customDomain: text("custom_domain"),
+    /** DNS TXT verification token for `_checkstack-verify.<customDomain>`. */
+    customDomainToken: text("custom_domain_token"),
+    /** Set when DNS ownership of `customDomain` was last verified. */
+    customDomainVerifiedAt: timestamp("custom_domain_verified_at"),
     theme: jsonb("theme").$type<StatusPageTheme>().notNull().default({ mode: "auto" }),
     draftLayout: jsonb("draft_layout")
       .$type<StatusPageLayout>()
@@ -42,6 +53,9 @@ export const statusPages = pgTable(
   },
   (t) => ({
     slugUnique: uniqueIndex("status_pages_slug_unique").on(t.slug),
+    customDomainUnique: uniqueIndex("status_pages_custom_domain_unique").on(
+      t.customDomain,
+    ),
   }),
 );
 

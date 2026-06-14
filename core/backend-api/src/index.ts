@@ -37,3 +37,4 @@ export * from "./ws-registry";
 export * from "./readiness-registry";
 export * from "./advisory-lock";
 export * from "./bearer-token";
+export * from "./public-host";
