@@ -1,5 +1,14 @@
 # @checkstack/script-packages-frontend
 
+## 0.3.13
+
+### Patch Changes
+
+- Updated dependencies [b1a5f3c]
+  - @checkstack/frontend-api@0.11.0
+  - @checkstack/ui@1.16.2
+  - @checkstack/sdk@0.109.1
+
 ## 0.3.12
 
 ### Patch Changes

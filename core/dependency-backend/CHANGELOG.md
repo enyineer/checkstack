@@ -1,5 +1,22 @@
 # @checkstack/dependency-backend
 
+## 1.5.6
+
+### Patch Changes
+
+- Updated dependencies [b1a5f3c]
+  - @checkstack/backend-api@0.24.0
+  - @checkstack/ai-backend@0.7.1
+  - @checkstack/automation-backend@0.9.1
+  - @checkstack/catalog-backend@1.5.1
+  - @checkstack/gitops-backend@0.5.10
+  - @checkstack/healthcheck-backend@1.9.1
+  - @checkstack/catalog-common@2.4.1
+  - @checkstack/dependency-common@1.4.1
+  - @checkstack/healthcheck-common@1.7.1
+  - @checkstack/incident-common@1.6.1
+  - @checkstack/maintenance-common@1.7.1
+
 ## 1.5.5
 
 ### Patch Changes
