@@ -1,0 +1,209 @@
+name: Security Maintenance
+
+# Daily security hygiene that runs against the CURRENT main + the PUBLISHED
+# image, decoupled from PRs so newly-disclosed CVEs and newly-available fixes
+# surface even when nobody opens a PR. It does two things:
+#
+#   1. Override lifecycle — re-resolves every entry in
+#      security/managed-overrides.json with the override removed. Any override
+#      the graph no longer needs is auto-pruned and proposed as a PR.
+#
+#   2. Fix-available watch — scans the published image (OS + runtime) and the
+#      filesystem (full dependency graph, incl. devDependencies) and reports
+#      every FIXABLE finding. Unfixed findings (e.g. the alpine openssl
+#      CRITICAL, vite) flip into this list the moment upstream ships a fix, so
+#      a tracking issue is upserted to notify the maintainer. This is the
+#      "tell me when there's a fix" mechanism.
+
+on:
+  schedule:
+    # Daily at 06:00 UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: security-maintenance
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  packages: read
+
+jobs:
+  maintain:
+    name: Audit overrides & watch for fixes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Scan the PUBLISHED image (what is actually deployed / what the company
+      # scans) + the filesystem. exit-code 0: this job never fails on findings;
+      # it reports and opens PRs/issues instead.
+      - name: Trivy image scan (published)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/checkstack:latest
+          format: json
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          output: /tmp/img.json
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          output: /tmp/fs.json
+
+      - name: Build CVE report
+        id: cve
+        run: |
+          set -euo pipefail
+          for f in /tmp/img.json /tmp/fs.json; do
+            [ -s "$f" ] || echo '{"Results":[]}' > "$f"
+          done
+
+          jq -s '
+            [ .[].Results[]?.Vulnerabilities[]?
+              | { id:.VulnerabilityID, pkg:.PkgName, installed:.InstalledVersion,
+                  fixed:(.FixedVersion // ""), sev:.Severity } ]
+            | unique_by(.id + "|" + .pkg + "|" + .installed)
+          ' /tmp/img.json /tmp/fs.json > /tmp/vulns.json
+
+          fixable=$(jq '[.[] | select(.fixed != "")] | length' /tmp/vulns.json)
+          {
+            echo "### Fixable vulnerabilities (a patched version exists): ${fixable}"
+            echo ""
+            if [ "$fixable" -gt 0 ]; then
+              jq -r '[.[] | select(.fixed != "")] | sort_by(.sev) | reverse[]
+                | "- **\(.sev)** \`\(.pkg)\` \(.installed) → fixed in **\(.fixed)** (\(.id))"' /tmp/vulns.json
+            else
+              echo "_None._"
+            fi
+            echo ""
+            echo "<details><summary>Known unfixed (monitoring only)</summary>"
+            echo ""
+            jq -r '[.[] | select(.fixed == "")] | sort_by(.sev) | reverse[]
+              | "- \(.sev) \`\(.pkg)\` \(.installed) (\(.id))"' /tmp/vulns.json
+            echo ""
+            echo "</details>"
+          } > /tmp/cve-report.md
+          echo "fixable_count=$fixable" >> "$GITHUB_OUTPUT"
+
+      # Re-resolve each managed override with it removed; prune any that the
+      # graph no longer needs, then refresh the lockfile. Produces a working-
+      # tree diff (package.json + manifest + bun.lock) only when something was
+      # pruned — create-pull-request no-ops without a diff.
+      - name: Prune redundant overrides
+        id: prune
+        run: |
+          set -euo pipefail
+          bun run audit:overrides:redundant --json > /tmp/redundant.json || true
+          bun run audit:overrides:prune | tee /tmp/prune.txt
+          bun install
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compose PR body
+        if: steps.prune.outputs.changed == 'true'
+        run: |
+          {
+            echo "Automated by the daily **Security Maintenance** workflow."
+            echo ""
+            echo "## Redundant overrides removed"
+            echo ""
+            echo "These security overrides are no longer needed — the dependency graph"
+            echo "now resolves at/above their \`safeFloor\` without the pin:"
+            echo ""
+            sed 's/^/- /' /tmp/prune.txt | grep -i pruned || cat /tmp/prune.txt
+            echo ""
+            echo "## Current CVE state"
+            echo ""
+            cat /tmp/cve-report.md
+          } > /tmp/pr-body.md
+
+      - name: Open / update override-removal PR
+        if: steps.prune.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/security-maintenance
+          base: main
+          commit-message: "chore(security): prune redundant managed overrides"
+          title: "chore(security): prune redundant managed overrides"
+          body-path: /tmp/pr-body.md
+          labels: security-maintenance
+          delete-branch: true
+
+      # Surface fixable CVEs that need a human decision (version bumps can be
+      # breaking, so they are NOT auto-applied) via a single upserted issue.
+      - name: Upsert CVE tracking issue
+        if: steps.cve.outputs.fixable_count != '0'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/cve-report.md', 'utf8');
+            const marker = '<!-- security-maintenance-cve -->';
+            const title = '🔒 Security: fixable vulnerabilities available';
+            const body = [
+              marker,
+              '',
+              'The daily Security Maintenance scan found vulnerabilities with an **available fix**.',
+              'Version bumps can be breaking, so they are not auto-applied — review and bump the',
+              'affected direct dependency, or add a documented entry to `security/managed-overrides.json`.',
+              '',
+              report,
+              '',
+              `_Last updated: run [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})._`,
+            ].join('\n');
+
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security-maintenance',
+              per_page: 100,
+            });
+            const hit = existing.find((i) => i.body && i.body.includes(marker));
+
+            if (hit) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: hit.number,
+                body,
+              });
+              core.info(`Updated issue #${hit.number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['security-maintenance'],
+              });
+              core.info('Created new CVE tracking issue');
+            }

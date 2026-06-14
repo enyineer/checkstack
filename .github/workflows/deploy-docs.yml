@@ -37,11 +37,6 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       # Astro 6 hard-requires Node ≥ 22.12 at runtime. `bun run` defers to
       # the system `node` binary for shebang-based CLIs like astro, so the
       # runner's default (Node 20) makes the build fail with
@@ -52,8 +47,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       - name: Build Astro Starlight site
         run: bun run --filter '@checkstack/docs' build

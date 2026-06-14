@@ -29,6 +29,8 @@
     "docker:build": "docker build -t checkstack-prod:latest .",
     "audit:security": "bun run scripts/audit-trivy.ts fs",
     "audit:image": "bun run scripts/audit-trivy.ts image",
+    "audit:overrides:check": "bun run scripts/audit-overrides.ts --check",
+    "audit:overrides:redundant": "bun run scripts/audit-overrides.ts --redundant",
     "changeset": "changeset",
     "version-packages": "bun run scripts/inject-release.ts && changeset version && bun install --lockfile-only && bun run scripts/generate-sdk.ts && bun run scripts/generate-docs-index.ts",
     "publish-packages": "bun run scripts/publish-packages.ts",
@@ -61,7 +63,10 @@
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "ws": "^8.21.0",
+    "minimatch": "^10.2.5",
+    "postcss-selector-parser": "^7.1.4"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -71,6 +76,9 @@
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "ws": "^8.21.0",
+    "minimatch": "^10.2.5",
+    "postcss-selector-parser": "^7.1.4"
   }
 }

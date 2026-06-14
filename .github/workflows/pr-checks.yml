@@ -28,13 +28,8 @@ jobs:
           # and the guard would degrade to a warn-and-skip.
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       # The committed `@checkstack/sdk` package is generated from the per-plugin
       # contracts + the script-context helper builders. This guard fails when:
@@ -111,13 +106,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       - name: Lint
         id: lint
@@ -148,13 +138,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       # Guards against the dependency drift cleaned up in issue #245: the same
       # external dependency declared at divergent ranges across workspace
@@ -162,12 +147,27 @@ jobs:
       # into one lockfile). syncpack enforces a single shared range for the
       # unified set declared in `.syncpackrc.json`. Run `bun run deps:fix`
       # locally to auto-align, then `bun install`.
+      # Two gates share this job:
+      #  1. syncpack alignment (issue #245) — one shared range per external dep.
+      #  2. managed-override drift — every SECURITY override in package.json
+      #     `overrides`/`resolutions` is documented in
+      #     security/managed-overrides.json and still sits at/above its
+      #     safeFloor. Stops undocumented security pins (which rot silently)
+      #     from sneaking in. See scripts/audit-overrides.ts.
       - name: Check Dependency Alignment
         id: deps
         run: |
           set +e
-          bun run deps:check 2>&1 | tee /tmp/deps-output.txt
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+          : > /tmp/deps-output.txt
+          rc=0
+          echo "── syncpack alignment ──" | tee -a /tmp/deps-output.txt
+          bun run deps:check 2>&1 | tee -a /tmp/deps-output.txt
+          [ "${PIPESTATUS[0]}" != "0" ] && rc=1
+          echo "" | tee -a /tmp/deps-output.txt
+          echo "── managed-override drift ──" | tee -a /tmp/deps-output.txt
+          bun run audit:overrides:check 2>&1 | tee -a /tmp/deps-output.txt
+          [ "${PIPESTATUS[0]}" != "0" ] && rc=1
+          echo "exit_code=$rc" >> $GITHUB_OUTPUT
 
       - name: Upload Output
         if: always()
@@ -197,13 +197,8 @@ jobs:
           # test ("resolves a real ref in this repo") fails.
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       - name: Run Tests
         id: test
@@ -293,18 +288,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       # The external-plugin lifecycle test (#251 Phase 3) needs the CURRENT
       # tree's @checkstack/* packages served as PUBLISHED tarballs from a
@@ -419,6 +409,12 @@ jobs:
     name: Security
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    # `packages: read` lets the build pull the release-produced registry
+    # buildcache below. `contents: read` is the workflow default, restated
+    # because naming a job-level permissions block drops anything not listed.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -430,36 +426,117 @@ jobs:
           # already check out with lfs: true for the same reason.)
           lfs: true
 
-      - name: Build Production Image
-        run: docker build -t checkstack-prod:latest .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Trivy Image Scan
-        id: trivy-image
-        uses: aquasecurity/trivy-action@v0.36.0
+      # Best-effort login so the registry cache below is readable. Marked
+      # continue-on-error so a fork PR (whose GITHUB_TOKEN can't read packages)
+      # still builds — it just misses the cache and builds cold.
+      - name: Login to GitHub Container Registry
         continue-on-error: true
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Reuse the amd64 buildcache that release.yml publishes for the same
+      # Dockerfile — READ-ONLY (no cache-to), so PRs never write cache and the
+      # 10 GB Actions Cache budget is untouched. `load: true` puts the image in
+      # the local docker daemon so Trivy can scan it by tag. A cache miss (e.g.
+      # before the first release writes the tag) just builds cold; it never fails.
+      - name: Build Production Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: checkstack-prod:latest
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/checkstack:buildcache-linux-amd64
+
+      # TWO scans, both emitting JSON and NEVER failing on their own
+      # (exit-code 0): the gating decision is made in the evaluate step below.
+      #  - image: the runtime attack surface (OS packages + production deps).
+      #  - fs: the WHOLE dependency graph from bun.lock, INCLUDING
+      #    devDependencies that `bun install --production` strips from the
+      #    image. This fs scan is what closes the gap that let dev-only CVEs
+      #    (e.g. vite, postcss-selector-parser) stay invisible to the image
+      #    scan. We deliberately do NOT pass ignore-unfixed here so unfixed
+      #    findings are captured too, then surfaced as warnings (not failures).
+      - name: Trivy image scan (JSON)
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: checkstack-prod:latest
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
+          format: json
+          exit-code: "0"
           severity: CRITICAL,HIGH,MEDIUM
-          output: /tmp/trivy-image.txt
+          output: /tmp/trivy-image.json
 
-      - name: Aggregate Security Output
+      - name: Trivy filesystem scan (JSON)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          output: /tmp/trivy-fs.json
+
+      # Gate policy:
+      #  - FIXABLE findings (a fixed version exists) FAIL the job — they are
+      #    actionable, so they must be remediated.
+      #  - UNFIXED findings (no upstream fix yet, e.g. the alpine openssl
+      #    CRITICAL or vite) are surfaced as ::warning:: annotations but DO
+      #    NOT fail. The daily security-maintenance workflow re-checks these
+      #    and auto-opens a remediation PR the moment a fix ships.
+      - name: Evaluate findings (fail on fixable, warn on unfixed)
         id: security
         run: |
+          set -euo pipefail
+          for f in /tmp/trivy-image.json /tmp/trivy-fs.json; do
+            [ -s "$f" ] || echo '{"Results":[]}' > "$f"
+          done
+
+          jq -s '
+            [ .[].Results[]?.Vulnerabilities[]?
+              | { id:.VulnerabilityID, pkg:.PkgName, installed:.InstalledVersion,
+                  fixed:(.FixedVersion // ""), sev:.Severity } ]
+            | unique_by(.id + "|" + .pkg + "|" + .installed)
+          ' /tmp/trivy-image.json /tmp/trivy-fs.json > /tmp/vulns.json
+
+          jq -r '[.[] | select(.fixed != "")]
+            | sort_by(.sev) | reverse[]
+            | "  [\(.sev)] \(.pkg) \(.installed) -> fixed in \(.fixed)  (\(.id))"' \
+            /tmp/vulns.json > /tmp/fixable.txt || true
+          jq -r '[.[] | select(.fixed == "")]
+            | sort_by(.sev) | reverse[]
+            | "  [\(.sev)] \(.pkg) \(.installed)  (\(.id)) — no upstream fix yet"' \
+            /tmp/vulns.json > /tmp/unfixed.txt || true
+
+          fixable_count=$(jq '[.[] | select(.fixed != "")] | length' /tmp/vulns.json)
+          unfixed_count=$(jq '[.[] | select(.fixed == "")] | length' /tmp/vulns.json)
+
           {
-            echo "🔎 Running Security Audit..."
+            echo "🔎 Security Audit (image + filesystem)"
             echo ""
-            echo "🐳 --- Image Scan ---"
-            cat /tmp/trivy-image.txt 2>/dev/null || echo "(no output produced)"
+            echo "❌ Fixable vulnerabilities ($fixable_count) — these fail the build:"
+            [ "$fixable_count" -gt 0 ] && cat /tmp/fixable.txt || echo "  (none)"
+            echo ""
+            echo "⚠️  Known unfixed vulnerabilities ($unfixed_count) — surfaced, not gated:"
+            [ "$unfixed_count" -gt 0 ] && cat /tmp/unfixed.txt || echo "  (none)"
           } > /tmp/security-output.txt
 
-          if [ "${{ steps.trivy-image.outcome }}" != "success" ]; then
-            echo "exit_code=1" >> $GITHUB_OUTPUT
+          # Surface each unfixed finding as a GitHub warning annotation.
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::warning title=Unfixed vulnerability::${line# }"
+          done < /tmp/unfixed.txt
+
+          cat /tmp/security-output.txt
+          if [ "$fixable_count" -gt 0 ]; then
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
           else
-            echo "exit_code=0" >> $GITHUB_OUTPUT
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload Output
@@ -715,7 +792,7 @@ jobs:
                   output,
                   '```',
                   '',
-                  '**How to fix:** CI only enforces the image scan — run `bun run audit:image` locally to reproduce these vulnerabilities (requires building the production image). For a faster check without a Docker build, `bun run audit:security` runs a filesystem scan against your dependencies. Update the base image, runtime dependencies, or affected packages in `bun.lock` accordingly. All **CRITICAL** vulnerabilities must be resolved or ignored if they are confirmed false positives.',
+                  '**How to fix:** Only **fixable** findings (a patched version exists) fail the build; unfixed findings are surfaced as warnings, not gated. Run `bun run audit:image` (production image) and `bun run audit:security` (filesystem / full dependency graph incl. devDependencies) locally to reproduce. Bump the affected direct dependency, or for a transitive package add a documented entry to `security/managed-overrides.json` plus matching `overrides`/`resolutions` in `package.json` (then `bun install`). Re-run `bun run audit:overrides:check` to confirm the override is consistent.',
                   '',
                   '</details>',
                 ].join('\n'));

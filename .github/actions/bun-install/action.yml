@@ -1,0 +1,30 @@
+name: Setup Bun and install
+description: >-
+  Set up Bun and run a frozen-lockfile install with Bun's global package store
+  (~/.bun/install/cache) cached across runs. Replaces the repeated
+  "Setup Bun" + "Install Dependencies" step pair in every job.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    # Cache Bun's GLOBAL package store, not node_modules. bun install still
+    # links the workspace, but the slow part — downloading + extracting every
+    # dependency tarball — is skipped on a hit. The key is pinned to bun.lock so
+    # an unchanged lockfile is an exact hit; restore-keys lets a changed lockfile
+    # warm-start from the previous store and only fetch the delta.
+    - name: Restore bun install cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.bun/install/cache
+        key: bun-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+        restore-keys: |
+          bun-store-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install Dependencies
+      shell: bash
+      run: bun install --frozen-lockfile

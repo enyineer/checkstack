@@ -1,0 +1,35 @@
+{
+  "$comment": "Source of truth for SECURITY dependency overrides (transitive version pins added to remediate a vulnerability). Intentional, permanent pins (e.g. react, drizzle-orm) are NOT tracked here - only stop-gaps that should be removed once the dependency graph naturally resolves to a safe version. The daily security-maintenance workflow re-validates each entry by removing it, re-resolving, and checking whether the graph still lands at/above `safeFloor`; redundant entries are auto-PR'd for removal. `audit:overrides:check` (PR CI) keeps this file and package.json `overrides`/`resolutions` in sync. See scripts/audit-overrides.ts.",
+  "overrides": [
+    {
+      "name": "ws",
+      "pinned": "^8.21.0",
+      "safeFloor": "8.21.0",
+      "severity": "HIGH",
+      "advisory": "Trivy image scan 2026-06: ws < 8.21.0 (HIGH)",
+      "reason": "A transitive consumer pulled ws 8.20.1 into the production image; 8.21.0 is the first fixed release.",
+      "addedAt": "2026-06-15",
+      "removeWhen": "No dependency resolves ws below 8.21.0 without this override."
+    },
+    {
+      "name": "minimatch",
+      "pinned": "^10.2.5",
+      "safeFloor": "10.2.5",
+      "severity": "HIGH",
+      "advisory": "Trivy image scan 2026-06: minimatch 5.1.9 (HIGH)",
+      "reason": "monaco-languageclient -> vscode-languageclient@9.0.1 pins minimatch ^5.1.0, pulling the vulnerable 5.1.9 into the bundled Monaco editor. 10.x is the fixed line; the matching API used (minimatch(path, pattern)) is unchanged.",
+      "addedAt": "2026-06-15",
+      "removeWhen": "vscode-languageclient (via monaco-languageclient) widens its minimatch range to a fixed release, or no dependency resolves minimatch below 10.2.5."
+    },
+    {
+      "name": "postcss-selector-parser",
+      "pinned": "^7.1.4",
+      "safeFloor": "7.1.4",
+      "severity": "MEDIUM",
+      "advisory": "Trivy fs scan 2026-06: postcss-selector-parser 6.1.2 (MEDIUM)",
+      "reason": "Transitive build-tooling dependency (postcss) pulled 6.1.2; 7.1.4 is the fixed release. Build-time only (not in the production runtime image).",
+      "addedAt": "2026-06-15",
+      "removeWhen": "No dependency resolves postcss-selector-parser below 7.1.4 without this override."
+    }
+  ]
+}

@@ -34,13 +34,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
@@ -153,8 +148,16 @@ jobs:
           # to the assembled manifest. Cache is scoped per image AND platform so
           # the two native builds never clobber each other's cache.
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.pair }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.pair }}
+          # Cache lives in the GHCR registry (a dedicated `buildcache-<platform>`
+          # tag per image+platform), NOT the GitHub Actions Cache. Rationale:
+          # `type=gha,mode=max` exported every intermediate layer of this
+          # multi-stage build for all 4 build variants on every release, churning
+          # ~5.6 GB of blobs. The Actions Cache has a hard 10 GB/repo cap, so those
+          # blobs evicted each other (and the useful tsgo cache) by LRU before they
+          # could ever be reused — paying the full export cost every run for a low
+          # hit rate. The registry cache has no such cap and survives between runs.
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:buildcache-${{ matrix.pair }}
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:buildcache-${{ matrix.pair }},mode=max
 
       - name: Export digest
         run: |
