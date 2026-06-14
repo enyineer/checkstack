@@ -64,7 +64,7 @@ Checkstack terminates no TLS itself; an ingress or reverse proxy does, exactly a
 - A wildcard or per-domain certificate managed by your ingress (for example, cert-manager creating a `Certificate` per domain - see the [Kubernetes installation guide](/checkstack/user-guide/installation/kubernetes/) and the [custom-domain how-to](/checkstack/user-guide/guides/serve-a-status-page-on-a-custom-domain/)).
 - On-demand TLS at the edge (Caddy `on_demand_tls`, Cloudflare for SaaS), gated by the platform's authorization hook so certificates are minted ONLY for domains an operator has verified:
 
-```caddy
+```text
 {
   on_demand_tls {
     # Caddy asks Checkstack before minting a cert for an unknown host.

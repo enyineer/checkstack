@@ -81,7 +81,7 @@ cert-manager requests a certificate via the HTTP-01 challenge once DNS (step 3) 
 
 If you front Checkstack with Caddy, let it issue certificates on demand, gated by Checkstack's authorization hook so a certificate is only ever minted for a domain an operator has verified:
 
-```caddy
+```text
 {
   on_demand_tls {
     # Caddy appends ?domain=<host>; Checkstack returns 200 only for a
