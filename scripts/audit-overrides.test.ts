@@ -6,11 +6,12 @@ import {
   isRedundant,
   parseManifest,
   type ManagedOverride,
+  type ManagedOverrideMeta,
 } from "./audit-overrides";
 
-const baseEntry: ManagedOverride = {
-  name: "ws",
-  pinned: "^8.21.0",
+// Human-only metadata as it appears under a name key in the manifest (no
+// version - that lives in package.json).
+const baseMeta: ManagedOverrideMeta = {
   safeFloor: "8.21.0",
   severity: "HIGH",
   advisory: "Trivy 2026-06: ws < 8.21.0 (HIGH)",
@@ -19,33 +20,37 @@ const baseEntry: ManagedOverride = {
   removeWhen: "no consumer resolves below 8.21.0",
 };
 
+// The flat `{ name, ...meta }` shape parseManifest returns.
+const baseEntry: ManagedOverride = { name: "ws", ...baseMeta };
+
 describe("parseManifest", () => {
-  test("parses a valid manifest and ignores meta keys", () => {
+  test("parses a valid manifest, folds the name key in, ignores meta keys", () => {
     const raw = JSON.stringify({
       $comment: "docs",
       $schema: "./x.json",
-      overrides: [baseEntry],
+      overrides: { ws: baseMeta },
     });
     const result = parseManifest({ raw });
     expect(result).toHaveLength(1);
     expect(result[0]?.name).toBe("ws");
+    expect(result[0]?.safeFloor).toBe("8.21.0");
   });
 
   test("throws on a missing required field", () => {
-    const raw = JSON.stringify({ overrides: [{ name: "ws", pinned: "^8.21.0" }] });
+    const raw = JSON.stringify({ overrides: { ws: { safeFloor: "8.21.0" } } });
     expect(() => parseManifest({ raw })).toThrow();
   });
 
   test("throws on an invalid severity", () => {
     const raw = JSON.stringify({
-      overrides: [{ ...baseEntry, severity: "SPICY" }],
+      overrides: { ws: { ...baseMeta, severity: "SPICY" } },
     });
     expect(() => parseManifest({ raw })).toThrow();
   });
 });
 
 describe("findDrift", () => {
-  test("no issues when manifest matches overrides and resolutions", () => {
+  test("no issues when the name is present and identical in both blocks", () => {
     const issues = findDrift({
       manifest: [baseEntry],
       overrides: { ws: "^8.21.0" },
@@ -54,7 +59,7 @@ describe("findDrift", () => {
     expect(issues).toEqual([]);
   });
 
-  test("flags an override missing from package.json overrides", () => {
+  test("flags a documented override missing from package.json overrides", () => {
     const issues = findDrift({
       manifest: [baseEntry],
       overrides: {},
@@ -64,19 +69,19 @@ describe("findDrift", () => {
     expect(issues[0]?.problem).toContain('missing from package.json "overrides"');
   });
 
-  test("flags a mismatched pin between manifest and resolutions", () => {
+  test("flags overrides and resolutions pinning different ranges", () => {
     const issues = findDrift({
       manifest: [baseEntry],
       overrides: { ws: "^8.21.0" },
-      resolutions: { ws: "^8.20.0" },
+      resolutions: { ws: "^8.21.1" },
     });
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.problem).toContain("resolutions");
+    expect(issues[0]?.problem).toContain("they must match");
   });
 
   test("flags a pinned range whose floor is below safeFloor", () => {
     const issues = findDrift({
-      manifest: [{ ...baseEntry, pinned: ">=8.0.0" }],
+      manifest: [baseEntry],
       overrides: { ws: ">=8.0.0" },
       resolutions: { ws: ">=8.0.0" },
     });
@@ -129,33 +134,33 @@ describe("applyPrune", () => {
       overrides: { ws: "^8.21.0", react: "19.2.7" },
       resolutions: { ws: "^8.21.0", react: "19.2.7" },
     };
-    const manifest = { overrides: [baseEntry, { ...baseEntry, name: "minimatch" }] };
+    const manifest = { overrides: { ws: baseMeta, minimatch: baseMeta } };
 
     const result = applyPrune({ names: ["ws"], pkg, manifest });
 
     expect(result.pkg.overrides).toEqual({ react: "19.2.7" });
     expect(result.pkg.resolutions).toEqual({ react: "19.2.7" });
-    expect(result.manifest.overrides.map((o) => o.name)).toEqual(["minimatch"]);
+    expect(Object.keys(result.manifest.overrides)).toEqual(["minimatch"]);
   });
 
   test("does not mutate the input objects", () => {
     const pkg = { overrides: { ws: "^8.21.0" }, resolutions: { ws: "^8.21.0" } };
-    const manifest = { overrides: [baseEntry] };
+    const manifest = { overrides: { ws: baseMeta } };
 
     applyPrune({ names: ["ws"], pkg, manifest });
 
     expect(pkg.overrides.ws).toBe("^8.21.0");
-    expect(manifest.overrides).toHaveLength(1);
+    expect(Object.keys(manifest.overrides)).toEqual(["ws"]);
   });
 
   test("is a no-op for names that are not present", () => {
     const pkg = { overrides: { ws: "^8.21.0" }, resolutions: { ws: "^8.21.0" } };
-    const manifest = { overrides: [baseEntry] };
+    const manifest = { overrides: { ws: baseMeta } };
 
     const result = applyPrune({ names: ["nonexistent"], pkg, manifest });
 
     expect(result.pkg.overrides).toEqual({ ws: "^8.21.0" });
-    expect(result.manifest.overrides).toHaveLength(1);
+    expect(Object.keys(result.manifest.overrides)).toEqual(["ws"]);
   });
 });
 

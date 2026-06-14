@@ -39,9 +39,9 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const MANIFEST_PATH = path.join(ROOT, "security", "managed-overrides.json");
 const PKG_PATH = path.join(ROOT, "package.json");
 
-export const ManagedOverrideSchema = z.object({
-  name: z.string().min(1),
-  pinned: z.string().min(1),
+// Human-only metadata. The pinned VERSION is intentionally NOT here - it lives
+// in package.json `overrides`/`resolutions` (single source of truth).
+export const ManagedOverrideMetaSchema = z.object({
   safeFloor: z.string().min(1),
   severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
   advisory: z.string().min(1),
@@ -51,16 +51,19 @@ export const ManagedOverrideSchema = z.object({
 });
 
 export const ManifestSchema = z.object({
-  overrides: z.array(ManagedOverrideSchema),
+  overrides: z.record(z.string().min(1), ManagedOverrideMetaSchema),
 });
 
-export type ManagedOverride = z.infer<typeof ManagedOverrideSchema>;
+export type ManagedOverrideMeta = z.infer<typeof ManagedOverrideMetaSchema>;
+export type ManagedOverride = ManagedOverrideMeta & { name: string };
 
 export function parseManifest({ raw }: { raw: string }): ManagedOverride[] {
-  // Strip the `$comment`/`$schema` meta keys before validation so the schema
-  // can stay strict about the override shape.
+  // `$comment`/`$schema` meta keys are ignored: z.record only validates the
+  // `overrides` map. The package name is the map KEY; we fold it back into each
+  // entry so callers keep a flat `{ name, ...meta }` shape.
   const parsed: unknown = JSON.parse(raw);
-  return ManifestSchema.parse(parsed).overrides;
+  const { overrides } = ManifestSchema.parse(parsed);
+  return Object.entries(overrides).map(([name, meta]) => ({ name, ...meta }));
 }
 
 export interface DriftIssue {
@@ -69,10 +72,12 @@ export interface DriftIssue {
 }
 
 /**
- * A managed override must be declared identically in BOTH `overrides` and
- * `resolutions` (this repo mirrors them), and its pinned range must not allow
- * anything below `safeFloor`. Extra package.json overrides that are NOT in the
- * manifest are intentional pins (react, drizzle, ...) and are ignored here.
+ * Each managed override must (a) be present in BOTH package.json `overrides`
+ * and `resolutions` (this repo mirrors them), declared identically, and (b)
+ * pin a range whose floor is at/above the recorded `safeFloor`. The pinned
+ * version is read from package.json - the manifest no longer stores it.
+ * Extra package.json overrides NOT in the manifest are intentional pins
+ * (react, drizzle, ...) and are ignored here.
  */
 export function findDrift({
   manifest,
@@ -92,44 +97,46 @@ export function findDrift({
     if (inOverrides === undefined) {
       issues.push({
         name: entry.name,
-        problem: `listed in managed-overrides.json but missing from package.json "overrides"`,
-      });
-    } else if (inOverrides !== entry.pinned) {
-      issues.push({
-        name: entry.name,
-        problem: `pinned "${entry.pinned}" in manifest but "${inOverrides}" in package.json "overrides"`,
+        problem: `documented in managed-overrides.json but missing from package.json "overrides"`,
       });
     }
-
     if (inResolutions === undefined) {
       issues.push({
         name: entry.name,
-        problem: `listed in managed-overrides.json but missing from package.json "resolutions"`,
+        problem: `documented in managed-overrides.json but missing from package.json "resolutions"`,
       });
-    } else if (inResolutions !== entry.pinned) {
+    }
+    if (
+      inOverrides !== undefined &&
+      inResolutions !== undefined &&
+      inOverrides !== inResolutions
+    ) {
       issues.push({
         name: entry.name,
-        problem: `pinned "${entry.pinned}" in manifest but "${inResolutions}" in package.json "resolutions"`,
+        problem: `"overrides" pins "${inOverrides}" but "resolutions" pins "${inResolutions}" — they must match`,
       });
     }
 
-    // The pinned range must not permit a version below the recorded safe floor.
-    const floor = semver.minVersion(entry.pinned);
-    if (!floor) {
-      issues.push({
-        name: entry.name,
-        problem: `pinned range "${entry.pinned}" is not a parseable semver range`,
-      });
-    } else if (!semver.valid(entry.safeFloor)) {
-      issues.push({
-        name: entry.name,
-        problem: `safeFloor "${entry.safeFloor}" is not a valid semver version`,
-      });
-    } else if (semver.lt(floor, entry.safeFloor)) {
-      issues.push({
-        name: entry.name,
-        problem: `pinned range "${entry.pinned}" allows ${floor.version}, below safeFloor ${entry.safeFloor}`,
-      });
+    // The pinned range (from package.json) must not permit a version below the
+    // recorded safe floor.
+    if (inOverrides !== undefined) {
+      const floor = semver.minVersion(inOverrides);
+      if (!floor) {
+        issues.push({
+          name: entry.name,
+          problem: `pinned range "${inOverrides}" is not a parseable semver range`,
+        });
+      } else if (!semver.valid(entry.safeFloor)) {
+        issues.push({
+          name: entry.name,
+          problem: `safeFloor "${entry.safeFloor}" is not a valid semver version`,
+        });
+      } else if (semver.lt(floor, entry.safeFloor)) {
+        issues.push({
+          name: entry.name,
+          problem: `pinned range "${inOverrides}" allows ${floor.version}, below safeFloor ${entry.safeFloor}`,
+        });
+      }
     }
   }
 
@@ -255,7 +262,7 @@ export function applyPrune({
     resolutions?: Record<string, string>;
     [k: string]: unknown;
   };
-  manifest: { overrides: ManagedOverride[]; [k: string]: unknown };
+  manifest: { overrides: Record<string, unknown>; [k: string]: unknown };
 }): { pkg: typeof pkg; manifest: typeof manifest } {
   const toRemove = new Set(names);
   const nextPkg = structuredClone(pkg);
@@ -265,9 +272,7 @@ export function applyPrune({
     for (const name of toRemove) delete block[name];
   }
   const nextManifest = structuredClone(manifest);
-  nextManifest.overrides = nextManifest.overrides.filter(
-    (o) => !toRemove.has(o.name),
-  );
+  for (const name of toRemove) delete nextManifest.overrides[name];
   return { pkg: nextPkg, manifest: nextManifest };
 }
 

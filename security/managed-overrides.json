@@ -1,9 +1,7 @@
 {
-  "$comment": "Source of truth for SECURITY dependency overrides (transitive version pins added to remediate a vulnerability). Intentional, permanent pins (e.g. react, drizzle-orm) are NOT tracked here - only stop-gaps that should be removed once the dependency graph naturally resolves to a safe version. The daily security-maintenance workflow re-validates each entry by removing it, re-resolving, and checking whether the graph still lands at/above `safeFloor`; redundant entries are auto-PR'd for removal. `audit:overrides:check` (PR CI) keeps this file and package.json `overrides`/`resolutions` in sync. See scripts/audit-overrides.ts.",
-  "overrides": [
-    {
-      "name": "ws",
-      "pinned": "^8.21.0",
+  "$comment": "Human-only metadata for SECURITY dependency overrides (transitive pins added to remediate a vulnerability). The PINNED VERSION is NOT stored here - package.json `overrides`/`resolutions` is the single source of truth for that; this file only records why each pin exists and the minimum safe version. Keyed by package name. Intentional, permanent pins (react, drizzle-orm, ...) are NOT listed here, so the daily security-maintenance workflow never tries to prune them. `audit:overrides:check` (PR CI) verifies every key still has a matching override whose floor >= safeFloor; the daily job removes entries the graph no longer needs. See scripts/audit-overrides.ts.",
+  "overrides": {
+    "ws": {
       "safeFloor": "8.21.0",
       "severity": "HIGH",
       "advisory": "Trivy image scan 2026-06: ws < 8.21.0 (HIGH)",
@@ -11,9 +9,7 @@
       "addedAt": "2026-06-15",
       "removeWhen": "No dependency resolves ws below 8.21.0 without this override."
     },
-    {
-      "name": "minimatch",
-      "pinned": "^10.2.5",
+    "minimatch": {
       "safeFloor": "10.2.5",
       "severity": "HIGH",
       "advisory": "Trivy image scan 2026-06: minimatch 5.1.9 (HIGH)",
@@ -21,9 +17,7 @@
       "addedAt": "2026-06-15",
       "removeWhen": "vscode-languageclient (via monaco-languageclient) widens its minimatch range to a fixed release, or no dependency resolves minimatch below 10.2.5."
     },
-    {
-      "name": "postcss-selector-parser",
-      "pinned": "^7.1.4",
+    "postcss-selector-parser": {
       "safeFloor": "7.1.4",
       "severity": "MEDIUM",
       "advisory": "Trivy fs scan 2026-06: postcss-selector-parser 6.1.2 (MEDIUM)",
@@ -31,5 +25,5 @@
       "addedAt": "2026-06-15",
       "removeWhen": "No dependency resolves postcss-selector-parser below 7.1.4 without this override."
     }
-  ]
+  }
 }
