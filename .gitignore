@@ -19,3 +19,6 @@ docs/.astro/
 
 # Local DB backups (pg_dump) — never commit
 backups/
+
+# Throwaway git worktrees created by scripts/audit-overrides.ts --redundant/--prune
+.audit-overrides-wt/

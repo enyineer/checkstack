@@ -18,7 +18,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/notification-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^9.0.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {
