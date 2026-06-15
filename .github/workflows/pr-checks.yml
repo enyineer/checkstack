@@ -374,27 +374,11 @@ jobs:
 
       # The external-plugin-lifecycle integration test drives a real browser to
       # assert @checkstack/ui's Monaco CodeEditor renders in the standalone dev
-      # server, so Chromium must be available.
-      #
-      # Pin to the EXACT playwright version resolved in bun.lock, and install
-      # the headless shell explicitly. Why both:
-      #  - @playwright/test / playwright are nested under the workspace packages
-      #    (core/create-checkstack-plugin, ...), NOT the repo-root node_modules.
-      #    A bare `bunx playwright` at the root therefore finds no local binary
-      #    and downloads playwright@latest; once npm's latest drifts past the
-      #    locked version it installs a DIFFERENT browser build, and the test's
-      #    locked @playwright/test can't find its expected binary
-      #    (chromium_headless_shell-<n>). Pinning to the lockfile version makes
-      #    the install deterministic and immune to new Playwright releases.
-      #  - Recent Playwright ships the headless binary that chromium.launch()
-      #    uses (chrome-headless-shell) as a SEPARATE component from `chromium`,
-      #    so it must be requested explicitly.
+      # server, so Chromium must be available. `playwright:install` pins the
+      # browser download to the bun.lock-resolved Playwright version and includes
+      # the headless shell — see scripts/install-playwright.ts for the why.
       - name: Install Playwright Chromium
-        run: |
-          set -euo pipefail
-          PW_VERSION="$(grep -oE '"playwright@[0-9][^"]*"' bun.lock | head -1 | sed -E 's/^"playwright@([^"]+)"$/\1/')"
-          echo "Installing Playwright browsers for pinned version: ${PW_VERSION:?could not resolve playwright version from bun.lock}"
-          bunx "playwright@${PW_VERSION}" install --with-deps chromium chromium-headless-shell
+        run: bun run playwright:install --with-deps
 
       - name: Run Integration Tests
         id: integration
