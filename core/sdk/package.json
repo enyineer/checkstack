@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/sdk",
-  "version": "0.110.0",
+  "version": "0.111.0",
   "license": "Elastic-2.0",
   "type": "module",
   "description": "Auto-generated, version-pinned typed client and script-authoring helpers for Checkstack.",
