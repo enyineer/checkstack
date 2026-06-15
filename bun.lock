@@ -1587,7 +1587,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.110.0",
+      "version": "0.111.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -2893,7 +2893,7 @@
     },
     "plugins/notification-smtp-backend": {
       "name": "@checkstack/notification-smtp-backend",
-      "version": "0.0.57",
+      "version": "0.0.58",
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
