@@ -50,20 +50,38 @@ export const ManagedOverrideMetaSchema = z.object({
   removeWhen: z.string().min(1),
 });
 
+// Intentional, permanent pins (version alignment, singletons). Documented but
+// NEVER auto-pruned, so no safeFloor / advisory is required - just intent.
+export const IntentionalPinMetaSchema = z.object({
+  reason: z.string().min(1),
+  addedAt: z.string().min(1),
+});
+
 export const ManifestSchema = z.object({
-  overrides: z.record(z.string().min(1), ManagedOverrideMetaSchema),
+  security: z.record(z.string().min(1), ManagedOverrideMetaSchema),
+  intentional: z.record(z.string().min(1), IntentionalPinMetaSchema),
 });
 
 export type ManagedOverrideMeta = z.infer<typeof ManagedOverrideMetaSchema>;
 export type ManagedOverride = ManagedOverrideMeta & { name: string };
+export type IntentionalPinMeta = z.infer<typeof IntentionalPinMetaSchema>;
+export type IntentionalPin = IntentionalPinMeta & { name: string };
 
-export function parseManifest({ raw }: { raw: string }): ManagedOverride[] {
-  // `$comment`/`$schema` meta keys are ignored: z.record only validates the
-  // `overrides` map. The package name is the map KEY; we fold it back into each
-  // entry so callers keep a flat `{ name, ...meta }` shape.
+export interface ParsedManifest {
+  security: ManagedOverride[];
+  intentional: IntentionalPin[];
+}
+
+export function parseManifest({ raw }: { raw: string }): ParsedManifest {
+  // `$comment`/`$schema` meta keys are ignored: the schema only validates the
+  // `security`/`intentional` maps. The package name is each map's KEY; we fold
+  // it back into the entries so callers keep a flat `{ name, ...meta }` shape.
   const parsed: unknown = JSON.parse(raw);
-  const { overrides } = ManifestSchema.parse(parsed);
-  return Object.entries(overrides).map(([name, meta]) => ({ name, ...meta }));
+  const { security, intentional } = ManifestSchema.parse(parsed);
+  return {
+    security: Object.entries(security).map(([name, meta]) => ({ name, ...meta })),
+    intentional: Object.entries(intentional).map(([name, meta]) => ({ name, ...meta })),
+  };
 }
 
 export interface DriftIssue {
@@ -71,72 +89,110 @@ export interface DriftIssue {
   problem: string;
 }
 
-/**
- * Each managed override must (a) be present in BOTH package.json `overrides`
- * and `resolutions` (this repo mirrors them), declared identically, and (b)
- * pin a range whose floor is at/above the recorded `safeFloor`. The pinned
- * version is read from package.json - the manifest no longer stores it.
- * Extra package.json overrides NOT in the manifest are intentional pins
- * (react, drizzle, ...) and are ignored here.
- */
-export function findDrift({
-  manifest,
+// Every documented override must be present in BOTH `overrides` and
+// `resolutions` (this repo mirrors them), declared identically.
+function checkPresence({
+  name,
   overrides,
   resolutions,
 }: {
-  manifest: ManagedOverride[];
+  name: string;
   overrides: Record<string, string>;
   resolutions: Record<string, string>;
 }): DriftIssue[] {
   const issues: DriftIssue[] = [];
+  const inOverrides = overrides[name];
+  const inResolutions = resolutions[name];
 
-  for (const entry of manifest) {
+  if (inOverrides === undefined) {
+    issues.push({
+      name,
+      problem: `documented in managed-overrides.json but missing from package.json "overrides"`,
+    });
+  }
+  if (inResolutions === undefined) {
+    issues.push({
+      name,
+      problem: `documented in managed-overrides.json but missing from package.json "resolutions"`,
+    });
+  }
+  if (
+    inOverrides !== undefined &&
+    inResolutions !== undefined &&
+    inOverrides !== inResolutions
+  ) {
+    issues.push({
+      name,
+      problem: `"overrides" pins "${inOverrides}" but "resolutions" pins "${inResolutions}" — they must match`,
+    });
+  }
+  return issues;
+}
+
+/**
+ * Validates the manifest against package.json `overrides`/`resolutions`:
+ *  - every package.json override is documented in EXACTLY one bucket (no
+ *    undocumented pins, and none claimed as both security and intentional);
+ *  - security + intentional entries are present and identical in both blocks;
+ *  - each SECURITY pin's range floor is at/above its recorded `safeFloor`.
+ * The pinned version is read from package.json (single source of truth).
+ */
+export function findDrift({
+  security,
+  intentional,
+  overrides,
+  resolutions,
+}: {
+  security: ManagedOverride[];
+  intentional: IntentionalPin[];
+  overrides: Record<string, string>;
+  resolutions: Record<string, string>;
+}): DriftIssue[] {
+  const issues: DriftIssue[] = [];
+  const securityNames = new Set(security.map((e) => e.name));
+  const intentionalNames = new Set(intentional.map((e) => e.name));
+
+  // Completeness: every package.json override must be documented exactly once.
+  for (const name of Object.keys(overrides)) {
+    const inSec = securityNames.has(name);
+    const inInt = intentionalNames.has(name);
+    if (!inSec && !inInt) {
+      issues.push({
+        name,
+        problem: `override exists in package.json but is undocumented — add it to the "security" or "intentional" section of managed-overrides.json`,
+      });
+    } else if (inSec && inInt) {
+      issues.push({
+        name,
+        problem: `documented in BOTH "security" and "intentional" — it must be in exactly one`,
+      });
+    }
+  }
+
+  for (const entry of [...security, ...intentional]) {
+    issues.push(...checkPresence({ name: entry.name, overrides, resolutions }));
+  }
+
+  // Security pins additionally carry a safe floor the range must respect.
+  for (const entry of security) {
     const inOverrides = overrides[entry.name];
-    const inResolutions = resolutions[entry.name];
-
-    if (inOverrides === undefined) {
+    if (inOverrides === undefined) continue;
+    const floor = semver.minVersion(inOverrides);
+    if (!floor) {
       issues.push({
         name: entry.name,
-        problem: `documented in managed-overrides.json but missing from package.json "overrides"`,
+        problem: `pinned range "${inOverrides}" is not a parseable semver range`,
       });
-    }
-    if (inResolutions === undefined) {
+    } else if (!semver.valid(entry.safeFloor)) {
       issues.push({
         name: entry.name,
-        problem: `documented in managed-overrides.json but missing from package.json "resolutions"`,
+        problem: `safeFloor "${entry.safeFloor}" is not a valid semver version`,
       });
-    }
-    if (
-      inOverrides !== undefined &&
-      inResolutions !== undefined &&
-      inOverrides !== inResolutions
-    ) {
+    } else if (semver.lt(floor, entry.safeFloor)) {
       issues.push({
         name: entry.name,
-        problem: `"overrides" pins "${inOverrides}" but "resolutions" pins "${inResolutions}" — they must match`,
+        problem: `pinned range "${inOverrides}" allows ${floor.version}, below safeFloor ${entry.safeFloor}`,
       });
-    }
-
-    // The pinned range (from package.json) must not permit a version below the
-    // recorded safe floor.
-    if (inOverrides !== undefined) {
-      const floor = semver.minVersion(inOverrides);
-      if (!floor) {
-        issues.push({
-          name: entry.name,
-          problem: `pinned range "${inOverrides}" is not a parseable semver range`,
-        });
-      } else if (!semver.valid(entry.safeFloor)) {
-        issues.push({
-          name: entry.name,
-          problem: `safeFloor "${entry.safeFloor}" is not a valid semver version`,
-        });
-      } else if (semver.lt(floor, entry.safeFloor)) {
-        issues.push({
-          name: entry.name,
-          problem: `pinned range "${inOverrides}" allows ${floor.version}, below safeFloor ${entry.safeFloor}`,
-        });
-      }
     }
   }
 
@@ -248,8 +304,9 @@ async function simulateRemoval({
 
 /**
  * Remove a set of override names from a package.json-shaped object (both
- * `overrides` and `resolutions`) and from the managed-overrides manifest.
- * Pure: returns the new JSON strings; the caller writes them.
+ * `overrides` and `resolutions`) and from the manifest's `security` section
+ * (only security pins are ever pruned). Pure: returns the new objects; the
+ * caller writes them.
  */
 export function applyPrune({
   names,
@@ -262,7 +319,7 @@ export function applyPrune({
     resolutions?: Record<string, string>;
     [k: string]: unknown;
   };
-  manifest: { overrides: Record<string, unknown>; [k: string]: unknown };
+  manifest: { security: Record<string, unknown>; [k: string]: unknown };
 }): { pkg: typeof pkg; manifest: typeof manifest } {
   const toRemove = new Set(names);
   const nextPkg = structuredClone(pkg);
@@ -272,19 +329,22 @@ export function applyPrune({
     for (const name of toRemove) delete block[name];
   }
   const nextManifest = structuredClone(manifest);
-  for (const name of toRemove) delete nextManifest.overrides[name];
+  for (const name of toRemove) delete nextManifest.security[name];
   return { pkg: nextPkg, manifest: nextManifest };
 }
 
 async function runCheck(): Promise<void> {
-  const manifest = parseManifest({ raw: readFileSync(MANIFEST_PATH, "utf8") });
+  const { security, intentional } = parseManifest({
+    raw: readFileSync(MANIFEST_PATH, "utf8"),
+  });
   const pkg: {
     overrides?: Record<string, string>;
     resolutions?: Record<string, string>;
   } = JSON.parse(readFileSync(PKG_PATH, "utf8"));
 
   const issues = findDrift({
-    manifest,
+    security,
+    intentional,
     overrides: pkg.overrides ?? {},
     resolutions: pkg.resolutions ?? {},
   });
@@ -301,16 +361,16 @@ async function runCheck(): Promise<void> {
   }
 
   console.log(
-    `✓ ${manifest.length} managed security override(s) are documented and consistent.`,
+    `✓ ${security.length} security + ${intentional.length} intentional override(s) documented and consistent.`,
   );
 }
 
 async function runRedundant(): Promise<void> {
   const asJson = process.argv.includes("--json");
-  const manifest = parseManifest({ raw: readFileSync(MANIFEST_PATH, "utf8") });
+  const { security } = parseManifest({ raw: readFileSync(MANIFEST_PATH, "utf8") });
 
   const results: RedundancyResult[] = [];
-  for (const entry of manifest) {
+  for (const entry of security) {
     results.push(await simulateRemoval({ entry }));
   }
 
@@ -337,10 +397,10 @@ async function runRedundant(): Promise<void> {
 }
 
 async function runPrune(): Promise<void> {
-  const manifest = parseManifest({ raw: readFileSync(MANIFEST_PATH, "utf8") });
+  const { security } = parseManifest({ raw: readFileSync(MANIFEST_PATH, "utf8") });
 
   const redundantNames: string[] = [];
-  for (const entry of manifest) {
+  for (const entry of security) {
     const result = await simulateRemoval({ entry });
     if (result.redundant) redundantNames.push(entry.name);
   }

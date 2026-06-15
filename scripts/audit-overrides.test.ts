@@ -5,12 +5,13 @@ import {
   findDrift,
   isRedundant,
   parseManifest,
+  type IntentionalPin,
   type ManagedOverride,
   type ManagedOverrideMeta,
 } from "./audit-overrides";
 
-// Human-only metadata as it appears under a name key in the manifest (no
-// version - that lives in package.json).
+// Human-only metadata as it appears under a name key in the `security` bucket
+// (no version - that lives in package.json).
 const baseMeta: ManagedOverrideMeta = {
   safeFloor: "8.21.0",
   severity: "HIGH",
@@ -20,79 +21,114 @@ const baseMeta: ManagedOverrideMeta = {
   removeWhen: "no consumer resolves below 8.21.0",
 };
 
-// The flat `{ name, ...meta }` shape parseManifest returns.
 const baseEntry: ManagedOverride = { name: "ws", ...baseMeta };
+const reactPin: IntentionalPin = {
+  name: "react",
+  reason: "single React across MFE",
+  addedAt: "2026-06-06",
+};
 
 describe("parseManifest", () => {
-  test("parses a valid manifest, folds the name key in, ignores meta keys", () => {
+  test("parses both buckets, folds the name key in, ignores meta keys", () => {
     const raw = JSON.stringify({
       $comment: "docs",
-      $schema: "./x.json",
-      overrides: { ws: baseMeta },
+      security: { ws: baseMeta },
+      intentional: { react: { reason: reactPin.reason, addedAt: reactPin.addedAt } },
     });
     const result = parseManifest({ raw });
-    expect(result).toHaveLength(1);
-    expect(result[0]?.name).toBe("ws");
-    expect(result[0]?.safeFloor).toBe("8.21.0");
+    expect(result.security).toHaveLength(1);
+    expect(result.security[0]?.name).toBe("ws");
+    expect(result.intentional).toHaveLength(1);
+    expect(result.intentional[0]?.name).toBe("react");
   });
 
-  test("throws on a missing required field", () => {
-    const raw = JSON.stringify({ overrides: { ws: { safeFloor: "8.21.0" } } });
+  test("throws when a security entry is missing a required field", () => {
+    const raw = JSON.stringify({
+      security: { ws: { safeFloor: "8.21.0" } },
+      intentional: {},
+    });
+    expect(() => parseManifest({ raw })).toThrow();
+  });
+
+  test("throws when an intentional entry is missing a reason", () => {
+    const raw = JSON.stringify({
+      security: {},
+      intentional: { react: { addedAt: "2026-06-06" } },
+    });
     expect(() => parseManifest({ raw })).toThrow();
   });
 
   test("throws on an invalid severity", () => {
     const raw = JSON.stringify({
-      overrides: { ws: { ...baseMeta, severity: "SPICY" } },
+      security: { ws: { ...baseMeta, severity: "SPICY" } },
+      intentional: {},
     });
     expect(() => parseManifest({ raw })).toThrow();
   });
 });
 
 describe("findDrift", () => {
-  test("no issues when the name is present and identical in both blocks", () => {
+  const ok = {
+    security: [baseEntry],
+    intentional: [reactPin],
+    overrides: { ws: "^8.21.0", react: "19.2.7" },
+    resolutions: { ws: "^8.21.0", react: "19.2.7" },
+  };
+
+  test("no issues when every override is documented and consistent", () => {
+    expect(findDrift(ok)).toEqual([]);
+  });
+
+  test("flags an override present in package.json but undocumented", () => {
     const issues = findDrift({
-      manifest: [baseEntry],
-      overrides: { ws: "^8.21.0" },
-      resolutions: { ws: "^8.21.0" },
+      ...ok,
+      overrides: { ...ok.overrides, lodash: "^4.17.21" },
+      resolutions: { ...ok.resolutions, lodash: "^4.17.21" },
     });
-    expect(issues).toEqual([]);
+    expect(issues.some((i) => i.name === "lodash" && i.problem.includes("undocumented"))).toBe(
+      true,
+    );
+  });
+
+  test("flags a name documented in BOTH buckets", () => {
+    const issues = findDrift({
+      ...ok,
+      security: [baseEntry],
+      intentional: [reactPin, { name: "ws", reason: "x", addedAt: "2026-06-15" }],
+    });
+    expect(issues.some((i) => i.name === "ws" && i.problem.includes("exactly one"))).toBe(true);
   });
 
   test("flags a documented override missing from package.json overrides", () => {
-    const issues = findDrift({
-      manifest: [baseEntry],
-      overrides: {},
-      resolutions: { ws: "^8.21.0" },
-    });
-    expect(issues).toHaveLength(1);
-    expect(issues[0]?.problem).toContain('missing from package.json "overrides"');
+    const issues = findDrift({ ...ok, overrides: { react: "19.2.7" } });
+    expect(issues.some((i) => i.problem.includes('missing from package.json "overrides"'))).toBe(
+      true,
+    );
   });
 
   test("flags overrides and resolutions pinning different ranges", () => {
     const issues = findDrift({
-      manifest: [baseEntry],
-      overrides: { ws: "^8.21.0" },
-      resolutions: { ws: "^8.21.1" },
+      ...ok,
+      resolutions: { ws: "^8.21.1", react: "19.2.7" },
     });
-    expect(issues).toHaveLength(1);
-    expect(issues[0]?.problem).toContain("they must match");
+    expect(issues.some((i) => i.problem.includes("they must match"))).toBe(true);
   });
 
-  test("flags a pinned range whose floor is below safeFloor", () => {
+  test("flags a SECURITY pin whose floor is below safeFloor", () => {
     const issues = findDrift({
-      manifest: [baseEntry],
-      overrides: { ws: ">=8.0.0" },
-      resolutions: { ws: ">=8.0.0" },
+      ...ok,
+      overrides: { ws: ">=8.0.0", react: "19.2.7" },
+      resolutions: { ws: ">=8.0.0", react: "19.2.7" },
     });
     expect(issues.some((i) => i.problem.includes("below safeFloor"))).toBe(true);
   });
 
-  test("ignores extra non-manifest overrides (intentional pins)", () => {
+  test("does NOT apply a floor check to intentional pins (any range is fine)", () => {
     const issues = findDrift({
-      manifest: [baseEntry],
-      overrides: { ws: "^8.21.0", react: "19.2.7" },
-      resolutions: { ws: "^8.21.0", react: "19.2.7" },
+      security: [],
+      intentional: [reactPin],
+      overrides: { react: "0.0.1" },
+      resolutions: { react: "0.0.1" },
     });
     expect(issues).toEqual([]);
   });
@@ -129,38 +165,43 @@ describe("extractInstalledVersions", () => {
 });
 
 describe("applyPrune", () => {
-  test("removes named entries from overrides, resolutions, and manifest only", () => {
+  test("removes named entries from package.json and the security bucket only", () => {
     const pkg = {
       overrides: { ws: "^8.21.0", react: "19.2.7" },
       resolutions: { ws: "^8.21.0", react: "19.2.7" },
     };
-    const manifest = { overrides: { ws: baseMeta, minimatch: baseMeta } };
+    const manifest = {
+      security: { ws: baseMeta, minimatch: baseMeta },
+      intentional: { react: { reason: "x", addedAt: "2026-06-06" } },
+    };
 
     const result = applyPrune({ names: ["ws"], pkg, manifest });
 
     expect(result.pkg.overrides).toEqual({ react: "19.2.7" });
     expect(result.pkg.resolutions).toEqual({ react: "19.2.7" });
-    expect(Object.keys(result.manifest.overrides)).toEqual(["minimatch"]);
+    expect(Object.keys(result.manifest.security)).toEqual(["minimatch"]);
+    // Intentional pins are never touched.
+    expect(result.manifest.intentional).toEqual({ react: { reason: "x", addedAt: "2026-06-06" } });
   });
 
   test("does not mutate the input objects", () => {
     const pkg = { overrides: { ws: "^8.21.0" }, resolutions: { ws: "^8.21.0" } };
-    const manifest = { overrides: { ws: baseMeta } };
+    const manifest = { security: { ws: baseMeta } };
 
     applyPrune({ names: ["ws"], pkg, manifest });
 
     expect(pkg.overrides.ws).toBe("^8.21.0");
-    expect(Object.keys(manifest.overrides)).toEqual(["ws"]);
+    expect(Object.keys(manifest.security)).toEqual(["ws"]);
   });
 
   test("is a no-op for names that are not present", () => {
     const pkg = { overrides: { ws: "^8.21.0" }, resolutions: { ws: "^8.21.0" } };
-    const manifest = { overrides: { ws: baseMeta } };
+    const manifest = { security: { ws: baseMeta } };
 
     const result = applyPrune({ names: ["nonexistent"], pkg, manifest });
 
     expect(result.pkg.overrides).toEqual({ ws: "^8.21.0" });
-    expect(Object.keys(result.manifest.overrides)).toEqual(["ws"]);
+    expect(Object.keys(result.manifest.security)).toEqual(["ws"]);
   });
 });
 
