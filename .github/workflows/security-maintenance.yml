@@ -119,11 +119,13 @@ jobs:
           set -euo pipefail
           bun run audit:overrides:redundant --json > /tmp/redundant.json || true
           bun run audit:overrides:prune | tee /tmp/prune.txt
-          bun install
-          # Only the files the prune actually rewrites count as a change. Scope
-          # the check to them so unrelated working-tree noise (e.g. the Trivy DB
-          # the scans download into .cache/) can never trigger a spurious PR.
-          if [ -n "$(git status --porcelain -- package.json bun.lock security/managed-overrides.json)" ]; then
+          # The prune rewrites ONLY package.json + the manifest (never bun.lock).
+          # If neither changed, nothing was pruned — do NOT run `bun install`,
+          # because bun re-serializes bun.lock even on a no-op ("Saved lockfile"),
+          # which would otherwise open a spurious lockfile-only PR every day.
+          # Trivy's .cache/ DB is gitignored and out of scope here regardless.
+          if [ -n "$(git status --porcelain -- package.json security/managed-overrides.json)" ]; then
+            bun install
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
