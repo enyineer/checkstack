@@ -120,7 +120,10 @@ jobs:
           bun run audit:overrides:redundant --json > /tmp/redundant.json || true
           bun run audit:overrides:prune | tee /tmp/prune.txt
           bun install
-          if [ -n "$(git status --porcelain)" ]; then
+          # Only the files the prune actually rewrites count as a change. Scope
+          # the check to them so unrelated working-tree noise (e.g. the Trivy DB
+          # the scans download into .cache/) can never trigger a spurious PR.
+          if [ -n "$(git status --porcelain -- package.json bun.lock security/managed-overrides.json)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -156,6 +159,12 @@ jobs:
           body-path: /tmp/pr-body.md
           labels: security-maintenance
           delete-branch: true
+          # Commit ONLY the files the prune rewrites — never the Trivy DB or any
+          # other untracked working-tree artifact.
+          add-paths: |
+            package.json
+            bun.lock
+            security/managed-overrides.json
 
       # Surface fixable CVEs that need a human decision (version bumps can be
       # breaking, so they are NOT auto-applied) via a single upserted issue.
