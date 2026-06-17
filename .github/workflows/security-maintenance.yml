@@ -95,7 +95,7 @@ jobs:
             echo ""
             if [ "$fixable" -gt 0 ]; then
               jq -r '[.[] | select(.fixed != "")] | sort_by(.sev) | reverse[]
-                | "- **\(.sev)** \`\(.pkg)\` \(.installed) → fixed in **\(.fixed)** (\(.id))"' /tmp/vulns.json
+                | "- **\(.sev)** `\(.pkg)` \(.installed) → fixed in **\(.fixed)** (\(.id))"' /tmp/vulns.json
             else
               echo "_None._"
             fi
@@ -103,7 +103,7 @@ jobs:
             echo "<details><summary>Known unfixed (monitoring only)</summary>"
             echo ""
             jq -r '[.[] | select(.fixed == "")] | sort_by(.sev) | reverse[]
-              | "- \(.sev) \`\(.pkg)\` \(.installed) (\(.id))"' /tmp/vulns.json
+              | "- \(.sev) `\(.pkg)` \(.installed) (\(.id))"' /tmp/vulns.json
             echo ""
             echo "</details>"
           } > /tmp/cve-report.md
