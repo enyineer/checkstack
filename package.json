@@ -31,6 +31,7 @@
     "audit:image": "bun run scripts/audit-trivy.ts image",
     "audit:overrides:check": "bun run scripts/audit-overrides.ts --check",
     "audit:overrides:redundant": "bun run scripts/audit-overrides.ts --redundant",
+    "audit:overrides:prune": "bun run scripts/audit-overrides.ts --prune",
     "playwright:install": "bun run scripts/install-playwright.ts",
     "changeset": "changeset",
     "version-packages": "bun run scripts/inject-release.ts && changeset version && bun install --lockfile-only && bun run scripts/generate-sdk.ts && bun run scripts/generate-docs-index.ts",

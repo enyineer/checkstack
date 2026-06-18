@@ -95,7 +95,7 @@ jobs:
             echo ""
             if [ "$fixable" -gt 0 ]; then
               jq -r '[.[] | select(.fixed != "")] | sort_by(.sev) | reverse[]
-                | "- **\(.sev)** \`\(.pkg)\` \(.installed) → fixed in **\(.fixed)** (\(.id))"' /tmp/vulns.json
+                | "- **\(.sev)** `\(.pkg)` \(.installed) → fixed in **\(.fixed)** (\(.id))"' /tmp/vulns.json
             else
               echo "_None._"
             fi
@@ -103,7 +103,7 @@ jobs:
             echo "<details><summary>Known unfixed (monitoring only)</summary>"
             echo ""
             jq -r '[.[] | select(.fixed == "")] | sort_by(.sev) | reverse[]
-              | "- \(.sev) \`\(.pkg)\` \(.installed) (\(.id))"' /tmp/vulns.json
+              | "- \(.sev) `\(.pkg)` \(.installed) (\(.id))"' /tmp/vulns.json
             echo ""
             echo "</details>"
           } > /tmp/cve-report.md
@@ -119,8 +119,13 @@ jobs:
           set -euo pipefail
           bun run audit:overrides:redundant --json > /tmp/redundant.json || true
           bun run audit:overrides:prune | tee /tmp/prune.txt
-          bun install
-          if [ -n "$(git status --porcelain)" ]; then
+          # The prune rewrites ONLY package.json + the manifest (never bun.lock).
+          # If neither changed, nothing was pruned — do NOT run `bun install`,
+          # because bun re-serializes bun.lock even on a no-op ("Saved lockfile"),
+          # which would otherwise open a spurious lockfile-only PR every day.
+          # Trivy's .cache/ DB is gitignored and out of scope here regardless.
+          if [ -n "$(git status --porcelain -- package.json security/managed-overrides.json)" ]; then
+            bun install
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -156,6 +161,12 @@ jobs:
           body-path: /tmp/pr-body.md
           labels: security-maintenance
           delete-branch: true
+          # Commit ONLY the files the prune rewrites — never the Trivy DB or any
+          # other untracked working-tree artifact.
+          add-paths: |
+            package.json
+            bun.lock
+            security/managed-overrides.json
 
       # Surface fixable CVEs that need a human decision (version bumps can be
       # breaking, so they are NOT auto-applied) via a single upserted issue.
