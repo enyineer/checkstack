@@ -26,12 +26,12 @@
       "removeWhen": "No dependency resolves postcss-selector-parser below 7.1.4 without this override."
     },
     "dompurify": {
-      "safeFloor": "3.4.3",
+      "safeFloor": "3.4.11",
       "severity": "MEDIUM",
-      "advisory": "Added in #210 (extend Trivy scope to MEDIUM and bump vulnerable deps): DOMPurify sanitizer-bypass class.",
+      "advisory": "CVE-2026-49458, CVE-2026-49459, CVE-2026-49978, GHSA-76mc-f452-cxcm, GHSA-cmwh-pvxp-8882",
       "reason": "DOMPurify is the HTML sanitizer; 3.4.3 is the pinned fixed release. Confirm the exact advisory ID from #210 if refining.",
       "addedAt": "2026-05-13",
-      "removeWhen": "No dependency resolves dompurify below 3.4.3 without this override."
+      "removeWhen": "No dependency resolves dompurify below 3.4.11 without this override."
     },
     "esbuild": {
       "safeFloor": "0.28.1",
@@ -56,6 +56,22 @@
       "reason": "Forces every consumer onto a fixed yaml release. Confirm the exact advisory ID if refining.",
       "addedAt": "2026-06-06",
       "removeWhen": "No dependency resolves yaml below 2.9.0 without this override."
+    },
+    "protobufjs": {
+      "safeFloor": "7.6.3",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-48712, CVE-2026-54269",
+      "reason": "Auto-remediated by Security Maintenance: protobufjs 7.5.8 had fixable advisories; pinned to the fixed 7.x line.",
+      "addedAt": "2026-06-18",
+      "removeWhen": "No dependency resolves protobufjs below 7.6.3 without this override."
+    },
+    "undici": {
+      "safeFloor": "7.28.0",
+      "severity": "HIGH",
+      "advisory": "CVE-2026-9678, CVE-2026-9697",
+      "reason": "Auto-remediated by Security Maintenance: undici 7.24.7 had fixable advisories; pinned to the fixed 7.x line.",
+      "addedAt": "2026-06-18",
+      "removeWhen": "No dependency resolves undici below 7.28.0 without this override."
     }
   },
   "intentional": {
