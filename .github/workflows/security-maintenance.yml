@@ -109,6 +109,16 @@ jobs:
           } > /tmp/cve-report.md
           echo "fixable_count=$fixable" >> "$GITHUB_OUTPUT"
 
+      # Hand the normalized findings to the `remediate` job (a separate, clean
+      # checkout) so override-pruning and auto-remediation never edit the same
+      # working tree and cross-contaminate their PRs.
+      - name: Upload findings
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-vulns
+          path: /tmp/vulns.json
+          retention-days: 1
+
       # Re-resolve each managed override with it removed; prune any that the
       # graph no longer needs, then refresh the lockfile. Produces a working-
       # tree diff (package.json + manifest + bun.lock) only when something was
@@ -153,7 +163,9 @@ jobs:
         if: steps.prune.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # See the remediation PR step for why a non-GITHUB_TOKEN identity is
+          # needed for CI to run on the created PR.
+          token: ${{ secrets.SECURITY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           branch: chore/security-maintenance
           base: main
           commit-message: "chore(security): prune redundant managed overrides"
@@ -218,3 +230,121 @@ jobs:
               });
               core.info('Created new CVE tracking issue');
             }
+
+      # When nothing is fixable anymore (e.g. after a remediation PR merged),
+      # close the tracking issue so it doesn't linger showing stale CVEs. The
+      # `Closes #N` in the remediation PR usually handles this on merge; this is
+      # the backstop for the case where the issue outlived its findings.
+      - name: Close tracking issue when clear
+        if: steps.cve.outputs.fixable_count == '0'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const marker = '<!-- security-maintenance-cve -->';
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security-maintenance',
+              per_page: 100,
+            });
+            for (const issue of open.filter((i) => i.body && i.body.includes(marker))) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: 'No fixable vulnerabilities remain — closing automatically.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              core.info(`Closed tracking issue #${issue.number}`);
+            }
+
+  # Auto-remediate fixable findings into a CI-gated PR. Runs in its OWN clean
+  # checkout (separate from `maintain`) so it never shares a working tree with
+  # the override-prune step and can't cross-contaminate the two PRs. This
+  # GENERATES, never merges: the PR must pass full CI (typecheck/lint/test/build
+  # + the Security gate) before a human merges it. The remediator never makes an
+  # automatic major bump (the proto-loader trap); major-only fixes are listed in
+  # the PR body for manual handling.
+  remediate:
+    name: Auto-remediate fixable vulnerabilities
+    needs: maintain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+
+      - name: Download findings
+        uses: actions/download-artifact@v8
+        with:
+          name: security-vulns
+          path: /tmp
+
+      - name: Plan & apply remediations
+        id: remediate
+        run: |
+          set -euo pipefail
+          bun run security:remediate /tmp/vulns.json
+          # Scope the change check to the files the remediator rewrites (same
+          # rationale as the prune step): root + workspace manifests (range
+          # bumps), the lockfile, the override manifest, and the changeset.
+          if [ -n "$(git status --porcelain -- package.json 'core/*/package.json' 'plugins/*/package.json' bun.lock security/managed-overrides.json .changeset/auto-security-remediation.md)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Auto-close the CVE tracking issue when THIS PR remediates everything (no
+      # major-only findings remain for a human). `Closes #N` in the body closes
+      # the issue the moment the PR merges to main.
+      - name: Link tracking issue for closure
+        if: steps.remediate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq 'length' /tmp/remediation-manual.json)" = "0" ]; then
+            num=$(gh issue list --label security-maintenance --state open --json number,body \
+              --jq 'map(select(.body | contains("<!-- security-maintenance-cve -->")))[0].number // empty')
+            if [ -n "$num" ]; then
+              printf '\nCloses #%s\n' "$num" >> /tmp/remediation-summary.md
+              echo "Will close tracking issue #$num on merge."
+            fi
+          fi
+
+      - name: Open / update remediation PR
+        if: steps.remediate.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # A non-GITHUB_TOKEN identity is REQUIRED for the PR's CI to run:
+          # GitHub does not trigger workflows on PRs opened by GITHUB_TOKEN (they
+          # land in `action_required`). Create a SECURITY_BOT_TOKEN secret (a
+          # fine-grained PAT or GitHub App token with contents+pull-requests
+          # write, plus workflows) so the auto-PR is CI-gated end to end; until
+          # then it falls back to GITHUB_TOKEN and a maintainer must "Approve and
+          # run" the checks manually.
+          token: ${{ secrets.SECURITY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          branch: chore/security-remediation
+          base: main
+          commit-message: "fix(security): auto-remediate fixable vulnerabilities"
+          title: "fix(security): auto-remediate fixable vulnerabilities"
+          body-path: /tmp/remediation-summary.md
+          labels: security-maintenance
+          delete-branch: true
+          # Range-bumps edit workspace manifests too, so commit those alongside
+          # the root/lockfile/override/changeset files — never anything else.
+          add-paths: |
+            package.json
+            core/*/package.json
+            plugins/*/package.json
+            bun.lock
+            security/managed-overrides.json
+            .changeset/auto-security-remediation.md
