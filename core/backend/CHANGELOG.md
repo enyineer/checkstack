@@ -1,5 +1,21 @@
 # @checkstack/backend
 
+## 0.20.1
+
+### Patch Changes
+
+- 2ec8f64: Security: auto-remediated fixable vulnerabilities flagged by the daily scan.
+
+  - `hono` 4.12.23 → 4.12.25 (CVE-2026-54286, CVE-2026-54287, CVE-2026-54288, CVE-2026-54289, CVE-2026-54290)
+  - `nodemailer` 9.0.0 → 9.0.1 (GHSA-p6gq-j5cr-w38f)
+  - `dompurify` 3.4.3 → 3.4.11 (CVE-2026-49458, CVE-2026-49459, CVE-2026-49978, GHSA-76mc-f452-cxcm, GHSA-cmwh-pvxp-8882)
+  - `protobufjs` 7.5.8 → 7.6.3 (CVE-2026-48712, CVE-2026-54269)
+  - `undici` 7.24.7 → 7.28.0 (CVE-2026-9678, CVE-2026-9697)
+
+- Updated dependencies [2ec8f64]
+  - @checkstack/backend-api@0.24.1
+  - @checkstack/signal-backend@0.3.11
+
 ## 0.20.0
 
 ### Minor Changes

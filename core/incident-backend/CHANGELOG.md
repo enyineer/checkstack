@@ -1,5 +1,18 @@
 # @checkstack/incident-backend
 
+## 1.8.2
+
+### Patch Changes
+
+- Updated dependencies [2ec8f64]
+  - @checkstack/backend-api@0.24.1
+  - @checkstack/catalog-backend@1.5.2
+  - @checkstack/automation-backend@0.9.2
+  - @checkstack/ai-backend@0.7.2
+  - @checkstack/command-backend@0.2.11
+  - @checkstack/integration-backend@0.6.4
+  - @checkstack/status-page-backend@0.2.1
+
 ## 1.8.1
 
 ### Patch Changes
