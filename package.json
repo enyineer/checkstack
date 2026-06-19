@@ -63,26 +63,30 @@
     "drizzle-orm": "^0.45.0",
     "drizzle-kit": ">=0.31.0 <1.0.0",
     "esbuild": "^0.28.1",
-    "dompurify": "^3.4.3",
+    "dompurify": "^3.4.11",
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "ws": "^8.21.0",
     "minimatch": "^10.2.5",
-    "postcss-selector-parser": "^7.1.4"
+    "postcss-selector-parser": "^7.1.4",
+    "protobufjs": "^7.6.3",
+    "undici": "^7.28.0"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
     "drizzle-kit": ">=0.31.0 <1.0.0",
     "esbuild": "^0.28.1",
-    "dompurify": "^3.4.3",
+    "dompurify": "^3.4.11",
     "uuid": "^14.0.0",
     "yaml": "^2.9.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "ws": "^8.21.0",
     "minimatch": "^10.2.5",
-    "postcss-selector-parser": "^7.1.4"
+    "postcss-selector-parser": "^7.1.4",
+    "protobufjs": "^7.6.3",
+    "undici": "^7.28.0"
   }
 }

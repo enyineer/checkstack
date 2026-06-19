@@ -22,7 +22,7 @@
     "@orpc/server": "^1.14.4",
     "@orpc/zod": "^1.14.4",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.23",
+    "hono": "^4.12.25",
     "marked": "^17.0.1",
     "zod": "^4.2.1"
   },
@@ -34,7 +34,7 @@
     "pg": "^8.21.0"
   },
   "peerDependencies": {
-    "hono": "^4.12.23",
+    "hono": "^4.12.25",
     "drizzle-orm": "^0.45.0"
   },
   "checkstack": {
