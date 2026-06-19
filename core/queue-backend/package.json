@@ -20,7 +20,7 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/queue-common": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
-    "hono": "^4.12.23",
+    "hono": "^4.12.25",
     "zod": "^4.0.0",
     "@checkstack/common": "workspace:*",
     "@orpc/server": "^1.14.4"

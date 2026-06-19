@@ -21,7 +21,7 @@
     "@checkstack/command-backend": "workspace:*",
     "better-auth": "^1.6.13",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.12.23",
+    "hono": "^4.12.25",
     "kysely": "^0.28.17",
     "jose": "^6.2.3",
     "zod": "^4.2.1",
