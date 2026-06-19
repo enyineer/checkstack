@@ -1,5 +1,25 @@
 # @checkstack/catalog-backend
 
+## 1.5.2
+
+### Patch Changes
+
+- 2ec8f64: Security: auto-remediated fixable vulnerabilities flagged by the daily scan.
+
+  - `hono` 4.12.23 → 4.12.25 (CVE-2026-54286, CVE-2026-54287, CVE-2026-54288, CVE-2026-54289, CVE-2026-54290)
+  - `nodemailer` 9.0.0 → 9.0.1 (GHSA-p6gq-j5cr-w38f)
+  - `dompurify` 3.4.3 → 3.4.11 (CVE-2026-49458, CVE-2026-49459, CVE-2026-49978, GHSA-76mc-f452-cxcm, GHSA-cmwh-pvxp-8882)
+  - `protobufjs` 7.5.8 → 7.6.3 (CVE-2026-48712, CVE-2026-54269)
+  - `undici` 7.24.7 → 7.28.0 (CVE-2026-9678, CVE-2026-9697)
+
+- Updated dependencies [2ec8f64]
+  - @checkstack/auth-backend@0.7.2
+  - @checkstack/backend-api@0.24.1
+  - @checkstack/automation-backend@0.9.2
+  - @checkstack/ai-backend@0.7.2
+  - @checkstack/command-backend@0.2.11
+  - @checkstack/gitops-backend@0.5.11
+
 ## 1.5.1
 
 ### Patch Changes
