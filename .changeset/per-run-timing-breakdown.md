@@ -32,8 +32,11 @@ measured around it: `fetch` resolves at the response headers, so wait
 DNS is timed at the resolve step, and connect/TLS come from a short-lived,
 best-effort raw `net`/`tls` probe to the same already-validated IP (the request
 socket exposes no connect/handshake events on the Bun runtime). The probe is
-timing-only and never fails the check. Other transports surface the connect and
-operation times they already measure.
+timing-only and never fails the check. The probe validates the TLS certificate
+(against the original hostname via SNI) like the real request does - it does not
+disable certificate validation; an unverifiable cert simply yields no TLS-phase
+timing rather than aborting. Other transports surface the connect and operation
+times they already measure.
 
 The SSRF guard now validates the resolved host (rejecting cloud-metadata /
 link-local and operator-denied ranges) as a pre-flight check and no longer pins

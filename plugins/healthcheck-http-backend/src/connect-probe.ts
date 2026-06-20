@@ -58,13 +58,18 @@ export function probeConnectTiming({
     };
 
     if (useTls) {
+      // Validate the certificate (the default): it is checked against
+      // `servername` (the original hostname), not the IP we dialed, so a
+      // legitimately valid cert still verifies. We deliberately do NOT disable
+      // validation - the real `fetch` validates strictly too, so a bad cert
+      // already fails the check; matching that here is consistent and avoids the
+      // insecure `rejectUnauthorized: false`. If the handshake can't complete
+      // (invalid/self-signed cert), the `error` handler below resolves with just
+      // the TCP `connectMs` and no `tlsMs` - timing is best-effort, never fatal.
       const socket = tls.connect({
         host: ip,
         port,
         ...(servername === undefined ? {} : { servername }),
-        // Timing only - the real `fetch` validates the certificate. We just
-        // want the handshake duration, so a cert mismatch must not abort it.
-        rejectUnauthorized: false,
       });
       socket.once("connect", () => {
         result.connectMs = Math.max(0, now() - start);
