@@ -21,14 +21,17 @@ test.describe.configure({ mode: "serial" });
 
 // Distinguishes parallel spec files; combined with the per-attempt suffix below.
 const BASE_SUFFIX = Date.now();
-const SYSTEM_DESCRIPTION = "Handles all customer payment processing";
 const NAV_TIMEOUT = 30_000;
 
-// Per-ATTEMPT names, set in beforeEach from `testInfo.retry`. A serial-group
-// retry re-runs against a DB that still holds the previous attempt's rows, so a
-// fixed name would collide; `-r<retry>` gives each attempt its own namespace.
+// Per-ATTEMPT data, set in beforeEach from `testInfo.retry`. A serial-group
+// retry re-runs against a DB that still holds the previous attempt's rows, so
+// any FIXED value an assertion matches on (a name AND the description - the
+// management table lists every system, so a shared description matches the
+// leftover row too -> strict-mode "2 elements") would collide. `-r<retry>`
+// gives each attempt its own namespace for every asserted value.
 let SUFFIX = "";
 let SYSTEM_NAME = "";
+let SYSTEM_DESCRIPTION = "";
 let SYSTEM_NAME_UPDATED = "";
 let GROUP_NAME = "";
 let ENV_NAME = "";
@@ -37,6 +40,7 @@ test.beforeEach(() => {
   // `test.info().retry` is the current attempt index (0 first run, 1+ retries).
   SUFFIX = `${BASE_SUFFIX}-r${test.info().retry}`;
   SYSTEM_NAME = `Payments API ${SUFFIX}`;
+  SYSTEM_DESCRIPTION = `Handles all customer payment processing ${SUFFIX}`;
   SYSTEM_NAME_UPDATED = `Payments Gateway ${SUFFIX}`;
   GROUP_NAME = `Payment Flow ${SUFFIX}`;
   ENV_NAME = `Production ${SUFFIX}`;
