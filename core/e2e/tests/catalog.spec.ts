@@ -2,49 +2,24 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 import type { Page } from "@playwright/test";
 
 /**
- * Systems & Catalog E2E (mutating chain). Drives the real authenticated app
- * (admin session via storageState). The whole file shares ONE database and runs
- * serially: create -> edit -> group -> environment -> delete operate on the SAME
- * system across tests.
- *
- * RETRY-SAFE: the e2e DB is reset per FILE boot, NOT per Playwright retry, and a
- * serial group retries from the top. So every created name is keyed to the retry
- * attempt (`-r<n>`): a retry runs in its own name namespace and can never
- * collide with the previous attempt's leftover rows. The GLOBAL empty-state
- * assertions (which require a truly empty catalog and so cannot survive a
- * polluted retry) live in `catalog-empty.spec.ts`, which creates nothing.
+ * Systems & Catalog E2E. Drives the real authenticated app (admin session via
+ * storageState) against a freshly reset, empty database. The whole file shares
+ * ONE database, so it runs serially and the empty-state assertions run before
+ * the create/edit tests that populate the catalog.
  *
  * Routes (plugin-prefixed): /catalog/ (browse), /catalog/config (manage),
  * /catalog/system/:systemId (detail).
  */
 test.describe.configure({ mode: "serial" });
 
-// Distinguishes parallel spec files; combined with the per-attempt suffix below.
-const BASE_SUFFIX = Date.now();
+// Unique suffix so re-runs / parallel files never collide on names.
+const SUFFIX = Date.now();
+const SYSTEM_NAME = `Payments API ${SUFFIX}`;
+const SYSTEM_DESCRIPTION = "Handles all customer payment processing";
+const SYSTEM_NAME_UPDATED = `Payments Gateway ${SUFFIX}`;
+const GROUP_NAME = `Payment Flow ${SUFFIX}`;
+
 const NAV_TIMEOUT = 30_000;
-
-// Per-ATTEMPT data, set in beforeEach from `testInfo.retry`. A serial-group
-// retry re-runs against a DB that still holds the previous attempt's rows, so
-// any FIXED value an assertion matches on (a name AND the description - the
-// management table lists every system, so a shared description matches the
-// leftover row too -> strict-mode "2 elements") would collide. `-r<retry>`
-// gives each attempt its own namespace for every asserted value.
-let SUFFIX = "";
-let SYSTEM_NAME = "";
-let SYSTEM_DESCRIPTION = "";
-let SYSTEM_NAME_UPDATED = "";
-let GROUP_NAME = "";
-let ENV_NAME = "";
-
-test.beforeEach(() => {
-  // `test.info().retry` is the current attempt index (0 first run, 1+ retries).
-  SUFFIX = `${BASE_SUFFIX}-r${test.info().retry}`;
-  SYSTEM_NAME = `Payments API ${SUFFIX}`;
-  SYSTEM_DESCRIPTION = `Handles all customer payment processing ${SUFFIX}`;
-  SYSTEM_NAME_UPDATED = `Payments Gateway ${SUFFIX}`;
-  GROUP_NAME = `Payment Flow ${SUFFIX}`;
-  ENV_NAME = `Production ${SUFFIX}`;
-});
 
 /**
  * Browse groups systems into collapsible sections (including a synthetic
@@ -86,6 +61,48 @@ async function expandBrowseSections(page: Page): Promise<void> {
 }
 
 test.describe("Systems & Catalog", () => {
+  test("browse shows the empty catalog state with a link to management", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByRole("heading", { name: "Catalog", exact: true }),
+    ).toBeVisible();
+
+    // Onboarding empty state for a brand-new, system-less catalog.
+    await expect(
+      page.getByText("No systems in the catalog yet"),
+    ).toBeVisible();
+
+    // The empty state offers a CTA into catalog management.
+    const addFirst = page.getByRole("link", {
+      name: "Add your first system",
+    });
+    await expect(addFirst).toBeVisible();
+    await expect(addFirst).toHaveAttribute("href", "/catalog/config");
+  });
+
+  test("management page shows empty systems and groups states", async ({
+    page,
+  }) => {
+    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByRole("heading", { name: "Catalog Management" }),
+    ).toBeVisible();
+
+    // The Systems tab (default) starts empty with its CTA.
+    await expect(page.getByText("No systems yet")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add System" }),
+    ).toBeVisible();
+
+    // The Groups tab starts empty too.
+    await page.getByRole("tab", { name: "Groups" }).click();
+    await expect(page.getByText("No groups yet")).toBeVisible();
+  });
+
   test("creating a system requires a name", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
@@ -302,6 +319,7 @@ test.describe("Systems & Catalog", () => {
   test("creates an environment and attaches a system to it", async ({
     page,
   }) => {
+    const ENV_NAME = `Production ${SUFFIX}`;
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
     // Create an environment on the Environments tab.
@@ -399,10 +417,8 @@ test.describe("Systems & Catalog", () => {
 
     await confirm.getByRole("button", { name: "Delete" }).click();
 
-    // This attempt's system is gone. We intentionally do NOT assert the GLOBAL
-    // "No systems yet" empty state here: on a serial-group retry the catalog
-    // still holds the previous attempt's rows, so it is not globally empty. The
-    // empty-state is covered by catalog-empty.spec.ts against a fresh DB.
+    // The system is gone; the management page returns to its empty state.
     await expect(page.getByText(SYSTEM_NAME_UPDATED)).toHaveCount(0);
+    await expect(page.getByText("No systems yet")).toBeVisible();
   });
 });
