@@ -95,6 +95,25 @@ env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
 
 Keep `projectResult` defensive (return the input unchanged on an unexpected shape): the generic [result clamp](/checkstack/developer-guide/ai/chat/) is the backstop, so a mismatch never crashes the read. For broad "how often / how much over a period" questions, prefer exposing an AGGREGATE procedure (counts/percentiles) over a row-returning one - far cheaper than leaning thousands of rows. `healthcheck.runStats` is the reference example; `healthcheck.runHistory` keeps a `projectResult` for the small-window case.
 
+### Project a system-scoped read so the model can attribute data
+
+A global "list everything" read is convenient, but if its rows carry no system
+attribution the model cannot answer "which of these belongs to system X" - it
+can only guess. Project the per-system read too, keyed by `systemId`, so the
+model can resolve the question instead of inferring it. The assistant resolves a
+system NAME to its id with `catalog.listSystems`, then calls your system-scoped
+tool with that id; a `parentScope` instance-access rule
+(`{ resourceType: "catalog.system", action: "read", idParam: "systemId" }`) on
+the source procedure keeps it team-scoped for free.
+
+`healthcheck.listSystemChecks` (projecting `getSystemConfigurations`) is the
+reference example: `healthcheck.status` lists every check globally with no
+system mapping, so the per-system projection is what lets the assistant say
+"check Y is the one assigned to system X" rather than guessing. When you expose a
+global list, ask whether the model will also need it sliced per system - and if
+so, project both, with the description pointing at `catalog.listSystems` for id
+resolution.
+
 ## Why ai-backend stays plugin-agnostic
 
 `ai-backend` is the AI platform: the tool registry + resolver, the projection mechanism, the chat agent loop, the MCP server, propose/apply, and a few genuinely cross-plugin tools (docs grounding, URL probe). It imports no capability plugin's `*-common`. Pure, shareable helpers a tool author needs - `computeFieldDiff`, the capability-summary helpers, `ScriptContextKind` - live in `@checkstack/ai-common`; `resolveScriptContext` and `buildProjectedTool` are exported from `@checkstack/ai-backend`. So a third-party plugin can author rich AI tools (including assertion diffs and script-context grounding) using only the platform packages, and adding or removing a plugin never touches `ai-backend`.

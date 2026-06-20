@@ -35,6 +35,42 @@ describe("healthcheck.status projection", () => {
   });
 });
 
+// The per-system projection is how the assistant maps a check to a system:
+// `healthcheck.status` lists every check globally with no system attribution, so
+// it must call this with a `systemId` (resolved via catalog.listSystems) to know
+// which checks are assigned to that system. Gated by the system-scoped
+// `configuration.read` rule, NOT the chat transport gate.
+describe("healthcheck.listSystemChecks projection", () => {
+  const tool = buildProjectedTool({
+    procedure: healthCheckContract.getSystemConfigurations,
+    sourcePluginMetadata: pluginMetadata,
+    procedureKey: "getSystemConfigurations",
+    name: "healthcheck.listSystemChecks",
+    description: "List the health checks assigned to a system. Read-only.",
+    effect: "read",
+    execute: deferredProjectionExecute,
+  });
+
+  test("uses the overridden tool name", () => {
+    expect(tool.name).toBe("healthcheck.listSystemChecks");
+  });
+
+  test("is classified as a read-only effect", () => {
+    expect(tool.effect).toBe("read");
+  });
+
+  test("exposes the systemId input to the model", () => {
+    const inputShape = tool.input as { shape?: Record<string, unknown> };
+    expect(inputShape.shape).toBeDefined();
+    expect(inputShape.shape?.["systemId"]).toBeDefined();
+  });
+
+  test("inherits the source procedure's access rules, not the chat gate", () => {
+    expect(tool.requiredAccessRules.length).toBeGreaterThan(0);
+    expect(tool.requiredAccessRules).not.toEqual(["ai.chat.read"]);
+  });
+});
+
 // The run-history projection lets the assistant answer timeline / root-cause
 // questions ("what issues did system X have between T1 and T2"). It must expose
 // the filter inputs (systemId, date window, statusFilter) and be gated by the
