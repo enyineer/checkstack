@@ -15,6 +15,7 @@
  * `CHECKSTACK_IT_PG_URL`. See `core/test-utils-backend/src/with-test-db.ts`.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { eq } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
@@ -212,6 +213,58 @@ describe.skipIf(!isIntegrationEnabled())("SloService (real Postgres)", () => {
       await service.closeDowntimeEvent({ id: selfEvent.id });
       const afterClose = await service.getOpenSelfEvents({ systemId });
       expect(afterClose).toHaveLength(0);
+    });
+  });
+
+  describe("closeDowntimeEvent endTime", () => {
+    it("closes at an explicit recovery time, recording the real duration", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+      const start = new Date(WINDOW_START.getTime());
+      const recovery = new Date(start.getTime() + 90 * MINUTE);
+
+      const event = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+      });
+      // Force a known startTime so the duration is deterministic.
+      await testDb.db
+        .update(sloDowntimeEvents)
+        .set({ startTime: start })
+        .where(eq(sloDowntimeEvents.id, event.id));
+
+      const closed = await service.closeDowntimeEvent({
+        id: event.id,
+        endTime: recovery,
+      });
+
+      expect(closed.endTime?.getTime()).toBe(recovery.getTime());
+      expect(closed.durationSeconds).toBe(90 * 60);
+    });
+
+    it("clamps an endTime before the startTime to zero duration (never negative)", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+      const start = new Date(WINDOW_START.getTime());
+
+      const event = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+      });
+      await testDb.db
+        .update(sloDowntimeEvents)
+        .set({ startTime: start })
+        .where(eq(sloDowntimeEvents.id, event.id));
+
+      const closed = await service.closeDowntimeEvent({
+        id: event.id,
+        endTime: new Date(start.getTime() - 5 * MINUTE),
+      });
+
+      expect(closed.endTime?.getTime()).toBe(start.getTime());
+      expect(closed.durationSeconds).toBe(0);
     });
   });
 });

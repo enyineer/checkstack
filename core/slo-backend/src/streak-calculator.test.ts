@@ -147,7 +147,7 @@ function makeDeps(args: {
   } as unknown as SloService;
 
   const engine = {
-    voidOrphanedDowntime: async ({
+    reconcileOrphanedDowntime: async ({
       objective: o,
     }: {
       objective: SloObjective;

@@ -45,7 +45,7 @@ export function createRouter({
   const computeStatusFresh = async (
     objective: Parameters<typeof engine.computeStatus>[0]["objective"],
   ): ReturnType<typeof engine.computeStatus> => {
-    await engine.voidOrphanedDowntime({ objective });
+    await engine.reconcileOrphanedDowntime({ objective });
     return engine.computeStatus({ objective });
   };
 
@@ -214,7 +214,7 @@ export function createRouter({
       // where status reads 100% but the list still shows a live downtime.
       const objective = await service.getObjective({ id: input.objectiveId });
       if (objective) {
-        await engine.voidOrphanedDowntime({ objective });
+        await engine.reconcileOrphanedDowntime({ objective });
       }
       const events = await service.getRecentDowntimeEvents({
         objectiveId: input.objectiveId,

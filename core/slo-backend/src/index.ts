@@ -390,6 +390,35 @@ export default createBackendPlugin({
         });
 
         /**
+         * Resolve a system's ACTUAL recovery time for missed-recovery
+         * reconciliation: the earliest healthy run on/after `since` from the
+         * healthcheck run history. This lets the engine CLOSE an orphaned
+         * downtime window at the true recovery instant (preserving the genuine
+         * downtime) instead of deleting it. Returns null when no healthy run is
+         * found (e.g. history pruned) — the caller then falls back to deleting
+         * the unprovable window.
+         */
+        sharedEngine.setRecoveryTimeResolver(async ({ systemId, since }) => {
+          try {
+            const { runs } = await healthCheckClient.getHistory({
+              systemId,
+              startDate: since,
+              statusFilter: ["healthy"],
+              limit: 1,
+              sortOrder: "asc",
+            });
+            const first = runs[0];
+            return first ? new Date(first.timestamp) : null;
+          } catch (error) {
+            logger.warn(
+              `SLO reconcile: failed to resolve recovery time for system ${systemId}`,
+              { error },
+            );
+            return null;
+          }
+        });
+
+        /**
          * Helper: check upstream health status via RPC loopback.
          * Injected as a callback into the engine for testability.
          */

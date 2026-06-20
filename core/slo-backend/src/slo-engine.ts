@@ -22,6 +22,12 @@ export class SloEngine {
   private _getSystemHealthStatus:
     | ((systemId: string) => Promise<{ isHealthy: boolean }>)
     | undefined;
+  private _getRecoveryTimeAfter:
+    | ((args: {
+        systemId: string;
+        since: Date;
+      }) => Promise<Date | null>)
+    | undefined;
 
   constructor({ service, signalService, logger }: {
     service: SloService;
@@ -41,6 +47,20 @@ export class SloEngine {
     callback: (systemId: string) => Promise<{ isHealthy: boolean }>,
   ) {
     this._getSystemHealthStatus = callback;
+  }
+
+  /**
+   * Set the recovery-time resolver: given a system and a start instant, return
+   * the timestamp the system FIRST became healthy on/after `since` (the actual
+   * recovery time), or null if it can't be determined (no healthy point found /
+   * history pruned). Used to CLOSE a missed-recovery orphan at its true recovery
+   * time instead of deleting it (which would erase genuine downtime). Wired in
+   * afterPluginsReady from the healthcheck run history.
+   */
+  setRecoveryTimeResolver(
+    resolver: (args: { systemId: string; since: Date }) => Promise<Date | null>,
+  ) {
+    this._getRecoveryTimeAfter = resolver;
   }
 
   /**
@@ -84,16 +104,19 @@ export class SloEngine {
   }
 
   /**
-   * Void missed-recovery orphans: open downtime events on a system that is
+   * Reconcile missed-recovery orphans: open downtime events on a system that is
    * currently healthy. The edge-triggered close (on the health recovery
    * transition) records real downtime accurately; this is the safety net for
-   * when that transition was never delivered (restart, dropped change, recovery
-   * before the SLO close path existed), which would otherwise leave an event
-   * open forever. `computeStatus` already ignores such rows for the budget
-   * (live health is authoritative), so this is row hygiene: it clears the stale
-   * "ongoing" event so it stops showing in history. We delete rather than close
-   * because the true recovery time is unknown and the system is healthy, so the
-   * unprovable downtime must not be counted.
+   * when that transition was never delivered (restart, dropped change, or the
+   * offending check being fixed/paused/deleted - none of which emit a health
+   * edge), which would otherwise leave an event open forever.
+   *
+   * The downtime was REAL, so we must not erase it. We resolve the system's
+   * ACTUAL recovery time from health-check run history (the first healthy point
+   * on/after the event started) and CLOSE the event at that timestamp, so the
+   * genuine downtime is recorded against the budget. We only DELETE as a
+   * fallback when the recovery time can't be determined (no resolver wired, or
+   * history pruned) - an unprovable downtime must not be counted.
    *
    * Safe to call from any WRITE-capable context — the daily job, objective
    * mutations, and the user-facing RPC read HANDLERS (so the dashboard self-
@@ -102,7 +125,7 @@ export class SloEngine {
    * index and must stay side-effect-free. Idempotent and a cheap no-op when the
    * objective has no open events (one indexed lookup, no write).
    */
-  async voidOrphanedDowntime({
+  async reconcileOrphanedDowntime({
     objective,
   }: {
     objective: { id: string; systemId: string };
@@ -117,11 +140,31 @@ export class SloEngine {
     if (!health.isHealthy) return; // genuinely down — the open event is real
 
     for (const event of openEvents) {
-      await this.service.deleteDowntimeEvent({ id: event.id });
+      // Find when the system ACTUALLY became healthy again, on/after this
+      // event started. Closing at that instant preserves the genuine downtime;
+      // deleting (the fallback) would erase it and read a false 100%.
+      const recoveryTime = this._getRecoveryTimeAfter
+        ? await this._getRecoveryTimeAfter({
+            systemId: objective.systemId,
+            since: event.startTime,
+          })
+        : null;
+
+      if (recoveryTime) {
+        await this.service.closeDowntimeEvent({
+          id: event.id,
+          endTime: recoveryTime,
+        });
+        this.logger.info(
+          `SLO ${objective.id}: closed orphaned downtime event ${event.id} at its actual recovery time ${recoveryTime.toISOString()} — recovery transition was missed`,
+        );
+      } else {
+        await this.service.deleteDowntimeEvent({ id: event.id });
+        this.logger.info(
+          `SLO ${objective.id}: voided orphaned downtime event ${event.id} — system is healthy but the recovery time could not be determined`,
+        );
+      }
     }
-    this.logger.info(
-      `SLO ${objective.id}: voided ${openEvents.length} orphaned open downtime event(s) — system is healthy but a recovery transition was missed`,
-    );
   }
 
   // ===========================================================================
