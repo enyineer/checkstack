@@ -107,6 +107,12 @@ const tcpAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency aggregate: widen the band and require practical-significance
+    // floors so fast endpoints do not alert on small jitter.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -114,12 +120,19 @@ const tcpAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability is the primary, real signal. Debounce so a single
+    // transient failed bucket does not alert.
+    "x-anomaly-confirmation-window": 3,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw per-bucket error count scales with how many runs land in a bucket,
+    // so it has no stable baseline and is fully redundant with successRate
+    // (which already captures the same failures as a rate). Charting stays
+    // available; alerting is owned by successRate to avoid duplicate, noisy
+    // alerts on the same failures.
+    "x-anomaly-enabled": false,
   }),
 };
 

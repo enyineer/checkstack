@@ -104,7 +104,7 @@ export function SideBySideDiff({
 }) {
   const rows = computeLineDiff({ before, after });
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
+    <div className="overflow-hidden rounded-md border border-border bg-surface">
       <div className="grid grid-cols-[auto_1fr_auto_1fr] font-mono text-xs leading-relaxed">
         {rows.map((row, index) => (
           <Fragment key={index}>

@@ -47,8 +47,12 @@ const bannerResultSchema = healthResultSchema({
   hasBanner: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Has Banner",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Whether a server emits a banner is protocol/configuration dependent and
+    // can legitimately flip run-to-run (timing, quiet protocols, partial
+    // reads). It does not map to a real availability problem on its own, so a
+    // dominance flip here is an alert-fatigue source. Charting stays available;
+    // alerting is off by default.
+    "x-anomaly-enabled": false,
   }),
   readTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -73,13 +77,21 @@ const bannerAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency aggregate: widen the band and require practical-significance
+    // floors so fast banner reads do not alert on small jitter.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   bannerRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Banner Rate",
     "x-chart-unit": "%",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    // Banner presence is protocol/configuration dependent and varies legitimately
+    // run-to-run; its rate is not a real health signal and would alert on benign
+    // fluctuation. Charting stays available; alerting is off by default.
+    "x-anomaly-enabled": false,
   }),
 };
 

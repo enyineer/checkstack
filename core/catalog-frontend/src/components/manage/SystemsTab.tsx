@@ -7,9 +7,12 @@ import {
   TableHeader,
   TableRow,
   Button,
+  Card,
   Checkbox,
   EmptyState,
   ListEmptyState,
+  MobileCardList,
+  ResponsiveTable,
   cn,
 } from "@checkstack/ui";
 import { ExtensionSlot } from "@checkstack/frontend-api";
@@ -195,46 +198,69 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
           }
         />
       ) : (
-        <div className="rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allSelected}
-                    onCheckedChange={toggleAll}
-                    aria-label="Select all systems"
+        <>
+          <ResponsiveTable className="rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleAll}
+                      aria-label="Select all systems"
+                    />
+                  </TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-44">Health</TableHead>
+                  <TableHead>Groups</TableHead>
+                  <TableHead>Environments</TableHead>
+                  <TableHead className="w-px text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {systems.map((system) => (
+                  <SystemRow
+                    key={system.id}
+                    system={system}
+                    allGroups={allGroups}
+                    allEnvironments={allEnvironments}
+                    assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+                    assignedEnvIds={systemEnvMap.get(system.id) ?? []}
+                    selected={selected.has(system.id)}
+                    onToggleSelected={() => toggle(system.id)}
+                    onEdit={props.onEditSystem}
+                    onDelete={props.onDeleteSystem}
+                    onAddToGroup={props.onAddToGroup}
+                    onRemoveFromGroup={props.onRemoveFromGroup}
+                    onAddToEnvironment={props.onAddToEnvironment}
+                    onRemoveFromEnvironment={props.onRemoveFromEnvironment}
                   />
-                </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead className="w-44">Health</TableHead>
-                <TableHead>Groups</TableHead>
-                <TableHead>Environments</TableHead>
-                <TableHead className="w-px text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {systems.map((system) => (
-                <SystemRow
-                  key={system.id}
-                  system={system}
-                  allGroups={allGroups}
-                  allEnvironments={allEnvironments}
-                  assignedGroupIds={systemGroupMap.get(system.id) ?? []}
-                  assignedEnvIds={systemEnvMap.get(system.id) ?? []}
-                  selected={selected.has(system.id)}
-                  onToggleSelected={() => toggle(system.id)}
-                  onEdit={props.onEditSystem}
-                  onDelete={props.onDeleteSystem}
-                  onAddToGroup={props.onAddToGroup}
-                  onRemoveFromGroup={props.onRemoveFromGroup}
-                  onAddToEnvironment={props.onAddToEnvironment}
-                  onRemoveFromEnvironment={props.onRemoveFromEnvironment}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                ))}
+              </TableBody>
+            </Table>
+          </ResponsiveTable>
+
+          <MobileCardList>
+            {systems.map((system) => (
+              <SystemMobileCard
+                key={system.id}
+                system={system}
+                allGroups={allGroups}
+                allEnvironments={allEnvironments}
+                assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+                assignedEnvIds={systemEnvMap.get(system.id) ?? []}
+                selected={selected.has(system.id)}
+                onToggleSelected={() => toggle(system.id)}
+                onEdit={props.onEditSystem}
+                onDelete={props.onDeleteSystem}
+                onAddToGroup={props.onAddToGroup}
+                onRemoveFromGroup={props.onRemoveFromGroup}
+                onAddToEnvironment={props.onAddToEnvironment}
+                onRemoveFromEnvironment={props.onRemoveFromEnvironment}
+              />
+            ))}
+          </MobileCardList>
+        </>
       )}
     </div>
   );
@@ -405,37 +431,192 @@ function SystemRow({
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex items-center justify-end gap-1">
-          <ExtensionSlot
-            slot={CatalogSystemActionsSlot}
-            context={{ systemId: system.id, systemName: system.name }}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            disabled={isLocked}
-            title={lockTitle}
-            aria-label={`Edit ${system.name}`}
-            onClick={() => onEdit(system)}
-          >
-            <Edit className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90",
-            )}
-            disabled={isLocked}
-            title={lockTitle}
-            aria-label={`Delete ${system.name}`}
-            onClick={() => onDelete(system.id)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <SystemActions
+          system={system}
+          isLocked={isLocked}
+          lockTitle={lockTitle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
       </TableCell>
     </TableRow>
+  );
+}
+
+interface SystemActionsProps {
+  system: System;
+  isLocked: boolean;
+  lockTitle: string | undefined;
+  onEdit: (system: System) => void;
+  onDelete: (id: string) => void;
+}
+
+/** Shared edit/delete action cluster used by row and mobile card. */
+function SystemActions({
+  system,
+  isLocked,
+  lockTitle,
+  onEdit,
+  onDelete,
+}: SystemActionsProps): React.ReactElement {
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <ExtensionSlot
+        slot={CatalogSystemActionsSlot}
+        context={{ systemId: system.id, systemName: system.name }}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0"
+        disabled={isLocked}
+        title={lockTitle}
+        aria-label={`Edit ${system.name}`}
+        onClick={() => onEdit(system)}
+      >
+        <Edit className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={cn(
+          "h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90",
+        )}
+        disabled={isLocked}
+        title={lockTitle}
+        aria-label={`Delete ${system.name}`}
+        onClick={() => onDelete(system.id)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function SystemMobileCard({
+  system,
+  allGroups,
+  allEnvironments,
+  assignedGroupIds,
+  assignedEnvIds,
+  selected,
+  onToggleSelected,
+  onEdit,
+  onDelete,
+  onAddToGroup,
+  onRemoveFromGroup,
+  onAddToEnvironment,
+  onRemoveFromEnvironment,
+}: SystemRowProps): React.ReactElement {
+  const { isLocked, provenance } = useProvenanceLock({
+    kind: "System",
+    entityId: system.id,
+  });
+
+  const assignedGroups = allGroups.filter((g) =>
+    assignedGroupIds.includes(g.id),
+  );
+  const availableGroups = allGroups.filter(
+    (g) => !assignedGroupIds.includes(g.id),
+  );
+  const assignedEnvs = allEnvironments.filter((e) =>
+    assignedEnvIds.includes(e.id),
+  );
+  const availableEnvs = allEnvironments.filter(
+    (e) => !assignedEnvIds.includes(e.id),
+  );
+  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
+
+  return (
+    <Card className="p-3" data-state={selected ? "selected" : undefined}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onToggleSelected}
+            aria-label={`Select ${system.name}`}
+          />
+          <div className="min-w-0">
+            <p className="font-medium leading-snug text-foreground">
+              {system.name}
+            </p>
+            {system.description && (
+              <p className="truncate text-xs text-muted-foreground">
+                {system.description}
+              </p>
+            )}
+          </div>
+        </div>
+        {isLocked && provenance && (
+          <GitOpsSourceBadge provenance={provenance} />
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+      </div>
+      <div className="mt-2">
+        <p className="mb-1 text-xs text-muted-foreground">Groups</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {assignedGroups.map((group) => (
+            <Chip
+              key={group.id}
+              label={group.name}
+              removeLabel={`Remove ${system.name} from ${group.name}`}
+              disabled={isLocked}
+              disabledTitle={lockTitle}
+              onRemove={() => onRemoveFromGroup(group.id, system.id)}
+            />
+          ))}
+          <AssignMenu
+            disabled={isLocked || availableGroups.length === 0}
+            triggerLabel={lockTitle ?? `Add ${system.name} to a group`}
+            trigger={
+              <>
+                <Plus className="h-3 w-3" />
+                Group
+              </>
+            }
+            items={availableGroups.map((g) => ({ id: g.id, label: g.name }))}
+            emptyLabel="No more groups"
+            onSelect={(groupId) => onAddToGroup(system.id, groupId)}
+          />
+        </div>
+      </div>
+      <div className="mt-2">
+        <p className="mb-1 text-xs text-muted-foreground">Environments</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {assignedEnvs.map((env) => (
+            <Chip
+              key={env.id}
+              label={env.name}
+              removeLabel={`Remove ${system.name} from ${env.name}`}
+              onRemove={() => onRemoveFromEnvironment(system.id, env.id)}
+            />
+          ))}
+          <AssignMenu
+            disabled={availableEnvs.length === 0}
+            triggerLabel={`Attach ${system.name} to an environment`}
+            trigger={
+              <>
+                <Plus className="h-3 w-3" />
+                Environment
+              </>
+            }
+            items={availableEnvs.map((e) => ({ id: e.id, label: e.name }))}
+            emptyLabel="No more environments"
+            onSelect={(envId) => onAddToEnvironment(system.id, envId)}
+          />
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <SystemActions
+          system={system}
+          isLocked={isLocked}
+          lockTitle={lockTitle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      </div>
+    </Card>
   );
 }

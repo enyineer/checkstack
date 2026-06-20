@@ -1,58 +1,64 @@
 import React from "react";
-import { Badge } from "@checkstack/ui";
+import { cn } from "@checkstack/ui";
 import type {
   IncidentStatus,
   IncidentSeverity,
 } from "@checkstack/incident-common";
+import {
+  presentIncidentStatus,
+  presentIncidentSeverity,
+  toneStyles,
+  type StatusTone,
+} from "./badges.logic";
+
+export {
+  getIncidentSeverityAccentClass,
+  presentIncidentStatus,
+  presentIncidentSeverity,
+  type StatusTone,
+} from "./badges.logic";
 
 /**
- * Returns a styled badge for the given incident status.
- * Use this utility to ensure consistent status badge styling across the plugin.
+ * A compact, multi-encoded status pill: a tinted chip carrying a small status
+ * dot and a text label, so the signal reads by hue, position, and words - never
+ * color alone. Used for incident status and severity throughout the plugin.
+ */
+const StatusPill: React.FC<{ tone: StatusTone; label: string }> = ({
+  tone,
+  label,
+}) => {
+  const styles = toneStyles[tone];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        styles.pill,
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+      {label}
+    </span>
+  );
+};
+
+/**
+ * Returns a styled status pill for the given incident status.
+ * Use this utility to ensure consistent status styling across the plugin.
  */
 export function getIncidentStatusBadge(
-  status: IncidentStatus
+  status: IncidentStatus,
 ): React.ReactNode {
-  switch (status) {
-    case "investigating": {
-      return <Badge variant="destructive">Investigating</Badge>;
-    }
-    case "identified": {
-      return <Badge variant="warning">Identified</Badge>;
-    }
-    case "fixing": {
-      return <Badge variant="warning">Fixing</Badge>;
-    }
-    case "monitoring": {
-      return <Badge variant="info">Monitoring</Badge>;
-    }
-    case "resolved": {
-      return <Badge variant="success">Resolved</Badge>;
-    }
-    default: {
-      return <Badge>{status}</Badge>;
-    }
-  }
+  const { tone, label } = presentIncidentStatus(status);
+  return <StatusPill tone={tone} label={label} />;
 }
 
 /**
- * Returns a styled badge for the given incident severity.
- * Use this utility to ensure consistent severity badge styling across the plugin.
+ * Returns a styled status pill for the given incident severity.
+ * Use this utility to ensure consistent severity styling across the plugin.
  */
 export function getIncidentSeverityBadge(
-  severity: IncidentSeverity
+  severity: IncidentSeverity,
 ): React.ReactNode {
-  switch (severity) {
-    case "critical": {
-      return <Badge variant="destructive">Critical</Badge>;
-    }
-    case "major": {
-      return <Badge variant="warning">Major</Badge>;
-    }
-    case "minor": {
-      return <Badge variant="secondary">Minor</Badge>;
-    }
-    default: {
-      return <Badge>{severity}</Badge>;
-    }
-  }
+  const { tone, label } = presentIncidentSeverity(severity);
+  return <StatusPill tone={tone} label={label} />;
 }

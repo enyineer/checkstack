@@ -43,7 +43,7 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
       </div>
 
       {/* Enabled Toggle */}
-      <div className="p-4 bg-muted/50 rounded-lg border">
+      <div className="p-4 bg-surface-inset rounded-lg border">
         <div className="flex items-center gap-3">
           <Checkbox
             checked={enabled}
@@ -60,7 +60,7 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
       </div>
 
       {/* Config Info */}
-      <div className="p-4 bg-muted/50 rounded-lg border space-y-2">
+      <div className="p-4 bg-surface-inset rounded-lg border space-y-2">
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-sm font-medium">Configuration</Label>

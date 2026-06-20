@@ -65,17 +65,48 @@ describe("ai.searchDocs tool", () => {
     expect(out.note).toMatch(/getDoc/);
   });
 
-  test("weak matches carry a note steering off the re-search loop", async () => {
+  test("near-tied matches carry a 'weak matches' note (no page clearly stands out)", async () => {
+    // Two pages mention the query word about equally, so no hit clearly
+    // out-competes the field — the RELATIVE classifier calls this weak (the old
+    // absolute cutoff would have mislabeled it based on raw magnitude alone).
+    const tiedIndex: DocsIndexEntry[] = [
+      {
+        slug: "a",
+        title: "Alpha",
+        headings: [],
+        content: "This page mentions widgets once.",
+        truncated: false,
+      },
+      {
+        slug: "b",
+        title: "Beta",
+        headings: [],
+        content: "This page mentions widgets once too.",
+        truncated: false,
+      },
+    ];
+    const tool = createSearchDocsTool({ index: tiedIndex });
+    const out = await tool.execute({
+      input: { query: "widgets", limit: 5 },
+      principal: PRINCIPAL,
+      rpcClient,
+    });
+    expect(out.hits.length).toBe(2);
+    expect(out.note).toMatch(/weak matches/i);
+    expect(out.note).toMatch(/listDocs/);
+  });
+
+  test("a single clear hit is STRONG (steers to getDoc, not re-search)", async () => {
+    // One page matches -> nothing to out-compete -> strong under the relative
+    // signal (a single hit was where the old absolute cutoff over-suppressed).
     const tool = createSearchDocsTool({ index: FIXTURE_INDEX });
-    // "probes" appears only once in body text -> a low BM25 score (weak match).
     const out = await tool.execute({
       input: { query: "probes", limit: 5 },
       principal: PRINCIPAL,
       rpcClient,
     });
-    expect(out.hits.length).toBeGreaterThan(0);
-    expect(out.note).toMatch(/weak matches/i);
-    expect(out.note).toMatch(/listDocs/);
+    expect(out.hits.length).toBe(1);
+    expect(out.note).toMatch(/getDoc/);
   });
 
   test("no match tells the model to stop searching, not reword", async () => {

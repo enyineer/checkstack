@@ -62,3 +62,44 @@ describe("OpenAiCompatibleConnectionSchema spendCap", () => {
     ).toThrow();
   });
 });
+
+describe("OpenAiCompatibleConnectionSchema modelFamily (Phase 3 seam)", () => {
+  it("accepts a connection with NO modelFamily (defaults to generic at use site)", () => {
+    const parsed = OpenAiCompatibleConnectionSchema.parse({ ...baseConfig });
+    expect(parsed.modelFamily).toBeUndefined();
+  });
+
+  it("accepts each allowed family value", () => {
+    for (const family of ["anthropic", "openai", "generic"] as const) {
+      const parsed = OpenAiCompatibleConnectionSchema.parse({
+        ...baseConfig,
+        modelFamily: family,
+      });
+      expect(parsed.modelFamily).toBe(family);
+    }
+  });
+
+  it("rejects an unknown family value (no inference from arbitrary strings)", () => {
+    expect(() =>
+      OpenAiCompatibleConnectionSchema.parse({
+        ...baseConfig,
+        modelFamily: "gemini",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("OpenAiCompatibleConnectionSchema disableTopicalClassifier (Phase 6)", () => {
+  it("defaults to undefined (the classifier runs)", () => {
+    const parsed = OpenAiCompatibleConnectionSchema.parse({ ...baseConfig });
+    expect(parsed.disableTopicalClassifier).toBeUndefined();
+  });
+
+  it("accepts an explicit true (skip the pre-classifier round-trip)", () => {
+    const parsed = OpenAiCompatibleConnectionSchema.parse({
+      ...baseConfig,
+      disableTopicalClassifier: true,
+    });
+    expect(parsed.disableTopicalClassifier).toBe(true);
+  });
+});

@@ -9,11 +9,11 @@ import {
 import { EntityService } from "./services/entity-service";
 import { diffSystemEnvironments } from "./services/environment-membership";
 import { isUniqueViolation } from "./services/pg-errors";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import type { SafeDatabase, Logger } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { NotificationApi } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
-import type { InferClient } from "@checkstack/common";
+import { extractErrorMessage, type InferClient } from "@checkstack/common";
 import { eq } from "drizzle-orm";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import type { CatalogCache } from "./cache";
@@ -46,6 +46,7 @@ export interface CatalogRouterDeps {
   gitOpsClient: InferClient<typeof GitOpsApi>;
   pluginId: string;
   cache: CatalogCache;
+  logger: Logger;
   /** Resolvers for the reactive catalog entities (§10.4). Undefined in tests. */
   getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
   getGroupEntity?: () => EntityHandle<CatalogGroupState> | undefined;
@@ -58,6 +59,7 @@ export const createCatalogRouter = ({
   gitOpsClient,
   pluginId: _pluginId,
   cache,
+  logger,
   getSystemEntity,
   getGroupEntity,
 }: CatalogRouterDeps) => {
@@ -87,9 +89,8 @@ export const createCatalogRouter = ({
         resource: { resourceKey: system.id, displayLabel: system.name },
       });
     } catch (error) {
-      console.warn(
-        `Failed to upsert notification resource for system ${system.id}:`,
-        error,
+      logger.warn(
+        `Failed to upsert notification resource for system ${system.id}: ${extractErrorMessage(error)}`,
       );
     }
   };
@@ -101,9 +102,8 @@ export const createCatalogRouter = ({
         resource: { resourceKey: group.id, displayLabel: group.name },
       });
     } catch (error) {
-      console.warn(
-        `Failed to upsert notification resource for catalog group ${group.id}:`,
-        error,
+      logger.warn(
+        `Failed to upsert notification resource for catalog group ${group.id}: ${extractErrorMessage(error)}`,
       );
     }
   };
@@ -123,9 +123,8 @@ export const createCatalogRouter = ({
         parents,
       });
     } catch (error) {
-      console.warn(
-        `Failed to refresh notification parents for system ${systemId}:`,
-        error,
+      logger.warn(
+        `Failed to refresh notification parents for system ${systemId}: ${extractErrorMessage(error)}`,
       );
     }
   };
@@ -137,9 +136,8 @@ export const createCatalogRouter = ({
         resourceKey: systemId,
       });
     } catch (error) {
-      console.warn(
-        `Failed to remove notification resource for system ${systemId}:`,
-        error,
+      logger.warn(
+        `Failed to remove notification resource for system ${systemId}: ${extractErrorMessage(error)}`,
       );
     }
   };
@@ -151,9 +149,8 @@ export const createCatalogRouter = ({
         resourceKey: groupId,
       });
     } catch (error) {
-      console.warn(
-        `Failed to remove notification resource for catalog group ${groupId}:`,
-        error,
+      logger.warn(
+        `Failed to remove notification resource for catalog group ${groupId}: ${extractErrorMessage(error)}`,
       );
     }
   };
@@ -163,18 +160,9 @@ export const createCatalogRouter = ({
     cache.wrapEntities(async () => {
       const systems = await entityService.getSystems();
       const groups = await entityService.getGroups();
-      // Cast to match contract - Drizzle json() returns unknown, but we expect Record | null
       return {
-        systems: systems as unknown as Array<
-          (typeof systems)[number] & {
-            metadata: Record<string, unknown> | null;
-          }
-        >,
-        groups: groups as unknown as Array<
-          (typeof groups)[number] & {
-            metadata: Record<string, unknown> | null;
-          }
-        >,
+        systems,
+        groups,
       };
     }),
   );
@@ -183,11 +171,7 @@ export const createCatalogRouter = ({
     cache.wrapSystems(async () => {
       const systems = await entityService.getSystems();
       return {
-        systems: systems as unknown as Array<
-          (typeof systems)[number] & {
-            metadata: Record<string, unknown> | null;
-          }
-        >,
+        systems,
       };
     }),
   );
@@ -200,18 +184,14 @@ export const createCatalogRouter = ({
          
         return null;
       }
-      return system as typeof system & {
-        metadata: Record<string, unknown> | null;
-      };
+      return system;
     }),
   );
 
   const getGroups = os.getGroups.handler(async () =>
     cache.wrapGroups(async () => {
       const groups = await entityService.getGroups();
-      return groups as unknown as Array<
-        (typeof groups)[number] & { metadata: Record<string, unknown> | null }
-      >;
+      return groups;
     }),
   );
 
@@ -226,11 +206,7 @@ export const createCatalogRouter = ({
       const filtered = groups.filter((group) =>
         group.systemIds?.includes(input.systemId),
       );
-      return filtered as unknown as Array<
-        (typeof filtered)[number] & {
-          metadata: Record<string, unknown> | null;
-        }
-      >;
+      return filtered;
     },
   );
 
@@ -268,7 +244,7 @@ export const createCatalogRouter = ({
           return toCatalogSystemState({
             name: result.name,
             description: result.description,
-            metadata: result.metadata as Record<string, unknown> | null,
+            metadata: result.metadata,
           });
         },
       });
@@ -290,9 +266,7 @@ export const createCatalogRouter = ({
 
     await cache.invalidateTopology();
 
-    return result as typeof result & {
-      metadata: Record<string, unknown> | null;
-    };
+    return result;
   });
 
   const updateSystem = os.updateSystem.handler(async ({ input }) => {
@@ -358,7 +332,7 @@ export const createCatalogRouter = ({
           return toCatalogSystemState({
             name: result.name,
             description: result.description,
-            metadata: result.metadata as Record<string, unknown> | null,
+            metadata: result.metadata,
           });
         },
       });
@@ -378,9 +352,7 @@ export const createCatalogRouter = ({
       await upsertSystemResource({ id: result.id, name: result.name });
     }
 
-    return result as typeof result & {
-      metadata: Record<string, unknown> | null;
-    };
+    return result;
   });
 
   const deleteSystem = os.deleteSystem.handler(async ({ input }) => {
@@ -431,7 +403,7 @@ export const createCatalogRouter = ({
         );
         return toCatalogGroupState({
           name: result.name,
-          metadata: result.metadata as Record<string, unknown> | null,
+          metadata: result.metadata,
         });
       },
     });
@@ -444,7 +416,6 @@ export const createCatalogRouter = ({
     return {
       ...result,
       systemIds: [],
-      metadata: result.metadata as Record<string, unknown> | null,
     };
   });
 
@@ -492,7 +463,7 @@ export const createCatalogRouter = ({
         fullGroup = updated;
         return toCatalogGroupState({
           name: fullGroup.name,
-          metadata: fullGroup.metadata as Record<string, unknown> | null,
+          metadata: fullGroup.metadata,
         });
       },
     });
@@ -502,9 +473,7 @@ export const createCatalogRouter = ({
       await upsertGroupResource({ id: fullGroup.id, name: fullGroup.name });
     }
 
-    return fullGroup as unknown as typeof fullGroup & {
-      metadata: Record<string, unknown> | null;
-    };
+    return fullGroup;
   });
 
   const deleteGroup = os.deleteGroup.handler(async ({ input }) => {
@@ -717,32 +686,24 @@ export const createCatalogRouter = ({
   );
 
   // ── Environments ──────────────────────────────────────────────────────
-  // Instance-wide catalog primitive. The drizzle `json()` metadata column is
-  // typed `unknown`; the contract expects `Record<string, unknown> | null`,
-  // so each handler narrows it the same way the system/group handlers do.
-  type EnvironmentRow = Awaited<
-    ReturnType<typeof entityService.getEnvironments>
-  >[number];
-  const toEnvironmentOutput = (environment: EnvironmentRow) =>
-    environment as EnvironmentRow & {
-      metadata: Record<string, unknown> | null;
-    };
-
+  // Instance-wide catalog primitive. The drizzle `metadata` column is typed at
+  // the schema (`.$type<Record<string, unknown>>()`), so the row already
+  // satisfies the contract output and flows through without a cast.
   const listEnvironments = os.listEnvironments.handler(async () => {
     const environments = await entityService.getEnvironments();
-    return environments.map((environment) => toEnvironmentOutput(environment));
+    return environments;
   });
 
   const getEnvironment = os.getEnvironment.handler(async ({ input }) => {
     const environment = await entityService.getEnvironment(input.environmentId);
     if (!environment) return null;
-    return toEnvironmentOutput(environment);
+    return environment;
   });
 
   const createEnvironment = os.createEnvironment.handler(async ({ input }) => {
     const created = await entityService.createEnvironment(input);
     // New environments have no systems yet.
-    return toEnvironmentOutput({ ...created, systemIds: [] });
+    return { ...created, systemIds: [] };
   });
 
   const updateEnvironment = os.updateEnvironment.handler(async ({ input }) => {
@@ -770,7 +731,7 @@ export const createCatalogRouter = ({
         message: "Environment not found after update",
       });
     }
-    return toEnvironmentOutput(updated);
+    return updated;
   });
 
   const deleteEnvironment = os.deleteEnvironment.handler(async ({ input }) => {
@@ -813,7 +774,7 @@ export const createCatalogRouter = ({
       const environments = await entityService.getEnvironmentsByIds(
         memberships.map((m) => m.environmentId),
       );
-      return environments.map((environment) => toEnvironmentOutput(environment));
+      return environments;
     },
   );
 
@@ -826,7 +787,7 @@ export const createCatalogRouter = ({
       const environments = await entityService.getEnvironmentsByIds(
         memberships.map((m) => m.environmentId),
       );
-      return environments.map((environment) => toEnvironmentOutput(environment));
+      return environments;
     },
   );
 
@@ -835,7 +796,7 @@ export const createCatalogRouter = ({
       const environments = await entityService.getEnvironmentsByIds(
         input.environmentIds,
       );
-      return environments.map((environment) => toEnvironmentOutput(environment));
+      return environments;
     },
   );
 

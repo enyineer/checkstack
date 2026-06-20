@@ -123,6 +123,52 @@ export function findSecretEnvSibling({
   return undefined;
 }
 
+/**
+ * Coerce a number/integer `<input>`'s raw string value into the form value.
+ *
+ * An empty input maps to `undefined` (not `NaN`), so the required-field path
+ * handles emptiness rather than letting a `NaN` leak into form state. A
+ * partially-typed value that does not yet parse to a finite number (e.g. "-",
+ * "1.", "1e") also maps to `undefined` instead of `NaN`, so the field does not
+ * thrash while typing. Only a value that parses to a finite number is coerced.
+ */
+export function coerceNumberInput({
+  raw,
+  isInteger,
+}: {
+  raw: string;
+  isInteger: boolean;
+}): number | undefined {
+  if (raw.trim() === "") return undefined;
+  const parsed = isInteger ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Whether an array item is "non-trivial" — i.e. it holds at least one
+ * user-entered value and therefore removing it warrants a confirmation gate.
+ *
+ * A just-added / empty row (all fields blank: `undefined`, `null`, empty/
+ * whitespace string, empty array, or an object whose own values are all
+ * trivial) is trivial, so it can be removed immediately without an annoying
+ * confirm. Primitives that are blank are trivial; any other primitive
+ * (including `false` and `0`) counts as a deliberately entered value.
+ */
+export function isArrayItemNonTrivial(item: unknown): boolean {
+  if (item === undefined || item === null) return false;
+  if (typeof item === "string") return item.trim() !== "";
+  if (Array.isArray(item)) {
+    return item.some((entry) => isArrayItemNonTrivial(entry));
+  }
+  if (typeof item === "object") {
+    return Object.values(item).some((entry: unknown) =>
+      isArrayItemNonTrivial(entry),
+    );
+  }
+  // Numbers, booleans, bigints, etc. are deliberate values.
+  return true;
+}
+
 /** Sentinel value used to represent "None" selection in Select components */
 export const NONE_SENTINEL = "__none__";
 

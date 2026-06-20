@@ -51,8 +51,10 @@ async function createServiceAccount({
   ).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Done" }).click();
 
-  // The application now shows in the table — proof it's persisted and bindable.
-  await expect(page.getByText(name)).toBeVisible();
+  // The application now shows in the table - proof it's persisted and bindable.
+  // Scope to the desktop table: the ResponsiveTable's display:none
+  // MobileCardList duplicates the name, which would trip strict mode.
+  await expect(page.getByRole("table").getByText(name)).toBeVisible();
 }
 
 test.describe("automations", () => {
@@ -70,7 +72,9 @@ test.describe("automations", () => {
   });
 
   test("create page blocks save without a trigger", async ({ page }) => {
-    await page.goto("/automation/new");
+    // `/automation/new` is the template picker; the blank editor lives at
+    // `/automation/new/blank`. Deep-link straight to the editor under test.
+    await page.goto("/automation/new/blank");
 
     await expect(
       page.getByRole("heading", { name: "New automation" }),
@@ -97,7 +101,9 @@ test.describe("automations", () => {
     // Prerequisite: a bindable service account for the "Run as" picker.
     await createServiceAccount({ page, name: SERVICE_ACCOUNT_NAME });
 
-    await page.goto("/automation/new");
+    // `/automation/new` is the template picker; the blank editor lives at
+    // `/automation/new/blank`. Deep-link straight to the editor under test.
+    await page.goto("/automation/new/blank");
     await expect(
       page.getByRole("heading", { name: "New automation" }),
     ).toBeVisible({ timeout: 20_000 });
@@ -165,7 +171,11 @@ test.describe("automations", () => {
       page.getByRole("heading", { name: "Automations", exact: true }),
     ).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("No automations yet")).toHaveCount(0);
-    await expect(page.getByText(AUTOMATION_NAME)).toBeVisible();
+    // Scope to the desktop table: the ResponsiveTable's display:none
+    // MobileCardList duplicates the name, which would trip strict mode.
+    await expect(
+      page.getByRole("table").getByText(AUTOMATION_NAME),
+    ).toBeVisible();
     // The trigger badge surfaces the wired-up event id.
     await expect(page.getByText("automation.interval").first()).toBeVisible();
   });
@@ -184,20 +194,19 @@ test.describe("automations", () => {
     await expect(disableToggle).toBeVisible();
     await expect(disableToggle).toBeChecked();
     await disableToggle.click();
-    await expect(
-      page.getByText(`${AUTOMATION_NAME} disabled`),
-    ).toBeVisible({ timeout: 15_000 });
 
-    // Now it offers to enable it again.
+    // The success toast for this toggle is intentionally suppressed (optimistic
+    // update - the switch flip is the feedback), so assert the switch STATE
+    // flips instead. The row now offers to enable it again, unchecked.
     const enableToggle = row.getByRole("switch", {
       name: "Enable automation",
     });
-    await expect(enableToggle).toBeVisible();
+    await expect(enableToggle).toBeVisible({ timeout: 15_000 });
     await expect(enableToggle).not.toBeChecked();
     await enableToggle.click();
-    await expect(
-      page.getByText(`${AUTOMATION_NAME} enabled`),
-    ).toBeVisible({ timeout: 15_000 });
+    // Flips back to the disable affordance, checked.
+    await expect(disableToggle).toBeVisible({ timeout: 15_000 });
+    await expect(disableToggle).toBeChecked();
   });
 
   test("Visual ↔ YAML round-trips without data loss", async ({ page }) => {
@@ -287,7 +296,7 @@ test.describe("automations", () => {
       .click();
 
     await expect(
-      page.getByRole("heading", { name: `${AUTOMATION_NAME} — runs` }),
+      page.getByRole("heading", { name: `${AUTOMATION_NAME} - runs` }),
     ).toBeVisible({ timeout: 20_000 });
     // No runs have happened, so the filtered-empty state shows.
     await expect(

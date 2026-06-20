@@ -70,7 +70,7 @@ export const AttributionChart: React.FC<AttributionChartProps> = ({
         {remainingPercent > 0 && (
           <div
             className={cn(
-              "bg-emerald-500/30",
+              "bg-success/30",
               !isLowPower && "transition-all duration-500",
             )}
             style={{ width: `${remainingPercent}%` }}
@@ -96,7 +96,7 @@ export const AttributionChart: React.FC<AttributionChartProps> = ({
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/30" />
+          <div className="w-2.5 h-2.5 rounded-full bg-success/30" />
           <span className="text-muted-foreground">
             Remaining:{" "}
             {(totalBudgetMinutes - selfMinutes - upstreamMinutes).toFixed(1)}{" "}

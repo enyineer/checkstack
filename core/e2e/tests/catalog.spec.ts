@@ -150,9 +150,13 @@ test.describe("Systems & Catalog", () => {
     // The dialog closes on success.
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
-    // The new system appears in the management systems list.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
-    await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
+    // The new system appears in the management systems list. Scope to the
+    // desktop `<table>`: the ResponsiveTable also renders a display:none
+    // MobileCardList with the same name/description, so an unscoped getByText
+    // would match both DOM nodes and trip Playwright strict mode.
+    const managementTable = page.getByRole("table");
+    await expect(managementTable.getByText(SYSTEM_NAME)).toBeVisible();
+    await expect(managementTable.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
 
     // ...and in the public browse view. The empty-state onboarding is gone now
     // that a system exists; the system lives inside the (default-collapsed,
@@ -174,8 +178,11 @@ test.describe("Systems & Catalog", () => {
   test("rejects a duplicate system name", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
-    // The first system must already be present from the previous test.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    // The first system must already be present from the previous test. Scope to
+    // the desktop `<table>`: the ResponsiveTable's display:none MobileCardList
+    // holds a duplicate of the name, which would otherwise trip strict mode.
+    const managementTable = page.getByRole("table");
+    await expect(managementTable.getByText(SYSTEM_NAME)).toBeVisible();
 
     await page.getByRole("button", { name: "Add System" }).click();
     const dialog = page.getByRole("dialog");
@@ -191,8 +198,15 @@ test.describe("Systems & Catalog", () => {
       page.getByText(/already exists/i),
     ).toBeVisible({ timeout: 8000 });
 
-    // No second row was added - exactly one system carries this name.
-    await expect(page.getByText(SYSTEM_NAME)).toHaveCount(1);
+    // The create dialog stays OPEN on error (so the user can fix the name).
+    // While it is open the modal aria-hides the page behind it, so the table is
+    // not reachable by role; dismiss it first, then assert no second row exists.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // No second row was added - exactly one system carries this name (counted in
+    // the desktop table, which renders one node per system).
+    await expect(managementTable.getByText(SYSTEM_NAME)).toHaveCount(1);
   });
 
   test("opens the system detail page from browse", async ({ page }) => {
@@ -219,8 +233,12 @@ test.describe("Systems & Catalog", () => {
     ).toBeVisible({ timeout: NAV_TIMEOUT });
     await expect(page).toHaveURL(/\/catalog\/system\//);
 
-    // The "About" context panel renders the description.
-    await expect(page.getByText("About")).toBeVisible();
+    // The "About" context panel renders the description. Target the panel
+    // heading by role: a plain getByText("About") also substring-matches the
+    // AI-memory panel prose ("...saved about this system").
+    await expect(
+      page.getByRole("heading", { name: "About" }),
+    ).toBeVisible();
     await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
   });
 
@@ -243,7 +261,11 @@ test.describe("Systems & Catalog", () => {
     await dialog.getByRole("button", { name: "Save Changes" }).click();
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    // Scope to the desktop table: the ResponsiveTable's display:none
+    // MobileCardList renders the same name, which would trip strict mode.
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible();
   });
 
   test("creates a group and views it", async ({ page }) => {
@@ -265,9 +287,10 @@ test.describe("Systems & Catalog", () => {
     await submit.click();
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    // The "No groups yet" empty state is replaced by the new group.
+    // The "No groups yet" empty state is replaced by the new group. Scope the
+    // name to the desktop table (the MobileCardList duplicates it in the DOM).
     await expect(page.getByText("No groups yet")).toHaveCount(0);
-    await expect(page.getByText(GROUP_NAME)).toBeVisible();
+    await expect(page.getByRole("table").getByText(GROUP_NAME)).toBeVisible();
   });
 
   test("assigns a system to a group via the Groups-tab picker", async ({
@@ -309,7 +332,8 @@ test.describe("Systems & Catalog", () => {
     await dialog.getByLabel("Name").fill(ENV_NAME);
     await dialog.getByRole("button", { name: "Create Environment" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText(ENV_NAME)).toBeVisible();
+    // Scope to the desktop table (the MobileCardList duplicates the name).
+    await expect(page.getByRole("table").getByText(ENV_NAME)).toBeVisible();
 
     // Attach the system to it from the Systems tab's Environment picker.
     await page.getByRole("tab", { name: "Systems" }).click();
@@ -327,9 +351,12 @@ test.describe("Systems & Catalog", () => {
       }),
     ).toBeVisible();
 
-    // ...and the system shows as a member on the Environments tab.
+    // ...and the system shows as a member on the Environments tab. Scope to the
+    // desktop table (the MobileCardList duplicates the member name).
     await page.getByRole("tab", { name: "Environments" }).click();
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible();
   });
 
   test("filtered browse shows a no-matches state with clear-filters", async ({
@@ -372,7 +399,10 @@ test.describe("Systems & Catalog", () => {
   test("deletes a system with confirmation", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    // Scope to the desktop table (the MobileCardList duplicates the name).
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible();
 
     await page
       .getByRole("button", { name: `Delete ${SYSTEM_NAME_UPDATED}` })

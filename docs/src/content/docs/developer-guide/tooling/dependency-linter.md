@@ -82,7 +82,7 @@ bun run scripts/validate-dependencies.ts
 ```
 
 **Error:**
-```
+```text
 ❌ Dependency Architecture Violations Found:
 
   @checkstack/catalog-common
@@ -112,7 +112,7 @@ bun run scripts/validate-dependencies.ts
 ```
 
 **Error:**
-```
+```text
 ❌ Dependency Architecture Violations Found:
 
   @checkstack/catalog-frontend-plugin
@@ -233,3 +233,7 @@ The check runs in CI as the **Deps** job in
 [`pr-checks.yml`](https://github.com/enyineer/checkstack/blob/main/.github/workflows/pr-checks.yml).
 To widen enforcement to another dependency, add its name to the first version
 group in `.syncpackrc.json`.
+
+## See also
+
+- [Security maintenance](/checkstack/developer-guide/tooling/security-maintenance/) - the daily workflow that range-bumps vulnerable shared deps in lockstep across the workspace (keeping this check green) and audits the managed-override manifest.

@@ -11,6 +11,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   IMPORTANCE_EMOJI,
+  renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
@@ -148,26 +149,12 @@ const telegramStrategy: NotificationStrategy<
 
       // Append the affected subjects as a markdown bullet list. Telegram
       // renders [name](url) when subjects have URLs; status maps to a
-      // colored circle prefix.
-      const subjects = notification.subjects ?? [];
-      if (subjects.length > 0) {
-        const statusEmoji = {
-          healthy: "🟢",
-          degraded: "🟡",
-          unhealthy: "🔴",
-          unknown: "⚪",
-        } as const;
-        const subjectLines = subjects.map((subject) => {
-          const prefix = subject.status ? `${statusEmoji[subject.status]} ` : "• ";
-          const namePart = subject.url
-            ? `[${subject.name}](${subject.url})`
-            : subject.name;
-          return `${prefix}${namePart}`;
-        });
-        const subjectsBlock = telegramifyMarkdown(
-          `**Affected:**\n${subjectLines.join("\n")}`,
-          "escape",
-        );
+      // colored circle prefix (via the shared renderer).
+      const subjectsMarkdown = renderSubjectsAsMarkdown({
+        subjects: notification.subjects ?? [],
+      });
+      if (subjectsMarkdown) {
+        const subjectsBlock = telegramifyMarkdown(subjectsMarkdown, "escape");
         messageText += `\n\n${subjectsBlock}`;
       }
 

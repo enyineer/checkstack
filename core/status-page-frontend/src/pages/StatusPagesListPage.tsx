@@ -9,12 +9,15 @@ import {
   Badge,
   EmptyState,
   LoadingSpinner,
+  QueryErrorState,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
   useToast,
+  toastSuccess,
+  toastError,
   ConfirmationModal,
 } from "@checkstack/ui";
 import { Plus, ExternalLink, Trash2, Pencil, MonitorCheck } from "lucide-react";
@@ -31,13 +34,7 @@ import {
   statusPublicRoutes,
 } from "@checkstack/status-page-common";
 import { TeamOwnershipPicker } from "@checkstack/auth-frontend";
-
-const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .trim()
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replaceAll(/^-+|-+$/g, "");
+import { slugify } from "../utils/slugify";
 
 export const StatusPagesListPage: React.FC = () => {
   const client = usePluginClient(StatusPageApi);
@@ -48,7 +45,8 @@ export const StatusPagesListPage: React.FC = () => {
     statusPageAccess.page.manage,
   );
 
-  const { data, isLoading } = client.listStatusPages.useQuery({});
+  const listQuery = client.listStatusPages.useQuery({});
+  const { data, isLoading, isError } = listQuery;
   const pages = data?.pages ?? [];
 
   const [creating, setCreating] = useState(false);
@@ -72,10 +70,10 @@ export const StatusPagesListPage: React.FC = () => {
   });
   const deleteMutation = client.deleteStatusPage.useMutation({
     onSuccess: () => {
-      toast.success("Status page deleted");
+      toastSuccess(toast, "Status page deleted");
       setDeleteId(null);
     },
-    onError: (e) => toast.error(extractErrorMessage(e, "Couldn't delete")),
+    onError: (e) => toastError(toast, "Couldn't delete status page", e),
   });
 
   return (
@@ -101,6 +99,12 @@ export const StatusPagesListPage: React.FC = () => {
         <div className="flex justify-center py-12">
           <LoadingSpinner />
         </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={listQuery.error}
+          onRetry={() => listQuery.refetch()}
+          resource="status pages"
+        />
       ) : pages.length === 0 ? (
         <EmptyState
           title="No status pages yet"
@@ -111,21 +115,42 @@ export const StatusPagesListPage: React.FC = () => {
           {pages.map((page) => (
             <Card
               key={page.id}
-              className="flex items-center justify-between gap-3 p-3"
+              className="group flex items-center justify-between gap-3 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-3 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all hover:border-primary/40 hover:shadow-lg"
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{page.title}</span>
-                  {page.published ? (
-                    <Badge variant="secondary">Published</Badge>
-                  ) : (
-                    <Badge variant="outline">Draft</Badge>
-                  )}
-                  {page.visibility === "authenticated" && (
-                    <Badge variant="outline">Internal</Badge>
-                  )}
+              <div className="flex min-w-0 items-center gap-3">
+                {/* Published-state by position + hue before the pill's label. */}
+                <span
+                  aria-hidden
+                  className={`size-2 shrink-0 rounded-full ${page.published ? "bg-status-ok" : "bg-status-unknown"}`}
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{page.title}</span>
+                    {page.published ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-status-ok/10 px-2.5 py-1 text-xs font-medium text-status-ok">
+                        <span
+                          aria-hidden
+                          className="size-1.5 rounded-full bg-status-ok"
+                        />
+                        Published
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-status-unknown/10 px-2.5 py-1 text-xs font-medium text-status-unknown">
+                        <span
+                          aria-hidden
+                          className="size-1.5 rounded-full bg-status-unknown"
+                        />
+                        Draft
+                      </span>
+                    )}
+                    {page.visibility === "authenticated" && (
+                      <Badge variant="outline">Internal</Badge>
+                    )}
+                  </div>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    /{page.slug}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground">/{page.slug}</span>
               </div>
               <div className="flex items-center gap-1">
                 {page.published && (

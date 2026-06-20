@@ -60,31 +60,43 @@ export type TlsConfig = z.infer<typeof tlsConfigSchema>;
  * Per-run result metadata.
  */
 const tlsResultSchema = healthResultSchema({
+  // Connection success is an availability signal. Debounce so a single
+  // transient connect failure does not alert on its own.
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-anomaly-confirmation-window": 3,
   }),
+  // Certificate validity is availability-style: a flip to invalid is a genuine
+  // problem. Debounce against transient probe noise.
   isValid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-anomaly-confirmation-window": 3,
   }),
+  // Self-signed is effectively a constant property of the endpoint's
+  // configuration: it does not legitimately flip run-to-run, so a learned
+  // dominance baseline cannot produce a meaningful default. A real flip
+  // (e.g. a swapped cert) already surfaces through isValid. Off by default to
+  // avoid baselining a constant; still chartable and opt-in.
   isSelfSigned: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Self-Signed",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    "x-anomaly-enabled": false,
   }),
+  // Days-until-expiry decreases by exactly one per day - deterministic and
+  // monotonic, so a learned baseline is the wrong fit. Expiry is a static
+  // threshold concern (config: minDaysUntilExpiry), not a statistical outlier.
+  // Off by default; remains chartable.
   daysUntilExpiry: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Days Until Expiry",
     "x-chart-unit": "days",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-enabled": false,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -97,31 +109,40 @@ type TlsResult = z.infer<typeof tlsResultSchema>;
 
 /** Aggregated field definitions for bucket merging */
 const tlsAggregatedFields = {
+  // Average days-until-expiry inherits the deterministic, monotonic decay of
+  // the per-run value, so a learned baseline is meaningless. Off by default;
+  // expiry is governed by the static minDaysUntilExpiry threshold.
   avgDaysUntilExpiry: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",
     "x-chart-unit": "days",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
+  // Minimum days-until-expiry is likewise deterministic and monotonic; a
+  // baseline does not apply. Off by default, still chartable.
   minDaysUntilExpiry: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Days Until Expiry",
     "x-chart-unit": "days",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
+  // Count of invalid certificates per bucket. A rise is a real validity
+  // problem. Debounce so a single bucket blip does not alert.
   invalidCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Invalid Certificates",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-confirmation-window": 3,
   }),
+  // Count of connection/inspection errors per bucket. A rise is a real
+  // availability problem. Debounce against transient blips.
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-confirmation-window": 3,
   }),
 };
 

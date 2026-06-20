@@ -59,9 +59,11 @@ test.describe("health checks", () => {
     await expect(
       page.getByRole("heading", { name: "Run History" }),
     ).toBeVisible();
-    // Empty in-table message from HealthCheckRunsTable's default.
+    // Empty in-table message from HealthCheckRunsTable's default. Scope to the
+    // desktop table cell: the ResponsiveTable's display:none MobileCardList
+    // renders the same empty-state text, which would trip strict mode.
     await expect(
-      page.getByText("No health check runs found."),
+      page.getByRole("cell", { name: "No health check runs found." }),
     ).toBeVisible();
   });
 

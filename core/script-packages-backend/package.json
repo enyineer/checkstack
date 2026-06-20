@@ -16,6 +16,7 @@
   "dependencies": {
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/sdk": "workspace:*",

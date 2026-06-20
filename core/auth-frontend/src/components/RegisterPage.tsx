@@ -4,7 +4,7 @@ import { AlertCircle } from "lucide-react";
 import { useApi, usePluginClient } from "@checkstack/frontend-api";
 import { authApiRef } from "../api";
 import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
-import { resolveRoute, extractErrorMessage } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   Button,
   Input,
@@ -15,12 +15,13 @@ import {
   CardDescription,
   CardContent,
   CardFooter,
-  InfoBanner,
-  InfoBannerIcon,
-  InfoBannerContent,
-  InfoBannerTitle,
-  InfoBannerDescription,
+  Alert,
+  AlertIcon,
+  AlertContent,
+  AlertTitle,
+  AlertDescription,
   useToast,
+  toastError,
   usePerformance,
   cn,
 } from "@checkstack/ui";
@@ -76,7 +77,7 @@ export const RegisterPage = () => {
         globalThis.location.href = "/";
       }
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Registration failed"));
+      toastError(toast, "Registration failed", error);
     } finally {
       setLoading(false);
     }
@@ -87,7 +88,7 @@ export const RegisterPage = () => {
       await authApi.signInWithSocial(provider);
       // Navigation will happen automatically after OAuth redirect
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Social registration failed"));
+      toastError(toast, "Social registration failed", error);
     }
   };
 
@@ -143,15 +144,15 @@ export const RegisterPage = () => {
             <CardTitle>Registration Disabled</CardTitle>
           </CardHeader>
           <CardContent>
-            <InfoBanner variant="warning">
-              <InfoBannerIcon>
+            <Alert variant="warning">
+              <AlertIcon>
                 <AlertCircle className="h-4 w-4" />
-              </InfoBannerIcon>
-              <InfoBannerContent>
-                <InfoBannerTitle>
+              </AlertIcon>
+              <AlertContent>
+                <AlertTitle>
                   Registration is Currently Disabled
-                </InfoBannerTitle>
-                <InfoBannerDescription>
+                </AlertTitle>
+                <AlertDescription>
                   New user registration has been disabled by the system
                   administrator. If you already have an account, please{" "}
                   <Link
@@ -161,9 +162,9 @@ export const RegisterPage = () => {
                     sign in
                   </Link>
                   . Otherwise, please contact your administrator for assistance.
-                </InfoBannerDescription>
-              </InfoBannerContent>
-            </InfoBanner>
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
           </CardContent>
         </Card>
       </div>
@@ -179,20 +180,20 @@ export const RegisterPage = () => {
             <CardTitle>Registration Unavailable</CardTitle>
           </CardHeader>
           <CardContent>
-            <InfoBanner variant="warning">
-              <InfoBannerIcon>
+            <Alert variant="warning">
+              <AlertIcon>
                 <AlertCircle className="h-4 w-4" />
-              </InfoBannerIcon>
-              <InfoBannerContent>
-                <InfoBannerTitle>
+              </AlertIcon>
+              <AlertContent>
+                <AlertTitle>
                   No authentication methods enabled
-                </InfoBannerTitle>
-                <InfoBannerDescription>
+                </AlertTitle>
+                <AlertDescription>
                   Please contact your system administrator to enable
                   authentication methods.
-                </InfoBannerDescription>
-              </InfoBannerContent>
-            </InfoBanner>
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
           </CardContent>
         </Card>
       </div>
@@ -213,13 +214,13 @@ export const RegisterPage = () => {
             <CardTitle>Registration Not Required</CardTitle>
           </CardHeader>
           <CardContent>
-            <InfoBanner>
-              <InfoBannerIcon>
+            <Alert>
+              <AlertIcon>
                 <AlertCircle className="h-4 w-4" />
-              </InfoBannerIcon>
-              <InfoBannerContent>
-                <InfoBannerTitle>Automatic Account Creation</InfoBannerTitle>
-                <InfoBannerDescription>
+              </AlertIcon>
+              <AlertContent>
+                <AlertTitle>Automatic Account Creation</AlertTitle>
+                <AlertDescription>
                   Accounts are automatically created when you sign in with one
                   of the available authentication methods. Please proceed to the{" "}
                   <Link
@@ -229,9 +230,9 @@ export const RegisterPage = () => {
                     login page
                   </Link>
                   .
-                </InfoBannerDescription>
-              </InfoBannerContent>
-            </InfoBanner>
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
           </CardContent>
         </Card>
       </div>

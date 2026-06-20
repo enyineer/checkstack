@@ -1,5 +1,5 @@
 import React from "react";
-import { Plug, CheckCircle2, XCircle } from "lucide-react";
+import { Plug, CheckCircle2, XCircle, KeyRound } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   SecretsApi,
@@ -8,8 +8,6 @@ import {
 } from "@checkstack/secrets-common";
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   Button,
   Input,
@@ -20,8 +18,15 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
+  cn,
+  usePerformance,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
+import {
+  classifyBackendPosture,
+  presentWritability,
+} from "./secretsDisplay.logic";
+import { toneStyles } from "./secretToneStyles";
 
 const AUTH_METHODS: { value: VaultAuthMethod; label: string }[] = [
   { value: "token", label: "Token" },
@@ -84,9 +89,17 @@ export const BackendConfigCard: React.FC<{
     }
   }, [config]);
 
+  const { isLowPower } = usePerformance();
   const available = config?.availableBackends ?? [];
   const vaultAvailable = available.includes("vault");
   const isVault = active === "vault";
+
+  // Connection posture (left stripe) + writable/read-through readout (pill),
+  // both multi-encoded by the colorblind-safe status triad.
+  const postureStyles = toneStyles[classifyBackendPosture(config)];
+  const writability = presentWritability(config);
+  const writabilityStyles = toneStyles[writability.tone];
+  const activeLabel = config?.activeBackend ?? active;
 
   const update = <K extends keyof VaultForm>(key: K, val: VaultForm[K]) =>
     setVault((prev) => ({ ...prev, [key]: val }));
@@ -132,11 +145,42 @@ export const BackendConfigCard: React.FC<{
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Backend</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+    <Card
+      className={cn(
+        "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]",
+        !isLowPower && "transition-all duration-200",
+      )}
+    >
+      {/* Connection-posture accent stripe: ok / warn / unknown by hue. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", postureStyles.accent)}
+        aria-hidden
+      />
+      <CardContent className="space-y-4 pt-6 pl-[calc(var(--d-pad)+0.25rem)] text-sm">
+        {/* Identity-led readout: which backend is live + its posture. */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-lg font-semibold text-foreground">
+              {activeLabel}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              active backend
+            </p>
+          </div>
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+              writabilityStyles.pill,
+            )}
+          >
+            <span
+              className={cn("size-1.5 rounded-full", writabilityStyles.dot)}
+              aria-hidden
+            />
+            {writability.label}
+          </span>
+        </div>
+
         <div className="flex items-center gap-3">
           <Label htmlFor="active-backend">Active backend</Label>
           <Select value={active} onValueChange={setActive}>
@@ -163,7 +207,11 @@ export const BackendConfigCard: React.FC<{
         )}
 
         {isVault && vaultAvailable && (
-          <div className="space-y-3 rounded-md border border-border p-3">
+          <div className="space-y-3 rounded-[var(--d-card-r)] border border-border/70 bg-surface-inset p-[var(--d-pad)] shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)]">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <KeyRound className="h-3.5 w-3.5" aria-hidden />
+              Vault connection
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="vault-address">Vault address</Label>
@@ -256,7 +304,7 @@ export const BackendConfigCard: React.FC<{
                 />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="border-l-2 border-border/70 pl-3 text-xs text-muted-foreground">
               The auth credential is write-only: it is stored encrypted and
               never displayed or returned. Leave it blank to keep the current
               one.
@@ -285,14 +333,16 @@ export const BackendConfigCard: React.FC<{
           </Button>
           {testResult && (
             <span
-              className={`flex items-center gap-1 text-xs ${
-                testResult.ok ? "text-emerald-600" : "text-destructive"
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                testResult.ok
+                  ? "bg-status-ok/10 text-status-ok"
+                  : "bg-status-down/10 text-status-down"
               }`}
             >
               {testResult.ok ? (
-                <CheckCircle2 className="h-4 w-4" />
+                <CheckCircle2 className="h-3.5 w-3.5" />
               ) : (
-                <XCircle className="h-4 w-4" />
+                <XCircle className="h-3.5 w-3.5" />
               )}
               {testResult.message}
             </span>

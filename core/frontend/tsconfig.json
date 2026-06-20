@@ -47,6 +47,9 @@
       "path": "../status-page-frontend"
     },
     {
+      "path": "../tips-frontend"
+    },
+    {
       "path": "../ui"
     }
   ]

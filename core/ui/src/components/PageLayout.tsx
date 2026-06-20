@@ -7,6 +7,7 @@ import {
   LoadingSpinner,
   AccessDenied,
 } from "..";
+import type { BreadcrumbItem } from "./Breadcrumb";
 import { cn } from "../utils";
 
 interface PageLayoutProps {
@@ -17,6 +18,13 @@ interface PageLayoutProps {
   loading?: boolean;
   allowed?: boolean;
   children: React.ReactNode;
+  /**
+   * Optional breadcrumb trail rendered above the page title. Opt-in: pages
+   * without this prop are unchanged.
+   */
+  breadcrumbs?: BreadcrumbItem[];
+  /** SPA navigation handler for breadcrumb link clicks. */
+  onBreadcrumbNavigate?: (to: string) => void;
   /**
    * Make the content area fill the viewport height instead of growing with its
    * content. The page's own children then own their scrolling (e.g. a chat
@@ -48,6 +56,8 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
   loading,
   allowed,
   children,
+  breadcrumbs,
+  onBreadcrumbNavigate,
   fillHeight = false,
   maxWidth = "7xl",
 }) => {
@@ -65,6 +75,8 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
           subtitle={subtitle}
           icon={icon}
           actions={actions}
+          breadcrumbs={breadcrumbs}
+          onBreadcrumbNavigate={onBreadcrumbNavigate}
         />
         <PageContent>
           <div className="flex justify-center py-12">
@@ -84,6 +96,8 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
           subtitle={subtitle}
           icon={icon}
           actions={actions}
+          breadcrumbs={breadcrumbs}
+          onBreadcrumbNavigate={onBreadcrumbNavigate}
         />
         <PageContent>
           <AccessDenied />
@@ -99,6 +113,8 @@ export const PageLayout: React.FC<PageLayoutProps> = ({
         subtitle={subtitle}
         icon={icon}
         actions={actions}
+        breadcrumbs={breadcrumbs}
+        onBreadcrumbNavigate={onBreadcrumbNavigate}
       />
       <PageContent
         className={fillHeight ? "flex min-h-0 flex-col" : undefined}

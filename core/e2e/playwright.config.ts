@@ -1,6 +1,9 @@
 import { devices } from "@playwright/test";
 import { createPlaywrightConfig } from "@checkstack/test-utils-frontend/playwright";
-import { ADMIN_STORAGE_STATE } from "./tests/support/auth";
+import {
+  ADMIN_STORAGE_STATE,
+  MEMBER_STORAGE_STATE,
+} from "./tests/support/auth";
 
 /**
  * App-wide end-to-end tests (authenticated).
@@ -13,17 +16,27 @@ import { ADMIN_STORAGE_STATE } from "./tests/support/auth";
  *    session path is exercised exactly as in production;
  *  - serves the built SPA + docs same-origin on the dedicated port.
  *
- * Authentication: the `setup` project (`auth.setup.ts`) drives the first-run
- * onboarding flow once, which creates an admin and signs in, then persists the
- * session to `ADMIN_STORAGE_STATE`. The main `chromium` project loads that
- * storage state (via `dependencies: ["setup"]`) so every spec runs already
- * logged in as an admin.
+ * Authentication (two actors):
+ *  - `setup-admin` (`auth.setup.ts`) drives the first-run onboarding once,
+ *    creating an admin + signing in, and persists to `ADMIN_STORAGE_STATE`. The
+ *    main `chromium` project loads it so most specs run as an admin.
+ *  - `setup-member` (`member.setup.ts`) runs AFTER `setup-admin` and
+ *    self-registers a second, NON-admin member, persisting to
+ *    `MEMBER_STORAGE_STATE`. The `member` project loads it and runs ONLY the
+ *    permissions spec, so team-scoped visibility filtering is exercised through
+ *    the UI as a non-admin (the UI counterpart to the `rpc.test.ts` G11 guard).
  *
- * Prerequisites the harness does NOT manage (build them first - `pretest:e2e`
- * wires these up):
- *  - Postgres up: `docker compose -f docker-compose-dev.yml up -d`
- *  - Frontend built: `bun run --filter @checkstack/frontend build`
- *  - Docs built:     `bun run --filter @checkstack/docs build`
+ * Running the suite: `bun run test:e2e` (from `core/e2e`) is fully
+ * self-contained - its `pretest` builds the frontend + docs, and
+ * `with-e2e-postgres.ts` starts an ephemeral `postgres:16-alpine` via
+ * Testcontainers and injects `DATABASE_URL`. The only prerequisite is a running
+ * Docker daemon.
+ *
+ * The lower-level entrypoints below assume Postgres is ALREADY provided (via a
+ * reachable `DATABASE_URL`) and the frontend + docs are already built:
+ *  - `bun run test:e2e:file` (`playwright test`) - run a single spec.
+ *  - `bun run test:e2e:no-db scripts/run-all.ts` - the runner without the
+ *    Testcontainers wrapper, e.g. against an externally-managed Postgres.
  */
 export default createPlaywrightConfig({
   baseURL: "http://localhost:3100",
@@ -35,18 +48,39 @@ export default createPlaywrightConfig({
     // device + storageState here.
     projects: [
       {
-        name: "setup",
-        testMatch: /.*\.setup\.ts$/,
+        name: "setup-admin",
+        testMatch: /auth\.setup\.ts$/,
         use: { ...devices["Desktop Chrome"] },
       },
       {
+        // The member must self-register AFTER the admin exists, so this setup
+        // depends on `setup-admin`.
+        name: "setup-member",
+        testMatch: /member\.setup\.ts$/,
+        use: { ...devices["Desktop Chrome"] },
+        dependencies: ["setup-admin"],
+      },
+      {
+        // Main authed project: every spec EXCEPT the setup files and the
+        // permissions spec, run as the admin.
         name: "chromium",
-        testIgnore: /.*\.setup\.ts$/,
+        testIgnore: [/.*\.setup\.ts$/, /permissions\.spec\.ts$/],
         use: {
           ...devices["Desktop Chrome"],
           storageState: ADMIN_STORAGE_STATE,
         },
-        dependencies: ["setup"],
+        dependencies: ["setup-admin"],
+      },
+      {
+        // Non-admin actor: runs ONLY the permissions spec with the member's
+        // session, so the UI's team-scoped visibility filtering is verified.
+        name: "member",
+        testMatch: /permissions\.spec\.ts$/,
+        use: {
+          ...devices["Desktop Chrome"],
+          storageState: MEMBER_STORAGE_STATE,
+        },
+        dependencies: ["setup-member"],
       },
     ],
     webServer: {

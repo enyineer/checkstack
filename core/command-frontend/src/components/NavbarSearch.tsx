@@ -1,7 +1,13 @@
-import { useState, useEffect, useMemo } from "react";
-import { cn, usePerformance } from "@checkstack/ui";
-import { Search, Command } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  cn,
+  usePerformance,
+  SearchShortcutHint,
+  SEARCH_TRIGGER_LABEL,
+} from "@checkstack/ui";
+import { Search } from "lucide-react";
 import { SearchDialog } from "./SearchDialog";
+import { PALETTE_TRIGGER_SHADOW } from "./paletteChrome";
 
 /**
  * NavbarSearch - Compact command palette trigger for the navbar.
@@ -11,14 +17,6 @@ import { SearchDialog } from "./SearchDialog";
 export const NavbarSearch = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const { isLowPower } = usePerformance();
-
-  // Detect Mac for keyboard shortcut display
-  const isMac = useMemo(
-    () =>
-      typeof navigator !== "undefined" &&
-      /Mac|iPhone|iPad/.test(navigator.userAgent),
-    []
-  );
 
   // Global keyboard shortcut for search (⌘K / Ctrl+K)
   useEffect(() => {
@@ -42,49 +40,27 @@ export const NavbarSearch = () => {
       <button
         onClick={() => setSearchOpen(true)}
         className={cn(
-          // Base styles
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg",
-          // Glassmorphism effect
-          "bg-muted/50 border border-primary/30",
-          // Subtle primary pulse animation - disabled in low power
-          !isLowPower && "animate-pulse-subtle ring-1 ring-primary/20",
-          // Hover state
-          "hover:bg-muted hover:border-primary/50 hover:ring-primary/40",
-          // Transition
-          "transition-all duration-200",
+          // Base footprint
+          "flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer",
+          // Quiet premium depth: gradient surface + soft layered shadow
+          "bg-gradient-to-b from-surface-2 to-surface border border-border/70",
+          PALETTE_TRIGGER_SHADOW,
+          // Hover: lift instead of glow (color-only fallback on low power)
+          isLowPower
+            ? "transition-colors hover:bg-surface-inset hover:border-primary/40"
+            : "transition-all duration-200 hover:-translate-y-px hover:bg-surface-2 hover:border-primary/40 hover:shadow-md",
           // Focus ring
-          "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-background",
-          // Cursor
-          "cursor-pointer"
+          "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-background"
         )}
-        style={{
-          // GPU-heavy animation disabled in low power
-          animation: isLowPower ? undefined : "pulse-glow 3s ease-in-out infinite",
-        }}
         aria-label="Open search"
       >
         <Search className="w-4 h-4 text-muted-foreground" />
         {/* Show placeholder text only on larger screens */}
         <span className="hidden md:inline text-sm text-muted-foreground">
-          Search...
+          {SEARCH_TRIGGER_LABEL}
         </span>
         {/* Keyboard shortcut badge - hidden on small screens */}
-        <kbd
-          className={cn(
-            "hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded",
-            "bg-background/50 border border-border/50",
-            "text-xs text-muted-foreground font-mono"
-          )}
-        >
-          {isMac ? (
-            <>
-              <Command className="w-3 h-3" />
-              <span>K</span>
-            </>
-          ) : (
-            <span>Ctrl+K</span>
-          )}
-        </kbd>
+        <SearchShortcutHint className="hidden sm:flex gap-0.5 px-1.5 py-0.5 bg-surface-inset border border-border/70" />
       </button>
     </>
   );

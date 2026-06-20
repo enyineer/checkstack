@@ -14,6 +14,8 @@ export type {
   UseTipStateOptions,
   UseTipStateResult,
 } from "./hooks/useTipState";
+export { useResetAllTips } from "./hooks/useResetAllTips";
+export type { UseResetAllTipsResult } from "./hooks/useResetAllTips";
 
 export const tipsPlugin = createFrontendPlugin({
   metadata: pluginMetadata,

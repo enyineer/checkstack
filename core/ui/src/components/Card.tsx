@@ -7,7 +7,9 @@ export const Card = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "rounded-lg border border-border bg-card text-card-foreground shadow-sm",
+      // Soft layered elevation (token-aware via the foreground hue) reads as
+      // gentle depth in both light and dark instead of a flat hairline.
+      "rounded-lg border border-border bg-card text-card-foreground shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_8px_24px_-12px_hsl(var(--foreground)/0.10)]",
       className,
     )}
     {...props}

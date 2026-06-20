@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
-import { cn } from "../utils";
+import { cn, isNavRouteActive } from "../utils";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import type { AccessRule } from "@checkstack/common";
 import { usePerformance } from "./PerformanceProvider";
@@ -27,6 +27,7 @@ export const NavItem: React.FC<NavItemProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { isLowPower } = usePerformance();
+  const { pathname } = useLocation();
 
   // Always call hooks at top level
   const accessApi = useApi(accessApiRef);
@@ -101,12 +102,11 @@ export const NavItem: React.FC<NavItemProps> = ({
 
   // Leaf Item (Link)
   if (to) {
+    // Prefix match for section roots so child/detail routes still highlight the
+    // parent entry. Shared with the sidebar rail via `isNavRouteActive`.
+    const active = isNavRouteActive({ pathname, to });
     return (
-      <NavLink
-        to={to}
-        className={({ isActive }) => cn(baseClasses, isActive && activeClasses)}
-        end
-      >
+      <NavLink to={to} className={cn(baseClasses, active && activeClasses)}>
         {icon && <span className="w-4 h-4">{icon}</span>}
         <span>{label}</span>
       </NavLink>

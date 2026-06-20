@@ -38,6 +38,7 @@ import {
   type EntityChanged,
 } from "@checkstack/automation-common";
 import type { HookEventMeta, Logger } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 
 import { ENTITY_CHANGED_HOOK } from "./hook";
 
@@ -132,7 +133,7 @@ export function createEntityChangedSubscriptions(): EntityChangedSubscriptions {
         await sub.input.handler(parsed.data);
       } catch (error) {
         logger.warn(
-          `onEntityChanged(${sub.input.kind}) handler threw: ${(error as Error).message}`,
+          `onEntityChanged(${sub.input.kind}) handler threw: ${extractErrorMessage(error)}`,
         );
       }
     };

@@ -9,9 +9,13 @@ Checkstack exposes a Model Context Protocol (MCP) server so external tooling can
 
 The endpoint is a JSON-RPC 2.0 handler over HTTP POST. It implements the read-only surface:
 
-- `initialize` returns the protocol version and a session id (`Mcp-Session-Id` header).
-- `tools/list` returns the tools the authenticated principal may call.
-- `tools/call` invokes a tool and returns its result as a text content block.
+- `initialize` negotiates and returns the protocol version and mints a session id (`Mcp-Session-Id` response header). When the client sends a supported `protocolVersion` in its `initialize` params, the server echoes it back; otherwise it answers with its own (`2025-06-18`).
+- `tools/list` returns the tools the authenticated principal may call. Each descriptor carries `inputSchema`, and `outputSchema` when the tool declares an output shape, so a client can reason about a tool's result before calling it.
+- `tools/call` invokes a tool and returns its result as a text content block, plus `structuredContent` for tools that declare an output schema.
+
+### Session lifecycle is enforced
+
+The `Mcp-Session-Id` minted by `initialize` is **required** on every subsequent request (`tools/list`, `tools/call`, `notifications/initialized`): the client must echo it back in the `Mcp-Session-Id` header. A request that omits it, or carries a session id this pod did not mint, is refused with HTTP `404` and JSON-RPC error `-32000`. A cross-site request (a browser `Origin` whose host differs from the endpoint's) is refused with `403` before any work; normal server-to-server clients omit `Origin` and are unaffected.
 
 OAuth discovery and registration live under the better-auth mount (see [OAuth and scopes](/checkstack/developer-guide/ai/oauth-and-scopes/)):
 
@@ -46,17 +50,28 @@ Point any MCP client that supports OAuth and Streamable HTTP at the endpoint:
 # 1. Discover the authorization server.
 curl https://your-checkstack/.well-known/oauth-protected-resource
 
-# 2. After the OAuth flow yields a token, list tools.
-curl -X POST https://your-checkstack/api/ai/mcp \
+# 2. After the OAuth flow yields a token, initialize a session and capture the
+#    minted Mcp-Session-Id (returned as a response header). Every later request
+#    must echo it back, or the server refuses with 404 / JSON-RPC -32000.
+SESSION=$(curl -sD - -o /dev/null -X POST https://your-checkstack/api/ai/mcp \
   -H "authorization: Bearer $TOKEN" \
   -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' \
+  | grep -i '^mcp-session-id:' | tr -d '\r' | awk '{print $2}')
 
-# 3. Call a read-only tool.
+# 3. List tools (echo the session id).
 curl -X POST https://your-checkstack/api/ai/mcp \
   -H "authorization: Bearer $TOKEN" \
+  -H "mcp-session-id: $SESSION" \
   -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"incident.list","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# 4. Call a read-only tool (echo the session id).
+curl -X POST https://your-checkstack/api/ai/mcp \
+  -H "authorization: Bearer $TOKEN" \
+  -H "mcp-session-id: $SESSION" \
+  -H "content-type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"incident.list","arguments":{}}}'
 ```
 
 ## State and scale

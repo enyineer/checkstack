@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/secrets-common": "workspace:*",
     "@orpc/server": "^1.14.4",

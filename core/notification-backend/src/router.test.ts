@@ -181,15 +181,15 @@ function buildRouterForReads({
 }: {
   db: unknown;
 }): ReturnType<typeof createNotificationRouter> {
-  return createNotificationRouter(
-    db as never,
-    {} as never, // configService
-    makeSignalService() as never, // signalService
-    { getStrategies: () => [] } as never, // strategyRegistry
-    { forPlugin: () => ({}) } as never, // rpcApi
-    makeLogger() as never,
-    passthroughCache,
-  );
+  return createNotificationRouter({
+    database: db as never,
+    configService: {} as never,
+    signalService: makeSignalService() as never,
+    strategyRegistry: { getStrategies: () => [] } as never,
+    rpcApi: { forPlugin: () => ({}) } as never,
+    logger: makeLogger() as never,
+    cache: passthroughCache,
+  });
 }
 
 describe("notification router · getNotifications", () => {
@@ -545,18 +545,20 @@ function buildRouterForDispatch({
   db: unknown;
   signalService: ReturnType<typeof makeSignalService>;
 }): ReturnType<typeof createNotificationRouter> {
-  return createNotificationRouter(
-    db as never,
-    {} as never, // configService
-    signalService as never,
-    {
+  return createNotificationRouter({
+    database: db as never,
+    configService: {} as never,
+    signalService: signalService as never,
+    strategyRegistry: {
       getStrategies: () => [],
       getStrategy: () => undefined,
     } as never,
-    { forPlugin: () => ({ getUserById: async () => null }) } as never,
-    makeLogger() as never,
-    passthroughCache,
-  );
+    rpcApi: {
+      forPlugin: () => ({ getUserById: async () => null }),
+    } as never,
+    logger: makeLogger() as never,
+    cache: passthroughCache,
+  });
 }
 
 describe("notification router · notifyForSubscription (dispatch)", () => {
@@ -907,12 +909,12 @@ function buildRouterForSendTransactional({
     set: mock(async () => {}),
   };
 
-  return createNotificationRouter(
-    db as never,
-    configService as never,
-    makeSignalService() as never,
-    makeStrategyRegistry(strategies),
-    {
+  return createNotificationRouter({
+    database: db as never,
+    configService: configService as never,
+    signalService: makeSignalService() as never,
+    strategyRegistry: makeStrategyRegistry(strategies),
+    rpcApi: {
       forPlugin: () => ({
         getUserById: async () => ({
           id: "user-1",
@@ -921,9 +923,9 @@ function buildRouterForSendTransactional({
         }),
       }),
     } as never,
-    makeLogger() as never,
-    passthroughCache,
-  );
+    logger: makeLogger() as never,
+    cache: passthroughCache,
+  });
 }
 
 describe("notification router · sendTransactional (strategy fallback)", () => {

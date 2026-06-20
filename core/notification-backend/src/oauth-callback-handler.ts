@@ -8,8 +8,10 @@
 import type {
   NotificationStrategyRegistry,
   ConfigService,
+  Logger,
 } from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import { createStrategyService } from "./strategy-service";
 import type * as schema from "./schema";
 
@@ -18,6 +20,7 @@ export interface OAuthCallbackDeps {
   configService: ConfigService;
   strategyRegistry: NotificationStrategyRegistry;
   baseUrl: string;
+  logger: Logger;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface OAuthCallbackDeps {
 export function createOAuthCallbackHandler(
   deps: OAuthCallbackDeps
 ): (req: Request) => Promise<Response> {
-  const { db, configService, strategyRegistry, baseUrl } = deps;
+  const { db, configService, strategyRegistry, baseUrl, logger } = deps;
 
   const strategyService = createStrategyService({
     db,
@@ -152,7 +155,7 @@ export function createOAuthCallbackHandler(
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
-        console.error(`OAuth token exchange failed: ${errorText}`);
+        logger.error(`OAuth token exchange failed: ${errorText}`);
         return Response.redirect(
           `${baseUrl}${finalReturnUrl}?error=${encodeURIComponent(
             "Token exchange failed"
@@ -197,7 +200,7 @@ export function createOAuthCallbackHandler(
         302
       );
     } catch (error_) {
-      console.error("OAuth callback error:", error_);
+      logger.error(`OAuth callback error: ${extractErrorMessage(error_)}`);
       return Response.redirect(
         `${baseUrl}${finalReturnUrl}?error=${encodeURIComponent(
           "OAuth processing failed"

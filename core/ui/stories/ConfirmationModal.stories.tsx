@@ -12,7 +12,13 @@ const meta: Meta<typeof ConfirmationModal> = {
 export default meta;
 type Story = StoryObj<typeof ConfirmationModal>;
 
-const Demo = ({ variant }: { variant: "danger" | "warning" | "info" }) => {
+const Demo = ({
+  variant,
+  isLoading = false,
+}: {
+  variant: "danger" | "warning" | "info";
+  isLoading?: boolean;
+}) => {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -30,6 +36,7 @@ const Demo = ({ variant }: { variant: "danger" | "warning" | "info" }) => {
         message="This will revoke its token and delete recorded health-check history."
         confirmText="Delete"
         variant={variant}
+        isLoading={isLoading}
       />
     </>
   );
@@ -38,3 +45,9 @@ const Demo = ({ variant }: { variant: "danger" | "warning" | "info" }) => {
 export const Danger: Story = { render: () => <Demo variant="danger" /> };
 export const Warning: Story = { render: () => <Demo variant="warning" /> };
 export const Info: Story = { render: () => <Demo variant="info" /> };
+
+// Built on the accessible Dialog primitive: Escape, focus trap, and focus
+// restoration are inherited; while loading the modal cannot be dismissed.
+export const Loading: Story = {
+  render: () => <Demo variant="danger" isLoading />,
+};

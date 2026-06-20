@@ -15,7 +15,7 @@
  * cancels the pending fire even if no explicit inverse event arrived —
  * this is the HA semantic and why Phase 13 is a hard prerequisite.
  */
-import type { Actor } from "@checkstack/common";
+import { extractErrorMessage, type Actor } from "@checkstack/common";
 import {
   durationToMs,
   type Duration,
@@ -124,7 +124,7 @@ async function resolveArmedStatus(args: {
     return state.status;
   } catch (error) {
     deps.logger.warn(
-      `Dwell arm: failed to resolve status for ${contextKey}; arming without a status gate: ${(error as Error).message}`,
+      `Dwell arm: failed to resolve status for ${contextKey}; arming without a status gate: ${extractErrorMessage(error)}`,
     );
     return null;
   }
@@ -246,7 +246,7 @@ async function reconfirmStatus(args: {
     // Fail-open: a provider outage at expiry should not silently drop a
     // legitimate alert. Proceed and let downstream conditions decide.
     deps.logger.warn(
-      `Dwell ${dwell.id} re-confirm errored; proceeding (fail-open): ${(error as Error).message}`,
+      `Dwell ${dwell.id} re-confirm errored; proceeding (fail-open): ${extractErrorMessage(error)}`,
     );
     return true;
   }

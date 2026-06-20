@@ -12,8 +12,8 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
-  SUBJECT_STATUS_EMOJI,
   IMPORTANCE_EMOJI,
+  renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
@@ -81,21 +81,6 @@ interface SlackPayload {
   attachments?: Array<{ color: string }>;
 }
 
-/** Render the subjects list as a Slack mrkdwn bullet list. */
-function renderSubjectsAsMrkdwn(subjects: NotificationSubject[]): string {
-  return [
-    "*Affected:*",
-    ...subjects.map((subject) => {
-      const statusPrefix = subject.status
-        ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
-        : "• ";
-      return subject.url
-        ? `${statusPrefix}<${subject.url}|${subject.name}>`
-        : `${statusPrefix}${subject.name}`;
-    }),
-  ].join("\n");
-}
-
 function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
   const { title, body, importance, action, subjects } = options;
 
@@ -138,7 +123,7 @@ function buildSlackPayload(options: SlackBlockOptions): SlackPayload {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: renderSubjectsAsMrkdwn(subjects),
+          text: renderSubjectsAsMarkdown({ subjects, linkStyle: "slack" }),
         },
       },
     );

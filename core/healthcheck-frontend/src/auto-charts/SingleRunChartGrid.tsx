@@ -8,8 +8,15 @@
 import type { ChartField } from "./schema-parser";
 import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
-import { Badge, Card, CardContent, CardHeader, CardTitle } from "@checkstack/ui";
-import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  RadialGauge,
+  type GaugeCaptionTone,
+} from "@checkstack/ui";
 
 interface SingleRunChartGridProps {
   /** Strategy ID (qualified, e.g., "healthcheck-http-backend.http") */
@@ -136,14 +143,14 @@ function CollectorSection({
 
       {/* Assertion status if present */}
       {assertionFailed && (
-        <Card className="border-red-200 dark:border-red-900">
+        <Card className="border-status-down/40">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-red-600">
+            <CardTitle className="text-sm font-medium text-status-down">
               Assertion Failed
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded">
+            <div className="text-sm text-status-down bg-status-down/10 px-2 py-1 rounded">
               {assertionFailed}
             </div>
           </CardContent>
@@ -152,14 +159,14 @@ function CollectorSection({
 
       {/* Collector execution error if present */}
       {collectorError && (
-        <Card className="border-red-200 dark:border-red-900 border-dashed">
+        <Card className="border-status-down/40 border-dashed">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-red-600">
+            <CardTitle className="text-sm font-medium text-status-down">
               Collector Execution Failed
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded">
+            <div className="text-sm text-status-down bg-status-down/10 px-2 py-1 rounded">
               {collectorError}
             </div>
           </CardContent>
@@ -284,40 +291,20 @@ function GaugeRenderer({ value, unit }: { value: unknown; unit?: string }) {
   const clampedValue = Math.min(100, Math.max(0, numValue));
   const displayUnit = unit ?? "%";
 
-  // Determine color based on value
-  const fillColor =
-    clampedValue >= 90
-      ? "hsl(var(--success))"
-      : clampedValue >= 70
-        ? "hsl(var(--warning))"
-        : "hsl(var(--destructive))";
-
-  const data = [{ name: "value", value: clampedValue, fill: fillColor }];
+  // Tone follows value (higher is better for rate-style gauges).
+  const captionTone: GaugeCaptionTone =
+    clampedValue >= 90 ? "ok" : clampedValue >= 70 ? "warn" : "down";
 
   return (
-    <div className="flex items-center justify-center gap-3">
-      <ResponsiveContainer width={80} height={80}>
-        <RadialBarChart
-          cx="50%"
-          cy="50%"
-          innerRadius="60%"
-          outerRadius="100%"
-          barSize={8}
-          data={data}
-          startAngle={90}
-          endAngle={-270}
-        >
-          <RadialBar
-            dataKey="value"
-            cornerRadius={4}
-            background={{ fill: "hsl(var(--muted))" }}
-          />
-        </RadialBarChart>
-      </ResponsiveContainer>
-      <div className="text-2xl font-bold" style={{ color: fillColor }}>
-        {clampedValue.toFixed(1)}
-        {displayUnit}
-      </div>
+    <div className="flex items-center justify-center">
+      <RadialGauge
+        variant="quiet"
+        width={140}
+        value={clampedValue / 100}
+        displayValue={`${clampedValue.toFixed(1)}${displayUnit}`}
+        captionTone={captionTone}
+        ariaLabel={`${clampedValue.toFixed(1)}${displayUnit}`}
+      />
     </div>
   );
 }
@@ -336,10 +323,10 @@ function BooleanRenderer({ value }: { value: unknown }) {
     <div className="flex items-center justify-center gap-2">
       <div
         className={`w-3 h-3 rounded-full ${
-          boolValue ? "bg-green-500" : "bg-red-500"
+          boolValue ? "bg-status-ok" : "bg-status-down"
         }`}
       />
-      <span className={boolValue ? "text-green-600" : "text-red-600"}>
+      <span className={boolValue ? "text-status-ok" : "text-status-down"}>
         {boolValue ? "Yes" : "No"}
       </span>
     </div>
@@ -372,7 +359,7 @@ function StatusRenderer({ value }: { value: unknown }) {
   }
 
   return (
-    <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950 px-2 py-1 rounded truncate">
+    <div className="text-sm text-status-down bg-status-down/10 px-2 py-1 rounded truncate">
       {String(value)}
     </div>
   );

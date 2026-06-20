@@ -27,6 +27,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slider": "^1.2.1",
     "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tooltip": "^1.2.10",
     "@typefox/monaco-editor-react": "7.7.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

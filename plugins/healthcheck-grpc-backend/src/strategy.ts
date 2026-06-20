@@ -65,11 +65,14 @@ export type GrpcConfigInput = z.input<typeof grpcConfigSchema>;
  * Per-run result metadata.
  */
 const grpcResultSchema = healthResultSchema({
+  // Canonical availability signal for this strategy. A confirmation window
+  // debounces single-sample connection flaps so a transient blip does not page.
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-anomaly-confirmation-window": 3,
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -82,11 +85,14 @@ const grpcResultSchema = healthResultSchema({
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
+  // Informational echo of the gRPC status enum. Availability is already
+  // captured by the `connected` boolean (dominance), so anomaly on the raw
+  // status text only adds a redundant, noisy categorical signal. Disabled by
+  // default; still chartable and opt-in.
   status: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    "x-anomaly-enabled": false,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -105,25 +111,36 @@ const grpcAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    // A success rate is only a problem when it drops, so alert lower-is-better
+    // with a few-percent absolute floor to ignore tiny dips below baseline.
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
+  // Raw counters scale with how many runs landed in a bucket, so a baseline
+  // over them tracks sampling cadence rather than a real problem. The same
+  // signal is already expressed as a stable percentage by `successRate`, so
+  // these are disabled by default to avoid alert fatigue. Still chartable.
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-enabled": false,
   }),
   servingCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Serving",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
 };
 

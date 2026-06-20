@@ -11,6 +11,9 @@
       "path": "../backend-api"
     },
     {
+      "path": "../command-backend"
+    },
+    {
       "path": "../common"
     },
     {

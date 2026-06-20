@@ -38,53 +38,48 @@ export type BuildHistoryConfig = z.infer<typeof buildHistoryConfigSchema>;
 // ============================================================================
 
 const buildHistoryResultSchema = z.object({
+  // Window-relative count: changes run-to-run with the sampled build window
+  // and has no stable baseline. Off by default to avoid alert fatigue;
+  // success rate carries the real signal.
   totalBuilds: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Builds",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Raw outcome counts drift with the window composition rather than tracking
+  // a real problem. The percentage form (successRate) is the stable signal.
   successCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Successful",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   failureCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Failed",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   unstableCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Unstable",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   abortedCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Aborted",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Percentage form of build outcomes: stable, bounded, maps directly to a
+  // real problem. Kept enabled with a confirmation window and an absolute
+  // floor so small jitter near a noisy baseline does not alert.
   successRate: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 5,
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
   avgDurationMs: healthResultNumber({
     "x-chart-type": "line",
@@ -92,26 +87,24 @@ const buildHistoryResultSchema = z.object({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
+  // Best/worst case durations swing widely with build content and offer no
+  // stable baseline. Average duration carries the latency signal.
   minDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Duration",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 50,
-    "x-anomaly-min-relative-delta": 0.5,
+    "x-anomaly-enabled": false,
   }),
   maxDurationMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Duration",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 50,
-    "x-anomaly-min-relative-delta": 0.5,
+    "x-anomaly-enabled": false,
   }),
   lastSuccessBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
@@ -135,6 +128,9 @@ const buildHistoryAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
   avgBuildDuration: aggregatedAverage({
     "x-chart-type": "line",
@@ -142,6 +138,10 @@ const buildHistoryAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
 };
 

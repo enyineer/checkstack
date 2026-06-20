@@ -1,5 +1,21 @@
 import { SafeDatabase } from "@checkstack/backend-api";
-import { sql, entityKind } from "drizzle-orm";
+import { sql, entityKind, type SQL } from "drizzle-orm";
+
+/**
+ * Build the `SET LOCAL search_path` statement for a plugin schema using a
+ * PROPERLY QUOTED identifier rather than raw string interpolation.
+ *
+ * `sql.identifier` emits a double-quoted identifier and escapes any embedded
+ * double-quote, so a hostile `schemaName` cannot break out of the quoted
+ * identifier (e.g. `x"; DROP SCHEMA public CASCADE; --`). `public` is a fixed
+ * literal. This replaces the previous `sql.raw("... \"${schemaName}\" ...")`
+ * which interpolated the name unescaped. Defense in depth: `schemaName` is
+ * already constrained by `getPluginSchemaName`, but this removes the raw sink
+ * entirely.
+ */
+function setSearchPathSql(schemaName: string): SQL {
+  return sql`SET LOCAL search_path = ${sql.identifier(schemaName)}, public`;
+}
 
 /**
  * =============================================================================
@@ -251,6 +267,15 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
          * 4. Return the results through the promise chain
          */
         if (prop === "then" && typeof value === "function") {
+          // `value` is the builder's own `then`; narrow it to a thenable
+          // signature so the fallback path needs no `as Function` cast / lint
+          // suppression. This is security-sensitive (the search_path replay),
+          // so it is typed explicitly rather than escaped.
+          const builderThen = value as (
+            this: unknown,
+            onFulfilled?: (value: unknown) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) => unknown;
           return (
             onFulfilled?: (value: unknown) => unknown,
             onRejected?: (reason: unknown) => unknown,
@@ -258,12 +283,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
             const chainInfo = pendingChains.get(builder);
             if (!chainInfo) {
               // Fallback: no chain info means this wasn't created by our proxy
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-              return (value as Function).call(
-                builderTarget,
-                onFulfilled,
-                onRejected,
-              );
+              return builderThen.call(builderTarget, onFulfilled, onRejected);
             }
 
             // Execute the query inside a transaction with search_path set
@@ -271,7 +291,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
               // Set the schema search_path for this transaction
               // SET LOCAL ensures it only affects this transaction
               await tx.execute(
-                sql.raw(`SET LOCAL search_path = "${schemaName}", public`),
+                setSearchPathSql(schemaName),
               );
 
               // Rebuild the query on the transaction connection
@@ -316,7 +336,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
 
             return baseDb.transaction(async (tx) => {
               await tx.execute(
-                sql.raw(`SET LOCAL search_path = "${schemaName}", public`),
+                setSearchPathSql(schemaName),
               );
 
               type TxMethod = (...args: unknown[]) => unknown;
@@ -429,7 +449,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
           return target.transaction(async (tx) => {
             // Set search_path once at transaction start
             await tx.execute(
-              sql.raw(`SET LOCAL search_path = "${schemaName}", public`),
+              setSearchPathSql(schemaName),
             );
             // User's callback runs with the correct schema
             return callback(tx as ScopedDatabase<TSchema>);
@@ -446,7 +466,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
         return async (...args: unknown[]) => {
           return target.transaction(async (tx) => {
             await tx.execute(
-              sql.raw(`SET LOCAL search_path = "${schemaName}", public`),
+              setSearchPathSql(schemaName),
             );
             return (tx.execute as (...a: unknown[]) => Promise<unknown>).apply(
               tx,
@@ -468,7 +488,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
         return async (...args: unknown[]) => {
           return target.transaction(async (tx) => {
             await tx.execute(
-              sql.raw(`SET LOCAL search_path = "${schemaName}", public`),
+              setSearchPathSql(schemaName),
             );
             return (tx.$count as (...a: unknown[]) => Promise<unknown>).apply(
               tx,

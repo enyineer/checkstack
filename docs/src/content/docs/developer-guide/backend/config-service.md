@@ -13,7 +13,7 @@ This guide explains when to use ConfigService (for config) vs custom Drizzle sch
 
 ## Quick Decision Tree
 
-```
+```text
 Is this data used to configure/control plugin behavior?
   ├─ YES → Use ConfigService
   │   Examples: Active queue provider, enabled auth strategies, plugin settings
@@ -168,6 +168,9 @@ const strategy = await config.get("github", schema, 1);
 const redacted = await config.getRedacted("github", schema, 1);
 // redacted.clientSecret is undefined (removed)
 ```
+
+> [!IMPORTANT]
+> If a secret field cannot be decrypted (wrong or missing key after rotation, or tampered ciphertext), `get()` fails closed: it throws a typed `DecryptionError` and logs the failure with the config key and plugin id (never the secret or ciphertext). It does NOT silently return the ciphertext in place of the plaintext. See [Setting up secret encryption](/checkstack/user-guide/reference/secret-encryption/) for key rotation and the re-encrypt command.
 
 ### Schema Versioning
 

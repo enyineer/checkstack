@@ -61,7 +61,11 @@ import type {
   WaitForTriggerInput,
   WaitUntilInput,
 } from "@checkstack/automation-common";
-import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
+import {
+  SYSTEM_ACTOR,
+  extractErrorMessage,
+  type Actor,
+} from "@checkstack/common";
 import type {
   TemplateContext,
 } from "@checkstack/template-engine";
@@ -768,7 +772,7 @@ export async function checkWaitUntil(
     );
   } catch (error) {
     deps.logger.warn(
-      `wait_until re-check threw (treating as not-yet): ${(error as Error).message}`,
+      `wait_until re-check threw (treating as not-yet): ${extractErrorMessage(error)}`,
     );
   }
 
@@ -1185,7 +1189,7 @@ async function executeProviderAction(
       filters: ctx.deps.filters,
     });
   } catch (error) {
-    const message = `Failed to render config: ${(error as Error).message}`;
+    const message = `Failed to render config: ${extractErrorMessage(error)}`;
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -1202,7 +1206,7 @@ async function executeProviderAction(
   try {
     parsedConfig = await registered.config.parseAssumingV1(renderedConfig);
   } catch (error) {
-    const message = `Config validation failed: ${(error as Error).message}`;
+    const message = `Config validation failed: ${extractErrorMessage(error)}`;
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -1231,7 +1235,7 @@ async function executeProviderAction(
       runAs: ctx.run.automation.runAs,
     });
   } catch (error) {
-    const message = (error as Error).message;
+    const message = extractErrorMessage(error);
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -1372,7 +1376,7 @@ async function executeChoose(
         ctx.deps.filters,
       );
     } catch (error) {
-      const message = `Failed to evaluate choose[${i}].when: ${(error as Error).message}`;
+      const message = `Failed to evaluate choose[${i}].when: ${extractErrorMessage(error)}`;
       await ctx.deps.runStore.updateStep(stepId, {
         status: "failed",
         errorMessage: message,
@@ -1931,7 +1935,7 @@ async function executeVariables(
           : renderValue(v, templateContext(ctx), ctx.deps.filters);
     }
   } catch (error) {
-    const message = `Failed to render variables: ${(error as Error).message}`;
+    const message = `Failed to render variables: ${extractErrorMessage(error)}`;
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -1971,7 +1975,7 @@ async function executeConditionGuard(
       ctx.deps.filters,
     );
   } catch (error) {
-    const message = `Failed to evaluate condition: ${(error as Error).message}`;
+    const message = `Failed to evaluate condition: ${extractErrorMessage(error)}`;
     await ctx.deps.runStore.updateStep(stepId, {
       status: "failed",
       errorMessage: message,
@@ -2107,7 +2111,7 @@ async function executeWaitUntil(
     );
   } catch (error) {
     ctx.deps.logger.debug(
-      `wait_until initial eval threw (treating as not-yet): ${(error as Error).message}`,
+      `wait_until initial eval threw (treating as not-yet): ${extractErrorMessage(error)}`,
     );
   }
   if (satisfied) {
@@ -2190,7 +2194,7 @@ async function executeWaitUntil(
     );
   } catch (error) {
     ctx.deps.logger.debug(
-      `wait_until arm-window re-eval threw (treating as not-yet): ${(error as Error).message}`,
+      `wait_until arm-window re-eval threw (treating as not-yet): ${extractErrorMessage(error)}`,
     );
   }
   if (armedSatisfied) {

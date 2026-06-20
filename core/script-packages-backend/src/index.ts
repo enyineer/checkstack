@@ -10,21 +10,22 @@ import {
   pluginMetadata,
   scriptPackagesAccess,
   scriptPackagesAccessRules,
+  scriptSandboxAccess,
+  scriptPackagesRoutes,
   scriptPackagesContract,
   SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL,
   type AuditRunSummary,
   type BlobGcSummary,
 } from "@checkstack/script-packages-common";
+import { registerSearchProvider } from "@checkstack/command-backend";
+import { resolveRoute } from "@checkstack/common";
 import type { SandboxPolicy } from "@checkstack/common";
 import { AuthApi } from "@checkstack/auth-common";
 import { NotificationApi } from "@checkstack/notification-common";
 import type { PluginMetadata } from "@checkstack/common";
 import { extractErrorMessage } from "@checkstack/common";
 import { blobStoreExtensionPoint, type BlobStore } from "./blob-store";
-import {
-  createBlobStoreRegistry,
-  type BlobStoreRegistry,
-} from "./blob-store-registry";
+import { createBlobStoreRegistry } from "./blob-store-registry";
 import { resolveScriptPackagesDir, storePaths } from "./data-dir";
 import {
   createPackageStore,
@@ -71,43 +72,35 @@ import {
 } from "@checkstack/sdk/editor-bundle";
 import * as schema from "./schema";
 
-interface EnvStash {
-  blobStores: BlobStoreRegistry;
-  /**
-   * Set in `afterPluginsReady` (the only phase where `emitHook` exists) and
-   * called by the installer (wired in `init`) after a successful install.
-   * Undefined until `afterPluginsReady` runs.
-   */
-  emitChanged?: (lockfileHash: string) => Promise<void>;
-  /**
-   * Set in `afterPluginsReady` (where `emitHook` exists) and called by the
-   * `setSandboxPolicy` handler (wired in `init`) after a successful policy
-   * write, so core instances broadcast the new policy to their satellites.
-   * Undefined until `afterPluginsReady` runs (a write before then still
-   * persists durably; satellites pick it up on next connect).
-   */
-  emitSandboxPolicyChanged?: (policy: SandboxPolicy) => Promise<void>;
-  /** Registry token store (internal secrets), set in `init`. */
-  registryToken?: RegistryTokenStore;
-  /**
-   * Blob-GC trigger built in `init` (wires stores + the installer lock).
-   * Reused by the scheduled recurring job registered in `afterPluginsReady`.
-   */
-  triggerBlobGc?: () => Promise<BlobGcSummary>;
-  /**
-   * Vulnerability-audit trigger built in `init` (wires the scanner, stores,
-   * installer lock, and notification path). Reused by the scheduled recurring
-   * job registered in `afterPluginsReady`.
-   */
-  triggerAudit?: () => Promise<AuditRunSummary>;
-}
+// Module-scoped holders bridge register() -> init() -> afterPluginsReady().
+// They hold pod-local setup closures/handles, never queryable current state, so
+// they are scale-safe (mirrors healthcheck-backend's `storedEmitHook`).
+//
+// Set in `afterPluginsReady` (the only phase where `emitHook` exists) and
+// called by the installer (wired in `init`) after a successful install.
+let storedEmitChanged: ((lockfileHash: string) => Promise<void>) | undefined;
+// Set in `afterPluginsReady` (where `emitHook` exists) and called by the
+// `setSandboxPolicy` handler (wired in `init`) after a successful policy write,
+// so core instances broadcast the new policy to their satellites. A write
+// before then still persists durably; satellites pick it up on next connect.
+let storedEmitSandboxPolicyChanged:
+  | ((policy: SandboxPolicy) => Promise<void>)
+  | undefined;
+// Registry token store (internal secrets), set in `init`.
+let storedRegistryToken: RegistryTokenStore | undefined;
+// Blob-GC trigger built in `init` (wires stores + the installer lock). Reused
+// by the scheduled recurring job registered in `afterPluginsReady`.
+let storedTriggerBlobGc: (() => Promise<BlobGcSummary>) | undefined;
+// Vulnerability-audit trigger built in `init` (wires the scanner, stores,
+// installer lock, and notification path). Reused by the scheduled recurring job
+// registered in `afterPluginsReady`.
+let storedTriggerAudit: (() => Promise<AuditRunSummary>) | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
   register(env) {
     const blobStores = createBlobStoreRegistry();
-    (env as unknown as EnvStash).blobStores = blobStores;
 
     env.registerAccessRules(scriptPackagesAccessRules);
 
@@ -148,7 +141,7 @@ export default createBackendPlugin({
         const registry = createRegistryConfigStore(database);
         const storage = createStorageConfigStore(database);
         const registryToken = createRegistryTokenStore({ internalSecrets });
-        (env as unknown as EnvStash).registryToken = registryToken;
+        storedRegistryToken = registryToken;
         const sizeCap = createSizeCapStore(database);
         const blobIndex = createBlobIndexStore(database);
         const lockfileHistory = createLockfileHistoryStore(database);
@@ -188,7 +181,7 @@ export default createBackendPlugin({
           recordRun: (r) => blobGcState.recordRun(r),
           logger,
         });
-        (env as unknown as EnvStash).triggerBlobGc = triggerBlobGc;
+        storedTriggerBlobGc = triggerBlobGc;
 
         // Vulnerability-audit trigger: shared by the admin `auditNow` RPC and
         // the scheduled recurring job. Holds the installer lock for the pass
@@ -271,7 +264,7 @@ export default createBackendPlugin({
           },
           logger,
         });
-        (env as unknown as EnvStash).triggerAudit = triggerAudit;
+        storedTriggerAudit = triggerAudit;
 
         // Build the install orchestration. The resolver + active blob store
         // are resolved lazily at install time so config/registry changes
@@ -327,7 +320,7 @@ export default createBackendPlugin({
             recordHistory: ({ lockfileHash, manifest }) =>
               lockfileHistory.record({ lockfileHash, manifest }),
             emitChanged: async ({ lockfileHash }) => {
-              await (env as unknown as EnvStash).emitChanged?.(lockfileHash);
+              await storedEmitChanged?.(lockfileHash);
             },
             logger,
           });
@@ -419,9 +412,7 @@ export default createBackendPlugin({
           // own satellites). No-op until `afterPluginsReady` wires `emitHook`;
           // the durable row + connect-time relay are the backstop.
           onSandboxPolicyChanged: async (policy) => {
-            await (env as unknown as EnvStash).emitSandboxPolicyChanged?.(
-              policy,
-            );
+            await storedEmitSandboxPolicyChanged?.(policy);
           },
         });
         rpc.registerRouter(router, scriptPackagesContract);
@@ -458,6 +449,31 @@ export default createBackendPlugin({
           SDK_TYPES_PATH_PREFIX,
         );
 
+        // Register the "Script Packages" and "Script Sandbox" navigation
+        // commands in the command palette so both sidebar destinations are
+        // reachable from Cmd+K.
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "settings",
+              title: "Script Packages",
+              subtitle: "Manage the package allowlist, registry, and storage",
+              iconName: "Package",
+              route: resolveRoute(scriptPackagesRoutes.routes.settings),
+              requiredAccessRules: [scriptPackagesAccess.manage],
+            },
+            {
+              id: "sandbox",
+              title: "Script Sandbox",
+              subtitle: "Edit the global script-sandbox policy",
+              iconName: "ShieldCheck",
+              route: resolveRoute(scriptPackagesRoutes.routes.sandbox),
+              requiredAccessRules: [scriptSandboxAccess.manage],
+            },
+          ],
+        });
+
         logger.debug("✅ Script Packages Backend initialized.");
       },
 
@@ -469,8 +485,6 @@ export default createBackendPlugin({
         advisoryLock,
         queueManager,
       }) => {
-        const stash = env as unknown as EnvStash;
-        const blobStores = stash.blobStores;
         const storeRoot = resolveScriptPackagesDir();
         const installState = createInstallStateStore(database);
         const installerLock = createInstallerLock(advisoryLock);
@@ -482,7 +496,7 @@ export default createBackendPlugin({
         // internal secrets. No-op once migrated (column holds the marker)
         // or when no token is set. Never drops the legacy value until the
         // platform copy reads back identically.
-        const registryToken = stash.registryToken;
+        const registryToken = storedRegistryToken;
         if (registryToken) {
           try {
             const registry = createRegistryConfigStore(database);
@@ -551,14 +565,14 @@ export default createBackendPlugin({
         }
 
         // Let the installer (in init's triggerInstall) emit the hook.
-        stash.emitChanged = async (lockfileHash: string) => {
+        storedEmitChanged = async (lockfileHash: string) => {
           await emitHook(scriptPackagesChangedHook, { lockfileHash });
         };
 
         // Let the `setSandboxPolicy` handler (in init's router) broadcast the
         // new global policy cluster-wide; each core pod's broadcast subscriber
         // (in satellite-backend) pushes it to its own connected satellites.
-        stash.emitSandboxPolicyChanged = async (policy) => {
+        storedEmitSandboxPolicyChanged = async (policy) => {
           await emitHook(sandboxPolicyChangedHook, { policy });
         };
 
@@ -630,7 +644,7 @@ export default createBackendPlugin({
         // advisory lock for the pass, so exactly one pod GCs at a time and it
         // is mutually exclusive with installs / migrations. Runs daily; the
         // grace window (default 24h) makes a once-a-day cadence safe.
-        const triggerBlobGc = stash.triggerBlobGc;
+        const triggerBlobGc = storedTriggerBlobGc;
         if (triggerBlobGc) {
           try {
             const gcQueue = queueManager.getQueue<Record<string, never>>(
@@ -673,7 +687,7 @@ export default createBackendPlugin({
         // installer advisory lock for the pass, so exactly one pod audits at a
         // time and it is mutually exclusive with installs / migrations / GC.
         // Runs daily (an admin-configurable interval is a follow-up).
-        const triggerAudit = stash.triggerAudit;
+        const triggerAudit = storedTriggerAudit;
         if (triggerAudit) {
           try {
             const auditQueue = queueManager.getQueue<Record<string, never>>(

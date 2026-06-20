@@ -36,6 +36,37 @@ const CONTENT_WEIGHT = 1;
  */
 const BM25_K1 = 1.5;
 
+/**
+ * Minimum ratio of the top hit's score to the second hit's for the top hit to
+ * count as a STRONG (standalone) match. A RELATIVE signal: BM25 scores are
+ * corpus-relative and unbounded, so an absolute threshold (the old magic `8`)
+ * mis-classifies "strong vs weak" as the corpus grows or shifts. A clear gap to
+ * the runner-up is the corpus-size-stable signal that the top page genuinely
+ * stands out rather than merely sharing a common word with the rest.
+ */
+const STRONG_GAP_RATIO = 1.8;
+
+/**
+ * Whether the top-ranked hit is a STRONG match, using a corpus-size-STABLE
+ * relative signal instead of an absolute score threshold:
+ *
+ *  - No hits -> not strong (nothing matched).
+ *  - Exactly one hit -> strong (nothing to out-compete; the only match stands).
+ *  - Otherwise -> strong iff the top score is at least {@link STRONG_GAP_RATIO}x
+ *    the second score, i.e. the best page clearly separates from the field.
+ *
+ * Because it compares the top two scores from the SAME query (the same scoring
+ * scale), the verdict does not drift as the corpus grows, shrinks, or its term
+ * statistics shift — unlike an absolute "score >= 8" cutoff.
+ */
+export function isStrongTopHit(hits: readonly RankedDocHit[]): boolean {
+  const top = hits[0]?.score;
+  if (top === undefined || top <= 0) return false;
+  const second = hits[1]?.score;
+  if (second === undefined || second <= 0) return true;
+  return top >= second * STRONG_GAP_RATIO;
+}
+
 /** Lowercases and splits text into alphanumeric tokens (length >= 2). */
 export function tokenize(text: string): string[] {
   return text

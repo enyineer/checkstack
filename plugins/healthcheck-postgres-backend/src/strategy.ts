@@ -96,13 +96,22 @@ const postgresAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Connection latency saturation. Err wider and require sustained drift plus
+    // a practical floor so a fast handshake is not flagged on small jitter.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // The per-bucket maximum is inherently spiky: one slow handshake (GC pause,
+    // transient network blip) moves it sharply, so baselining it produces noisy
+    // alerts. Average connection time already covers the latency-saturation
+    // signal, so the max is off by default and remains chartable.
+    "x-anomaly-enabled": false,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -110,12 +119,19 @@ const postgresAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent. Require a few consecutive degraded buckets and a
+    // meaningful absolute drop so a single transient failure does not alert.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw error count per bucket scales with check frequency and bucket size,
+    // so it has no stable universal baseline. Success rate already expresses
+    // failures as a normalized percent, so this absolute twin is off by default
+    // to avoid duplicate, volume-sensitive alerts.
+    "x-anomaly-enabled": false,
   }),
 };
 

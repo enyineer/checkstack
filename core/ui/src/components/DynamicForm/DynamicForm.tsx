@@ -1,6 +1,6 @@
 import React from "react";
 
-import { EmptyState } from "../../index";
+import { EmptyState, FormError } from "../../index";
 
 import type { DynamicFormProps } from "./types";
 import {
@@ -131,6 +131,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
             clientError,
           });
 
+          const errorId = fieldError ? `field-${key}-error` : undefined;
+
           return (
             <div key={key} className="space-y-1.5">
               <FormField
@@ -138,6 +140,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 // names match native DOM properties (e.g. nodeName, tagName)
                 id={`field-${key}`}
                 label={label}
+                invalid={Boolean(fieldError)}
+                errorId={errorId}
                 propSchema={propSchema}
                 value={value[key]}
                 isRequired={isRequired}
@@ -167,7 +171,9 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 }}
               />
               {fieldError && (
-                <p className="text-xs text-destructive">{fieldError}</p>
+                <FormError id={errorId} className="text-xs">
+                  {fieldError}
+                </FormError>
               )}
             </div>
           );

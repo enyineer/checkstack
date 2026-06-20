@@ -81,8 +81,12 @@ const requestResultSchema = healthResultSchema({
   statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Off by default: the raw status code is an identifier, not a quantity
+    // with a meaningful baseline. Legitimate shifts (200 -> 301/302 redirects,
+    // content negotiation) are not problems, while real availability loss is
+    // already captured by the `success` boolean. Charting stays available for
+    // opt-in.
+    "x-anomaly-enabled": false,
   }),
   statusText: healthResultString({
     "x-chart-type": "text",
@@ -125,6 +129,13 @@ const requestAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: bias toward fewer false positives. Require several consecutive
+    // anomalous buckets, ignore small absolute jitter (tens of ms) so fast
+    // endpoints stay quiet, and require a meaningful relative jump.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -132,6 +143,11 @@ const requestAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent: the canonical saturation/failure signal. Debounce
+    // transient single-bucket dips and ignore sub-percent noise so only a real,
+    // sustained drop alerts.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 2,
   }),
 };
 

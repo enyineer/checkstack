@@ -12,3 +12,9 @@ export {
   type MockEventBus,
   type EmittedEvent,
 } from "./mock-event-bus";
+export {
+  withTestDb,
+  isIntegrationEnabled,
+  type TestDb,
+  type WithTestDbOptions,
+} from "./with-test-db";

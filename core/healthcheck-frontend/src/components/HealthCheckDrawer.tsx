@@ -17,7 +17,6 @@ import { SatelliteApi, satelliteAccess } from "@checkstack/satellite-common";
 import { AnomalyApi } from "@checkstack/anomaly-common";
 import { resolveRoute } from "@checkstack/common";
 import {
-  HealthBadge,
   LoadingSpinner,
   Table,
   TableHeader,
@@ -25,6 +24,8 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   Pagination,
   usePagination,
   usePaginationSync,
@@ -33,7 +34,6 @@ import {
   DateRangePreset,
   detectPreset,
   PRESETS,
-  Card,
   CardContent,
   CardHeader,
   CardTitle,
@@ -50,6 +50,7 @@ import {
   AccordionTrigger,
   AccordionContent,
   Spinner,
+  cn,
 } from "@checkstack/ui";
 import { formatDistanceToNow } from "date-fns";
 import { useNavigate, Link } from "react-router-dom";
@@ -64,6 +65,14 @@ import {
   type StatusFilter,
 } from "./StatusFilterPills";
 import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
+import { HealthStatusPill } from "./HealthStatusPill";
+import {
+  bucketAvgLatencyMs,
+  bucketHealthyPercent,
+  statusToLabel,
+  statusToTone,
+  toneStyles,
+} from "./healthcheckDisplay.logic";
 import { Heart, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 
 import type {
@@ -322,7 +331,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     {canReadSatellites && satellites.length > 0 && (
                       <div className="flex items-center gap-1.5 bg-muted/50 text-muted-foreground px-2 py-0.5 rounded-md border border-border/50">
                         {sourceFilter && sourceFilter !== "local" ? (
-                          <SatelliteIcon className="h-3.5 w-3.5 text-orange-500" />
+                          <SatelliteIcon className="h-3.5 w-3.5 text-status-warn" />
                         ) : (
                           <Server className="h-3.5 w-3.5" />
                         )}
@@ -395,8 +404,8 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                               onClick={() => setSourceFilter(sat.id)}
                               className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
                                 sourceFilter === sat.id
-                                  ? "bg-orange-500 text-white"
-                                  : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                                  ? "bg-status-warn text-white"
+                                  : "bg-status-warn/10 text-status-warn hover:bg-status-warn/20"
                               }`}
                             >
                               <SatelliteIcon className="h-3.5 w-3.5" />
@@ -422,34 +431,62 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     checkIntervalSeconds={item.intervalSeconds}
                   />
                 )}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">
-                      Status Timeline
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HealthCheckStatusTimeline
-                      context={chartContext}
-                      height={96}
-                    />
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">
-                      Average Execution Duration
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HealthCheckLatencyChart
-                      context={chartContext}
-                      height={120}
-                      showAverage
-                      baselines={baselines}
-                    />
-                  </CardContent>
-                </Card>
+                {(() => {
+                  const healthyPercent = bucketHealthyPercent({
+                    buckets: chartContext.buckets,
+                  });
+                  const avgLatency = bucketAvgLatencyMs({
+                    buckets: chartContext.buckets,
+                  });
+                  return (
+                    <>
+                      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-end justify-between gap-3">
+                            <div>
+                              <span className="block text-3xl font-bold leading-none tabular-nums text-foreground">
+                                {healthyPercent === null
+                                  ? "—"
+                                  : `${healthyPercent}%`}
+                              </span>
+                              <CardTitle className="mt-1 text-xs font-normal text-muted-foreground">
+                                Status Timeline
+                              </CardTitle>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <HealthCheckStatusTimeline
+                            context={chartContext}
+                            height={96}
+                          />
+                        </CardContent>
+                      </div>
+                      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+                        <CardHeader className="pb-2">
+                          <div className="flex items-end justify-between gap-3">
+                            <div>
+                              <span className="block text-3xl font-bold leading-none tabular-nums text-foreground">
+                                {avgLatency === null ? "—" : `${avgLatency}ms`}
+                              </span>
+                              <CardTitle className="mt-1 text-xs font-normal text-muted-foreground">
+                                Average Execution Duration
+                              </CardTitle>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <HealthCheckLatencyChart
+                            context={chartContext}
+                            height={120}
+                            showAverage
+                            baselines={baselines}
+                          />
+                        </CardContent>
+                      </div>
+                    </>
+                  );
+                })()}
                 <ExtensionSlot
                   slot={HealthCheckDiagramSlot}
                   context={chartContext}
@@ -486,7 +523,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 />
               </div>
 
-              <div className="rounded-md border">
+              <ResponsiveTable className="rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -509,7 +546,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                         key={run.id}
                         className={`${
                           canViewDetails
-                            ? "cursor-pointer hover:bg-muted/50"
+                            ? "cursor-pointer transition-colors hover:bg-surface-inset"
                             : ""
                         } ${historyLoading ? "opacity-50" : ""}`}
                         onClick={
@@ -529,7 +566,10 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                         }
                       >
                         <TableCell>
-                          <HealthBadge status={run.status} />
+                          <HealthStatusPill
+                            tone={statusToTone({ status: run.status })}
+                            label={statusToLabel({ status: run.status })}
+                          />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {formatDistanceToNow(new Date(run.timestamp), {
@@ -538,7 +578,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                         </TableCell>
                         <TableCell>
                           {run.environmentId ? (
-                            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
                               <Layers className="h-3 w-3" />
                               {envNameById.get(run.environmentId) ??
                                 run.environmentId}
@@ -551,12 +591,12 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                         </TableCell>
                         <TableCell>
                           {run.sourceId ? (
-                            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn">
                               <SatelliteIcon className="h-3 w-3" />
                               {run.sourceLabel ?? "Remote"}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
                               <Server className="h-3 w-3" />
                               {run.sourceLabel ?? "Local"}
                             </span>
@@ -566,7 +606,88 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </ResponsiveTable>
+
+              <MobileCardList>
+                {runs.length === 0 && !historyLoading && (
+                  <div className="rounded-md border px-3 py-4 text-center text-sm text-muted-foreground">
+                    No runs match the{" "}
+                    <span className="font-medium">{runsStatusFilter}</span>{" "}
+                    filter.
+                  </div>
+                )}
+                {runs.map((run) => {
+                  const tone = statusToTone({ status: run.status });
+                  return (
+                  <div
+                    key={run.id}
+                    className={`relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] ${
+                      canViewDetails
+                        ? "cursor-pointer transition-colors hover:bg-surface-inset"
+                        : ""
+                    } ${historyLoading ? "opacity-50" : ""}`}
+                    onClick={
+                      canViewDetails
+                        ? () =>
+                            navigate(
+                              resolveRoute(
+                                healthcheckRoutes.routes.historyRun,
+                                {
+                                  systemId,
+                                  configurationId: item.configurationId,
+                                  runId: run.id,
+                                },
+                              ),
+                            )
+                        : undefined
+                    }
+                  >
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1",
+                        toneStyles[tone].accent,
+                      )}
+                      aria-hidden
+                    />
+                    <div className="flex items-center justify-between gap-2 pl-2">
+                      <HealthStatusPill
+                        tone={tone}
+                        label={statusToLabel({ status: run.status })}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(run.timestamp), {
+                          addSuffix: true,
+                        })}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-2">
+                      {run.environmentId ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
+                          <Layers className="h-3 w-3" />
+                          {envNameById.get(run.environmentId) ??
+                            run.environmentId}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          None
+                        </span>
+                      )}
+                      {run.sourceId ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn">
+                          <SatelliteIcon className="h-3 w-3" />
+                          {run.sourceLabel ?? "Remote"}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
+                          <Server className="h-3 w-3" />
+                          {run.sourceLabel ?? "Local"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  );
+                })}
+              </MobileCardList>
               <div className="flex items-center justify-between">
                 <Pagination
                   page={pagination.page}

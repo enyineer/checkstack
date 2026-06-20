@@ -43,41 +43,44 @@ const cpuResultSchema = z.object({
     "x-chart-type": "line",
     "x-chart-label": "CPU Usage",
     "x-chart-unit": "%",
+    // Percent saturation signal: the canonical CPU pressure metric. Kept
+    // enabled but widened toward fewer false positives. CPU usage is very
+    // spiky run-to-run, so the band errs wide, debounces over several
+    // samples, and ignores small percent moves.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
-    "x-anomaly-min-absolute-delta": 5,
+    "x-anomaly-min-absolute-delta": 10,
+    "x-anomaly-min-relative-delta": 0.25,
   }),
   loadAvg1m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (1m)",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 1.5,
-    "x-anomaly-confirmation-window": 3,
-    "x-anomaly-min-absolute-delta": 0.5,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Off by default: 1m load is the noisiest load window and swings wildly
+    // run-to-run, so a learned baseline produces alert fatigue. Still
+    // chartable, and the 15m trend is the stable signal to alert on.
+    "x-anomaly-enabled": false,
   }).optional(),
   loadAvg5m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (5m)",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 1.5,
-    "x-anomaly-confirmation-window": 3,
-    "x-anomaly-min-absolute-delta": 0.5,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Off by default: redundant with the 15m trend and still spiky enough to
+    // generate noise. Kept chartable for context.
+    "x-anomaly-enabled": false,
   }).optional(),
   loadAvg15m: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Load (15m)",
+    // The stable load window: smooth enough to baseline and the meaningful
+    // saturation trend. Kept enabled but widened. Load is unbounded so the
+    // relative floor guards small absolute machines.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
-    "x-anomaly-min-absolute-delta": 0.5,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
   coreCount: healthResultNumber({
     "x-chart-type": "counter",
@@ -101,14 +104,17 @@ const cpuAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Max CPU Usage",
     "x-chart-unit": "%",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Off by default: a max rollup captures the single spikiest sample per
+    // window, so it alerts on transient bursts. The avg rollup is the stable
+    // pressure signal; this stays chartable.
+    "x-anomaly-enabled": false,
   }),
   avgLoadAvg1m: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Load (1m)",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Off by default: mirrors the noisy 1m load window (disabled above) and
+    // adds no stable signal over the 15m trend.
+    "x-anomaly-enabled": false,
   }),
 };
 

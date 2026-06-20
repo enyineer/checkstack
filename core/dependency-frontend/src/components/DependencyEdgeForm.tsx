@@ -1,6 +1,6 @@
 import React from "react";
 import type { ImpactType } from "@checkstack/dependency-common";
-import { Toggle } from "@checkstack/ui";
+import { Label, Toggle } from "@checkstack/ui";
 import { HealthCheckRulesEditor } from "./HealthCheckRulesEditor";
 
 interface HealthCheckRule {
@@ -42,12 +42,18 @@ export const DependencyEdgeForm: React.FC<Props> = ({
   onHealthCheckRulesChange,
   compact = false,
 }) => {
+  // Unique per-instance id: this form renders multiple times (the add panel
+  // plus one per editing row), so a static id would collide.
+  const impactId = React.useId();
   return (
     <>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Impact</label>
+        <Label htmlFor={impactId} required>
+          Impact
+        </Label>
         <select
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          id={impactId}
+          className="w-full rounded-md border border-input bg-surface-inset px-3 py-2 text-sm"
           value={impactType}
           onChange={(e) => onImpactTypeChange(e.target.value as ImpactType)}
         >
@@ -58,9 +64,7 @@ export const DependencyEdgeForm: React.FC<Props> = ({
       </div>
       <div className="flex items-center justify-between rounded-lg border border-border p-3">
         <div className="space-y-0.5">
-          <label className="text-sm font-medium">
-            {compact ? "Multi-hop" : "Multi-hop propagation"}
-          </label>
+          <Label>{compact ? "Multi-hop" : "Multi-hop propagation"}</Label>
           <p className="text-xs text-muted-foreground">
             {compact
               ? "Cascade failures transitively."

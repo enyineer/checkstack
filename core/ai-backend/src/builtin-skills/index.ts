@@ -1,4 +1,5 @@
 import type { AiSkillDefinitionInput } from "@checkstack/ai-common";
+import { AUTOMATION_BUILDING_INSTRUCTION } from "../chat/system-prompt";
 
 /**
  * Builtin AI skills shipped by ai-backend. Reusable prompt templates surfaced
@@ -34,8 +35,17 @@ export const builtinAiSkills: AiSkillDefinitionInput[] = [
     description:
       "Help design a correct automation: pick the right trigger, wire actions and artifacts, and validate before proposing.",
     targets: ["chat"],
+    // Folds the full automation-building playbook (the detailed discovery /
+    // real-ids / artifact-wiring / validate-before-propose rules) into the
+    // skill, so it loads ON DEMAND when this skill is active rather than sitting
+    // in every turn's base prompt. The base chat prompt also injects the same
+    // text when an automation tool is in scope, so the guidance reaches the model
+    // either way without being always-on.
     systemPrompt:
-      "Help the operator design an automation. Discover the available triggers, actions, and artifact types from the registry rather than guessing ids. Reference upstream artifacts by their exact path. Prefer a small, correct automation over a clever one. Validate the definition before proposing it, and explain what each step does in plain language.",
+      "Help the operator design an automation. Prefer a small, correct " +
+      "automation over a clever one, and explain what each step does in plain " +
+      "language.\n\n" +
+      AUTOMATION_BUILDING_INSTRUCTION,
     promptTemplate:
       "Help me build an automation that: <describe the trigger and what should happen>.",
   },

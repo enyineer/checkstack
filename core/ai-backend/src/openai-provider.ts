@@ -1,11 +1,17 @@
 import { z } from "zod";
-import { Versioned, configString, configNumber } from "@checkstack/backend-api";
+import {
+  Versioned,
+  configString,
+  configNumber,
+  configBoolean,
+} from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import type {
   IntegrationProvider,
   TestConnectionResult,
 } from "@checkstack/integration-backend";
 import {
+  AI_MODEL_FAMILIES,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_PROVIDER_LOCAL_ID,
   type OpenAiCompatibleConnection,
@@ -66,6 +72,17 @@ export const OpenAiCompatibleConnectionSchema = z.object({
     .optional()
     .describe(
       "Model context window in tokens (e.g. 128000). When set, the chat compacts old turns before they overflow it. Blank uses a conservative default.",
+    ),
+  modelFamily: z
+    .enum(AI_MODEL_FAMILIES)
+    .optional()
+    .describe(
+      "Declared model family behind this gateway (anthropic / openai / generic). A seam for future family-specific steering; the transport is the same chat-completions API for every value. Native Anthropic features (thinking, prompt caching) need a gateway that forwards them. Blank = generic.",
+    ),
+  disableTopicalClassifier: configBoolean({})
+    .optional()
+    .describe(
+      "Skip the cheap topical pre-classifier round-trip on the first message. The chat already declines off-topic requests in-prompt, so a capable model does not need the extra call. Leave off to keep it (safer for smaller models).",
     ),
   spendCap: z
     .preprocess(

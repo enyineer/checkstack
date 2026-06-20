@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React from "react";
 import {
   Table,
   TableHeader,
@@ -6,9 +6,13 @@ import {
   TableHead,
   TableBody,
   TableCell,
-  HealthBadge,
   Pagination,
   Spinner,
+  Card,
+  ResponsiveTable,
+  MobileCardList,
+  useKeptPrevious,
+  cn,
 } from "@checkstack/ui";
 import { formatDistanceToNow, format } from "date-fns";
 import { ExternalLink, Satellite, Server, Layers } from "lucide-react";
@@ -16,6 +20,54 @@ import { useNavigate } from "react-router-dom";
 import { healthcheckRoutes } from "@checkstack/healthcheck-common";
 import { resolveRoute } from "@checkstack/common";
 import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
+import { HealthStatusPill } from "./HealthStatusPill";
+import {
+  statusToLabel,
+  statusToTone,
+  toneStyles,
+} from "./healthcheckDisplay.logic";
+
+const RunTimestamp: React.FC<{ timestamp: Date }> = ({ timestamp }) => (
+  <span title={format(new Date(timestamp), "PPpp")}>
+    {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
+  </span>
+);
+
+/** Neutral metadata chip on surface tokens; the table's signal hue is reserved
+ * for the remote/satellite source so the data reads consistently. */
+const NEUTRAL_CHIP =
+  "inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground";
+const SIGNAL_CHIP =
+  "inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn";
+
+const RunEnvironmentChip: React.FC<{
+  environmentId?: string;
+  label?: string;
+}> = ({ environmentId, label }) =>
+  environmentId ? (
+    <span className={NEUTRAL_CHIP}>
+      <Layers className="h-3 w-3" />
+      {label ?? environmentId}
+    </span>
+  ) : (
+    <span className="text-xs text-muted-foreground">None</span>
+  );
+
+const RunSourceChip: React.FC<{
+  sourceId?: string;
+  sourceLabel?: string;
+}> = ({ sourceId, sourceLabel }) =>
+  sourceId ? (
+    <span className={SIGNAL_CHIP}>
+      <Satellite className="h-3 w-3" />
+      {sourceLabel ?? "Remote"}
+    </span>
+  ) : (
+    <span className={NEUTRAL_CHIP}>
+      <Server className="h-3 w-3" />
+      {sourceLabel ?? "Local"}
+    </span>
+  );
 
 export interface HealthCheckRunDetailed {
   id: string;
@@ -74,17 +126,16 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
   pagination,
 }) => {
   const navigate = useNavigate();
-  const prevRunsRef = useRef(runs);
   const envNameById = new Map(
     (environmentLabels ?? []).map((e) => [e.id, e.name]),
   );
 
-  // Keep previous runs during loading to prevent layout shift
-  const displayRuns =
-    loading && prevRunsRef.current.length > 0 ? prevRunsRef.current : runs;
-  if (!loading && runs.length > 0) {
-    prevRunsRef.current = runs;
-  }
+  // Keep previous runs during a refetch to prevent layout shift, and dim them
+  // while stale (see useKeptPrevious).
+  const { data: displayRuns, isStale } = useKeptPrevious({
+    data: runs,
+    isFetching: loading,
+  });
 
   const handleRowClick = (run: HealthCheckRunDetailed) => {
     navigate(
@@ -103,7 +154,7 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
 
   return (
     <>
-      <div className="rounded-md border">
+      <ResponsiveTable className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -136,11 +187,17 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
             {displayRuns.map((run) => (
               <TableRow
                 key={run.id}
-                className={`cursor-pointer hover:bg-muted/50 ${loading ? "opacity-50" : ""}`}
+                className={cn(
+                  "cursor-pointer transition-colors hover:bg-surface-inset",
+                  isStale && "opacity-50",
+                )}
                 onClick={() => handleRowClick(run)}
               >
                 <TableCell>
-                  <HealthBadge status={run.status} />
+                  <HealthStatusPill
+                    tone={statusToTone({ status: run.status })}
+                    label={statusToLabel({ status: run.status })}
+                  />
                 </TableCell>
                 {showFilterColumns && (
                   <>
@@ -153,34 +210,23 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                   </>
                 )}
                 <TableCell className="text-sm text-muted-foreground">
-                  <span title={format(new Date(run.timestamp), "PPpp")}>
-                    {formatDistanceToNow(new Date(run.timestamp), {
-                      addSuffix: true,
-                    })}
-                  </span>
+                  <RunTimestamp timestamp={run.timestamp} />
                 </TableCell>
                 <TableCell>
-                  {run.environmentId ? (
-                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                      <Layers className="h-3 w-3" />
-                      {envNameById.get(run.environmentId) ?? run.environmentId}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">None</span>
-                  )}
+                  <RunEnvironmentChip
+                    environmentId={run.environmentId}
+                    label={
+                      run.environmentId
+                        ? envNameById.get(run.environmentId)
+                        : undefined
+                    }
+                  />
                 </TableCell>
                 <TableCell>
-                  {run.sourceId ? (
-                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600">
-                      <Satellite className="h-3 w-3" />
-                      {run.sourceLabel ?? "Remote"}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                      <Server className="h-3 w-3" />
-                      {run.sourceLabel ?? "Local"}
-                    </span>
-                  )}
+                  <RunSourceChip
+                    sourceId={run.sourceId}
+                    sourceLabel={run.sourceLabel}
+                  />
                 </TableCell>
                 {showFilterColumns && (
                   <TableCell>
@@ -191,7 +237,65 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </ResponsiveTable>
+
+      <MobileCardList>
+        {showEmptyRow && (
+          <Card className="p-6 text-center text-xs text-muted-foreground">
+            {emptyMessage}
+          </Card>
+        )}
+        {displayRuns.map((run) => {
+          const tone = statusToTone({ status: run.status });
+          return (
+          <div
+            key={run.id}
+            className={cn(
+              "relative cursor-pointer overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-colors hover:bg-surface-inset",
+              isStale && "opacity-50",
+            )}
+            onClick={() => handleRowClick(run)}
+          >
+            {/* Status accent stripe keyed to run status. */}
+            <span
+              className={cn(
+                "absolute inset-y-0 left-0 w-1",
+                toneStyles[tone].accent,
+              )}
+              aria-hidden
+            />
+            <div className="flex items-start justify-between gap-2 pl-2">
+              <HealthStatusPill
+                tone={tone}
+                label={statusToLabel({ status: run.status })}
+              />
+              <span className="text-right text-xs text-muted-foreground">
+                <RunTimestamp timestamp={run.timestamp} />
+              </span>
+            </div>
+            {showFilterColumns && (
+              <div className="mt-2 break-all pl-2 font-mono text-xs text-muted-foreground">
+                {run.systemId} / {run.configurationId.slice(0, 8)}...
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-2">
+              <RunEnvironmentChip
+                environmentId={run.environmentId}
+                label={
+                  run.environmentId
+                    ? envNameById.get(run.environmentId)
+                    : undefined
+                }
+              />
+              <RunSourceChip
+                sourceId={run.sourceId}
+                sourceLabel={run.sourceLabel}
+              />
+            </div>
+          </div>
+          );
+        })}
+      </MobileCardList>
       {pagination && pagination.totalPages > 1 && (
         <div className="mt-4">
           <Pagination

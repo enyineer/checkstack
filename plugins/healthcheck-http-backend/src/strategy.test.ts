@@ -2,7 +2,13 @@ import { describe, expect, it, spyOn, afterEach } from "bun:test";
 import { HttpHealthCheckStrategy } from "./strategy";
 
 describe("HttpHealthCheckStrategy", () => {
-  const strategy = new HttpHealthCheckStrategy();
+  // Inject a deterministic DNS resolver so the in-process SSRF guard does not
+  // depend on real network DNS in unit tests. By default every host resolves
+  // to a public IP (allowed); specific tests override with their own resolver.
+  const publicLookup = async () => [
+    { address: "93.184.216.34", family: 4 },
+  ];
+  const strategy = new HttpHealthCheckStrategy(publicLookup);
 
   afterEach(() => {
     spyOn(globalThis, "fetch").mockRestore();
@@ -207,6 +213,121 @@ describe("HttpHealthCheckStrategy", () => {
 
       expect(capturedMethod).toBe("DELETE");
 
+      connectedClient.close();
+    });
+  });
+
+  describe("SSRF guard (in-process egress)", () => {
+    it("refuses a request whose host resolves to the cloud-metadata IP", async () => {
+      const metadataStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "169.254.169.254", family: 4 },
+      ]);
+      const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("secret-credentials", { status: 200 }),
+      );
+
+      const connectedClient = await metadataStrategy.createClient({
+        timeout: 5000,
+      });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "http://metadata.internal/latest/meta-data/",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
+
+      // The guard must reject BEFORE any network call happens.
+      expect(fetchSpy).not.toHaveBeenCalled();
+      connectedClient.close();
+    });
+
+    it("refuses a direct cloud-metadata IP literal", async () => {
+      const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("secret", { status: 200 }),
+      );
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "http://169.254.169.254/latest/meta-data/",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      connectedClient.close();
+    });
+
+    it("allows an internal RFC1918 host by default (monitoring stays allowed)", async () => {
+      const internalStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "10.1.2.3", family: 4 },
+      ]);
+      spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("ok", { status: 200 }),
+      );
+      const connectedClient = await internalStrategy.createClient({
+        timeout: 5000,
+      });
+
+      const result = await connectedClient.client.exec({
+        url: "http://internal.service.local/healthz",
+        method: "GET",
+        timeout: 5000,
+      });
+      expect(result.statusCode).toBe(200);
+      connectedClient.close();
+    });
+
+    it("honors an operator-extended denylist for an internal range", async () => {
+      const internalStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "10.5.5.5", family: 4 },
+      ]);
+      spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("ok", { status: 200 }),
+      );
+      const connectedClient = await internalStrategy.createClient({
+        timeout: 5000,
+        egressDenyCidrs: ["10.0.0.0/8"],
+      });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "http://internal.service.local/healthz",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
+      connectedClient.close();
+    });
+
+    it("pins the connection to the validated IP and preserves the Host header", async () => {
+      let capturedUrl: string | undefined;
+      let capturedHeaders: Record<string, string> | undefined;
+      const pinStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "93.184.216.34", family: 4 },
+      ]);
+      spyOn(globalThis, "fetch").mockImplementation((async (
+        url: RequestInfo | URL,
+        options?: RequestInit,
+      ) => {
+        capturedUrl = String(url);
+        capturedHeaders = options?.headers as Record<string, string>;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch);
+
+      const connectedClient = await pinStrategy.createClient({ timeout: 5000 });
+      await connectedClient.client.exec({
+        url: "https://example.com/healthz",
+        method: "GET",
+        timeout: 5000,
+      });
+
+      // Connected to the validated IP literal, not the original hostname...
+      expect(capturedUrl).toBe("https://93.184.216.34/healthz");
+      // ...while the server still sees the intended virtual host.
+      expect(capturedHeaders?.host).toBe("example.com");
       connectedClient.close();
     });
   });

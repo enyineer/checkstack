@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
   usePerformance,
+  useIsMobile,
 } from "@checkstack/ui";
 import {
   PieChart,
@@ -494,11 +495,11 @@ function AssertionStatusCard({
 
   return (
     <Card
-      className={latestPassed ? "" : "border-red-200 dark:border-red-900"}
+      className={latestPassed ? "" : "border-status-down/40"}
     >
       <CardHeader className="pb-2">
         <CardTitle
-          className={`text-sm font-medium text-center ${latestPassed ? "" : "text-red-600"}`}
+          className={`text-sm font-medium text-center ${latestPassed ? "" : "text-status-down"}`}
         >
           {latestPassed ? "Assertion" : "Assertion Failed"}
         </CardTitle>
@@ -508,10 +509,10 @@ function AssertionStatusCard({
         <div className="flex items-center justify-center gap-2">
           <div
             className={`w-3 h-3 rounded-full ${
-              latestPassed ? "bg-green-500" : "bg-red-500"
+              latestPassed ? "bg-status-ok" : "bg-status-down"
             }`}
           />
-          <span className={latestPassed ? "text-green-600" : "text-red-600"}>
+          <span className={latestPassed ? "text-status-ok" : "text-status-down"}>
             {latestPassed ? "Passed" : "Failed"}
           </span>
           {!allPassed && !allFailed && (
@@ -523,7 +524,7 @@ function AssertionStatusCard({
 
         {/* Error message if failed */}
         {!latestPassed && latestResult.errorMessage && (
-          <div className="px-2 py-1 text-sm text-red-600 truncate rounded bg-red-50 dark:bg-red-950">
+          <div className="px-2 py-1 text-sm text-status-down truncate rounded bg-status-down/10">
             {latestResult.errorMessage}
           </div>
         )}
@@ -877,10 +878,10 @@ function BooleanRenderer({ field, context, baseline }: ChartRendererProps) {
       <div className="flex items-center justify-center gap-2">
         <div
           className={`w-3 h-3 rounded-full ${
-            latestValue ? "bg-green-500" : "bg-red-500"
+            latestValue ? "bg-status-ok" : "bg-status-down"
           }`}
         />
-        <span className={latestValue ? "text-green-600" : "text-red-600"}>
+        <span className={latestValue ? "text-status-ok" : "text-status-down"}>
           {latestValue ? "Yes" : "No"}
         </span>
         {!allSame && (
@@ -912,7 +913,7 @@ function BooleanRenderer({ field, context, baseline }: ChartRendererProps) {
           return (
             <SparklineTooltip key={index} content={tooltip}>
               <div
-                className={`flex-1 h-full ${item.value ? "bg-green-500" : "bg-red-500"} hover:opacity-80`}
+                className={`flex-1 h-full ${item.value ? "bg-status-ok" : "bg-status-down"} hover:opacity-80`}
               />
             </SparklineTooltip>
           );
@@ -1049,7 +1050,7 @@ function StatusRenderer({ field, context }: ChartRendererProps) {
   }
 
   return (
-    <div className="px-2 py-1 text-sm text-red-600 truncate rounded bg-red-50 dark:bg-red-950">
+    <div className="px-2 py-1 text-sm text-status-down truncate rounded bg-status-down/10">
       {String(value)}
     </div>
   );
@@ -1059,6 +1060,7 @@ function StatusRenderer({ field, context }: ChartRendererProps) {
  * Renders an area chart for time series data using Recharts AreaChart.
  */
 function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
+  const isMobile = useIsMobile();
   const valuesWithTime = getAllValuesWithTime(
     field.name,
     context,
@@ -1178,7 +1180,8 @@ function LineChartRenderer({ field, context, baseline }: ChartRendererProps) {
             }}
             stroke="hsl(var(--muted-foreground))"
             fontSize={12}
-            minTickGap={30}
+            minTickGap={isMobile ? 60 : 30}
+            interval={isMobile ? "preserveStartEnd" : undefined}
           />
           <YAxis
             stroke="hsl(var(--muted-foreground))"

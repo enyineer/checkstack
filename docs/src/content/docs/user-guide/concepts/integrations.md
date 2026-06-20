@@ -33,7 +33,7 @@ A single subscription connects exactly one event to one provider. Admins create 
 
 Roughly:
 
-```
+```text
 [domain plugin] emits hook ----+
                                |
                                v

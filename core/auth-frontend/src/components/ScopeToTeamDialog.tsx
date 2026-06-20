@@ -14,10 +14,10 @@ import {
   SelectValue,
   Label,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import { extractErrorMessage } from "@checkstack/common";
 
 export interface ScopeToTeamDialogProps {
   open: boolean;
@@ -64,7 +64,8 @@ export const ScopeToTeamDialog: React.FC<ScopeToTeamDialogProps> = ({
   const teamName = teams.find((t) => t.id === teamId)?.name ?? "the team";
   const count = resources.length;
 
-  const handleApply = async () => {
+  const handleApply = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!teamId || count === 0) return;
     setApplying(true);
     setDone(0);
@@ -92,9 +93,7 @@ export const ScopeToTeamDialog: React.FC<ScopeToTeamDialogProps> = ({
     } else if (ok > 0) {
       toast.error(`Scoped ${ok} of ${count}; ${failures} failed`);
     } else {
-      toast.error(
-        extractErrorMessage(setAccess.error, "Couldn't scope to team"),
-      );
+      toastError(toast, "Couldn't scope to team", setAccess.error);
     }
 
     if (ok > 0) {
@@ -108,88 +107,91 @@ export const ScopeToTeamDialog: React.FC<ScopeToTeamDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            Scope {count} {count === 1 ? "resource" : "resources"} to a team
-          </DialogTitle>
-          <DialogDescription>
-            Give a team access to these resources. The team&apos;s members can
-            reach them even without the global permission; this never removes
-            anyone&apos;s existing access.
-          </DialogDescription>
-        </DialogHeader>
+        <form onSubmit={handleApply}>
+          <DialogHeader>
+            <DialogTitle>
+              Scope {count} {count === 1 ? "resource" : "resources"} to a team
+            </DialogTitle>
+            <DialogDescription>
+              Give a team access to these resources. The team&apos;s members can
+              reach them even without the global permission; this never removes
+              anyone&apos;s existing access.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label>Team</Label>
-            <Select value={teamId} onValueChange={setTeamId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a team" />
-              </SelectTrigger>
-              <SelectContent>
-                {teams.length === 0 ? (
-                  <SelectItem value="_none" disabled>
-                    No teams available
-                  </SelectItem>
-                ) : (
-                  teams.map((team) => (
-                    <SelectItem key={team.id} value={team.id}>
-                      {team.name}
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="scope-team" required>
+                Team
+              </Label>
+              <Select value={teamId} onValueChange={setTeamId}>
+                <SelectTrigger id="scope-team" aria-label="Team" autoFocus>
+                  <SelectValue placeholder="Select a team" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.length === 0 ? (
+                    <SelectItem value="_none" disabled>
+                      No teams available
                     </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+                  ) : (
+                    teams.map((team) => (
+                      <SelectItem key={team.id} value={team.id}>
+                        {team.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="scope-access-level">Access level</Label>
+              <Select value={level} onValueChange={(v) => setLevel(v as Level)}>
+                <SelectTrigger
+                  id="scope-access-level"
+                  aria-label="Access level"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manage">Manage (can change)</SelectItem>
+                  <SelectItem value="read">Read-only (can view)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {teamId && (
+              <p className="text-sm text-muted-foreground">
+                <strong>{teamName}</strong>&apos;s members will be able to{" "}
+                {level === "manage" ? "view and change" : "view"} {count}{" "}
+                {count === 1 ? "resource" : "resources"}, even members who
+                don&apos;t have the global permission
+                {level === "read" ? ", but not change them" : ""}. Anyone who
+                can already read them still can. To hide a resource from
+                everyone outside its team, open it and use &quot;Who can change
+                this&quot;.
+              </p>
+            )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Access level</Label>
-            <Select
-              value={level}
-              onValueChange={(v) => setLevel(v as Level)}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={applying}
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="manage">Manage (can change)</SelectItem>
-                <SelectItem value="read">Read-only (can view)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {teamId && (
-            <p className="text-sm text-muted-foreground">
-              <strong>{teamName}</strong>&apos;s members will be able to{" "}
-              {level === "manage" ? "view and change" : "view"} {count}{" "}
-              {count === 1 ? "resource" : "resources"}, even members who
-              don&apos;t have the global permission
-              {level === "read" ? ", but not change them" : ""}. Anyone who can
-              already read them still can. To hide a resource from everyone
-              outside its team, open it and use &quot;Who can change this&quot;.
-            </p>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={applying}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleApply}
-            disabled={!teamId || count === 0 || applying}
-          >
-            {applying
-              ? count > 1
-                ? `Scoping ${done}/${count}...`
-                : "Scoping..."
-              : "Scope to team"}
-          </Button>
-        </DialogFooter>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!teamId || count === 0 || applying}>
+              {applying
+                ? count > 1
+                  ? `Scoping ${done}/${count}...`
+                  : "Scoping..."
+                : "Scope to team"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

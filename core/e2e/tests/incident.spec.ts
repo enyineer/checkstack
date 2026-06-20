@@ -134,7 +134,7 @@ test.describe("incidents", () => {
     await dialog.getByLabel("Title").fill(`Premature incident ${RUN_ID}`);
     await dialog.getByRole("button", { name: "Create" }).click();
 
-    // Validation surfaces as a toast and the dialog stays open.
+    // Validation now surfaces as an inline error and the dialog stays open.
     await expect(
       page.getByText("At least one system must be selected"),
     ).toBeVisible();
@@ -142,8 +142,18 @@ test.describe("incidents", () => {
       dialog.getByRole("heading", { name: "Create Incident" }),
     ).toBeVisible();
 
+    // The form is dirty (title filled), so Cancel opens the discard-confirm
+    // modal instead of closing immediately. Confirm the discard, then the
+    // editor dialog closes. Scope to the discard modal (title "Discard
+    // changes?", confirm button "Discard") to avoid the two-dialog strict-mode
+    // ambiguity while both are mounted.
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toBeHidden();
+    const discard = page.getByRole("dialog", { name: "Discard changes?" });
+    await expect(discard).toBeVisible();
+    await discard.getByRole("button", { name: "Discard" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Create Incident" }),
+    ).toBeHidden();
   });
 
   test("creates a system via the catalog so incidents can target it", async ({
@@ -175,8 +185,9 @@ test.describe("incidents", () => {
     await dialog.getByRole("button", { name: "Create System" }).click();
 
     await expect(dialog).toBeHidden();
-    // The new system appears in the management list.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    // The new system appears in the management list. Scope to the desktop table:
+    // the ResponsiveTable's display:none MobileCardList duplicates the name.
+    await expect(page.getByRole("table").getByText(SYSTEM_NAME)).toBeVisible();
   });
 
   test("creates an incident against the system", async ({ page }) => {

@@ -1,9 +1,9 @@
 ---
 title: "Anomaly Detection"
-description: "Checkstack ships an adaptive, baseline-learning anomaly detector that operates on every health check result. Plugin authors do not run any detection code themselves — they only declare intent on th…"
+description: "Checkstack ships an adaptive, baseline-learning anomaly detector that operates on every health check result. Plugin authors do not run any detection code themselves - they only declare intent on th…"
 ---
 
-Checkstack ships an adaptive, baseline-learning anomaly detector that operates on every health check result. Plugin authors do not run any detection code themselves — they only **declare intent on the schema**, and the engine does the rest.
+Checkstack ships an adaptive, baseline-learning anomaly detector that operates on every health check result. Plugin authors do not run any detection code themselves - they only **declare intent on the schema**, and the engine does the rest.
 
 This document is the day-to-day reference for plugin authors building strategies and collectors. It covers:
 
@@ -18,7 +18,7 @@ This document is the day-to-day reference for plugin authors building strategies
 
 ## 1. The Big Picture
 
-```
+```text
    ┌─────────────────────────┐    every check       ┌────────────────────┐
    │ Strategy / Collector    │ ────────────────────▶│ checkCompleted hook│
    │ (your plugin)           │                       └────────┬───────────┘
@@ -57,8 +57,8 @@ This document is the day-to-day reference for plugin authors building strategies
 
 Two detectors share the same `anomalies` table:
 
-- **Spike detector** runs inline on every check completion — fast, per-field threshold check against a cached baseline. Detects sudden jumps and drops.
-- **Drift evaluator** runs hourly inside the background analyzer — checks the regression slope of the baseline window. Detects gradual creep (memory leak, slow latency degradation).
+- **Spike detector** runs inline on every check completion - fast, per-field threshold check against a cached baseline. Detects sudden jumps and drops.
+- **Drift evaluator** runs hourly inside the background analyzer - checks the regression slope of the baseline window. Detects gradual creep (memory leak, slow latency degradation).
 
 Spikes and drifts on the same metric are tracked independently (`kind = 'spike'` vs `kind = 'drift'`).
 
@@ -66,7 +66,7 @@ Spikes and drifts on the same metric are tracked independently (`kind = 'spike'`
 
 ## 2. The `x-anomaly-*` Schema Annotations
 
-Every chartable health-result field **must** declare its anomaly behaviour. The type system enforces this — see the discriminated union `HealthResultMeta` in [core/common/src/chart-types.ts](../../core/common/src/chart-types.ts).
+Every chartable health-result field **must** declare its anomaly behaviour. The type system enforces this - see the discriminated union `HealthResultMeta` in [core/common/src/chart-types.ts](../../core/common/src/chart-types.ts).
 
 ### 2.1 Authoring Result Schemas
 
@@ -138,15 +138,54 @@ type HealthResultMeta =
 |---|---|---|
 | `higher-is-better` | Value drops below `µ − 3σ · sensitivity` | Success rate, availability, signal strength, throughput |
 | `lower-is-better` | Value rises above `µ + 3σ · sensitivity` | Latency, error count, queue depth, CPU usage |
-| `deviation` | Value crosses `µ ± 3σ · sensitivity` (either side) | Player count, request rate, traffic — where either direction is meaningful |
-| `dominance` | Categorical value differs from the dominant value when baseline dominance ratio exceeds a sensitivity-scaled floor (~0.9) | `boolean`, `text`, `status` fields — alerts on a flip from the stable state |
+| `deviation` | Value crosses `µ ± 3σ · sensitivity` (either side) | Player count, request rate, traffic - where either direction is meaningful |
+| `dominance` | Categorical value differs from the dominant value when baseline dominance ratio exceeds a sensitivity-scaled floor (~0.9) | `boolean`, `text`, `status` fields - alerts on a flip from the stable state |
 
 For `dominance`, the engine tracks the most-common value and the ratio at which it occurs. It only alerts when:
 
 1. The current value differs from the historical dominant value, **and**
-2. The historical dominant ratio exceeds the threshold floor (default `0.9`, scaled by sensitivity — see [core/anomaly-common/src/engine/thresholds.ts](../../core/anomaly-common/src/engine/thresholds.ts)).
+2. The historical dominant ratio exceeds the threshold floor (default `0.9`, scaled by sensitivity - see [core/anomaly-common/src/engine/thresholds.ts](../../core/anomaly-common/src/engine/thresholds.ts)).
 
 This prevents false positives on fields that legitimately alternate between states.
+
+### 2.5 Default alerting posture
+
+Anomaly detection is opinionated about what alerts **out of the box**. The goal
+is a low-noise default: a fresh install should surface only genuine,
+statistically-significant, problem-mapping deviations - not a flood of alerts on
+every metric that wiggles. A noisy default-enabled metric erodes trust in every
+alert, so when in doubt, ship a metric **default-disabled** (still chartable; a
+user can opt in per field).
+
+Default **enabled** (`"x-anomaly-enabled": true`) - signals that have a stable,
+learnable baseline and map to a real problem:
+
+- Availability / success (`boolean`, `status`) via `dominance`.
+- Latency / response / execution time via `lower-is-better`, always guarded by a
+  confirmation window (`>= 3`) and both an absolute floor (tens of ms, so fast
+  endpoints do not alert on small jitter) and a relative floor (`~0.5`), with a
+  sensitivity that errs wider (fewer alerts).
+- Saturation expressed as a **percentage or rate** (CPU %, memory %,
+  packet-loss %, error/failure rate) via `lower-is-better`/`higher-is-better`
+  with a confirmation window and a small absolute floor. Prefer the percentage
+  form; if an absolute twin exists (e.g. memory used MB alongside used %), keep
+  the percentage enabled and disable the absolute twin, which drifts without
+  being a problem.
+
+Default **disabled** (`"x-anomaly-enabled": false`) - high-noise or
+un-baselineable classes:
+
+- Informational text / identifiers (status text, banners, command output,
+  certificate subject/issuer, raw record values) - no numeric baseline.
+- Config echoes and near-constants (probe packet count, CPU core count, total or
+  swap-total memory) - a baseline over a constant is meaningless.
+- Values that legitimately change a lot run-to-run with no stable baseline and
+  no clear good/bad direction (arbitrary query row counts, build counts,
+  response/body sizes) - the core alert-fatigue class.
+- Deterministic, monotonic values (e.g. certificate days-remaining, which
+  decreases by exactly one per day) - these are static-threshold concerns
+  enforced by the check's own health logic (a configurable minimum), not
+  statistical outliers, so anomaly detection is left off for them.
 
 ---
 
@@ -168,9 +207,9 @@ responseTimeMs: healthResultNumber({
 
 A 200ms baseline with 25ms σ produces an upper trigger at `200 + 3 × 25 = 275ms`. Values up to 275ms are considered noise. A spike to 500ms is `suspicious`; if it stays high for 3 consecutive checks, it escalates to `anomaly` and a notification fires.
 
-Drift on the same field detects creep — e.g., baseline mean walking from 200ms → 240ms over a week. Drift triggers when `|slope × sampleCount| > 2 × σ × sensitivity`.
+Drift on the same field detects creep - e.g., baseline mean walking from 200ms → 240ms over a week. Drift triggers when `|slope × sampleCount| > 2 × σ × sensitivity`.
 
-The floor pair `min-absolute-delta: 50` + `min-relative-delta: 0.5` suppresses false positives on low-baseline checks. Example: a 6ms baseline with 1ms σ has a statistical trigger at ~9ms — without floors a routine 20ms blip would fire even though Δ=14ms is not actionable. With the floors, the spike must clear both 50ms absolute *and* 50% relative before alerting; a 6ms → 200ms spike (Δ=194ms, +3233%) still fires.
+The floor pair `min-absolute-delta: 50` + `min-relative-delta: 0.5` suppresses false positives on low-baseline checks. Example: a 6ms baseline with 1ms σ has a statistical trigger at ~9ms - without floors a routine 20ms blip would fire even though Δ=14ms is not actionable. With the floors, the spike must clear both 50ms absolute *and* 50% relative before alerting; a 6ms → 200ms spike (Δ=194ms, +3233%) still fires.
 
 ### Success Rate (higher-is-better)
 
@@ -238,9 +277,9 @@ Configuration is field-only. The runtime uses [resolveEffectiveConfig](../../cor
 
 **Resolution precedence (highest to lowest):**
 
-1. Assignment field override (user — per-system, per-field UI)
-2. Template field override (user — template-wide field default in the UI)
-3. Schema annotation (plugin developer — `x-anomaly-*` keys on the result schema)
+1. Assignment field override (user - per-system, per-field UI)
+2. Template field override (user - template-wide field default in the UI)
+3. Schema annotation (plugin developer - `x-anomaly-*` keys on the result schema)
 4. Engine fallback constant (`sensitivity 1.0`, `confirmationWindow 3`, `driftEnabled true`, `driftThreshold 2`, floors `0`)
 
 The only non-field-level settings on `AnomalySettings` are:
@@ -261,7 +300,7 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 
 ### 5.1 Storage Model
 
-`anomalies` table ([core/anomaly-backend/src/schema.ts](../../core/anomaly-backend/src/schema.ts)) — at most one open row per `(systemId, configurationId, fieldPath, kind)`. Spike and drift on the same metric are independent rows.
+`anomalies` table ([core/anomaly-backend/src/schema.ts](../../core/anomaly-backend/src/schema.ts)) - at most one open row per `(systemId, configurationId, fieldPath, kind)`. Spike and drift on the same metric are independent rows.
 
 | Column | Description |
 |---|---|
@@ -270,14 +309,14 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 | `direction` | `"above"`, `"below"`, or `"changed"`. |
 | `baselineValue`, `baselineStdDev` | Snapshot of µ/σ at detection time. |
 | `observedValue` | Actual value that triggered (stringified). |
-| `deviation` | Sigma distance — for drifts, sigmas of projected change. |
+| `deviation` | Sigma distance - for drifts, sigmas of projected change. |
 | `suspiciousRunCount` / `confirmationThreshold` | Confirmation-window state. |
 | `startedAt` / `confirmedAt` / `recoveredAt` | Lifecycle timestamps. |
 | `suppressedAt` / `suppressedValue` / `suppressedBaseline` | Global suppression flag + snapshot (see [5.6](#56-global-suppression)). `suppressedAt IS NULL` means not suppressed. |
 
 ### 5.2 State Machine (shared by spike + drift)
 
-```
+```text
    normal ─[value exceeds threshold]─▶ suspicious
                                         │      ▲
                           [N consecutive│      │ [returns
@@ -298,7 +337,7 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 |---|---|---|
 | `normal → suspicious` | Silent | Transient noise is absorbed without alerting operators. |
 | `suspicious → anomaly` | **Confirmed** notification | Fires after the confirmation window is met (default 3 for spikes, 2 for drifts). |
-| `suspicious → normal` | Silent | The row is deleted — transient spike absorbed. |
+| `suspicious → normal` | Silent | The row is deleted - transient spike absorbed. |
 | `anomaly → recovered` | **Recovered** notification | Importance: `info` ("Good news"). Fires on either the baseline-relative path or the self-resolution path (see [5.5](#55-self-resolution-new-normal)). |
 | `recovered → archived` | None | Retained for historical analysis (default 30 days). |
 
@@ -315,18 +354,18 @@ The engine refuses to evaluate a field until the baseline has at least **24 samp
 
 ### 5.5 Self-resolution (new normal)
 
-A confirmed anomaly used to be able to stay stuck indefinitely when the metric settled at a *new* level that became the real normal (the classic "broken, then fixed at a clearly different value" case): every fresh sample was still anomalous against the stale baseline, so the baseline-relative recovery branch never ran, and the row only cleared once the slow hourly analyzer dragged the mean across — hours to days later.
+A confirmed anomaly used to be able to stay stuck indefinitely when the metric settled at a *new* level that became the real normal (the classic "broken, then fixed at a clearly different value" case): every fresh sample was still anomalous against the stale baseline, so the baseline-relative recovery branch never ran, and the row only cleared once the slow hourly analyzer dragged the mean across - hours to days later.
 
 Both detectors now carry a baseline-independent escape hatch:
 
-- **Spike** ([detector.ts](../../core/anomaly-backend/src/detector.ts)): each healthy sample for a confirmed anomaly is appended to a rolling window stored on the row's `metadata.recentSamples`. Once `STABLE_RESOLUTION_RUN_COUNT` (5) consecutive samples sit inside a relative band of each other (`STABLE_RESOLUTION_RELATIVE_BAND`, 10%), the row self-resolves to `recovered` — even while still anomalous against the old baseline.
+- **Spike** ([detector.ts](../../core/anomaly-backend/src/detector.ts)): each healthy sample for a confirmed anomaly is appended to a rolling window stored on the row's `metadata.recentSamples`. Once `STABLE_RESOLUTION_RUN_COUNT` (5) consecutive samples sit inside a relative band of each other (`STABLE_RESOLUTION_RELATIVE_BAND`, 10%), the row self-resolves to `recovered` - even while still anomalous against the old baseline.
 - **Drift** ([drift-evaluator.ts](../../core/anomaly-backend/src/drift-evaluator.ts)): the slope-based detector keeps reporting drift while the 7-day window straddles both regimes. When the *projected change relative to the new mean* goes flat for `STABLE_DRIFT_RESOLUTION_RUN_COUNT` (2) consecutive analyzer runs (tracked via `metadata.stableDriftRunCount`), the row self-resolves.
 
 The constants live in [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts). The original baseline-relative recovery path is unchanged and still fires first when applicable. The rolling counters live on the shared `anomalies` row (Postgres), so they survive across whichever pod claims the work.
 
 ### 5.6 Global suppression
 
-Operators can **suppress** a confirmed anomaly so it disappears from the active feed until it "changes again". Suppression is **global (per row), not per-user** — distinct from the per-user notification mute in [8.2](#82-per-field-and-per-system-mute), which only silences notifications while the row stays active.
+Operators can **suppress** a confirmed anomaly so it disappears from the active feed until it "changes again". Suppression is **global (per row), not per-user** - distinct from the per-user notification mute in [8.2](#82-per-field-and-per-system-mute), which only silences notifications while the row stays active.
 
 Suppression is modelled as a **flag layered on top of `state`** (a nullable `suppressedAt`), not a new enum value: the suspicious/anomaly/recovered state machine stays intact and un-suppressing simply reveals the underlying state again. Suppressing snapshots `suppressedValue` (the observed value) and `suppressedBaseline`.
 
@@ -348,7 +387,7 @@ Drift is a property of the windowed baseline, not of any single observation. The
 
 The drift trigger is:
 
-```
+```text
 |slope × sampleCount| > driftThreshold × σ × sensitivity
 ```
 
@@ -361,7 +400,7 @@ Direction filtering:
 | `deviation` | Either |
 | `dominance` | Never (categorical fields don't drift continuously) |
 
-Edge case: when `stdDev === 0` and `slope !== 0`, `deviationSigmas` returns `Infinity` — any movement on a previously-constant metric is by definition outside the noise floor.
+Edge case: when `stdDev === 0` and `slope !== 0`, `deviationSigmas` returns `Infinity` - any movement on a previously-constant metric is by definition outside the noise floor.
 
 To opt a field out of drift detection without affecting spike detection:
 
@@ -393,7 +432,7 @@ The dashboard feed and chart range bands subscribe to these to update without a 
 
 ## 8. Notifications
 
-Anomaly notifications are dispatched through the shared notification sidecar ([core/anomaly-backend/src/notification.ts](../../core/anomaly-backend/src/notification.ts)). Plugin authors don't need to wire anything — confirmed and recovered transitions automatically fire the appropriate notification.
+Anomaly notifications are dispatched through the shared notification sidecar ([core/anomaly-backend/src/notification.ts](../../core/anomaly-backend/src/notification.ts)). Plugin authors don't need to wire anything - confirmed and recovered transitions automatically fire the appropriate notification.
 
 | Action | Importance |
 |---|---|
@@ -413,7 +452,7 @@ The `anomaly_notification_mutes` table holds user-scoped mutes. A row's existenc
 The system anomaly widget on each system detail page exposes a bell icon on every anomaly row (per-field mute) plus a `Mute all` toggle in the card header (per-system mute). Mutes are user-scoped and persist across sessions.
 
 > [!NOTE]
-> A mute only silences notifications — the anomaly row stays active and visible. To hide a row from the active feed entirely, use [global suppression](#56-global-suppression) (the eye-off icon on a confirmed anomaly row), which is per-row rather than per-user.
+> A mute only silences notifications - the anomaly row stays active and visible. To hide a row from the active feed entirely, use [global suppression](#56-global-suppression) (the eye-off icon on a confirmed anomaly row), which is per-row rather than per-user.
 
 ---
 
@@ -421,11 +460,11 @@ The system anomaly widget on each system detail page exposes a bell icon on ever
 
 The inline detector reads baselines from the `CacheProvider` first; cache misses fall back to the database (and warm the cache). Keys are namespaced under the anomaly plugin id (see [Cache System](/checkstack/developer-guide/backend/cache-system/)) and shaped as:
 
-```
+```text
 baseline:${configurationId}:${systemId}:${fieldPath}
 ```
 
-Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick refreshes them. Plugin authors do not normally need to touch this — the cache is internal to `core/anomaly-backend`.
+Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick refreshes them. Plugin authors do not normally need to touch this - the cache is internal to `core/anomaly-backend`.
 
 ---
 
@@ -440,7 +479,7 @@ Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick r
 
 ### "Tiny absolute changes on a low-baseline metric keep alerting"
 
-A 6 ms latency baseline with 1 ms σ has a statistical trigger at ~9 ms — even a routine 20 ms blip crosses 11 σ and fires. Statistical significance ≠ operational significance. Set a practical-significance floor:
+A 6 ms latency baseline with 1 ms σ has a statistical trigger at ~9 ms - even a routine 20 ms blip crosses 11 σ and fires. Statistical significance ≠ operational significance. Set a practical-significance floor:
 
 ```typescript
 responseTimeMs: healthResultNumber({
@@ -453,7 +492,7 @@ responseTimeMs: healthResultNumber({
 }),
 ```
 
-Both floors must clear in addition to the statistical trigger. Defaults of `0` mean disabled. The shipped per-run schemas in built-in plugins set sensible defaults — `50 ms` + `50%` for ms-unit fields, `5` percentage points for `%`-unit fields, `1` count + `25%` for counters, `1` GB + `5%` for disk, `50` MB + `10%` for memory — but operators can override per-system or per-field via the UI.
+Both floors must clear in addition to the statistical trigger. Defaults of `0` mean disabled. The shipped per-run schemas in built-in plugins set sensible defaults - `50 ms` + `50%` for ms-unit fields, `5` percentage points for `%`-unit fields, `1` count + `25%` for counters, `1` GB + `5%` for disk, `50` MB + `10%` for memory - but operators can override per-system or per-field via the UI.
 
 ### "Big proportional changes on a high-magnitude metric never alert"
 
@@ -508,7 +547,7 @@ The statistical core lives in `core/anomaly-common` and has zero database/cache 
 | `isDriftFlatRelative` | [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts) | Drift self-resolution: flat-relative-slope test. |
 | `hasChangedSinceSuppression` | [engine/self-resolution.ts](../../core/anomaly-common/src/engine/self-resolution.ts) | Auto-unsuppress: relative-move test. |
 
-These are deterministic, side-effect-free functions — ideal for unit tests.
+These are deterministic, side-effect-free functions - ideal for unit tests.
 
 ---
 
@@ -519,15 +558,15 @@ These are deterministic, side-effect-free functions — ideal for unit tests.
 | Pre-req | ✅ Shipped | [Cache System](/checkstack/developer-guide/backend/cache-system/) abstraction + Infrastructure Configuration UI. |
 | Phase 1 | ✅ Shipped | Spike/drop detection with confirmation window, field-level overrides, range bands on charts, system anomaly badge + feed widget, sidecar notifications. |
 | Phase 2 | ✅ Shipped | Trend drift detection in the background analyzer (`kind = 'drift'` rows), drift confirmation across consecutive analyzer runs, trend-line overlay on `AutoChartGrid` charts. |
-| Phase 3 | ❌ Dropped | Cross-metric correlation — investigated 2026-04-29 and dropped (cost/value did not justify the work; schema is forward-compatible if revived). |
+| Phase 3 | ❌ Dropped | Cross-metric correlation - investigated 2026-04-29 and dropped (cost/value did not justify the work; schema is forward-compatible if revived). |
 | Phase 4 | 🚧 In progress | This document and supporting developer docs. |
 
 ---
 
 ## 13. Related Documentation
 
-- [Cache System](/checkstack/developer-guide/backend/cache-system/) — provider abstraction the anomaly plugin uses for hot baselines.
-- [Health Check Strategies](/checkstack/developer-guide/backend/healthchecks/strategies/) — where you author the result schemas that carry `x-anomaly-*` metadata.
-- [Collector Plugin Development](/checkstack/developer-guide/backend/healthchecks/collectors/) — collectors also expose `result.schema` and participate in anomaly detection.
-- [Health Check Custom Charts](/checkstack/developer-guide/frontend/healthcheck-charts/) — `x-chart-type` reference (the prerequisite for anomaly fields).
-- [Signals](/checkstack/developer-guide/backend/signals/) — pattern for subscribing to `ANOMALY_*` events.
+- [Cache System](/checkstack/developer-guide/backend/cache-system/) - provider abstraction the anomaly plugin uses for hot baselines.
+- [Health Check Strategies](/checkstack/developer-guide/backend/healthchecks/strategies/) - where you author the result schemas that carry `x-anomaly-*` metadata.
+- [Collector Plugin Development](/checkstack/developer-guide/backend/healthchecks/collectors/) - collectors also expose `result.schema` and participate in anomaly detection.
+- [Health Check Custom Charts](/checkstack/developer-guide/frontend/healthcheck-charts/) - `x-chart-type` reference (the prerequisite for anomaly fields).
+- [Signals](/checkstack/developer-guide/backend/signals/) - pattern for subscribing to `ANOMALY_*` events.

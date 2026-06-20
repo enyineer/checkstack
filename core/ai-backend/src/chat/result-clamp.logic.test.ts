@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   clampToolResult,
   MAX_TOOL_RESULT_CHARS,
+  toolResultCharBudget,
 } from "./result-clamp.logic";
 
 /** Build a runs-shaped result with `n` verbose run rows. */
@@ -88,5 +89,44 @@ describe("clampToolResult", () => {
     const result = runsResult(5);
     expect(JSON.stringify(result).length).toBeLessThan(MAX_TOOL_RESULT_CHARS);
     expect(clampToolResult({ result }).clamped).toBe(false);
+  });
+});
+
+describe("toolResultCharBudget (derive from the connection's context window)", () => {
+  test("falls back to the module default when no window is configured", () => {
+    expect(toolResultCharBudget({})).toBe(MAX_TOOL_RESULT_CHARS);
+    expect(toolResultCharBudget({ contextWindowTokens: 0 })).toBe(
+      MAX_TOOL_RESULT_CHARS,
+    );
+  });
+
+  test("a large-context model keeps MORE of one result than the old constant", () => {
+    // A 1M-token window yields a much larger per-result budget than the 12k
+    // default — over-clamping on big-context models was the bug.
+    const budget = toolResultCharBudget({ contextWindowTokens: 1_000_000 });
+    expect(budget).toBeGreaterThan(MAX_TOOL_RESULT_CHARS);
+  });
+
+  test("a tiny-context model is protected (clamps to a small budget)", () => {
+    // An 8k-token window must yield a SMALL budget so a wide read can't blow it.
+    const small = toolResultCharBudget({ contextWindowTokens: 8_000 });
+    const large = toolResultCharBudget({ contextWindowTokens: 200_000 });
+    expect(small).toBeLessThan(large);
+    // ...but never collapses to nothing (a floor protects single small reads).
+    expect(small).toBeGreaterThanOrEqual(4_000);
+  });
+
+  test("the budget is monotonic in the window size", () => {
+    const a = toolResultCharBudget({ contextWindowTokens: 16_000 });
+    const b = toolResultCharBudget({ contextWindowTokens: 128_000 });
+    const c = toolResultCharBudget({ contextWindowTokens: 1_000_000 });
+    expect(a).toBeLessThanOrEqual(b);
+    expect(b).toBeLessThanOrEqual(c);
+  });
+
+  test("never exceeds the sanity ceiling regardless of window", () => {
+    expect(toolResultCharBudget({ contextWindowTokens: 10_000_000 })).toBeLessThanOrEqual(
+      60_000,
+    );
   });
 });

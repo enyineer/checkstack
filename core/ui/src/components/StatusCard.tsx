@@ -26,7 +26,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
       className={cn(
         "border-none shadow-sm transition-all duration-200",
         isGradient
-          ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-md active:scale-[0.98]"
+          ? "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-md active:scale-[0.98]"
           : "bg-card hover:border-border",
         className
       )}
@@ -36,7 +36,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <CardTitle
           className={cn(
             "text-sm font-medium",
-            isGradient ? "opacity-90 text-white" : "text-muted-foreground"
+            isGradient
+              ? "text-primary-foreground/90"
+              : "text-muted-foreground"
           )}
         >
           {title}
@@ -47,7 +49,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
           <span
             className={cn(
               "text-2xl font-bold tracking-tight",
-              isGradient ? "text-white" : "text-foreground"
+              isGradient ? "text-primary-foreground" : "text-foreground"
             )}
           >
             {value}
@@ -55,7 +57,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
           {icon && (
             <div
               className={cn(
-                isGradient ? "text-white" : "text-muted-foreground/60"
+                isGradient
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground/60"
               )}
             >
               {icon}
@@ -66,7 +70,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
           <p
             className={cn(
               "mt-1 text-xs",
-              isGradient ? "opacity-80" : "text-muted-foreground"
+              isGradient
+                ? "text-primary-foreground/80"
+                : "text-muted-foreground"
             )}
           >
             {description}

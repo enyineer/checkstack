@@ -11,7 +11,7 @@ Integration events bridge platform hooks to external systems. When a domain plug
 
 ## How Hooks Become Integration Events
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Domain Plugin                               │
 │                                                                 │

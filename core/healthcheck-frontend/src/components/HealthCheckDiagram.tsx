@@ -1,4 +1,4 @@
-import { InfoBanner } from "@checkstack/ui";
+import { Alert } from "@checkstack/ui";
 
 /**
  * Wrapper that shows access message when user lacks access.
@@ -12,10 +12,10 @@ export function HealthCheckDiagramAccessGate({
 }) {
   if (!hasAccess) {
     return (
-      <InfoBanner variant="info">
+      <Alert variant="info">
         Additional strategy-specific visualizations are available with the
         &quot;Read Health Check Details&quot; access rule.
-      </InfoBanner>
+      </Alert>
     );
   }
   return <>{children}</>;

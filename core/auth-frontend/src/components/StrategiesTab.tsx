@@ -13,13 +13,14 @@ import {
   AlertDescription,
   DynamicForm,
   useToast,
+  toastError,
+  usePerformance,
 } from "@checkstack/ui";
 import { Shield, RefreshCw } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
 import type { AuthStrategy } from "../api";
 import { AuthStrategyCard } from "./AuthStrategyCard";
-import { extractErrorMessage } from "@checkstack/common";
 
 export interface StrategiesTabProps {
   strategies: AuthStrategy[];
@@ -36,6 +37,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
 }) => {
   const authClient = usePluginClient(AuthApi);
   const toast = useToast();
+  const { isLowPower } = usePerformance();
 
   const [reloading, setReloading] = useState(false);
   const [expandedStrategy, setExpandedStrategy] = useState<string>();
@@ -88,9 +90,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
       void onDataChange();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to update strategy")
-      );
+      toastError(toast, "Failed to update strategy", error);
     },
   });
 
@@ -99,9 +99,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
       toast.success("Registration settings saved");
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to save settings")
-      );
+      toastError(toast, "Failed to save settings", error);
     },
   });
 
@@ -112,9 +110,7 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
       setReloading(false);
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to reload auth")
-      );
+      toastError(toast, "Failed to reload auth", error);
       setReloading(false);
     },
   });
@@ -213,7 +209,9 @@ export const StrategiesTab: React.FC<StrategiesTabProps> = ({
           disabled={!canManageStrategies || reloading}
           className="gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${reloading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 ${reloading && !isLowPower ? "animate-spin" : ""}`}
+          />
           {reloading ? "Reloading..." : "Reload Authentication"}
         </Button>
       </div>

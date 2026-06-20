@@ -1,6 +1,8 @@
 import { describe, it, expect, mock } from "bun:test";
 import { createCatalogRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
+import type { Logger } from "@checkstack/backend-api";
+import { createMockLogger } from "@checkstack/test-utils-backend";
 import { call } from "@orpc/server";
 import type { CatalogCache } from "./cache";
 
@@ -57,6 +59,7 @@ describe("Catalog Router - GitOps Provenance Enforcement", () => {
     gitOpsClient: mockGitOpsClient as never,
     pluginId: "test-catalog",
     cache: passthroughCache,
+    logger: createMockLogger() as Logger,
   });
 
   it("allows deleteSystem when GitOps lock is not present", async () => {

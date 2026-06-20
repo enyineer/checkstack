@@ -37,8 +37,12 @@ const commandResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Disabled by default: the command is arbitrary and user-supplied, so the
+    // exit code has no learnable baseline (many commands legitimately return
+    // non-zero, and the meaningful "did it succeed" signal is already carried
+    // by the aggregated successRate). Treating exit-code changes as anomalies
+    // is a classic alert-fatigue source. Still chartable; users can opt in.
+    "x-anomaly-enabled": false,
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
@@ -73,6 +77,12 @@ const commandAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: err wider and require sustained slowdown plus practical floors
+    // so small jitter on fast commands never alerts.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -80,6 +90,10 @@ const commandAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent: confirm a sustained drop and require a few percent
+    // of real movement before alerting.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Info, Mail, Scale, ExternalLink, Package } from "lucide-react";
+import { Info, Scale } from "lucide-react";
 import {
   PageLayout,
   Card,
@@ -7,12 +7,12 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  Badge,
   LoadingSpinner,
-  // Brand marks were removed from lucide v1; use the vendored one.
-  GithubIcon as Github,
+  cn,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
+import { AboutHero } from "./AboutHero";
+import { pluginTypeChipStyle } from "./pluginTypeChip.logic";
 
 interface PluginInfo {
   name: string;
@@ -45,21 +45,11 @@ function formatPluginName(name: string): string {
 }
 
 /**
- * Returns a badge variant for a plugin type.
+ * The shared depth base for the elevated inner panels (core version, license
+ * status panels): gradient surface, soft layered shadow, hairline border.
  */
-function typeBadgeVariant(type: string): "default" | "secondary" | "info" {
-  switch (type) {
-    case "backend": {
-      return "default";
-    }
-    case "frontend": {
-      return "info";
-    }
-    default: {
-      return "secondary";
-    }
-  }
-}
+const PANEL_BASE =
+  "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
 
 export function AboutPage() {
   const [aboutInfo, setAboutInfo] = useState<AboutInfo | undefined>();
@@ -76,9 +66,7 @@ export function AboutPage() {
         const data = (await response.json()) as AboutInfo;
         setAboutInfo(data);
       } catch (error) {
-        setError(
-          extractErrorMessage(error, "Failed to load about info"),
-        );
+        setError(extractErrorMessage(error, "Failed to load about info"));
       } finally {
         setLoading(false);
       }
@@ -94,47 +82,7 @@ export function AboutPage() {
       subtitle="Platform information, license, and version details"
     >
       {/* Hero Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-4">
-            <div className="rounded-xl bg-primary/10 p-3">
-              <Package className="h-8 w-8 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <CardTitle className="text-xl">Checkstack</CardTitle>
-              <CardDescription className="text-base">
-                The Modern Status Page &amp; Monitoring Platform
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Monitor your systems, keep users informed, and maintain trust.
-            Checkstack combines the power of a status page, uptime monitoring,
-            and incident management into a single, extensible platform.
-          </p>
-          <div className="flex flex-wrap gap-3 mt-4">
-            <a
-              href="https://github.com/enyineer/checkstack"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Github className="h-4 w-4" />
-              GitHub Repository
-              <ExternalLink className="h-3 w-3 text-muted-foreground" />
-            </a>
-            <a
-              href="mailto:hi@enking.dev"
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Mail className="h-4 w-4" />
-              hi@enking.dev
-            </a>
-          </div>
-        </CardContent>
-      </Card>
+      <AboutHero />
 
       {/* License Section */}
       <Card>
@@ -152,25 +100,61 @@ export function AboutPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="rounded-lg bg-success/5 border border-success/20 p-4">
-              <h4 className="text-sm font-semibold text-success mb-2">
-                ✅ Allowed
-              </h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Internal company use</li>
-                <li>Personal projects</li>
-                <li>Research &amp; education</li>
-                <li>Modification &amp; redistribution</li>
-                <li>Building applications on top</li>
+            {/* Allowed panel: multi-encoded via stripe + dot + hue + position. */}
+            <div
+              className={cn(
+                PANEL_BASE,
+                "border-status-ok/20 bg-status-ok/5 pl-5",
+              )}
+            >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 w-1 bg-status-ok"
+              />
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-status-ok/10 px-2.5 py-1 text-status-ok">
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-status-ok"
+                />
+                <h4 className="text-sm font-semibold text-status-ok">
+                  ✅ Allowed
+                </h4>
+              </div>
+              <ul className="mt-3 divide-y divide-border/60 text-sm text-muted-foreground">
+                <li className="py-1.5 first:pt-0">Internal company use</li>
+                <li className="py-1.5">Personal projects</li>
+                <li className="py-1.5">Research &amp; education</li>
+                <li className="py-1.5">Modification &amp; redistribution</li>
+                <li className="py-1.5 last:pb-0">
+                  Building applications on top
+                </li>
               </ul>
             </div>
-            <div className="rounded-lg bg-destructive/5 border border-destructive/20 p-4">
-              <h4 className="text-sm font-semibold text-destructive mb-2">
-                ❌ Not Allowed
-              </h4>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Selling as a managed SaaS</li>
-                <li>Removing license protections</li>
+            {/* Not-allowed panel: stripe + dot + hue + position. */}
+            <div
+              className={cn(
+                PANEL_BASE,
+                "border-status-down/20 bg-status-down/5 pl-5",
+              )}
+            >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 w-1 bg-status-down"
+              />
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-status-down/10 px-2.5 py-1 text-status-down">
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-status-down"
+                />
+                <h4 className="text-sm font-semibold text-status-down">
+                  ❌ Not Allowed
+                </h4>
+              </div>
+              <ul className="mt-3 divide-y divide-border/60 text-sm text-muted-foreground">
+                <li className="py-1.5 first:pt-0">Selling as a managed SaaS</li>
+                <li className="py-1.5 last:pb-0">
+                  Removing license protections
+                </li>
               </ul>
             </div>
           </div>
@@ -210,69 +194,90 @@ export function AboutPage() {
 
           {aboutInfo && (
             <div className="space-y-6">
-              {/* Core Version */}
-              <div className="flex items-center justify-between rounded-lg bg-secondary/50 border border-border p-4">
-                <div>
-                  <p className="text-sm font-medium text-foreground">
+              {/* Core Version: number-led stat panel with a health accent. */}
+              <div className={cn(PANEL_BASE, "pl-5")}>
+                <span
+                  aria-hidden
+                  className="absolute inset-y-0 left-0 w-1 bg-status-ok"
+                />
+                <p className="text-3xl font-bold tabular-nums leading-none text-foreground">
+                  v{aboutInfo.coreVersion}
+                </p>
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-foreground">
                     Checkstack Core
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Backend platform engine
                   </p>
                 </div>
-                <Badge variant="default" className="font-mono text-xs">
-                  v{aboutInfo.coreVersion}
-                </Badge>
               </div>
 
               {/* Plugin Versions Table */}
               {aboutInfo.plugins.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-medium text-foreground mb-3">
-                    Loaded Plugins ({aboutInfo.plugins.length})
-                  </h4>
-                  <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
+                    <h4 className="text-sm font-medium text-foreground">
+                      Loaded Plugins ({aboutInfo.plugins.length})
+                    </h4>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {aboutInfo.plugins.length} loaded
+                    </span>
+                  </div>
+                  <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/60">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-border bg-muted/50">
-                          <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">
+                        <tr className="border-b border-border/60 bg-surface-2">
+                          <th className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                             Plugin
                           </th>
-                          <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">
+                          <th className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                             Type
                           </th>
-                          <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">
+                          <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
                             Version
                           </th>
                         </tr>
                       </thead>
-                      <tbody>
-                        {aboutInfo.plugins.map((plugin) => (
-                          <tr
-                            key={plugin.name}
-                            className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
-                          >
-                            <td className="py-2.5 px-4">
-                              <span className="font-medium text-foreground">
-                                {formatPluginName(plugin.name)}
-                              </span>
-                              <span className="block text-xs text-muted-foreground font-mono">
-                                {plugin.name}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-4">
-                              <Badge
-                                variant={typeBadgeVariant(plugin.type)}
-                                className="text-[10px]"
-                              >
-                                {plugin.type}
-                              </Badge>
-                            </td>
-                            <td className="py-2.5 px-4 text-right font-mono text-muted-foreground">
-                              {plugin.version}
-                            </td>
-                          </tr>
-                        ))}
+                      <tbody className="divide-y divide-border/60">
+                        {aboutInfo.plugins.map((plugin) => {
+                          const chip = pluginTypeChipStyle(plugin.type);
+                          return (
+                            <tr
+                              key={plugin.name}
+                              className="transition-colors hover:bg-surface-inset"
+                            >
+                              <td className="px-4 py-2.5">
+                                <span className="font-medium text-foreground">
+                                  {formatPluginName(plugin.name)}
+                                </span>
+                                <span className="block font-mono text-xs text-muted-foreground">
+                                  {plugin.name}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                    chip.pill,
+                                  )}
+                                >
+                                  <span
+                                    aria-hidden
+                                    className={cn(
+                                      "size-1.5 rounded-full",
+                                      chip.dot,
+                                    )}
+                                  />
+                                  {plugin.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono tabular-nums text-foreground">
+                                {plugin.version}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

@@ -11,8 +11,8 @@ import {
 } from "@checkstack/backend-api";
 import {
   notificationStrategyExtensionPoint,
-  SUBJECT_STATUS_EMOJI,
   IMPORTANCE_EMOJI,
+  renderSubjectLabel,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
@@ -147,15 +147,12 @@ function buildAdaptiveCard(options: AdaptiveCardOptions): object {
       },
       {
         type: "FactSet",
-        facts: subjects.map((subject) => {
-          const prefix = subject.status
-            ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
-            : "";
-          return {
-            title: prefix + subject.name,
-            value: subject.url ? `[Open](${subject.url})` : "—",
-          };
-        }),
+        facts: subjects.map((subject) => ({
+          // Subject label (status emoji or bullet + name) is single-sourced via
+          // the shared helper; the URL stays in the FactSet value column.
+          title: renderSubjectLabel({ subject }),
+          value: subject.url ? `[Open](${subject.url})` : "—",
+        })),
       },
     );
   }

@@ -12,29 +12,15 @@ import {
 import { Card, CardContent, DynamicIcon, cn } from "@checkstack/ui";
 import { ChevronRight } from "lucide-react";
 import type { ProblemSystem } from "../logic/systemSignals";
+import {
+  resolveProblemToneStyle,
+  signalCountCaption,
+} from "./problemToneStyles";
 
 const chipBg: Record<SystemSignalTone, string> = {
-  error: "bg-destructive/10 text-destructive",
-  warn: "bg-warning/10 text-warning",
+  error: "bg-status-down/10 text-status-down",
+  warn: "bg-status-warn/10 text-status-warn",
   info: "bg-info/10 text-info",
-};
-
-const dotBg: Record<SystemSignalTone, string> = {
-  error: "bg-destructive",
-  warn: "bg-warning",
-  info: "bg-info",
-};
-
-const dotRing: Record<SystemSignalTone, string> = {
-  error: "ring-destructive/20",
-  warn: "ring-warning/20",
-  info: "ring-info/20",
-};
-
-const glow: Record<SystemSignalTone, string> = {
-  error: "from-destructive/[0.08]",
-  warn: "from-warning/[0.08]",
-  info: "from-info/[0.07]",
 };
 
 /** The icon + label + detail (+ hover chevron when `interactive`) of a signal. */
@@ -158,52 +144,76 @@ export const ProblemSystemCard: React.FC<{
   problem: ProblemSystem;
   isLowPower: boolean;
 }> = ({ system, problem, isLowPower }) => {
+  const tone = resolveProblemToneStyle(problem.worstTone);
+  const signalCount = problem.signals.length;
+
   return (
     <Card
       className={cn(
-        "group/card relative overflow-hidden border-border/70",
+        "group/card relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface",
         !isLowPower &&
-          "transition-all duration-200 hover:border-border hover:shadow-lg hover:shadow-black/5",
+          "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl",
       )}
     >
+      {/* Tone-coded left accent stripe: status by position + hue, not color alone. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", tone.accent)}
+        aria-hidden="true"
+      />
       {!isLowPower && (
         <div
           className={cn(
             "pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b to-transparent",
-            glow[problem.worstTone],
+            tone.glow,
           )}
           aria-hidden="true"
         />
       )}
-      <CardContent className="relative p-4">
-        <div className="flex items-center gap-2.5">
+      <CardContent className="relative p-4 pl-5">
+        <div className="flex items-start justify-between gap-3">
+          {/* Number-led hero: the signal count is the dominant figure. */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold leading-none tabular-nums text-foreground">
+                {signalCount}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {signalCountCaption(signalCount)}
+              </span>
+            </div>
+            <Link
+              to={resolveRoute(catalogRoutes.routes.systemDetail, {
+                systemId: system.id,
+              })}
+              className={cn(
+                "mt-1.5 block min-w-0 truncate text-[15px] font-semibold text-foreground",
+                !isLowPower && "transition-colors",
+                "hover:text-primary",
+              )}
+            >
+              {system.name}
+            </Link>
+            {problem.oldestSince && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatDistanceToNow(new Date(problem.oldestSince), {
+                  addSuffix: true,
+                })}
+              </p>
+            )}
+          </div>
+          {/* Multi-encoded status pill: hue + dot + label. */}
           <span
             className={cn(
-              "size-2.5 shrink-0 rounded-full",
-              dotBg[problem.worstTone],
-              !isLowPower && cn("ring-4", dotRing[problem.worstTone]),
-            )}
-            aria-hidden="true"
-          />
-          <Link
-            to={resolveRoute(catalogRoutes.routes.systemDetail, {
-              systemId: system.id,
-            })}
-            className={cn(
-              "min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground",
-              !isLowPower && "transition-colors",
-              "hover:text-primary",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+              tone.pill,
             )}
           >
-            {system.name}
-          </Link>
-          {problem.oldestSince && (
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {formatDistanceToNow(new Date(problem.oldestSince), {
-                addSuffix: true,
-              })}
-            </span>
-          )}
+            <span
+              className={cn("size-1.5 rounded-full", tone.dot)}
+              aria-hidden="true"
+            />
+            {tone.label}
+          </span>
         </div>
         <ul className="mt-3 space-y-0.5">
           {problem.signals.map((signal, index) => (

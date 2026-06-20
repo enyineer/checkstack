@@ -13,8 +13,8 @@ import {
   SelectItem,
   useToast,
   Spinner,
+  toastError,
 } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface MaintenanceUpdateFormProps {
   maintenanceId: string;
@@ -45,9 +45,7 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
       onSuccess();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to post update")
-      );
+      toastError(toast, "Failed to post update", error);
     },
   });
 
@@ -65,7 +63,7 @@ export const MaintenanceUpdateForm: React.FC<MaintenanceUpdateFormProps> = ({
   };
 
   return (
-    <div className="p-4 bg-muted/30 rounded-lg border space-y-3">
+    <div className="p-4 bg-surface-inset rounded-lg border space-y-3">
       <div className="grid gap-2">
         <Label htmlFor="updateMessage">Update Message</Label>
         <Textarea

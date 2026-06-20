@@ -1,10 +1,10 @@
 import {
-  InfoBanner,
-  InfoBannerIcon,
-  InfoBannerContent,
-  InfoBannerTitle,
-  InfoBannerDescription,
-} from "./InfoBanner";
+  Alert,
+  AlertIcon,
+  AlertContent,
+  AlertTitle,
+  AlertDescription,
+} from "./Alert";
 import { AlertTriangle } from "lucide-react";
 
 /**
@@ -29,18 +29,18 @@ export const InstanceScopeBanner = ({
 }: InstanceScopeBannerProps) => {
   if (scope === "cluster") return null;
   return (
-    <InfoBanner variant="warning">
-      <InfoBannerIcon>
+    <Alert variant="warning">
+      <AlertIcon>
         <AlertTriangle className="h-4 w-4" />
-      </InfoBannerIcon>
-      <InfoBannerContent>
-        <InfoBannerTitle>{subject}: instance-local metrics</InfoBannerTitle>
-        <InfoBannerDescription>
+      </AlertIcon>
+      <AlertContent>
+        <AlertTitle>{subject}: instance-local metrics</AlertTitle>
+        <AlertDescription>
           These figures reflect this server instance only. In a horizontally
           scaled deployment, each replica reports its own numbers depending on
           which one your request hit. {recommendation}
-        </InfoBannerDescription>
-      </InfoBannerContent>
-    </InfoBanner>
+        </AlertDescription>
+      </AlertContent>
+    </Alert>
   );
 };

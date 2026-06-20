@@ -43,7 +43,7 @@ Returning `accessible` lets the aggregator tell "checked and clear" apart from "
 The `system.issues` tool is gated by `catalog.system.read`, but that only controls whether the tool runs at all. Per-source visibility - the global rule AND per-system team grants - is applied for you by `createGatedSystemSignalsContributor`. Build your contributor with it instead of hand-rolling the gate: pass your source's read `accessRule`, a `SystemAccessResolver`, and a `readSignals` that returns problem signals for ALL systems globally. The factory then:
 
 - lets a principal holding the global rule (and a trusted `ServiceUser`, mapped to the wildcard) see every system the source reports;
-- filters a real user / application WITHOUT the global rule to the systems its TEAM grants allow - the SAME `getAccessibleResourceIds` instance/team filtering the matching bulk RPC applies - so `system.issues` never under- or over-reports relative to the per-domain UI;
+- filters a real user / application WITHOUT the global rule to the systems its TEAM grants allow - the SAME `listAccessibleObjectIds` instance/team filtering the matching bulk RPC applies - so `system.issues` never under- or over-reports relative to the per-domain UI;
 - returns `{ accessible: false, signals: {} }` (never throws) for any other principal without access, and reports the source as inaccessible.
 
 It does not call `readSignals` for a principal that can see nothing.

@@ -42,10 +42,13 @@ import {
   Toggle,
   useToast,
   useInitOnceForKey,
+  useUnsavedChanges,
+  ConfirmationModal,
   Tabs,
   TabPanel,
+  toastError,
 } from "@checkstack/ui";
-import { extractErrorMessage, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   GitOpsLockBanner,
   useProvenanceLock,
@@ -59,6 +62,11 @@ import { computeYamlMarkers } from "../editor/yaml-markers";
 import { partitionIssues } from "../editor/editor-validation";
 import { AutomationGroupCombobox } from "../components/AutomationGroupCombobox";
 import { RunAsServiceAccountPicker } from "../components/RunAsServiceAccountPicker";
+import { SaveBlockersSummary } from "../components/SaveBlockersSummary";
+import {
+  summarizeBlockingIssues,
+  type BlockingIssue,
+} from "../editor/blocking-issues";
 
 const STARTER_DEFINITION: AutomationDefinition = {
   name: "New Automation",
@@ -161,6 +169,12 @@ const AutomationEditContent: React.FC = () => {
     Array<{ path: Array<string | number>; message: string }>
   >([]);
 
+  // Unsaved-changes tracking. Flipped true by any user edit (see `markDirty`),
+  // reset when the form is (re)seeded from a record/template and after a save.
+  // Drives the shared `useUnsavedChanges` guard below.
+  const [isDirty, setIsDirty] = React.useState(false);
+  const markDirty = React.useCallback(() => setIsDirty(true), []);
+
   // Seed local form state from the loaded automation, once per record.
   // `useInitOnceForKey` seeds during render (not in an effect), so it survives
   // StrictMode's double-mount even when the query resolves from a warm cache on
@@ -189,6 +203,8 @@ const AutomationEditContent: React.FC = () => {
       setStatusEnabled(a.status === "enabled");
       setDefinition(normalized);
       setYamlText(stringifyYaml(normalized));
+      // Seeding from the stored record is not a user edit.
+      setIsDirty(false);
     },
   );
 
@@ -243,7 +259,7 @@ const AutomationEditContent: React.FC = () => {
         // Don't switch tabs while YAML is unparseable — the operator
         // would silently lose their edits. The Monaco markers already
         // squiggle the syntax error in place.
-        toast.error(`Cannot switch — YAML is invalid: ${extractErrorMessage(error)}`);
+        toastError(toast, "Cannot switch - YAML is invalid", error);
         return;
       }
     }
@@ -254,7 +270,7 @@ const AutomationEditContent: React.FC = () => {
     onSuccess: (result) => {
       setValidationErrors(result.valid ? [] : result.errors);
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error) => toastError(toast, "Failed to validate automation", error),
   });
 
   // Live validation — separate mutation instance from the save-path one
@@ -302,10 +318,16 @@ const AutomationEditContent: React.FC = () => {
 
   const createMutation = client.createAutomation.useMutation({
     onSuccess: (data) => {
+      // Saved: clear the dirty flag, then redirect on the next tick so the
+      // unsaved-changes guard has committed `isDirty = false` and doesn't
+      // block the post-create navigation.
+      setIsDirty(false);
       toast.success(`Created ${data.name}`);
-      navigate(
-        resolveRoute(automationRoutes.routes.edit, { automationId: data.id }),
-      );
+      setTimeout(() => {
+        navigate(
+          resolveRoute(automationRoutes.routes.edit, { automationId: data.id }),
+        );
+      }, 0);
     },
     onError: (error) => {
       const inline = teamCreateErrorMessage(error);
@@ -313,15 +335,16 @@ const AutomationEditContent: React.FC = () => {
         setOwnerTeamError(inline);
         return;
       }
-      toast.error(extractErrorMessage(error));
+      toastError(toast, "Failed to create automation", error);
     },
   });
 
   const updateMutation = client.updateAutomation.useMutation({
     onSuccess: (data) => {
+      setIsDirty(false);
       toast.success(`Saved ${data.name}`);
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error) => toastError(toast, "Failed to save automation", error),
   });
 
   const manualRunMutation = client.manualRun.useMutation({
@@ -336,7 +359,7 @@ const AutomationEditContent: React.FC = () => {
         );
       }
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error) => toastError(toast, "Failed to queue manual run", error),
   });
 
   /**
@@ -352,7 +375,7 @@ const AutomationEditContent: React.FC = () => {
     try {
       return parseYaml(yamlText) as AutomationDefinition;
     } catch (error) {
-      toast.error(`Fix the YAML syntax error before saving: ${extractErrorMessage(error)}`);
+      toastError(toast, "Fix the YAML syntax error before saving", error);
       return null;
     }
   };
@@ -412,7 +435,7 @@ const AutomationEditContent: React.FC = () => {
     if (!committed) return;
     const firstTrigger = committed.triggers[0];
     if (!firstTrigger) {
-      toast.error("Automation has no triggers — add one before running.");
+      toast.error("Automation has no triggers - add one before running.");
       return;
     }
     manualRunMutation.mutate({
@@ -457,6 +480,40 @@ const AutomationEditContent: React.FC = () => {
   const canSave =
     !nameError && !runAsError && validationErrors.length === 0 && !isSaving;
 
+  // Explain WHY Save is disabled: a flat, ordered list of blockers shown in a
+  // popover next to the button, each linking to the offending field/section.
+  const blockers = React.useMemo(
+    () =>
+      summarizeBlockingIssues({
+        nameError,
+        runAsError,
+        definitionIssues: validationErrors,
+      }),
+    [nameError, runAsError, validationErrors],
+  );
+
+  // Resolve a blocker: bring its surface into view and focus the field.
+  // Definition issues attach to the visual editor (their inline markers live
+  // there), so we ensure that tab is active.
+  const handleResolveBlocker = React.useCallback((blocker: BlockingIssue) => {
+    if (blocker.target.kind === "definition") {
+      setTab("visual");
+      return;
+    }
+    const elementId = blocker.target.field === "name" ? "name" : "runAs";
+    const element = document.querySelector(`#${elementId}`);
+    if (element instanceof HTMLElement) {
+      element.scrollIntoView({ block: "center" });
+      element.focus();
+    }
+  }, []);
+
+  // Unsaved-changes guard: native prompt on tab close / refresh and an in-app
+  // confirm on navigation while there are pending edits.
+  const { isBlocked, confirmDiscard, cancelDiscard } = useUnsavedChanges({
+    isDirty,
+  });
+
   return (
     <PageLayout
       title={isNew ? "New automation" : name || "Edit automation"}
@@ -498,14 +555,20 @@ const AutomationEditContent: React.FC = () => {
             </>
           )}
           {canManage && (
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!canSave || validateMutation.isPending}
-            >
-              <Save className="mr-1 h-4 w-4" />
-              Save
-            </Button>
+            <>
+              <SaveBlockersSummary
+                blockers={blockers}
+                onResolve={handleResolveBlocker}
+              />
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={!canSave || validateMutation.isPending}
+              >
+                <Save className="mr-1 h-4 w-4" />
+                Save
+              </Button>
+            </>
           )}
         </div>
       }
@@ -532,8 +595,14 @@ const AutomationEditContent: React.FC = () => {
                 <Label htmlFor="name">Name</Label>
                 <Input
                   id="name"
+                  // Land focus in the first field when opening a fresh editor so
+                  // keyboard-first users can type immediately.
+                  autoFocus={isNew}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    markDirty();
+                  }}
                   disabled={!canManage}
                   placeholder="Open Jira issue when incident fires"
                   aria-invalid={nameError ? true : undefined}
@@ -548,7 +617,10 @@ const AutomationEditContent: React.FC = () => {
                 <Input
                   id="description"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    markDirty();
+                  }}
                   disabled={!canManage}
                   placeholder="Optional"
                 />
@@ -558,7 +630,10 @@ const AutomationEditContent: React.FC = () => {
                 <AutomationGroupCombobox
                   id="group"
                   value={group}
-                  onValueChange={setGroup}
+                  onValueChange={(next) => {
+                    setGroup(next);
+                    markDirty();
+                  }}
                   suggestions={groupSuggestions}
                   disabled={!canManage}
                 />
@@ -568,7 +643,10 @@ const AutomationEditContent: React.FC = () => {
               </div>
               <RunAsServiceAccountPicker
                 value={runAsApplicationId}
-                onValueChange={setRunAsApplicationId}
+                onValueChange={(next) => {
+                  setRunAsApplicationId(next);
+                  markDirty();
+                }}
                 disabled={!canManage}
                 showError={!!runAsError}
               />
@@ -579,6 +657,7 @@ const AutomationEditContent: React.FC = () => {
                   onChange={(id) => {
                     setOwnerTeamId(id);
                     setOwnerTeamError(null);
+                    markDirty();
                   }}
                   allowGlobal={allowGlobal}
                   disabled={!canManage}
@@ -589,7 +668,10 @@ const AutomationEditContent: React.FC = () => {
                 <Label htmlFor="enabled">Enabled</Label>
                 <Toggle
                   checked={statusEnabled}
-                  onCheckedChange={setStatusEnabled}
+                  onCheckedChange={(next) => {
+                    setStatusEnabled(next);
+                    markDirty();
+                  }}
                   disabled={!canManage}
                   aria-label="Enable automation"
                 />
@@ -598,12 +680,13 @@ const AutomationEditContent: React.FC = () => {
                 <Label htmlFor="mode">Concurrency mode</Label>
                 <Select
                   value={definition.mode}
-                  onValueChange={(value) =>
+                  onValueChange={(value) => {
                     setDefinition({
                       ...definition,
                       mode: value as AutomationDefinition["mode"],
-                    })
-                  }
+                    });
+                    markDirty();
+                  }}
                   disabled={!canManage}
                 >
                   <SelectTrigger id="mode">
@@ -625,12 +708,13 @@ const AutomationEditContent: React.FC = () => {
                   min={1}
                   max={1000}
                   value={definition.max_runs}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setDefinition({
                       ...definition,
                       max_runs: Math.max(1, Number(e.target.value)),
-                    })
-                  }
+                    });
+                    markDirty();
+                  }}
                   disabled={!canManage}
                 />
               </div>
@@ -664,7 +748,10 @@ const AutomationEditContent: React.FC = () => {
                   computes. */}
               <AutomationDefinitionEditor
                 value={definition}
-                onChange={setDefinition}
+                onChange={(next) => {
+                  setDefinition(next);
+                  markDirty();
+                }}
                 disabled={!canManage}
                 automationId={isNew ? undefined : automationId}
                 structuralIssues={validationErrors}
@@ -675,7 +762,10 @@ const AutomationEditContent: React.FC = () => {
                 <CardContent className="p-0">
                   <CodeEditor
                     value={yamlText}
-                    onChange={setYamlText}
+                    onChange={(next) => {
+                      setYamlText(next);
+                      markDirty();
+                    }}
                     language="yaml"
                     minHeight="520px"
                     readOnly={!canManage}
@@ -688,6 +778,16 @@ const AutomationEditContent: React.FC = () => {
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={isBlocked}
+        onClose={cancelDiscard}
+        onConfirm={confirmDiscard}
+        title="Discard unsaved changes?"
+        message="You have unsaved changes to this automation. Leaving now will discard them."
+        confirmText="Discard changes"
+        cancelText="Keep editing"
+        variant="warning"
+      />
     </PageLayout>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Checkbox, Input, InfoBanner, InfoBannerContent } from "@checkstack/ui";
+import { Checkbox, Input, Alert, AlertContent } from "@checkstack/ui";
 import { Info, Search } from "lucide-react";
 
 interface SystemOption {
@@ -52,13 +52,13 @@ export const SystemsSection: React.FC<SystemsSectionProps> = ({
         </p>
       </div>
 
-      <InfoBanner variant="info">
+      <Alert variant="info">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
-        <InfoBannerContent>
-          Health checks are reusable templates — they can be assigned to
+        <AlertContent>
+          Health checks are reusable templates - they can be assigned to
           additional systems at any time.
-        </InfoBannerContent>
-      </InfoBanner>
+        </AlertContent>
+      </Alert>
 
       <div className="space-y-2">
         <div className="relative">

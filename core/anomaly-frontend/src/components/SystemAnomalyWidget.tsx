@@ -18,8 +18,8 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
-  Badge,
   Button,
+  cn,
   useToast,
 } from "@checkstack/ui";
 import {
@@ -36,6 +36,11 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
+import {
+  anomalyToneStyles,
+  toneForState,
+  widgetTone,
+} from "./anomalyTone.logic";
 
 type Props = SlotContext<typeof SystemDetailsSlot>;
 
@@ -144,6 +149,8 @@ function AnomalyRow({
   const deviationValue = anomaly.deviation?.toFixed(1) ?? "—";
   const isAbove = anomaly.direction === "above";
 
+  const tone = anomalyToneStyles(toneForState(anomaly.state));
+
   const detailLink = resolveRoute(healthcheckRoutes.routes.historyDetail, {
     systemId,
     configurationId: anomaly.configurationId,
@@ -155,19 +162,30 @@ function AnomalyRow({
       ? HelpCircle
       : AlertTriangle;
 
+  const stateLabel = isDrift
+    ? "drift"
+    : isSuspicious
+      ? "suspicious"
+      : "confirmed";
+
+  const DirectionIcon = isAbove ? TrendingUp : TrendingDown;
+
   return (
     <Link
       to={detailLink}
-      className="group flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors cursor-pointer"
+      className="group flex items-center gap-4 px-4 py-3 hover:bg-surface-inset transition-colors cursor-pointer"
     >
-      {/* State icon */}
-      <div className={`shrink-0 rounded-full p-1.5 ${
-        isSuspicious
-          ? "bg-warning/10 text-warning/70"
-          : "bg-warning/15 text-warning"
-      }`}>
-        <StateIcon className="h-3.5 w-3.5" />
-      </div>
+      {/* Status column — multi-encoded: hue + dot + icon + label. */}
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+          tone.pill,
+        )}
+      >
+        <span className={cn("size-1.5 rounded-full", tone.dot)} aria-hidden />
+        <StateIcon className="h-3 w-3" />
+        {stateLabel}
+      </span>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -176,15 +194,10 @@ function AnomalyRow({
             {parsed.label}
           </span>
           {parsed.source ? (
-            <span className="text-[10px] text-muted-foreground bg-muted/80 px-1.5 py-0.5 rounded font-medium shrink-0">
+            <span className="text-xs text-muted-foreground shrink-0">
               {parsed.source}
             </span>
           ) : undefined}
-          {isDrift && (
-            <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded font-medium shrink-0">
-              drift
-            </span>
-          )}
           {isMuted && (
             <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded font-medium shrink-0 inline-flex items-center gap-0.5">
               <BellOff className="h-2.5 w-2.5" />
@@ -216,27 +229,28 @@ function AnomalyRow({
         </div>
       </div>
 
-      {/* Deviation badge + mute toggle + arrow */}
-      <div className="flex items-center gap-2 shrink-0">
-        <Badge
-          variant={isSuspicious ? "outline" : "warning"}
-          className={`text-[10px] h-5 px-1.5 font-mono tabular-nums gap-1 ${
-            isSuspicious ? "border-warning/40 text-warning" : ""
-          }`}
-        >
-          {isAbove ? (
-            <TrendingUp className="h-2.5 w-2.5" />
-          ) : (
-            <TrendingDown className="h-2.5 w-2.5" />
-          )}
-          {deviationValue}σ
-        </Badge>
+      {/* Deviation hero figure */}
+      <div className="flex shrink-0 flex-col items-end leading-none">
+        <span className="flex items-baseline gap-0.5">
+          <span className={cn("text-2xl font-bold tabular-nums", tone.text)}>
+            {deviationValue}
+          </span>
+          <span className={cn("text-sm font-semibold", tone.text)}>σ</span>
+        </span>
+        <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+          <DirectionIcon className="h-3 w-3" />
+          vs baseline
+        </span>
+      </div>
+
+      {/* Row actions — calm at rest, revealed on hover. */}
+      <div className="flex items-center gap-1 shrink-0">
         {canMute && (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
             disabled={isToggling}
             title={
               isMuted
@@ -261,7 +275,7 @@ function AnomalyRow({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
             disabled={isSuppressing}
             title="Suppress this anomaly until it changes again"
             onClick={(event) => {
@@ -367,7 +381,7 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
 
   if (isLoading) {
     return (
-      <Card>
+      <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Activity className="h-4 w-4" />
@@ -389,32 +403,67 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
 
   const confirmedCount = confirmedAnomalies.length;
   const suspiciousCount = suspiciousAnomalies.length;
+  const activeCount = activeAnomalies.length;
 
   const isToggling = muteMutation.isPending || unmuteMutation.isPending;
 
+  const accent = anomalyToneStyles(widgetTone({ confirmedCount }));
+  const confirmedStyles = anomalyToneStyles("warn");
+  const suspiciousStyles = anomalyToneStyles("unknown");
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Activity className="h-4 w-4 text-warning" />
-            System Anomalies
-          </CardTitle>
-          <div className="flex items-center gap-1.5">
+    <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all">
+      {/* Status accent stripe: worst active state encoded by hue + position. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accent.accent)}
+        aria-hidden
+      />
+      <CardHeader className="pl-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-bold tabular-nums leading-none text-foreground">
+              {activeCount}
+            </span>
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                <Activity className="h-4 w-4 text-status-warn" />
+                System Anomalies
+              </CardTitle>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                active signals
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             {confirmedCount > 0 && (
-              <Badge variant="warning" className="text-[10px] h-5 px-1.5 gap-1">
-                <AlertTriangle className="h-2.5 w-2.5" />
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                  confirmedStyles.pill,
+                )}
+              >
+                <span
+                  className={cn("size-1.5 rounded-full", confirmedStyles.dot)}
+                  aria-hidden
+                />
+                <AlertTriangle className="h-3 w-3" />
                 {confirmedCount}
-              </Badge>
+              </span>
             )}
             {suspiciousCount > 0 && (
-              <Badge
-                variant="outline"
-                className="text-[10px] h-5 px-1.5 gap-1 border-warning/40 text-warning"
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                  suspiciousStyles.pill,
+                )}
               >
-                <HelpCircle className="h-2.5 w-2.5" />
+                <span
+                  className={cn("size-1.5 rounded-full", suspiciousStyles.dot)}
+                  aria-hidden
+                />
+                <HelpCircle className="h-3 w-3" />
                 {suspiciousCount}
-              </Badge>
+              </span>
             )}
             {canMute && (
               <Button
@@ -447,7 +496,7 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="flex flex-col divide-y">
+        <div className="flex flex-col divide-y divide-border/60">
           {activeAnomalies.map((anomaly) => (
             <AnomalyRow
               key={anomaly.id}

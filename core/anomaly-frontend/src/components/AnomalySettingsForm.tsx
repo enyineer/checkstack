@@ -103,7 +103,7 @@ export function AnomalySettingsForm({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between p-4 border rounded-md">
+      <div className="flex items-center justify-between rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04)]">
         <div className="space-y-0.5">
           <Label className="text-base font-medium">{copy.enabledLabel}</Label>
           <div className="text-sm text-muted-foreground">
@@ -122,7 +122,7 @@ export function AnomalySettingsForm({
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 p-4 border rounded-md">
+      <div className="grid gap-6 md:grid-cols-2 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04)]">
         <div className="space-y-2">
           <Label htmlFor="baselineWindow" className="text-sm font-medium">
             Baseline window

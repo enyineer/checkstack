@@ -104,7 +104,7 @@ This will create a complete common package with:
 - ✅ Initial changeset for version management
 
 **Generated structure:**
-```
+```text
 plugins/myfeature-common/
 ├── .changeset/
 │   └── initial.md              # Version changeset
@@ -300,7 +300,7 @@ This ensures that all packages can reference core types without creating circula
 
 A typical common plugin structure:
 
-```
+```text
 plugins/
   catalog-common/
     package.json

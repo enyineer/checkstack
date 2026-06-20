@@ -99,49 +99,56 @@ test.describe("SLOs", () => {
       dialog.getByRole("heading", { name: "Create SLO Objective" }),
     ).toBeVisible();
 
-    // EDGE: submitting with no system selected surfaces a validation toast.
-    await dialog.getByRole("button", { name: "Create" }).click();
-    await expect(
-      page.getByText("Please select a system").first(),
-    ).toBeVisible();
-    // Dialog stays open so the user can correct the input.
-    await expect(
-      dialog.getByRole("heading", { name: "Create SLO Objective" }),
-    ).toBeVisible();
+    // EDGE: the editor is now disabled-until-valid. With no system selected the
+    // form is invalid, so the Create button is disabled rather than surfacing a
+    // toast on click.
+    const createButton = dialog.getByRole("button", { name: "Create" });
+    await expect(createButton).toBeDisabled();
 
     // Select the seeded system from the Radix Select (renders role=option).
     await dialog.getByRole("combobox").first().click();
     await page.getByRole("option", { name: SYSTEM_NAME }).click();
-    await expect(dialog.getByText(SYSTEM_NAME)).toBeVisible();
+    // The system control's value now shows the selection. Scope to the first
+    // combobox: a plain getByText would also match the native <select> option.
+    await expect(dialog.getByRole("combobox").first()).toContainText(
+      SYSTEM_NAME,
+    );
 
-    // EDGE: a target above 100 is rejected (range is 0-100). Stacked toasts can
-    // briefly coexist, so scope assertions to the first match.
+    // With a system selected and the default valid target/window, Create enables.
+    await expect(createButton).toBeEnabled();
+
+    // EDGE: a target above 100 is rejected (range is 0-100). The editor now
+    // shows an inline error (revealed on blur) and keeps Create disabled.
     const targetInput = dialog.getByLabel("Availability Target (%)");
     await targetInput.fill("150");
-    await dialog.getByRole("button", { name: "Create" }).click();
+    await targetInput.blur();
     await expect(
-      page.getByText("Target must be between 0 and 100").first(),
+      dialog.getByText("Target must be between 0 and 100"),
     ).toBeVisible();
+    await expect(createButton).toBeDisabled();
 
     // EDGE: a negative target is rejected too.
     await targetInput.fill("-5");
-    await dialog.getByRole("button", { name: "Create" }).click();
+    await targetInput.blur();
     await expect(
-      page.getByText("Target must be between 0 and 100").first(),
+      dialog.getByText("Target must be between 0 and 100"),
     ).toBeVisible();
+    await expect(createButton).toBeDisabled();
 
-    // EDGE: a window below 1 day is rejected.
+    // EDGE: a window below 1 day is rejected with its own inline error.
     await targetInput.fill("99.9");
     const windowInput = dialog.getByLabel("Rolling Window (days)");
     await windowInput.fill("0");
-    await dialog.getByRole("button", { name: "Create" }).click();
+    await windowInput.blur();
     await expect(
-      page.getByText("Window must be at least 1 day").first(),
+      dialog.getByText("Window must be at least 1 day"),
     ).toBeVisible();
+    await expect(createButton).toBeDisabled();
 
-    // --- Happy path: valid target + window creates the objective ----------
+    // --- Happy path: valid target + window re-enables Create and submits ---
     await windowInput.fill("30");
-    await dialog.getByRole("button", { name: "Create" }).click();
+    await expect(createButton).toBeEnabled();
+    await createButton.click();
 
     await expect(page.getByText("SLO objective created")).toBeVisible();
     await expect(dialog).toBeHidden();

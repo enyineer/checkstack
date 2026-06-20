@@ -37,60 +37,56 @@ export type NodeHealthConfig = z.infer<typeof nodeHealthConfigSchema>;
 // ============================================================================
 
 const nodeHealthResultSchema = z.object({
+  // Near-constant echo of cluster size. A baseline over a constant is
+  // meaningless and only fires on the tiniest jitter (e.g. a node added).
   totalNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Nodes",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Cluster-wide online/offline counts drift with scaling and sit on a
+  // near-constant (often near-zero) baseline, which is a poor fit for
+  // learned anomaly detection. Node-down is surfaced via the per-node
+  // nodeOffline dominance signal and the run-level error instead.
   onlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Online Nodes",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   offlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Offline Nodes",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Raw executor work counts swing with load and cluster size; the
+  // utilization percentage below is the stable saturation signal.
   busyExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Busy Executors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   idleExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Idle Executors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Echo of provisioned capacity; near-constant, no meaningful baseline.
   totalExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Executors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Saturation expressed as a percentage: stable, bounded, maps to a real
+  // capacity problem. Kept enabled with a confirmation window and an
+  // absolute floor of a few percent.
   executorUtilization: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Executor Utilization",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
   }),
   // For single node mode
@@ -116,11 +112,12 @@ export type NodeHealthResult = z.infer<typeof nodeHealthResultSchema>;
 
 // Aggregated result fields definition
 const nodeHealthAggregatedFields = {
+  // Online-node counts drift with cluster scaling and have no stable
+  // baseline; node availability is covered by the per-node dominance signal.
   avgOnlineNodes: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Nodes",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
   avgUtilization: aggregatedAverage({
     "x-chart-type": "gauge",
@@ -128,12 +125,14 @@ const nodeHealthAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   minOnlineNodes: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Online Nodes",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
 };
 

@@ -122,7 +122,7 @@ export function LinksEditor<T extends HotLink>({
                     ) : (
                       <span
                         className="text-sm text-muted-foreground truncate block"
-                        title="Unsafe URL scheme — link disabled"
+                        title="Unsafe URL scheme - link disabled"
                       >
                         {link.label ?? link.url}
                       </span>

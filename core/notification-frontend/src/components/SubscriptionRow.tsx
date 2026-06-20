@@ -1,9 +1,14 @@
 import React from "react";
 import { Bell, BellOff, ChevronDown, ChevronRight } from "lucide-react";
-import { Button, DynamicIcon, type LucideIconName, useToast } from "@checkstack/ui";
+import {
+  Button,
+  DynamicIcon,
+  type LucideIconName,
+  useToast,
+  toastError,
+} from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { NotificationApi } from "@checkstack/notification-common";
-import { extractErrorMessage } from "@checkstack/common";
 import {
   getSubscriptionSubControls,
   type SubscriptionSubControlsComponent,
@@ -87,16 +92,12 @@ export function SubscriptionRow({
   const subscribeMutation = notificationClient.subscribe.useMutation({
     onSuccess: () => onToggled?.(),
     onError: (error) =>
-      toast.error(
-        extractErrorMessage(error, "Failed to subscribe to notifications"),
-      ),
+      toastError(toast, "Failed to subscribe to notifications", error),
   });
   const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
     onSuccess: () => onToggled?.(),
     onError: (error) =>
-      toast.error(
-        extractErrorMessage(error, "Failed to unsubscribe from notifications"),
-      ),
+      toastError(toast, "Failed to unsubscribe from notifications", error),
   });
 
   const isPending =

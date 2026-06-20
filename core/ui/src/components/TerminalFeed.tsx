@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
 import { cn } from "../utils";
+import { formatTime } from "../formatting";
 import { usePerformance } from "./PerformanceProvider";
 
 export interface TerminalEntry {
@@ -40,15 +41,6 @@ const variantConfig = {
     symbol: "→",
     textClass: "text-gray-400",
   },
-};
-
-const formatTime = (date: Date): string => {
-  return date.toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 };
 
 /**

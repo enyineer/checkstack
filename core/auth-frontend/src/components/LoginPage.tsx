@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LogIn, LogOut, AlertCircle, ArrowLeft } from "lucide-react";
+import { LogIn, LogOut, AlertCircle, ArrowLeft, Lock } from "lucide-react";
 import {
   useApi,
   ExtensionSlot,
@@ -14,7 +14,6 @@ import {
   Button,
   Input,
   Label,
-  Card,
   CardHeader,
   CardTitle,
   CardDescription,
@@ -27,21 +26,16 @@ import {
   AlertContent,
   AlertTitle,
   AlertDescription,
-  InfoBanner,
-  InfoBannerIcon,
-  InfoBannerContent,
-  InfoBannerTitle,
-  InfoBannerDescription,
   usePerformance,
   cn,
 } from "@checkstack/ui";
-import { useToast } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
+import { useToast, toastError } from "@checkstack/ui";
 import { authApiRef, EnabledAuthStrategy } from "../api";
 import { useEnabledStrategies } from "../hooks/useEnabledStrategies";
 import { useAccessRules } from "../hooks/useAccessRules";
 import { getAuthClientLazy } from "../lib/auth-client";
 import { SocialProviderButton } from "./SocialProviderButton";
+import { AuthLandingCard } from "./AuthLandingCard";
 import { useEffect } from "react";
 
 export const LoginPage = () => {
@@ -93,7 +87,7 @@ export const LoginPage = () => {
         await authApi.signInWithSocial(strategy.id);
       } catch (error) {
         setError("Failed to initialize social login");
-        toast.error(extractErrorMessage(error, "Failed to initialize social login"));
+        toastError(toast, "Failed to initialize social login", error);
       }
       return;
     }
@@ -141,7 +135,7 @@ export const LoginPage = () => {
         setError(data.error?.message || "Authentication failed");
       }
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Social login failed"));
+      toastError(toast, "Social login failed", error);
     }
   };
 
@@ -160,7 +154,7 @@ export const LoginPage = () => {
   if (strategiesLoading) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
-        <Card className="w-full max-w-md">
+        <AuthLandingCard>
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div
@@ -189,7 +183,7 @@ export const LoginPage = () => {
               />
             </div>
           </CardContent>
-        </Card>
+        </AuthLandingCard>
       </div>
     );
   }
@@ -198,8 +192,11 @@ export const LoginPage = () => {
   if (strategies.length === 0) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
-        <Card className="w-full max-w-md">
+        <AuthLandingCard>
           <CardHeader className="flex flex-col space-y-1 items-center">
+            <div className="grid size-12 place-items-center rounded-full bg-surface-inset">
+              <Lock className="h-5 w-5 text-muted-foreground" />
+            </div>
             <CardTitle>Authentication Unavailable</CardTitle>
           </CardHeader>
           <CardContent>
@@ -216,15 +213,18 @@ export const LoginPage = () => {
               </AlertContent>
             </Alert>
           </CardContent>
-        </Card>
+        </AuthLandingCard>
       </div>
     );
   }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
-      <Card className="w-full max-w-md">
+      <AuthLandingCard>
         <CardHeader className="flex flex-col space-y-1 items-center">
+          <div className="grid size-12 place-items-center rounded-full bg-surface-inset">
+            <Lock className="h-5 w-5 text-muted-foreground" />
+          </div>
           <CardTitle>Sign in to your account</CardTitle>
           <CardDescription>
             {hasCredential && hasProviders
@@ -238,18 +238,18 @@ export const LoginPage = () => {
           <div className="space-y-4">
             {/* Registration Disabled Banner */}
             {!registrationAllowed && (
-              <InfoBanner variant="warning">
-                <InfoBannerIcon>
+              <Alert variant="warning">
+                <AlertIcon>
                   <AlertCircle className="h-4 w-4" />
-                </InfoBannerIcon>
-                <InfoBannerContent>
-                  <InfoBannerTitle>Registration Disabled</InfoBannerTitle>
-                  <InfoBannerDescription>
+                </AlertIcon>
+                <AlertContent>
+                  <AlertTitle>Registration Disabled</AlertTitle>
+                  <AlertDescription>
                     New user registration is currently disabled. Please contact
                     an administrator if you need access.
-                  </InfoBannerDescription>
-                </InfoBannerContent>
-              </InfoBanner>
+                  </AlertDescription>
+                </AlertContent>
+              </Alert>
             )}
 
             {/* Generic Error Alert */}
@@ -309,10 +309,10 @@ export const LoginPage = () => {
                 {hasCredential && hasProviders && (
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-border" />
+                      <span className="w-full border-t border-border/60" />
                     </div>
                     <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">
+                      <span className="bg-surface-2 px-2 text-muted-foreground">
                         Or continue with
                       </span>
                     </div>
@@ -406,7 +406,7 @@ export const LoginPage = () => {
         </CardContent>
         {registrationAllowed &&
           strategies.some((s) => s.requiresManualRegistration) && (
-            <CardFooter className="flex justify-center border-t border-border mt-4 pt-4">
+            <CardFooter className="flex justify-center border-t border-border/60 mt-4 pt-4">
               <div className="text-sm">
                 Don't have an account?{" "}
                 <Link
@@ -418,7 +418,7 @@ export const LoginPage = () => {
               </div>
             </CardFooter>
           )}
-      </Card>
+      </AuthLandingCard>
     </div>
   );
 };

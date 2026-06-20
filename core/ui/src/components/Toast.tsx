@@ -5,7 +5,7 @@ import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
 
 const toastVariants = cva(
-  "relative flex items-start gap-3 w-full max-w-md rounded-lg p-4 transition-all",
+  "relative flex items-start gap-3 w-full sm:max-w-md rounded-lg p-4 transition-all",
   {
     variants: {
       variant: {

@@ -22,8 +22,9 @@ import { useSignal } from "@checkstack/signal-frontend";
 import {
   SectionHeader,
   EmptyState,
+  ErrorState,
   Button,
-  LoadingSpinner,
+  Skeleton,
   TerminalFeed,
   type TerminalEntry,
   usePerformance,
@@ -36,8 +37,10 @@ import {
   Terminal,
   Lightbulb,
   ArrowRight,
+  ShieldCheck,
 } from "lucide-react";
 import { QueueLagAlert } from "@checkstack/queue-frontend";
+import { GettingStartedChecklist } from "./components/GettingStartedChecklist";
 import { FleetHealthHeader } from "./components/FleetHealthHeader";
 import { ProblemSystemCard } from "./components/ProblemSystemCard";
 import { DashboardAllClear } from "./components/DashboardAllClear";
@@ -49,6 +52,24 @@ import {
 } from "./logic/systemSignals";
 
 const MAX_TERMINAL_ENTRIES = 8;
+
+/** Headline for the problem list when an active severity filter has no matches. */
+const filterEmptyTitle = (tone: SystemSignalTone): string => {
+  switch (tone) {
+    case "error": {
+      return "No critical systems";
+    }
+    case "warn": {
+      return "No degraded systems";
+    }
+    case "info": {
+      return "No systems on watch";
+    }
+    default: {
+      return "No matching systems";
+    }
+  }
+};
 
 const statusToVariant = (
   status: string,
@@ -91,8 +112,15 @@ export const Dashboard: React.FC = () => {
   // DATA
   // ----------------------------------------------------------------------- //
 
-  const { data: entitiesData, isLoading: entitiesLoading } =
-    catalogClient.getEntities.useQuery({}, { staleTime: 30_000 });
+  const entitiesQuery = catalogClient.getEntities.useQuery(
+    {},
+    { staleTime: 30_000 },
+  );
+  const {
+    data: entitiesData,
+    isLoading: entitiesLoading,
+    isError: entitiesError,
+  } = entitiesQuery;
 
   const systems = useMemo(() => entitiesData?.systems ?? [], [entitiesData]);
   // Stable across renders (derives from the query's stable data ref) so the
@@ -162,7 +190,28 @@ export const Dashboard: React.FC = () => {
 
   const renderOverview = () => {
     if (entitiesLoading) {
-      return <LoadingSpinner />;
+      // Footprint matches the resolved overview: the gauge hero (chart-sized)
+      // above a two-up card grid, so the loading -> content swap never shifts.
+      return (
+        <div className="space-y-[var(--d-gap)]">
+          <Skeleton variant="chart" />
+          <div className="grid gap-[var(--d-gap)] md:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} variant="card" />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (entitiesError) {
+      return (
+        <ErrorState
+          title="Couldn't load systems"
+          description="The system health overview is temporarily unavailable. Retry in a moment."
+          onRetry={() => entitiesQuery.refetch()}
+        />
+      );
     }
 
     if (systemsCount === 0) {
@@ -193,7 +242,7 @@ export const Dashboard: React.FC = () => {
     }
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-[var(--d-gap)]">
         <FleetHealthHeader
           systemsCount={systemsCount}
           problemsCount={problems.length}
@@ -208,8 +257,21 @@ export const Dashboard: React.FC = () => {
             systemsCount={systemsCount}
             isLowPower={isLowPower}
           />
+        ) : activeTone && visibleProblems.length === 0 ? (
+          // A severity filter is active but nothing matches it. Explain that
+          // and offer a one-click way back to the full list.
+          <EmptyState
+            icon={<ShieldCheck className="h-12 w-12 text-status-ok" />}
+            title={filterEmptyTitle(activeTone)}
+            description="Nothing matches this filter right now. Clear it to see everything that needs attention."
+            actions={
+              <Button variant="outline" onClick={() => setActiveTone(null)}>
+                Show all
+              </Button>
+            }
+          />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-[var(--d-gap)] md:grid-cols-2">
             {visibleProblems.map((problem) => {
               const system = systemMap.get(problem.systemId);
               if (!system) return null;
@@ -261,7 +323,7 @@ export const Dashboard: React.FC = () => {
         actionHint={
           <span className="inline-flex items-center gap-1.5">
             <Lightbulb
-              className="size-3.5 shrink-0 text-amber-500"
+              className="size-3.5 shrink-0 text-warning"
               aria-hidden="true"
             />
             See a small lightbulb next to a button or control? Click it for a
@@ -269,6 +331,19 @@ export const Dashboard: React.FC = () => {
           </span>
         }
       />
+
+      {/*
+        Fresh-install next steps. Gated on the entities query having resolved
+        to zero systems so it never flashes before we know the install state;
+        dismissal persists via the tips mechanism and is restorable from the
+        help menu's "Show tips again".
+      */}
+      {!entitiesLoading && !entitiesError && (
+        <GettingStartedChecklist
+          systemsCount={systemsCount}
+          canManageCatalog={canManageCatalog}
+        />
+      )}
 
       {/*
         Headless, render-once aggregation boundary. Every plugin fills

@@ -51,7 +51,7 @@ Each dependency carries an **impact type**:
 - **`degraded`** marks the downstream system as degraded if the upstream is unhealthy.
 - **`critical`** marks the downstream system as unhealthy if the upstream is unhealthy.
 
-```
+```text
             depends on
 Payment API  ---------->  Payment DB
    (downstream)            (upstream)
@@ -74,7 +74,7 @@ The dependency map lives under **Workspace -> Dependency Map**. Node positions a
 
 A small example of how the pieces compose for an e-commerce stack:
 
-```
+```text
 Groups:
   - "Payments team": [Payment API, Payment DB, Stripe webhook]
   - "Tier 1":        [Payment API, Checkout API, Storefront]

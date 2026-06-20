@@ -15,11 +15,13 @@ import { DependencyEdgeForm } from "./DependencyEdgeForm";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
 import {
+  cn,
   Badge,
   Button,
   Label,
   LoadingSpinner,
 } from "@checkstack/ui";
+import { impactTypeTone, toneStyles } from "./statusPill.logic";
 import {
   ArrowUpRight,
   ArrowDownRight,
@@ -40,13 +42,28 @@ import {
 
 type Props = SlotContext<typeof SystemEditorSlot>;
 
+/**
+ * Impact severity as a multi-encoded status pill (dot + label), driven by the
+ * colorblind-safe status triad. `informational` is a neutral, non-degrading
+ * signal, so it keeps the neutral secondary badge.
+ */
 function getImpactBadge(impactType: ImpactType): React.ReactNode {
   switch (impactType) {
     case "critical": {
-      return <Badge variant="destructive">Critical</Badge>;
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-down/10 px-2.5 py-1 text-xs font-medium text-status-down">
+          <span className="size-1.5 rounded-full bg-status-down" />
+          Critical
+        </span>
+      );
     }
     case "degraded": {
-      return <Badge variant="warning">Degraded</Badge>;
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-status-warn/10 px-2.5 py-1 text-xs font-medium text-status-warn">
+          <span className="size-1.5 rounded-full bg-status-warn" />
+          Degraded
+        </span>
+      );
     }
     case "informational": {
       return <Badge variant="secondary">Info</Badge>;
@@ -188,7 +205,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
           {sourceLocked && (
             <span
               className="inline-flex items-center gap-1 text-xs font-normal text-primary"
-              title="Managed by GitOps — edit the source YAML"
+              title="Managed by GitOps - edit the source YAML"
             >
               <GitBranch className="h-3 w-3" />
               GitOps
@@ -203,7 +220,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
           disabled={sourceLocked}
           title={
             sourceLocked
-              ? "Managed by GitOps — declare dependencies in the System's YAML"
+              ? "Managed by GitOps - declare dependencies in the System's YAML"
               : undefined
           }
         >
@@ -220,11 +237,15 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
 
       {/* Add dependency form */}
       {isAdding && !sourceLocked && (
-        <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-3">
+        <div className="p-3 rounded-lg border border-border bg-surface-inset space-y-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Depends on (upstream)</label>
+            <Label htmlFor="dependency-target" required>
+              Depends on (upstream)
+            </Label>
             <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              id="dependency-target"
+              autoFocus
+              className="w-full rounded-md border border-input bg-surface-inset px-3 py-2 text-sm"
               value={selectedTargetId}
               onChange={(e) => setSelectedTargetId(e.target.value)}
             >
@@ -275,11 +296,14 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
       {/* Upstream dependencies */}
       {upstreamDeps.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1">
+          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
             <ArrowUpRight className="h-4 w-4" />
-            Depends On ({upstreamDeps.length})
+            <span>Depends On</span>{" "}
+            <span className="rounded-full bg-surface-inset px-2 text-xs tabular-nums text-muted-foreground">
+              ({upstreamDeps.length})
+            </span>
           </h4>
-          <div className="space-y-1">
+          <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
             {upstreamDeps.map((dep) => (
               <DependencyRow
                 key={dep.id}
@@ -299,11 +323,14 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
       {/* Downstream dependencies */}
       {downstreamDeps.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1">
+          <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
             <ArrowDownRight className="h-4 w-4" />
-            Depended By ({downstreamDeps.length})
+            <span>Depended By</span>{" "}
+            <span className="rounded-full bg-surface-inset px-2 text-xs tabular-nums text-muted-foreground">
+              ({downstreamDeps.length})
+            </span>
           </h4>
-          <div className="space-y-1">
+          <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
             {downstreamDeps.map((dep) => {
               // The "source" of a downstream edge is *another* system —
               // its lock is what governs editability.
@@ -336,7 +363,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
       )}
 
       {/* Dependency Map link */}
-      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 p-2.5">
+      <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-inset p-2.5">
         <MapIcon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
           Managing dependencies is easier on a larger screen using the{" "}
@@ -413,7 +440,7 @@ function DependencyRow({
 
   if (isEditing && !isLocked) {
     return (
-      <div className="p-3 rounded-lg border border-primary/30 bg-muted/30 space-y-3">
+      <div className="p-3 rounded-lg border border-primary/30 bg-surface-inset space-y-3">
         <div className="flex items-center gap-2">
           {direction === "upstream" ? (
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
@@ -461,11 +488,13 @@ function DependencyRow({
   }
 
   const interactive = !isLocked;
+  const accentTone = toneStyles[impactTypeTone({ impactType: dependency.impactType })];
   return (
     <div
-      className={`flex items-center justify-between p-2 rounded border border-border bg-background transition-colors ${
-        interactive ? "hover:bg-muted/30 cursor-pointer" : ""
-      }`}
+      className={cn(
+        "relative flex items-center justify-between gap-2 py-2 pl-3 pr-2 transition-colors",
+        interactive && "cursor-pointer hover:bg-surface-inset",
+      )}
       onClick={interactive ? () => setIsEditing(true) : undefined}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : -1}
@@ -481,23 +510,28 @@ function DependencyRow({
       }
       title={isLocked ? "Managed by GitOps" : undefined}
     >
-      <div className="flex items-center gap-2">
+      {/* Impact accent stripe: impact severity by position + hue at the row edge. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-0.5", accentTone.accent)}
+        aria-hidden
+      />
+      <div className="flex items-center gap-2 min-w-0">
         {direction === "upstream" ? (
-          <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+          <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         ) : (
-          <ArrowDownRight className="h-4 w-4 text-muted-foreground" />
+          <ArrowDownRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         )}
         {isLocked && (
-          <GitBranch className="h-3 w-3 text-primary" aria-label="Managed by GitOps" />
+          <GitBranch className="h-3 w-3 shrink-0 text-primary" aria-label="Managed by GitOps" />
         )}
-        <span className="text-sm font-medium">{systemName}</span>
+        <span className="truncate text-sm font-medium">{systemName}</span>
         {dependency.label && (
-          <span className="text-xs text-muted-foreground">
+          <span className="truncate text-xs text-muted-foreground">
             ({dependency.label})
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {dependency.transitive && (
           <Badge variant="outline" className="text-xs">
             <Settings2 className="h-3 w-3 mr-1" />
@@ -551,7 +585,7 @@ function CycleErrorDisplay({
   if (!chainMatch) {
     // Not a cycle error — render as plain text
     return (
-      <p className="text-sm text-destructive">{message}</p>
+      <p className="text-sm text-status-down">{message}</p>
     );
   }
 
@@ -559,7 +593,7 @@ function CycleErrorDisplay({
   const chainIds = chainMatch[1].match(UUID_REGEX) ?? [];
   if (chainIds.length === 0) {
     return (
-      <p className="text-sm text-destructive">{message}</p>
+      <p className="text-sm text-status-down">{message}</p>
     );
   }
 
@@ -568,10 +602,10 @@ function CycleErrorDisplay({
   );
 
   return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
+    <div className="rounded-lg border border-status-down/30 bg-status-down/5 p-3 space-y-2.5">
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-        <p className="text-sm font-medium text-destructive">
+        <AlertTriangle className="h-4 w-4 text-status-down shrink-0" />
+        <p className="text-sm font-medium text-status-down">
           Circular dependency detected
         </p>
       </div>
@@ -591,8 +625,8 @@ function CycleErrorDisplay({
               <span
                 className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${
                   isCycleNode
-                    ? "border-destructive/40 bg-destructive/10 text-destructive"
-                    : "border-border bg-muted text-foreground"
+                    ? "border-status-down/40 bg-status-down/10 text-status-down"
+                    : "border-border bg-surface-inset text-foreground"
                 }`}
               >
                 {isCycleNode && (

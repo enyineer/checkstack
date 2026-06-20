@@ -200,16 +200,16 @@ export default createBackendPlugin({
           },
         });
         const cache = createMaintenanceCache({ cacheManager, logger });
-        const router = createRouter(
-          maintenanceService,
+        const router = createRouter({
+          service: maintenanceService,
           signalService,
           catalogClient,
           notificationClient,
           authClient,
           logger,
           cache,
-          maintenanceEntityHandle,
-        );
+          entityHandle: maintenanceEntityHandle,
+        });
         rpc.registerRouter(router, maintenanceContract);
 
         // Register this plugin's AI tools (create/update/delete/addUpdate/

@@ -1,15 +1,9 @@
 import { useState } from "react";
 import {
-  Card,
   Button,
   Badge,
   MarkdownBlock,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  MobileCardList,
 } from "@checkstack/ui";
 import { ChevronDown, ChevronUp, ExternalLink, FileJson } from "lucide-react";
 import type { IntegrationProviderInfo } from "@checkstack/integration-common";
@@ -17,6 +11,13 @@ import type { IntegrationProviderInfo } from "@checkstack/integration-common";
 interface ProviderDocumentationProps {
   provider: IntegrationProviderInfo;
 }
+
+/** Small uppercase eyebrow label that heads each documentation section. */
+const SectionLabel = ({ children }: { children: string }) => (
+  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    {children}
+  </p>
+);
 
 /**
  * Displays provider documentation in a collapsible section.
@@ -45,15 +46,17 @@ export const ProviderDocumentation = ({
   }
 
   return (
-    <div className="border rounded-md">
+    <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
+        className="flex w-full items-center justify-between p-3 transition-colors hover:bg-surface-inset"
       >
         <div className="flex items-center gap-2">
-          <FileJson className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Documentation</span>
+          <span className="grid size-7 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
+            <FileJson className="h-4 w-4" />
+          </span>
+          <span className="text-sm font-semibold">Documentation</span>
           <Badge variant="secondary" className="text-xs">
             {isExpanded ? "Hide" : "Show"}
           </Badge>
@@ -66,12 +69,12 @@ export const ProviderDocumentation = ({
       </button>
 
       {isExpanded && (
-        <div className="px-3 pb-3 space-y-4">
+        <div className="space-y-4 border-t border-border/60 p-[var(--d-pad)]">
           {/* Setup Guide */}
           {documentation.setupGuide && (
             <div>
-              <h4 className="text-sm font-medium mb-2">Setup Guide</h4>
-              <div className="bg-muted/50 p-3 rounded-md">
+              <SectionLabel>Setup Guide</SectionLabel>
+              <div className="rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset p-3">
                 <MarkdownBlock size="sm">
                   {documentation.setupGuide}
                 </MarkdownBlock>
@@ -82,39 +85,51 @@ export const ProviderDocumentation = ({
           {/* Example Payload */}
           {documentation.examplePayload && (
             <div>
-              <h4 className="text-sm font-medium mb-2">Example Payload</h4>
-              <pre className="bg-muted p-3 rounded-md text-xs overflow-x-auto">
-                <code>{documentation.examplePayload}</code>
-              </pre>
+              <SectionLabel>Example Payload</SectionLabel>
+              <div className="rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset p-3">
+                <pre className="overflow-x-auto rounded-md border border-border/60 bg-surface p-3 text-xs">
+                  <code>{documentation.examplePayload}</code>
+                </pre>
+              </div>
             </div>
           )}
 
           {/* Headers */}
           {documentation.headers && documentation.headers.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium mb-2">HTTP Headers</h4>
-              <Card>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-1/3">Header</TableHead>
-                      <TableHead>Description</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+              <SectionLabel>HTTP Headers</SectionLabel>
+              <div className="overflow-hidden rounded-[calc(var(--d-card-r)-4px)] border border-border/60">
+                <div className="hidden sm:block">
+                  <dl className="divide-y divide-border/60">
                     {documentation.headers.map((header) => (
-                      <TableRow key={header.name}>
-                        <TableCell className="font-mono text-sm">
+                      <div
+                        key={header.name}
+                        className="grid grid-cols-3 gap-3 px-3 py-2"
+                      >
+                        <dt className="font-mono text-sm text-foreground">
                           {header.name}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        </dt>
+                        <dd className="col-span-2 text-sm text-muted-foreground">
                           {header.description}
-                        </TableCell>
-                      </TableRow>
+                        </dd>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              </Card>
+                  </dl>
+                </div>
+
+                <MobileCardList className="gap-0 divide-y divide-border/60">
+                  {documentation.headers.map((header) => (
+                    <div key={header.name} className="px-3 py-2">
+                      <div className="break-all font-mono text-sm text-foreground">
+                        {header.name}
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {header.description}
+                      </div>
+                    </div>
+                  ))}
+                </MobileCardList>
+              </div>
             </div>
           )}
 

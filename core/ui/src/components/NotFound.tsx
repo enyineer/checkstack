@@ -1,8 +1,27 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BookOpen, Command, Search } from "lucide-react";
+import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import { cn } from "../utils";
 import { usePerformance } from "./PerformanceProvider";
+
+/**
+ * Open the global command palette by re-dispatching the keyboard shortcut its
+ * global listener already handles (⌘K / Ctrl+K). The palette lives in a more
+ * specific plugin (`command-frontend`), so this foundation component must not
+ * import it directly — synthesising the shortcut keeps the dependency direction
+ * intact while reusing the existing trigger.
+ */
+function openCommandPalette(): void {
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      ctrlKey: true,
+      bubbles: true,
+    }),
+  );
+}
 
 /** Rotating tech-insider quips shown on the 404 page. */
 const NOT_FOUND_QUIPS = [
@@ -14,7 +33,7 @@ const NOT_FOUND_QUIPS = [
   "This page was last seen in a git stash from 2019.",
   String.raw`Incident report: page not found. Severity: ¯\_(ツ)_/¯`,
   "DNS resolved. TCP connected. Page? Gone.",
-  "kubectl get page — error: resource not found.",
+  "kubectl get page - error: resource not found.",
   "This page is in a pending state. It may never resolve.",
   "The deployment was successful. The page was not.",
   "This route has been deprecated without notice.",
@@ -30,11 +49,11 @@ const NOT_FOUND_QUIPS = [
   "Error 404: Coffee not found. Page also missing.",
   "git log --all --oneline | grep 'this page' → no results.",
   // Pop culture references
-  "These aren't the pages you're looking for. — Obi-Wan Kenobi",
-  "I am inevitable. This page is not. — Thanos",
+  "These aren't the pages you're looking for. - Obi-Wan Kenobi",
+  "I am inevitable. This page is not. - Thanos",
   "One does not simply navigate to a page that doesn't exist.",
   "In case I don't see ya: good afternoon, good evening, and good 404.",
-  "It's a feature, not a bug. — Every PM ever",
+  "It's a feature, not a bug. - Every PM ever",
   "Ah yes, the 404. The page that lived… briefly.",
   "I've seen things you people wouldn't believe. But not this page.",
   "To 404, or not to 404. That is the question.",
@@ -54,6 +73,13 @@ export const NotFound: React.FC<{
       message ??
       NOT_FOUND_QUIPS[Math.floor(Math.random() * NOT_FOUND_QUIPS.length)],
     [message],
+  );
+
+  const isMac = useMemo(
+    () =>
+      typeof navigator !== "undefined" &&
+      /Mac|iPhone|iPad/.test(navigator.userAgent),
+    [],
   );
 
   useEffect(() => {
@@ -135,20 +161,68 @@ export const NotFound: React.FC<{
         </p>
       </div>
 
-      {/* Action */}
-      <button
-        type="button"
-        onClick={() => navigate("/")}
-        className={cn(
-          "mt-8 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer",
-          "bg-primary/10 text-primary border border-primary/20",
-          "hover:bg-primary/20 hover:border-primary/30",
-          !isLowPower && "transition-colors duration-200",
-        )}
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Dashboard
-      </button>
+      {/* Actions */}
+      <div className="mt-8 flex flex-col items-center gap-3">
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className={cn(
+            "inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer",
+            "bg-primary/10 text-primary border border-primary/20",
+            "hover:bg-primary/20 hover:border-primary/30",
+            !isLowPower && "transition-colors duration-200",
+          )}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
+        </button>
+
+        {/* Secondary recovery actions */}
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            className={cn(
+              "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer",
+              "bg-muted/50 text-muted-foreground border border-border/50",
+              "hover:bg-muted hover:text-foreground hover:border-border",
+              !isLowPower && "transition-colors duration-200",
+            )}
+          >
+            <Search className="w-4 h-4" />
+            Search
+            <kbd
+              className={cn(
+                "ml-1 hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded",
+                "bg-background/50 border border-border/50",
+                "text-xs font-mono",
+              )}
+            >
+              {isMac ? (
+                <>
+                  <Command className="w-3 h-3" />
+                  <span>K</span>
+                </>
+              ) : (
+                <span>Ctrl+K</span>
+              )}
+            </kbd>
+          </button>
+
+          <a
+            href={docsPath(APP_DOC_SLUGS.userGuideHome)}
+            className={cn(
+              "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium",
+              "bg-muted/50 text-muted-foreground border border-border/50",
+              "hover:bg-muted hover:text-foreground hover:border-border",
+              !isLowPower && "transition-colors duration-200",
+            )}
+          >
+            <BookOpen className="w-4 h-4" />
+            Browse docs
+          </a>
+        </div>
+      </div>
     </div>
   );
 };

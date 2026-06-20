@@ -19,7 +19,7 @@ export const systems = pgTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     description: text("description"),
-    metadata: json("metadata").default({}),
+    metadata: json("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -69,7 +69,7 @@ export const groups = pgTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
 
-    metadata: json("metadata").default({}),
+    metadata: json("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -108,7 +108,7 @@ export const environments = pgTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     description: text("description"),
-    metadata: json("metadata").default({}),
+    metadata: json("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -163,7 +163,7 @@ export const views = pgTable("views", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  configuration: json("configuration").default([]).notNull(), // List of group_ids to show
+  configuration: json("configuration").$type<string[]>().default([]).notNull(), // List of group_ids to show
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

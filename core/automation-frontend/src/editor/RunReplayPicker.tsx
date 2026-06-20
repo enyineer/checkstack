@@ -83,7 +83,7 @@ export const RunReplayPicker: React.FC<RunReplayPickerProps> = ({
       <SelectContent>
         {runs.map((run) => (
           <SelectItem key={run.id} value={run.id}>
-            {new Date(run.startedAt).toLocaleString()} — {run.status}
+            {new Date(run.startedAt).toLocaleString()} - {run.status}
           </SelectItem>
         ))}
       </SelectContent>

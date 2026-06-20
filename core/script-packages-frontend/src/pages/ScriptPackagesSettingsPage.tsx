@@ -20,7 +20,6 @@ import {
   scriptPackagesAccess,
   PackageVersionSchema,
   SCRIPT_PACKAGES_AUDIT_COMPLETED_SIGNAL,
-  type AuditSeverity,
 } from "@checkstack/script-packages-common";
 import { PackageNameCombobox } from "../components/PackageNameCombobox";
 import { PackageVersionCombobox } from "../components/PackageVersionCombobox";
@@ -28,6 +27,9 @@ import {
   applyLatestDistTag,
   versionFromHit,
 } from "../components/version-autofill";
+import { StatusPill } from "../components/StatusPill";
+import { SummaryPanel } from "../components/SummaryPanel";
+import { SurfaceList, SurfaceListRow } from "../components/SurfaceList";
 import {
   PageLayout,
   Card,
@@ -57,25 +59,20 @@ import {
   usePerformance,
   useInitOnceForKey,
   cn,
+  formatBytes,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
-
-function mb(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import {
+  auditPostureTone,
+  installStatusTone,
+  satelliteStatusTone,
+  severityTone,
+  toneStyles,
+} from "./status-display";
 
 /** MB (UI unit) → bytes (the size-cap schema unit). */
 function mbToBytes(value: number): number {
   return Math.round(value * 1024 * 1024);
-}
-
-/** Badge variant for an advisory severity. */
-function severityVariant(
-  severity: AuditSeverity,
-): "destructive" | "secondary" {
-  return severity === "critical" || severity === "high"
-    ? "destructive"
-    : "secondary";
 }
 
 const SettingsContent: React.FC = () => {
@@ -319,6 +316,10 @@ const SettingsContent: React.FC = () => {
   const audit = auditQuery.data;
   const auditAdvisories = audit?.advisories ?? [];
   const auditState = audit?.state;
+  const auditTone = auditPostureTone({
+    total: auditAdvisories.length,
+    counts: auditState?.counts,
+  });
   const availableBackends = backendsQuery.data?.backends ?? [];
   const migrating = storage?.migrationStatus === "migrating";
   const migrationTargets = availableBackends.filter(
@@ -336,56 +337,73 @@ const SettingsContent: React.FC = () => {
       )}
 
       {/* Install state */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Install state</CardTitle>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleInstall}
-            disabled={installMutation.isPending || installState?.status === "installing"}
-          >
-            <Download className="h-4 w-4" />
-            {installState?.status === "installing" ? "Installing…" : "Install now"}
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Status:</span>
-            <Badge variant={installState?.status === "error" ? "destructive" : "secondary"}>
-              {installState?.status ?? "unknown"}
-            </Badge>
-            {installState?.totalSizeBytes !== undefined && (
-              <Badge variant={overWarn ? "destructive" : "secondary"}>
-                {mb(installState.totalSizeBytes)}
-              </Badge>
+      <SummaryPanel
+        tone={installStatusTone(installState?.status)}
+        title="Install state"
+        hero={
+          installState?.totalSizeBytes === undefined
+            ? "—"
+            : formatBytes(installState.totalSizeBytes)
+        }
+        heroToneClass={overWarn ? "text-status-warn" : undefined}
+        caption="installed size"
+        trailing={
+          <>
+            <StatusPill
+              tone={installStatusTone(installState?.status)}
+              label={installState?.status ?? "unknown"}
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleInstall}
+              disabled={
+                installMutation.isPending ||
+                installState?.status === "installing"
+              }
+            >
+              <Download className="h-4 w-4" />
+              {installState?.status === "installing"
+                ? "Installing…"
+                : "Install now"}
+            </Button>
+          </>
+        }
+      >
+        {(installState?.errorMessage || (overWarn && sizeCap)) && (
+          <div className="space-y-1">
+            {installState?.errorMessage && (
+              <p className="text-xs text-status-down">
+                {installState.errorMessage}
+              </p>
+            )}
+            {overWarn && sizeCap && (
+              <p className="text-xs text-muted-foreground">
+                Resolved size exceeds the {formatBytes(sizeCap.warnBytes)}{" "}
+                warning threshold.
+              </p>
             )}
           </div>
-          {installState?.errorMessage && (
-            <p className="text-destructive text-xs">{installState.errorMessage}</p>
-          )}
-          {overWarn && sizeCap && (
-            <p className="text-xs text-amber-600">
-              Resolved size exceeds the {mb(sizeCap.warnBytes)} warning threshold.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </SummaryPanel>
 
       {/* Vulnerability audit */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            {auditAdvisories.length > 0 ? (
-              <ShieldAlert className="h-4 w-4 text-destructive" />
-            ) : (
-              <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            )}
-            Vulnerability audit
-            {auditAdvisories.length > 0 && (
-              <Badge variant="destructive">{auditAdvisories.length}</Badge>
-            )}
-          </CardTitle>
+      <SummaryPanel
+        tone={auditTone}
+        icon={
+          auditAdvisories.length > 0 ? (
+            <ShieldAlert className="h-4 w-4 text-status-down" />
+          ) : (
+            <ShieldCheck className="h-4 w-4 text-status-ok" />
+          )
+        }
+        title="Vulnerability audit"
+        hero={String(auditAdvisories.length)}
+        heroToneClass={
+          auditAdvisories.length === 0 ? toneStyles.ok.text : undefined
+        }
+        caption={auditAdvisories.length === 0 ? "clean" : "open advisories"}
+        trailing={
           <Button
             type="button"
             size="sm"
@@ -401,15 +419,10 @@ const SettingsContent: React.FC = () => {
             />
             {auditMutation.isPending ? "Auditing…" : "Audit now"}
           </Button>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p className="text-xs text-muted-foreground">
-            Runs <code>bun audit</code> against the installed package tree once
-            a day and notifies managers when a new vulnerability appears.
-            Findings below cover every severity.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-muted-foreground">Last run:</span>
+        }
+        meta={
+          <>
+            <span className="text-xs text-muted-foreground">Last run:</span>
             <Badge variant="secondary">
               {auditState?.lastRunAt
                 ? new Date(auditState.lastRunAt).toLocaleString()
@@ -418,30 +431,39 @@ const SettingsContent: React.FC = () => {
             {auditState && auditState.total > 0 && (
               <>
                 {auditState.counts.critical > 0 && (
-                  <Badge variant="destructive">
-                    {auditState.counts.critical} critical
-                  </Badge>
+                  <StatusPill
+                    tone="down"
+                    label={`${auditState.counts.critical} critical`}
+                  />
                 )}
                 {auditState.counts.high > 0 && (
-                  <Badge variant="destructive">
-                    {auditState.counts.high} high
-                  </Badge>
+                  <StatusPill
+                    tone="down"
+                    label={`${auditState.counts.high} high`}
+                  />
                 )}
                 {auditState.counts.moderate > 0 && (
-                  <Badge variant="secondary">
-                    {auditState.counts.moderate} moderate
-                  </Badge>
+                  <StatusPill
+                    tone="warn"
+                    label={`${auditState.counts.moderate} moderate`}
+                  />
                 )}
                 {auditState.counts.low > 0 && (
-                  <Badge variant="secondary">
-                    {auditState.counts.low} low
-                  </Badge>
+                  <Badge variant="secondary">{auditState.counts.low} low</Badge>
                 )}
               </>
             )}
-          </div>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Runs <code>bun audit</code> against the installed package tree once a
+            day and notifies managers when a new vulnerability appears. Findings
+            below cover every severity.
+          </p>
           {auditState?.errorMessage && (
-            <p className="text-destructive text-xs">
+            <p className="text-xs text-status-down">
               Last audit failed: {auditState.errorMessage}
             </p>
           )}
@@ -450,20 +472,17 @@ const SettingsContent: React.FC = () => {
               No known vulnerabilities in the installed tree.
             </p>
           ) : (
-            <ul className="divide-y divide-border rounded-md border border-border">
+            <SurfaceList>
               {auditAdvisories.map((a) => (
-                <li
-                  key={`${a.packageName} ${a.advisoryId}`}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
-                  <span className="flex flex-col gap-0.5 min-w-0">
-                    <span className="font-mono text-sm truncate">
+                <SurfaceListRow key={`${a.packageName} ${a.advisoryId}`}>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-mono text-sm">
                       {a.packageName}{" "}
                       <span className="text-muted-foreground">
                         {a.vulnerableVersions}
                       </span>
                     </span>
-                    <span className="text-xs text-muted-foreground truncate">
+                    <span className="truncate text-xs text-muted-foreground">
                       {a.url ? (
                         <a
                           href={a.url}
@@ -474,19 +493,20 @@ const SettingsContent: React.FC = () => {
                           {a.title || a.advisoryId}
                         </a>
                       ) : (
-                        (a.title || a.advisoryId)
+                        a.title || a.advisoryId
                       )}
                     </span>
                   </span>
-                  <Badge variant={severityVariant(a.severity)}>
-                    {a.severity}
-                  </Badge>
-                </li>
+                  <StatusPill
+                    tone={severityTone(a.severity)}
+                    label={a.severity}
+                  />
+                </SurfaceListRow>
               ))}
-            </ul>
+            </SurfaceList>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </SummaryPanel>
 
       {/* Allowlist */}
       <Card>
@@ -557,17 +577,14 @@ const SettingsContent: React.FC = () => {
               No packages yet. Add pinned, lightweight pure-JS packages.
             </p>
           ) : (
-            <ul className="divide-y divide-border rounded-md border border-border">
+            <SurfaceList>
               {packages.map((pkg) => (
-                <li
-                  key={pkg.name}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
-                  <span className="flex items-center gap-2 font-mono text-sm">
-                    <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                <SurfaceListRow key={pkg.name}>
+                  <span className="flex min-w-0 items-center gap-2 truncate font-mono text-sm">
+                    <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     {pkg.name}@{pkg.version}
                   </span>
-                  <div className="flex items-center gap-3">
+                  <div className="flex shrink-0 items-center gap-2">
                     <Toggle
                       checked={pkg.enabled}
                       onCheckedChange={(enabled) =>
@@ -584,9 +601,9 @@ const SettingsContent: React.FC = () => {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                </li>
+                </SurfaceListRow>
               ))}
-            </ul>
+            </SurfaceList>
           )}
         </CardContent>
       </Card>
@@ -737,12 +754,12 @@ const SettingsContent: React.FC = () => {
 
                 {storage?.migrationStatus === "error" &&
                   storage.migrationError && (
-                    <p className="text-xs text-destructive">
+                    <p className="text-xs text-status-down">
                       Migration failed: {storage.migrationError}
                     </p>
                   )}
                 {storage?.migrationStatus === "completed" && (
-                  <p className="text-xs text-emerald-600">
+                  <p className="text-xs text-status-ok">
                     Migration complete. Active backend is now{" "}
                     {storage.activeBackend}.
                   </p>
@@ -864,14 +881,15 @@ const SettingsContent: React.FC = () => {
                   </Badge>
                   {blobGc && blobGc.lastRunAt && (
                     <Badge variant="secondary">
-                      {blobGc.lastDeleted} blob(s), {mb(blobGc.lastBytesReclaimed)}{" "}
-                      reclaimed
+                      {blobGc.lastDeleted} blob(s),{" "}
+                      {formatBytes(blobGc.lastBytesReclaimed)} reclaimed
                     </Badge>
                   )}
                 </div>
                 {blobGc && blobGc.totalBytesReclaimed > 0 && (
                   <div className="text-xs text-muted-foreground">
-                    Total reclaimed to date: {mb(blobGc.totalBytesReclaimed)}
+                    Total reclaimed to date:{" "}
+                    {formatBytes(blobGc.totalBytesReclaimed)}
                   </div>
                 )}
                 <Button
@@ -893,23 +911,19 @@ const SettingsContent: React.FC = () => {
                   Satellite sync
                 </AccordionTrigger>
                 <AccordionContent>
-                  <ul className="divide-y divide-border rounded-md border border-border">
+                  <SurfaceList>
                     {satellites.map((s) => (
-                      <li
-                        key={s.satelliteId}
-                        className="flex items-center justify-between px-3 py-2 text-sm"
-                      >
-                        <span className="font-mono">{s.satelliteId}</span>
-                        <Badge
-                          variant={
-                            s.status === "error" ? "destructive" : "secondary"
-                          }
-                        >
-                          {s.status}
-                        </Badge>
-                      </li>
+                      <SurfaceListRow key={s.satelliteId}>
+                        <span className="truncate font-mono text-sm">
+                          {s.satelliteId}
+                        </span>
+                        <StatusPill
+                          tone={satelliteStatusTone(s.status)}
+                          label={s.status}
+                        />
+                      </SurfaceListRow>
                     ))}
-                  </ul>
+                  </SurfaceList>
                 </AccordionContent>
               </AccordionItem>
             )}

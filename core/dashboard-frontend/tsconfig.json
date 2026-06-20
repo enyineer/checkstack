@@ -32,6 +32,9 @@
       "path": "../maintenance-common"
     },
     {
+      "path": "../notification-common"
+    },
+    {
       "path": "../queue-frontend"
     },
     {

@@ -70,6 +70,7 @@ bun changeset --empty
 
 ## See also
 
+- [Security maintenance](/checkstack/developer-guide/tooling/security-maintenance/) - how the auto-remediation workflow emits a changeset so a release ships the fix.
 - [Changesets documentation](https://github.com/changesets/changesets)
 - [Semantic Versioning](https://semver.org/)
 - `.changeset/README.md` in the repo for an at-a-glance summary.

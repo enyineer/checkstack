@@ -44,6 +44,16 @@ export default tseslint.config(
       checkstack: checkstackPlugin,
     },
     rules: {
+      // Silent-catch convention (code-quality review Finding 7): a `catch`
+      // block that swallows the error MUST carry a one-line reason comment.
+      // `no-empty` with `allowEmptyCatch: false` implements exactly this: a
+      // comment makes the block non-empty, so an empty `catch {}` WITH a reason
+      // comment is allowed while a truly-empty `catch {}` is an error. Declared
+      // explicitly here (rather than relying on js.configs.recommended's
+      // default) so the convention is self-documenting and cannot silently
+      // regress if the preset default changes. This block has no `files`
+      // restriction, so the rule applies to both backend and frontend source.
+      "no-empty": ["error", { allowEmptyCatch: false }],
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",

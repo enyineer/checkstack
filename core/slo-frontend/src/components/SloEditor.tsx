@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useId, useMemo } from "react";
 import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { SloApi, type SloObjective } from "../api";
 import type { System } from "@checkstack/catalog-common";
@@ -19,14 +19,24 @@ import {
   Button,
   Input,
   Label,
+  FormError,
+  ConfirmationModal,
   useToast,
+  toastError,
+  toastSuccess,
+  useUnsavedChanges,
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
 } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
+import {
+  validateSloForm,
+  deriveSloFieldErrors,
+  isSloFormValid,
+  type SloFieldKey,
+} from "./sloEditor.logic";
 
 interface Props {
   open: boolean;
@@ -35,6 +45,15 @@ interface Props {
   systems: System[];
   onSave: () => void;
 }
+
+const DEFAULTS = {
+  systemId: "",
+  target: "99.9",
+  windowDays: "30",
+  dependencyExclusion: "strict" as DependencyExclusionMode,
+  warningPercent: "50",
+  criticalPercent: "80",
+};
 
 export const SloEditor: React.FC<Props> = ({
   open,
@@ -47,61 +66,111 @@ export const SloEditor: React.FC<Props> = ({
   const hcClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+  const fieldIds = useId();
 
   const { allowed: allowGlobal } = accessApi.useAccess(sloAccess.slo.manage);
 
   // Form state
-  const [systemId, setSystemId] = useState("");
+  const [systemId, setSystemId] = useState(DEFAULTS.systemId);
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
-  const [target, setTarget] = useState("99.9");
-  const [windowDays, setWindowDays] = useState("30");
+  const [target, setTarget] = useState(DEFAULTS.target);
+  const [windowDays, setWindowDays] = useState(DEFAULTS.windowDays);
   const [dependencyExclusion, setDependencyExclusion] =
-    useState<DependencyExclusionMode>("strict");
-  const [warningPercent, setWarningPercent] = useState("50");
-  const [criticalPercent, setCriticalPercent] = useState("80");
+    useState<DependencyExclusionMode>(DEFAULTS.dependencyExclusion);
+  const [warningPercent, setWarningPercent] = useState(DEFAULTS.warningPercent);
+  const [criticalPercent, setCriticalPercent] = useState(
+    DEFAULTS.criticalPercent,
+  );
   const [healthCheckConfigurationId, setHealthCheckConfigurationId] =
     useState<string | undefined>();
+
+  // Fields the user has interacted with (or that a submit attempt forced).
+  // Inline errors only show for touched fields so the form does not nag while
+  // it is still being filled in for the first time (mirrors DynamicForm).
+  const [touched, setTouched] = useState<Partial<Record<SloFieldKey, boolean>>>(
+    {},
+  );
+  const [discardOpen, setDiscardOpen] = useState(false);
+
+  const markTouched = (key: SloFieldKey) =>
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+
+  // Snapshot of the values the form was seeded with, used for dirty-tracking.
+  const initialSnapshot = useMemo(() => {
+    if (objective) {
+      return {
+        target: String(objective.target),
+        windowDays: String(objective.windowDays),
+        dependencyExclusion: objective.dependencyExclusion,
+        warningPercent: String(objective.burnRateThresholds.warningPercent),
+        criticalPercent: String(objective.burnRateThresholds.criticalPercent),
+        healthCheckConfigurationId:
+          objective.healthCheckConfigurationId ?? undefined,
+        systemId: objective.systemId,
+        ownerTeamId: null as string | null,
+      };
+    }
+    return {
+      ...DEFAULTS,
+      healthCheckConfigurationId: undefined as string | undefined,
+      ownerTeamId: null as string | null,
+    };
+  }, [objective]);
+
+  const isDirty =
+    systemId !== initialSnapshot.systemId ||
+    target !== initialSnapshot.target ||
+    windowDays !== initialSnapshot.windowDays ||
+    dependencyExclusion !== initialSnapshot.dependencyExclusion ||
+    warningPercent !== initialSnapshot.warningPercent ||
+    criticalPercent !== initialSnapshot.criticalPercent ||
+    healthCheckConfigurationId !== initialSnapshot.healthCheckConfigurationId ||
+    ownerTeamId !== initialSnapshot.ownerTeamId;
+
+  // Guard in-app navigation / tab close while the open editor has edits.
+  useUnsavedChanges({ isDirty: open && isDirty });
+
   // Fetch health check associations for the selected system
   const effectiveSystemId = systemId || objective?.systemId;
-  const { data: hcAssociationsData } =
-    hcClient.getSystemAssociations.useQuery(
-      { systemId: effectiveSystemId ?? "" },
-      { enabled: !!effectiveSystemId },
-    );
+  const { data: hcAssociationsData } = hcClient.getSystemAssociations.useQuery(
+    { systemId: effectiveSystemId ?? "" },
+    { enabled: !!effectiveSystemId },
+  );
 
-  // Reset form when objective changes
+  // Reset form when objective changes / dialog reopens
   useEffect(() => {
-    if (objective) {
-      setSystemId(objective.systemId);
-      setTarget(String(objective.target));
-      setWindowDays(String(objective.windowDays));
-      setDependencyExclusion(objective.dependencyExclusion);
-      setWarningPercent(
-        String(objective.burnRateThresholds.warningPercent),
-      );
-      setCriticalPercent(
-        String(objective.burnRateThresholds.criticalPercent),
-      );
-      setHealthCheckConfigurationId(
-        objective.healthCheckConfigurationId ?? undefined,
-      );
-    } else {
-      setSystemId("");
-      setTarget("99.9");
-      setWindowDays("30");
-      setDependencyExclusion("strict");
-      setWarningPercent("50");
-      setCriticalPercent("80");
-      setHealthCheckConfigurationId(undefined);
-      setOwnerTeamId(null);
-    }
-  }, [objective, open]);
+    setSystemId(initialSnapshot.systemId);
+    setTarget(initialSnapshot.target);
+    setWindowDays(initialSnapshot.windowDays);
+    setDependencyExclusion(initialSnapshot.dependencyExclusion);
+    setWarningPercent(initialSnapshot.warningPercent);
+    setCriticalPercent(initialSnapshot.criticalPercent);
+    setHealthCheckConfigurationId(initialSnapshot.healthCheckConfigurationId);
+    setOwnerTeamId(initialSnapshot.ownerTeamId);
+    setOwnerTeamError(null);
+    setTouched({});
+  }, [initialSnapshot, open]);
+
+  // Single source of truth for client-side validation.
+  const fieldErrors = deriveSloFieldErrors({
+    systemId,
+    target,
+    windowDays,
+    warningPercent,
+    criticalPercent,
+  });
+  const formValid = isSloFormValid(fieldErrors);
+
+  // An inline error only surfaces once its field is touched. For the system
+  // field this is omitted entirely in edit mode (the control is not rendered).
+  const visibleError = (key: SloFieldKey): string | undefined =>
+    touched[key] ? fieldErrors[key] : undefined;
 
   // Mutations
   const createMutation = sloClient.createObjective.useMutation({
     onSuccess: () => {
-      toast.success("SLO objective created");
+      toastSuccess(toast, "SLO objective created");
       onSave();
     },
     onError: (error) => {
@@ -110,39 +179,55 @@ export const SloEditor: React.FC<Props> = ({
         setOwnerTeamError(inline);
         return;
       }
-      toast.error(extractErrorMessage(error, "Failed to create"));
+      toastError(toast, "Failed to create", error);
     },
   });
 
   const updateMutation = sloClient.updateObjective.useMutation({
     onSuccess: () => {
-      toast.success("SLO objective updated");
+      toastSuccess(toast, "SLO objective updated");
       onSave();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update"));
+      toastError(toast, "Failed to update", error);
     },
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     setOwnerTeamError(null);
-    const targetNum = Number.parseFloat(target);
-    const windowNum = Number.parseInt(windowDays, 10);
-    const warningNum = Number.parseFloat(warningPercent);
-    const criticalNum = Number.parseFloat(criticalPercent);
 
-    if (!systemId) {
-      toast.error("Please select a system");
+    // Reveal every field's error on a submit attempt so an invalid field that
+    // was never focused still surfaces its message.
+    if (!formValid) {
+      setTouched({
+        systemId: true,
+        target: true,
+        windowDays: true,
+        warningPercent: true,
+        criticalPercent: true,
+      });
       return;
     }
-    if (Number.isNaN(targetNum) || targetNum < 0 || targetNum > 100) {
-      toast.error("Target must be between 0 and 100");
+
+    const validation = validateSloForm({
+      systemId,
+      target,
+      windowDays,
+      warningPercent,
+      criticalPercent,
+    });
+    // Defensive: deriveSloFieldErrors already gates this path, but keep the
+    // parse result authoritative for the numeric values.
+    if (!validation.ok) {
       return;
     }
-    if (Number.isNaN(windowNum) || windowNum < 1) {
-      toast.error("Window must be at least 1 day");
-      return;
-    }
+    const {
+      target: targetNum,
+      windowDays: windowNum,
+      warningPercent: warningNum,
+      criticalPercent: criticalNum,
+    } = validation.value;
 
     if (objective) {
       updateMutation.mutate({
@@ -177,185 +262,313 @@ export const SloEditor: React.FC<Props> = ({
 
   const systemAssociations = hcAssociationsData ?? [];
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {objective ? "Edit SLO Objective" : "Create SLO Objective"}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {objective
-              ? "Modify SLO objective settings"
-              : "Define a new Service Level Objective for a system"}
-          </DialogDescription>
-        </DialogHeader>
+  // Request close: confirm first when there are unsaved edits.
+  const requestClose = () => {
+    if (isDirty && !saving) {
+      setDiscardOpen(true);
+      return;
+    }
+    onOpenChange(false);
+  };
 
-        <div className="grid gap-4 py-4">
-          {/* System selector and ownership — only for create */}
-          {!objective && (
-            <>
+  const errorId = (key: SloFieldKey) => `${fieldIds}-${key}-error`;
+
+  return (
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            requestClose();
+            return;
+          }
+          onOpenChange(true);
+        }}
+      >
+        <DialogContent>
+          <form onSubmit={handleSubmit}>
+            <DialogHeader>
+              <DialogTitle>
+                {objective ? "Edit SLO Objective" : "Create SLO Objective"}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                {objective
+                  ? "Modify SLO objective settings"
+                  : "Define a new Service Level Objective for a system"}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 py-4">
+              {/* System selector and ownership — only for create */}
+              {!objective && (
+                <>
+                  <div className="grid gap-2">
+                    <Label htmlFor={`${fieldIds}-system`} required>
+                      System
+                    </Label>
+                    <Select
+                      value={systemId}
+                      onValueChange={(v) => {
+                        setSystemId(v);
+                        markTouched("systemId");
+                      }}
+                    >
+                      <SelectTrigger
+                        id={`${fieldIds}-system`}
+                        autoFocus
+                        aria-invalid={visibleError("systemId") ? true : undefined}
+                        aria-describedby={
+                          visibleError("systemId")
+                            ? errorId("systemId")
+                            : undefined
+                        }
+                      >
+                        <SelectValue placeholder="Select a system" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {systems.map((system) => (
+                          <SelectItem key={system.id} value={system.id}>
+                            {system.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormError id={errorId("systemId")} className="text-xs">
+                      {visibleError("systemId")}
+                    </FormError>
+                  </div>
+                  <TeamOwnershipPicker
+                    value={ownerTeamId}
+                    onChange={(id) => {
+                      setOwnerTeamId(id);
+                      setOwnerTeamError(null);
+                    }}
+                    allowGlobal={allowGlobal}
+                    error={ownerTeamError}
+                  />
+                </>
+              )}
+
+              {/* Health Check scope - only show when system has associated HCs */}
+              {systemAssociations.length > 0 && (
+                <div className="grid gap-2">
+                  <Label htmlFor={`${fieldIds}-hc-scope`}>
+                    Health Check Scope
+                  </Label>
+                  <Select
+                    value={healthCheckConfigurationId ?? "__all__"}
+                    onValueChange={(v) =>
+                      setHealthCheckConfigurationId(
+                        v === "__all__" ? undefined : v,
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      id={`${fieldIds}-hc-scope`}
+                      aria-label="Health Check Scope"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">
+                        All health checks (system-global)
+                      </SelectItem>
+                      {systemAssociations.map((assoc) => (
+                        <SelectItem
+                          key={assoc.configurationId}
+                          value={assoc.configurationId}
+                        >
+                          {assoc.configurationName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {healthCheckConfigurationId
+                      ? "This SLO only tracks downtime from the selected health check."
+                      : "This SLO tracks all health checks for the system."}
+                  </p>
+                </div>
+              )}
+
+              {/* Target */}
               <div className="grid gap-2">
-                <Label htmlFor="slo-system">System</Label>
-                <Select value={systemId} onValueChange={setSystemId}>
-                  <SelectTrigger id="slo-system">
-                    <SelectValue placeholder="Select a system" />
+                <Label htmlFor={`${fieldIds}-target`} required>
+                  Availability Target (%)
+                </Label>
+                <Input
+                  id={`${fieldIds}-target`}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  autoFocus={!!objective}
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  onBlur={() => markTouched("target")}
+                  placeholder="99.9"
+                  aria-invalid={visibleError("target") ? true : undefined}
+                  aria-describedby={
+                    visibleError("target") ? errorId("target") : undefined
+                  }
+                />
+                <FormError id={errorId("target")} className="text-xs">
+                  {visibleError("target")}
+                </FormError>
+                <p className="text-xs text-muted-foreground">
+                  Common targets: 99.0% (3.65 days/year), 99.9% (8.76
+                  hours/year), 99.95% (4.38 hours/year)
+                </p>
+              </div>
+
+              {/* Rolling window */}
+              <div className="grid gap-2">
+                <Label htmlFor={`${fieldIds}-window`} required>
+                  Rolling Window (days)
+                </Label>
+                <Input
+                  id={`${fieldIds}-window`}
+                  type="number"
+                  min="1"
+                  value={windowDays}
+                  onChange={(e) => setWindowDays(e.target.value)}
+                  onBlur={() => markTouched("windowDays")}
+                  placeholder="30"
+                  aria-invalid={visibleError("windowDays") ? true : undefined}
+                  aria-describedby={
+                    visibleError("windowDays")
+                      ? errorId("windowDays")
+                      : undefined
+                  }
+                />
+                <FormError id={errorId("windowDays")} className="text-xs">
+                  {visibleError("windowDays")}
+                </FormError>
+              </div>
+
+              {/* Dependency exclusion mode */}
+              <div className="grid gap-2">
+                <Label htmlFor={`${fieldIds}-dep-exclusion`}>
+                  Dependency Exclusion Mode
+                </Label>
+                <Select
+                  value={dependencyExclusion}
+                  onValueChange={(v) =>
+                    setDependencyExclusion(v as DependencyExclusionMode)
+                  }
+                >
+                  <SelectTrigger
+                    id={`${fieldIds}-dep-exclusion`}
+                    aria-label="Dependency Exclusion Mode"
+                  >
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {systems.map((system) => (
-                      <SelectItem key={system.id} value={system.id}>
-                        {system.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="strict">
+                      Strict - All downtime counts
+                    </SelectItem>
+                    <SelectItem value="self-only">
+                      Self-Only - Exclude upstream-attributed downtime
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {dependencyExclusion === "strict"
+                    ? "All downtime counts against the error budget, regardless of cause."
+                    : "Only self-caused downtime counts. When an upstream dependency is also down, that time is excluded."}
+                </p>
               </div>
-              <TeamOwnershipPicker
-                value={ownerTeamId}
-                onChange={(id) => {
-                  setOwnerTeamId(id);
-                  setOwnerTeamError(null);
-                }}
-                allowGlobal={allowGlobal}
-                error={ownerTeamError}
-              />
-            </>
-          )}
 
-          {/* Health Check scope - only show when system has associated HCs */}
-          {systemAssociations.length > 0 && (
-            <div className="grid gap-2">
-              <Label>Health Check Scope</Label>
-              <Select
-                value={healthCheckConfigurationId ?? "__all__"}
-                onValueChange={(v) =>
-                  setHealthCheckConfigurationId(
-                    v === "__all__" ? undefined : v,
-                  )
-                }
+              {/* Burn rate thresholds */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor={`${fieldIds}-warning`}>
+                    Warning Threshold (%)
+                  </Label>
+                  <Input
+                    id={`${fieldIds}-warning`}
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={warningPercent}
+                    onChange={(e) => setWarningPercent(e.target.value)}
+                    onBlur={() => markTouched("warningPercent")}
+                    aria-invalid={
+                      visibleError("warningPercent") ? true : undefined
+                    }
+                    aria-describedby={
+                      visibleError("warningPercent")
+                        ? errorId("warningPercent")
+                        : undefined
+                    }
+                  />
+                  <FormError
+                    id={errorId("warningPercent")}
+                    className="text-xs"
+                  >
+                    {visibleError("warningPercent")}
+                  </FormError>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor={`${fieldIds}-critical`}>
+                    Critical Threshold (%)
+                  </Label>
+                  <Input
+                    id={`${fieldIds}-critical`}
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={criticalPercent}
+                    onChange={(e) => setCriticalPercent(e.target.value)}
+                    onBlur={() => markTouched("criticalPercent")}
+                    aria-invalid={
+                      visibleError("criticalPercent") ? true : undefined
+                    }
+                    aria-describedby={
+                      visibleError("criticalPercent")
+                        ? errorId("criticalPercent")
+                        : undefined
+                    }
+                  />
+                  <FormError
+                    id={errorId("criticalPercent")}
+                    className="text-xs"
+                  >
+                    {visibleError("criticalPercent")}
+                  </FormError>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={requestClose}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">
-                    All health checks (system-global)
-                  </SelectItem>
-                  {systemAssociations.map((assoc) => (
-                    <SelectItem
-                      key={assoc.configurationId}
-                      value={assoc.configurationId}
-                    >
-                      {assoc.configurationName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {healthCheckConfigurationId
-                  ? "This SLO only tracks downtime from the selected health check."
-                  : "This SLO tracks all health checks for the system."}
-              </p>
-            </div>
-          )}
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving || !formValid}>
+                {saving ? "Saving..." : objective ? "Update" : "Create"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-
-          {/* Target */}
-          <div className="grid gap-2">
-            <Label htmlFor="slo-target">Availability Target (%)</Label>
-            <Input
-              id="slo-target"
-              type="number"
-              step="0.01"
-              min="0"
-              max="100"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              placeholder="99.9"
-            />
-            <p className="text-xs text-muted-foreground">
-              Common targets: 99.0% (3.65 days/year), 99.9% (8.76
-              hours/year), 99.95% (4.38 hours/year)
-            </p>
-          </div>
-
-          {/* Rolling window */}
-          <div className="grid gap-2">
-            <Label htmlFor="slo-window">Rolling Window (days)</Label>
-            <Input
-              id="slo-window"
-              type="number"
-              min="1"
-              value={windowDays}
-              onChange={(e) => setWindowDays(e.target.value)}
-              placeholder="30"
-            />
-          </div>
-
-          {/* Dependency exclusion mode */}
-          <div className="grid gap-2">
-            <Label>Dependency Exclusion Mode</Label>
-            <Select
-              value={dependencyExclusion}
-              onValueChange={(v) =>
-                setDependencyExclusion(v as DependencyExclusionMode)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="strict">
-                  Strict — All downtime counts
-                </SelectItem>
-                <SelectItem value="self-only">
-                  Self-Only — Exclude upstream-attributed downtime
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {dependencyExclusion === "strict"
-                ? "All downtime counts against the error budget, regardless of cause."
-                : "Only self-caused downtime counts. When an upstream dependency is also down, that time is excluded."}
-            </p>
-          </div>
-
-          {/* Burn rate thresholds */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="slo-warning">Warning Threshold (%)</Label>
-              <Input
-                id="slo-warning"
-                type="number"
-                min="0"
-                max="100"
-                value={warningPercent}
-                onChange={(e) => setWarningPercent(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="slo-critical">Critical Threshold (%)</Label>
-              <Input
-                id="slo-critical"
-                type="number"
-                min="0"
-                max="100"
-                value={criticalPercent}
-                onChange={(e) => setCriticalPercent(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={saving}>
-            {saving ? "Saving..." : objective ? "Update" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <ConfirmationModal
+        isOpen={discardOpen}
+        onClose={() => setDiscardOpen(false)}
+        onConfirm={() => {
+          setDiscardOpen(false);
+          onOpenChange(false);
+        }}
+        title="Discard changes?"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmText="Discard"
+        cancelText="Keep editing"
+        variant="warning"
+      />
+    </>
   );
 };

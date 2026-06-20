@@ -10,6 +10,7 @@ import type { AuthUser, SafeDatabase, Logger } from "@checkstack/backend-api";
 import type {
   OpenAiCompatibleConnection,
   AiPermissionMode,
+  AiModelFamily,
 } from "@checkstack/ai-common";
 import type { AiToolResolver } from "../resolver";
 import type { ProposeApplyService } from "../propose-apply/service";
@@ -20,7 +21,7 @@ import {
   SpendCapExceededError,
 } from "../rate-limit/spend-ledger";
 import { hashToolArgs } from "../propose-apply/args-hash";
-import { resolveModelId } from "./llm-provider";
+import { resolveModelId, resolveModelFamily } from "./llm-provider";
 import * as schema from "../schema";
 import type { AiMessageRow } from "../schema";
 import type { AiConversationStore } from "./conversation-store";
@@ -43,7 +44,7 @@ import {
   type AgentToolCallbacks,
 } from "./sdk-tools";
 import { ToolValidationError } from "../propose-apply/validation-error";
-import { clampToolResult } from "./result-clamp.logic";
+import { clampToolResult, toolResultCharBudget } from "./result-clamp.logic";
 import {
   estimateMessagesTokens,
   estimateTextTokens,
@@ -190,6 +191,16 @@ export interface ChatReadRoute {
   projectResult?: (output: unknown) => unknown;
 }
 
+/**
+ * Whether a resolved tool is an automation-building tool, so the automation
+ * playbook is injected into the prompt this turn. Registered names keep dots
+ * (`automation.listCapabilities`); the provider-safe form uses underscores
+ * (`automation_*`) — match either so the check is robust to where it is read.
+ */
+function isAutomationToolName(name: string): boolean {
+  return name.startsWith("automation.") || name.startsWith("automation_");
+}
+
 /** Per-turn dedupe key for a mutating tool call: `<tool>:<argsHash>`. */
 function turnKey({
   tool,
@@ -330,6 +341,7 @@ export function buildChatToolCallbacks({
   forwardHeaders,
   internalUrl,
   budgetMax,
+  resultCharBudget,
 }: {
   proposeApply: ProposeApplyService;
   readInvoker: ChatReadInvoker;
@@ -341,6 +353,13 @@ export function buildChatToolCallbacks({
   /** Loopback base URL for the user-scoped RPC client (re-enters `/api`). */
   internalUrl: string;
   budgetMax?: number;
+  /**
+   * Per-read result char budget, derived from the connection's context window
+   * (see {@link toolResultCharBudget}). A read result larger than this is clamped
+   * before it enters the model's context. Falls back to the module default when
+   * omitted, so callers that don't know the window stay protected.
+   */
+  resultCharBudget?: number;
 }): AgentToolCallbacks {
   // USER-SCOPED RPC client for this turn, bound to the originating user's auth
   // (cookie / bearer in `forwardHeaders`). Every tool `execute`/`dryRun` gets it
@@ -405,7 +424,8 @@ export function buildChatToolCallbacks({
       const projected = executable?.projectResult
         ? executable.projectResult(raw)
         : raw;
-      return clampToolResult({ result: projected }).value;
+      return clampToolResult({ result: projected, maxChars: resultCharBudget })
+        .value;
     },
     propose: async ({ principal: proposePrincipal, tool, input: toolInput }) => {
       const key = turnKey({ tool, input: toolInput });
@@ -443,6 +463,9 @@ export function buildChatToolCallbacks({
       handledThisTurn.add(key);
       const card: ConfirmCardResult = {
         __confirm: true,
+        // Structured "proposal succeeded, now awaiting the operator" marker so
+        // the model keys on state, not the `note` prose, and stops re-proposing.
+        status: "awaiting_operator",
         toolName: tool.name,
         effect: tool.effect === "destructive" ? "destructive" : "mutate",
         summary: proposal.summary,
@@ -802,6 +825,8 @@ export function createChatService({
     memoryPreamble,
     skillPreamble,
     summaryPreamble,
+    resultCharBudget,
+    modelFamily,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -813,6 +838,10 @@ export function createChatService({
     modelMessages: ModelMessage[];
     /** The operator's IANA timezone (from the browser), folded into the prompt. */
     timeZone?: string;
+    /** Per-read result clamp budget derived from the connection's context window. */
+    resultCharBudget?: number;
+    /** Declared model family; capable families get the lighter-touch calibration note. */
+    modelFamily?: AiModelFamily;
     /** Always-inject preference block prepended to the system prompt (may be ""). */
     memoryPreamble?: string;
     /** Active-skill guidance block prepended to the system prompt (may be ""). */
@@ -828,6 +857,11 @@ export function createChatService({
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
     // propose) are built by the pure, unit-tested helper.
     const allowed = resolver.resolveTools(principal);
+    // Inject the ~600-token automation-building playbook ONLY when an automation
+    // tool is in scope this turn (kept out of the always-on prompt on pure read
+    // turns — see buildChatSystemPrompt). Tool names are provider-safe ids, so an
+    // `automation.*` tool surfaces as `automation_*`.
+    const automationTools = allowed.some((t) => isAutomationToolName(t.name));
     const sdkTools = buildAgentSdkTools({
       tools: allowed,
       principal,
@@ -845,18 +879,29 @@ export function createChatService({
         forwardHeaders,
         internalUrl,
         budgetMax,
+        resultCharBudget,
       }),
     });
 
     const result = streamText({
       model: languageModel,
-      // Prepend the always-inject preferences so they shape THIS generation,
-      // not just future recalled turns.
+      // PROMPT-CACHE FRIENDLY ORDERING (Phase 3): the STABLE base prompt comes
+      // FIRST so a caching-capable gateway can reuse the byte-identical prefix
+      // across turns; the per-turn VOLATILE preambles (memory / skill / summary)
+      // come AFTER it. Prepending the volatile blocks (the prior bug) put
+      // changing content at the front and defeated any prefix cache. The date
+      // line inside the base prompt is the only volatile part of the base and
+      // already sits at its end.
       system: [
+        buildChatSystemPrompt({
+          timeZone,
+          mode: conversation.permissionMode,
+          automationTools,
+          modelFamily,
+        }),
         memoryPreamble,
         skillPreamble,
         summaryPreamble,
-        buildChatSystemPrompt({ timeZone, mode: conversation.permissionMode }),
       ]
         .filter(Boolean)
         .join("\n\n"),
@@ -1038,7 +1083,12 @@ export function createChatService({
       // + tool tokens). FAIL-OPEN: if the classifier throws, we proceed with the
       // normal turn — a classifier hiccup must never block legitimate use. The
       // classifier's own small usage is still recorded against the ledger.
-      try {
+      //
+      // OPT-OUT (Phase 6): a connection may disable this round-trip
+      // (`disableTopicalClassifier`). The chat system prompt already declines
+      // off-topic requests, so on a capable model the extra per-first-message
+      // call is redundant latency/cost — the in-prompt decline then carries it.
+      if (!connection.disableTopicalClassifier) try {
         const { verdict, usage } = await classifyTopic({
           model: languageModel,
           userText,
@@ -1129,6 +1179,10 @@ export function createChatService({
         memoryPreamble,
         skillPreamble,
         summaryPreamble,
+        resultCharBudget: toolResultCharBudget({
+          contextWindowTokens: connection.contextWindowTokens,
+        }),
+        modelFamily: resolveModelFamily({ connection }),
       });
     },
 
@@ -1250,6 +1304,10 @@ export function createChatService({
         timeZone,
         memoryPreamble,
         summaryPreamble,
+        resultCharBudget: toolResultCharBudget({
+          contextWindowTokens: connection.contextWindowTokens,
+        }),
+        modelFamily: resolveModelFamily({ connection }),
       });
     },
   };

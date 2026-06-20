@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
-import { resolveModelId, buildLanguageModel } from "./llm-provider";
+import {
+  resolveModelId,
+  resolveModelFamily,
+  buildLanguageModel,
+} from "./llm-provider";
 
 const conn = (over: Partial<OpenAiCompatibleConnection> = {}): OpenAiCompatibleConnection => ({
   baseUrl: "https://api.openai.com/v1",
@@ -59,5 +63,30 @@ describe("buildLanguageModel coerces the model in the live path (P4 review item 
   test("no requested model uses defaultModel", () => {
     const model = buildLanguageModel({ connection: conn(), model: undefined });
     expect(modelIdOf(model)).toBe("gpt-4o-mini");
+  });
+
+  test("threading the model family does NOT change the resolved model (transport unchanged)", () => {
+    // The family is a seam only; it must not alter the chat-completions request
+    // or the resolved model id for any value.
+    const model = buildLanguageModel({
+      connection: conn({ modelFamily: "anthropic" }),
+      model: undefined,
+    });
+    expect(modelIdOf(model)).toBe("gpt-4o-mini");
+  });
+});
+
+describe("resolveModelFamily (Phase 3 seam)", () => {
+  test("defaults to 'generic' when the connection declares no family", () => {
+    expect(resolveModelFamily({ connection: conn() })).toBe("generic");
+  });
+
+  test("returns the declared family verbatim", () => {
+    expect(
+      resolveModelFamily({ connection: conn({ modelFamily: "anthropic" }) }),
+    ).toBe("anthropic");
+    expect(
+      resolveModelFamily({ connection: conn({ modelFamily: "openai" }) }),
+    ).toBe("openai");
   });
 });

@@ -35,11 +35,11 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
 
       {/* Strategy Display */}
       {strategy && (
-        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-surface-inset px-3 py-2">
           <span className="text-sm font-medium">{strategy.displayName}</span>
           {strategy.description && (
             <span className="text-xs text-muted-foreground">
-              — {strategy.description}
+              - {strategy.description}
             </span>
           )}
         </div>
@@ -67,7 +67,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
           onChange={(e) => onIntervalChange(Number(e.target.value))}
         />
         {intervalSeconds > 0 && intervalSeconds < 60 && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-500">
+          <div className="flex items-center gap-1.5 text-xs text-warning">
             <AlertTriangle className="h-3 w-3" />
             <span>
               Sub-minute intervals may cause high load on monitored services.

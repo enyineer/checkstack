@@ -10,11 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { ShieldCheck, AlertCircle, Trash2, Eye, Settings } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import { extractErrorMessage } from "@checkstack/common";
 import { ResourcePickerCombobox } from "./ResourcePickerCombobox";
 
 interface Grant {
@@ -54,11 +54,11 @@ const GrantTypeGroup: React.FC<{
 
   const setAccess = authClient.writeRelation.useMutation({
     onSuccess: onChanged,
-    onError: (e) => toast.error(extractErrorMessage(e, "Failed to update")),
+    onError: (e) => toastError(toast, "Failed to update", e),
   });
   const removeAccess = authClient.removeRelation.useMutation({
     onSuccess: onChanged,
-    onError: (e) => toast.error(extractErrorMessage(e, "Failed to revoke")),
+    onError: (e) => toastError(toast, "Failed to revoke", e),
   });
 
   const nameFor = (id: string) => names[id] ?? id;
@@ -72,7 +72,7 @@ const GrantTypeGroup: React.FC<{
           .map((g) => (
             <div
               key={g.resourceId}
-              className="flex items-center justify-between gap-2 rounded-md bg-muted/40 p-2 text-sm"
+              className="flex items-center justify-between gap-2 rounded-md bg-surface-inset p-2 text-sm"
             >
               <span className="min-w-0 flex-1 truncate" title={nameFor(g.resourceId)}>
                 {nameFor(g.resourceId)}
@@ -156,7 +156,7 @@ export const TeamResourceGrantsEditor: React.FC<
       toast.success("Access granted");
       void refetch();
     },
-    onError: (e) => toast.error(extractErrorMessage(e, "Failed to grant access")),
+    onError: (e) => toastError(toast, "Failed to grant access", e),
   });
 
   const header = (
@@ -248,7 +248,7 @@ export const TeamResourceGrantsEditor: React.FC<
           <p className="text-xs font-medium">Grant access to a resource</p>
           <div className="flex gap-2">
             <Select value={addType} onValueChange={setAddType}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-44" aria-label="Resource type">
                 <SelectValue placeholder="Resource type" />
               </SelectTrigger>
               <SelectContent>

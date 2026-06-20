@@ -52,7 +52,7 @@ Auth plugins refuse to start if the secret is missing.
 
 **How to verify** - container logs show:
 
-```
+```text
 [auth-backend] BETTER_AUTH_SECRET environment variable is not defined.
 ```
 

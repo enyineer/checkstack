@@ -51,9 +51,13 @@ async function createSystem({
   await dialog.getByLabel("Name").fill(name);
   await dialog.getByRole("button", { name: "Create System" }).click();
 
-  // Dialog closes on success; the new system card appears in the list.
+  // Dialog closes on success; the new system row appears in the management
+  // table. Scope to the desktop table: the ResponsiveTable's display:none
+  // MobileCardList duplicates the name, which would trip strict mode.
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("table").getByText(name, { exact: true }),
+  ).toBeVisible();
 }
 
 test.describe("dependency map", () => {

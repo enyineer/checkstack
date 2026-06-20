@@ -45,26 +45,26 @@ function getSeverityStyles(severity: Announcement["severity"]): {
   switch (severity) {
     case "critical": {
       return {
-        bg: "bg-destructive/10",
-        text: "text-destructive",
-        border: "border-destructive/20",
-        dismissHover: "hover:bg-destructive/20",
+        bg: "bg-status-down/10",
+        text: "text-status-down",
+        border: "border-status-down/20",
+        dismissHover: "hover:bg-status-down/20",
       };
     }
     case "warning": {
       return {
-        bg: "bg-warning/10",
-        text: "text-warning",
-        border: "border-warning/20",
-        dismissHover: "hover:bg-warning/20",
+        bg: "bg-status-warn/10",
+        text: "text-status-warn",
+        border: "border-status-warn/20",
+        dismissHover: "hover:bg-status-warn/20",
       };
     }
     default: {
       return {
-        bg: "bg-primary/10",
-        text: "text-primary",
-        border: "border-primary/20",
-        dismissHover: "hover:bg-primary/20",
+        bg: "bg-status-unknown/10",
+        text: "text-status-unknown",
+        border: "border-status-unknown/20",
+        dismissHover: "hover:bg-status-unknown/20",
       };
     }
   }

@@ -407,6 +407,98 @@ jobs:
             exit 1
           fi
 
+  # Authenticated UI safety net (plan §1). Boots the REAL backend (better-auth,
+  # not dev-auth) against an isolated, migration-fresh `checkstack_e2e` database
+  # and drives the built SPA + docs through Playwright. Postgres is provisioned
+  # by the test runner itself (Testcontainers), the same way local runs get it -
+  # no GitHub Actions service container.
+  #
+  # BLOCKING: the suite is stable and fully green, so a red e2e run fails the
+  # aggregated PR-checks report (the `e2e` job is in the `report` job's `needs`).
+  #
+  # The harness reads its config from a repo-root `.env` (for the auth secrets).
+  # CI has no committed `.env`, so we materialise one with DETERMINISTIC,
+  # NON-SECRET values. `DATABASE_URL` is intentionally NOT set here:
+  # `with-e2e-postgres.ts` starts an ephemeral `postgres:16-alpine` and injects
+  # it, and Bun's `--env-file` never overrides an env var already in the
+  # environment, so that container URL flows down to `start-e2e-server.ts` and
+  # `run-all.ts` unchanged.
+  e2e:
+    name: E2E
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          # The docs build (served same-origin by the e2e backend) pulls
+          # logo/images tracked via git-LFS; without smudged files the Astro
+          # build fails with NoImageMetadata (same reason as the security job).
+          lfs: true
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+
+      # Materialise the harness env. Values are deterministic CI defaults (never
+      # real secrets): the auth stack only needs SOME stable secret/key to boot.
+      # `DATABASE_URL` is intentionally omitted - `with-e2e-postgres.ts` starts
+      # an ephemeral Postgres and injects it (see the job comment above).
+      - name: Write CI .env for the e2e harness
+        run: |
+          cat > .env <<'ENV'
+          BASE_URL=http://localhost:3100
+          ENCRYPTION_MASTER_KEY=0000000000000000000000000000000000000000000000000000000000000000
+          BETTER_AUTH_SECRET=checkstack-e2e-ci-deterministic-secret
+          LOG_LEVEL=info
+          ENV
+
+      # `playwright:install` pins the browser download to the bun.lock-resolved
+      # Playwright version and includes the headless shell + OS deps.
+      - name: Install Playwright Chromium
+        run: bun run playwright:install --with-deps
+
+      # `pretest:e2e` installs Playwright (idempotent) and builds the frontend +
+      # docs that the e2e backend serves same-origin.
+      - name: Build frontend + docs
+        run: bun run --filter @checkstack/e2e pretest:e2e
+
+      # `with-e2e-postgres.ts` starts an ephemeral Postgres (Testcontainers) and
+      # runs `run-all.ts`, which boots one backend per spec file against the
+      # freshly-reset e2e DB and drains connections between files. This is the
+      # exact command `bun run test:e2e` runs locally - CI and local are unified.
+      - name: Run E2E suite
+        id: e2e
+        run: |
+          set +e
+          bun --env-file=../../.env scripts/with-e2e-postgres.ts 2>&1 | tee /tmp/e2e-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        working-directory: core/e2e
+
+      # Traces (on-first-retry) + screenshots (on-failure) land in
+      # core/e2e/test-results. Upload them so a failure is debuggable from the
+      # PR without re-running locally.
+      - name: Upload Playwright traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces
+          path: core/e2e/test-results
+          if-no-files-found: ignore
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-output
+          path: /tmp/e2e-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.e2e.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   security:
     name: Security
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
@@ -557,7 +649,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, deps, test, integration, security]
+    needs: [typecheck, lint, deps, test, integration, security, e2e]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -609,6 +701,14 @@ jobs:
           path: /tmp/artifacts/security
         continue-on-error: true
 
+      - name: Download E2E Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          name: e2e-output
+          path: /tmp/artifacts/e2e
+        continue-on-error: true
+
       - name: Count previous failure comments
         id: count-failures
         uses: actions/github-script@v9
@@ -645,13 +745,15 @@ jobs:
             const testResult = '${{ needs.test.result }}';
             const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
+            const e2eResult = '${{ needs.e2e.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
             const depsPassed = depsResult === 'success' || depsResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed;
+            const e2ePassed = e2eResult === 'success' || e2eResult === 'skipped';
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed && e2ePassed;
 
             // Read output files
             function readOutput(name) {
@@ -690,6 +792,7 @@ jobs:
                 '| Test | ✅ Passed |',
                 '| Integration | ✅ Passed |',
                 '| Security | ✅ Passed |',
+                '| E2E | ✅ Passed |',
                 '',
                 '',
                 '@enyineer All quality checks have passed. This PR is ready for your review.',
@@ -800,6 +903,22 @@ jobs:
                 ].join('\n'));
               }
 
+              if (!e2ePassed) {
+                const output = readOutput('e2e');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ E2E Failures</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** These are the Playwright end-to-end tests. Reproduce locally with `bun run --filter @checkstack/e2e test:e2e` (it provisions an ephemeral Postgres via Testcontainers, so Docker must be running). Read the failing assertions and uploaded traces, then fix the implementation or the selectors so the flows pass. Do not weaken or skip the tests.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
               // Build the trailing line based on escalation
               const trailingLine = escalate
                 ? '@enyineer The above code quality issues were found in this PR. Automated fixes have not resolved them after 3 attempts. Manual intervention is required.'
@@ -818,6 +937,7 @@ jobs:
                 `| Test | ${icon(testPassed)} |`,
                 `| Integration | ${icon(integrationPassed)} |`,
                 `| Security | ${icon(securityPassed)} |`,
+                `| E2E | ${icon(e2ePassed)} |`,
                 '',
                 ...sections,
                 '',

@@ -54,27 +54,29 @@ const diskResultSchema = z.object({
     "x-chart-type": "line",
     "x-chart-label": "Used Disk",
     "x-chart-unit": "GB",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.05,
+    // Off by default: absolute twin of usedPercent. Saturation is tracked via
+    // the percent form; the absolute GB value drifts with normal growth
+    // without being a problem. Kept chartable.
+    "x-anomaly-enabled": false,
   }),
   availableGb: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Available Disk",
     "x-chart-unit": "GB",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.05,
+    // Off by default: inverse of usedGb and therefore the same absolute twin
+    // of usedPercent. Tracked via the percent form instead.
+    "x-anomaly-enabled": false,
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Disk Usage",
     "x-chart-unit": "%",
+    // Percent saturation signal: the canonical disk-fill metric. Disk usage
+    // is slow-moving and the best-behaved of the saturation signals, so a
+    // sudden baseline jump is a genuine anomaly. Kept enabled and widened.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
   }),
@@ -100,8 +102,9 @@ const diskAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Max Disk Usage",
     "x-chart-unit": "%",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Off by default: a max rollup alerts on the single peak sample per
+    // window. The avg rollup is the stable signal; this stays chartable.
+    "x-anomaly-enabled": false,
   }),
 };
 

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Skeleton } from "../src/components/Skeleton";
+import { Skeleton, SkeletonTableRows } from "../src/components/Skeleton";
 
 const meta: Meta<typeof Skeleton> = {
   title: "Components/Feedback/Skeleton",
@@ -48,6 +48,35 @@ export const CardGrid: Story = {
           <Skeleton className="h-4 w-5/6" />
         </div>
       ))}
+    </div>
+  ),
+};
+
+/** Built-in shape variants (chart / card / row / text) with matched footprints. */
+export const Variants: Story = {
+  render: () => (
+    <div className="max-w-xl space-y-6">
+      <Skeleton variant="chart" />
+      <SkeletonTableRows rows={3} />
+      <Skeleton variant="card" />
+      <Skeleton variant="text" className="w-2/3" />
+    </div>
+  ),
+};
+
+export const ChartVariant: Story = {
+  args: { variant: "chart" },
+  render: (args) => (
+    <div className="max-w-xl">
+      <Skeleton {...args} />
+    </div>
+  ),
+};
+
+export const TableRowsVariant: Story = {
+  render: () => (
+    <div className="max-w-xl">
+      <SkeletonTableRows rows={4} />
     </div>
   ),
 };

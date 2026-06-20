@@ -12,9 +12,9 @@ import {
   Input,
   Label,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { Copy, AlertTriangle } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   open: boolean;
@@ -51,7 +51,7 @@ export const CreateSatelliteDialog: React.FC<Props> = ({
       onCreated();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create satellite"));
+      toastError(toast, "Failed to create satellite", error);
     },
   });
 
@@ -186,7 +186,7 @@ export const CreateSatelliteDialog: React.FC<Props> = ({
                   Copy
                 </Button>
               </div>
-              <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre">
+              <pre className="rounded-md bg-surface-inset p-3 text-xs font-mono overflow-x-auto whitespace-pre">
                 {deployCommand}
               </pre>
               <div className="rounded-md border border-warning/50 bg-warning/10 p-3 flex items-start gap-2">

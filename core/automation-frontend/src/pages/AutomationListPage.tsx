@@ -5,6 +5,7 @@ import {
   usePluginClient,
   accessApiRef,
   useApi,
+  useQueryClient,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import {
@@ -28,6 +29,8 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   LoadingSpinner,
   QueryErrorState,
   EmptyState,
@@ -37,10 +40,21 @@ import {
   AccordionTrigger,
   AccordionContent,
   useToast,
+  toastError,
+  cn,
 } from "@checkstack/ui";
-import { extractErrorMessage, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
 import { groupAutomations } from "./automation-grouping";
+
+/**
+ * Left status-accent class for an automation's enabled/disabled state. Reuses
+ * the colorblind-safe triad so the stripe encodes status by position + hue,
+ * not by the toggle switch alone: an enabled automation reads `ok`, a disabled
+ * one reads muted/`unknown`. Spelled out so Tailwind's JIT keeps the classes.
+ */
+const automationAccent = (status: Automation["status"]): string =>
+  status === "enabled" ? "bg-status-ok" : "bg-status-unknown/60";
 
 /**
  * Lists every automation the operator can see, with quick enable / disable
@@ -52,9 +66,18 @@ import { groupAutomations } from "./automation-grouping";
  * the most common operation here is "find the one I broke", which a
  * single sorted list of recent activity covers without a pager UX.
  */
+/**
+ * Cache shape of the `listAutomations` loader: the paginated wrapper around the
+ * automation rows. Used to type the optimistic snapshot/patch on the toggle.
+ */
+type AutomationsQueryData = {
+  items: Automation[];
+};
+
 const AutomationListContent: React.FC = () => {
   const client = usePluginClient(AutomationApi);
   const accessApi = useApi(accessApiRef);
+  const queryClient = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -68,19 +91,64 @@ const AutomationListContent: React.FC = () => {
   >("all");
   const [deleteId, setDeleteId] = React.useState<string | undefined>();
 
-  const query = client.listAutomations.useQuery({
-    limit: 100,
-    offset: 0,
-    ...(statusFilter === "all" ? {} : { status: statusFilter }),
-  });
+  // The loader input depends on the status filter, so the cache key changes
+  // when the filter changes. Build the input once and derive the exact oRPC
+  // query key from it so the optimistic patch addresses the same cache entry.
+  // See `docs/.../frontend/optimistic-updates.md` for the query-key contract.
+  const listInput = React.useMemo(
+    () => ({
+      limit: 100,
+      offset: 0,
+      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+    }),
+    [statusFilter],
+  );
 
-  const toggleMutation = client.toggleAutomation.useMutation({
-    onSuccess: (data) => {
-      toast.success(
-        `${data.name} ${data.status === "enabled" ? "enabled" : "disabled"}`,
-      );
+  const automationsQueryKey = React.useMemo(
+    () =>
+      [
+        ["automation", "listAutomations"],
+        { input: listInput, type: "query" },
+      ] as const,
+    [listInput],
+  );
+
+  const query = client.listAutomations.useQuery(listInput);
+
+  // Toggle is a cheap, low-risk per-row flip — apply the optimistic pattern so
+  // the switch flips on click instead of after the round-trip:
+  // 1. onMutate cancels in-flight refetches, snapshots, flips the row status.
+  // 2. onError rolls back from the snapshot, then surfaces a toast.
+  // 3. onSettled invalidates so server truth settles in either branch.
+  // 4. No success toast — the visible switch flip IS the feedback.
+  const toggleMutation = client.toggleAutomation.useMutation<{
+    previous: AutomationsQueryData | undefined;
+  }>({
+    onMutate: async ({ id, enabled }) => {
+      await queryClient.cancelQueries({ queryKey: automationsQueryKey });
+      const previous =
+        queryClient.getQueryData<AutomationsQueryData>(automationsQueryKey);
+      if (previous) {
+        queryClient.setQueryData<AutomationsQueryData>(automationsQueryKey, {
+          ...previous,
+          items: previous.items.map((automation) =>
+            automation.id === id
+              ? { ...automation, status: enabled ? "enabled" : "disabled" }
+              : automation,
+          ),
+        });
+      }
+      return { previous };
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error, _vars, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(automationsQueryKey, ctx.previous);
+      }
+      toastError(toast, "Failed to toggle automation", error);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: automationsQueryKey });
+    },
   });
 
   const deleteMutation = client.deleteAutomation.useMutation({
@@ -88,7 +156,7 @@ const AutomationListContent: React.FC = () => {
       toast.success("Automation deleted");
       setDeleteId(undefined);
     },
-    onError: (error) => toast.error(extractErrorMessage(error)),
+    onError: (error) => toastError(toast, "Failed to delete automation", error),
   });
 
   const items = query.data?.items;
@@ -106,7 +174,7 @@ const AutomationListContent: React.FC = () => {
   const renderRow = (automation: Automation) => (
     <TableRow
       key={automation.id}
-      className="cursor-pointer hover:bg-accent/40"
+      className="relative cursor-pointer transition-colors hover:bg-surface-inset"
       onClick={() =>
         navigate(
           resolveRoute(automationRoutes.routes.edit, {
@@ -115,7 +183,18 @@ const AutomationListContent: React.FC = () => {
         )
       }
     >
-      <TableCell onClick={(e) => e.stopPropagation()}>
+      <TableCell
+        onClick={(e) => e.stopPropagation()}
+        className="relative pl-4"
+      >
+        {/* Status accent: enabled/disabled by position + hue, not toggle alone. */}
+        <span
+          className={cn(
+            "absolute inset-y-0 left-0 w-1",
+            automationAccent(automation.status),
+          )}
+          aria-hidden
+        />
         {canManage ? (
           <Toggle
             checked={automation.status === "enabled"}
@@ -142,8 +221,10 @@ const AutomationListContent: React.FC = () => {
         )}
       </TableCell>
       <TableCell>
-        <div className="flex flex-col">
-          <span className="font-medium">{automation.name}</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="font-semibold text-foreground">
+            {automation.name}
+          </span>
           {automation.description && (
             <span className="text-xs text-muted-foreground">
               {automation.description}
@@ -157,13 +238,16 @@ const AutomationListContent: React.FC = () => {
             <Badge
               key={`${trigger.event}-${index}`}
               variant="outline"
-              className="text-[10px] font-mono"
+              className="font-mono text-[10px] font-normal text-muted-foreground"
             >
               {trigger.event}
             </Badge>
           ))}
           {automation.definition.triggers.length > 3 && (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge
+              variant="outline"
+              className="text-[10px] font-normal text-muted-foreground"
+            >
               +{automation.definition.triggers.length - 3}
             </Badge>
           )}
@@ -206,6 +290,118 @@ const AutomationListContent: React.FC = () => {
         </div>
       </TableCell>
     </TableRow>
+  );
+
+  const renderMobileCard = (automation: Automation) => (
+    <div
+      key={automation.id}
+      className="group relative cursor-pointer overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl"
+      onClick={() =>
+        navigate(
+          resolveRoute(automationRoutes.routes.edit, {
+            automationId: automation.id,
+          }),
+        )
+      }
+    >
+      {/* Status accent: enabled/disabled by position + hue, not toggle alone. */}
+      <span
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          automationAccent(automation.status),
+        )}
+        aria-hidden
+      />
+      <div className="flex items-start justify-between gap-2 pl-2">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-sm font-semibold text-foreground">
+            {automation.name}
+          </span>
+          {automation.description && (
+            <span className="truncate text-xs text-muted-foreground">
+              {automation.description}
+            </span>
+          )}
+        </div>
+        <div onClick={(e) => e.stopPropagation()}>
+          {canManage ? (
+            <Toggle
+              checked={automation.status === "enabled"}
+              onCheckedChange={(enabled) =>
+                toggleMutation.mutate({
+                  id: automation.id,
+                  enabled,
+                })
+              }
+              aria-label={
+                automation.status === "enabled"
+                  ? "Disable automation"
+                  : "Enable automation"
+              }
+            />
+          ) : (
+            <Badge
+              variant={automation.status === "enabled" ? "success" : "outline"}
+            >
+              {automation.status}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1 pl-2">
+        {automation.definition.triggers.slice(0, 3).map((trigger, index) => (
+          <Badge
+            key={`${trigger.event}-${index}`}
+            variant="outline"
+            className="font-mono text-[10px] font-normal text-muted-foreground"
+          >
+            {trigger.event}
+          </Badge>
+        ))}
+        {automation.definition.triggers.length > 3 && (
+          <Badge
+            variant="outline"
+            className="text-[10px] font-normal text-muted-foreground"
+          >
+            +{automation.definition.triggers.length - 3}
+          </Badge>
+        )}
+        <Badge variant="secondary" className="text-[10px]">
+          {automation.definition.mode}
+        </Badge>
+      </div>
+      <div className="mt-1 pl-2 text-xs text-muted-foreground">
+        Updated{" "}
+        {formatDistanceToNow(new Date(automation.updatedAt), {
+          addSuffix: true,
+        })}
+      </div>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="mt-3 flex justify-end gap-1 pl-2"
+      >
+        <Link
+          to={resolveRoute(automationRoutes.routes.runs, {
+            automationId: automation.id,
+          })}
+        >
+          <Button variant="ghost" size="sm">
+            Runs
+          </Button>
+        </Link>
+        {canManage && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:bg-destructive/10"
+            onClick={() => setDeleteId(automation.id)}
+            aria-label="Delete automation"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    </div>
   );
 
   return (
@@ -305,25 +501,32 @@ const AutomationListContent: React.FC = () => {
                     </span>
                   </AccordionTrigger>
                   <AccordionContent className="px-0 pb-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-8" />
-                          <TableHead>Name</TableHead>
-                          <TableHead>Triggers</TableHead>
-                          <TableHead>Mode</TableHead>
-                          <TableHead>Updated</TableHead>
-                          <TableHead className="w-24 text-right">
-                            Actions
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {group.items.map((automation) =>
-                          renderRow(automation),
-                        )}
-                      </TableBody>
-                    </Table>
+                    <ResponsiveTable>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-8" />
+                            <TableHead>Name</TableHead>
+                            <TableHead>Triggers</TableHead>
+                            <TableHead>Mode</TableHead>
+                            <TableHead>Updated</TableHead>
+                            <TableHead className="w-24 text-right">
+                              Actions
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.items.map((automation) =>
+                            renderRow(automation),
+                          )}
+                        </TableBody>
+                      </Table>
+                    </ResponsiveTable>
+                    <MobileCardList className="p-2">
+                      {group.items.map((automation) =>
+                        renderMobileCard(automation),
+                      )}
+                    </MobileCardList>
                   </AccordionContent>
                 </AccordionItem>
               ))}

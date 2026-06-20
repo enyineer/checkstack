@@ -1,5 +1,6 @@
 import React from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { classifyBurnRate } from "./sloDisplay.logic";
 
 interface BurnRateIndicatorProps {
   burnRate: number | null;
@@ -15,7 +16,9 @@ interface BurnRateIndicatorProps {
 export const BurnRateIndicator: React.FC<BurnRateIndicatorProps> = ({
   burnRate,
 }) => {
-  if (burnRate === null || burnRate === undefined) {
+  const tier = classifyBurnRate({ burnRate });
+
+  if (tier === "unknown") {
     return (
       <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
         <Minus className="w-3.5 h-3.5" />
@@ -24,16 +27,16 @@ export const BurnRateIndicator: React.FC<BurnRateIndicatorProps> = ({
     );
   }
 
-  const isGood = burnRate < 1;
-  const isBad = burnRate > 1.5;
+  const isGood = tier === "good";
+  const isBad = tier === "bad";
 
   return (
     <span
       className={`inline-flex items-center gap-1 text-sm font-medium ${
         isGood
-          ? "text-success"
+          ? "text-status-ok"
           : isBad
-            ? "text-destructive"
+            ? "text-status-down"
             : "text-muted-foreground"
       }`}
     >
@@ -44,7 +47,7 @@ export const BurnRateIndicator: React.FC<BurnRateIndicatorProps> = ({
       ) : (
         <Minus className="w-3.5 h-3.5" />
       )}
-      <span>{burnRate.toFixed(2)}x</span>
+      <span>{(burnRate ?? 0).toFixed(2)}x</span>
     </span>
   );
 };

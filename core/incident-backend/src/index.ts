@@ -195,7 +195,7 @@ export default createBackendPlugin({
 
         const cache = createIncidentCache({ cacheManager, logger });
         incidentCache = cache;
-        const router = createRouter(
+        const router = createRouter({
           service,
           signalService,
           catalogClient,
@@ -203,8 +203,8 @@ export default createBackendPlugin({
           authClient,
           logger,
           cache,
-          () => incidentEntity,
-        );
+          getIncidentEntity: () => incidentEntity,
+        });
         rpc.registerRouter(router, incidentContract);
 
         // Register incident actions with the Automation platform. We

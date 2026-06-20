@@ -88,6 +88,9 @@ const jenkinsAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
   avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
@@ -95,12 +98,18 @@ const jenkinsAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
+  // Absolute count twin of successRate; it tracks the same connectivity
+  // signal but drifts with sampling cadence. Success rate (a bounded
+  // percentage) is the stable form, so the raw count is off by default.
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-enabled": false,
   }),
 };
 

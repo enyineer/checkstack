@@ -26,16 +26,16 @@ import {
   type MaintenanceEntityState,
 } from "./entity";
 
-export function createRouter(
-  service: MaintenanceService,
-  signalService: SignalService,
-  catalogClient: InferClient<typeof CatalogApi>,
+export interface MaintenanceRouterDeps {
+  service: MaintenanceService;
+  signalService: SignalService;
+  catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<
     typeof import("@checkstack/notification-common").NotificationApi
-  >,
-  authClient: InferClient<typeof AuthApi>,
-  logger: Logger,
-  cache: MaintenanceCache,
+  >;
+  authClient: InferClient<typeof AuthApi>;
+  logger: Logger;
+  cache: MaintenanceCache;
   /**
    * Reactive `maintenance` entity handle (reactive automation engine §10.2).
    * PLUGIN-BACKED (Model B): the `maintenances` + `maintenance_systems` tables
@@ -44,8 +44,19 @@ export function createRouter(
    * change-deriver re-emits the `maintenance.created` / `maintenance.updated`
    * trigger events that automations match.
    */
-  entityHandle: EntityHandle<MaintenanceEntityState>,
-) {
+  entityHandle: EntityHandle<MaintenanceEntityState>;
+}
+
+export function createRouter({
+  service,
+  signalService,
+  catalogClient,
+  notificationClient,
+  authClient,
+  logger,
+  cache,
+  entityHandle,
+}: MaintenanceRouterDeps) {
   /**
    * Resolve user IDs to profile names for a list of updates.
    * Falls back to undefined if the user cannot be found.

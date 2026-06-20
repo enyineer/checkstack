@@ -50,8 +50,23 @@ import {
   opaqueBearerToken,
 } from "./oauth-branch";
 import { checkRateLimit } from "./rate-limit";
+import {
+  createBetterAuthRateLimitStore,
+  pruneExpiredBetterAuthRateLimits,
+} from "./better-auth-rate-limit-store";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+
+// Periodic prune of expired `better_auth_rate_limit` rows. The limiter's
+// `set()` upsert never deletes, so the table grows one row per distinct
+// brute-force key forever. We schedule a recurring queue job (work-queue
+// consumer group) that runs the idempotent DELETE; a single consumer per fire
+// runs it, and the DELETE is shared-DB so even a duplicate fire is harmless.
+const RATE_LIMIT_PRUNE_QUEUE = "auth-rate-limit-prune";
+const RATE_LIMIT_PRUNE_JOB_ID = "auth-rate-limit-prune-sweep";
+const RATE_LIMIT_PRUNE_WORKER_GROUP = "auth-rate-limit-prune-worker";
+/** Run the prune sweep hourly (cron at minute 0). */
+const RATE_LIMIT_PRUNE_CRON = "0 * * * *";
 
 /** Best-effort client IP for the DCR rate-limit key (proxy headers first). */
 function clientIpOf(req: Request): string {
@@ -513,6 +528,7 @@ export default createBackendPlugin({
         auth: coreServices.auth,
         config: coreServices.config,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
+        queueManager: coreServices.queueManager,
       },
       init: async ({
         database,
@@ -522,6 +538,7 @@ export default createBackendPlugin({
         auth: _auth,
         config,
         resourceResolverRegistry,
+        queueManager,
       }) => {
         logger.debug("[auth-backend] Initializing Auth Backend...");
 
@@ -751,6 +768,15 @@ export default createBackendPlugin({
               provider: "pg",
               schema: { ...schema },
             }),
+            // Brute-force limiter MUST be shared across pods. better-auth
+            // defaults to per-pod in-memory storage, which would let N pods each
+            // allow the cap = N x the intended limit (state-and-scale §14.5).
+            // Back it with the shared `better_auth_rate_limit` table instead.
+            // `enabled` is left at better-auth's default (on in production, off
+            // in dev) so local development is unaffected.
+            rateLimit: {
+              customStorage: createBetterAuthRateLimitStore({ db: database }),
+            },
             session: {
               cookieCache: {
                 enabled: true,
@@ -1005,6 +1031,38 @@ export default createBackendPlugin({
             },
           ],
         });
+
+        // Periodically prune expired better-auth rate-limit rows so the shared
+        // `better_auth_rate_limit` table does not grow unbounded (the limiter's
+        // upsert never deletes). Uses the platform's recurring-queue mechanism;
+        // the work-queue consumer group means exactly one pod runs each fire,
+        // and the DELETE is idempotent regardless.
+        const pruneQueue = queueManager.getQueue<Record<string, never>>(
+          RATE_LIMIT_PRUNE_QUEUE,
+        );
+        await pruneQueue.consume(
+          async () => {
+            const { deletedCount } = await pruneExpiredBetterAuthRateLimits({
+              db: database as SafeDatabase<typeof schema>,
+            });
+            if (deletedCount > 0) {
+              logger.debug(
+                `[auth-backend] Pruned ${deletedCount} expired rate-limit row(s).`,
+              );
+            }
+          },
+          {
+            consumerGroup: RATE_LIMIT_PRUNE_WORKER_GROUP,
+            maxRetries: 0, // Idempotent sweep; next tick retries anyway.
+          },
+        );
+        await pruneQueue.scheduleRecurring(
+          {},
+          {
+            jobId: RATE_LIMIT_PRUNE_JOB_ID,
+            cronPattern: RATE_LIMIT_PRUNE_CRON,
+          },
+        );
 
         logger.debug("✅ Auth Backend initialized.");
       },

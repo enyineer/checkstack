@@ -23,6 +23,9 @@
       "path": "../cache-utils"
     },
     {
+      "path": "../command-backend"
+    },
+    {
       "path": "../common"
     },
     {

@@ -7,7 +7,29 @@
  * (grounding, access-scope) are reused by both the attended chat prompt and the
  * unattended headless prompt so the two never drift on what the agent must know.
  */
-import type { AiPermissionMode } from "@checkstack/ai-common";
+import type { AiModelFamily, AiPermissionMode } from "@checkstack/ai-common";
+
+/**
+ * A short CALIBRATION note for capable model families (anthropic / openai). The
+ * prompt's many CAPS / MUST / NEVER imperatives were written defensively for
+ * weaker models; on a capable model that follows instructions literally, that
+ * aggressive language OVER-triggers (over-asking, over-cautious refusals). Rather
+ * than fork every instruction string (a drift hazard), one calibration sentence
+ * tells a capable model to read the emphasis as emphasis, not as an absolute
+ * override — keeping a single source of truth for the actual guidance. `generic`
+ * (and local) deployments get NO note, so the firm wording stands as written.
+ */
+const CAPABLE_FAMILY_CALIBRATION =
+  "Treat the emphatic wording in these instructions (capitalized words, " +
+  '"must", "never") as emphasis on what matters, not as license to over-ask or ' +
+  "refuse adjacent, reasonable requests. Use judgement: follow the intent, ask " +
+  "only when a value is genuinely missing, and keep responses proportional to " +
+  "the task.";
+
+/** Families that get the lighter-touch calibration note (capable instruction followers). */
+function isCapableFamily(family: AiModelFamily): boolean {
+  return family === "anthropic" || family === "openai";
+}
 
 /** The base instruction set: what the assistant is and how it uses tools. */
 export const CHAT_SYSTEM_PROMPT =
@@ -28,36 +50,43 @@ export const CHAT_SYSTEM_PROMPT =
   "engineering-focused.";
 
 /**
- * How to answer "are there any issues?" thoroughly, and how to pass ids.
+ * CROSS-TOOL investigation STRATEGY - how to answer "are there any issues?"
+ * thoroughly across the whole tool set, and the universal id-discipline rule.
  *
  * The model tends to answer from the first source that returns something (e.g.
- * report an SLO breach and stop, missing a failing health check). It also tends
- * to pass a system NAME, an invented id, or a made-up filter value where a tool
- * wants a real id/enum - which fails validation. This block makes both
- * behaviours explicit. Tool names are the provider-safe ids the model is given.
+ * report an SLO breach and stop, missing a failing health check), and to pass an
+ * invented or name-instead-of-id value where a tool wants a real id/enum.
+ *
+ * What lives HERE vs in a tool description: the WHEN-to-call and the
+ * UUID-not-name rule for `system.issues` live in that tool's own `description`
+ * (so they travel with the tool and cannot drift from this prompt). This block
+ * keeps only the guidance no single tool can own: the multi-source strategy (use
+ * the aggregator, but if it is unavailable fan out across these per-domain
+ * tools and do not stop at the first hit), the past/time-bounded special case
+ * that spans two tools, and the id-discipline rule that applies to EVERY tool.
+ * Tool names are the provider-safe ids the model is given.
  */
 export const INVESTIGATION_INSTRUCTION =
   "When the operator asks whether there are issues/problems, what is wrong, or " +
   "what is down/failing/breaching, do NOT answer from a single source. Prefer " +
-  "the system_issues tool, which aggregates ALL current problems (failing " +
-  "health checks, breaching/at-risk SLOs, active anomalies, open incidents, " +
-  "active maintenances, dependency problems) across every system in one call. " +
-  "If it is unavailable, instead check ALL of these and report a consolidated " +
-  "summary: failing health checks (healthcheck_status), breaching or at-risk " +
-  "SLOs (slo_listObjectives), active anomalies (anomaly_list), and open " +
-  "incidents (incident_list). Do not stop after the first source that returns " +
-  "something; an empty result from one source does not mean there are no issues " +
-  "in another. " +
+  "the issue-aggregator tool, which returns ALL current problems across every " +
+  "system in one call. If it is unavailable, instead check ALL of these and " +
+  "report a consolidated summary: failing health checks (healthcheck_status), " +
+  "breaching or at-risk SLOs (slo_listObjectives), active anomalies " +
+  "(anomaly_list), and open incidents (incident_list). Do not stop after the " +
+  "first source that returns something; an empty result from one source does " +
+  "not mean there are no issues in another. " +
   "For a PAST or time-bounded question (what issues a system had between two " +
   "times, when it was failing, its recent unhealthy runs), use " +
   "healthcheck_runHistory with the systemId and a startDate/endDate window (and " +
   "statusFilter to narrow to unhealthy/degraded) - healthcheck_status only " +
   "reports the CURRENT state, not history. " +
-  "Many tools take a systemId, which MUST be a system's UUID: if the operator " +
-  "names a system, first resolve it to its id with the catalog tool, then pass " +
-  "that id. Pass ids and enum filter values EXACTLY as a tool returned or as a " +
-  "tool's description lists them - never invent an id, and never pass a filter " +
-  "value (such as a state) that the tool does not document.";
+  "Whenever a tool takes a systemId or another resource id, it MUST be that " +
+  "resource's UUID: if the operator names a resource, first resolve it to its " +
+  "id with the relevant list/catalog tool, then pass that id. Pass ids and enum " +
+  "filter values EXACTLY as a tool returned or as a tool's description lists " +
+  "them - never invent an id, and never pass a filter value (such as a state) " +
+  "that the tool does not document.";
 
 /**
  * How to build a WORKING automation instead of a plausible-looking one.
@@ -294,32 +323,75 @@ const CHAT_CLARIFY_INSTRUCTION =
   "than a guess, especially when building an automation or proposing a change.";
 
 /**
- * Build the chat system prompt, folding in the reference timezone used to turn
- * an operator's bare "22:00" into an offset-bearing instant and the current
- * time. Prefers the operator's browser zone; falls back to the host/container
- * zone (NOT UTC) when the client sent none or an invalid one. `mode` is the
- * conversation's permission mode, stated so the model narrates the right outcome.
+ * One labelled section of the assembled prompt. Sectioning the prompt (clear
+ * `## headings`, blank-line separation) steers materially better than one
+ * run-on paragraph: it lets the model address the right rule for the task
+ * instead of skimming a dense wall, and keeps the highest-value safety rules
+ * (access scope, investigation) legible near the top rather than buried after
+ * capability prose.
+ */
+function section(heading: string, body: string): string {
+  return `## ${heading}\n${body}`;
+}
+
+/**
+ * Build the chat system prompt as a SECTIONED prompt (clear headings, joined by
+ * blank lines), folding in the reference timezone used to turn an operator's
+ * bare "22:00" into an offset-bearing instant and the current time. Prefers the
+ * operator's browser zone; falls back to the host/container zone (NOT UTC) when
+ * the client sent none or an invalid one. `mode` is the conversation's
+ * permission mode, stated so the model narrates the right outcome.
+ *
+ * `automationTools` injects the detailed automation-building playbook ONLY when
+ * an `automation.*` tool is in this turn's resolved tool set (or the
+ * automation-author skill is active). It is ~600 tokens relevant only when
+ * building an automation, so keeping it out of the always-on prompt on pure read
+ * turns shrinks the fixed prompt and stops diluting the safety rules. The same
+ * guidance also lives in the `automation-author` builtin skill, so a skill-led
+ * automation flow still gets it even on a connection that resolves no automation
+ * tools for the principal.
+ *
+ * Ordering keeps the safety-critical rules (access scope, investigation) near
+ * the TOP, not after capability prose.
  */
 export function buildChatSystemPrompt({
   timeZone,
   now,
   mode,
+  automationTools = false,
+  modelFamily = "generic",
 }: {
   timeZone?: string;
   now?: Date;
   mode: AiPermissionMode;
+  /** Inject the automation-building playbook this turn (an automation tool is in scope). */
+  automationTools?: boolean;
+  /** Declared model family; capable families get the lighter-touch calibration note. */
+  modelFamily?: AiModelFamily;
 }): string {
-  return [
+  const sections: string[] = [
     CHAT_SYSTEM_PROMPT,
-    permissionModeInstruction(mode),
-    INVESTIGATION_INSTRUCTION,
-    AUTOMATION_BUILDING_INSTRUCTION,
-    DOCS_GROUNDING_INSTRUCTION,
-    MEMORY_INSTRUCTION,
-    CHAT_CLARIFY_INSTRUCTION,
-    ACCESS_SCOPE_INSTRUCTION,
-    buildDateTimeContext({ timeZone, now, audience: "operator" }),
-  ].join(" ");
+    section("Permission mode", permissionModeInstruction(mode)),
+    section("Access scope", ACCESS_SCOPE_INSTRUCTION),
+    section("Investigating issues", INVESTIGATION_INSTRUCTION),
+    section("Grounding in docs", DOCS_GROUNDING_INSTRUCTION),
+    section("Memory", MEMORY_INSTRUCTION),
+    section("Asking before guessing", CHAT_CLARIFY_INSTRUCTION),
+  ];
+  if (automationTools) {
+    sections.push(section("Building automations", AUTOMATION_BUILDING_INSTRUCTION));
+  }
+  if (isCapableFamily(modelFamily)) {
+    // Single calibration note for capable families (no per-string fork).
+    sections.push(section("Calibration", CAPABLE_FAMILY_CALIBRATION));
+  }
+  sections.push(
+    section(
+      "Current time",
+      buildDateTimeContext({ timeZone, now, audience: "operator" }),
+    ),
+  );
+  return sections.join("\n\n");
 }
 
 /**
@@ -355,6 +427,12 @@ export const HEADLESS_BASELINE_PROMPT = [
 /**
  * Compose the headless system prompt: the non-negotiable baseline plus any
  * author-supplied role/task framing (appended, not substituted).
+ *
+ * The override is wrapped in an `<author_instructions>` delimiter so an
+ * aggressive or malformed author override has a STRUCTURAL boundary from the
+ * safety baseline: it can never run into a baseline sentence and read as one
+ * instruction, and the model can tell author framing apart from the platform's
+ * non-negotiable boundaries.
  */
 export function buildHeadlessSystemPrompt({
   override,
@@ -362,6 +440,6 @@ export function buildHeadlessSystemPrompt({
   override?: string;
 }): string {
   return override
-    ? `${HEADLESS_BASELINE_PROMPT} ${override}`
+    ? `${HEADLESS_BASELINE_PROMPT}\n\n<author_instructions>\n${override}\n</author_instructions>`
     : HEADLESS_BASELINE_PROMPT;
 }

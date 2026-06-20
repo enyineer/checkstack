@@ -73,7 +73,7 @@ const scriptResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -81,8 +81,9 @@ const scriptResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Arbitrary integer with no stable distribution; the pass/fail signal
+    // it carries is already covered by `success`. Keep chartable only.
+    "x-anomaly-enabled": false,
   }).optional(),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
@@ -93,8 +94,9 @@ const scriptResultSchema = healthResultSchema({
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Always implies `success: false`; alerting here as well double-fires
+    // on the same incident. Keep chartable, let `success` carry the alert.
+    "x-anomaly-enabled": false,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -113,6 +115,10 @@ const scriptAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -120,18 +126,23 @@ const scriptAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw per-bucket count is the absolute twin of `successRate`; it scales
+    // with bucket volume and has no stable baseline. Prefer the percent
+    // form (`successRate`) for alerting and keep this chartable only.
+    "x-anomaly-enabled": false,
   }),
   timeoutCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Timeouts",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Same as errorCount: a volume-scaled absolute twin of the failure
+    // rate already expressed by `successRate`. Chartable only.
+    "x-anomaly-enabled": false,
   }),
 };
 

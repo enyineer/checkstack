@@ -27,6 +27,7 @@ import {
   AlertDescription,
   usePerformance,
   useInitOnceForKey,
+  cn,
 } from "@checkstack/ui";
 import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
 import {
@@ -60,6 +61,21 @@ import type { ChatMessage, AssistantPart } from "../lib/chat-state";
 import { toolActivityLabel } from "../lib/tool-activity-label";
 
 /**
+ * Seed prompts for the chat empty state. They double as orientation: the first
+ * group teaches Checkstack's core concepts ("Explain SLOs", "How do I add a
+ * system?") so a new operator can use the assistant to learn the product, not
+ * just to run tasks. The second group keeps the original task-style prompts.
+ * Clicking one drops it into the composer (it is not auto-sent), so the operator
+ * can edit before sending.
+ */
+const CHAT_EXAMPLE_PROMPTS = [
+  "Explain SLOs and how they relate to health checks",
+  "How do I add a system to the catalog?",
+  "Summarize the open incidents",
+  "Draft an automation that pages on-call when the API health check fails",
+] as const;
+
+/**
  * A single tool-call status line, rendered at the point in the turn where the
  * model invoked the tool: a running spinner, a done check, or an error. The spin
  * is disabled on low-power devices (see performance rule) - it falls back to a
@@ -78,9 +94,12 @@ function ToolStatusLine({
   const label = toolActivityLabel(part.toolName);
   return (
     <div
-      className={`flex items-center gap-1.5 text-xs ${
-        isError ? "text-destructive" : "text-muted-foreground"
-      }`}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs",
+        isError
+          ? "border-status-down/30 bg-status-down/10 text-status-down"
+          : "border-border/50 bg-surface-inset text-muted-foreground",
+      )}
     >
       {part.status === "running" ? (
         isLowPower ? (
@@ -91,7 +110,7 @@ function ToolStatusLine({
       ) : isError ? (
         <AlertCircle className="h-3 w-3 shrink-0" />
       ) : (
-        <Check className="h-3 w-3 shrink-0" />
+        <Check className="h-3 w-3 shrink-0 text-status-ok" />
       )}
       {/* Raw tool id kept in the tooltip for operators who want it. */}
       <span className="font-medium" title={part.toolName}>
@@ -122,8 +141,9 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        {/* User text stays plain, preserving newlines. */}
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
+        {/* User text stays plain, preserving newlines. The mirrored top-right
+            corner anchors the bubble as "from you". */}
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground shadow-[0_1px_2px_hsl(var(--foreground)/0.06),0_4px_12px_-8px_hsl(var(--foreground)/0.18)]">
           {message.text}
         </div>
       </div>
@@ -152,10 +172,16 @@ function MessageRow({
     stepCount > 0 ? `Working... (step ${stepCount})` : "Thinking...";
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-start gap-2">
+      {/* Leading assistant glyph so assistant turns are instantly scannable in
+          a long transcript. Static (no animation) - safe on low-power. */}
+      <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Sparkles className="h-3.5 w-3.5" />
+      </div>
       {/* Assistant parts render in order so text segments break between tool
-          calls and each tool call (and its result/error) shows in place. */}
-      <div className="max-w-[80%] space-y-2 rounded-lg bg-muted px-3 py-2 text-sm">
+          calls and each tool call (and its result/error) shows in place. The
+          softened top-left corner anchors the bubble as "from the assistant". */}
+      <div className="max-w-[80%] space-y-2 rounded-2xl rounded-tl-sm border border-border/60 bg-gradient-to-b from-surface-2 to-surface px-3.5 py-2 text-sm shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_8px_24px_-16px_hsl(var(--foreground)/0.12)]">
         {message.parts.map((part, index) => {
           if (part.kind === "text") {
             // Assistant text renders markdown so **bold**, lists, and code
@@ -508,38 +534,53 @@ export function ChatPage() {
             <Button
               size="sm"
               variant="outline"
-              className="w-full"
+              className="w-full justify-start"
               onClick={startNewConversation}
             >
-              <Plus className="w-3.5 h-3.5 mr-1" /> New chat
+              <span className="mr-2 flex size-5 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Plus className="h-3.5 w-3.5" />
+              </span>
+              New chat
             </Button>
-            {conversations.map((c) => (
-              <div
-                key={c.id}
-                className={`group flex items-center gap-1 rounded px-2 py-1 hover:bg-muted ${
-                  c.id === conversationId ? "bg-muted font-medium" : ""
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => openConversation(c.id)}
-                  className="flex-1 text-left text-sm truncate"
+            {conversations.map((c) => {
+              const active = c.id === conversationId;
+              return (
+                <div
+                  key={c.id}
+                  className={cn(
+                    "group relative flex items-center gap-1 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-inset",
+                    active && "bg-surface-inset font-medium",
+                  )}
                 >
-                  {c.title ?? "Untitled chat"}
-                </button>
-                <button
-                  type="button"
-                  aria-label="Delete chat"
-                  title="Delete"
-                  onClick={() =>
-                    setPendingDelete({ id: c.id, title: c.title })
-                  }
-                  className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+                  {/* Active conversation: a thin left accent stripe so the open
+                      chat is unmistakable beyond a faint fill. */}
+                  {active ? (
+                    <span
+                      className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                      aria-hidden
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => openConversation(c.id)}
+                    className="flex-1 truncate text-left text-sm"
+                  >
+                    {c.title ?? "Untitled chat"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete chat"
+                    title="Delete"
+                    onClick={() =>
+                      setPendingDelete({ id: c.id, title: c.title })
+                    }
+                    className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus:opacity-100 group-hover:opacity-100"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -608,7 +649,21 @@ export function ChatPage() {
               <EmptyState
                 icon={<Sparkles className="w-8 h-8" />}
                 title="Ask the assistant"
-                description="Try: 'Summarize the open incidents' or 'Draft an automation that pages on-call when the API health check fails.'"
+                description="Ask how Checkstack works or have it do a task for you. Pick a prompt to get started - you can edit it before sending."
+                actions={
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {CHAT_EXAMPLE_PROMPTS.map((prompt) => (
+                      <Button
+                        key={prompt}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setInput(prompt)}
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
+                }
               />
             ) : (
               messages.map((m) => (
@@ -736,7 +791,7 @@ export function ChatPage() {
                     onClick={() => setSkillBrowserOpen(true)}
                     title={
                       activeSkill
-                        ? `Skill active: ${activeSkill.name} — change or turn off`
+                        ? `Skill active: ${activeSkill.name} - change or turn off`
                         : "Browse skills (reusable prompts) and apply one"
                     }
                     aria-label="Browse skills"

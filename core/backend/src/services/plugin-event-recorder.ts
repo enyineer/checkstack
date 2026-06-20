@@ -76,7 +76,7 @@ export class PluginEventRecorder {
       action: row.action as InstallEventAction,
       phase: row.phase as InstallEventPhase,
       status: row.status as InstallEventStatus,
-      source: row.source as PluginSource | null,
+      source: row.source,
       error: row.error,
       instanceId: row.instanceId,
       userId: row.userId,

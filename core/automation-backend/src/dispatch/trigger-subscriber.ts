@@ -18,7 +18,11 @@ import type {
   HookSubscribeOptions,
   Logger,
 } from "@checkstack/backend-api";
-import { SYSTEM_ACTOR, type Actor } from "@checkstack/common";
+import {
+  SYSTEM_ACTOR,
+  extractErrorMessage,
+  type Actor,
+} from "@checkstack/common";
 
 import type { AutomationStore } from "../automation-store";
 import { evaluate, parseCondition } from "@checkstack/template-engine";
@@ -143,7 +147,7 @@ export async function setupTriggerSubscriptions(
           await teardown();
         } catch (error) {
           args.logger.warn(
-            `Failed to tear down trigger subscription: ${(error as Error).message}`,
+            `Failed to tear down trigger subscription: ${extractErrorMessage(error)}`,
           );
         }
       }
@@ -279,7 +283,7 @@ async function wakeWaitingRuns(args: HandleTriggerFiringArgs): Promise<void> {
         if (!pass) continue;
       } catch (error) {
         args.deps.logger.warn(
-          `wait_for_trigger filter failed to evaluate; skipping resume: ${(error as Error).message}`,
+          `wait_for_trigger filter failed to evaluate; skipping resume: ${extractErrorMessage(error)}`,
         );
         continue;
       }
@@ -365,7 +369,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       );
     } catch (error) {
       args.deps.logger.warn(
-        `Trigger config gate threw; skipping firing: ${(error as Error).message}`,
+        `Trigger config gate threw; skipping firing: ${extractErrorMessage(error)}`,
       );
       return;
     }
@@ -400,7 +404,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       );
     } catch (error) {
       args.deps.logger.warn(
-        `Trigger filter failed to evaluate; skipping firing: ${(error as Error).message}`,
+        `Trigger filter failed to evaluate; skipping firing: ${extractErrorMessage(error)}`,
       );
       return;
     }
@@ -437,7 +441,7 @@ async function maybeStartRun(args: MaybeStartRunArgs): Promise<void> {
       });
     } catch (error) {
       args.deps.logger.warn(
-        `Trigger window gate failed; skipping firing: ${(error as Error).message}`,
+        `Trigger window gate failed; skipping firing: ${extractErrorMessage(error)}`,
       );
       return;
     }
@@ -683,7 +687,7 @@ async function resolvePartitionKey(
     return key.length > 0 ? key : args.contextKey;
   } catch (error) {
     args.deps.logger.warn(
-      `Trigger window partitionBy failed to evaluate; falling back to the built-in context key: ${(error as Error).message}`,
+      `Trigger window partitionBy failed to evaluate; falling back to the built-in context key: ${extractErrorMessage(error)}`,
     );
     return args.contextKey;
   }

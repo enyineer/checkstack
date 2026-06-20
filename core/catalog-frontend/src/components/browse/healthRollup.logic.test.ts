@@ -3,8 +3,10 @@ import type { CatalogHealthStatuses } from "@checkstack/catalog-common";
 import {
   computeGroupRollup,
   matchesHealth,
+  resolveSectionTone,
   resolveSystemHealth,
 } from "./healthRollup.logic";
+import type { GroupHealthRollup } from "./healthRollup.logic";
 
 describe("resolveSystemHealth", () => {
   test("returns the reported status", () => {
@@ -122,5 +124,52 @@ describe("matchesHealth", () => {
     expect(
       matchesHealth({ systemId: "h", health: "unknown", statuses: undefined }),
     ).toBe(true);
+  });
+});
+
+describe("resolveSectionTone", () => {
+  const base: GroupHealthRollup = {
+    worst: "unknown",
+    degraded: 0,
+    unhealthy: 0,
+    allHealthy: false,
+    hasData: false,
+  };
+
+  test("no reported data → unknown", () => {
+    expect(resolveSectionTone(base)).toBe("unknown");
+  });
+
+  test("all members healthy → ok", () => {
+    expect(
+      resolveSectionTone({ ...base, hasData: true, allHealthy: true }),
+    ).toBe("ok");
+  });
+
+  test("any unhealthy member → down (worst wins over degraded)", () => {
+    expect(
+      resolveSectionTone({
+        ...base,
+        hasData: true,
+        unhealthy: 1,
+        degraded: 2,
+        worst: "unhealthy",
+      }),
+    ).toBe("down");
+  });
+
+  test("degraded but no unhealthy → warn", () => {
+    expect(
+      resolveSectionTone({
+        ...base,
+        hasData: true,
+        degraded: 1,
+        worst: "degraded",
+      }),
+    ).toBe("warn");
+  });
+
+  test("mixed healthy + unknown with no failures → unknown", () => {
+    expect(resolveSectionTone({ ...base, hasData: true })).toBe("unknown");
   });
 });

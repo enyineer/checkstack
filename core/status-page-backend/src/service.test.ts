@@ -8,6 +8,7 @@ import type {
 } from "./widget-registry";
 import type { StatusPageRow } from "./schema";
 import * as schema from "./schema";
+import { BUILTIN_WIDGET_IDS } from "@checkstack/status-page-common";
 
 /** Minimal chainable fake of the drizzle query used by resolvePublished. */
 function fakeDb(row: StatusPageRow | undefined): SafeDatabase<typeof schema> {
@@ -195,6 +196,66 @@ describe("resolvePublished — isolation + visibility", () => {
       isAuthenticated: false,
     });
     expect(result?.blocks).toEqual([]);
+  });
+});
+
+describe("resolvePublished — overallStatus rollup", () => {
+  const bannerWidget = (status: string) =>
+    widget({
+      id: "banner",
+      qualifiedId: BUILTIN_WIDGET_IDS.banner,
+      dtoSchema: z.object({ status: z.string(), title: z.string() }),
+      resolvePublic: async () => ({ status, title: "x" }),
+    });
+
+  test("worst-status-wins across resolved blocks", async () => {
+    const svc = service({
+      row: row({
+        publishedLayout: [
+          { id: "b1", type: BUILTIN_WIDGET_IDS.banner, config: {} },
+          { id: "b2", type: BUILTIN_WIDGET_IDS.banner, config: {} },
+        ],
+      }),
+      // Both banners share the same qualifiedId; the registry maps that id to a
+      // single widget, so register the worse one to assert it wins.
+      widgets: [bannerWidget("major_outage")],
+    });
+    const result = await svc.resolvePublished({
+      slug: "acme",
+      isAuthenticated: false,
+    });
+    expect(result?.overallStatus.status).toBe("major_outage");
+    expect(result?.overallStatus.label).toBe("Major outage");
+  });
+
+  test("operational when the only status signal is operational", async () => {
+    const svc = service({
+      row: row({
+        publishedLayout: [
+          { id: "b1", type: BUILTIN_WIDGET_IDS.banner, config: {} },
+        ],
+      }),
+      widgets: [bannerWidget("operational")],
+    });
+    const result = await svc.resolvePublished({
+      slug: "acme",
+      isAuthenticated: false,
+    });
+    expect(result?.overallStatus.status).toBe("operational");
+  });
+
+  test("unknown when no widget contributes a status", async () => {
+    const svc = service({
+      row: row({
+        publishedLayout: [{ id: "b1", type: "test.ok", config: {} }],
+      }),
+      widgets: [widget({ id: "ok" })],
+    });
+    const result = await svc.resolvePublished({
+      slug: "acme",
+      isAuthenticated: false,
+    });
+    expect(result?.overallStatus.status).toBe("unknown");
   });
 });
 

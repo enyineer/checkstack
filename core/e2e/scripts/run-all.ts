@@ -21,10 +21,28 @@
  *   bun --env-file=../../.env scripts/run-all.ts [pattern]
  *   pattern: optional substring filter on spec filenames (e.g. "catalog").
  * Exits non-zero if any file fails.
+ *
+ * Sharding (for a CI matrix): set CHECKSTACK_E2E_SHARD_TOTAL to the number of
+ * shards and CHECKSTACK_E2E_SHARD_INDEX to this shard's index. Indices are
+ * 1-based to match GitHub Actions' `strategy.matrix` 1-based convention, so for
+ * three shards you set INDEX to 1, 2, and 3. Specs are split round-robin over
+ * the alphabetically-sorted list (spec `n` runs on shard `n % total`), which
+ * keeps file counts balanced even when one area has many more specs than
+ * another. Sharding composes with the optional pattern filter (the filter is
+ * applied first, then the shard slice). Example matrix:
+ *
+ *   strategy:
+ *     matrix:
+ *       shard: [1, 2, 3]
+ *   env:
+ *     CHECKSTACK_E2E_SHARD_TOTAL: 3
+ *     CHECKSTACK_E2E_SHARD_INDEX: ${{ matrix.shard }}
+ *   run: bun --env-file=../../.env scripts/run-all.ts
  */
 import { SQL } from "bun";
 import { readdirSync } from "node:fs";
 import path from "node:path";
+import { selectShard } from "./shard";
 
 const E2E_DB_NAME = process.env.CHECKSTACK_E2E_DB_NAME ?? "checkstack_e2e";
 const e2eDir = path.resolve(import.meta.dir, "..");
@@ -76,14 +94,47 @@ async function drainE2eConnections(): Promise<void> {
   }
 }
 
-const specs = readdirSync(testsDir)
+/**
+ * Read the shard config from the environment. Returns null when neither var is
+ * set (sharding off); throws if exactly one is set, since a half-configured
+ * shard would silently run the whole suite on every matrix leg.
+ */
+function readShardConfig(): { shardIndex: number; shardTotal: number } | null {
+  const rawIndex = process.env.CHECKSTACK_E2E_SHARD_INDEX;
+  const rawTotal = process.env.CHECKSTACK_E2E_SHARD_TOTAL;
+  if (rawIndex === undefined && rawTotal === undefined) return null;
+  if (rawIndex === undefined || rawTotal === undefined) {
+    throw new Error(
+      "Set BOTH CHECKSTACK_E2E_SHARD_INDEX and CHECKSTACK_E2E_SHARD_TOTAL, or neither.",
+    );
+  }
+  return { shardIndex: Number(rawIndex), shardTotal: Number(rawTotal) };
+}
+
+const allSpecs = readdirSync(testsDir)
   .filter((f) => f.endsWith(".spec.ts"))
   .filter((f) => !filter || f.includes(filter))
   .toSorted();
 
+const shard = readShardConfig();
+const specs = shard
+  ? selectShard({
+      items: allSpecs,
+      shardIndex: shard.shardIndex,
+      shardTotal: shard.shardTotal,
+    })
+  : allSpecs;
+
 if (specs.length === 0) {
   throw new Error(
-    `No spec files found in ${testsDir}${filter ? ` matching "${filter}"` : ""}`,
+    `No spec files found in ${testsDir}${filter ? ` matching "${filter}"` : ""}` +
+      `${shard ? ` for shard ${shard.shardIndex}/${shard.shardTotal}` : ""}`,
+  );
+}
+
+if (shard) {
+  console.log(
+    `Shard ${shard.shardIndex}/${shard.shardTotal}: ${specs.length} of ${allSpecs.length} spec file(s).`,
   );
 }
 

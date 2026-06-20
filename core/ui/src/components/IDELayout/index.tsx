@@ -124,7 +124,7 @@ export const IDEStatusBar: React.FC<IDEStatusBarProps> = ({
   if (issues.length === 0) {
     return (
       <div className="flex items-center gap-2 px-4 py-2 mt-2 rounded-md border bg-card text-xs text-muted-foreground">
-        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
         <span>No issues found</span>
       </div>
     );
@@ -138,7 +138,7 @@ export const IDEStatusBar: React.FC<IDEStatusBarProps> = ({
           {issues.length} {issues.length === 1 ? "issue" : "issues"}
         </span>
       </div>
-      <div className="flex items-center gap-2 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-2">
         {issues.map((issue, i) => (
           <button
             key={`${issue.nodeId}-${i}`}
@@ -181,9 +181,9 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
 }) => {
   return (
     <>
-      <div className="flex flex-col lg:flex-row gap-0 min-h-[60vh] border rounded-lg bg-card overflow-hidden">
+      <div className="flex flex-col md:flex-row gap-0 min-h-[60vh] border rounded-lg bg-card overflow-hidden">
         {/* Explorer Tree — Left Panel */}
-        <div className="w-full lg:w-64 shrink-0 border-b lg:border-b-0 lg:border-r bg-muted/30">
+        <div className="w-full md:w-64 shrink-0 border-b md:border-b-0 md:border-r bg-muted/30">
           {tree}
         </div>
 

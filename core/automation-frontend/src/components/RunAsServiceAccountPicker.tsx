@@ -11,10 +11,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  InfoBanner,
-  InfoBannerIcon,
-  InfoBannerContent,
-  InfoBannerDescription,
+  Alert,
+  AlertIcon,
+  AlertContent,
+  AlertDescription,
   EmptyState,
   Button,
 } from "@checkstack/ui";
@@ -143,12 +143,12 @@ export const RunAsServiceAccountPicker: React.FC<
           }
         />
       ) : (
-        <InfoBanner variant="info">
-          <InfoBannerIcon>
+        <Alert variant="info">
+          <AlertIcon>
             <ShieldCheck className="h-4 w-4" />
-          </InfoBannerIcon>
-          <InfoBannerContent>
-            <InfoBannerDescription>
+          </AlertIcon>
+          <AlertContent>
+            <AlertDescription>
               A service account is an application the automation runs as. It
               executes with that account's permissions (assigned via roles), so
               picking one is required.{" "}
@@ -161,9 +161,9 @@ export const RunAsServiceAccountPicker: React.FC<
                 Learn more
                 <ExternalLink className="h-3 w-3" />
               </a>
-            </InfoBannerDescription>
-          </InfoBannerContent>
-        </InfoBanner>
+            </AlertDescription>
+          </AlertContent>
+        </Alert>
       )}
     </div>
   );

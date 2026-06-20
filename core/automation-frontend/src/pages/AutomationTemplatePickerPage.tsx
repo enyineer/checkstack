@@ -15,10 +15,6 @@ import {
 } from "@checkstack/automation-common";
 import {
   PageLayout,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Button,
   Badge,
   DynamicIcon,
@@ -75,25 +71,25 @@ const AutomationTemplatePickerContent: React.FC = () => {
       allowed={canManage}
     >
       <div className="space-y-6">
-        <Card>
-          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-                <FilePlus2 className="h-5 w-5 text-muted-foreground" />
+        <div className="relative flex flex-col gap-3 overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-surface-inset">
+              <FilePlus2 className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div>
+              <div className="font-semibold text-foreground">
+                Blank automation
               </div>
-              <div>
-                <div className="font-medium">Blank automation</div>
-                <div className="text-sm text-muted-foreground">
-                  Start with an empty editor and add triggers and actions yourself.
-                </div>
+              <div className="text-sm text-muted-foreground">
+                Start with an empty editor and add triggers and actions yourself.
               </div>
             </div>
-            <Button onClick={startBlank}>
-              Start blank
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
+          </div>
+          <Button onClick={startBlank}>
+            Start blank
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
 
         {query.isLoading ? (
           <div className="p-6">
@@ -109,20 +105,20 @@ const AutomationTemplatePickerContent: React.FC = () => {
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {items.map((template) => (
-                  <Card
+                  <div
                     key={template.id}
-                    className="flex h-full cursor-pointer flex-col transition-colors hover:border-primary"
+                    className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl"
                     onClick={() => openTemplate(template)}
                   >
-                    <CardHeader className="flex-row items-start gap-3 space-y-0">
+                    <div className="flex items-start gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
                         <DynamicIcon name={template.icon} className="h-5 w-5" />
                       </div>
-                      <CardTitle className="text-base leading-snug">
+                      <h3 className="text-base font-semibold leading-snug text-foreground">
                         {template.name}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-1 flex-col justify-between gap-3">
+                      </h3>
+                    </div>
+                    <div className="mt-3 flex flex-1 flex-col justify-between gap-3">
                       <p className="text-sm text-muted-foreground">
                         {template.description}
                       </p>
@@ -130,13 +126,13 @@ const AutomationTemplatePickerContent: React.FC = () => {
                         <Badge variant="secondary" className="font-normal">
                           {template.ownerPluginId}
                         </Badge>
-                        <span className="flex items-center text-sm font-medium text-primary">
+                        <span className="flex items-center text-sm font-medium text-primary transition-colors group-hover:text-primary">
                           Use template
-                          <ArrowRight className="ml-1 h-4 w-4" />
+                          <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                         </span>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>

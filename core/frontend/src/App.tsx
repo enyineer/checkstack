@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import React, { useMemo, useState, useSyncExternalStore } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -7,7 +7,7 @@ import {
   Outlet,
   useNavigate,
 } from "react-router-dom";
-import { Menu } from "lucide-react";
+import { Menu, AlertTriangle } from "lucide-react";
 import type { AccessRule } from "@checkstack/common";
 import {
   ApiProvider,
@@ -44,11 +44,18 @@ import {
   PerformanceProvider,
   usePerformance,
   cn,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
+  Button,
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { SignalAutoInvalidator } from "./components/SignalAutoInvalidator";
 import { SessionProvider } from "@checkstack/auth-frontend";
 import { Sidebar } from "./components/Sidebar";
+import { HelpMenu } from "./components/HelpMenu";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
 import { AnnouncementBanner } from "@checkstack/announcement-frontend";
@@ -100,11 +107,84 @@ const ROUTE_SUSPENSE_FALLBACK = (
     <LoadingSpinner />
   </div>
 );
-const ROUTE_ERROR_FALLBACK = (
-  <div className="h-full flex items-center justify-center p-8 text-sm text-muted-foreground">
-    This page failed to load. Try reloading.
+
+/**
+ * Friendly, actionable fallback for a hard failure (a route page that throws /
+ * fails to load, or a render error in the shell itself). Mirrors the look of
+ * `@checkstack/ui`'s `QueryErrorState` — an `error`-variant Alert with a clear
+ * message — but the recovery action reloads the whole page rather than retrying
+ * a single query, since at this level the failed module/render can't be retried
+ * in place.
+ */
+const ErrorFallback: React.FC<{ title: string; description: string }> = ({
+  title,
+  description,
+}) => (
+  <div className="h-full flex items-center justify-center p-8">
+    <div className="w-full max-w-md">
+      <Alert variant="error">
+        <AlertIcon>
+          <AlertTriangle className="h-4 w-4" />
+        </AlertIcon>
+        <AlertContent>
+          <AlertTitle>{title}</AlertTitle>
+          <AlertDescription>{description}</AlertDescription>
+        </AlertContent>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => globalThis.location.reload()}
+          className="shrink-0"
+        >
+          Reload page
+        </Button>
+      </Alert>
+    </div>
   </div>
 );
+
+const ROUTE_ERROR_FALLBACK = (
+  <ErrorFallback
+    title="This page failed to load"
+    description="Something went wrong while loading this page. Reloading usually fixes it."
+  />
+);
+
+/**
+ * Top-level error boundary for the app shell. A render error OUTSIDE a plugin
+ * contribution (e.g. in the chrome, a slot, or a provider) would otherwise
+ * white-screen the whole app; this contains it to a friendly, reloadable
+ * fallback. Per-contribution failures are still caught closer to the source by
+ * `LazyContribution`'s `PluginErrorBoundary`.
+ */
+class ShellErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state: { hasError: boolean } = { hasError: false };
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("❌ Checkstack shell failed to render:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen bg-surface">
+          <ErrorFallback
+            title="Something went wrong"
+            description="The app hit an unexpected error. Reloading usually fixes it."
+          />
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * Component that registers global keyboard shortcuts for all commands.
@@ -188,7 +268,7 @@ function AppShellLayout() {
           <header
             className={cn(
               "shrink-0 p-4 shadow-sm border-b border-border z-40 relative",
-              isLowPower ? "bg-card" : "bg-card/80 backdrop-blur-sm",
+              isLowPower ? "bg-surface-2" : "bg-surface-2/80 backdrop-blur-sm",
             )}
           >
             <div className="flex items-center justify-between gap-4">
@@ -213,6 +293,7 @@ function AppShellLayout() {
                 <ExtensionSlot slot={NavbarCenterSlot} />
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                <HelpMenu />
                 <ExtensionSlot slot={NavbarRightSlot} />
               </div>
             </div>
@@ -345,7 +426,7 @@ function AppWithApis() {
   // Show spinner while fetching runtime config and probing baseUrl.
   if (isConfigLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
+      <div className="h-screen flex items-center justify-center bg-surface">
         <LoadingSpinner />
       </div>
     );
@@ -362,7 +443,7 @@ function AppWithApis() {
         : "http://localhost:3000";
 
     return (
-      <div className="h-screen flex items-center justify-center bg-background p-8">
+      <div className="h-screen flex items-center justify-center bg-surface p-8">
         <div className="max-w-lg w-full rounded-xl border border-destructive/50 bg-destructive/10 p-8 space-y-4 text-center">
           <div className="text-4xl">⚠️</div>
           <h1 className="text-xl font-bold text-destructive">
@@ -424,9 +505,11 @@ function AppWithApis() {
 
 function App() {
   return (
-    <RuntimeConfigProvider>
-      <AppWithApis />
-    </RuntimeConfigProvider>
+    <ShellErrorBoundary>
+      <RuntimeConfigProvider>
+        <AppWithApis />
+      </RuntimeConfigProvider>
+    </ShellErrorBoundary>
   );
 }
 

@@ -16,10 +16,7 @@ import {
 } from "lucide-react";
 import {
   PageLayout,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
+  cn,
   Button,
   Dialog,
   DialogContent,
@@ -35,6 +32,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  ResponsiveTable,
+  MobileCardList,
   DynamicForm,
   Input,
   Label,
@@ -57,6 +56,10 @@ import {
   integrationRoutes,
   type ProviderConnectionRedacted,
 } from "@checkstack/integration-common";
+import {
+  connectionToneStyles,
+  presentConnectionStatus,
+} from "../components/connectionStatus.logic";
 
 export const ProviderConnectionsPage = () => {
   const { providerId } = useParams<{ providerId: string }>();
@@ -104,6 +107,9 @@ export const ProviderConnectionsPage = () => {
 
   const loading = providersLoading || connectionsLoading;
   const provider = providers.find((p) => p.qualifiedId === providerId);
+  // Provider glyph used as the leading identity chip on each connection row.
+  const providerIcon: LucideIconName =
+    (provider?.icon as LucideIconName | undefined) ?? "Settings2";
 
   // Try to surface a mutation error INLINE on the offending form fields. The
   // backend attaches structured zod issues (field path + message) to the
@@ -352,22 +358,23 @@ export const ProviderConnectionsPage = () => {
           }
         />
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          <div className="flex items-center gap-2 border-b border-border/60 p-[var(--d-pad)]">
+            <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
               <DynamicIcon
-                name={
-                  (provider?.icon as LucideIconName | undefined) ?? "Settings2"
-                }
-                className="h-5 w-5"
+                name={providerIcon}
+                className="h-4 w-4"
               />
+            </span>
+            <span className="text-sm font-semibold text-foreground">
               Connections
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </span>
+          </div>
+
+          <ResponsiveTable>
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="border-border/60">
                   <TableHead>Name</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Status</TableHead>
@@ -380,62 +387,94 @@ export const ProviderConnectionsPage = () => {
                   const isTesting = testingId === conn.id;
 
                   return (
-                    <TableRow key={conn.id}>
-                      <TableCell className="font-medium">{conn.name}</TableCell>
-                      <TableCell className="text-muted-foreground">
+                    <TableRow
+                      key={conn.id}
+                      className="border-border/60 transition-colors hover:bg-surface-inset"
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
+                            <DynamicIcon
+                              name={providerIcon}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                          <span className="font-medium text-foreground">
+                            {conn.name}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
                         {new Date(conn.createdAt).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        {testResult && (
-                          <div className="flex items-center gap-1">
-                            {testResult.success ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-red-600" />
-                            )}
-                            <span className="text-sm">
-                              {testResult.success ? "Connected" : "Failed"}
-                            </span>
-                          </div>
-                        )}
+                        <ConnectionStatus testResult={testResult} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleTest(conn.id)}
-                            disabled={isTesting}
-                          >
-                            {isTesting ? (
-                              <Spinner size="sm" />
-                            ) : (
-                              <TestTube2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(conn)}
-                          >
-                            <Settings2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openDeleteConfirm(conn)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
+                        <ConnectionActions
+                          connection={conn}
+                          isTesting={isTesting}
+                          onTest={handleTest}
+                          onEdit={openEditDialog}
+                          onDelete={openDeleteConfirm}
+                        />
                       </TableCell>
                     </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+          </ResponsiveTable>
+
+          <MobileCardList className="p-[var(--d-pad)]">
+            {connections.map((conn) => {
+              const testResult = testResults[conn.id];
+              const isTesting = testingId === conn.id;
+              const { tone } = presentConnectionStatus({ testResult });
+              const { accent } = connectionToneStyles({ tone });
+
+              return (
+                <div
+                  key={conn.id}
+                  className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+                >
+                  <span
+                    className={cn("absolute inset-y-0 left-0 w-1", accent)}
+                    aria-hidden
+                  />
+                  <div className="flex items-start justify-between gap-2 pl-2">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
+                        <DynamicIcon
+                          name={providerIcon}
+                          className="h-4 w-4"
+                        />
+                      </span>
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate font-medium text-foreground">
+                          {conn.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(conn.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                    <ConnectionStatus testResult={testResult} />
+                  </div>
+                  <div className="mt-3 flex justify-end pl-2">
+                    <ConnectionActions
+                      connection={conn}
+                      isTesting={isTesting}
+                      onTest={handleTest}
+                      onEdit={openEditDialog}
+                      onDelete={openDeleteConfirm}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </MobileCardList>
+        </div>
       )}
 
       {/* Create Dialog */}
@@ -539,3 +578,76 @@ export const ProviderConnectionsPage = () => {
     </PageLayout>
   );
 };
+
+interface ConnectionStatusProps {
+  testResult: { success: boolean; message?: string } | undefined;
+}
+
+/**
+ * Shared connection status indicator, rendered in both the desktop table cell
+ * and the mobile card. Always meaningful via the colorblind-safe triad: a
+ * resting "Untested" pill before any test runs, "Connected" on success, and
+ * "Failed" on failure - each multi-encoded with a status dot plus (for the
+ * tested states) the existing CheckCircle2 / XCircle glyph.
+ */
+const ConnectionStatus = ({ testResult }: ConnectionStatusProps) => {
+  const { label, tone } = presentConnectionStatus({ testResult });
+  const { pill, dot } = connectionToneStyles({ tone });
+
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        pill,
+      )}
+    >
+      {testResult ? (
+        testResult.success ? (
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        ) : (
+          <XCircle className="h-3.5 w-3.5" />
+        )
+      ) : (
+        <span className={cn("size-1.5 rounded-full", dot)} aria-hidden />
+      )}
+      {label}
+    </span>
+  );
+};
+
+interface ConnectionActionsProps {
+  connection: ProviderConnectionRedacted;
+  isTesting: boolean;
+  onTest: (connectionId: string) => void;
+  onEdit: (connection: ProviderConnectionRedacted) => void;
+  onDelete: (connection: ProviderConnectionRedacted) => void;
+}
+
+/**
+ * Shared per-connection action buttons, rendered in both the desktop table
+ * cell and the mobile card so action availability stays consistent.
+ */
+const ConnectionActions = ({
+  connection,
+  isTesting,
+  onTest,
+  onEdit,
+  onDelete,
+}: ConnectionActionsProps) => (
+  <div className="flex items-center justify-end gap-2">
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => onTest(connection.id)}
+      disabled={isTesting}
+    >
+      {isTesting ? <Spinner size="sm" /> : <TestTube2 className="h-4 w-4" />}
+    </Button>
+    <Button variant="ghost" size="sm" onClick={() => onEdit(connection)}>
+      <Settings2 className="h-4 w-4" />
+    </Button>
+    <Button variant="ghost" size="sm" onClick={() => onDelete(connection)}>
+      <Trash2 className="h-4 w-4 text-destructive" />
+    </Button>
+  </div>
+);

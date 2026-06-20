@@ -12,6 +12,8 @@ import {
   serializeFormData,
   parseFormData,
   detectEditorType,
+  coerceNumberInput,
+  isArrayItemNonTrivial,
   type EditorType,
 } from "./utils";
 
@@ -503,5 +505,95 @@ describe("isFieldHiddenByCondition", () => {
 
   it("returns false for empty conditions object", () => {
     expect(isFieldHiddenByCondition({}, { authMode: "cloud" })).toBe(false);
+  });
+});
+
+describe("coerceNumberInput", () => {
+  it("maps an empty input to undefined (not NaN)", () => {
+    expect(coerceNumberInput({ raw: "", isInteger: false })).toBeUndefined();
+    expect(coerceNumberInput({ raw: "", isInteger: true })).toBeUndefined();
+  });
+
+  it("maps a whitespace-only input to undefined", () => {
+    expect(coerceNumberInput({ raw: "   ", isInteger: false })).toBeUndefined();
+  });
+
+  it("coerces a valid float", () => {
+    expect(coerceNumberInput({ raw: "1.5", isInteger: false })).toBe(1.5);
+  });
+
+  it("coerces a valid integer", () => {
+    expect(coerceNumberInput({ raw: "42", isInteger: true })).toBe(42);
+  });
+
+  it("truncates floats for integer fields via parseInt", () => {
+    expect(coerceNumberInput({ raw: "3.9", isInteger: true })).toBe(3);
+  });
+
+  it("preserves zero", () => {
+    expect(coerceNumberInput({ raw: "0", isInteger: true })).toBe(0);
+  });
+
+  it("preserves negative numbers", () => {
+    expect(coerceNumberInput({ raw: "-7", isInteger: true })).toBe(-7);
+    expect(coerceNumberInput({ raw: "-2.5", isInteger: false })).toBe(-2.5);
+  });
+
+  it("returns undefined for partially-typed values that don't parse", () => {
+    expect(coerceNumberInput({ raw: "-", isInteger: true })).toBeUndefined();
+    expect(coerceNumberInput({ raw: "-", isInteger: false })).toBeUndefined();
+    expect(coerceNumberInput({ raw: "abc", isInteger: false })).toBeUndefined();
+  });
+
+  it("never returns NaN", () => {
+    for (const raw of ["", " ", "-", ".", "e", "abc"]) {
+      const float = coerceNumberInput({ raw, isInteger: false });
+      const int = coerceNumberInput({ raw, isInteger: true });
+      expect(Number.isNaN(float)).toBe(false);
+      expect(Number.isNaN(int)).toBe(false);
+    }
+  });
+});
+
+describe("isArrayItemNonTrivial", () => {
+  it("treats undefined/null as trivial", () => {
+    expect(isArrayItemNonTrivial(undefined)).toBe(false);
+    expect(isArrayItemNonTrivial(null)).toBe(false);
+  });
+
+  it("treats blank/whitespace strings as trivial", () => {
+    expect(isArrayItemNonTrivial("")).toBe(false);
+    expect(isArrayItemNonTrivial("   ")).toBe(false);
+  });
+
+  it("treats a non-empty string as non-trivial", () => {
+    expect(isArrayItemNonTrivial("hello")).toBe(true);
+  });
+
+  it("treats numbers and booleans as deliberate values", () => {
+    expect(isArrayItemNonTrivial(0)).toBe(true);
+    expect(isArrayItemNonTrivial(false)).toBe(true);
+  });
+
+  it("treats an empty object (just-added row) as trivial", () => {
+    expect(isArrayItemNonTrivial({})).toBe(false);
+  });
+
+  it("treats an object with only blank values as trivial", () => {
+    expect(
+      isArrayItemNonTrivial({ name: "", note: undefined, tags: [] }),
+    ).toBe(false);
+  });
+
+  it("treats an object with any user-entered value as non-trivial", () => {
+    expect(isArrayItemNonTrivial({ name: "", count: 3 })).toBe(true);
+    expect(isArrayItemNonTrivial({ name: "x" })).toBe(true);
+  });
+
+  it("recurses into nested objects and arrays", () => {
+    expect(isArrayItemNonTrivial({ nested: { value: "" } })).toBe(false);
+    expect(isArrayItemNonTrivial({ nested: { value: "set" } })).toBe(true);
+    expect(isArrayItemNonTrivial([{ a: "" }, { a: "" }])).toBe(false);
+    expect(isArrayItemNonTrivial([{ a: "" }, { a: "x" }])).toBe(true);
   });
 });

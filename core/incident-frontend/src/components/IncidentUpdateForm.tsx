@@ -13,8 +13,9 @@ import {
   SelectItem,
   useToast,
   Spinner,
+  toastError,
 } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
+import { validateIncidentUpdate } from "../utils/incident.logic";
 
 interface IncidentUpdateFormProps {
   incidentId: string;
@@ -45,15 +46,14 @@ export const IncidentUpdateForm: React.FC<IncidentUpdateFormProps> = ({
       onSuccess();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to post update")
-      );
+      toastError(toast, "Failed to post update", error);
     },
   });
 
   const handleSubmit = () => {
-    if (!message.trim()) {
-      toast.error("Update message is required");
+    const validation = validateIncidentUpdate({ message });
+    if (!validation.ok) {
+      toast.error(validation.error);
       return;
     }
 
@@ -65,7 +65,7 @@ export const IncidentUpdateForm: React.FC<IncidentUpdateFormProps> = ({
   };
 
   return (
-    <div className="p-4 bg-muted/30 rounded-lg border space-y-3">
+    <div className="p-4 bg-surface-inset rounded-lg border space-y-3">
       <div className="grid gap-2">
         <Label htmlFor="updateMessage">Update Message</Label>
         <Textarea

@@ -8,6 +8,7 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+import { formatDate, formatPercent, useIsMobile } from "@checkstack/ui";
 
 interface Snapshot {
   date: Date;
@@ -29,6 +30,7 @@ export const SloTrendChart: React.FC<SloTrendChartProps> = ({
   snapshots,
   target,
 }) => {
+  const isMobile = useIsMobile();
   const chartData = useMemo(() => {
     if (snapshots.length === 0) return;
 
@@ -36,9 +38,11 @@ export const SloTrendChart: React.FC<SloTrendChartProps> = ({
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
-    // Format data for Recharts
+    // Format data for Recharts. The compact axis tick keeps month/day only so
+    // the 160px chart stays legible; the full, locale-aware date is rendered in
+    // the tooltip via `formatDate(fullDate)`.
     const data = sorted.map((s) => ({
-      date: new Date(s.date).toLocaleDateString("en-US", {
+      date: new Date(s.date).toLocaleDateString(undefined, {
         month: "short",
         day: "numeric",
       }),
@@ -88,7 +92,8 @@ export const SloTrendChart: React.FC<SloTrendChartProps> = ({
             tickLine={false} 
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             dy={8}
-            minTickGap={30}
+            minTickGap={isMobile ? 60 : 30}
+            interval={isMobile ? "preserveStartEnd" : undefined}
           />
           <YAxis 
             domain={[yMin, yMax]} 
@@ -111,9 +116,15 @@ export const SloTrendChart: React.FC<SloTrendChartProps> = ({
                     border: "1px solid hsl(var(--border))",
                   }}
                 >
-                  <p className="font-medium text-foreground mb-1">{payloadData.date}</p>
+                  <p className="font-medium text-foreground mb-1">
+                    {formatDate(payloadData.fullDate)}
+                  </p>
                   <p className="text-primary font-bold">
-                    {payloadData.availabilityPercent.toFixed(3)}% Availability
+                    {formatPercent(payloadData.availabilityPercent, {
+                      alreadyPercent: true,
+                      fractionDigits: 3,
+                    })}{" "}
+                    Availability
                   </p>
                 </div>
               );

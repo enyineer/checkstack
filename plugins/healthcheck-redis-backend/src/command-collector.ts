@@ -76,6 +76,13 @@ const commandAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: bias toward fewer alerts. Wider band, debounce, and both an
+    // absolute floor (tens of ms so fast Redis commands do not alert on jitter)
+    // and a relative floor.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -83,6 +90,10 @@ const commandAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability rate: debounce a single bad bucket and require a few
+    // percent of real movement before alerting.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

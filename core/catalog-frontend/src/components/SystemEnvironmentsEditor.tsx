@@ -3,6 +3,7 @@ import {
   Label,
   Checkbox,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import {
   usePluginClient,
@@ -10,7 +11,6 @@ import {
   accessApiRef,
 } from "@checkstack/frontend-api";
 import { CatalogApi, catalogAccess } from "@checkstack/catalog-common";
-import { extractErrorMessage } from "@checkstack/common";
 import { toggleSelectedId } from "./environment-fields.logic";
 
 interface Props {
@@ -51,9 +51,7 @@ export const SystemEnvironmentsEditor: React.FC<Props> = ({ systemId }) => {
       void refetchAssigned();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to update environments"),
-      );
+      toastError(toast, "Failed to update environments", error);
       // Re-sync from the server on failure.
       setSelected(assigned.map((environment) => environment.id));
     },

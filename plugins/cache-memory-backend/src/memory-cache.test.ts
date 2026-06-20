@@ -1,8 +1,25 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  afterEach,
+  beforeEach,
+  jest,
+  setSystemTime,
+} from "bun:test";
 import { InMemoryCache } from "./memory-cache";
 
 describe("InMemoryCache", () => {
   const caches: InMemoryCache[] = [];
+
+  // Fake timers make TTL expiry and the periodic sweep deterministic: the cache
+  // stores `expiresAt = Date.now() + ttlMs` and evicts when `Date.now()` passes
+  // it, and the sweep runs on a `setInterval`. Advancing the fake clock crosses
+  // those boundaries exactly, instead of sleeping real milliseconds and hoping.
+  beforeEach(() => {
+    jest.useFakeTimers();
+    setSystemTime(new Date("2026-01-18T10:00:00Z"));
+  });
 
   function createCache({
     maxEntries = 100,
@@ -18,6 +35,7 @@ describe("InMemoryCache", () => {
       cache.stop();
     }
     caches.length = 0;
+    jest.useRealTimers();
   });
 
   describe("basic operations", () => {
@@ -91,15 +109,15 @@ describe("InMemoryCache", () => {
       const cache = createCache();
       // Set with 1ms TTL
       await cache.set("key", "value", 1);
-      // Wait for expiry
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Advance past expiry
+      jest.advanceTimersByTime(10);
       expect(await cache.get("key")).toBeUndefined();
     });
 
     it("has returns false after TTL expires", async () => {
       const cache = createCache();
       await cache.set("key", "value", 1);
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      jest.advanceTimersByTime(10);
       expect(await cache.has("key")).toBe(false);
     });
 
@@ -115,7 +133,7 @@ describe("InMemoryCache", () => {
       await cache.set("key", "v1", 1);
       // Overwrite with no TTL
       await cache.set("key", "v2");
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      jest.advanceTimersByTime(10);
       // Should still be available since new entry has no TTL
       expect(await cache.get<string>("key")).toBe("v2");
     });
@@ -180,7 +198,7 @@ describe("InMemoryCache", () => {
       const cache = createCache();
       await cache.set("scope:a", "x", 1);
       await cache.set("scope:b", "y");
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      jest.advanceTimersByTime(10);
 
       // Both keys are still in the underlying map (passive eviction);
       // deleteByPrefix sweeps both regardless.
@@ -197,8 +215,8 @@ describe("InMemoryCache", () => {
       await cache.set("expires", "value", 1);
       await cache.set("stays", "value");
 
-      // Wait for sweep to run
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Advance past several sweep intervals so the periodic sweep runs.
+      jest.advanceTimersByTime(50);
 
       // "expires" should have been swept
       expect(cache.size).toBe(1);
@@ -212,7 +230,7 @@ describe("InMemoryCache", () => {
       cache.stop();
       // Should not throw or continue sweeping
       await cache.set("key", "value", 1);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      jest.advanceTimersByTime(50);
       // Entry may or may not be expired (passive eviction), but no crash
     });
   });
@@ -277,7 +295,7 @@ describe("InMemoryCache", () => {
       const cache = createCache();
       await cache.set("k", "value", 10);
       expect((await cache.getStats()).sizeBytes!).toBeGreaterThan(0);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      jest.advanceTimersByTime(30);
       // Passive eviction via get
       expect(await cache.get("k")).toBeUndefined();
       expect((await cache.getStats()).sizeBytes).toBe(0);

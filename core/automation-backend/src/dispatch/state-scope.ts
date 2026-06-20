@@ -17,7 +17,7 @@
  * logged, never silent.
  */
 import type { Logger } from "@checkstack/backend-api";
-import type { InferClient } from "@checkstack/common";
+import { extractErrorMessage, type InferClient } from "@checkstack/common";
 import type { HealthCheckApi } from "@checkstack/healthcheck-common";
 
 type HealthCheckClient = InferClient<typeof HealthCheckApi>;
@@ -191,7 +191,7 @@ export async function enrichScopeWithState(
   } catch (error) {
     logger.warn(
       `enrichScopeWithState: failed to resolve health state; falling back to empty namespace: ${
-        (error as Error).message
+        extractErrorMessage(error)
       }`,
     );
     scope.health = emptyNamespace;
@@ -333,7 +333,7 @@ export async function enrichScopeWithEntities(
     } catch (error) {
       logger.warn(
         `enrichScopeWithEntities: failed to resolve kind "${kind}": ${
-          (error as Error).message
+          extractErrorMessage(error)
         }`,
       );
     }

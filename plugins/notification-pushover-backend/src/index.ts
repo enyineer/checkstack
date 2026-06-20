@@ -11,6 +11,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
+  renderSubjectsAsHtml,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
@@ -151,20 +152,16 @@ const pushoverStrategy: NotificationStrategy<
     const priority = mapImportanceToPriority(notification.importance);
 
     // Build message body. Pushover supports a constrained HTML subset, so
-    // subjects render as an HTML list with anchor tags when URLs exist.
+    // subjects render as an HTML list with anchor tags when URLs exist. The
+    // shared helper single-sources the markup (and HTML-escapes names/urls).
     let message = notification.body
       ? markdownToPlainText(notification.body)
       : notification.title;
-    const subjects = notification.subjects ?? [];
-    if (subjects.length > 0) {
-      const items = subjects
-        .map((subject) =>
-          subject.url
-            ? `<li><a href="${subject.url}">${subject.name}</a></li>`
-            : `<li>${subject.name}</li>`,
-        )
-        .join("");
-      message += `\n\n<b>Affected:</b><ul>${items}</ul>`;
+    const subjectsHtml = renderSubjectsAsHtml({
+      subjects: notification.subjects ?? [],
+    });
+    if (subjectsHtml) {
+      message += `\n\n${subjectsHtml}`;
     }
 
     // Build request body

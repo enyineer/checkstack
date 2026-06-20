@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/status-page-common": "workspace:*",
     "drizzle-orm": "^0.45.0",

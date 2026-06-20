@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, setSystemTime } from "bun:test";
 import { SYSTEM_ACTOR } from "@checkstack/common";
 import {
   AutomationDefinitionSchema,
@@ -182,17 +182,29 @@ describe("armDwell", () => {
         actor: SYSTEM_ACTOR,
       });
 
-    await arm();
-    const first = [...dwells.dwells.values()][0]!;
-    const firstFireAt = first.fireAt.getTime();
-    await new Promise((r) => setTimeout(r, 5));
-    await arm();
+    // Pin the clock so the re-arm happens at a deterministically LATER wall
+    // time than the first arm. A real `setTimeout(5)` could elapse as ~0ms
+    // under a loaded parallel runner, silently weakening the assertion;
+    // advancing a fake clock proves the deadline is preserved regardless.
+    const base = Date.now();
+    setSystemTime(new Date(base));
+    try {
+      await arm();
+      const first = [...dwells.dwells.values()][0]!;
+      const firstFireAt = first.fireAt.getTime();
 
-    expect(dwells.dwells.size).toBe(1); // still one row
-    const after = [...dwells.dwells.values()][0]!;
-    expect(after.id).toBe(first.id);
-    // fireAt UNCHANGED — original deadline preserved.
-    expect(after.fireAt.getTime()).toBe(firstFireAt);
+      // Jump well past the first arm; a recompute would move fireAt by ~1s.
+      setSystemTime(new Date(base + 1000));
+      await arm();
+
+      expect(dwells.dwells.size).toBe(1); // still one row
+      const after = [...dwells.dwells.values()][0]!;
+      expect(after.id).toBe(first.id);
+      // fireAt UNCHANGED — original deadline preserved despite the clock move.
+      expect(after.fireAt.getTime()).toBe(firstFireAt);
+    } finally {
+      setSystemTime(); // restore the real clock
+    }
   });
 });
 

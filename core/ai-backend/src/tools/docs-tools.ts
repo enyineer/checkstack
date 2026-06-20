@@ -16,16 +16,8 @@ import {
   type ListDocsOutput,
 } from "@checkstack/ai-common";
 import { DOCS_INDEX, type DocsIndexEntry } from "../generated/docs-index";
-import { rankDocs, type RankedDocHit } from "./rank-docs";
+import { rankDocs, isStrongTopHit, type RankedDocHit } from "./rank-docs";
 import type { RegisteredAiTool } from "../tool-registry";
-
-/**
- * A search hit counts as a STRONG match only well above the floor where a single
- * shared common word (e.g. "system", "health") scrapes a positive BM25 score.
- * Below this, the result set is noise: we tell the model so, so it consults the
- * sitemap or concludes the docs do not cover the topic instead of re-searching.
- */
-const STRONG_HIT_SCORE = 8;
 
 /** The first slug segment is the page's top-level section (""=root landing). */
 function sectionOf(slug: string): string {
@@ -42,7 +34,7 @@ function searchNote(hits: RankedDocHit[]): string {
       "this: say so plainly rather than searching again."
     );
   }
-  if ((hits[0]?.score ?? 0) < STRONG_HIT_SCORE) {
+  if (!isStrongTopHit(hits)) {
     return (
       "These are weak matches - they may just share a common word with your " +
       "query. If none of these titles/snippets actually address the question, do " +

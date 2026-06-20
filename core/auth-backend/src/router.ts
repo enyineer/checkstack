@@ -25,7 +25,7 @@ import { RelationTupleStore } from "./relation-tuple-store";
 function asRelation(r: string): "viewer" | "editor" | "owner" {
   return r === "owner" ? "owner" : r === "editor" ? "editor" : "viewer";
 }
-import { eq, inArray, and, or, ilike } from "drizzle-orm";
+import { eq, inArray, and, or, ilike, sql } from "drizzle-orm";
 import type { SafeDatabase, ResourceResolver } from "@checkstack/backend-api";
 import { authHooks } from "./hooks";
 import {
@@ -865,19 +865,8 @@ export const createAuthRouter = (
     async ({ input }) => {
       const { name, email, password } = input;
 
-      // Security check: only allow if no users exist
-      const existingUsers = await internalDb
-        .select({ id: schema.user.id })
-        .from(schema.user)
-        .limit(1);
-
-      if (existingUsers.length > 0) {
-        throw new ORPCError("FORBIDDEN", {
-          message: "Onboarding has already been completed.",
-        });
-      }
-
-      // Validate password against platform's password schema
+      // Validate password against platform's password schema BEFORE taking the
+      // onboarding lock so a bad password fails fast without serializing.
       const passwordValidation = passwordSchema.safeParse(password);
       if (!passwordValidation.success) {
         throw new ORPCError("BAD_REQUEST", {
@@ -887,13 +876,34 @@ export const createAuthRouter = (
         });
       }
 
-      // Create the first admin user
+      // Hash outside the transaction (it is slow; nothing depends on the lock).
       const userId = crypto.randomUUID();
       const accountId = crypto.randomUUID();
       const hashedPassword = await hashPassword(password);
       const now = new Date();
 
       await internalDb.transaction(async (tx) => {
+        // TOCTOU guard: take a transaction-scoped advisory lock so two
+        // concurrent first-run calls cannot both pass the "no users" check and
+        // both create an admin. The lock serializes onboarding attempts; it is
+        // released automatically when the transaction ends. The `existingUsers`
+        // re-check now runs INSIDE the locked transaction, so the second caller
+        // observes the first caller's committed admin and is rejected. The lock
+        // key is an arbitrary fixed constant scoped to onboarding.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(4242042)`);
+
+        // Security check: only allow if no users exist (re-checked under lock).
+        const existingUsers = await tx
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .limit(1);
+
+        if (existingUsers.length > 0) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "Onboarding has already been completed.",
+          });
+        }
+
         // Create user
         await tx.insert(schema.user).values({
           id: userId,

@@ -29,7 +29,9 @@ let systemId = "";
 /**
  * Fill the DateTimePicker that owns the given Date & Time label. The picker has
  * no single labelled input, so we scope to the labelled field group and drive
- * its DD/MM/YYYY + HH/MM text inputs by their placeholders.
+ * its DD/MM/YYYY + HH/MM text inputs by their placeholders. The editor now wraps
+ * each datetime field in a `role="group"` labelled (via aria-labelledby) by its
+ * "Start Date & Time" / "End Date & Time" label, so locate the group by role.
  */
 async function fillDateTime({
   page,
@@ -40,9 +42,7 @@ async function fillDateTime({
   label: string;
   date: Date;
 }): Promise<void> {
-  const group = page
-    .locator("div.grid.gap-2", { has: page.getByText(label, { exact: true }) })
-    .last();
+  const group = page.getByRole("group", { name: label });
 
   const pad = (value: number): string => String(value).padStart(2, "0");
 
@@ -76,7 +76,9 @@ test.describe("maintenance windows", () => {
     await dialog.getByRole("button", { name: "Create System" }).click();
 
     await expect(page.getByText("System created successfully")).toBeVisible();
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    // Scope to the desktop table: the ResponsiveTable's display:none
+    // MobileCardList duplicates the name, which would trip strict mode.
+    await expect(page.getByRole("table").getByText(SYSTEM_NAME)).toBeVisible();
   });
 
   test("resolves the created system's id from the catalog browse row", async ({
@@ -168,9 +170,16 @@ test.describe("maintenance windows", () => {
       dialog.getByRole("heading", { name: "Create Maintenance" }),
     ).toBeVisible();
 
+    // The form is dirty (title, system and dates set), so Cancel opens the
+    // discard-confirm modal instead of closing immediately. Confirm the discard
+    // (modal title "Discard changes?", confirm button "Discard"), scoping to the
+    // discard dialog to avoid the two-dialog strict-mode ambiguity.
     await dialog.getByRole("button", { name: "Cancel" }).click();
+    const discard = page.getByRole("dialog", { name: "Discard changes?" });
+    await expect(discard).toBeVisible();
+    await discard.getByRole("button", { name: "Discard" }).click();
     await expect(
-      dialog.getByRole("heading", { name: "Create Maintenance" }),
+      page.getByRole("dialog", { name: "Create Maintenance" }),
     ).toBeHidden();
   });
 

@@ -24,6 +24,7 @@
  * starting the run). Idempotent via the dwell row's delete-on-fire.
  */
 import type { Logger } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 
 import type { AutomationStore } from "../automation-store";
 import { checkWaitUntil, recoverStalledRun, resumeRun } from "./engine";
@@ -81,7 +82,7 @@ export function startStalledSweeper(
   let timer: ReturnType<typeof setInterval> | undefined = setInterval(() => {
     sweep().catch((error) => {
       args.logger.warn(
-        `automation stalled sweeper failed: ${(error as Error).message}`,
+        `automation stalled sweeper failed: ${extractErrorMessage(error)}`,
       );
     });
   }, intervalMs);
@@ -137,7 +138,7 @@ async function sweepStalledRuns(
       });
     } catch (error) {
       args.logger.warn(
-        `automation sweeper failed to recover ${runId}: ${(error as Error).message}`,
+        `automation sweeper failed to recover ${runId}: ${extractErrorMessage(error)}`,
       );
     } finally {
       await lock.release();
@@ -247,7 +248,7 @@ async function sweepExpiredDwells(
       });
     } catch (error) {
       args.logger.warn(
-        `automation sweeper failed to fire dwell ${dwell.id}: ${(error as Error).message}`,
+        `automation sweeper failed to fire dwell ${dwell.id}: ${extractErrorMessage(error)}`,
       );
     }
   }
@@ -267,7 +268,7 @@ async function sweepExpiredWindowEvents(
     await args.deps.windowStore.sweepExpired(cutoff);
   } catch (error) {
     args.logger.warn(
-      `automation sweeper failed to prune window events: ${(error as Error).message}`,
+      `automation sweeper failed to prune window events: ${extractErrorMessage(error)}`,
     );
   }
 }

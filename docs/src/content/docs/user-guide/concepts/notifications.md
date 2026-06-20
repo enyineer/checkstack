@@ -98,7 +98,7 @@ For the full contract see [Alert silencing](/checkstack/developer-guide/architec
 
 Roughly, end to end:
 
-```
+```text
 [event source] -- emits hook --> [notification-backend]
                                        |
                                        v

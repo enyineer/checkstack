@@ -12,6 +12,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { PluginSource } from "@checkstack/common";
 
 // --- Plugin System Schema ---
 export const plugins = pgTable("plugins", {
@@ -29,11 +30,20 @@ export const plugins = pgTable("plugins", {
   /** Full validated `InstallPackageMetadata` snapshot taken at install time. */
   metadata: jsonb("metadata").default({}).notNull(),
   /** The `PluginSource` used to install this plugin (NULL for monorepo-local). */
-  source: jsonb("source"),
+  source: jsonb("source").$type<PluginSource>(),
   /** Groups sibling rows installed together as one bundle. */
   bundleId: uuid("bundle_id"),
   /** True on the primary row of a bundle (the row that declared the bundle). */
   isPrimary: boolean("is_primary").default(false).notNull(),
+  /**
+   * Canonical SHA-256 (lower-case hex) of the installed artifact's tarball
+   * bytes, pinned at install time. NULL for monorepo-local plugins and for
+   * legacy rows installed before integrity pinning existed — a NULL means
+   * "not yet pinned" and is backfilled (not failed) on the next reload.
+   * On reload, a non-NULL value is re-verified against the artifact bytes
+   * and a mismatch fails the load (tamper detection).
+   */
+  installedDigest: text("installed_digest"),
 });
 
 // --- JWT Key Store Schema ---
@@ -105,7 +115,7 @@ export const pluginInstallEvents = pgTable(
     phase: text("phase").notNull(),
     /** "started" | "succeeded" | "failed" */
     status: text("status").notNull(),
-    source: jsonb("source"),
+    source: jsonb("source").$type<PluginSource>(),
     error: text("error"),
     instanceId: text("instance_id").notNull(),
     userId: text("user_id"),

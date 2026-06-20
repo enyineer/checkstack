@@ -23,6 +23,7 @@
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/incident-common": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "@checkstack/queue-frontend": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/tips-frontend": "workspace:*",

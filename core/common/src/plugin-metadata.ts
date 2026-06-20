@@ -1,6 +1,39 @@
 import { z } from "zod";
 
 /**
+ * Canonical charset for a `pluginId`.
+ *
+ * A pluginId is interpolated into the plugin's Postgres schema name
+ * (`plugin_<pluginId>`) and into `SET LOCAL search_path` / `DROP SCHEMA`
+ * statements, so it MUST be a safe SQL identifier fragment: lowercase letters,
+ * digits and single dashes, starting with a letter. This forbids quotes,
+ * whitespace, and anything that could break out of a quoted identifier. The
+ * pattern mirrors the slug pattern used elsewhere (e.g. status-page slugs).
+ *
+ * All shipped plugin ids already satisfy this, so enforcing it does not break
+ * upgrades; it only rejects a hostile/malformed id before it can reach SQL.
+ */
+export const PLUGIN_ID_REGEX = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+export const pluginIdSchema = z
+  .string()
+  .min(1)
+  .max(63)
+  .regex(
+    PLUGIN_ID_REGEX,
+    "pluginId must be lowercase letters, numbers and single dashes, starting with a letter",
+  );
+
+/**
+ * Validate a pluginId against {@link pluginIdSchema}, throwing on a bad id.
+ * Use at trust boundaries where a pluginId first enters (plugin registration /
+ * install) so a malformed id can never flow into a SQL identifier.
+ */
+export function assertValidPluginId(pluginId: string): string {
+  return pluginIdSchema.parse(pluginId);
+}
+
+/**
  * Plugin metadata interface for backend plugins.
  *
  * Each backend plugin should export a `pluginMetadata` object from `plugin-metadata.ts`
@@ -66,7 +99,7 @@ export type PluginAuthor = z.infer<typeof pluginAuthorSchema>;
  */
 export const pluginCheckstackBlockSchema = z.object({
   type: pluginPackageTypeSchema,
-  pluginId: z.string().min(1).optional(),
+  pluginId: pluginIdSchema.optional(),
   bundle: z.array(z.string().min(1)).optional(),
   usageInstructions: z.string().optional(),
   allowInstallScripts: z.boolean().optional(),

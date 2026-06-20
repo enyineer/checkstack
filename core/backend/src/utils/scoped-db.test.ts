@@ -52,13 +52,20 @@ describe("createScopedDb", () => {
 
   // Helper to extract SQL string from the sql.raw call argument
   const getSqlString = (callArg: unknown): string => {
-    const arg = callArg as { queryChunks?: Array<{ value: unknown[] }> };
-    if (arg?.queryChunks?.[0]?.value) {
-      const value = arg.queryChunks[0].value;
-      if (Array.isArray(value)) {
-        return value[0] as string;
-      }
-      return value as string;
+    // The search_path statement is now a templated `sql` with an escaped
+    // identifier (`sql.identifier`), so its `queryChunks` are a mix of
+    // StringChunks (literal text, `value` is a string[]) and a Name chunk for
+    // the schema (`value` is a plain string). Flatten ALL chunk values so the
+    // assertions see the full statement including the schema name.
+    const arg = callArg as { queryChunks?: Array<{ value: unknown }> };
+    if (arg?.queryChunks) {
+      return arg.queryChunks
+        .map((chunk) =>
+          Array.isArray(chunk.value)
+            ? chunk.value.join("")
+            : String(chunk.value),
+        )
+        .join("");
     }
     return String(callArg);
   };

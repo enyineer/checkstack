@@ -37,10 +37,10 @@ const queryResultSchema = healthResultSchema({
   rowCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Row Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Row count of an arbitrary user-supplied query legitimately varies a lot
+    // run to run with no stable baseline and no good/bad direction. Baselining
+    // it produces alert fatigue, so it is off by default and remains chartable.
+    "x-anomaly-enabled": false,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -48,7 +48,8 @@ const queryResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    // Err wider so small jitter on fast queries does not alert.
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -71,6 +72,10 @@ const queryAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -78,6 +83,9 @@ const queryAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    // Ignore sub-5% wobble in the success rate so brief blips do not alert.
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

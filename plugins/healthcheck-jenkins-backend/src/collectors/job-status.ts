@@ -68,6 +68,8 @@ const jobStatusResultSchema = z.object({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
@@ -82,11 +84,14 @@ const jobStatusResultSchema = z.object({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": false,
   }).optional(),
+  // Momentary "is this job queued right now" flag. It flips between runs as
+  // a normal part of scheduling and is not a problem signal, so dominance
+  // over it produces noise. Off by default; queue saturation is covered by
+  // the dedicated queue-info collector.
   inQueue: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "In Queue",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    "x-anomaly-enabled": false,
   }),
   color: healthResultString({
     "x-chart-type": "text",
@@ -105,6 +110,10 @@ const jobStatusAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -112,6 +121,9 @@ const jobStatusAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
   buildableRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -119,6 +131,9 @@ const jobStatusAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
 };
 

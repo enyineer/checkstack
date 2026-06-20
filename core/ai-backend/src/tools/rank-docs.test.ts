@@ -3,8 +3,10 @@ import type { DocsIndexEntry } from "../generated/docs-index";
 import {
   SNIPPET_MAX_CHARS,
   buildSnippet,
+  isStrongTopHit,
   rankDocs,
   tokenize,
+  type RankedDocHit,
 } from "./rank-docs";
 
 function entry(over: Partial<DocsIndexEntry> & { slug: string }): DocsIndexEntry {
@@ -149,5 +151,53 @@ describe("rankDocs", () => {
       (h) => h.slug,
     );
     expect(order).toEqual(["alpha", "zebra"]);
+  });
+});
+
+describe("isStrongTopHit (relative, corpus-size-stable strength signal)", () => {
+  const hit = (slug: string, score: number): RankedDocHit => ({
+    slug,
+    title: slug,
+    snippet: "",
+    score,
+  });
+
+  test("no hits -> not strong", () => {
+    expect(isStrongTopHit([])).toBe(false);
+  });
+
+  test("a single hit -> strong (nothing to out-compete)", () => {
+    expect(isStrongTopHit([hit("a", 3)])).toBe(true);
+  });
+
+  test("a clear gap to the runner-up -> strong", () => {
+    // 10 vs 2 is a 5x gap, well past the ratio.
+    expect(isStrongTopHit([hit("a", 10), hit("b", 2)])).toBe(true);
+  });
+
+  test("a near-tie with the runner-up -> weak (shared-word noise)", () => {
+    expect(isStrongTopHit([hit("a", 5), hit("b", 4.5)])).toBe(false);
+  });
+
+  test("CORPUS-SIZE STABLE: the verdict does not change when the absolute scores scale up", () => {
+    // The same relative gap at two very different absolute magnitudes must give
+    // the SAME verdict — exactly what the old absolute `>= 8` cutoff got wrong
+    // (low-magnitude strong hits were mislabeled weak; high-magnitude shared-word
+    // hits were mislabeled strong).
+    const smallStrong = [hit("a", 4), hit("b", 1)]; // 4x gap, low magnitude
+    const largeStrong = [hit("a", 400), hit("b", 100)]; // 4x gap, high magnitude
+    expect(isStrongTopHit(smallStrong)).toBe(true);
+    expect(isStrongTopHit(largeStrong)).toBe(true);
+
+    const smallWeak = [hit("a", 6), hit("b", 5)]; // 1.2x gap, low magnitude
+    const largeWeak = [hit("a", 600), hit("b", 500)]; // 1.2x gap, high magnitude
+    expect(isStrongTopHit(smallWeak)).toBe(false);
+    expect(isStrongTopHit(largeWeak)).toBe(false);
+  });
+
+  test("a top score of 9 with a near-tie is WEAK (old absolute cutoff called it strong)", () => {
+    // Under the old `score >= 8` rule a top score of 9 was "strong" even when the
+    // runner-up was 8.5 (pure shared-word noise). The relative signal corrects it.
+    expect(isStrongTopHit([hit("a", 9), hit("b", 8.5)])).toBe(false);
   });
 });

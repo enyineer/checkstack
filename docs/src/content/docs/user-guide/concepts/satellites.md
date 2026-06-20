@@ -5,6 +5,9 @@ description: Remote agents that execute health checks from other networks or reg
 
 A Satellite is a lightweight Checkstack agent that runs in a different network or region from your main Checkstack instance and executes health checks on its behalf. The probe runs near the target, the result flows back over a persistent WebSocket connection, and the core records it just like a locally-executed run. This page explains when to use satellites and how the pairing works.
 
+> [!NOTE]
+> For the protocol, enrollment handshake, and result-authorization invariant, see the developer reference: [Satellites architecture](/checkstack/developer-guide/architecture/satellite/).
+
 ## When you need a satellite
 
 By default, all health checks run on the core Checkstack container. That works as long as:
@@ -74,7 +77,8 @@ Satellites report their version on connect. The core does not auto-update satell
 ## Security model
 
 - The satellite connection is outbound from the satellite to the core. You do not have to expose the satellite to the internet.
-- The token authenticates the satellite to the core. There is no per-check authentication between core and satellite; trust is granted at the connection level.
+- The token authenticates the satellite to the core, proving WHICH satellite is connected.
+- The core also authorizes WHAT a satellite may report for: a `result` message is accepted only when its `(configId, systemId)` pair is in that satellite's current assignment set. A satellite cannot forge results for a system it is not assigned. The assignment set is the durable source of truth and is re-read on every assignment change, so a reassignment takes effect immediately. An out-of-scope result is logged and dropped without tearing down the connection.
 - Config relayed to the satellite (credentials in the check config, for example) is sent over the authenticated connection. The satellite uses the relayed config only for the duration of the run and does not persist it.
 
 > [!CAUTION]

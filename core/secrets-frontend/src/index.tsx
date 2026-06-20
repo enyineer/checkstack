@@ -28,7 +28,7 @@ export default createFrontendPlugin({
       title: "Secrets",
       accessRule: secretsAccess.secret.manage,
       nav: {
-        group: "Configuration",
+        group: "Settings",
         icon: KeyRound,
       },
     },

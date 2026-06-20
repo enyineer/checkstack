@@ -20,6 +20,9 @@
       "path": "../catalog-common"
     },
     {
+      "path": "../command-backend"
+    },
+    {
       "path": "../common"
     },
     {

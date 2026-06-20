@@ -14,6 +14,18 @@ import { computeStatus } from "./status";
 type Db = SafeDatabase<typeof schema>;
 
 /**
+ * A fixed, valid bcrypt hash used as a decoy when a `clientId` does not exist.
+ * Verifying the supplied token against this decoy makes the missing-clientId
+ * path do the SAME amount of (constant-time) bcrypt work as the wrong-token
+ * path, so an attacker cannot use response timing to learn which client IDs
+ * exist (enumeration / timing oracle). The decoy is a hash of a random value;
+ * no real token can ever match it. cost 10 matches the cost used for real
+ * satellite tokens so the timings line up.
+ */
+const DECOY_TOKEN_HASH =
+  "$2b$10$C5yFDCdJ9bpPgF8MIqBKMO1IrYwobQF5oAiHKmrr8lmCV6bfNbgUW";
+
+/**
  * Service for managing satellite records.
  */
 export class SatelliteService {
@@ -173,10 +185,15 @@ export class SatelliteService {
       .from(satellites)
       .where(eq(satellites.id, clientId));
 
-    if (!row) return undefined;
+    // Always run a bcrypt verify, even when the clientId is unknown: verify the
+    // token against a decoy hash so the missing-clientId path costs the same as
+    // the wrong-token path. This removes the timing oracle that would otherwise
+    // let an attacker enumerate which client IDs exist. bcrypt.verify is itself
+    // constant-time, so a real wrong token and the decoy both take ~equal time.
+    const hashToCheck = row?.tokenHash ?? DECOY_TOKEN_HASH;
+    const isValid = await Bun.password.verify(token, hashToCheck);
 
-    const isValid = await Bun.password.verify(token, row.tokenHash);
-    if (!isValid) return undefined;
+    if (!row || !isValid) return undefined;
 
     return this.toSatelliteWithStatus(row);
   }

@@ -6,11 +6,14 @@ import {
   Badge,
   Button,
   Card,
+  cn,
   ListEmptyState,
   QueryErrorState,
   Skeleton,
   useToast,
   toastError,
+  toastSuccess,
+  formatRelativeTime,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -19,12 +22,17 @@ import {
   Markdown,
 } from "@checkstack/ui";
 import { usePluginClient, useQueryClient } from "@checkstack/frontend-api";
-import type { Notification } from "@checkstack/notification-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { extractErrorMessage, type InferClient } from "@checkstack/common";
+import { type InferClient } from "@checkstack/common";
 import { NotificationSubjects } from "../components/NotificationSubjects";
 import { groupByCollapseKey } from "../components/collapse";
 import { CollapsedGroupTimeline } from "../components/CollapsedGroupTimeline";
+import { StatusPill } from "../components/StatusPill";
+import {
+  presentImportance,
+  inboxRowAccentTone,
+  toneStyles,
+} from "../components/notificationDisplay.logic";
 
 /**
  * Cached output of the `notification.getNotifications` query, derived
@@ -141,12 +149,10 @@ export const NotificationsPage = () => {
   const deleteMutation = notificationClient.deleteNotification.useMutation({
     onSuccess: () => {
       void refetch();
-      toast.success("Notification deleted");
+      toastSuccess(toast, "Notification deleted");
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to delete notification"),
-      );
+      toastError(toast, "Failed to delete notification", error);
     },
   });
 
@@ -154,12 +160,10 @@ export const NotificationsPage = () => {
   const markAllAsReadMutation = notificationClient.markAsRead.useMutation({
     onSuccess: () => {
       void refetch();
-      toast.success("All notifications marked as read");
+      toastSuccess(toast, "All notifications marked as read");
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to mark all as read"),
-      );
+      toastError(toast, "Failed to mark all as read", error);
     },
   });
 
@@ -175,48 +179,21 @@ export const NotificationsPage = () => {
     markAllAsReadMutation.mutate({});
   };
 
-  const getImportanceBadge = (importance: Notification["importance"]) => {
-    switch (importance) {
-      case "critical": {
-        return <Badge variant="destructive">Critical</Badge>;
-      }
-      case "warning": {
-        return <Badge variant="warning">Warning</Badge>;
-      }
-      default: {
-        return <Badge variant="info">Info</Badge>;
-      }
-    }
-  };
-
-  const formatDate = (date: Date) => {
-    const d = new Date(date);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMins = Math.floor(diffMs / 60_000);
-    const diffHours = Math.floor(diffMs / 3_600_000);
-    const diffDays = Math.floor(diffMs / 86_400_000);
-
-    if (diffMins < 1) {
-      return "Just now";
-    }
-    if (diffMins < 60) {
-      return `${diffMins}m ago`;
-    }
-    if (diffHours < 24) {
-      return `${diffHours}h ago`;
-    }
-    if (diffDays < 7) {
-      return `${diffDays}d ago`;
-    }
-    return d.toLocaleDateString();
-  };
-
   return (
     <PageLayout title="Notifications" icon={Bell}>
       <div className="space-y-4">
-        {/* Header with filters */}
-        <div className="flex items-center justify-between">
+        {/* Number-led summary header: the page's one hero moment. */}
+        <div className="flex flex-wrap items-end justify-between gap-4 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          <div>
+            <p className="leading-none">
+              <span className="text-3xl font-bold tabular-nums text-foreground">
+                {total}
+              </span>{" "}
+              <span className="text-xs text-muted-foreground">
+                {filter === "unread" ? "unread" : "notifications"}
+              </span>
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <Popover
               open={filterDropdownOpen}
@@ -253,18 +230,15 @@ export const NotificationsPage = () => {
                 </MenuCloseContext.Provider>
               </PopoverContent>
             </Popover>
-            <span className="text-sm text-muted-foreground">
-              {total} notification{total === 1 ? "" : "s"}
-            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMarkAllAsRead}
+              disabled={markAllAsReadMutation.isPending}
+            >
+              <Check className="h-4 w-4 mr-1" /> Mark all read
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleMarkAllAsRead}
-            disabled={markAllAsReadMutation.isPending}
-          >
-            <Check className="h-4 w-4 mr-1" /> Mark all read
-          </Button>
         </div>
 
         {/* Notifications list */}
@@ -307,114 +281,133 @@ export const NotificationsPage = () => {
             {groupByCollapseKey(notifications).map((group) => {
               const notification = group.representative;
               const isExpanded = expandedGroups.has(group.key);
+              const importance = presentImportance({
+                importance: notification.importance,
+              });
+              const accentTone = inboxRowAccentTone({
+                importance: notification.importance,
+                isRead: notification.isRead,
+              });
               return (
-                <Card
-                  key={group.key}
-                  className={`p-4 ${
-                    notification.isRead ? "" : "border-l-4 border-l-primary"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        {getImportanceBadge(notification.importance)}
-                        <span className="text-xs text-muted-foreground">
-                          {formatDate(notification.createdAt)}
-                        </span>
-                        {group.collapsed && (
-                          <button
-                            type="button"
-                            onClick={() => toggleExpanded(group.key)}
-                            aria-label={
-                              isExpanded
-                                ? "Collapse update history"
-                                : "Show update history"
-                            }
-                          >
-                            <Badge
-                              variant="secondary"
-                              className="text-[10px] cursor-pointer hover:bg-accent"
+                <div key={group.key} className="group relative">
+                  <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                    {/* Status accent stripe: importance by position + hue. */}
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1",
+                        toneStyles[accentTone].accent,
+                      )}
+                      aria-hidden
+                    />
+                    <div className="flex items-start justify-between gap-4 pl-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <StatusPill
+                            tone={importance.tone}
+                            label={importance.label}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {formatRelativeTime(notification.createdAt)}
+                          </span>
+                          {group.collapsed && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(group.key)}
+                              aria-label={
+                                isExpanded
+                                  ? "Collapse update history"
+                                  : "Show update history"
+                              }
                             >
-                              +{group.count - 1} updates
-                              {isExpanded ? (
-                                <ChevronUp className="ml-0.5 h-3 w-3" />
-                              ) : (
-                                <ChevronDown className="ml-0.5 h-3 w-3" />
-                              )}
-                            </Badge>
-                          </button>
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] cursor-pointer hover:bg-accent"
+                              >
+                                +{group.count - 1} updates
+                                {isExpanded ? (
+                                  <ChevronUp className="ml-0.5 h-3 w-3" />
+                                ) : (
+                                  <ChevronDown className="ml-0.5 h-3 w-3" />
+                                )}
+                              </Badge>
+                            </button>
+                          )}
+                        </div>
+                        <h3
+                          className={cn(
+                            "text-sm font-semibold leading-snug",
+                            notification.isRead
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                          )}
+                        >
+                          {notification.title}
+                        </h3>
+                        <Markdown
+                          size="sm"
+                          className="text-muted-foreground mt-1"
+                        >
+                          {notification.body}
+                        </Markdown>
+                        {notification.subjects &&
+                          notification.subjects.length > 0 && (
+                            <NotificationSubjects
+                              subjects={notification.subjects}
+                              maxVisible={5}
+                            />
+                          )}
+                        {notification.action && (
+                          <div className="flex gap-2 mt-2">
+                            <Link
+                              to={notification.action.url}
+                              className="text-sm text-primary hover:text-primary/80"
+                            >
+                              {notification.action.label}
+                            </Link>
+                          </div>
                         )}
-                      </div>
-                      <h3
-                        className={`font-medium ${
-                          notification.isRead
-                            ? "text-muted-foreground"
-                            : "text-foreground"
-                        }`}
-                      >
-                        {notification.title}
-                      </h3>
-                      <Markdown size="sm" className="text-muted-foreground mt-1">
-                        {notification.body}
-                      </Markdown>
-                      {notification.subjects &&
-                        notification.subjects.length > 0 && (
-                          <NotificationSubjects
-                            subjects={notification.subjects}
-                            maxVisible={5}
+                        {group.collapsed && isExpanded && (
+                          <CollapsedGroupTimeline
+                            notifications={group.notifications}
+                            variant="page"
                           />
                         )}
-                      {notification.action && (
-                        <div className="flex gap-2 mt-2">
-                          <Link
-                            to={notification.action.url}
-                            className="text-sm text-primary hover:text-primary/80"
+                      </div>
+                      <div className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                        {!notification.isRead && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              // Mark every notification in the group as read
+                              // so the badge clears in one shot.
+                              for (const n of group.notifications) {
+                                handleMarkAsRead(n.id);
+                              }
+                            }}
+                            disabled={markAsReadMutation.isPending}
+                            title="Mark as read"
                           >
-                            {notification.action.label}
-                          </Link>
-                        </div>
-                      )}
-                      {group.collapsed && isExpanded && (
-                        <CollapsedGroupTimeline
-                          notifications={group.notifications}
-                          variant="page"
-                        />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {!notification.isRead && (
+                            <Check className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => {
-                            // Mark every notification in the group as read
-                            // so the badge clears in one shot.
                             for (const n of group.notifications) {
-                              handleMarkAsRead(n.id);
+                              handleDelete(n.id);
                             }
                           }}
-                          disabled={markAsReadMutation.isPending}
-                          title="Mark as read"
+                          disabled={deleteMutation.isPending}
+                          title="Delete"
                         >
-                          <Check className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          for (const n of group.notifications) {
-                            handleDelete(n.id);
-                          }
-                        }}
-                        disabled={deleteMutation.isPending}
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                </Card>
+                  </Card>
+                </div>
               );
             })}
           </div>

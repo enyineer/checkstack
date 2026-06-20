@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   wrapInSuspense,
   accessApiRef,
@@ -7,8 +8,10 @@ import {
   ExtensionComponent,
 } from "@checkstack/frontend-api";
 import { InfrastructureTabsSlot } from "@checkstack/infrastructure-common";
-import { PageLayout, cn } from "@checkstack/ui";
-import { Server, ShieldOff } from "lucide-react";
+import { PageLayout } from "@checkstack/ui";
+import { Server } from "lucide-react";
+import { InfrastructureTabRail } from "../components/InfrastructureTabRail";
+import { AccessDeniedCard } from "../components/AccessDeniedCard";
 
 /**
  * Infrastructure Settings page — IDE Editor pattern.
@@ -49,12 +52,23 @@ const InfrastructureConfigPageContent = () => {
   const isLoading = tabAccess.some(({ readResult }) => readResult.loading);
   const hasAnyAccess = visibleTabs.length > 0;
 
-  const [activeTabId, setActiveTabId] = useState<string>();
+  // The active tab is driven by the `?tab=<extension-id>` search param so it is
+  // linkable, bookmarkable, and restored on reload. Falls back to the first
+  // visible tab when the param is absent or points at an unknown/hidden tab.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTabId = searchParams.get("tab");
   const effectiveActiveTabId =
-    activeTabId ?? visibleTabs[0]?.extension.id;
+    visibleTabs.find((t) => t.extension.id === requestedTabId)?.extension.id ??
+    visibleTabs[0]?.extension.id;
   const activeTabEntry = visibleTabs.find(
     (t) => t.extension.id === effectiveActiveTabId,
   );
+
+  const selectTab = (tabId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tabId);
+    setSearchParams(next, { replace: true });
+  };
 
   if (!isLoading && !hasAnyAccess) {
     return (
@@ -65,13 +79,7 @@ const InfrastructureConfigPageContent = () => {
         loading={false}
         allowed={false}
       >
-        <div className="flex flex-col items-center justify-center gap-4 py-12 text-muted-foreground">
-          <ShieldOff className="h-12 w-12" />
-          <p className="text-lg font-medium">Access Denied</p>
-          <p className="text-sm">
-            You don&apos;t have permission to view any infrastructure settings.
-          </p>
-        </div>
+        <AccessDeniedCard />
       </PageLayout>
     );
   }
@@ -85,27 +93,15 @@ const InfrastructureConfigPageContent = () => {
       allowed={hasAnyAccess}
     >
       <div className="flex gap-6 min-h-[600px]">
-        <nav className="flex flex-col gap-1 w-52 shrink-0 border-r border-border pr-4">
-          {visibleTabs.map(({ extension }) => {
-            const Icon = extension.metadata.icon;
-            const isActive = extension.id === effectiveActiveTabId;
-            return (
-              <button
-                key={extension.id}
-                onClick={() => setActiveTabId(extension.id)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {extension.metadata.label}
-              </button>
-            );
-          })}
-        </nav>
+        <InfrastructureTabRail
+          tabs={visibleTabs.map(({ extension }) => ({
+            id: extension.id,
+            label: extension.metadata.label,
+            icon: extension.metadata.icon,
+          }))}
+          activeTabId={effectiveActiveTabId}
+          onSelect={selectTab}
+        />
 
         <div className="flex-1 min-w-0">
           {activeTabEntry && (

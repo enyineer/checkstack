@@ -1,6 +1,6 @@
 ---
 title: "Alert Silencing"
-description: "How the `suppressNotifications` flag on incidents and maintenances filters notification dispatch — which read sites honour it, which dispatch paths it does NOT cover, and the active-only operational contract."
+description: "How the `suppressNotifications` flag on incidents and maintenances filters notification dispatch - which read sites honour it, which dispatch paths it does NOT cover, and the active-only operational contract."
 ---
 
 > [!NOTE]
@@ -8,7 +8,7 @@ description: "How the `suppressNotifications` flag on incidents and maintenances
 
 Checkstack lets operators silence notifications for systems that already have a
 known disruption so on-call channels are not flooded with redundant alerts.
-The mechanism is intentionally narrow — a boolean column on each incident or
+The mechanism is intentionally narrow - a boolean column on each incident or
 maintenance record, consulted by a fixed set of dispatch paths.
 
 ## The contract
@@ -43,7 +43,7 @@ other path mutates the column.
 
 Two dispatch loops consult the silencing flag before sending:
 
-1. **Healthcheck queue executor** —
+1. **Healthcheck queue executor** - 
    [`core/healthcheck-backend/src/queue-executor.ts`](https://github.com/enyineer/checkstack/blob/main/core/healthcheck-backend/src/queue-executor.ts).
    On every health-state transition for a system, the executor calls
    `maintenanceClient.hasActiveMaintenanceWithSuppression({ systemId })`
@@ -51,7 +51,7 @@ Two dispatch loops consult the silencing flag before sending:
    `incidentClient.hasActiveIncidentWithSuppression({ systemId })`. If either
    returns `suppressed: true`, the executor logs a debug line and returns
    without firing the notification.
-2. **Dependency notifications** —
+2. **Dependency notifications** - 
    [`core/dependency-backend/src/notifications.ts`](https://github.com/enyineer/checkstack/blob/main/core/dependency-backend/src/notifications.ts).
    When an upstream system state change would cascade alerts to downstream
    dependents, the dispatcher checks the upstream's maintenance and incident
@@ -59,7 +59,7 @@ Two dispatch loops consult the silencing flag before sending:
    downstreams in that batch.
 
 If the suppression check itself errors (network blip, etc.), both sites log a
-warning and **proceed with the notification** — silencing is a best-effort
+warning and **proceed with the notification** - silencing is a best-effort
 filter, not a hard gate that can swallow alerts when the lookup fails.
 
 ## What silencing does NOT cover
@@ -73,7 +73,7 @@ The following dispatch paths bypass it by design:
   without first consulting the silencing check. Plugin authors that want
   their dispatches to honour silencing must call the maintenance and incident
   S2S endpoints themselves.
-- **Incident lifecycle notifications** about the incident itself — created,
+- **Incident lifecycle notifications** about the incident itself - created,
   status-changed, resolved updates dispatched by `incident-backend` are
   intentionally always sent. Silencing only suppresses the health-state and
   dependency-cascade noise that an *already-reported* incident would create;
@@ -91,10 +91,10 @@ and we can extend coverage.
 
 Silencing is **active-only**. Resolving an incident (`status = "resolved"`) or
 ending a maintenance window (transitioning out of `in_progress`) removes the
-filter immediately — the next dispatch attempt sees the record as inactive
+filter immediately - the next dispatch attempt sees the record as inactive
 and notifications resume without any extra action.
 
-There is no scheduled silencing — you cannot pre-arm a silencing window for a
+There is no scheduled silencing - you cannot pre-arm a silencing window for a
 future incident. Maintenances do double as scheduling primitives, but
 silencing only kicks in once the maintenance is `in_progress`.
 

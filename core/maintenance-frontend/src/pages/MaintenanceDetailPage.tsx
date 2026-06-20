@@ -12,7 +12,7 @@ import {
   useApi,
   ExtensionSlot,
 } from "@checkstack/frontend-api";
-import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
 import {
   maintenanceRoutes,
@@ -34,6 +34,7 @@ import {
   Button,
   StatusUpdateTimeline,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import {
   Calendar,
@@ -45,9 +46,15 @@ import {
   CheckCircle2,
   ExternalLink,
 } from "lucide-react";
+import { cn } from "@checkstack/ui";
 import { format } from "date-fns";
 import { MaintenanceUpdateForm } from "../components/MaintenanceUpdateForm";
-import { getMaintenanceStatusBadge } from "../utils/badges";
+import { MaintenanceWindowHero } from "../components/MaintenanceWindowHero";
+import {
+  getMaintenanceStatusBadge,
+  getMaintenanceStatusTone,
+  getMaintenanceToneAccentClass,
+} from "../utils/badges";
 
 const MaintenanceDetailPageContent: React.FC = () => {
   const { maintenanceId } = useParams<{ maintenanceId: string }>();
@@ -88,9 +95,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
       void refetchMaintenance();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to complete"),
-      );
+      toastError(toast, "Failed to complete", error);
     },
   });
 
@@ -166,7 +171,19 @@ const MaintenanceDetailPageContent: React.FC = () => {
     >
       <div className="space-y-6">
         {/* Maintenance Info Card */}
-        <Card>
+        <Card className="relative overflow-hidden border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          {/* Status accent stripe: the panel itself encodes status by hue +
+              position, not color alone (the pill in the header carries the
+              text label). */}
+          <span
+            className={cn(
+              "absolute inset-y-0 left-0 w-1",
+              getMaintenanceToneAccentClass(
+                getMaintenanceStatusTone(maintenance.status),
+              ),
+            )}
+            aria-hidden
+          />
           <CardHeader className="border-b border-border">
             <CardHeaderRow>
               <div className="flex items-center gap-2">
@@ -190,6 +207,13 @@ const MaintenanceDetailPageContent: React.FC = () => {
             </CardHeaderRow>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
+            {/* Single number-led hero: the window length, or a live remaining
+                countdown while in progress. Derived purely from start/end. */}
+            <MaintenanceWindowHero
+              startAt={maintenance.startAt}
+              endAt={maintenance.endAt}
+              status={maintenance.status}
+            />
             {/* "Who can change this" — filled by auth-frontend; renders nothing
                 when the maintenance is not team-scoped. */}
             <ExtensionSlot
@@ -207,22 +231,20 @@ const MaintenanceDetailPageContent: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                  Start Time
-                </h4>
-                <div className="flex items-center gap-2 text-foreground">
-                  <Calendar className="h-4 w-4" />
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span>{format(new Date(maintenance.startAt), "PPpp")}</span>
                 </div>
+                <h4 className="mt-1 text-xs text-muted-foreground">
+                  Start Time
+                </h4>
               </div>
               <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                  End Time
-                </h4>
-                <div className="flex items-center gap-2 text-foreground">
-                  <Clock className="h-4 w-4" />
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
                   <span>{format(new Date(maintenance.endAt), "PPpp")}</span>
                 </div>
+                <h4 className="mt-1 text-xs text-muted-foreground">End Time</h4>
               </div>
             </div>
 

@@ -12,6 +12,10 @@ export const APP_DOC_SLUGS = {
   userGuideHome: "user-guide",
   teamsAndAccess: "user-guide/concepts/teams-and-access",
   apiKeys: "user-guide/reference/api-keys",
+  systemsAndGroups: "user-guide/concepts/systems-and-groups",
+  healthChecks: "user-guide/concepts/health-checks",
+  slo: "user-guide/concepts/slo",
+  incidents: "user-guide/concepts/incidents",
 } as const;
 
 export type AppDocSlugKey = keyof typeof APP_DOC_SLUGS;

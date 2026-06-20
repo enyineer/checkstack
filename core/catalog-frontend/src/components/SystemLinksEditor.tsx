@@ -1,12 +1,11 @@
 import React from "react";
-import { LinksEditor, useToast } from "@checkstack/ui";
+import { LinksEditor, useToast, toastError } from "@checkstack/ui";
 import {
   usePluginClient,
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
 import { CatalogApi, catalogAccess } from "@checkstack/catalog-common";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   systemId: string;
@@ -32,7 +31,7 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to add link"));
+      toastError(toast, "Failed to add link", error);
     },
   });
 
@@ -41,7 +40,7 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to remove link"));
+      toastError(toast, "Failed to remove link", error);
     },
   });
 

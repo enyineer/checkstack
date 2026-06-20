@@ -27,11 +27,11 @@ This system complements the existing role-based access control (RBAC) by adding 
 ### Database Schema
 
 Team membership lives in `team` / `userTeam` / `applicationTeam` / `teamManager`.
-The entire **resource-access layer is a single relation-tuple store** —
-`relation_tuple` — that replaced the older `resource_team_access` (read/manage),
+The entire **resource-access layer is a single relation-tuple store** - 
+`relation_tuple` - that replaced the older `resource_team_access` (read/manage),
 `resource_access_settings` (teamOnly), and `resource_create_grant` tables.
 
-```
+```text
 ┌──────────────┐     ┌──────────────┐     ┌──────────────────────────────┐
 │    team      │     │   userTeam   │     │        relation_tuple        │
 ├──────────────┤     ├──────────────┤     ├──────────────────────────────┤
@@ -52,18 +52,21 @@ One row means **"`<subject>` has `<relation>` on `<object>`"**:
 
 - A **team** subject with `viewer` (read), `editor` (read+manage), or `owner`
   on a concrete object `{objectType}:{objectId}`.
-- A **team** with `creator` on the type-level object `{objectType}:*` — the
+- A **team** with `creator` on the type-level object `{objectType}:*` - the
   authority to create resources of that type.
-- The special **`public:*`** subject with a `viewer` tuple is the **privacy
-  marker**: present = "the global RBAC path is open for this object" (the old
-  `teamOnly = false`); absent (when team grants exist) = private.
+- The special **`public:*`** subject with a `private` relation is the **privacy
+  marker**: its *presence* closes the global RBAC path for that object (the old
+  `teamOnly = true`, team grants only); its *absence* (the default) keeps the
+  object globally readable. Privacy is an explicit marker rather than "absence
+  of a public marker" so that a private object with zero team grants still
+  denies everyone, preserving the old fail-closed invariant.
 
 > [!NOTE]
 > `relation_tuple` is the single source of truth for resource access. `is_owner`
 > became the `owner` relation (one owner per object, partial-unique); read/manage
-> became `viewer`/`editor`; teamOnly became the presence/absence of the public
+> became `viewer`/`editor`; teamOnly became the presence/absence of the private
 > marker; create-capability became `creator` tuples. `subject_id` is polymorphic,
-> so the table has no FK — team deletion clears the team's tuples explicitly.
+> so the table has no FK - team deletion clears the team's tuples explicitly.
 
 ### User Identity Enrichment
 
@@ -116,16 +119,15 @@ Gets detailed information about a specific team including members.
 
 ```typescript
 // Input
-{ id: string }
+{ teamId: string }
 
 // Returns
 {
   id: string;
   name: string;
   description: string | null;
-  members: { userId: string; isManager: boolean }[];
-  createdAt: Date;
-  updatedAt: Date;
+  members: { id: string; name: string; email: string }[];
+  managers: { id: string; name: string; email: string }[];
 } | undefined
 ```
 
@@ -173,9 +175,9 @@ Deletes a team and all associated grants (via database cascade).
 > holds the global `auth.teams.manage` rule **or** is a manager of that specific
 > team. This is what lets a **team manager** run their own team without global
 > admin. `createTeam` and `deleteTeam` require the global `auth.teams.manage`
-> rule (admin-only). Granting a team access to a resource
-> (`setResourceTeamAccess`, `setResourceAccessSettings`) and create-capability
-> (`grantResourceCreate`) also require `auth.teams.manage`. When you add a new
+> rule (admin-only). Granting a team access to a resource (`writeRelation`,
+> `setObjectPublic`) and create-capability (`setCreateGrant`) also require
+> `auth.teams.manage`. When you add a new
 > team-management endpoint, gate it on `auth.teams.read` and call
 > `assertTeamManagementAccess` if per-team managers should be able to use it;
 > gate it on `auth.teams.manage` for admin-only operations.
@@ -212,121 +214,199 @@ Revokes manager privileges from a team member.
 { teamId: string; userId: string }
 ```
 
-### Resource Access Endpoints
+### Relation-tuple access API
 
-> [!IMPORTANT]
-> These endpoints were replaced by the **generic relation-tuple API**. The
-> per-concept procedures below map to: `getResourceTeamAccess` +
-> `getResourceAccessSettings` → **`listObjectRelations`** (`{ teams: [{teamId,
-> teamName, relation}], isPublic }`); `setResourceTeamAccess` → **`writeRelation`**
-> (`{ objectType, objectId, teamId, relation: "viewer"|"editor" }`);
-> `removeResourceTeamAccess` → **`removeRelation`**; `setResourceAccessSettings` →
-> **`setObjectPublic`** (`{ isPublic }`); `listTeamResourceGrants` →
-> **`listSubjectRelations`**; `grantResourceCreate`/`revokeResourceCreate` →
-> **`setCreateGrant`** (`{ allowed }`). The S2S checks became `check` /
-> `listAccessibleObjectIds` / `hasAnyTypeGrant` / `authorizeCreate` (returns
-> `isPrivate`) / `setOwner` / `deleteObjectRelations`. See
-> `core/auth-common/src/rpc-contract.ts` for the canonical signatures. The
-> historical per-concept shapes below are kept for context.
+The resource-access layer is the **generic relation-tuple API**. It replaced the
+older per-concept procedures (`getResourceTeamAccess`, `setResourceTeamAccess`,
+`removeResourceTeamAccess`, `getResourceAccessSettings`,
+`setResourceAccessSettings`, `listTeamResourceGrants`, `grantResourceCreate` /
+`revokeResourceCreate`, and the old `checkResourceAccess` /
+`getAccessibleResourceIds` checks). Every procedure addresses an object as
+`{objectType}:{objectId}`, where `objectType` is the qualified
+`{pluginId}.{resource}` and `objectId` is the resource's own id (or `"*"` for a
+type-level `creator` grant). These signatures are transcribed from
+[`core/auth-common/src/rpc-contract.ts`](https://github.com/enyineer/checkstack/blob/main/core/auth-common/src/rpc-contract.ts);
+that contract is the source of truth.
 
-#### `getResourceTeamAccess`
-Lists teams with access to a specific resource.
+#### Admin UI procedures (`userType: "authenticated"`)
+
+These power the "Who can change this" editor and the Teams page. Read at
+`auth.teams.read`; writes at `auth.teams.manage`.
+
+##### `listObjectRelations`
+Team relations on an object plus its public flag (replaces
+`getResourceTeamAccess` + `getResourceAccessSettings`).
 
 ```typescript
 // Input
-{ resourceType: string; resourceId: string }
+{ objectType: string; objectId: string }
 
 // Returns
 {
-  teamId: string;
-  teamName: string;
-  canRead: boolean;
-  canManage: boolean;
-}[]
+  teams: { teamId: string; teamName: string; relation: "viewer" | "editor" | "owner" }[];
+  isPublic: boolean;
+}
 ```
 
-#### `setResourceTeamAccess`
-Grants or updates team access to a resource (upsert).
+##### `writeRelation`
+Set a team's access relation on an object, replacing any it already holds there
+(replaces `setResourceTeamAccess`).
 
 ```typescript
 // Input
 {
-  resourceType: string;
-  resourceId: string;
+  objectType: string;
+  objectId: string;
   teamId: string;
-  canRead?: boolean;    // Default: true
-  canManage?: boolean;  // Default: false
+  relation: "viewer" | "editor";  // read vs read+manage
 }
 ```
 
-#### `removeResourceTeamAccess`
-Revokes team access from a resource.
+##### `removeRelation`
+Remove all of a team's access relations on an object (replaces
+`removeResourceTeamAccess`).
 
 ```typescript
 // Input
-{ resourceType: string; resourceId: string; teamId: string }
+{ objectType: string; objectId: string; teamId: string }
 ```
 
-### Resource Settings Endpoints
-
-#### `getResourceAccessSettings`
-Gets resource-level access settings (e.g., teamOnly mode).
+##### `setObjectPublic`
+Toggle the privacy marker (replaces `setResourceAccessSettings`). `isPublic:
+true` opens the global RBAC path; `false` closes it (team grants only).
 
 ```typescript
 // Input
-{ resourceType: string; resourceId: string }
+{ objectType: string; objectId: string; isPublic: boolean }
+```
+
+##### `listSubjectRelations`
+All concrete-object grants held by a team, for the per-team grant list on the
+Teams page (replaces `listTeamResourceGrants`). `objectId` is opaque; resolve
+display names via `resolveResourceNames`.
+
+```typescript
+// Input
+{ teamId: string }
 
 // Returns
-{ teamOnly: boolean }
-```
-
-#### `setResourceAccessSettings`
-Updates resource-level access settings.
-
-```typescript
-// Input
 {
-  resourceType: string;
-  resourceId: string;
-  teamOnly: boolean;  // If true, global access don't apply
+  grants: { objectType: string; objectId: string; relation: "viewer" | "editor" | "owner" }[];
 }
 ```
 
-### S2S (Service-to-Service) Endpoints
+##### `setCreateGrant` / `listTeamCreateGrants`
+Grant or revoke a team's `creator` capability for a resource type, and list the
+types a team may create (replace `grantResourceCreate` / `revokeResourceCreate`
+/ `listResourceCreateGrants`).
 
-These endpoints are called by the `autoAuthMiddleware` for access control checks.
+```typescript
+// setCreateGrant input
+{ objectType: string; teamId: string; allowed: boolean }
 
-#### `checkResourceAccess`
-Checks if a user has access to a specific resource.
+// listTeamCreateGrants
+{ teamId: string } -> { resourceTypes: string[] }
+```
+
+#### S2S procedures (`userType: "service"`)
+
+Called by `autoAuthMiddleware` (and create handlers) to enforce access. They
+take the caller's role-based verdict as `hasGlobalAccess` / `hasGlobalManage`
+and resolve it against the object's tuples.
+
+##### `check`
+Decide access to a single object.
 
 ```typescript
 // Input
 {
-  resourceType: string;
-  resourceId: string;
   userId: string;
-  teamIds: string[];
-  checkManage?: boolean;
+  userType: "user" | "application";
+  objectType: string;
+  objectId: string;
+  action: "read" | "manage";
+  hasGlobalAccess: boolean;
 }
 
 // Returns
 { hasAccess: boolean }
 ```
 
-#### `getAccessibleResourceIds`
-Filters a list of resource IDs to those the user can access.
+##### `listAccessibleObjectIds`
+Filter candidate ids of a type to those the caller may access (one query, not an
+N-way fanout).
 
 ```typescript
 // Input
 {
-  resourceType: string;
-  resourceIds: string[];
   userId: string;
-  teamIds: string[];
+  userType: "user" | "application";
+  objectType: string;
+  objectIds: string[];
+  action: "read" | "manage";
+  hasGlobalAccess: boolean;
 }
 
 // Returns
-{ accessibleIds: string[] }
+string[]  // the accessible subset of objectIds
+```
+
+##### `hasAnyTypeGrant`
+Does the caller hold ANY grant of the required level on a concrete object of
+this type? Lets a list/record post-filter return a meaningful `403` to a
+categorically-unauthorized caller instead of a silently-empty `200`.
+
+```typescript
+// Input
+{
+  userId: string;
+  userType: "user" | "application";
+  objectType: string;
+  action: "read" | "manage";
+}
+
+// Returns
+{ hasGrant: boolean }
+```
+
+##### `authorizeCreate`
+Decide whether a caller may create an object of `objectType`, and which team
+owns it. Resolves the create matrix (global manage, a team `creator` grant, or
+an already-authorized parent create) and returns the owning team plus the new
+object's default privacy. Yields `400 OWNER_TEAM_REQUIRED` when a member has
+more than one eligible team, or `403` when unauthorized.
+
+```typescript
+// Input
+{
+  userId: string;
+  userType: "user" | "application";
+  objectType: string;
+  requestedTeamId?: string;
+  hasGlobalManage: boolean;
+  alreadyAuthorized?: boolean;  // skip the per-type creator check (parent-authorized)
+}
+
+// Returns
+{ ownerTeamId: string | null; isPrivate: boolean }
+```
+
+##### `setOwner`
+Record ownership of a freshly-created object: the team gets `owner`, and
+(unless `isPrivate`) the object stays globally readable.
+
+```typescript
+// Input
+{ objectType: string; objectId: string; teamId: string; isPrivate?: boolean }
+```
+
+##### `deleteObjectRelations`
+Drop every tuple for a deleted object. Call this from your delete handler so
+grants do not outlive the resource.
+
+```typescript
+// Input
+{ objectType: string; objectId: string }
 ```
 
 ## Resource-Level Access Control
@@ -374,7 +454,7 @@ export const catalogContract = {
 | `list` | `listKey` | Post-handler filter for collections | Filters response array to only accessible resources |
 | `record` | `recordKey` | Post-handler filter for bulk records | Filters Record<resourceId, data> to only accessible keys |
 | `create` | `create` | Pre-handler authorize + post-handler ownership write | Lets a team member with a create-capability grant create a resource owned by their team; writes the owning-team grant for the created id |
-| `parent` | `parentScope` | Scope by access to a PARENT resource type (cross-plugin, single-hop) | Pre-check (idParam) or record-filter (recordKey) against the parent type's grants — "see X for system S iff you can see S" |
+| `parent` | `parentScope` | Scope by access to a PARENT resource type (cross-plugin, single-hop) | Pre-check (idParam) or record-filter (recordKey) against the parent type's grants - "see X for system S iff you can see S" |
 | `global` | `global` | Explicit opt-out of team scoping | Enforced purely at the global-rule level; no per-resource check |
 
 > **Note:** `instanceAccess` for a procedure is a single config object naming EXACTLY ONE mode. Set the field that matches how the endpoint identifies its resource(s).
@@ -383,11 +463,11 @@ export const catalogContract = {
 > **Access rules carry NO instance config; scoping is per-procedure.** `access()`
 > / `accessPair()` define only the rule (id, level, defaults). Every procedure
 > declares its own `instanceAccess`. The boot validator **rejects** any procedure
-> gated on a team-scopable resource type that declares no `instanceAccess` — you
+> gated on a team-scopable resource type that declares no `instanceAccess` - you
 > must pick a scoping mode or assert `instanceAccess: { global: true }`. This
 > turns the old "forgot to scope it" fail-open into a boot error.
 
-#### Parent scoping (`parentScope`) — "for-system" reads
+#### Parent scoping (`parentScope`) - "for-system" reads
 
 When an endpoint reads or acts on data *belonging to* another resource (an
 incident/maintenance/SLO/health-status "for a system"), scope it by access to
@@ -419,7 +499,7 @@ getBulkIncidentsForSystems: proc({
 `action` defaults to `"read"`; use `"manage"` for mutations that require managing
 the parent (e.g. associating a health check to a system). Set EXACTLY ONE of
 `idParam` (pre-check) or `recordKey` (post-filter). This is a single-hop, fixed
-delegation — there is no recursive resource hierarchy (yet).
+delegation - there is no recursive resource hierarchy (yet).
 
 #### Keying: the id must match the grant's `resourceId`
 
@@ -476,29 +556,31 @@ createConfiguration: proc({
 
 The middleware then, for each create call:
 
-1. **Authorizes** the create via `auth.authorizeResourceCreate`:
+1. **Authorizes** the create via `auth.authorizeCreate`:
    - a caller with global `manage` may create globally (no owner) or, by passing `teamId`, on behalf
      of any team;
    - a caller **without** global manage may create only if one of their teams holds a **create-capability
      grant** for this resource type (see below). The owning team is resolved automatically when there is
-     exactly one eligible team, or must be chosen via `teamId` (otherwise a `400 OWNER_TEAM_REQUIRED`
-     with `eligibleTeamIds` is returned); no eligible team yields `403`.
+     exactly one eligible team, or must be chosen via `requestedTeamId` (otherwise a `400
+     OWNER_TEAM_REQUIRED` is returned); no eligible team yields `403`. The call returns
+     `{ ownerTeamId, isPrivate }`.
 2. **Writes ownership** after the handler succeeds: the resolved team gets the `owner` relation for the
-   created id via `auth.setOwner`, plus (unless private) the `public` viewer marker. The new resource is
-   **team-managed but globally readable by default** — the owning team can change it, while anyone with
-   the global read rule (e.g. anonymous on a public status page) can still see it. Privacy is an explicit
-   opt-in (remove the public marker via `setObjectPublic`) set later via the "Who can change this" editor.
+   created id via `auth.setOwner`, and (unless `isPrivate`) the object stays globally readable. The new
+   resource is **team-managed but globally readable by default** - the owning team can change it, while
+   anyone with the global read rule (e.g. anonymous on a public status page) can still see it. Privacy is
+   an explicit opt-in (write the private marker via `setObjectPublic({ isPublic: false })`) set later via
+   the "Who can change this" editor.
 
-The create handler needs no ownership code — just accept (and ignore) the optional `teamId` so it is
+The create handler needs no ownership code - just accept (and ignore) the optional `teamId` so it is
 not persisted to the resource row. The owner write re-throws on failure, so a create never silently
 yields an unowned resource.
 
 ##### Create-capability grants
 
-Membership alone does **not** grant the authority to create — that is deliberate, so teams used purely
+Membership alone does **not** grant the authority to create - that is deliberate, so teams used purely
 for grouping never gain create rights. An admin grants a team create-capability for a resource type via
-`auth.grantResourceCreate({ resourceType, teamId })` (and `revokeResourceCreate` /
-`listResourceCreateGrants`), or from the **Resource creation** section of the team management dialog.
+`auth.setCreateGrant({ objectType, teamId, allowed: true })` (and lists a team's grants with
+`listTeamCreateGrants`), or from the **Resource creation** section of the team management dialog.
 Absent a grant, creation stays admin/global-only. The platform enumerates the create-capable resource
 types via `auth.getResourceKinds` (derived from the contracts).
 
@@ -554,7 +636,7 @@ actionable `403` naming the missing rule, instead of a silently-empty `200`.
 | `editor` | read + manage | implies `viewer` |
 | `owner` | read + manage | implies `editor`; at most one owning team per object |
 | `creator` | create resources of a type | lives on the type-level object `{type}:*` |
-| `public` viewer marker | "global RBAC path open" | its absence (with team grants) = private |
+| `private` marker (`public:*`) | closes the global RBAC path | its presence = private; its absence (the default) = globally readable |
 
 ### Access Resolution Logic
 
@@ -563,12 +645,16 @@ object (the decision is the pure `evaluateAccess` in
 `auth-backend/src/relation-tuple-store.ts`):
 
 1. Gather the object's tuples. Take the **team grants** (subject = team, relation
-   ∈ viewer/editor/owner).
-2. **No team grants** → default-open: return the caller's global RBAC verdict
-   (`hasGlobalAccess`). (Most objects have no tuples and behave as before.)
-3. **Public marker present** (not private) **and** `hasGlobalAccess` → allow (the
-   global path is open).
-4. Otherwise **team grants only**: allow iff the caller is in a team holding a
+   ∈ viewer/editor/owner) and whether the **private marker** is present.
+2. **Private marker present** → the global path is closed: allow iff the caller
+   is in a team holding a relation that satisfies the action (no team grants
+   denies everyone, the fail-closed invariant).
+3. **Not private, no team grants** → default-open: return the caller's global
+   RBAC verdict (`hasGlobalAccess`). (Most objects have no tuples and behave as
+   before.)
+4. **Not private, team grants present, `hasGlobalAccess`** → allow (the global
+   path is open).
+5. Otherwise **team grants only**: allow iff the caller is in a team holding a
    relation that satisfies the action (read → viewer|editor|owner; manage →
    editor|owner).
 
@@ -577,20 +663,22 @@ object (the decision is the pure `evaluateAccess` in
 function check(userTeamIds, tuples, action, hasGlobalAccess) {
   const teamGrants = tuples.filter(t => t.subjectType === "team" &&
     ["viewer", "editor", "owner"].includes(t.relation));
-  if (teamGrants.length === 0) return hasGlobalAccess; // default-open
-
-  const publicOpen = tuples.some(t => t.subjectType === "public" && t.relation === "viewer");
-  if (publicOpen && hasGlobalAccess) return true;
-
+  const isPrivate = tuples.some(t => t.subjectType === "public" && t.relation === "private");
   const need = action === "manage" ? ["editor", "owner"] : ["viewer", "editor", "owner"];
-  return teamGrants.some(t => userTeamIds.includes(t.subjectId) && need.includes(t.relation));
+  const hasTeamGrant = () =>
+    teamGrants.some(t => userTeamIds.includes(t.subjectId) && need.includes(t.relation));
+
+  if (isPrivate) return hasTeamGrant();          // global path closed: team grants only
+  if (teamGrants.length === 0) return hasGlobalAccess; // default-open
+  if (hasGlobalAccess) return true;              // global path open
+  return hasTeamGrant();
 }
 ```
 
 > [!WARNING]
 > **`teamOnly` is enforced per `(resourceType, resourceId)`, on its OWN
 > endpoints only.** `teamOnly` privacy applies wherever the middleware checks a
-> resource against *its own* grants — i.e. an `instanceAccess` keyed to that
+> resource against *its own* grants - i.e. an `instanceAccess` keyed to that
 > resource type (`idParam`/`listKey`/`recordKey` resolving to the resource's own
 > id). It does **not** propagate to endpoints that gate a resource through a
 > *different* parent type.
@@ -603,7 +691,7 @@ function check(userTeamIds, tuples, action, hasGlobalAccess) {
 > read then locks down), or (b) give the sub-resource an `instanceAccess` keyed
 > to its own type so the middleware consults its own `teamOnly`. This is a
 > deliberate consequence of "read access flows through whichever resource the
-> endpoint identifies" — there is no global join from a child back to every
+> endpoint identifies" - there is no global join from a child back to every
 > ancestor's privacy flag.
 
 ## Integration Guide
@@ -698,7 +786,7 @@ Team grants are stored as opaque `(resourceType, resourceId)` rows. So the Teams
 admin page can show a team's grants **by name** and offer a search picker to add
 one, register a `ResourceResolver` for each of your team-scopable types at init.
 The auth backend reads it via the shared `ResourceResolverRegistry` (a core
-service) — no reverse dependency on your plugin.
+service) - no reverse dependency on your plugin.
 
 ```ts
 import { coreServices } from "@checkstack/backend-api";
@@ -736,7 +824,7 @@ env.registerInit({
 
 > [!NOTE]
 > The registry is an in-process singleton; checkstack is a modular monolith, so
-> every pod loads all plugins and builds an identical registry — a lookup is
+> every pod loads all plugins and builds an identical registry - a lookup is
 > deterministic on every pod. Use the **exact** `resourceType` string that the
 > frontend `TeamAccessEditor` writes (and that create-mode owner grants use), or
 > grants won't resolve. Resolver errors degrade to "show the raw id", never a 5xx.
@@ -792,11 +880,11 @@ const user = {
   teamIds: ["team-1"],
 };
 
-// Mock the auth service for access checks
+// Mock the auth service for access checks (relation-tuple API)
 const mockAuth = {
-  checkResourceTeamAccess: mock(() => Promise.resolve({ hasAccess: true })),
-  getAccessibleResourceIds: mock(() => 
-    Promise.resolve({ accessibleIds: ["item-1", "item-2"] })
+  check: mock(() => Promise.resolve({ hasAccess: true })),
+  listAccessibleObjectIds: mock(() =>
+    Promise.resolve(["item-1", "item-2"]),
   ),
 };
 ```

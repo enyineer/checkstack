@@ -12,9 +12,17 @@ import type {
   StateThresholds,
   NotificationPolicy,
 } from "@checkstack/healthcheck-common";
-import { PageLayout, IDELayout, useToast, BackLink, Button } from "@checkstack/ui";
+import {
+  PageLayout,
+  IDELayout,
+  useToast,
+  toastError,
+  toastSuccess,
+  BackLink,
+  Button,
+} from "@checkstack/ui";
 import { Settings, Plus, Bell } from "lucide-react";
-import { extractErrorMessage, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
 import {
   environmentIdsForMode,
@@ -189,28 +197,25 @@ const AssignmentIDEPageContent = () => {
     onSuccess: () => {
       void refetchAssociations();
     },
-    onError: (error) =>
-      toast.error(extractErrorMessage(error, "Failed to update")),
+    onError: (error) => toastError(toast, "Failed to update", error),
   });
 
   const disassociateMutation = healthCheckClient.disassociateSystem.useMutation(
     {
       onSuccess: () => {
-          toast.success("Health check unassigned");
+        toastSuccess(toast, "Health check unassigned");
         void refetchAssociations();
       },
-      onError: (error) =>
-        toast.error(extractErrorMessage(error, "Failed to update")),
+      onError: (error) => toastError(toast, "Failed to update", error),
     },
   );
 
   const updateRetentionMutation =
     healthCheckClient.updateRetentionConfig.useMutation({
       onSuccess: () => {
-        toast.success("Retention settings saved");
+        toastSuccess(toast, "Retention settings saved");
       },
-      onError: (error) =>
-        toast.error(extractErrorMessage(error, "Failed to save")),
+      onError: (error) => toastError(toast, "Failed to save", error),
     });
 
   const saving =
@@ -288,7 +293,7 @@ const AssignmentIDEPageContent = () => {
       },
       {
         onSuccess: () => {
-          toast.success("Thresholds saved");
+          toastSuccess(toast, "Thresholds saved");
           setLocalThresholds((prev) => {
             const next = { ...prev };
             delete next[configId];
@@ -331,7 +336,7 @@ const AssignmentIDEPageContent = () => {
       },
       {
         onSuccess: () => {
-          toast.success("Notification policy saved");
+          toastSuccess(toast, "Notification policy saved");
           setLocalNotificationPolicy((prev) => {
             const next = { ...prev };
             delete next[configId];
@@ -367,7 +372,7 @@ const AssignmentIDEPageContent = () => {
       },
       {
         onSuccess: () => {
-          toast.success("Reverted to platform defaults");
+          toastSuccess(toast, "Reverted to platform defaults");
           setLocalNotificationPolicy((prev) => {
             const next = { ...prev };
             delete next[configId];
@@ -527,7 +532,7 @@ const AssignmentIDEPageContent = () => {
               isCustom: false,
             },
           }));
-          toast.success("Reset to defaults");
+          toastSuccess(toast, "Reset to defaults");
         },
       },
     );

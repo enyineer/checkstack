@@ -12,24 +12,24 @@ single dispatch RPC.
 
 Three first-class objects:
 
-1. **Notification target** — a typed handle on a *kind of resource*
+1. **Notification target** - a typed handle on a *kind of resource*
    (catalog system, catalog group, future SLO objective, …). Owned by
    exactly one plugin (the resource's source of truth) and exported
    from that plugin's common package.
 
-2. **Subscription spec** — a description of one *kind of subscription*
+2. **Subscription spec** - a description of one *kind of subscription*
    a plugin offers for the resources of a given target. Carries
    display metadata; the groupId convention is derived
    (`<spec.ownerPlugin>.<spec.localId>.<resourceKey>`).
 
-3. **Resource record** — pushed by the target's owner whenever a
+3. **Resource record** - pushed by the target's owner whenever a
    resource appears, is renamed, or disappears. notification-backend
    persists these and uses them to materialize one notification group
    per (registered spec × known resource) automatically.
 
 Plus a fourth, optional object:
 
-4. **Resource parent edges** — declared by the target's owner via
+4. **Resource parent edges** - declared by the target's owner via
    `setNotificationResourceParents`. The dispatcher reads them at
    notification time to compute inherited group ids without callbacks
    to the owner.
@@ -122,7 +122,7 @@ register(env) {
 The loader walks each spec's `target.ownerPlugin` and adds an
 init-order edge from the target owner to the emitting plugin. For
 catalog-owned targets that means catalog finishes both init *and*
-afterPluginsReady before any emitting plugin runs them — so by the
+afterPluginsReady before any emitting plugin runs them - so by the
 time the emitter calls `registerSubscriptionSpec` over RPC, the
 target type is already in the registry. No manual `dependsOnPlugins`
 list, no string parsing, no stub rows.
@@ -181,8 +181,8 @@ The dispatcher will reject calls that violate any of these.
 ## Frontend
 
 The frontend renders no per-spec rows in plugin code. Every host
-surface — system detail page, dashboard group cards, future SLO pages
-— mounts a single component:
+surface - system detail page, dashboard group cards, future SLO pages
+ - mounts a single component:
 
 ```tsx
 <NotificationSubscriptionsManager
@@ -194,8 +194,8 @@ surface — system detail page, dashboard group cards, future SLO pages
 Inside, the dialog calls `notificationClient.listSubscriptionSpecs`,
 filters by `target.targetTypeId`, and renders one row per registered
 spec using the spec's `display` metadata (title, description,
-iconName). The spec registry — populated server-side from each
-plugin's `registerSubscriptionSpec` call — is the **single source of
+iconName). The spec registry - populated server-side from each
+plugin's `registerSubscriptionSpec` call - is the **single source of
 truth** for which notification types exist. A plugin that registers a
 backend spec automatically gets a row in every host surface; no
 frontend extension to remember.
@@ -219,7 +219,7 @@ registerSubscriptionSubControls(
 
 The manager looks up the component by `specId` and renders it inline
 beneath the row when the user expands "Details". This is the only
-React most plugins write — and only when sub-granularity is needed.
+React most plugins write - and only when sub-granularity is needed.
 
 ## Why this design
 
@@ -234,7 +234,7 @@ React most plugins write — and only when sub-granularity is needed.
   to a different target type re-derives the dep on next start.
 - **Lifecycle is centralized.** Every plugin used to ship its own
   `notification-groups.ts` with `ensure*` / `delete*` / `bootstrap*`
-  helpers — ~200 lines duplicated four times. All of it now lives in
+  helpers - ~200 lines duplicated four times. All of it now lives in
   `subscription-engine.ts`.
 - **Inheritance walks once, server-side.** The dispatch path used to
   contain a `for (const sid of systemIds) { await
@@ -249,7 +249,7 @@ React most plugins write — and only when sub-granularity is needed.
 - **Spec registry drives the UI.** The subscription manager dialog
   reads `listSubscriptionSpecs` instead of relying on each plugin
   to register a frontend slot extension. A plugin that registers a
-  backend spec automatically gets a row in every host surface — no
+  backend spec automatically gets a row in every host surface - no
   parallel frontend wiring to forget, no silent drift between the
   spec registry and what the dialog renders.
 - **Open for extension.** A new plugin defining its own target type

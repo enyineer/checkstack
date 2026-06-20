@@ -57,7 +57,7 @@ Plugins can register additional kinds (or extend the built-in ones). For the ful
 
 The typical loop:
 
-```
+```text
    +-----------------+            +---------------------+
    |  Edit YAML in   |  git push  |   Your Git repo     |
    |  your repo      | ---------> |   (main branch)     |

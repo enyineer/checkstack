@@ -17,6 +17,7 @@ import {
   TemplateValueInput,
   DurationInput,
   type DurationValue,
+  ConfirmationModal,
 } from "../../index";
 
 import type { FormFieldProps, JsonSchemaProperty } from "./types";
@@ -25,6 +26,8 @@ import {
   NONE_SENTINEL,
   findSecretEnvSibling,
   nestedChildrenRequired,
+  coerceNumberInput,
+  isArrayItemNonTrivial,
 } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
@@ -56,9 +59,12 @@ export const FormField: React.FC<FormFieldProps> = ({
   importablePackages,
   templatePreviewContext,
   siblingSecretEnv,
+  invalid,
+  errorId,
   onChange,
 }) => {
   const description = propSchema.description || "";
+  const describedBy = invalid && errorId ? errorId : undefined;
 
   // Const field handling - must be before any early returns (rules-of-hooks)
   const isConstField = propSchema.const !== undefined;
@@ -105,9 +111,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -127,9 +131,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -235,9 +237,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       return (
         <div className="space-y-2">
           <div>
-            <Label htmlFor={id}>
-              {label} {isRequired && "*"}
-            </Label>
+            <Label htmlFor={id} required={isRequired}>{label}</Label>
             {cleanDesc && (
               <p className="text-sm text-muted-foreground mt-0.5">
                 {cleanDesc}
@@ -280,9 +280,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       return (
         <div className="space-y-2">
           <div>
-            <Label htmlFor={id}>
-              {label} {isRequired && "*"}
-            </Label>
+            <Label htmlFor={id} required={isRequired}>{label}</Label>
             {cleanDesc && (
               <p className="text-sm text-muted-foreground mt-0.5">
                 {cleanDesc}
@@ -312,9 +310,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -333,6 +329,8 @@ export const FormField: React.FC<FormFieldProps> = ({
             value={(value as string) || ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
+            invalid={invalid}
+            aria-describedby={describedBy}
           />
         )}
         {propSchema["x-templatable"] && templatePreviewContext && (
@@ -351,9 +349,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -368,11 +364,14 @@ export const FormField: React.FC<FormFieldProps> = ({
           }
           onChange={(e) =>
             onChange(
-              propSchema.type === "integer"
-                ? Number.parseInt(e.target.value, 10)
-                : Number.parseFloat(e.target.value),
+              coerceNumberInput({
+                raw: e.target.value,
+                isInteger: propSchema.type === "integer",
+              }),
             )
           }
+          invalid={invalid}
+          aria-describedby={describedBy}
         />
       </div>
     );
@@ -384,9 +383,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 space-y-1">
-          <Label htmlFor={id} className="cursor-pointer">
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} className="cursor-pointer" required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground">{cleanDesc}</p>
           )}
@@ -415,9 +412,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label}</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -437,9 +432,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id}>
-            {label} (JSON) {isRequired && "*"}
-          </Label>
+          <Label htmlFor={id} required={isRequired}>{label} (JSON)</Label>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
@@ -555,9 +548,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <Label>
-              {label} {isRequired && "*"}
-            </Label>
+            <Label required={isRequired}>{label}</Label>
             {cleanDesc && (
               <p className="text-sm text-muted-foreground mt-0.5">
                 {cleanDesc}
@@ -582,49 +573,43 @@ export const FormField: React.FC<FormFieldProps> = ({
         )}
         <div className="space-y-4">
           {items.map((item: unknown, index: number) => (
-            <div key={index} className="relative group">
-              <div className="p-4 border rounded-lg bg-background shadow-sm border-border transition-all hover:border-border/80">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    const next = [...(items as unknown[])];
-                    next.splice(index, 1);
-                    onChange(next);
-                  }}
-                  className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-background border shadow-sm text-destructive hover:text-destructive/90 hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-                <FormField
-                  id={`${id}[${index}]`}
-                  label={`${label} #${index + 1}`}
-                  propSchema={itemSchema}
-                  value={item}
-                  formValues={formValues}
-                  optionsResolvers={optionsResolvers}
-                  templateProperties={templateProperties}
-                  templateCompletionProvider={templateCompletionProvider}
-                  typeDefinitions={typeDefinitions}
-                  shellEnvVars={shellEnvVars}
-                  starterTemplates={starterTemplates}
-                  scriptTestRenderer={scriptTestRenderer}
-                  secretNames={secretNames}
-                  acquireTypes={acquireTypes}
-                  acquireResetKey={acquireResetKey}
-                  sdkTypes={sdkTypes}
-                  sdkTypesResetKey={sdkTypesResetKey}
-                  importablePackages={importablePackages}
-                  templatePreviewContext={templatePreviewContext}
-                  onChange={(val) => {
-                    const next = [...(items as unknown[])];
-                    next[index] = val;
-                    onChange(next);
-                  }}
-                />
-              </div>
-            </div>
+            <ArrayItemRow
+              key={index}
+              item={item}
+              label={`${label} #${index + 1}`}
+              onRemove={() => {
+                const next = [...(items as unknown[])];
+                next.splice(index, 1);
+                onChange(next);
+              }}
+            >
+              <FormField
+                id={`${id}[${index}]`}
+                label={`${label} #${index + 1}`}
+                propSchema={itemSchema}
+                value={item}
+                formValues={formValues}
+                optionsResolvers={optionsResolvers}
+                templateProperties={templateProperties}
+                templateCompletionProvider={templateCompletionProvider}
+                typeDefinitions={typeDefinitions}
+                shellEnvVars={shellEnvVars}
+                starterTemplates={starterTemplates}
+                scriptTestRenderer={scriptTestRenderer}
+                secretNames={secretNames}
+                acquireTypes={acquireTypes}
+                acquireResetKey={acquireResetKey}
+                sdkTypes={sdkTypes}
+                sdkTypesResetKey={sdkTypesResetKey}
+                importablePackages={importablePackages}
+                templatePreviewContext={templatePreviewContext}
+                onChange={(val) => {
+                  const next = [...(items as unknown[])];
+                  next[index] = val;
+                  onChange(next);
+                }}
+              />
+            </ArrayItemRow>
           ))}
         </div>
       </div>
@@ -775,6 +760,59 @@ export const FormField: React.FC<FormFieldProps> = ({
 };
 
 /**
+ * A single editable row in the array editor. Wraps the rendered item field with
+ * a remove button. Removal of a NON-trivial item (one that holds any
+ * user-entered value) is gated behind the shared accessible
+ * {@link ConfirmationModal}; empty / just-added rows are removed immediately so
+ * the common "add then change my mind" flow stays frictionless.
+ */
+const ArrayItemRow: React.FC<{
+  item: unknown;
+  label: string;
+  onRemove: () => void;
+  children: React.ReactNode;
+}> = ({ item, label, onRemove, children }) => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleRemoveClick = () => {
+    if (isArrayItemNonTrivial(item)) {
+      setConfirmOpen(true);
+      return;
+    }
+    onRemove();
+  };
+
+  return (
+    <div className="relative group">
+      <div className="p-4 border rounded-lg bg-background shadow-sm border-border transition-all hover:border-border/80">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={handleRemoveClick}
+          className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-background border shadow-sm text-destructive hover:text-destructive/90 hover:bg-destructive/10"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+        {children}
+      </div>
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onRemove();
+        }}
+        title="Remove item?"
+        message={`This will remove "${label}" and its values. This cannot be undone.`}
+        confirmText="Remove"
+        variant="danger"
+      />
+    </div>
+  );
+};
+
+/**
  * Inline preview of a templatable field's rendered output against a sample
  * context. Shown below `x-templatable` string fields when the owning form
  * supplies a `templatePreviewContext`. Pure render (no DOM/Monaco), so it
@@ -865,9 +903,7 @@ const SecretField: React.FC<{
   return (
     <div className="space-y-2">
       <div>
-        <Label htmlFor={id}>
-          {label} {isRequired && "*"}
-        </Label>
+        <Label htmlFor={id} required={isRequired}>{label}</Label>
         {description && (
           <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
         )}
@@ -914,9 +950,7 @@ const SecretTextareaField: React.FC<{
   return (
     <div className="space-y-2">
       <div>
-        <Label htmlFor={id}>
-          {label} {isRequired && "*"}
-        </Label>
+        <Label htmlFor={id} required={isRequired}>{label}</Label>
         {description && (
           <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
         )}

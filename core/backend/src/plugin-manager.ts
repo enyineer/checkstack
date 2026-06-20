@@ -29,6 +29,7 @@ import { loadPlugins as loadPluginsImpl } from "./plugin-manager/plugin-loader";
 import { rootLogger } from "./logger";
 import type { PluginEventRecorder } from "./services/plugin-event-recorder";
 import { installBundleFromArtifacts } from "./services/plugin-installers/install-from-tarball";
+import { verifyAndBackfillArtifactDigest } from "./services/plugin-installers/reload-verification";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { stripPublicSchemaFromMigrations } from "./utils/strip-public-schema";
 import { runPluginMigrations } from "./utils/run-plugin-migrations";
@@ -447,14 +448,17 @@ export class PluginManager {
     );
 
     const { plugins, pluginConfigs } = await import("./schema");
-    const { inArray, eq, and } = await import("drizzle-orm");
+    const { inArray, eq, and, sql } = await import("drizzle-orm");
 
     if (deleteSchema) {
       for (const pluginId of pluginIds) {
         try {
-          const schemaName = `plugin_${pluginId}`;
+          // `getPluginSchemaName` asserts the pluginId charset, and
+          // `sql.identifier` emits a properly quoted+escaped identifier, so a
+          // hostile pluginId cannot break out of the DROP SCHEMA statement.
+          const schemaName = getPluginSchemaName(pluginId);
           await db.execute(
-            `DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`,
+            sql`DROP SCHEMA IF EXISTS ${sql.identifier(schemaName)} CASCADE`,
           );
           rootLogger.info(`   -> Dropped schema: ${schemaName}`);
         } catch (error) {
@@ -679,6 +683,15 @@ export class PluginManager {
               `The plugin row exists but its artifact is missing — re-install from the original source.`,
           );
         }
+        // Fail-closed integrity re-verification: re-hash the artifact bytes and
+        // compare against the digest pinned at install time. A mismatch throws
+        // (refuses to load this plugin); a missing digest is backfilled.
+        await verifyAndBackfillArtifactDigest({
+          db,
+          pluginName: pluginId,
+          tarball: artifact.tarball,
+          recordedDigest: row.installedDigest,
+        });
         const allowInstallScripts =
           (row.metadata as { checkstack?: { allowInstallScripts?: boolean } })
             ?.checkstack?.allowInstallScripts === true;
@@ -758,6 +771,14 @@ export class PluginManager {
             `(bundle ${bundleId}). Re-install from the original source.`,
         );
       }
+      // Fail-closed integrity re-verification per sibling before the bundle is
+      // installed; a tampered sibling aborts the whole bundle install.
+      await verifyAndBackfillArtifactDigest({
+        db,
+        pluginName: sib.name,
+        tarball: artifact.tarball,
+        recordedDigest: sib.installedDigest,
+      });
       packages.push({ tarball: artifact.tarball, pluginName: sib.name });
     }
 

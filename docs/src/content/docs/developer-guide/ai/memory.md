@@ -43,7 +43,7 @@ A human can also view and delete memories from the **Assistant memory** settings
 Scoping is enforced in the store and the tool/handler layer, not assumed:
 
 - `user` memories filter by `ownerId` - one principal can never read another's.
-- `system` memories are gated by the same per-system team grants the catalog's own list endpoints apply, via the system access resolver (`getAccessibleResourceIds`). Saving a `system` memory requires read access to the system; deleting one requires manage.
+- `system` memories are gated by the same per-system team grants the catalog's own list endpoints apply, via the system access resolver (`listAccessibleObjectIds`). Saving a `system` memory requires read access to the system; deleting one requires manage.
 - The tools are gated by dedicated rules `ai.memory.read` and `ai.memory.manage` (both default-on, admin-revocable), so an admin can disable recall or writes per role. The automation agent uses memory only if its service account holds these rules.
 
 ## Safety

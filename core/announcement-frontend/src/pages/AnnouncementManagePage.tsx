@@ -15,6 +15,13 @@ import {
   type AnnouncementDisplayMode,
 } from "@checkstack/announcement-common";
 import { Tip } from "@checkstack/tips-frontend";
+import { AnnouncementStatSummary } from "../components/AnnouncementStatSummary";
+import { StatusPill, toneStyles } from "../components/StatusPill";
+import {
+  getAnnouncementStatus,
+  severityToTone,
+  statusToTone,
+} from "../components/announcementStatus.logic";
 import {
   PageLayout,
   Card,
@@ -22,7 +29,6 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Badge,
   LoadingSpinner,
   EmptyState,
   QueryErrorState,
@@ -32,6 +38,8 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   Select,
   SelectTrigger,
   SelectValue,
@@ -49,6 +57,7 @@ import {
   Label,
   Textarea,
   toastError,
+  cn,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -216,7 +225,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
           </div>
 
           {/* Severity + Visibility + Display Mode row */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Severity</Label>
               <Select
@@ -275,7 +284,7 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
           </div>
 
           {/* Active toggle + date scheduling */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Status</Label>
               <Select
@@ -336,58 +345,40 @@ const AnnouncementEditor: React.FC<AnnouncementEditorProps> = ({
 };
 
 // ---------------------------------------------------------------------------
-// Status computation
+// Status / severity badges
 // ---------------------------------------------------------------------------
 
-function getAnnouncementStatus(
-  announcement: Announcement,
-): "active" | "scheduled" | "expired" | "inactive" {
-  if (!announcement.active) return "inactive";
-
-  const now = new Date();
-
-  if (announcement.startsAt && new Date(announcement.startsAt) > now) {
-    return "scheduled";
-  }
-
-  if (announcement.expiresAt && new Date(announcement.expiresAt) <= now) {
-    return "expired";
-  }
-
-  return "active";
-}
+const STATUS_LABELS: Record<
+  ReturnType<typeof getAnnouncementStatus>,
+  string
+> = {
+  active: "Active",
+  scheduled: "Scheduled",
+  expired: "Expired",
+  inactive: "Inactive",
+};
 
 function StatusBadge({ announcement }: { announcement: Announcement }) {
   const status = getAnnouncementStatus(announcement);
-
-  switch (status) {
-    case "active": {
-      return <Badge variant="success">Active</Badge>;
-    }
-    case "scheduled": {
-      return <Badge variant="info">Scheduled</Badge>;
-    }
-    case "expired": {
-      return <Badge variant="secondary">Expired</Badge>;
-    }
-    case "inactive": {
-      return <Badge variant="secondary">Inactive</Badge>;
-    }
-  }
+  return (
+    <StatusPill tone={statusToTone(status)}>
+      {STATUS_LABELS[status]}
+    </StatusPill>
+  );
 }
 
+const SEVERITY_LABELS: Record<AnnouncementSeverity, string> = {
+  critical: "Critical",
+  warning: "Warning",
+  info: "Info",
+};
+
 function SeverityBadge({ severity }: { severity: AnnouncementSeverity }) {
-  switch (severity) {
-    case "critical": {
-      return <Badge variant="destructive">Critical</Badge>;
-    }
-    case "warning": {
-      return <Badge variant="warning">Warning</Badge>;
-    }
-    default: {
-      return <Badge variant="info">Info</Badge>;
-    }
-  }
+  return (
+    <StatusPill tone={severityToTone(severity)}>
+      {SEVERITY_LABELS[severity]}
+    </StatusPill>
+  );
 }
 
 function DisplayModeIcon({ mode }: { mode: AnnouncementDisplayMode }) {
@@ -505,7 +496,7 @@ const AnnouncementManageContent: React.FC = () => {
           plugin={announcementPluginMetadata}
           id="create"
           title="Broadcast portal-wide"
-          description="An announcement is a top-of-portal banner — different from incidents (which are about specific systems) and notifications (which target subscribers). Use them for planned maintenance windows users should know about, new feature rollouts, or important policy changes."
+          description="An announcement is a top-of-portal banner - different from incidents (which are about specific systems) and notifications (which target subscribers). Use them for planned maintenance windows users should know about, new feature rollouts, or important policy changes."
           side="bottom"
           align="end"
         >
@@ -516,6 +507,12 @@ const AnnouncementManageContent: React.FC = () => {
         </Tip>
       }
     >
+      {!isLoading &&
+      !announcementsQuery.isError &&
+      announcements.length > 0 ? (
+        <AnnouncementStatSummary announcements={announcements} />
+      ) : null}
+
       <Card>
         <CardHeader className="border-b border-border">
           <div className="flex items-center gap-2">
@@ -540,10 +537,10 @@ const AnnouncementManageContent: React.FC = () => {
             <EmptyState
               icon={<Megaphone className="size-10" />}
               title="No announcements yet"
-              description="Announcements appear at the top of the portal and let you broadcast information to anyone using Checkstack — planned downtime, new features, or status updates that don't fit the incident model."
+              description="Announcements appear at the top of the portal and let you broadcast information to anyone using Checkstack - planned downtime, new features, or status updates that don't fit the incident model."
               steps={[
                 "Click “New Announcement” and write a short, clear title.",
-                "Pick a severity (info, warning, critical) — this controls colour and prominence.",
+                "Pick a severity (info, warning, critical) - this controls colour and prominence.",
                 "Choose visibility: public, signed-in users only, or specific roles.",
               ]}
               actions={
@@ -554,70 +551,139 @@ const AnnouncementManageContent: React.FC = () => {
               }
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Display</TableHead>
-                  <TableHead>Visibility</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Display</TableHead>
+                      <TableHead>Visibility</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead className="w-24">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {announcements.map((a) => (
+                      <TableRow
+                        key={a.id}
+                        className="transition-colors hover:bg-surface-inset"
+                      >
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-1.5 shrink-0 rounded-full",
+                                toneStyles[
+                                  statusToTone(getAnnouncementStatus(a))
+                                ].dot,
+                              )}
+                              aria-hidden
+                            />
+                            <p className="max-w-xs truncate font-medium text-foreground">
+                              {a.title}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <SeverityBadge severity={a.severity} />
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge announcement={a} />
+                        </TableCell>
+                        <TableCell>
+                          <DisplayModeIcon mode={a.displayMode} />
+                        </TableCell>
+                        <TableCell>
+                          <VisibilityIcon visibility={a.visibility} />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            <span>
+                              {formatDistanceToNow(new Date(a.createdAt), {
+                                addSuffix: true,
+                              })}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(a)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteId(a.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-4">
                 {announcements.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell>
-                      <p className="font-medium truncate max-w-xs">
+                  <div
+                    key={a.id}
+                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+                  >
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1",
+                        toneStyles[statusToTone(getAnnouncementStatus(a))]
+                          .accent,
+                      )}
+                      aria-hidden
+                    />
+                    <div className="flex items-start justify-between gap-2 pl-2">
+                      <p className="min-w-0 truncate font-medium text-foreground">
                         {a.title}
                       </p>
-                    </TableCell>
-                    <TableCell>
-                      <SeverityBadge severity={a.severity} />
-                    </TableCell>
-                    <TableCell>
                       <StatusBadge announcement={a} />
-                    </TableCell>
-                    <TableCell>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-2">
+                      <SeverityBadge severity={a.severity} />
                       <DisplayModeIcon mode={a.displayMode} />
-                    </TableCell>
-                    <TableCell>
                       <VisibilityIcon visibility={a.visibility} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        <span>
-                          {formatDistanceToNow(new Date(a.createdAt), {
-                            addSuffix: true,
-                          })}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(a)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(a.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                        {formatDistanceToNow(new Date(a.createdAt), {
+                          addSuffix: true,
+                        })}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex justify-end gap-1 pl-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEdit(a)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteId(a.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>

@@ -7,8 +7,12 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import {
   pluginMetadata,
   gitopsAccessRules,
+  gitopsAccess,
+  gitopsRoutes,
   gitopsContract,
 } from "@checkstack/gitops-common";
+import { resolveRoute } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import type {
   EntityKindDefinition,
   EntityKindExtensionDefinition,
@@ -108,6 +112,30 @@ export default createBackendPlugin({
           secretResolver,
         });
         rpc.registerRouter(router, gitopsContract);
+
+        // Register the "GitOps" and "Kind Registry" navigation commands in the
+        // command palette so both sidebar destinations are reachable from Cmd+K.
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "home",
+              title: "GitOps",
+              subtitle: "Manage Git providers and sync status",
+              iconName: "GitBranch",
+              route: resolveRoute(gitopsRoutes.routes.home),
+              requiredAccessRules: [gitopsAccess.provider.read],
+            },
+            {
+              id: "kinds",
+              title: "Kind Registry",
+              subtitle: "Browse entity kind definitions and schemas",
+              iconName: "Blocks",
+              route: resolveRoute(gitopsRoutes.routes.kinds),
+              requiredAccessRules: [gitopsAccess.kinds.read],
+            },
+          ],
+        });
 
         logger.debug("✅ GitOps Backend initialized.");
       },

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HttpUrlSchema } from "./widget-types";
+import { OverallStatusSummarySchema } from "./overall-status";
 
 /**
  * Page visibility. `public` = anyone (gated by the anonymous `published.read`
@@ -168,6 +169,11 @@ export const PublishedStatusPageSchema = z.object({
   title: z.string(),
   theme: StatusPageThemeSchema,
   blocks: z.array(ResolvedBlockSchema),
+  /**
+   * Page-wide rollup of the blocks' statuses (worst-status-wins), derived by the
+   * resolver from the resolved blocks above. Drives the public header banner.
+   */
+  overallStatus: OverallStatusSummarySchema,
   /**
    * Renderer remotes this page needs for third-party widget types (deduped).
    * Empty for built-in-only pages. The public bundle loads exactly these.

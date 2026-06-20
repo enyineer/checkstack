@@ -213,6 +213,103 @@ describe("SatelliteWsHandler", () => {
       });
     });
 
+    it("should reject a result for an unassigned configId/systemId", async () => {
+      const { onMessage } = await authenticateWs();
+
+      // config-1/system-1 is the ONLY assignment (MOCK_ASSIGNMENTS). A result
+      // for a different config/system must be dropped (authorization gap fix).
+      await onMessage(
+        JSON.stringify({
+          type: "result",
+          configId: "config-999",
+          systemId: "system-999",
+          status: "healthy",
+          executedAt: new Date().toISOString(),
+        }),
+      );
+
+      expect(resultHandler.handleResult).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it("should reject a result that claims an assigned config but a foreign system", async () => {
+      const { onMessage } = await authenticateWs();
+
+      // configId is assigned, but paired with a system the satellite is NOT
+      // assigned to: the pair must match, not just the config.
+      await onMessage(
+        JSON.stringify({
+          type: "result",
+          configId: "config-1",
+          systemId: "system-999",
+          status: "down",
+          executedAt: new Date().toISOString(),
+        }),
+      );
+
+      expect(resultHandler.handleResult).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it("should ingest a result for an assigned configId/systemId pair", async () => {
+      const { onMessage } = await authenticateWs();
+
+      await onMessage(
+        JSON.stringify({
+          type: "result",
+          configId: "config-1",
+          systemId: "system-1",
+          status: "healthy",
+          executedAt: new Date().toISOString(),
+        }),
+      );
+
+      expect(resultHandler.handleResult).toHaveBeenCalledTimes(1);
+    });
+
+    it("refreshes the result-authorization cache when assignments change via pushConfigUpdate", async () => {
+      const { onMessage } = await authenticateWs();
+
+      // Reassign the satellite: it loses config-1/system-1 and gains
+      // config-2/system-2. The push must update what it may report for.
+      (
+        configRelay.getAssignmentsForSatellite as ReturnType<typeof mock>
+      ).mockImplementation(async () => [
+        {
+          configId: "config-2",
+          systemId: "system-2",
+          strategyId: "http",
+          config: { url: "https://example.com" },
+          intervalSeconds: 60,
+        },
+      ]);
+      await handler.pushConfigUpdate("sat-1");
+
+      // The OLD assignment is now unauthorized...
+      await onMessage(
+        JSON.stringify({
+          type: "result",
+          configId: "config-1",
+          systemId: "system-1",
+          status: "healthy",
+          executedAt: new Date().toISOString(),
+        }),
+      );
+      expect(resultHandler.handleResult).not.toHaveBeenCalled();
+
+      // ...and the NEW assignment is authorized.
+      await onMessage(
+        JSON.stringify({
+          type: "result",
+          configId: "config-2",
+          systemId: "system-2",
+          status: "healthy",
+          executedAt: new Date().toISOString(),
+        }),
+      );
+      expect(resultHandler.handleResult).toHaveBeenCalledTimes(1);
+    });
+
     it("should log strategy errors", async () => {
       const { onMessage } = await authenticateWs();
 

@@ -9,6 +9,9 @@ import {
   type InferAggregatedResult,
   type ConnectedClient,
   baseStrategyConfigSchema,
+  DEFAULT_EGRESS_DENY_CIDRS,
+  resolveAndValidateHost,
+  pinUrlToIp,
 } from "@checkstack/backend-api";
 import {
   healthResultString,
@@ -28,8 +31,25 @@ import type {
 /**
  * HTTP health check configuration schema.
  * Global defaults only - action params moved to RequestCollector.
+ *
+ * `egressDenyCidrs` extends the SSRF guard's default denylist. The collector
+ * runs in-process on the trusted core, so it always refuses to connect to
+ * cloud-metadata + link-local ranges (the secure default); operators can add
+ * further CIDRs here (e.g. to block a sensitive internal range) WITHOUT losing
+ * the metadata/link-local block. Leaving it unset keeps the secure default.
+ * RFC1918 / internal probing stays allowed by default (a monitoring tool's job).
+ *
+ * Optional + additive: existing stored configs (which lack this field) remain
+ * valid, so no schema-version bump / migration is required.
  */
-export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({});
+export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({
+  egressDenyCidrs: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Extra CIDR ranges to deny for outbound requests (added on top of the always-on cloud-metadata/link-local block).",
+    ),
+});
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 
@@ -64,8 +84,12 @@ const httpAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Off by default: a raw per-bucket error COUNT scales with how many runs
+    // land in the bucket, so it has no stable baseline and drifts with traffic
+    // volume. The percent form of the same signal (`successRate`) is the one
+    // that alerts; this absolute twin stays chart-only to avoid duplicate,
+    // noisy alerting.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -85,6 +109,17 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   displayName = "HTTP/HTTPS Health Check";
   description = "HTTP endpoint health monitoring";
   category = StrategyCategory.NETWORKING;
+
+  /**
+   * DNS resolver used by the SSRF guard. Defaults to the system resolver
+   * (`resolveAndValidateHost`'s built-in). Injectable so tests can drive the
+   * guard deterministically without real network DNS.
+   */
+  constructor(
+    private readonly lookupFn?: (
+      hostname: string,
+    ) => Promise<Array<{ address: string; family: number }>>,
+  ) {}
 
   config: Versioned<HttpHealthCheckConfig> = new Versioned({
     version: 3, // v3 for createClient pattern with action params moved to RequestCollector
@@ -174,6 +209,16 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<HttpTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // SSRF secure default: deny cloud-metadata + link-local always, plus any
+    // operator-configured extra ranges. This collector runs IN-PROCESS on the
+    // trusted core, so without this guard a healthcheck author could point a
+    // check at http://169.254.169.254/... and read the response body.
+    const denyCidrs = [
+      ...DEFAULT_EGRESS_DENY_CIDRS,
+      ...(validatedConfig.egressDenyCidrs ?? []),
+    ];
+    const lookupFn = this.lookupFn;
+
     const client: HttpTransportClient = {
       async exec(request: HttpRequest): Promise<HttpResponse> {
         const controller = new AbortController();
@@ -183,11 +228,31 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
         );
 
         try {
-          const response = await fetch(request.url, {
+          // Resolve the host to IP(s), reject any denied range, and PIN the
+          // connection to the validated IP (rewrite the URL host to the IP,
+          // restore the original Host header + TLS SNI). Pinning is what
+          // resists DNS-rebind: we connect to exactly the IP we checked.
+          const requestUrl = new URL(request.url);
+          const target = await resolveAndValidateHost({
+            host: requestUrl.hostname,
+            denyCidrs,
+            ...(lookupFn === undefined ? {} : { lookupFn }),
+          });
+          const pinnedUrl = pinUrlToIp(request.url, target.ip);
+          const pinnedHeaders: Record<string, string> = {
+            ...request.headers,
+            // Preserve the virtual host the server expects.
+            host: requestUrl.host,
+          };
+
+          const response = await fetch(pinnedUrl, {
             method: request.method,
-            headers: request.headers,
+            headers: pinnedHeaders,
             body: request.body,
             signal: controller.signal,
+            // Bun: keep TLS validation against the ORIGINAL hostname even
+            // though we connected to an IP literal.
+            tls: { serverName: requestUrl.hostname },
           });
 
           // Read body BEFORE clearing timeout - body streaming can also hang

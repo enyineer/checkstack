@@ -79,7 +79,7 @@ export const CONDITION_KIND_META: Record<ConditionKind, ConditionKindMeta> = {
   expr: {
     kind: "expr",
     label: "expression",
-    description: "Raw boolean expression — the escape hatch.",
+    description: "Raw boolean expression - the escape hatch.",
     icon: "Braces",
     group: "Advanced",
   },

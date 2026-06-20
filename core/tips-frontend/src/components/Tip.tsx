@@ -112,7 +112,7 @@ export const Tip: React.FC<TipProps> = ({
             type="button"
             aria-label={`Show tip: ${title}`}
             className={cn(
-              "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-amber-500 hover:bg-amber-500/10 hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 transition-colors",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-warning/5 text-warning hover:bg-warning/10 hover:text-warning/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/40 transition-colors",
               triggerClassName,
             )}
           >
@@ -122,10 +122,18 @@ export const Tip: React.FC<TipProps> = ({
         <PopoverContent
           side={side}
           align={align}
-          className={cn("w-80 p-4", contentClassName)}
+          className={cn("w-80 p-[var(--d-pad)]", contentClassName)}
         >
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-foreground">{title}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning"
+              >
+                <Lightbulb className="size-3.5" />
+              </span>
+              <p className="text-sm font-semibold text-foreground">{title}</p>
+            </div>
             <button
               type="button"
               onClick={handleDismiss}
@@ -136,11 +144,11 @@ export const Tip: React.FC<TipProps> = ({
             </button>
           </div>
           {description && (
-            <div className="mt-2 text-sm text-muted-foreground">
+            <div className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {description}
             </div>
           )}
-          <div className="mt-3 flex items-center justify-end gap-2">
+          <div className="mt-3 flex items-center justify-end gap-2 border-t border-border/60 pt-3">
             {action && (
               <Button
                 size="sm"

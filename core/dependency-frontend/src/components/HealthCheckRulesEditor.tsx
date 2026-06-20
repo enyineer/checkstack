@@ -83,7 +83,7 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
 
   return (
     <div
-      className={`rounded-lg border border-border ${compact ? "p-2" : "p-3"} bg-muted/20`}
+      className={`rounded-lg border border-border ${compact ? "p-2" : "p-3"} bg-surface-inset`}
     >
       <button
         type="button"
@@ -120,13 +120,13 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
           {rules.map((rule) => (
             <div
               key={rule.healthCheckId}
-              className="flex items-center gap-2 rounded border border-border bg-background p-2"
+              className="flex items-center gap-2 rounded border border-border bg-surface p-2"
             >
               <span className="text-xs flex-1 truncate font-medium">
                 {getCheckName(rule.healthCheckId)}
               </span>
               <select
-                className="text-xs rounded border border-input bg-background px-2 py-1"
+                className="text-xs rounded border border-input bg-surface-inset px-2 py-1"
                 value={rule.overrideImpactType}
                 onChange={(e) =>
                   handleImpactChange(
@@ -156,7 +156,7 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
             <div className="flex items-center gap-2">
               <select
                 id="add-hc-rule"
-                className="flex-1 text-xs rounded border border-input bg-background px-2 py-1.5"
+                className="flex-1 text-xs rounded border border-input bg-surface px-2 py-1.5"
                 defaultValue=""
                 onChange={(e) => {
                   if (e.target.value) {
@@ -183,7 +183,7 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
 
           {rules.length === 0 && unusedChecks.length > 0 && (
             <p className="text-xs text-muted-foreground/60 italic">
-              No rules configured — all health check failures trigger this
+              No rules configured - all health check failures trigger this
               dependency.
             </p>
           )}

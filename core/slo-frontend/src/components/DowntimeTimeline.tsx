@@ -1,7 +1,8 @@
 import React from "react";
-import { Badge } from "@checkstack/ui";
+import { Badge, usePerformance } from "@checkstack/ui";
 import { Clock } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
+import { formatDowntimeDuration } from "./sloDisplay.logic";
 
 interface DowntimeEvent {
   id: string;
@@ -24,6 +25,8 @@ interface DowntimeTimelineProps {
 export const DowntimeTimeline: React.FC<DowntimeTimelineProps> = ({
   events,
 }) => {
+  const { isLowPower } = usePerformance();
+
   if (events.length === 0) {
     return (
       <div className="text-sm text-muted-foreground text-center py-4">
@@ -41,9 +44,9 @@ export const DowntimeTimeline: React.FC<DowntimeTimelineProps> = ({
         {events.map((event) => {
           const isOngoing = event.endTime === null;
           const isSelf = event.attributionType === "self";
-          const durationMinutes = event.durationSeconds
-            ? Math.round(event.durationSeconds / 60)
-            : undefined;
+          const durationLabel = formatDowntimeDuration({
+            durationSeconds: event.durationSeconds,
+          });
 
           return (
             <div key={event.id} className="flex gap-3 relative">
@@ -51,7 +54,7 @@ export const DowntimeTimeline: React.FC<DowntimeTimelineProps> = ({
               <div
                 className={`mt-1.5 w-[9px] h-[9px] rounded-full border-2 z-10 shrink-0 ${
                   isOngoing
-                    ? "bg-destructive border-destructive animate-pulse"
+                    ? `bg-destructive border-destructive${isLowPower ? "" : " animate-pulse"}`
                     : isSelf
                       ? "bg-destructive/60 border-destructive/60"
                       : "bg-amber-500/60 border-amber-500/60"
@@ -71,11 +74,9 @@ export const DowntimeTimeline: React.FC<DowntimeTimelineProps> = ({
                   {isOngoing && (
                     <Badge variant="destructive">Ongoing</Badge>
                   )}
-                  {durationMinutes !== undefined && (
+                  {durationLabel !== undefined && (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {durationMinutes < 60
-                        ? `${durationMinutes} min`
-                        : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`}
+                      {durationLabel}
                     </span>
                   )}
                 </div>

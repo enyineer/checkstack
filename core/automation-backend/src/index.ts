@@ -36,12 +36,9 @@ import type {
   ArtifactTypeDefinition,
   TriggerDefinition,
 } from "./action-types";
-import { createTriggerRegistry, type TriggerRegistry } from "./trigger-registry";
-import { createActionRegistry, type ActionRegistry } from "./action-registry";
-import {
-  createArtifactTypeRegistry,
-  type ArtifactTypeRegistry,
-} from "./artifact-type-registry";
+import { createTriggerRegistry } from "./trigger-registry";
+import { createActionRegistry } from "./action-registry";
+import { createArtifactTypeRegistry } from "./artifact-type-registry";
 import { createArtifactStore } from "./artifact-store";
 import { createAutomationStore } from "./automation-store";
 import { createAutomationRouter } from "./router";
@@ -97,7 +94,6 @@ import {
 } from "./extension-points";
 import {
   createAutomationTemplateRegistry,
-  type AutomationTemplateRegistry,
 } from "./template-registry";
 import { validateTemplates } from "./validate-templates";
 import { builtinAutomationTemplates } from "./builtin-templates";
@@ -112,10 +108,6 @@ import {
   createEntityRegistry,
   createEntityStore,
   entityExtensionPoint,
-  type ChangeDeriverRegistry,
-  type ChangeEmitter,
-  type EntityChangedSubscriptions,
-  type EntityRegistry,
 } from "./entity";
 import { ENTITY_CHANGED_HOOK } from "./entity/hook";
 import {
@@ -131,26 +123,6 @@ import * as schema from "./schema";
  * and `init()` into `afterPluginsReady()`. Mirrors the established
  * pattern in `integration-backend/src/index.ts`.
  */
-interface EnvStash {
-  triggerRegistry: TriggerRegistry;
-  actionRegistry: ActionRegistry;
-  artifactTypeRegistry: ArtifactTypeRegistry;
-  templateRegistry: AutomationTemplateRegistry;
-  dispatchDeps: DispatchDeps;
-  automationStore: ReturnType<typeof createAutomationStore>;
-  entityRegistry: EntityRegistry;
-  entityChangeEmitter: ChangeEmitter;
-  entityChangedSubscriptions: EntityChangedSubscriptions;
-  changeDerivers: ChangeDeriverRegistry;
-  triggerSubscriptions?: TriggerSubscriptions;
-  stalledSweeper?: StalledSweeper;
-  delayConsumer?: DelayQueueConsumer;
-  dwellConsumer?: DwellQueueConsumer;
-  waitTimeoutConsumer?: WaitTimeoutQueueConsumer;
-  dispatchConsumer?: DispatchQueueConsumer;
-  stage1Router?: Stage1Router;
-}
-
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
@@ -199,6 +171,22 @@ export default createBackendPlugin({
     // the real `onHook`.
     const changeDerivers = createChangeDeriverRegistry();
     const entityChangedSubscriptions = createEntityChangedSubscriptions();
+
+    // Bridge holders for values created in init() and consumed by
+    // afterPluginsReady()/registerCleanup() (all closures nested in this
+    // register() scope). Pod-local setup handles, never queryable current
+    // state, so they are scale-safe (mirrors healthcheck-backend's
+    // `storedEmitHook`). The registries above are already register-scope consts
+    // and are referenced directly.
+    let automationStore: ReturnType<typeof createAutomationStore> | undefined;
+    let dispatchDeps: DispatchDeps | undefined;
+    let triggerSubscriptions: TriggerSubscriptions | undefined;
+    let stalledSweeper: StalledSweeper | undefined;
+    let delayConsumer: DelayQueueConsumer | undefined;
+    let dwellConsumer: DwellQueueConsumer | undefined;
+    let waitTimeoutConsumer: WaitTimeoutQueueConsumer | undefined;
+    let dispatchConsumer: DispatchQueueConsumer | undefined;
+    let stage1Router: Stage1Router | undefined;
 
     env.registerAccessRules(automationAccessRules);
 
@@ -391,7 +379,7 @@ export default createBackendPlugin({
         );
         const dwellStore = createDwellStore(database);
         const windowStore = createWindowStore(database);
-        const automationStore = createAutomationStore(database);
+        automationStore = createAutomationStore(database);
 
         // Bind the DB-backed transition store to the registry (the extension
         // point impl registered in `register()` forwards through it). Model B:
@@ -465,7 +453,7 @@ export default createBackendPlugin({
           filterRegistry.register(pf.name, pf.filter);
         }
 
-        const dispatchDeps: DispatchDeps = {
+        dispatchDeps = {
           logger,
           filters: filterRegistry,
           registries: {
@@ -532,18 +520,6 @@ export default createBackendPlugin({
             advisoryLock.withXactLock({ key, fn }),
         };
 
-        const stash = env as unknown as EnvStash;
-        stash.triggerRegistry = triggerRegistry;
-        stash.actionRegistry = actionRegistry;
-        stash.artifactTypeRegistry = artifactTypeRegistry;
-        stash.templateRegistry = templateRegistry;
-        stash.dispatchDeps = dispatchDeps;
-        stash.automationStore = automationStore;
-        stash.entityRegistry = entityRegistry;
-        stash.entityChangeEmitter = entityChangeEmitter;
-        stash.entityChangedSubscriptions = entityChangedSubscriptions;
-        stash.changeDerivers = changeDerivers;
-
         const router = createAutomationRouter({
           db: database,
           automationStore,
@@ -590,15 +566,14 @@ export default createBackendPlugin({
         });
 
         env.registerCleanup(async () => {
-          const s = env as unknown as EnvStash;
-          await s.triggerSubscriptions?.dispose();
-          await s.stage1Router?.dispose();
-          await s.entityChangedSubscriptions?.disposeAll();
-          s.stalledSweeper?.stop();
-          await s.delayConsumer?.stop();
-          await s.dwellConsumer?.stop();
-          await s.waitTimeoutConsumer?.stop();
-          await s.dispatchConsumer?.stop();
+          await triggerSubscriptions?.dispose();
+          await stage1Router?.dispose();
+          await entityChangedSubscriptions.disposeAll();
+          stalledSweeper?.stop();
+          await delayConsumer?.stop();
+          await dwellConsumer?.stop();
+          await waitTimeoutConsumer?.stop();
+          await dispatchConsumer?.stop();
         });
 
         logger.debug("✅ Automation Backend initialized.");
@@ -611,23 +586,32 @@ export default createBackendPlugin({
         emitHook,
         rpcClient,
       }) => {
-        const stash = env as unknown as EnvStash;
-        const triggers = stash.triggerRegistry.getTriggers();
-        const actions = stash.actionRegistry.getActions();
-        const artifactTypes = stash.artifactTypeRegistry.getArtifactTypes();
+        // init() always runs before afterPluginsReady(), so these bridge
+        // holders are populated; assert + narrow once for the whole block.
+        if (!automationStore || !dispatchDeps) {
+          throw new Error(
+            "Automation backend: init() did not populate automationStore/dispatchDeps before afterPluginsReady().",
+          );
+        }
+        const store = automationStore;
+        const deps = dispatchDeps;
+
+        const triggers = triggerRegistry.getTriggers();
+        const actions = actionRegistry.getActions();
+        const artifactTypes = artifactTypeRegistry.getArtifactTypes();
 
         // Wire the deferred entity-change emitter to the real `emitHook`
         // (only injectable here — §3.7). Any change events buffered during
         // the init / afterPluginsReady window are flushed in order now, so
         // there is no silent no-emit gap.
-        await stash.entityChangeEmitter.wire((payload) =>
+        await entityChangeEmitter.wire((payload) =>
           emitHook(ENTITY_CHANGED_HOOK, payload),
         );
 
         // Wire the public cross-plugin entity-change subscription service
         // (§6.1). Subscriptions registered by other plugins during their
         // register/init are bound to the real `onHook` now.
-        stash.entityChangedSubscriptions.wire({ onHook, logger });
+        entityChangedSubscriptions.wire({ onHook, logger });
 
         logger.debug(
           `⚙️  Registered ${triggers.length} automation triggers${
@@ -657,9 +641,9 @@ export default createBackendPlugin({
         // DRIFTED action/trigger/artifact interface are logged loudly and
         // withheld, so a stale template can never reach an operator.
         const templateValidation = await validateTemplates({
-          templates: stash.templateRegistry.list(),
-          triggerRegistry: stash.triggerRegistry,
-          actionRegistry: stash.actionRegistry,
+          templates: templateRegistry.list(),
+          triggerRegistry,
+          actionRegistry,
         });
         // A withheld template is never silent: a missing-capability template
         // (an optional integration is not installed) WARNS so an operator can
@@ -677,7 +661,7 @@ export default createBackendPlugin({
               .join("; ")}`,
           );
         }
-        stash.templateRegistry.setValidated(templateValidation.valid);
+        templateRegistry.setValidated(templateValidation.valid);
         logger.debug(
           `⚙️  ${templateValidation.valid.length} automation template(s) available` +
             ` (${templateValidation.unavailable.length} unavailable, ${templateValidation.invalid.length} invalid)`,
@@ -686,26 +670,26 @@ export default createBackendPlugin({
         // Trigger fan-in: subscribe to every registered hook-backed
         // trigger in work-queue mode; instantiate setup-backed triggers
         // per referencing automation.
-        stash.triggerSubscriptions = await setupTriggerSubscriptions({
-          deps: stash.dispatchDeps,
+        triggerSubscriptions = await setupTriggerSubscriptions({
+          deps,
           onHook,
-          automationStore: stash.automationStore,
+          automationStore: store,
           logger,
         });
 
         // Crash-safe delay: register the consumer that fires when a
         // scheduled queue job pops, resuming the suspended run.
-        stash.delayConsumer = await startDelayQueueConsumer({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
+        delayConsumer = await startDelayQueueConsumer({
+          deps,
+          automationStore: store,
           logger,
         });
 
         // `for:` dwell: register the consumer that fires when a dwell's
         // scheduled job pops, re-confirming state before starting the run.
-        stash.dwellConsumer = await startDwellQueueConsumer({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
+        dwellConsumer = await startDwellQueueConsumer({
+          deps,
+          automationStore: store,
           logger,
         });
 
@@ -713,19 +697,19 @@ export default createBackendPlugin({
         // a suspended wait's single deadline job pops, applying the
         // continue/fail-on-timeout policy. Reactive waits are otherwise woken
         // by Stage-1 routing on a relevant ENTITY_CHANGED (no polling).
-        stash.waitTimeoutConsumer = await startWaitTimeoutQueueConsumer({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
+        waitTimeoutConsumer = await startWaitTimeoutQueueConsumer({
+          deps,
+          automationStore: store,
           logger,
         });
 
         // Stage-2 dispatch fan-out: the consumer that runs each per-run
         // dispatch job enqueued by Stage-1 routing (reason: trigger →
         // dispatchTrigger; reason: wake → resume the suspended wait_until).
-        stash.dispatchConsumer = await startDispatchQueueConsumer({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
-          changeDerivers: stash.changeDerivers,
+        dispatchConsumer = await startDispatchQueueConsumer({
+          deps,
+          automationStore: store,
+          changeDerivers,
           logger,
         });
 
@@ -733,10 +717,10 @@ export default createBackendPlugin({
         // `automation-entity-route` work-queue (exactly one instance), do
         // cheap indexed routing (wake-index intersection + trigger-event
         // derivation), and enqueue Stage-2 jobs.
-        stash.stage1Router = await startStage1Router({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
-          changeDerivers: stash.changeDerivers,
+        stage1Router = await startStage1Router({
+          deps,
+          automationStore: store,
+          changeDerivers,
           onHook,
           logger,
         });
@@ -744,9 +728,9 @@ export default createBackendPlugin({
         // Restart safety + horizontal scaling: periodically scan for
         // runs whose heartbeat is older than the threshold and resume
         // them under an advisory lock.
-        stash.stalledSweeper = startStalledSweeper({
-          deps: stash.dispatchDeps,
-          automationStore: stash.automationStore,
+        stalledSweeper = startStalledSweeper({
+          deps,
+          automationStore: store,
           logger,
         });
 

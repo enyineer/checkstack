@@ -9,7 +9,11 @@ import {
   pluginMetadata,
   statusPageContract,
   statusPageAccessRules,
+  statusPageAccess,
+  statusPageRoutes,
 } from "@checkstack/status-page-common";
+import { resolveRoute } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import * as schema from "./schema";
 import { statusPages } from "./schema";
 import { createStatusPageRouter } from "./router";
@@ -111,6 +115,22 @@ export default createBackendPlugin({
               .limit(limit);
             return rows;
           },
+        });
+
+        // Register the "Status pages" navigation command in the command
+        // palette so the sidebar destination is reachable from Cmd+K.
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "list",
+              title: "Status pages",
+              subtitle: "View and manage public status pages",
+              iconName: "MonitorCheck",
+              route: resolveRoute(statusPageRoutes.routes.list),
+              requiredAccessRules: [statusPageAccess.page.read],
+            },
+          ],
         });
 
         logger.debug("✅ Status Pages backend initialized.");

@@ -13,7 +13,7 @@ Collectors extend health check strategies by providing additional diagnostic met
 | **Strategy** | Establish connection, provide transport client | SSH strategy connects to server |
 | **Collector** | Use transport client to gather metrics | CPU collector runs commands via SSH |
 
-This separation allows any collector to work with any compatible transport—CPU metrics can be collected over SSH, HTTP services can be checked via the HTTP transport, etc.
+This separation allows any collector to work with any compatible transport - CPU metrics can be collected over SSH, HTTP services can be checked via the HTTP transport, etc.
 
 ## Architecture
 

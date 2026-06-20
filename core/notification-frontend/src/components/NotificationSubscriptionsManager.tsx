@@ -9,6 +9,8 @@ import {
   DialogDescription,
   DialogFooter,
   useToast,
+  toastError,
+  toastSuccess,
   cn,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -18,7 +20,6 @@ import {
   pluginMetadata as notificationPluginMetadata,
   type NotificationTarget,
 } from "@checkstack/notification-common";
-import { extractErrorMessage } from "@checkstack/common";
 import { Tip } from "@checkstack/tips-frontend";
 import { SubscriptionRow } from "./SubscriptionRow";
 
@@ -99,10 +100,10 @@ export function NotificationSubscriptionsManager<TResource>({
           .filter((id) => !statusMap[id])
           .map((groupId) => subscribeMutation.mutateAsync({ groupId })),
       );
-      toast.success(`Subscribed to all notifications for ${resourceLabel}`);
+      toastSuccess(toast, `Subscribed to all notifications for ${resourceLabel}`);
       void refetchStatus();
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Failed to subscribe to all"));
+      toastError(toast, "Failed to subscribe to all", error);
     }
   };
 
@@ -113,10 +114,10 @@ export function NotificationSubscriptionsManager<TResource>({
           .filter((id) => statusMap[id])
           .map((groupId) => unsubscribeMutation.mutateAsync({ groupId })),
       );
-      toast.success(`Unsubscribed from all notifications for ${resourceLabel}`);
+      toastSuccess(toast, `Unsubscribed from all notifications for ${resourceLabel}`);
       void refetchStatus();
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Failed to unsubscribe from all"));
+      toastError(toast, "Failed to unsubscribe from all", error);
     }
   };
 
@@ -158,7 +159,7 @@ export function NotificationSubscriptionsManager<TResource>({
                       <strong>System vs. group.</strong> Subscribing to a system
                       means you'll only hear about that one thing. Subscribing
                       to a group means you'll hear about every system inside
-                      that group — useful if a teammate adds new systems later,
+                      that group - useful if a teammate adds new systems later,
                       since the group covers them automatically.
                     </p>
                     <p>

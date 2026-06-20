@@ -8,19 +8,96 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Badge,
   EmptyState,
   ConfirmationModal,
   useToast,
+  toastError,
+  toastSuccess,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
+import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { CheckCircle, AlertTriangle, XCircle, Trash2, X } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
+import { toneStyles, cardSurface, type GitOpsTone } from "./statusTone";
+
+/**
+ * Map a provenance status to the colorblind-safe status triad tone. Status is
+ * multi-encoded everywhere it appears (icon + dot + text label + accent
+ * stripe), never color alone.
+ */
+const STATUS_TONE: Record<Provenance["status"], GitOpsTone> = {
+  synced: "ok",
+  error: "down",
+  orphaned: "warn",
+};
+
+/**
+ * A single number-led summary tile for the Sync Status grid: a hero count, a
+ * demoted caption, a corner icon at reduced opacity, and a left accent stripe
+ * keyed to the tile's signal. A zero count is dimmed so non-zero error/orphan
+ * counts visually pop.
+ */
+const SummaryStat = ({
+  count,
+  label,
+  tone,
+  icon: Icon,
+  animate,
+}: {
+  count: number;
+  label: string;
+  tone: GitOpsTone;
+  icon: LucideIcon;
+  animate: boolean;
+}) => {
+  const styles = toneStyles[tone];
+  const isZero = count === 0;
+  return (
+    <div
+      className={cn(
+        cardSurface,
+        "p-[var(--d-pad)] transition-all",
+        animate && "animate-in fade-in duration-300",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          styles.accent,
+          isZero && "opacity-40",
+        )}
+        aria-hidden
+      />
+      <Icon
+        className={cn(
+          "absolute right-3 top-3 w-5 h-5",
+          styles.text,
+          isZero ? "opacity-30" : "opacity-70",
+        )}
+        aria-hidden
+      />
+      <div className="pl-2">
+        <p
+          className={cn(
+            "text-3xl font-bold leading-none tabular-nums text-foreground",
+            isZero && "text-muted-foreground",
+          )}
+        >
+          {count}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  );
+};
 
 export const ProvenanceStatus = () => {
   const client = usePluginClient(GitOpsApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  const { isLowPower } = usePerformance();
 
   const { allowed: canManage } = accessApi.useAccess(gitopsAccess.provider.manage);
 
@@ -38,22 +115,22 @@ export const ProvenanceStatus = () => {
 
   const confirmDeleteMutation = client.confirmOrphanDeletion.useMutation({
     onSuccess: () => {
-      toast.success("Orphan deleted successfully");
+      toastSuccess(toast, "Orphan deleted successfully");
       setConfirmModal({ isOpen: false, provenanceId: "", entityName: "" });
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete orphan"));
+      toastError(toast, "Failed to delete orphan", error);
     },
   });
 
   const dismissMutation = client.dismissOrphan.useMutation({
     onSuccess: () => {
-      toast.success("Orphan dismissed — entity is no longer tracked by GitOps");
+      toastSuccess(toast, "Orphan dismissed - entity is no longer tracked by GitOps");
       void refetch();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to dismiss orphan"));
+      toastError(toast, "Failed to dismiss orphan", error);
     },
   });
 
@@ -68,45 +145,59 @@ export const ProvenanceStatus = () => {
   const statusIcon = (status: Provenance["status"]) => {
     switch (status) {
       case "synced": {
-        return <CheckCircle className="w-4 h-4 text-emerald-500" />;
+        return <CheckCircle className="w-4 h-4 text-status-ok" />;
       }
       case "error": {
-        return <XCircle className="w-4 h-4 text-destructive" />;
+        return <XCircle className="w-4 h-4 text-status-down" />;
       }
       case "orphaned": {
-        return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+        return <AlertTriangle className="w-4 h-4 text-status-warn" />;
       }
     }
   };
 
   const statusBadge = (status: Provenance["status"]) => {
-    const variants: Record<Provenance["status"], "default" | "destructive" | "outline"> = {
-      synced: "default",
-      error: "destructive",
-      orphaned: "outline",
-    };
-    return <Badge variant={variants[status]}>{status}</Badge>;
+    const styles = toneStyles[STATUS_TONE[status]];
+    return (
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+          styles.pill,
+        )}
+      >
+        <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+        {status}
+      </span>
+    );
   };
 
   const renderEntryList = (list: Provenance[], showOrphanActions: boolean) => (
     <div className="space-y-2">
-      {list.map((entry) => (
+      {list.map((entry) => {
+        const accent = toneStyles[STATUS_TONE[entry.status]].accent;
+        return (
         <div
           key={entry.id}
-          className="flex items-center justify-between p-3 rounded-lg border border-border bg-background/50"
+          className="relative overflow-hidden flex items-center justify-between p-3 pl-4 rounded-lg border border-border/70 bg-surface-inset hover:bg-surface-2 transition-colors"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <span
+            className={cn("absolute inset-y-0 left-0 w-1", accent)}
+            aria-hidden
+          />
+          <div className="flex items-center gap-3 min-w-0 pl-2">
             {statusIcon(entry.status)}
             <div className="min-w-0">
-              <div className="text-sm font-medium">
-                <span className="text-muted-foreground">{entry.kind}/</span>
+              <div className="text-sm font-semibold text-foreground">
+                <span className="font-normal text-muted-foreground">
+                  {entry.kind}/
+                </span>
                 {entry.entityName}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5 truncate">
                 {entry.repository}/{entry.filePath}
               </div>
               {entry.errorMessage && (
-                <div className="text-xs text-destructive mt-0.5 truncate">
+                <div className="text-xs text-status-down mt-0.5 truncate">
                   {entry.errorMessage}
                 </div>
               )}
@@ -115,7 +206,7 @@ export const ProvenanceStatus = () => {
                   {entry.warnings.map((warning, index) => (
                     <div
                       key={index}
-                      className="text-xs text-amber-500 flex items-start gap-1"
+                      className="text-xs text-status-warn flex items-start gap-1"
                     >
                       <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
                       <span className="truncate">{warning}</span>
@@ -156,7 +247,8 @@ export const ProvenanceStatus = () => {
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -164,43 +256,35 @@ export const ProvenanceStatus = () => {
     <>
       <div className="space-y-6">
         {/* Summary */}
-        <div className="grid grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-emerald-500" />
-                <span className="text-2xl font-bold">{synced.length}</span>
-                <span className="text-sm text-muted-foreground">Synced</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <XCircle className="w-5 h-5 text-destructive" />
-                <span className="text-2xl font-bold">{errors.length}</span>
-                <span className="text-sm text-muted-foreground">Errors</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <span className="text-2xl font-bold">{orphaned.length}</span>
-                <span className="text-sm text-muted-foreground">Orphaned</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <span className="text-2xl font-bold">{withWarnings.length}</span>
-                <span className="text-sm text-muted-foreground">Warnings</span>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <SummaryStat
+            count={synced.length}
+            label="Synced"
+            tone="ok"
+            icon={CheckCircle}
+            animate={!isLowPower}
+          />
+          <SummaryStat
+            count={errors.length}
+            label="Errors"
+            tone="down"
+            icon={XCircle}
+            animate={!isLowPower}
+          />
+          <SummaryStat
+            count={orphaned.length}
+            label="Orphaned"
+            tone="warn"
+            icon={AlertTriangle}
+            animate={!isLowPower}
+          />
+          <SummaryStat
+            count={withWarnings.length}
+            label="Warnings"
+            tone="warn"
+            icon={AlertTriangle}
+            animate={!isLowPower}
+          />
         </div>
 
         {/* Orphaned entities — shown first if any */}
@@ -209,7 +293,7 @@ export const ProvenanceStatus = () => {
             <CardHeader>
               <CardHeaderRow>
                 <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  <AlertTriangle className="w-5 h-5 text-status-warn" />
                   Orphaned Entities
                 </CardTitle>
               </CardHeaderRow>
@@ -226,7 +310,7 @@ export const ProvenanceStatus = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <AlertTriangle className="w-5 h-5 text-status-warn" />
                 Sync Warnings
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
@@ -242,7 +326,7 @@ export const ProvenanceStatus = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <XCircle className="w-5 h-5 text-destructive" />
+                <XCircle className="w-5 h-5 text-status-down" />
                 Sync Errors
               </CardTitle>
             </CardHeader>
@@ -254,7 +338,7 @@ export const ProvenanceStatus = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-emerald-500" />
+              <CheckCircle className="w-5 h-5 text-status-ok" />
               Synced Entities
             </CardTitle>
           </CardHeader>
@@ -264,7 +348,7 @@ export const ProvenanceStatus = () => {
             ) : synced.length === 0 ? (
               <EmptyState
                 title="Nothing synced from Git yet"
-                description="Once a sync run finds and applies YAML descriptors from your Git providers, the resulting Checkstack entities (systems, groups, health checks, …) appear here with provenance — what file they came from and which commit. That's how you know which resources are managed in Git versus created in the UI."
+                description="Once a sync run finds and applies YAML descriptors from your Git providers, the resulting Checkstack entities (systems, groups, health checks, …) appear here with provenance - what file they came from and which commit. That's how you know which resources are managed in Git versus created in the UI."
               />
             ) : (
               renderEntryList(synced, false)

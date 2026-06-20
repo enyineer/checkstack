@@ -39,7 +39,7 @@ If you do want incidents opened automatically, that is opt-in: build an automati
 
 Incidents move through a fixed set of statuses:
 
-```
+```text
               open                                              done
    +---------------+   +-----------+   +---------+   +------------+   +----------+
    | investigating |-->| identified|-->| fixing  |-->| monitoring |-->| resolved |

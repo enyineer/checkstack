@@ -174,8 +174,11 @@ const executeResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Exit codes are arbitrary integers (0, 1, 2, 127, -1, ...) with no
+    // stable distribution; the pass/fail signal they carry is already
+    // covered by `success`. Charting it stays useful; alerting on it just
+    // double-fires (and flaps for scripts that vary their nonzero codes).
+    "x-anomaly-enabled": false,
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
@@ -193,7 +196,9 @@ const executeResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    // Err wider than the default band: only sustained, materially-larger
+    // run times should alert, not normal jitter.
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -207,8 +212,10 @@ const executeResultSchema = healthResultSchema({
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // A timeout always implies `success: false`, so alerting here on top of
+    // `success` double-fires on the same incident. Keep it chartable, let
+    // `success` carry the alert.
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -222,6 +229,10 @@ const executeAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -229,6 +240,10 @@ const executeAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Only a real drop in availability should alert, not single-sample
+    // jitter in the rate.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 
