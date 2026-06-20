@@ -21,20 +21,13 @@ Test- and tooling-only changes that intentionally carry no package release
   the harness: the wrapper already stops and removes the container deterministically
   in `finally` on every exit path, and CI runners are ephemeral, so the reaper is
   unnecessary. Also keep the 0s-grace force-kill so the stop itself is immediate.
-- `@checkstack/e2e`: make the catalog spec retry-safe. The serial group retried
-  from the top against a DB reset only per file boot (not per retry), so a flake
-  in any later test re-ran the global empty-state assertions against an
-  already-populated catalog and hard-failed. Split the read-only empty-state
-  tests into `catalog-empty.spec.ts` (its own fresh, never-mutated DB), and key
-  the mutating chain's created names to the retry attempt (`-r<n>`) so a retry
-  never collides with the previous attempt's leftover rows.
-- `@checkstack/e2e`: speed up per-spec DB resets with a Postgres TEMPLATE
-  database. `with-e2e-postgres.ts` builds a fully-migrated template ONCE at the
-  start (by booting the real backend against an empty DB - the exact production
-  migration path, so it is generated from the current schema every run and can
-  never drift; no checked-in dump). Each per-file reset then clones it via
-  `CREATE DATABASE ... TEMPLATE` (a file copy), so the backend's boot-time
-  migrations become a no-op instead of re-running ~100+ migrations across ~25
-  plugin schemas every boot. Falls back to empty-create + migrate when no
-  template exists (e.g. `test:e2e:file` run directly).
+- `@checkstack/e2e`: make every serial spec retry-safe via FILE-level retries.
+  The e2e DB resets per file boot, not per Playwright retry, so an in-process
+  retry of a serial group re-ran its empty-state + create chain against the
+  previous attempt's polluted DB and failed. `run-all.ts` now retries a failed
+  spec by re-running the whole `playwright test <file>` invocation (Playwright
+  retries set to 0), which re-boots the backend and resets the DB, so each
+  attempt starts clean - no per-spec workarounds needed. (CI also shards the
+  suite across runners and shares a single frontend/docs build; those are
+  workflow-only changes.)
 - The regenerated bundled docs index reflects the new anomaly-detection doc page.
