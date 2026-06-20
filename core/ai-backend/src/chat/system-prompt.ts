@@ -323,6 +323,44 @@ const CHAT_CLARIFY_INSTRUCTION =
   "than a guess, especially when building an automation or proposing a change.";
 
 /**
+ * How long a conversation may sit idle before the model is told its remembered
+ * tool results are stale. Below this, resuming mid-thought re-uses in-context
+ * results (cheap, correct); above it, the platform state it saw earlier (names,
+ * statuses, what's failing) may have changed, so it must re-fetch. 10 minutes
+ * catches "came back to an old chat" without nagging on active back-and-forth.
+ */
+export const STALE_CONTEXT_AFTER_MS = 10 * 60 * 1000;
+
+/** Human-readable idle duration for the freshness directive (no sub-minute noise). */
+function humanizeIdle(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
+/**
+ * Build the data-freshness directive for a resumed-after-idle conversation. The
+ * model has no clock and replays earlier tool results verbatim, so without this
+ * it answers "what's failing" / a name / a status from data captured at the
+ * start of the thread - which may be long stale. This tells it to re-fetch
+ * current state before answering, instead of trusting the remembered results.
+ */
+function freshnessDirective(staleSinceMs: number): string {
+  return (
+    `This conversation was idle for about ${humanizeIdle(staleSinceMs)} before ` +
+    `the latest message. Any tool results, names, statuses, or system state you ` +
+    `recall from EARLIER in this conversation may now be STALE (a check could ` +
+    `have been renamed, fixed, or started failing since). Before answering ` +
+    `anything about CURRENT state - what is failing/healthy, a name, a value, a ` +
+    `count - RE-CALL the relevant read tool to get fresh data; do not rely on a ` +
+    `result from an earlier turn. Prefer fresh reads over your memory of the thread.`
+  );
+}
+
+/**
  * One labelled section of the assembled prompt. Sectioning the prompt (clear
  * `## headings`, blank-line separation) steers materially better than one
  * run-on paragraph: it lets the model address the right rule for the task
@@ -360,6 +398,7 @@ export function buildChatSystemPrompt({
   mode,
   automationTools = false,
   modelFamily = "generic",
+  staleSinceMs,
 }: {
   timeZone?: string;
   now?: Date;
@@ -368,6 +407,13 @@ export function buildChatSystemPrompt({
   automationTools?: boolean;
   /** Declared model family; capable families get the lighter-touch calibration note. */
   modelFamily?: AiModelFamily;
+  /**
+   * Idle time (ms) since the conversation's last activity, BEFORE this turn's
+   * message. When it exceeds {@link STALE_CONTEXT_AFTER_MS}, a freshness
+   * directive is appended telling the model to re-fetch instead of trusting
+   * in-context tool results. Omit (or pass a small value) for a fresh thread.
+   */
+  staleSinceMs?: number;
 }): string {
   const sections: string[] = [
     CHAT_SYSTEM_PROMPT,
@@ -391,6 +437,12 @@ export function buildChatSystemPrompt({
       buildDateTimeContext({ timeZone, now, audience: "operator" }),
     ),
   );
+  // Volatile, only on a resumed-after-idle turn; sits at the END next to the
+  // (already-volatile) time line so the stable prefix stays cache-friendly.
+  // After this much idle the prompt cache is cold anyway, so no caching cost.
+  if (staleSinceMs !== undefined && staleSinceMs > STALE_CONTEXT_AFTER_MS) {
+    sections.push(section("Data freshness", freshnessDirective(staleSinceMs)));
+  }
   return sections.join("\n\n");
 }
 

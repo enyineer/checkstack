@@ -154,6 +154,33 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("\n\n## ");
   });
 
+  test("omits the freshness directive for a fresh / not-yet-idle thread", () => {
+    expect(buildChatSystemPrompt({ mode: "approve" })).not.toContain(
+      "## Data freshness",
+    );
+    // Just under the 10-minute threshold: still no nudge.
+    expect(
+      buildChatSystemPrompt({ mode: "approve", staleSinceMs: 9 * 60 * 1000 }),
+    ).not.toContain("## Data freshness");
+  });
+
+  test("injects a re-fetch directive when the thread was idle past the threshold", () => {
+    const prompt = buildChatSystemPrompt({
+      mode: "approve",
+      staleSinceMs: 26 * 60 * 60 * 1000, // ~26 hours
+    });
+    expect(prompt).toContain("## Data freshness");
+    expect(prompt).toMatch(/may now be STALE/);
+    expect(prompt).toMatch(/RE-CALL the relevant read tool/);
+    // Humanized idle duration is surfaced (hours/days, not raw ms).
+    expect(prompt).toContain("26 hours");
+    // Stays at the END, after the (also-volatile) time line, so the stable
+    // prefix is unaffected for prompt caching.
+    expect(prompt.indexOf("## Current time")).toBeLessThan(
+      prompt.indexOf("## Data freshness"),
+    );
+  });
+
   test("grounds the model in the docs and forbids fabrication", () => {
     const prompt = buildChatSystemPrompt({ timeZone: "Europe/Berlin", mode: "approve" });
     expect(prompt).toContain(DOCS_GROUNDING_INSTRUCTION);

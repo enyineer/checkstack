@@ -827,6 +827,7 @@ export function createChatService({
     summaryPreamble,
     resultCharBudget,
     modelFamily,
+    staleSinceMs,
   }: {
     principal: AuthUser;
     conversation: { permissionMode: AiPermissionMode };
@@ -852,6 +853,12 @@ export function createChatService({
      * dropped from the verbatim `modelMessages` to fit the context window.
      */
     summaryPreamble?: string;
+    /**
+     * Idle time (ms) since the conversation's last activity before this turn.
+     * When it crosses the staleness threshold, the system prompt tells the model
+     * to re-fetch rather than trust tool results from earlier in the thread.
+     */
+    staleSinceMs?: number;
   }): Response => {
     // Build the SDK tools from the resolver-allowed set only. The model is never
     // offered a tool the principal cannot use. Tool callbacks (budget + audit +
@@ -898,6 +905,7 @@ export function createChatService({
           mode: conversation.permissionMode,
           automationTools,
           modelFamily,
+          staleSinceMs,
         }),
         memoryPreamble,
         skillPreamble,
@@ -1047,6 +1055,13 @@ export function createChatService({
         );
       }
 
+      // Idle gap BEFORE this turn: `conversation` was loaded above, prior to
+      // appending the user message that bumps `updatedAt`, so this is the time
+      // since the last activity. A resumed-after-idle turn folds a freshness
+      // directive into the system prompt so the model re-fetches current state
+      // instead of answering from tool results captured earlier in the thread.
+      const staleSinceMs = Date.now() - conversation.updatedAt.getTime();
+
       // PER-INTEGRATION SPEND CAP (default OFF): refuse the turn up front when
       // the principal is over the integration's configured token budget. The
       // sum is read from the shared `ai_spend` ledger, so the cap holds across
@@ -1183,6 +1198,7 @@ export function createChatService({
           contextWindowTokens: connection.contextWindowTokens,
         }),
         modelFamily: resolveModelFamily({ connection }),
+        staleSinceMs,
       });
     },
 
