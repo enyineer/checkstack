@@ -10,6 +10,7 @@ import {
   mergeCounter,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -261,6 +262,11 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
       resolver.setServers([validatedConfig.nameserver]);
     }
 
+    // Mutable holder: the DNS lookup happens per-exec (no persistent
+    // connection), so the resolution time is measured there and surfaced as
+    // the `dnsMs` phase for the executor (last-request-wins).
+    const timings: TransportTimings = {};
+
     const client: DnsTransportClient = {
       exec: async (request: DnsLookupRequest): Promise<DnsLookupResult> => {
         const timeout = validatedConfig.timeout;
@@ -271,6 +277,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
           ),
         );
 
+        const start = performance.now();
         try {
           const resolvePromise = this.resolveRecords(
             resolver,
@@ -279,8 +286,12 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
           );
 
           const values = await Promise.race([resolvePromise, timeoutPromise]);
+          timings.dnsMs = Math.max(0, Math.round(performance.now() - start));
           return { values };
         } catch (error) {
+          // A failed lookup still took time; record it so a slow-then-failing
+          // resolver still surfaces a DNS phase.
+          timings.dnsMs = Math.max(0, Math.round(performance.now() - start));
           return {
             values: [],
             error: extractErrorMessage(error),
@@ -291,6 +302,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // DNS resolver is stateless, nothing to close
       },

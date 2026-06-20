@@ -17,6 +17,7 @@ import {
   configNumber,
   configBoolean,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -279,6 +280,7 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RedisTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.redisClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -287,9 +289,14 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
       tls: validatedConfig.tls,
       connectTimeout: validatedConfig.timeout,
     });
+    // Connect + auth + db select all happen inside the single connect call.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: RedisTransportClient = {
       async exec(command: RedisCommand): Promise<RedisCommandResult> {
+        const cmdStart = performance.now();
         try {
           let value: string | undefined;
           switch (command.cmd) {
@@ -318,12 +325,19 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
             value: undefined,
             error: extractErrorMessage(error),
           };
+        } finally {
+          // Same timings reference returned on the client; last command wins.
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - cmdStart),
+          );
         }
       },
     };
 
     return {
       client,
+      timings,
       close: () => {
         connection.quit().catch(() => {
           // Ignore quit errors

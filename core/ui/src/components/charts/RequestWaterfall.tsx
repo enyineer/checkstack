@@ -33,9 +33,20 @@ function toneFor({ isSlowest }: { isSlowest: boolean }): string {
  *
  * Drawn from `reviews/design/pro-console` "Timing waterfall".
  */
+/**
+ * Default duration formatter. Renders a measured-but-tiny phase (a fast local
+ * connect, or a single-segment body transfer) as "<1 ms" rather than a bare
+ * "0 ms", so a real sub-millisecond measurement does not read as "not
+ * captured". A true zero (an absent / clamped phase) still shows "0 ms".
+ */
+function defaultFormatMs(ms: number): string {
+  if (ms > 0 && ms < 1) return "<1 ms";
+  return `${Math.round(ms)} ms`;
+}
+
 export const RequestWaterfall: React.FC<RequestWaterfallProps> = ({
   phases,
-  formatMs = (ms) => `${Math.round(ms)} ms`,
+  formatMs = defaultFormatMs,
   ariaLabel,
   className,
 }) => {
@@ -65,12 +76,14 @@ export const RequestWaterfall: React.FC<RequestWaterfallProps> = ({
           <li
             key={p.id}
             className="grid items-center gap-3"
-            style={{ gridTemplateColumns: "96px 1fr 72px" }}
+            style={{ gridTemplateColumns: "minmax(72px, max-content) 1fr 72px" }}
           >
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-              {p.label}
+            {/* Label column auto-sizes to its content so the "slowest" badge
+                (stacked on its own line) never collides with the timing bar. */}
+            <span className="flex flex-col gap-0.5 text-xs text-muted-foreground font-mono leading-tight">
+              <span>{p.label}</span>
               {p.isSlowest && (
-                <span className="rounded-sm bg-[hsl(var(--status-warn)/0.18)] px-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--status-warn))]">
+                <span className="w-fit rounded-sm bg-[hsl(var(--status-warn)/0.18)] px-1 text-[10px] font-semibold uppercase tracking-wide text-[hsl(var(--status-warn))]">
                   slowest
                 </span>
               )}

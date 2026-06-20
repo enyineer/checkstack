@@ -11,6 +11,7 @@ import {
   mergeCounter,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -291,10 +292,15 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
     const validatedConfig = this.config.validate(config);
     const socket = this.socketFactory();
 
+    const connectStart = performance.now();
     await socket.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
     });
+    // The only meaningful sub-phase for a raw TCP probe is the connect itself.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: TcpTransportClient = {
       async exec(request: TcpConnectRequest): Promise<TcpConnectResult> {
@@ -308,6 +314,7 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => socket.close(),
     };
   }

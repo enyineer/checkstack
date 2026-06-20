@@ -15,6 +15,7 @@ import {
   z,
   configString,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -281,6 +282,10 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<SshTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // The SSH handshake (TCP connect + auth + channel ready) is a single
+    // measurable phase up front; record it as connectMs. The per-command exec
+    // time is filled in below as processingMs (last-command-wins).
+    const connectStart = performance.now();
     const connection = await this.sshClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -290,11 +295,23 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
       passphrase: validatedConfig.passphrase,
       readyTimeout: validatedConfig.timeout,
     });
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     return {
       client: {
-        exec: (command: string) => connection.exec(command),
+        exec: async (command: string): Promise<SshCommandResult> => {
+          const start = performance.now();
+          const result = await connection.exec(command);
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - start),
+          );
+          return result;
+        },
       },
+      timings,
       close: () => connection.end(),
     };
   }

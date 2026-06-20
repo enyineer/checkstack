@@ -17,6 +17,7 @@ import {
   configNumber,
   configBoolean,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -253,6 +254,7 @@ export class PostgresHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<PostgresTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.dbClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -262,11 +264,19 @@ export class PostgresHealthCheckStrategy implements HealthCheckStrategy<
       ssl: validatedConfig.ssl ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: validatedConfig.timeout,
     });
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: PostgresTransportClient = {
       async exec(request: SqlQueryRequest): Promise<SqlQueryResult> {
         try {
+          const queryStart = performance.now();
           const result = await connection.query(request.query);
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - queryStart),
+          );
           return { rowCount: result.rowCount ?? 0 };
         } catch (error) {
           return {
@@ -279,6 +289,7 @@ export class PostgresHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         connection.end().catch(() => {
           // Ignore close errors

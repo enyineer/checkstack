@@ -16,6 +16,7 @@ import {
   configString,
   configNumber,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -264,6 +265,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<MysqlTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.dbClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -272,11 +274,19 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
       password: validatedConfig.password,
       connectTimeout: validatedConfig.timeout,
     });
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: MysqlTransportClient = {
       async exec(request: SqlQueryRequest): Promise<SqlQueryResult> {
         try {
+          const queryStart = performance.now();
           const result = await connection.query(request.query);
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - queryStart),
+          );
           return { rowCount: result.rowCount };
         } catch (error) {
           return {
@@ -289,6 +299,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         connection.end().catch(() => {
           // Ignore close errors

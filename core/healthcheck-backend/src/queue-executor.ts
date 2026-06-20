@@ -8,10 +8,12 @@ import {
   type BaseStrategyConfig,
   type ConnectedClient,
   type TransportClient,
+  type TransportTimings,
   type CollectorRunContext,
   type AdvisoryLockService,
   renderTemplatableConfig,
 } from "@checkstack/backend-api";
+import type { RunTimings } from "@checkstack/healthcheck-common";
 import { QueueManager } from "@checkstack/queue-api";
 import {
   healthCheckConfigurations,
@@ -89,6 +91,39 @@ function toHealthEntityView(state: AggregatedHealth): HealthEntityState {
       .length,
     totalChecks: state.checkStatuses.length,
   };
+}
+
+/** The known transport timing phase keys, in transport order. */
+const RUN_TIMING_KEYS = [
+  "dnsMs",
+  "connectMs",
+  "tlsMs",
+  "waitMs",
+  "transferMs",
+  "processingMs",
+] as const;
+
+/**
+ * Build the run's `metadata.timings` from a connected client's surfaced
+ * transport timings, keeping only present, finite, non-negative phases. Returns
+ * `undefined` when no usable phase was measured so the field is omitted (old
+ * runs and single-phase strategies stay on the coarse fallback in the UI).
+ */
+function extractRunTimings(
+  connectedClient: ConnectedClient<TransportClient<never, unknown>> | undefined,
+): RunTimings | undefined {
+  const raw: TransportTimings | undefined = connectedClient?.timings;
+  if (!raw) return undefined;
+  const result: RunTimings = {};
+  let any = false;
+  for (const key of RUN_TIMING_KEYS) {
+    const value = raw[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      result[key] = value;
+      any = true;
+    }
+  }
+  return any ? result : undefined;
 }
 
 /**
@@ -1003,6 +1038,12 @@ async function executeHealthCheckJob(props: {
     const status = hasCollectorError ? "unhealthy" : "healthy";
     const totalLatencyMs = Math.round(performance.now() - start);
 
+    // Lift the strategy's structured transport timings (DNS / connect / TLS /
+    // wait / transfer / processing) into the run metadata when the connected
+    // client surfaced any. Strategies that cannot measure sub-phases leave this
+    // undefined and the frontend falls back to the coarse connection split.
+    const timings = extractRunTimings(connectedClient);
+
     const result = {
       status: status as "healthy" | "unhealthy",
       latencyMs: totalLatencyMs,
@@ -1012,6 +1053,7 @@ async function executeHealthCheckJob(props: {
       metadata: {
         connected: true,
         connectionTimeMs,
+        ...(timings ? { timings } : {}),
         collectors: collectorResults,
       },
     };

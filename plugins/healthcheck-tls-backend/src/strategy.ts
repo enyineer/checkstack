@@ -12,6 +12,7 @@ import {
   mergeMinMax,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -175,6 +176,18 @@ export interface TlsConnection {
   end(): void;
 }
 
+/**
+ * A connection plus its measured phase timings. `connectMs` is the TCP connect
+ * (socket `connect` event) and `tlsMs` is the TLS handshake (between TCP connect
+ * and the secure-connect callback). Either may be undefined when the underlying
+ * client cannot measure it (e.g. an injected test double).
+ */
+export interface TimedTlsConnection {
+  connection: TlsConnection;
+  connectMs?: number;
+  tlsMs?: number;
+}
+
 export interface TlsClient {
   connect(options: {
     host: string;
@@ -182,13 +195,15 @@ export interface TlsClient {
     servername: string;
     rejectUnauthorized: boolean;
     timeout: number;
-  }): Promise<TlsConnection>;
+  }): Promise<TimedTlsConnection>;
 }
 
 // Default client using Node.js tls module
 const defaultTlsClient: TlsClient = {
-  connect(options): Promise<TlsConnection> {
+  connect(options): Promise<TimedTlsConnection> {
     return new Promise((resolve, reject) => {
+      const start = performance.now();
+      let tcpConnectedAt: number | undefined;
       const socket = tls.connect(
         {
           host: options.host,
@@ -198,16 +213,32 @@ const defaultTlsClient: TlsClient = {
           timeout: options.timeout,
         },
         () => {
+          const secureAt = performance.now();
           resolve({
-            authorized: socket.authorized,
-            getPeerCertificate: () =>
-              socket.getPeerCertificate() as unknown as CertificateInfo,
-            getProtocol: () => socket.getProtocol(),
-            getCipher: () => socket.getCipher(),
-            end: () => socket.end(),
+            connection: {
+              authorized: socket.authorized,
+              getPeerCertificate: () =>
+                socket.getPeerCertificate() as unknown as CertificateInfo,
+              getProtocol: () => socket.getProtocol(),
+              getCipher: () => socket.getCipher(),
+              end: () => socket.end(),
+            },
+            // TCP connect: socket `connect` to first byte of the handshake.
+            connectMs:
+              tcpConnectedAt === undefined
+                ? undefined
+                : Math.max(0, tcpConnectedAt - start),
+            // TLS handshake: TCP connect to the secure-connect callback. When
+            // the `connect` event did not fire (already-connected socket), fall
+            // back to measuring the whole connect as handshake.
+            tlsMs: Math.max(0, secureAt - (tcpConnectedAt ?? start)),
           });
         },
       );
+
+      socket.on("connect", () => {
+        tcpConnectedAt = performance.now();
+      });
 
       socket.on("error", reject);
       socket.setTimeout(options.timeout, () => {
@@ -300,13 +331,18 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<TlsTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
-    const connection = await this.tlsClient.connect({
+    const { connection, connectMs, tlsMs } = await this.tlsClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
       servername: validatedConfig.servername ?? validatedConfig.host,
       rejectUnauthorized: validatedConfig.rejectUnauthorized,
       timeout: validatedConfig.timeout,
     });
+
+    // Surface the measured TCP connect + TLS handshake phases to the executor.
+    const timings: TransportTimings = {};
+    if (connectMs !== undefined) timings.connectMs = connectMs;
+    if (tlsMs !== undefined) timings.tlsMs = tlsMs;
 
     const cert = connection.getPeerCertificate();
     const validTo = new Date(cert.valid_to);
@@ -336,6 +372,7 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => connection.end(),
     };
   }

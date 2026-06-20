@@ -8,6 +8,7 @@ import {
   z,
   type InferAggregatedResult,
   type ConnectedClient,
+  type TransportTimings,
   baseStrategyConfigSchema,
   DEFAULT_EGRESS_DENY_CIDRS,
   resolveAndValidateHost,
@@ -18,6 +19,7 @@ import {
   healthResultSchema,
   StrategyCategory,
 } from "@checkstack/healthcheck-common";
+import { probeConnectTiming } from "./connect-probe";
 import type {
   HttpTransportClient,
   HttpRequest,
@@ -219,53 +221,104 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
     ];
     const lookupFn = this.lookupFn;
 
+    // Mutable per-run timings holder. `exec` writes the request's transport
+    // phases here so the executor can lift them into `metadata.timings`.
+    const timings: TransportTimings = {};
+
     const client: HttpTransportClient = {
       async exec(request: HttpRequest): Promise<HttpResponse> {
         const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          request.timeout ?? validatedConfig.timeout,
-        );
+        const timeoutMs = request.timeout ?? validatedConfig.timeout;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
           // Resolve the host to IP(s), reject any denied range, and PIN the
           // connection to the validated IP (rewrite the URL host to the IP,
-          // restore the original Host header + TLS SNI). Pinning is what
-          // resists DNS-rebind: we connect to exactly the IP we checked.
+          // restore the original Host header + TLS SNI). Pinning is what resists
+          // DNS-rebind: we connect to exactly the IP we checked. The REQUEST is
+          // byte-for-byte the path that has always worked - only the surrounding
+          // timing measurement is new, so request behaviour cannot regress.
           const requestUrl = new URL(request.url);
+          const dnsStart = performance.now();
           const target = await resolveAndValidateHost({
             host: requestUrl.hostname,
             denyCidrs,
             ...(lookupFn === undefined ? {} : { lookupFn }),
           });
+          const dnsMs = Math.max(0, performance.now() - dnsStart);
           const pinnedUrl = pinUrlToIp(request.url, target.ip);
+          const pinned = new URL(pinnedUrl);
+          const isHttps = pinned.protocol === "https:";
+
+          // Connect/TLS timing comes from a short-lived raw probe to the SAME
+          // validated IP: Bun's `fetch` socket exposes no connect/handshake
+          // events, but raw net/tls sockets do. Best-effort, runs alongside the
+          // request, and never fails the check.
+          const probePromise = probeConnectTiming({
+            ip: target.ip,
+            port: pinned.port === "" ? (isHttps ? 443 : 80) : Number(pinned.port),
+            tls: isHttps,
+            servername: requestUrl.hostname,
+            timeoutMs,
+          });
+
           const pinnedHeaders: Record<string, string> = {
             ...request.headers,
             // Preserve the virtual host the server expects.
             host: requestUrl.host,
           };
 
+          // `fetch` resolves at the response HEADERS (time-to-first-byte);
+          // consuming the body is the transfer phase.
+          const fetchStart = performance.now();
           const response = await fetch(pinnedUrl, {
             method: request.method,
             headers: pinnedHeaders,
             body: request.body,
             signal: controller.signal,
-            // Bun: keep TLS validation against the ORIGINAL hostname even
-            // though we connected to an IP literal.
+            // Bun: keep TLS validation against the ORIGINAL hostname even though
+            // we connected to an IP literal.
             tls: { serverName: requestUrl.hostname },
           });
+          const ttfbMs = Math.max(0, performance.now() - fetchStart);
 
-          // Read body BEFORE clearing timeout - body streaming can also hang
+          // Read body BEFORE clearing the timeout - body streaming can also hang.
+          const transferStart = performance.now();
           const body = await response.text();
+          const transferMs = Math.max(0, performance.now() - transferStart);
 
           clearTimeout(timeoutId);
+
+          const probe = await probePromise;
+          // Server wait = time-to-first-byte minus the connection setup we could
+          // measure. Clamped: the probe is a parallel connection, so on a warm
+          // path its setup can exceed the request's ttfb.
+          const waitMs = Math.max(
+            0,
+            ttfbMs - ((probe.connectMs ?? 0) + (probe.tlsMs ?? 0)),
+          );
+
+          // Last-request-wins: reset then write this request's phases.
+          delete timings.dnsMs;
+          delete timings.connectMs;
+          delete timings.tlsMs;
+          delete timings.waitMs;
+          delete timings.transferMs;
+          delete timings.processingMs;
+          timings.dnsMs = dnsMs;
+          if (probe.connectMs !== undefined) timings.connectMs = probe.connectMs;
+          if (probe.tlsMs !== undefined) timings.tlsMs = probe.tlsMs;
+          timings.waitMs = waitMs;
+          timings.transferMs = transferMs;
+
           const headers: Record<string, string> = {};
-
-          // eslint-disable-next-line unicorn/no-array-for-each
-          response.headers.forEach((value, key) => {
+          for (const [key, value] of response.headers) {
             headers[key.toLowerCase()] = value;
-          });
+          }
 
+          // A received response - INCLUDING a 4xx/5xx - returns normally and is
+          // an assertable metric (never an error). Only a genuine transport
+          // failure (DNS, connect, TLS, timeout, abort) throws.
           return {
             statusCode: response.status,
             statusText: response.statusText,
@@ -282,6 +335,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // HTTP is stateless, nothing to close
       },

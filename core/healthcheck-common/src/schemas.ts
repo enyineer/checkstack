@@ -160,6 +160,66 @@ export const HealthCheckStatusSchema = z.enum([
 export type HealthCheckStatus = z.infer<typeof HealthCheckStatusSchema>;
 
 /**
+ * Structured, per-run transport timing breakdown.
+ *
+ * Every field is OPTIONAL and expressed in milliseconds. Each strategy
+ * populates only the phases it can actually measure - never fabricate a phase
+ * that was not observed. The transport-ordered network phases are:
+ *
+ * - `dnsMs`: DNS resolution (hostname -> IP).
+ * - `connectMs`: TCP connection establishment (after DNS).
+ * - `tlsMs`: TLS handshake (after TCP; https / secured transports only).
+ * - `waitMs`: server processing / time-to-first-byte (after connect/TLS).
+ * - `transferMs`: response body transfer (after first byte).
+ *
+ * `processingMs` is the catch-all for operation time on NON-HTTP transports
+ * where the finer network phases do not apply (e.g. a DB query, a Redis
+ * command, an SSH exec, a gRPC RPC). A strategy emits either the granular
+ * network phases OR `processingMs`, or both (e.g. a DB emits `connectMs`
+ * plus `processingMs`).
+ *
+ * The sum of present phases approximates total `latencyMs`; it is not
+ * required to be exact (clock skew, untimed slivers), so the frontend never
+ * relies on the sum equalling the total.
+ */
+export const RunTimingsSchema = z.object({
+  dnsMs: z.number().optional(),
+  connectMs: z.number().optional(),
+  tlsMs: z.number().optional(),
+  waitMs: z.number().optional(),
+  transferMs: z.number().optional(),
+  processingMs: z.number().optional(),
+});
+
+export type RunTimings = z.infer<typeof RunTimingsSchema>;
+
+/**
+ * Ordered list of the known timing phase keys, in transport order. Used by the
+ * frontend phase-builder so present phases render DNS -> connect -> TLS ->
+ * wait -> transfer -> processing.
+ */
+export const RUN_TIMING_PHASE_ORDER: ReadonlyArray<keyof RunTimings> = [
+  "dnsMs",
+  "connectMs",
+  "tlsMs",
+  "waitMs",
+  "transferMs",
+  "processingMs",
+] as const;
+
+/**
+ * Human labels for each timing phase, used by the frontend waterfall.
+ */
+export const RUN_TIMING_PHASE_LABELS: Record<keyof RunTimings, string> = {
+  dnsMs: "DNS",
+  connectMs: "Connect",
+  tlsMs: "TLS",
+  waitMs: "Wait",
+  transferMs: "Transfer",
+  processingMs: "Processing",
+};
+
+/**
  * Canonical shape for a single health check run result.
  * Both the local queue-executor and satellite agent MUST produce this shape
  * to ensure the frontend (auto-charts, history detail) renders correctly.
@@ -171,6 +231,12 @@ export const HealthCheckRunResultSchema = z.object({
   metadata: z.object({
     connected: z.boolean(),
     connectionTimeMs: z.number().optional(),
+    /**
+     * Optional structured transport timing breakdown. Absent for old runs and
+     * for strategies that cannot measure sub-phases; the frontend falls back to
+     * the coarse connection/processing view when this is missing.
+     */
+    timings: RunTimingsSchema.optional(),
     collectors: z.record(z.string(), z.unknown()).optional(),
     error: z.string().optional(),
   }),

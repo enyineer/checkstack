@@ -133,6 +133,59 @@ interface TransportClient<TCommand, TResult> {
 > result so the collector can expose it as an assertable metric. See
 > [Transport failure vs assertable metric](/checkstack/developer-guide/backend/healthchecks/collectors/#transport-failure-vs-assertable-metric-must-follow).
 
+## Transport timings (optional)
+
+A strategy may surface a structured per-run timing breakdown by attaching an
+optional `timings` object to the `ConnectedClient` it returns. The executor
+reads it after collectors finish and lifts it into the run's
+`metadata.timings`, where the run-detail UI renders it as a phase waterfall.
+Every field is optional and in milliseconds; populate only the phases you can
+actually measure - never fabricate one.
+
+```typescript
+interface TransportTimings {
+  dnsMs?: number;       // DNS resolution
+  connectMs?: number;   // TCP connect (after DNS)
+  tlsMs?: number;       // TLS handshake (https / secured transports)
+  waitMs?: number;      // server processing / time-to-first-byte
+  transferMs?: number;  // response body transfer
+  processingMs?: number; // operation time for non-HTTP transports (query, RPC, exec)
+}
+```
+
+Where the phases are measured depends on the transport:
+
+- Connection-based strategies (TLS, TCP, DB, Redis, SSH, RCON) measure
+  `connectMs` (and `tlsMs` where a handshake applies) in `createClient` and
+  `processingMs` around the operation in `exec`.
+- Request-per-`exec` strategies (HTTP, DNS, gRPC, Jenkins) initialise an empty
+  `timings` object in `createClient` and mutate it from inside `exec`
+  (last-request-wins). The HTTP probe derives the full DNS/connect/TLS/wait/
+  transfer split from socket events.
+
+```typescript
+async createClient(config: unknown): Promise<ConnectedClient<TClient>> {
+  const start = performance.now();
+  const connection = await this.connect(/* ... */);
+  const timings: TransportTimings = {
+    connectMs: Math.max(0, Math.round(performance.now() - start)),
+  };
+  const client: TClient = {
+    async exec(request) {
+      const opStart = performance.now();
+      const result = await connection.run(request);
+      timings.processingMs = Math.max(0, Math.round(performance.now() - opStart));
+      return result;
+    },
+  };
+  return { client, timings, close: () => connection.end() };
+}
+```
+
+A strategy with no meaningful sub-phases (ping, hardware, script) simply omits
+`timings`; the run-detail UI then falls back to a coarse connection/processing
+view from the legacy `connectionTimeMs`.
+
 ## Configuration Schema
 
 Define connection parameters by extending `baseStrategyConfigSchema`. This provides the required `timeout` field with a sensible default (30 seconds). Use `configString` and `configNumber` from `@checkstack/backend-api` for special field types:

@@ -15,6 +15,7 @@ import {
   z,
   configString,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -236,20 +237,32 @@ export class RconHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RconTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.rconClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
       password: validatedConfig.password,
       timeout: validatedConfig.timeout,
     });
+    // connect() establishes the socket and authenticates in one step.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     return {
       client: {
         exec: async (command: string) => {
+          const cmdStart = performance.now();
           const response = await connection.command(command);
+          // Same timings reference returned below; last command wins.
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - cmdStart),
+          );
           return { response };
         },
       },
+      timings,
       close: () => connection.disconnect(),
     };
   }

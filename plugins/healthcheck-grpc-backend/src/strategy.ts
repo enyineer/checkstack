@@ -12,6 +12,7 @@ import {
   mergeCounter,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -302,8 +303,16 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<GrpcTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // The gRPC client is per-request: the channel connect, optional TLS
+    // handshake, and unary RPC all happen inside a single makeUnaryRequest in
+    // exec, so the only phase we can measure accurately is the full round-trip.
+    // We map that to processingMs and deliberately omit connectMs/tlsMs rather
+    // than fabricate a split we cannot observe (last-request-wins).
+    const timings: TransportTimings = {};
+
     const client: GrpcTransportClient = {
       exec: async (request: GrpcHealthRequest): Promise<GrpcHealthResponse> => {
+        const start = performance.now();
         try {
           const result = await this.grpcClient.check({
             host: validatedConfig.host,
@@ -312,8 +321,18 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
             useTls: validatedConfig.useTls,
             timeout: validatedConfig.timeout,
           });
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - start),
+          );
           return { status: result.status };
         } catch (error_) {
+          // A failed RPC still consumed time; record it so a slow-then-failing
+          // server still surfaces a processing phase.
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - start),
+          );
           const error = extractErrorMessage(error_);
           return { status: "UNKNOWN", error };
         }
@@ -322,6 +341,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // gRPC client is per-request, nothing to close
       },

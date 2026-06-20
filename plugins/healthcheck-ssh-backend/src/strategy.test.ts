@@ -45,6 +45,8 @@ describe("SshHealthCheckStrategy", () => {
       expect(connectedClient.client).toBeDefined();
       expect(connectedClient.client.exec).toBeDefined();
       expect(connectedClient.close).toBeDefined();
+      // The SSH handshake phase is measured up front in createClient.
+      expect(connectedClient.timings?.connectMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });
@@ -84,6 +86,8 @@ describe("SshHealthCheckStrategy", () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("OK");
+      // exec records the command duration as processingMs (last-command-wins).
+      expect(connectedClient.timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });

@@ -1,20 +1,28 @@
 /**
  * ExpandedResultView - run-detail status, response-time metric strip, and a
- * connection/processing timing breakdown for a single health check run.
+ * per-run timing breakdown for a single health check run.
  *
  * Reskinned onto the design-system language (`reviews/design/pro-console`
  * timing waterfall + `adaptive-saas` metric strip): a token-driven metric strip
  * (status / total latency / connection) sits above a {@link RequestWaterfall}.
  *
- * Honesty note: a single run only records total `latencyMs` and an optional
- * `metadata.connectionTimeMs`. The platform does NOT capture granular DNS / TCP
- * / TLS / wait / transfer phases, so the waterfall renders only the two phases
- * we actually have — Connection and Processing (total minus connection) — and
- * is omitted entirely when no connection time was recorded. We never fabricate
- * phases we did not measure.
+ * Timing honesty: when the transport exposes a granular breakdown
+ * (`metadata.timings` - DNS / connect / TLS / wait / transfer, or `processing`
+ * for non-HTTP operations) the waterfall shows exactly those measured phases in
+ * transport order. When it does not (old runs, single-phase strategies) it
+ * falls back to the coarse Connection + Processing split derived from
+ * `connectionTimeMs` and the total. We never fabricate a phase we did not
+ * measure. The phase-builder lives in `@checkstack/healthcheck-common`
+ * (`buildRunTimingPhases`) so the fallback rules are unit-tested once.
  */
 
 import { RequestWaterfall, cn, type WaterfallPhase } from "@checkstack/ui";
+import {
+  buildRunTimingPhases,
+  hasGranularTimings,
+  RunTimingsSchema,
+  type RunTimings,
+} from "@checkstack/healthcheck-common";
 
 interface ExpandedResultViewProps {
   result: Record<string, unknown>;
@@ -45,9 +53,17 @@ function Metric({
   );
 }
 
+/** Safely parse the optional structured timings off a run's metadata. */
+function parseTimings(metadata: Record<string, unknown> | undefined): RunTimings | undefined {
+  if (!metadata || metadata.timings === undefined) return undefined;
+  const parsed = RunTimingsSchema.safeParse(metadata.timings);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /**
- * Displays a single run's status, response-time metric strip, and an honest
- * connection/processing timing waterfall.
+ * Displays a single run's status, response-time metric strip, and a timing
+ * waterfall - granular when the transport measured sub-phases, coarse
+ * Connection/Processing otherwise.
  */
 export function ExpandedResultView({ result }: ExpandedResultViewProps) {
   const status = String(result.status);
@@ -58,24 +74,16 @@ export function ExpandedResultView({ result }: ExpandedResultViewProps) {
     typeof metadata?.connectionTimeMs === "number"
       ? metadata.connectionTimeMs
       : undefined;
+  const timings = parseTimings(metadata);
 
-  // Only the two phases we actually measure. Processing = total - connection,
-  // clamped at zero (timing skew can make connection >= total).
-  const phases: WaterfallPhase[] =
-    latencyMs !== undefined && connectionTimeMs !== undefined
-      ? [
-          {
-            id: "connection",
-            label: "Connection",
-            durationMs: Math.min(connectionTimeMs, latencyMs),
-          },
-          {
-            id: "processing",
-            label: "Processing",
-            durationMs: Math.max(0, latencyMs - connectionTimeMs),
-          },
-        ]
-      : [];
+  // Build the waterfall GENERICALLY from the structured timings, falling back
+  // to the coarse Connection + Processing split when no granular timings exist.
+  const phases: WaterfallPhase[] = buildRunTimingPhases({
+    timings,
+    connectionTimeMs,
+    latencyMs,
+  });
+  const granular = hasGranularTimings(timings);
 
   return (
     <div className="space-y-3">
@@ -101,8 +109,9 @@ export function ExpandedResultView({ result }: ExpandedResultViewProps) {
           </p>
           <RequestWaterfall phases={phases} />
           <p className="text-[11px] text-muted-foreground">
-            Only connection and processing time are recorded per run; finer DNS
-            / TLS / transfer phases are not captured.
+            {granular
+              ? "Phases reflect this run's transport timing. Wait and transfer are measured on the request; connection-setup phases may be sampled alongside it."
+              : "Only connection and processing time were recorded for this run; finer DNS / TLS / transfer phases were not captured by this transport."}
           </p>
         </div>
       )}
