@@ -427,6 +427,18 @@ jobs:
     name: E2E
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    # Shard the suite across independent runners. Each leg gets its OWN ephemeral
+    # Postgres (Testcontainers) and boots one backend at a time - the proven
+    # single-Postgres / one-backend model is unchanged per runner, so there is no
+    # cross-test contention; we only split the FILE list across runners to cut
+    # wall-clock ~linearly. `run-all.ts` reads the shard env and round-robins the
+    # sorted spec files (selectShard). `fail-fast: false` so one shard's failure
+    # doesn't cancel the others (we want the full picture). `strategy.job-total`
+    # is the shard count, so the matrix size is the single source of truth.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -468,20 +480,28 @@ jobs:
       # exact command `bun run test:e2e` runs locally - CI and local are unified.
       - name: Run E2E suite
         id: e2e
+        env:
+          # run-all.ts round-robins the sorted spec files across these shards.
+          # Both must be set (run-all throws if only one is) - job-total tracks
+          # the matrix size so this never drifts from `matrix.shard`.
+          CHECKSTACK_E2E_SHARD_INDEX: ${{ matrix.shard }}
+          CHECKSTACK_E2E_SHARD_TOTAL: ${{ strategy.job-total }}
         run: |
           set +e
-          bun --env-file=../../.env scripts/with-e2e-postgres.ts 2>&1 | tee /tmp/e2e-output.txt
+          bun --env-file=../../.env scripts/with-e2e-postgres.ts 2>&1 | tee "/tmp/e2e-output-${{ matrix.shard }}.txt"
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
         working-directory: core/e2e
 
       # Traces (on-first-retry) + screenshots (on-failure) land in
       # core/e2e/test-results. Upload them so a failure is debuggable from the
       # PR without re-running locally.
+      # Per-shard artifact names: parallel matrix legs cannot upload the same
+      # artifact name (v4+ rejects duplicates), so suffix each with the shard.
       - name: Upload Playwright traces
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-traces
+          name: e2e-traces-${{ matrix.shard }}
           path: core/e2e/test-results
           if-no-files-found: ignore
 
@@ -489,8 +509,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-output
-          path: /tmp/e2e-output.txt
+          name: e2e-output-${{ matrix.shard }}
+          path: /tmp/e2e-output-${{ matrix.shard }}.txt
 
       - name: Set outcome
         if: always()
@@ -701,12 +721,16 @@ jobs:
           path: /tmp/artifacts/security
         continue-on-error: true
 
+      # E2E is sharded: collect every shard's output. Each artifact holds a
+      # distinctly-named file (e2e-output-<n>.txt), so merge-multiple lands them
+      # side by side; readOutput concatenates all .txt in the dir.
       - name: Download E2E Output
         if: always()
         uses: actions/download-artifact@v8
         with:
-          name: e2e-output
+          pattern: e2e-output-*
           path: /tmp/artifacts/e2e
+          merge-multiple: true
         continue-on-error: true
 
       - name: Count previous failure comments
@@ -757,9 +781,19 @@ jobs:
 
             // Read output files
             function readOutput(name) {
-              const filePath = path.join('/tmp/artifacts', name, `${name}-output.txt`);
+              const dir = path.join('/tmp/artifacts', name);
               try {
-                const content = fs.readFileSync(filePath, 'utf8');
+                // Read every .txt in the job's artifact dir and concatenate.
+                // Single-job dirs hold one `<name>-output.txt`; the sharded E2E
+                // dir holds one `e2e-output-<n>.txt` per shard.
+                const files = fs
+                  .readdirSync(dir)
+                  .filter((f) => f.endsWith('.txt'))
+                  .sort();
+                if (files.length === 0) return 'Output not available.';
+                const content = files
+                  .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
+                  .join('\n');
                 const lines = content.split('\n');
                 // Keep last 100 lines to avoid massive comments
                 if (lines.length > 100) {
