@@ -1798,7 +1798,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.111.0",
+      "version": "0.112.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -3017,7 +3017,6 @@
     "esbuild": "^0.28.1",
     "minimatch": "^10.2.5",
     "postcss-selector-parser": "^7.1.4",
-    "protobufjs": "^7.6.3",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "undici": "^7.28.0",
