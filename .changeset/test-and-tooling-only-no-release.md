@@ -28,4 +28,13 @@ Test- and tooling-only changes that intentionally carry no package release
   tests into `catalog-empty.spec.ts` (its own fresh, never-mutated DB), and key
   the mutating chain's created names to the retry attempt (`-r<n>`) so a retry
   never collides with the previous attempt's leftover rows.
+- `@checkstack/e2e`: speed up per-spec DB resets with a Postgres TEMPLATE
+  database. `with-e2e-postgres.ts` builds a fully-migrated template ONCE at the
+  start (by booting the real backend against an empty DB - the exact production
+  migration path, so it is generated from the current schema every run and can
+  never drift; no checked-in dump). Each per-file reset then clones it via
+  `CREATE DATABASE ... TEMPLATE` (a file copy), so the backend's boot-time
+  migrations become a no-op instead of re-running ~100+ migrations across ~25
+  plugin schemas every boot. Falls back to empty-create + migrate when no
+  template exists (e.g. `test:e2e:file` run directly).
 - The regenerated bundled docs index reflects the new anomaly-detection doc page.

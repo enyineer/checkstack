@@ -22,6 +22,7 @@
  */
 import path from "node:path";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { buildTemplateDatabase } from "./template-db";
 
 // Disable the Testcontainers Ryuk reaper. Ryuk keeps a persistent TCP socket
 // open to its sidecar container for the whole process lifetime and relies on
@@ -59,6 +60,11 @@ const databaseUrl = container.getConnectionUri();
 console.log(`[e2e] Postgres ready at ${container.getHost()}:${container.getPort()}`);
 
 try {
+  // Build the migrated TEMPLATE database once, before any spec runs. Each
+  // per-file reset then clones it (fast file copy) instead of re-migrating from
+  // scratch. Inside the try so a build failure still tears the container down.
+  await buildTemplateDatabase({ databaseUrl });
+
   const child = Bun.spawn({
     cmd: ["bun", "scripts/run-all.ts", ...process.argv.slice(2)],
     cwd: e2eDir,

@@ -21,6 +21,7 @@
  */
 import { SQL } from "bun";
 import path from "node:path";
+import { TEMPLATE_DB_NAME } from "./template-db";
 
 const E2E_DB_NAME = process.env.CHECKSTACK_E2E_DB_NAME ?? "checkstack_e2e";
 const PORT = process.env.PORT ?? "3100";
@@ -43,6 +44,13 @@ function requireDatabaseUrl(): URL {
  * migration-fresh schema. Connects to the maintenance `postgres` database (you
  * cannot drop the database you are connected to). `WITH (FORCE)` evicts any
  * connections a previous run left open.
+ *
+ * Fast path: when the migrated TEMPLATE database exists (built once by
+ * `with-e2e-postgres.ts`), clone it with `CREATE DATABASE ... TEMPLATE` - a
+ * Postgres file copy, so the backend's boot-time migrations all no-op (drizzle
+ * sees them already applied). Fallback: when no template exists (e.g. running
+ * this launcher directly via `test:e2e:file` without the wrapper), create an
+ * empty DB and let the backend migrate from scratch, exactly as before.
  */
 async function resetE2eDatabase(dbUrl: URL): Promise<string> {
   const adminUrl = new URL(dbUrl.toString());
@@ -52,10 +60,16 @@ async function resetE2eDatabase(dbUrl: URL): Promise<string> {
   // the reset never adds to connection pressure.
   const admin = new SQL(adminUrl.toString(), { max: 1 });
   try {
-    // Database identifiers cannot be parameterized; the name is a fixed
-    // constant (no user input), so interpolating it into DDL is safe here.
+    // Database identifiers cannot be parameterized; the names are fixed
+    // constants (no user input), so interpolating them into DDL is safe here.
     await admin.unsafe(`DROP DATABASE IF EXISTS "${E2E_DB_NAME}" WITH (FORCE)`);
-    await admin.unsafe(`CREATE DATABASE "${E2E_DB_NAME}"`);
+    const templateRows =
+      await admin`SELECT 1 FROM pg_database WHERE datname = ${TEMPLATE_DB_NAME}`;
+    const createSql =
+      templateRows.length > 0
+        ? `CREATE DATABASE "${E2E_DB_NAME}" TEMPLATE "${TEMPLATE_DB_NAME}"`
+        : `CREATE DATABASE "${E2E_DB_NAME}"`;
+    await admin.unsafe(createSql);
   } finally {
     await admin.end();
   }
