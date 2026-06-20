@@ -7,6 +7,7 @@ import {
   DOCS_GROUNDING_INSTRUCTION,
   HEADLESS_BASELINE_PROMPT,
   INVESTIGATION_INSTRUCTION,
+  TOOL_PRIVACY_INSTRUCTION,
   buildChatSystemPrompt,
   buildDateTimeContext,
   buildHeadlessSystemPrompt,
@@ -188,6 +189,16 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("searchDocs");
     expect(prompt).toContain("getDoc");
     expect(prompt).toContain("Never fabricate");
+  });
+
+  test("forbids exposing internal tool names/schemas as a user how-to", () => {
+    const prompt = buildChatSystemPrompt({ mode: "approve" });
+    expect(prompt).toContain("## Answering how-to questions");
+    expect(prompt).toContain(TOOL_PRIVACY_INSTRUCTION);
+    // The key intent: tools are the assistant's, not a user-facing API, and a
+    // how-to is answered in product terms or by offering to do it.
+    expect(prompt).toMatch(/NOT a public API/);
+    expect(prompt).toMatch(/offer to do it for them/i);
   });
 
   test("tells the model to ASK rather than guess a missing value", () => {

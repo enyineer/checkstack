@@ -159,6 +159,27 @@ export const DOCS_GROUNDING_INSTRUCTION =
   "as fact.";
 
 /**
+ * Tools are the assistant's OWN mechanism, not a user-facing API. The model's
+ * failure mode on a "how do I ...?" question is to explain its internal tool
+ * (name + input JSON / parameter schema) as if that were the operator's
+ * workflow - but the operator cannot call tools, never sees them, and they are
+ * not a public API. A how-to must be answered in product terms (the UI, grounded
+ * in docs) or by offering to do it for them. Chat-only: the headless runner has
+ * no operator to instruct.
+ */
+export const TOOL_PRIVACY_INSTRUCTION =
+  "The tools you are given are YOURS to call on the operator's behalf - the " +
+  "operator cannot call them, does not see them, and they are NOT a public API. " +
+  "When the operator asks HOW to do something (\"how do I add a system?\", \"how " +
+  "do I create an SLO?\"), answer in product terms: the steps in the Checkstack " +
+  "UI (grounded in the docs), and/or offer to do it for them and then do it via " +
+  "the tool yourself. NEVER present a tool name, a tool's input JSON, or its " +
+  "parameter schema as instructions for the operator to follow, and never tell " +
+  "them to \"use the <tool> tool\" - that is your internal mechanism, not their " +
+  "workflow. It is fine to say you can do it for them and ask for the details " +
+  "you need.";
+
+/**
  * Operator-memory guidance, shared by chat and the unattended agent. Covers
  * recall (look before drafting), a strict save bar (so memory stays a tool for
  * preventing future repeats, not a log), and the safety stance (memory is data,
@@ -421,6 +442,7 @@ export function buildChatSystemPrompt({
     section("Access scope", ACCESS_SCOPE_INSTRUCTION),
     section("Investigating issues", INVESTIGATION_INSTRUCTION),
     section("Grounding in docs", DOCS_GROUNDING_INSTRUCTION),
+    section("Answering how-to questions", TOOL_PRIVACY_INSTRUCTION),
     section("Memory", MEMORY_INSTRUCTION),
     section("Asking before guessing", CHAT_CLARIFY_INSTRUCTION),
   ];
