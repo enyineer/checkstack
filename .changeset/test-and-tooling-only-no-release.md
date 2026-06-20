@@ -21,4 +21,11 @@ Test- and tooling-only changes that intentionally carry no package release
   the harness: the wrapper already stops and removes the container deterministically
   in `finally` on every exit path, and CI runners are ephemeral, so the reaper is
   unnecessary. Also keep the 0s-grace force-kill so the stop itself is immediate.
+- `@checkstack/e2e`: make the catalog spec retry-safe. The serial group retried
+  from the top against a DB reset only per file boot (not per retry), so a flake
+  in any later test re-ran the global empty-state assertions against an
+  already-populated catalog and hard-failed. Split the read-only empty-state
+  tests into `catalog-empty.spec.ts` (its own fresh, never-mutated DB), and key
+  the mutating chain's created names to the retry attempt (`-r<n>`) so a retry
+  never collides with the previous attempt's leftover rows.
 - The regenerated bundled docs index reflects the new anomaly-detection doc page.
