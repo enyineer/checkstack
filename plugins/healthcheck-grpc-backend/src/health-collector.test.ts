@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { evaluateAssertions } from "@checkstack/backend-api";
 import { HealthCollector, type HealthConfig } from "./health-collector";
 import type {
   GrpcTransportClient,
@@ -34,7 +35,12 @@ describe("HealthCollector", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should return error for NOT_SERVING status", async () => {
+    // Regression: a completed health RPC that answers NOT_SERVING is a
+    // SUCCESSFUL collection - the server was reached and responded. The
+    // collector must NOT set `error` (the executor treats that as a transport
+    // failure). `serving` / `status` are assertable metrics. Previously this
+    // asserted the wrong behavior (`error` contains "NOT_SERVING").
+    it("does not hard-fail the collector on a NOT_SERVING status", async () => {
       const collector = new HealthCollector();
       const client = createMockClient({ status: "NOT_SERVING" });
 
@@ -46,7 +52,42 @@ describe("HealthCollector", () => {
 
       expect(result.result.status).toBe("NOT_SERVING");
       expect(result.result.serving).toBe(false);
-      expect(result.error).toContain("NOT_SERVING");
+      expect(result.error).toBeUndefined();
+
+      // A "serving is true" assertion fails - the user decides this is
+      // unhealthy, not the collector.
+      const failed = evaluateAssertions(
+        [{ field: "serving", operator: "isTrue" }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failed).not.toBeNull();
+
+      // A check that WANTS NOT_SERVING (e.g. asserting a service is drained)
+      // can be green.
+      const failedWanted = evaluateAssertions(
+        [{ field: "status", operator: "equals", value: "NOT_SERVING" }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failedWanted).toBeNull();
+    });
+
+    // A genuine transport failure (the RPC could not complete) IS a collector
+    // failure: the transport client surfaces it via `response.error` and the
+    // collector forwards it.
+    it("forwards a real transport error from the RPC client", async () => {
+      const collector = new HealthCollector();
+      const client = createMockClient({
+        status: "UNKNOWN",
+        error: "14 UNAVAILABLE: connection refused",
+      });
+
+      const result = await collector.execute({
+        config: { service: "" },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("UNAVAILABLE");
     });
 
     it("should pass service name to client", async () => {

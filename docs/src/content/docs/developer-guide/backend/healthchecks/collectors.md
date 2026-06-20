@@ -113,6 +113,83 @@ interface CollectorStrategy<
 | `TResult` | Per-execution result type |
 | `TAggregated` | Aggregated result type for bucket storage |
 
+## Transport failure vs assertable metric (MUST follow)
+
+> [!IMPORTANT]
+> A collector MUST fail (set `CollectorResult.error`, or throw) **only when the
+> transport itself failed** - i.e. the probe could not complete. It MUST NOT
+> fail because a successfully-received application result was "not what you
+> hoped". This is a hard rule for every collector.
+
+The run executor turns a collector's outcome into a health status like this:
+
+- The collector **threw**, or returned a non-empty `error` field => the run is
+  treated as a **transport failure** and short-circuits to `unhealthy` before
+  assertions run.
+- The collector returned a `result` with no `error` => **transport success**.
+  The run's health is then decided by the user's **assertions** against the
+  result fields (or, with no assertions, defaults to `healthy`).
+
+So `error` is reserved for "the probe could not complete". Everything the
+server actually told you is a **metric the user asserts on**.
+
+### What counts as a transport failure
+
+Set `error` / throw ONLY for these:
+
+- Connection refused, host unreachable, DNS resolution failure.
+- TCP / TLS connect failure, or a TLS **handshake that cannot complete**.
+- Timeout / aborted request; the probe could not finish.
+- A protocol-level error that prevented getting a result at all.
+- A process / script that could not be spawned.
+- A configuration error that prevents the probe from running (e.g. an invalid,
+  un-renderable URL, or an input that fails a security guard).
+
+### What is an assertable metric (NEVER fail the collector)
+
+Record these in `result` and let assertions decide health:
+
+| Strategy | Assertable metric (NOT a failure) |
+|----------|-----------------------------------|
+| HTTP | `statusCode` / `statusText` - a 404 or 500 is a **completed** request |
+| gRPC | the health `status` enum / `serving` - `NOT_SERVING` is a completed RPC |
+| SQL (MySQL/Postgres) | `rowCount` - 0 rows is a successful query |
+| SSH / Script | `exitCode` / `success` - a non-zero exit is a completed command |
+| TLS | `daysRemaining`, `valid`, `isSelfSigned` - the handshake still completed |
+| Redis / RCON | the returned value - an unexpected value is a completed command |
+| Jenkins | `offlineNodes`, build results, queue depth - the API call succeeded |
+
+A metric merely looking "abnormal" must NEVER fail a collector either -
+abnormality is handled by assertions and, separately, by the anomaly engine.
+
+### Example: the HTTP request collector
+
+```typescript
+async execute({ config, client }): Promise<CollectorResult<RequestResult>> {
+  // A real transport failure (DNS, connect, TLS, timeout, aborted) throws out
+  // of client.exec and the executor records it as a collector failure.
+  const response = await client.exec({ url: config.url, method: config.method });
+
+  // ANY received response - including 4xx/5xx - is a successful collection.
+  // `success` is just a metric (2xx/3xx); do NOT set `error` on a non-2xx.
+  const success = response.statusCode >= 200 && response.statusCode < 400;
+
+  return {
+    result: {
+      statusCode: response.statusCode,
+      statusText: response.statusText,
+      success,
+      // ...
+    },
+    // No `error` here: let "statusCode equals 200" (or "equals 404") decide.
+  };
+}
+```
+
+To make a check unhealthy on a 404, the user adds an assertion like
+`statusCode equals 200`; to make a check that WANTS a 404 green, they add
+`statusCode equals 404`. The collector stays out of that decision.
+
 ## Transport Clients
 
 Each transport strategy provides a specific client interface:

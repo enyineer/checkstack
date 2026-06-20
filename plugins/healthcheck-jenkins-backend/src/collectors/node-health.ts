@@ -302,14 +302,15 @@ export class NodeHealthCollector implements CollectorStrategy<
           : 0,
     };
 
-    // Warn if nodes are offline
-    const hasIssue = offlineNodes > 0;
-
+    // Offline nodes are an ASSERTABLE METRIC (`offlineNodes`, `onlineNodes`),
+    // NOT a collector failure: the request to Jenkins completed successfully
+    // and we got the node list back. Whether some nodes being offline makes the
+    // check unhealthy is the user's decision via assertions (e.g.
+    // "offlineNodes equals 0"). Only a real transport failure (the request to
+    // Jenkins could not complete - handled in the `response.error` branch
+    // above) fails the collector.
     return {
       result,
-      error: hasIssue
-        ? `${offlineNodes} of ${nodes.length} nodes offline`
-        : undefined,
     };
   }
 

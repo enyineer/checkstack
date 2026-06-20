@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { evaluateAssertions } from "@checkstack/backend-api";
 import { ExecuteCollector, type ExecuteConfig } from "./execute-collector";
 import type { ScriptTransportClient } from "./transport-client";
 
@@ -47,7 +48,13 @@ describe("ExecuteCollector", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should return error for failed script", async () => {
+    // Regression: a script that ran to completion and exited non-zero is a
+    // SUCCESSFUL collection - the command executed and reported a result. The
+    // collector must NOT set `error` (the executor treats that as a transport
+    // failure and hard-fails the run). `exitCode` / `success` are assertable
+    // metrics. Previously this asserted the wrong behavior (`error` contains
+    // "Exit code: 1").
+    it("does not hard-fail the collector on a non-zero exit code", async () => {
       const collector = new ExecuteCollector();
       const client = createMockClient({
         exitCode: 1,
@@ -62,7 +69,40 @@ describe("ExecuteCollector", () => {
 
       expect(result.result.exitCode).toBe(1);
       expect(result.result.success).toBe(false);
-      expect(result.error).toContain("Exit code: 1");
+      // Transport succeeded: no error field is set.
+      expect(result.error).toBeUndefined();
+
+      // A "success is true" assertion fails - the user decides this is
+      // unhealthy, not the collector.
+      const failed = evaluateAssertions(
+        [{ field: "success", operator: "isTrue" }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failed).not.toBeNull();
+
+      // A check that WANTS exit code 1 (e.g. "this file should be absent") can
+      // be green by asserting on the exit code.
+      const failedWanted = evaluateAssertions(
+        [{ field: "exitCode", operator: "equals", value: 1 }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failedWanted).toBeNull();
+    });
+
+    // A timeout IS a transport failure: the script could not complete. The
+    // collector must surface it as an `error`.
+    it("hard-fails the collector on a timeout (transport failure)", async () => {
+      const collector = new ExecuteCollector();
+      const client = createMockClient({ timedOut: true, exitCode: -1 });
+
+      const result = await collector.execute({
+        config: { script: "sleep 999", timeout: 100 },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.result.timedOut).toBe(true);
+      expect(result.error).toContain("timed out");
     });
 
     it("should handle timeout", async () => {

@@ -146,6 +146,15 @@ export class HealthCollector implements CollectorStrategy<
     });
 
     const responseTimeMs = Date.now() - startTime;
+    // `serving` (and the raw `status` enum) are ASSERTABLE METRICS, not a
+    // collector-failure signal. A completed health RPC that answers
+    // NOT_SERVING / SERVICE_UNKNOWN / UNKNOWN is a SUCCESSFUL collection: the
+    // server was reached and responded. Only a real transport failure (the RPC
+    // could not complete - connection refused, deadline exceeded) sets
+    // `response.error` in the transport client, and that is the only thing we
+    // forward as a collector error. Whether a non-SERVING status makes the
+    // check unhealthy is decided by the user's assertions (e.g. "serving is
+    // true", or "status equals NOT_SERVING" when that is the wanted state).
     const serving = response.status === "SERVING";
 
     return {
@@ -154,8 +163,7 @@ export class HealthCollector implements CollectorStrategy<
         serving,
         responseTimeMs,
       },
-      error:
-        response.error ?? (serving ? undefined : `Status: ${response.status}`),
+      error: response.error,
     };
   }
 

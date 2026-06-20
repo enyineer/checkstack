@@ -123,6 +123,16 @@ interface TransportClient<TCommand, TResult> {
 }
 ```
 
+> [!IMPORTANT]
+> `exec` MUST reject / throw (or surface an `error`) **only when the transport
+> failed** - connection refused, DNS failure, a TLS handshake that cannot
+> complete, a timeout, an aborted request, or a protocol-level error that
+> prevented getting any result. A successfully-received but "non-OK"
+> application result (an HTTP 404, a gRPC `NOT_SERVING`, a non-zero shell exit,
+> a zero-row query) is **not** a transport failure - return it as a normal
+> result so the collector can expose it as an assertable metric. See
+> [Transport failure vs assertable metric](/checkstack/developer-guide/backend/healthchecks/collectors/#transport-failure-vs-assertable-metric-must-follow).
+
 ## Configuration Schema
 
 Define connection parameters by extending `baseStrategyConfigSchema`. This provides the required `timeout` field with a sensible default (30 seconds). Use `configString` and `configNumber` from `@checkstack/backend-api` for special field types:

@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { evaluateAssertions } from "@checkstack/backend-api";
 import { RequestCollector, type RequestConfig } from "./request-collector";
 import type { HttpTransportClient } from "./transport-client";
 
@@ -43,7 +44,13 @@ describe("RequestCollector", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should return error for failed requests", async () => {
+    // Regression: a received-but-non-2xx response (e.g. 500) is a SUCCESSFUL
+    // collection - the server was reached and answered. The collector must NOT
+    // set the `error` field (which the executor treats as a transport failure
+    // and uses to hard-fail the run). It records the status code as a metric
+    // and lets assertions decide health. Previously this asserted the wrong
+    // behavior (`error` contains "500"); updated to the corrected semantics.
+    it("does not hard-fail the collector on a 5xx response", async () => {
       const collector = new RequestCollector();
       const client = createMockClient({
         statusCode: 500,
@@ -61,8 +68,51 @@ describe("RequestCollector", () => {
       });
 
       expect(result.result.statusCode).toBe(500);
+      // `success` stays a metric (2xx/3xx => true); 500 => false.
       expect(result.result.success).toBe(false);
-      expect(result.error).toContain("500");
+      // The collector reports transport success: no error field is set.
+      expect(result.error).toBeUndefined();
+    });
+
+    // Regression: a 404 is a fully successful HTTP transaction. The collector
+    // must report transport success (no `error`) and expose the status code as
+    // a metric so a "statusCode equals 404" assertion can pass (GREEN), and so
+    // a check with no assertions is not auto-failed by the collector.
+    it("treats a 404 as a successful collection with the status as a metric", async () => {
+      const collector = new RequestCollector();
+      const client = createMockClient({
+        statusCode: 404,
+        statusText: "Not Found",
+      });
+
+      const result = await collector.execute({
+        config: {
+          url: "https://example.com/missing",
+          method: "GET",
+          timeout: 5000,
+        },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.result.statusCode).toBe(404);
+      expect(result.error).toBeUndefined();
+
+      // A "status code equals 404" assertion passes against the result, so a
+      // check that WANTS a 404 can be green.
+      const failed = evaluateAssertions(
+        [{ field: "statusCode", operator: "equals", value: 404 }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failed).toBeNull();
+
+      // A "status code equals 200" assertion fails - the user, not the
+      // collector, decides this is unhealthy.
+      const failed200 = evaluateAssertions(
+        [{ field: "statusCode", operator: "equals", value: 200 }],
+        result.result as Record<string, unknown>,
+      );
+      expect(failed200).not.toBeNull();
     });
 
     it("should convert headers array to record", async () => {

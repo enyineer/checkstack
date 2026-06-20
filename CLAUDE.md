@@ -5,6 +5,7 @@
 @.claude/rules/code-style-guide.md
 @.claude/rules/dependencies.md
 @.claude/rules/docs-style.md
+@.claude/rules/healthcheck-collectors.md
 @.claude/rules/migrations.md
 @.claude/rules/performance.md
 @.claude/rules/state-and-scale.md

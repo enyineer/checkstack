@@ -268,8 +268,12 @@ export type ExecuteAggregatedResult = InferAggregatedResult<
  * awk -v l="$load" 'BEGIN { exit (l+0 > 0.60) ? 1 : 0 }'
  * ```
  *
- * Exit code 0 = healthy, anything else = unhealthy. stdout / stderr are
- * captured and reported with the run.
+ * The exit code is exposed as the assertable `exitCode` / `success` metric
+ * (`success` is true when the exit code is 0). It does NOT hard-fail the
+ * collector: add an assertion (e.g. "success is true", or "exitCode equals 0")
+ * to turn a non-zero exit into an unhealthy result. Only a genuine transport
+ * failure (the script could not be spawned, or it timed out) fails the
+ * collector itself. stdout / stderr are captured and reported with the run.
  */
 export class ExecuteCollector implements CollectorStrategy<
   ScriptTransportClient,
@@ -279,7 +283,8 @@ export class ExecuteCollector implements CollectorStrategy<
 > {
   id = "execute";
   displayName = "Shell Script";
-  description = "Run a shell script and treat exit code 0 as healthy";
+  description =
+    "Run a shell script and expose its exit code as an assertable metric";
 
   supportedPlugins = [pluginMetadata];
 
@@ -369,7 +374,23 @@ export class ExecuteCollector implements CollectorStrategy<
     });
 
     const executionTimeMs = Date.now() - startTime;
+    // `success` (exit code 0) and the raw `exitCode` are ASSERTABLE METRICS,
+    // not a collector-failure signal. A script that ran to completion and
+    // exited non-zero is a SUCCESSFUL collection: the command executed and
+    // reported a result. Whether a non-zero exit makes the check unhealthy is
+    // the user's decision via assertions (e.g. "exitCode equals 0", or
+    // "exitCode equals 1" when a non-zero exit is the wanted state). We must
+    // NOT set the `error` field on a non-zero exit, otherwise the executor
+    // hard-fails the run before assertions get to decide.
+    //
+    // Only a genuine transport failure fails the collector: `masked.error`
+    // (the script could not be spawned / a runner-level error) or `timedOut`
+    // (the script could not complete within the timeout). Those propagate as
+    // the collector `error`.
     const success = response.exitCode === 0 && !response.timedOut;
+    const transportError = response.timedOut
+      ? (masked.error ?? "Script execution timed out")
+      : masked.error;
 
     return {
       result: {
@@ -380,9 +401,7 @@ export class ExecuteCollector implements CollectorStrategy<
         success,
         timedOut: response.timedOut,
       },
-      error:
-        masked.error ??
-        (success ? undefined : `Exit code: ${response.exitCode}`),
+      error: transportError,
     };
   }
 

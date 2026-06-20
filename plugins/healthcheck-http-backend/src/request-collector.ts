@@ -230,6 +230,14 @@ export class RequestCollector implements CollectorStrategy<
     });
 
     const responseTimeMs = Date.now() - startTime;
+    // `success` is an ASSERTABLE METRIC (2xx/3xx), not a collector-failure
+    // signal. Receiving ANY response - including a 4xx/5xx - is a successful
+    // collection: the server was reached and answered. A real transport failure
+    // (DNS, connect, TLS, timeout, aborted) throws out of `client.exec` above
+    // and the executor records it as a collector failure. We must NOT set the
+    // `error` field here for a received-but-non-2xx response, otherwise the
+    // executor hard-fails the run and assertions (e.g. "statusCode equals 404")
+    // never get a chance to decide health.
     const success = response.statusCode >= 200 && response.statusCode < 400;
 
     return {
@@ -241,9 +249,6 @@ export class RequestCollector implements CollectorStrategy<
         bodyLength: response.body?.length ?? 0,
         success,
       },
-      error: success
-        ? undefined
-        : `HTTP ${response.statusCode}: ${response.statusText}`,
     };
   }
 
