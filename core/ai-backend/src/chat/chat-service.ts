@@ -918,7 +918,14 @@ export function createChatService({
       // from what it gathered instead of spending the last step on a tool call
       // and leaving the operator with a blank reply.
       prepareStep: ({ stepNumber }) =>
-        prepareFinalAnswerStep({ stepNumber, maxSteps: MAX_STEPS }),
+        prepareFinalAnswerStep({
+          stepNumber,
+          maxSteps: MAX_STEPS,
+          // Carry the active skill's voice/style into the forced final-answer
+          // step, which otherwise replaces the whole system prompt and would
+          // drop the skill on the one step that writes the user-visible reply.
+          persistentGuidance: skillPreamble,
+        }),
       // Defensively normalize: drop empty-content rows and merge consecutive
       // same-role messages so a failed prior turn (which persists no assistant
       // reply, leaving consecutive `user` rows) cannot poison the history into a

@@ -38,15 +38,28 @@ export const FINAL_ANSWER_SYSTEM =
 export function prepareFinalAnswerStep({
   stepNumber,
   maxSteps,
+  persistentGuidance,
 }: {
   /** Zero-based index of the step about to run (AI SDK `prepareStep` arg). */
   stepNumber: number;
   /** The hard step cap (`stepCountIs(maxSteps)`). */
   maxSteps: number;
+  /**
+   * Conversation-wide guidance that must survive into the FINAL answer (e.g. an
+   * active skill's voice/style preamble). The final step REPLACES the whole
+   * system prompt with {@link FINAL_ANSWER_SYSTEM}, so without re-appending it
+   * here the skill is silently dropped on the one step that writes the
+   * user-visible reply - which is why a "write like X" skill held during tool
+   * steps but normalized at synthesis. Appended AFTER the base final-answer
+   * instruction so the style guidance is the last thing the model reads.
+   */
+  persistentGuidance?: string;
 }): { activeTools: []; system: string } | Record<string, never> {
   // The last permitted step is index `maxSteps - 1`. Guard `>=` so a
   // mis-set/edge value can never let the final step keep calling tools.
-  return stepNumber >= maxSteps - 1
-    ? { activeTools: [], system: FINAL_ANSWER_SYSTEM }
-    : {};
+  if (stepNumber < maxSteps - 1) return {};
+  const system = persistentGuidance
+    ? `${FINAL_ANSWER_SYSTEM}\n\n${persistentGuidance}`
+    : FINAL_ANSWER_SYSTEM;
+  return { activeTools: [], system };
 }

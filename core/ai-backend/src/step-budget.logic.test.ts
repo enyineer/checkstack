@@ -38,4 +38,33 @@ describe("prepareFinalAnswerStep", () => {
       system: FINAL_ANSWER_SYSTEM,
     });
   });
+
+  test("carries persistent guidance (an active skill) into the final answer step", () => {
+    const skill = 'Active skill "Redneck" - write like a redneck, y\'all.';
+    const r = prepareFinalAnswerStep({
+      stepNumber: maxSteps - 1,
+      maxSteps,
+      persistentGuidance: skill,
+    });
+    expect(r).toEqual({
+      activeTools: [],
+      system: `${FINAL_ANSWER_SYSTEM}\n\n${skill}`,
+    });
+    // The style guidance is the LAST thing the model reads on the synthesis
+    // step, so it governs the user-visible reply instead of being dropped.
+    const system = "system" in r ? r.system : "";
+    expect(system.indexOf(FINAL_ANSWER_SYSTEM)).toBeLessThan(
+      system.indexOf(skill),
+    );
+  });
+
+  test("does not alter early steps even with persistent guidance", () => {
+    expect(
+      prepareFinalAnswerStep({
+        stepNumber: 0,
+        maxSteps,
+        persistentGuidance: "ignored on non-final steps",
+      }),
+    ).toEqual({});
+  });
 });
