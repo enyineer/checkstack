@@ -13,23 +13,32 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * Scope deliberately avoids the "Add package" happy path: that flow proxies a
  * live npm registry search + version resolution and kicks off a real install,
  * none of which is deterministic in the e2e environment. Instead it covers the
- * deterministic, high-value surface: page rendering, the empty allowlist state,
- * the purely client-side pinned-version validation (mirrors the backend
- * `PackageVersionSchema`), the sandbox editor's key controls, and a sandbox
- * policy save round-trip.
+ * deterministic, high-value surface: page rendering, the install-state &
+ * allowlist cards, the purely client-side pinned-version validation (mirrors
+ * the backend `PackageVersionSchema`), the sandbox editor's key controls, and a
+ * sandbox policy save round-trip.
  *
- * One fresh, empty DB is shared across this file, so it runs serially and the
- * empty-state assertions run before anything is mutated.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * boot-once specs run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: it never
+ * asserts on global table state (no "empty allowlist", no clean-audit baseline,
+ * which other parallel specs could invalidate), and the only value it writes
+ * (a sandbox resource cap) is namespaced via `NS`. Tests within this file still
+ * run serially.
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique per run so reruns against a (normally fresh) DB never clash.
-const RUN_ID = Date.now();
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+
+// A small, deterministic CPU-seconds value derived from NS so the sandbox save
+// is a real round-trip (not a no-op) without colliding with other runs.
+const CPU_SECONDS = 10 + (Number.parseInt(NS.slice(0, 4), 36) % 50);
 
 const NAV_TIMEOUT = 30_000;
 
 test.describe("Script Packages settings", () => {
-  test("renders with the install-state card and an empty allowlist", async ({
+  test("renders the install-state, allowlist and audit cards", async ({
     page,
   }) => {
     await page.goto("/script-packages/", { timeout: NAV_TIMEOUT });
@@ -48,20 +57,18 @@ test.describe("Script Packages settings", () => {
       page.getByRole("button", { name: "Install now" }),
     ).toBeVisible();
 
-    // The allowlist card with its fresh-install empty state.
+    // The allowlist card is present. We do NOT assert its empty state: the DB
+    // is shared and non-empty, so other parallel specs may have populated the
+    // allowlist - asserting "No packages yet" would be flaky.
     await expect(
       page.getByRole("heading", { name: "Allowed packages" }),
     ).toBeVisible();
-    await expect(
-      page.getByText("No packages yet. Add pinned, lightweight pure-JS packages."),
-    ).toBeVisible();
 
-    // The vulnerability-audit card shows the clean baseline on a fresh tree.
+    // The vulnerability-audit card is present. We do NOT assert the clean
+    // baseline ("No known vulnerabilities ...") for the same reason: it
+    // depends on the globally installed tree, which is shared.
     await expect(
       page.getByRole("heading", { name: "Vulnerability audit" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("No known vulnerabilities in the installed tree."),
     ).toBeVisible();
   });
 
@@ -189,7 +196,7 @@ test.describe("Script Sandbox settings", () => {
     // Set a benign, valid resource cap so the save is a real round-trip and the
     // value is unique per run (avoids a no-op being indistinguishable).
     const cpu = page.getByLabel("CPU seconds");
-    await cpu.fill(String(10 + (RUN_ID % 50)));
+    await cpu.fill(String(CPU_SECONDS));
 
     await page.getByRole("button", { name: "Save policy" }).click();
 

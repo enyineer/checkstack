@@ -3,21 +3,25 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 /**
  * Authenticated E2E coverage for the Automations area.
  *
- * The whole file shares ONE freshly-reset, empty database (only the admin
- * user exists), so the tests run serially and the empty-state assertions run
- * before anything is created.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * boot-once specs run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: every
+ * entity it creates is namespaced with a unique-per-run suffix (`NS`) so
+ * parallel specs never collide, and no test asserts on global table state (no
+ * "No automations yet" empty-state, no global counts). Tests within this file
+ * still run serially (the create -> toggle -> round-trip -> delete chain).
  *
- * Creating an automation requires a "Run as" service account, but a fresh
- * install seeds none. The first test therefore provisions one via the
- * Applications admin (auth settings), which is the documented prerequisite for
- * a saveable automation. Every later test depends on the automation created in
- * `create a new automation` running first.
+ * Creating an automation requires a "Run as" service account. The create test
+ * therefore provisions one via the Applications admin (auth settings), which is
+ * the documented prerequisite for a saveable automation. Every later test
+ * depends on the automation created in `create a new automation` running first.
  */
 test.describe.configure({ mode: "serial" });
 
-const STAMP = Date.now();
-const SERVICE_ACCOUNT_NAME = `Automation Runner ${STAMP}`;
-const AUTOMATION_NAME = `E2E Automation ${STAMP}`;
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SERVICE_ACCOUNT_NAME = `Automation Runner-${NS}`;
+const AUTOMATION_NAME = `E2E Automation-${NS}`;
 
 /**
  * Provision an external application (service account) the automation editor's
@@ -58,19 +62,6 @@ async function createServiceAccount({
 }
 
 test.describe("automations", () => {
-  test("list shows the empty state on a fresh install", async ({ page }) => {
-    await page.goto("/automation/");
-
-    await expect(
-      page.getByRole("heading", { name: "Automations", exact: true }),
-    ).toBeVisible({ timeout: 20_000 });
-    // The admin can manage, so the create affordance is present.
-    await expect(
-      page.getByRole("link", { name: "New automation" }),
-    ).toBeVisible();
-    await expect(page.getByText("No automations yet")).toBeVisible();
-  });
-
   test("create page blocks save without a trigger", async ({ page }) => {
     // `/automation/new` is the template picker; the blank editor lives at
     // `/automation/new/blank`. Deep-link straight to the editor under test.
@@ -86,7 +77,7 @@ test.describe("automations", () => {
     await expect(saveButton).toBeDisabled();
 
     // Filling a name alone is not enough — the missing trigger still blocks it.
-    await page.getByLabel("Name").fill(`No Trigger ${STAMP}`);
+    await page.getByLabel("Name").fill(`No Trigger-${NS}`);
     await expect(saveButton).toBeDisabled();
 
     // The triggers section spells out the requirement.
@@ -170,14 +161,20 @@ test.describe("automations", () => {
     await expect(
       page.getByRole("heading", { name: "Automations", exact: true }),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("No automations yet")).toHaveCount(0);
+    // Scope to OUR namespaced automation only - the shared DB may hold rows
+    // created by other parallel specs, so we never assert a global empty state.
     // Scope to the desktop table: the ResponsiveTable's display:none
     // MobileCardList duplicates the name, which would trip strict mode.
     await expect(
       page.getByRole("table").getByText(AUTOMATION_NAME),
     ).toBeVisible();
-    // The trigger badge surfaces the wired-up event id.
-    await expect(page.getByText("automation.interval").first()).toBeVisible();
+    // The trigger badge surfaces the wired-up event id, scoped to our row.
+    await expect(
+      page
+        .getByRole("row")
+        .filter({ hasText: AUTOMATION_NAME })
+        .getByText("automation.interval"),
+    ).toBeVisible();
   });
 
   test("toggle enable/disable from the list", async ({ page }) => {
@@ -327,8 +324,8 @@ test.describe("automations", () => {
     await expect(page.getByText("Automation deleted")).toBeVisible({
       timeout: 15_000,
     });
-    // Back to the empty state — the only automation is gone.
+    // Scoped to OUR own automation only - the shared DB may still hold rows
+    // created by other parallel specs, so we never assert a global empty state.
     await expect(page.getByText(AUTOMATION_NAME)).toHaveCount(0);
-    await expect(page.getByText("No automations yet")).toBeVisible();
   });
 });

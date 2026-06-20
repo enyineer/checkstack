@@ -1,12 +1,21 @@
 import { test, expect, type Page } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * Authenticated E2E coverage for the "Maintenance windows" area.
+ * Data-isolated, boot-once variant of the "Maintenance windows" E2E coverage.
  *
- * The whole file shares ONE freshly-reset, empty database (only the admin user
- * exists at start), so tests run serially and the empty-state assertions run
- * before anything is created. A system is created up front via the catalog UI
- * because every maintenance window must target at least one system.
+ * The boot-once harness (the boot-once `playwright.config.ts`) boots the backend and
+ * resets the DB ONCE, then runs all `data-isolated specs` files in PARALLEL
+ * (workers=4) against that single shared backend/DB. The shared DB is therefore
+ * NON-EMPTY and concurrently mutated by sibling specs, so this variant:
+ *   - NAMESPACES every created entity with a unique-per-run suffix (`-${NS}`),
+ *     including the prerequisite catalog system, so parallel specs never collide.
+ *   - Asserts ONLY on its own namespaced rows; no global empty-state or global
+ *     listing-count assertions (those would race other specs).
+ *   - Opens the editor via the always-present toolbar "Create Maintenance"
+ *     button, never an empty-state-only CTA.
+ *
+ * Tests within this file still run SERIALLY on one worker (system -> create ->
+ * edit -> delete chain). Parallelism is ACROSS spec files.
  *
  * Routes exercised:
  *   /catalog/config              - create the prerequisite system
@@ -18,8 +27,11 @@ import { test, expect, type Page } from "@checkstack/test-utils-frontend/playwri
 
 test.describe.configure({ mode: "serial" });
 
-const SYSTEM_NAME = `Maintenance Sys ${Date.now()}`;
-const WINDOW_TITLE = `DB upgrade ${Date.now()}`;
+/** Unique-per-run namespace so parallel specs sharing the DB never collide. */
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+
+const SYSTEM_NAME = `Maintenance Sys-${NS}`;
+const WINDOW_TITLE = `DB upgrade-${NS}`;
 const WINDOW_TITLE_EDITED = `${WINDOW_TITLE} (edited)`;
 const WINDOW_DESCRIPTION = "Rolling restart of the primary database cluster.";
 
@@ -65,7 +77,10 @@ test.describe("maintenance windows", () => {
       page.getByRole("heading", { name: "Catalog Management" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Add your first system" }).click();
+    // The shared DB may already contain systems from sibling specs, so the
+    // "Add your first system" empty-state CTA may be absent. Use the
+    // always-present toolbar "Add System" button instead.
+    await page.getByRole("button", { name: "Add System" }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -87,15 +102,23 @@ test.describe("maintenance windows", () => {
     await page.goto("/catalog/", { waitUntil: "commit" });
 
     // Systems live inside collapsible group sections (e.g. the synthetic
-    // "Ungrouped" group). Expand the group whose header shows the lone system
-    // so its row link is mounted, then resolve the id from the link href.
-    const groupHeader = page.getByRole("button", { name: /1 system$/ });
-    await expect(groupHeader).toBeVisible({ timeout: 30_000 });
-    if ((await groupHeader.getAttribute("aria-expanded")) !== "true") {
-      await groupHeader.click();
+    // "Ungrouped" group). The shared DB is non-empty and sibling specs add
+    // their own systems, so resolve OUR namespaced system's link directly
+    // rather than relying on a group header with a specific system count.
+    const systemLink = page.getByRole("link").filter({ hasText: SYSTEM_NAME });
+
+    // Expand any collapsed group sections so OUR row link is mounted. Click
+    // each collapsed group header (idempotent: skip already-expanded ones).
+    const groupHeaders = page.getByRole("button", { name: /\d+ systems?$/ });
+    await expect(groupHeaders.first()).toBeVisible({ timeout: 30_000 });
+    const headerCount = await groupHeaders.count();
+    for (let i = 0; i < headerCount; i++) {
+      const header = groupHeaders.nth(i);
+      if ((await header.getAttribute("aria-expanded")) !== "true") {
+        await header.click();
+      }
     }
 
-    const systemLink = page.getByRole("link").filter({ hasText: SYSTEM_NAME });
     await expect(systemLink).toBeVisible({ timeout: 30_000 });
 
     const href = await systemLink.getAttribute("href");
@@ -104,21 +127,6 @@ test.describe("maintenance windows", () => {
     expect(match?.[1]).toBeTruthy();
     systemId = match?.[1] ?? "";
     expect(systemId).not.toBe("");
-  });
-
-  test("shows the empty state before any maintenance exists", async ({
-    page,
-  }) => {
-    await page.goto("/maintenance/config", { waitUntil: "commit" });
-
-    await expect(
-      page.getByRole("heading", { name: "Planned Maintenances" }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    await expect(page.getByText("No planned maintenances")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Schedule maintenance" }),
-    ).toBeVisible();
   });
 
   test("validates required fields and end-before-start in the editor", async ({
@@ -130,8 +138,9 @@ test.describe("maintenance windows", () => {
       page.getByRole("heading", { name: "Planned Maintenances" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // Open the editor from the empty-state action.
-    await page.getByRole("button", { name: "Schedule maintenance" }).click();
+    // Open the editor from the always-present toolbar action (the shared DB may
+    // be non-empty, so the empty-state CTA may not be present).
+    await page.getByRole("button", { name: "Create Maintenance" }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -298,8 +307,8 @@ test.describe("maintenance windows", () => {
 
     await expect(page.getByText("Maintenance deleted")).toBeVisible();
 
-    // Back to the empty state once the only window is gone.
-    await expect(page.getByText("No planned maintenances")).toBeVisible();
+    // Scoped assertion: only OUR namespaced window is gone. The shared DB stays
+    // non-empty (sibling specs), so we do NOT assert a global empty state.
     await expect(
       page.getByRole("row", { name: WINDOW_TITLE_EDITED }),
     ).toBeHidden();

@@ -17,9 +17,15 @@ import type { Page } from "@playwright/test";
  *
  * The browser is already authenticated as the onboarded admin (storageState
  * from `auth.setup.ts`), so navigating to the auth routes renders the in-app
- * pages directly. The whole file shares ONE freshly-reset DB, so it runs
- * serially: empty-state assertions run before the create/delete tests populate
- * the data.
+ * pages directly.
+ *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * specs run in PARALLEL against that single shared DB. The DB is therefore
+ * non-empty and shared, so this file is fully data-isolated: every entity it
+ * creates (applications/service-accounts, teams) is namespaced with a
+ * unique-per-run suffix (`NS`) so parallel specs never collide, and no test
+ * asserts on global table state (no empty-state, no global counts). Tests
+ * within this file still run serially (the create -> edit -> delete chains).
  *
  * Routes exercised (plugin-prefixed):
  *   /auth/settings   - tabbed admin settings (users, roles, strategies, apps)
@@ -27,13 +33,13 @@ import type { Page } from "@playwright/test";
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique suffix so re-runs / parallel files never collide on names.
-const RUN_ID = Date.now();
-const APP_NAME = `E2E Service Account ${RUN_ID}`;
+// Unique per run so parallel specs sharing one DB never collide on names.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const APP_NAME = `E2E Service Account-${NS}`;
 const APP_DESCRIPTION = "Created by the auth E2E spec";
-const TEAM_NAME = `Platform Team ${RUN_ID}`;
+const TEAM_NAME = `Platform Team-${NS}`;
 const TEAM_DESCRIPTION = "Owns the core platform services";
-const TEAM_NAME_EDITED = `Platform Squad ${RUN_ID}`;
+const TEAM_NAME_EDITED = `Platform Squad-${NS}`;
 
 const NAV_TIMEOUT = 30_000;
 
@@ -88,23 +94,6 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Save Settings" }),
-    ).toBeVisible();
-  });
-
-  test("applications tab starts empty and offers a create action", async ({
-    page,
-  }) => {
-    await openSettingsTab(page, "Applications");
-
-    await expect(
-      page.getByRole("heading", { name: "External Applications" }),
-    ).toBeVisible();
-    // Brand-new DB: no external applications yet.
-    await expect(
-      page.getByText("No external applications configured yet."),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create Application" }),
     ).toBeVisible();
   });
 
@@ -164,9 +153,6 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
     await expect(
       page.getByRole("table").getByText(APP_NAME),
     ).toBeVisible();
-    await expect(
-      page.getByText("No external applications configured yet."),
-    ).toHaveCount(0);
   });
 
   test("deletes the application with confirmation", async ({ page }) => {
@@ -196,27 +182,12 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
       page.getByText("Application deleted successfully"),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
 
-    // Back to the empty state once the only application is gone.
+    // Only OUR namespaced application is gone. The shared DB may still hold
+    // applications created by other parallel specs, so we never assert a global
+    // empty state - just that our own row disappeared.
     await expect(
-      page.getByText("No external applications configured yet."),
-    ).toBeVisible();
-  });
-
-  test("teams page starts empty with a create action", async ({ page }) => {
-    await page.goto("/auth/teams", { timeout: NAV_TIMEOUT });
-
-    await expect(
-      page.getByRole("heading", { name: "Teams" }),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await expect(
-      page.getByText("Manage team membership, managers, and resource access."),
-    ).toBeVisible();
-
-    // Fresh DB: no teams exist yet.
-    await expect(page.getByText("No teams found.")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create Team" }),
-    ).toBeVisible();
+      page.getByRole("table").getByText(APP_NAME),
+    ).toHaveCount(0);
   });
 
   test("creates a team and lists it", async ({ page }) => {
@@ -243,7 +214,6 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
 
     // The team appears in the list. Scope to the desktop table: the
     // MobileCardList duplicates the name in the DOM.
-    await expect(page.getByText("No teams found.")).toHaveCount(0);
     await expect(
       page.getByRole("table").getByText(TEAM_NAME),
     ).toBeVisible();
@@ -311,7 +281,11 @@ test.describe("auth admin: settings tabs, applications & teams", () => {
       page.getByText("Team deleted successfully"),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
 
-    // Back to the empty state once the only team is gone.
-    await expect(page.getByText("No teams found.")).toBeVisible();
+    // Only OUR namespaced team is gone. The shared DB may still hold teams
+    // created by other parallel specs, so we never assert a global empty state
+    // - just that our own (edited) row disappeared.
+    await expect(
+      page.getByRole("table").getByText(TEAM_NAME_EDITED),
+    ).toHaveCount(0);
   });
 });

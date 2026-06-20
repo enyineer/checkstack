@@ -14,41 +14,40 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * widgets (Heading / Text) so the spec needs no catalog system to bind — the
  * binding-widget authz path is the unit suite's job.
  *
- * The whole file shares ONE freshly reset, empty Postgres database (only the
- * admin exists at boot), so the tests run serially and the empty-state /
- * not-published assertions are ordered before the publish ones.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * boot-once specs run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: every
+ * page (title, slug, heading text) it creates is namespaced with a unique
+ * per-run suffix (`NS`) so parallel specs never collide, and no test asserts on
+ * global table state (no empty-state, no global counts). Tests within this file
+ * still run serially (the create -> publish -> delete chain), but every
+ * assertion is scoped to THIS run's namespaced page.
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique suffix so created resources never clash across reruns sharing a DB.
-const RUN_ID = Date.now();
-const PAGE_TITLE = `Acme Status ${RUN_ID}`;
-const PAGE_SLUG = `acme-${RUN_ID}`;
-const HEADING_TEXT = `All systems status ${RUN_ID}`;
-const UNPUBLISHED_SLUG = `ghost-${RUN_ID}`;
+// Unique per run so parallel specs sharing one DB never collide. Suffix is only
+// numeric/hex so it stays URL-safe when embedded in a slug.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const PAGE_TITLE = `Acme Status-${NS}`;
+const PAGE_SLUG = `acme-${NS}`;
+const HEADING_TEXT = `All systems status-${NS}`;
+const UNPUBLISHED_TITLE = `Ghost-${NS}`;
+const UNPUBLISHED_SLUG = `ghost-${NS}`;
 
 test.describe("Status pages", () => {
-  test("list renders its empty state when no pages exist", async ({ page }) => {
-    await page.goto("/status-pages", { waitUntil: "domcontentloaded" });
-
-    await expect(
-      page.getByRole("heading", { name: "Status pages" }),
-    ).toBeVisible({ timeout: 30_000 });
-    // Empty state copy from StatusPagesListPage.
-    await expect(page.getByText("No status pages yet")).toBeVisible();
-    // We must not have landed on the catch-all 404.
-    await expect(page.locator("body")).not.toContainText("Route not found");
-  });
-
   test("an unpublished page is NOT served on the public route", async ({
     page,
   }) => {
     // Create a page but never publish it.
     await page.goto("/status-pages", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: "Status pages" }),
+    ).toBeVisible({ timeout: 30_000 });
+
     await page.getByRole("button", { name: "New status page" }).click();
 
     const dialog = page.getByRole("dialog");
-    await dialog.getByPlaceholder("Acme Status").fill(`Ghost ${RUN_ID}`);
+    await dialog.getByPlaceholder("Acme Status").fill(UNPUBLISHED_TITLE);
     // The slug auto-follows the title; override it to a known value.
     await dialog.getByPlaceholder("acme", { exact: true }).fill(UNPUBLISHED_SLUG);
     await dialog.getByRole("button", { name: "Create" }).click();
@@ -56,7 +55,8 @@ test.describe("Status pages", () => {
     // Lands on the builder for the new page.
     await expect(page).toHaveURL(/\/status-pages\/[^/]+$/, { timeout: 30_000 });
 
-    // The public route must NOT serve an unpublished page.
+    // The public route must NOT serve an unpublished page. This assertion is
+    // specific to our namespaced slug, so it stays correct on a shared DB.
     await page.goto(`/status/${UNPUBLISHED_SLUG}`, {
       waitUntil: "domcontentloaded",
     });
@@ -95,7 +95,8 @@ test.describe("Status pages", () => {
       timeout: 30_000,
     });
 
-    // 4. The PUBLIC route serves the published content same-origin.
+    // 4. The PUBLIC route serves the published content same-origin. Scoped to
+    // our namespaced slug + title so a shared DB doesn't affect the assertion.
     await page.goto(`/status/${PAGE_SLUG}`, { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { name: PAGE_TITLE }),

@@ -3,7 +3,17 @@ import type { Page } from "@playwright/test";
 
 /**
  * Cache admin E2E. Drives the real authenticated app (admin session via
- * storageState) against a freshly reset, empty database.
+ * storageState).
+ *
+ * Boot-once safe: the backend boots and the DB is reset ONCE, then all
+ * `*.spec.ts` run in PARALLEL against that single SHARED, NON-EMPTY DB. This
+ * spec is a read-only metrics/config dashboard - it CREATES nothing, so it
+ * stays `cache.spec.ts` (runs in the parallel phase). Crucially it never
+ * asserts a globally-empty cache: other parallel specs warm the cache, so the
+ * entry-listing assertion tolerates BOTH a warm table and an idle/empty note
+ * via `.or()`, and no test asserts "no keys" / a specific key count. The
+ * config-dependent assertions (instance-scope banner, in-memory warning) hold
+ * because no spec mutates the default in-memory cache provider.
  *
  * The cache plugin contributes NO routes of its own: it registers a "Cache"
  * tab into the Infrastructure Settings page (`InfrastructureTabsSlot`), served
@@ -12,12 +22,12 @@ import type { Page } from "@playwright/test";
  * must be clicked to reveal its body.
  *
  * The Cache tab stacks two sections: a read-only Runtime panel (live stats +
- * a key listing) and a Configuration panel (provider selection). On a fresh
- * install the active provider is the in-memory cache, which is instance-scoped,
- * so the instance-scope banner and the in-memory warning are both present.
+ * a key listing) and a Configuration panel (provider selection). The active
+ * provider is the in-memory cache, which is instance-scoped, so the
+ * instance-scope banner and the in-memory warning are both present.
  *
  * These tests cover only deterministic structure (headings, always-present
- * controls, empty/idle states). They do NOT assert volatile metric values.
+ * controls, idle/active states). They do NOT assert volatile metric values.
  * The plugin exposes no clear/flush/purge control, so none is exercised.
  */
 test.describe.configure({ mode: "serial" });

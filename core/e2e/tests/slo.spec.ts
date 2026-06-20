@@ -8,60 +8,22 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  *   - `/slo/config`  manage objectives (create / edit / delete)
  *   - `/slo/:id`     objective detail
  *
- * The whole file shares ONE freshly reset, empty Postgres database (only the
- * admin exists at boot), so the tests run serially and the empty-state
- * assertions are ordered before the create/edit ones. SLOs target a system, so
- * the first create test seeds a system through the catalog UI.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * specs run in PARALLEL against that single shared DB. The DB is therefore
+ * non-empty and shared, so this file is fully data-isolated: every entity it
+ * creates is namespaced with a unique-per-run suffix (`NS`) so parallel specs
+ * never collide, and no test asserts on global table state (no empty-state, no
+ * global counts). Tests within this file still run serially (the
+ * seed-system -> create -> list chain). SLOs target a system, so the create
+ * test seeds its own namespaced system through the catalog UI.
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique suffix so created resources never clash across reruns sharing a DB.
-const RUN_ID = Date.now();
-const SYSTEM_NAME = `SLO E2E System ${RUN_ID}`;
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SYSTEM_NAME = `SLO E2E System ${NS}`;
 
 test.describe("SLOs", () => {
-  test("overview renders its empty state when no SLOs exist", async ({
-    page,
-  }) => {
-    await page.goto("/slo/", { waitUntil: "domcontentloaded" });
-
-    await expect(
-      page.getByRole("heading", { name: "SLO Dashboard" }),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      page.getByText("Service Level Objective performance across all systems"),
-    ).toBeVisible();
-
-    // Empty state copy from SloOverviewPage. The shared EmptyState component
-    // renders its title as a paragraph, not a heading.
-    await expect(page.getByText("No SLOs configured")).toBeVisible();
-
-    // The empty state links to SLO management.
-    await expect(
-      page.getByRole("link", { name: "Manage SLOs" }).first(),
-    ).toBeVisible();
-
-    // We must not have landed on the catch-all 404.
-    await expect(page.locator("body")).not.toContainText("Route not found");
-  });
-
-  test("config page renders its empty state when no objectives exist", async ({
-    page,
-  }) => {
-    await page.goto("/slo/config", { waitUntil: "domcontentloaded" });
-
-    await expect(
-      page.getByRole("heading", { name: "SLO Management" }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    // Empty state copy from SloConfigPage. The shared EmptyState component
-    // renders its title as a paragraph, not a heading.
-    await expect(page.getByText("No SLO objectives yet")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create your first SLO" }),
-    ).toBeVisible();
-  });
-
   test("create flow validates required system and target range", async ({
     page,
   }) => {
@@ -71,7 +33,10 @@ test.describe("SLOs", () => {
       page.getByRole("heading", { name: "Catalog Management" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Add your first system" }).click();
+    // The "Add your first system" CTA only renders on an empty catalog; on a
+    // shared, non-empty DB other specs may have already seeded systems, so use
+    // the always-present "Add System" header button instead.
+    await page.getByRole("button", { name: "Add System" }).first().click();
 
     const systemDialog = page.getByRole("dialog");
     await expect(
@@ -92,7 +57,10 @@ test.describe("SLOs", () => {
       page.getByRole("heading", { name: "SLO Management" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Create your first SLO" }).click();
+    // The "Create your first SLO" CTA only renders on an empty objectives list;
+    // on a shared DB other specs may have created objectives, so use the
+    // always-present "Create SLO" header button instead.
+    await page.getByRole("button", { name: "Create SLO", exact: true }).first().click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -153,13 +121,14 @@ test.describe("SLOs", () => {
     await expect(page.getByText("SLO objective created")).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // The new objective shows up in the objectives table with its system,
-    // target and window.
-    await expect(
-      page.getByRole("cell", { name: SYSTEM_NAME }),
-    ).toBeVisible();
-    await expect(page.getByRole("cell", { name: "99.9%" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "30d" })).toBeVisible();
+    // The new objective shows up in the objectives table. Scope to OUR
+    // namespaced system's row only - the shared DB may hold other specs'
+    // objectives, so we never assert on global table contents. The target and
+    // window values are not unique per run, so we assert them within our row.
+    const objectiveRow = page.getByRole("row", { name: new RegExp(SYSTEM_NAME) });
+    await expect(objectiveRow).toBeVisible();
+    await expect(objectiveRow).toContainText("99.9%");
+    await expect(objectiveRow).toContainText("30d");
   });
 
   test("overview lists the created SLO and links to its detail page", async ({
@@ -171,11 +140,10 @@ test.describe("SLOs", () => {
       page.getByRole("heading", { name: "SLO Dashboard" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // The empty state is gone now that an objective exists.
-    await expect(page.getByText("No SLOs configured")).toHaveCount(0);
-
-    // The objective card is a link titled with the system name; following it
-    // lands on the detail page (title is "<target>% / <window>d SLO").
+    // The objective card is a link titled with the namespaced system name;
+    // following it lands on the detail page (title is "<target>% / <window>d
+    // SLO"). Scoped to our own card - we never assert a global empty state or
+    // count on the shared DB.
     const card = page.getByRole("link", { name: SYSTEM_NAME });
     await expect(card).toBeVisible();
     await card.click();

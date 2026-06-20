@@ -1,12 +1,17 @@
 import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * Notifications & subscriptions area. The DB is freshly reset and empty for
- * this file (only the admin user exists), so the inbox starts with no
- * notifications and there are no active subscriptions. These specs assert the
- * page render + empty-state UI for the inbox (`/notification/`) and the
- * settings/subscription manager (`/notification/settings`), plus the navbar
- * notification bell. Meaningful notification events are out of scope.
+ * Notifications & subscriptions area.
+ *
+ * Empty-state phase: this file is an `*.empty.spec.ts`, so it runs in the
+ * boot-once `empty-state` project against the PRISTINE DB (booted and reset
+ * once, before the parallel `chromium` phase), where only the admin user
+ * exists. Because the inbox starts with no notifications and there are no
+ * active subscriptions, these specs assert the page render + empty-state UI
+ * for the inbox (`/notification/`) and the settings/subscription manager
+ * (`/notification/settings`), plus the navbar notification bell. This file
+ * CREATES NOTHING, so the empty-state assertions stay valid; meaningful
+ * notification events are out of scope.
  *
  * Serial mode: the whole file shares one backend/DB, so empty-state
  * assertions are kept independent of any mutating action.

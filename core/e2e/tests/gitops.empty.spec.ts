@@ -1,11 +1,18 @@
 import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * GitOps & kind registry. Against a fresh, empty DB there are no Git providers
- * configured, so the providers page must render its onboarding empty state. The
- * kind registry lists the entity kinds plugins register during startup. These
- * specs exercise the read-only surfaces (no mutations), so a single shared DB is
- * fine; we still run serial and assert empty-state first.
+ * GitOps & kind registry.
+ *
+ * Empty-state spec: it fundamentally asserts the PRISTINE "no Git providers
+ * configured" onboarding state (and the admin-only "Add Git provider" CTA that
+ * only renders in that empty state). Under the boot-once model the shared DB is
+ * non-empty, so this file runs in the `empty-state` project (pristine DB, before
+ * any data spec) - hence the `.empty.spec.ts` name. It creates NOTHING, leaving
+ * the DB pristine through the phase.
+ *
+ * The kind registry surface asserts a globally NON-empty registry, which is safe
+ * regardless of DB state: plugins register their kinds during startup, not as
+ * data. All tests are read-only (no mutations); we still run serial.
  */
 test.describe.configure({ mode: "serial" });
 

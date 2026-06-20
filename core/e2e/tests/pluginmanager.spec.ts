@@ -2,11 +2,19 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
  * Plugin manager admin area: installed list, lifecycle event log, and the
- * install wizard. The whole file shares ONE freshly reset DB seeded with only
- * the admin user, so the installed list shows the bundled (core) platform
- * plugins while the event log starts empty. We exercise rendering and client
- * -side form validation only - we deliberately do NOT preview/install a real
- * plugin, since reaching out to a registry would destabilize the run.
+ * install wizard.
+ *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * `*.spec.ts` files run in PARALLEL against that single shared, non-empty DB.
+ * This file is read-only - it CREATES NOTHING (only fills install-wizard form
+ * fields it never submits). The installed list shows the bundled (core)
+ * platform plugins, which are registered by the backend AT BOOT (not test
+ * data), so those assertions are stable regardless of what other parallel
+ * specs do and are KEPT. We deliberately do NOT preview/install a real plugin,
+ * since reaching out to a registry would destabilize the run - so no spec ever
+ * appends to the lifecycle event log; even so, we avoid asserting a global
+ * empty event log here (that whole-DB assertion belongs to the empty-state
+ * phase, not the parallel one) and only assert the events page renders.
  */
 test.describe.configure({ mode: "serial" });
 
@@ -66,17 +74,17 @@ test.describe("plugin manager", () => {
     await expect(page).toHaveURL(/\/pluginmanager\/install$/);
   });
 
-  test("events page renders the empty lifecycle-log state on a fresh instance", async ({
+  test("events page renders the lifecycle-log view", async ({
     page,
   }) => {
     await page.goto("/pluginmanager/events", { timeout: 30_000 });
 
+    // The page mounts (not the catch-all 404). We do NOT assert the empty
+    // "No plugin events yet" state here: the event log is global/whole-DB
+    // state, and asserting it is empty is unsafe in the parallel phase.
     await expect(
       page.getByRole("heading", { name: "Plugin events" }),
     ).toBeVisible({ timeout: 30_000 });
-
-    // No install/uninstall has happened, so the empty state shows.
-    await expect(page.getByText("No plugin events yet")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Route not found");
   });
 

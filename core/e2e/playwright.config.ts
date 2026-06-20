@@ -6,53 +6,52 @@ import {
 } from "./tests/support/auth";
 
 /**
- * App-wide end-to-end tests (authenticated).
+ * App-wide end-to-end tests (authenticated), BOOT-ONCE model.
  *
- * The harness boots its OWN backend on port 3100 via `scripts/start-e2e-server.ts`,
- * which:
- *  - resets a DEDICATED, isolated Postgres database (`checkstack_e2e`) so tests
- *    never touch the developer's working data, and start from a clean schema;
- *  - runs the REAL auth stack (better-auth) - NOT dev-auth - so the login /
- *    session path is exercised exactly as in production;
- *  - serves the built SPA + docs same-origin on the dedicated port.
+ * The harness boots its OWN backend on port 3100 via `scripts/start-e2e-server.ts`
+ * exactly ONCE per run (resets a dedicated `checkstack_e2e` DB, runs real
+ * better-auth, serves the built SPA + docs same-origin). All specs then run
+ * against that single backend, in PARALLEL (`workers`), instead of the old
+ * model that rebooted the backend + reset the DB per spec file.
  *
- * Authentication (two actors):
- *  - `setup-admin` (`auth.setup.ts`) drives the first-run onboarding once,
- *    creating an admin + signing in, and persists to `ADMIN_STORAGE_STATE`. The
- *    main `chromium` project loads it so most specs run as an admin.
- *  - `setup-member` (`member.setup.ts`) runs AFTER `setup-admin` and
- *    self-registers a second, NON-admin member, persisting to
- *    `MEMBER_STORAGE_STATE`. The `member` project loads it and runs ONLY the
- *    permissions spec, so team-scoped visibility filtering is exercised through
- *    the UI as a non-admin (the UI counterpart to the `rpc.test.ts` G11 guard).
+ * That works because every spec is DATA-ISOLATED: it namespaces the entities it
+ * creates (unique suffix) and never asserts global/whole-DB state. So parallel
+ * specs don't collide, and an in-process retry just re-creates its own
+ * namespaced data on the shared DB - retries are safe again (no per-file reboot
+ * needed).
  *
- * Running the suite: `bun run test:e2e` (from `core/e2e`) is fully
- * self-contained - its `pretest` builds the frontend + docs, and
- * `with-e2e-postgres.ts` starts an ephemeral `postgres:16-alpine` via
- * Testcontainers and injects `DATABASE_URL`. The only prerequisite is a running
- * Docker daemon.
+ * Projects / ordering (Playwright project dependencies enforce the order):
+ *  - `setup-admin` (auth.setup.ts): first-run onboarding, persists the admin
+ *    session. `setup-member` self-registers a non-admin for the permissions spec.
+ *  - `empty-state` (`*.empty.spec.ts`): the onboarding / "fresh install" /
+ *    empty-state assertions. They depend on a PRISTINE DB, so they run AFTER
+ *    onboarding but BEFORE any data spec (the `chromium` project depends on this
+ *    project), and they create nothing - keeping the DB pristine through this
+ *    phase.
+ *  - `chromium`: every data-isolated `*.spec.ts` (except setup / permissions /
+ *    *.empty), run in parallel as the admin, AFTER `empty-state`.
+ *  - `member`: the permissions spec as the non-admin.
  *
- * The lower-level entrypoints below assume Postgres is ALREADY provided (via a
- * reachable `DATABASE_URL`) and the frontend + docs are already built:
+ * CI shards with Playwright's native `--shard=i/N` (see the e2e workflow); each
+ * shard boots once and runs its slice in parallel.
+ *
+ * Lower-level entrypoints (Postgres + build already provided):
  *  - `bun run test:e2e:file` (`playwright test`) - run a single spec.
- *  - `bun run test:e2e:no-db scripts/run-all.ts` - the runner without the
- *    Testcontainers wrapper, e.g. against an externally-managed Postgres.
  */
 export default createPlaywrightConfig({
   baseURL: "http://localhost:3100",
   testDir: "./tests",
   overrides: {
-    // No IN-PROCESS retries: `run-all.ts` retries a failed spec at the FILE
-    // level instead, which re-boots the backend and resets the e2e DB so each
-    // attempt starts clean. Playwright's per-test retries reuse the same
-    // (now-polluted) DB, which is exactly what makes a serial group's
-    // empty-state / create chain fail on retry. Setting 0 here avoids burning
-    // those useless in-process retries before run-all re-runs on a fresh DB.
-    retries: 0,
-    // Override the factory's single default project to add a setup project (for
-    // login) + the main authed project. The factory's top-level `use`
-    // (baseURL/trace/screenshot) is inherited by both; we only add per-project
-    // device + storageState here.
+    // Specs are data-isolated, so a retry safely re-creates its own namespaced
+    // data on the shared DB - normal in-process retries are fine again.
+    retries: process.env.CI ? 2 : 0,
+    // Parallel across the single shared backend - the whole point of boot-once.
+    fullyParallel: true,
+    workers: process.env.CHECKSTACK_E2E_WORKERS
+      ? Number(process.env.CHECKSTACK_E2E_WORKERS)
+      : process.env.CI
+        ? 4
+        : undefined,
     projects: [
       {
         name: "setup-admin",
@@ -60,18 +59,18 @@ export default createPlaywrightConfig({
         use: { ...devices["Desktop Chrome"] },
       },
       {
-        // The member must self-register AFTER the admin exists, so this setup
-        // depends on `setup-admin`.
+        // Self-registers a non-admin AFTER the admin exists.
         name: "setup-member",
         testMatch: /member\.setup\.ts$/,
         use: { ...devices["Desktop Chrome"] },
         dependencies: ["setup-admin"],
       },
       {
-        // Main authed project: every spec EXCEPT the setup files and the
-        // permissions spec, run as the admin.
-        name: "chromium",
-        testIgnore: [/.*\.setup\.ts$/, /permissions\.spec\.ts$/],
+        // Onboarding / empty-state assertions: need a PRISTINE DB, so they run
+        // after onboarding and before any data spec (chromium depends on this).
+        // These specs create nothing, leaving the DB pristine through the phase.
+        name: "empty-state",
+        testMatch: /\.empty\.spec\.ts$/,
         use: {
           ...devices["Desktop Chrome"],
           storageState: ADMIN_STORAGE_STATE,
@@ -79,8 +78,22 @@ export default createPlaywrightConfig({
         dependencies: ["setup-admin"],
       },
       {
-        // Non-admin actor: runs ONLY the permissions spec with the member's
-        // session, so the UI's team-scoped visibility filtering is verified.
+        // Every data-isolated spec, parallel, as the admin, AFTER the pristine
+        // empty-state phase has finished.
+        name: "chromium",
+        testIgnore: [
+          /.*\.setup\.ts$/,
+          /permissions\.spec\.ts$/,
+          /\.empty\.spec\.ts$/,
+        ],
+        use: {
+          ...devices["Desktop Chrome"],
+          storageState: ADMIN_STORAGE_STATE,
+        },
+        dependencies: ["empty-state"],
+      },
+      {
+        // Non-admin actor: the permissions spec with the member's session.
         name: "member",
         testMatch: /permissions\.spec\.ts$/,
         use: {
@@ -91,12 +104,8 @@ export default createPlaywrightConfig({
       },
     ],
     webServer: {
-      command:
-        "bun --env-file=.env core/e2e/scripts/start-e2e-server.ts",
+      command: "bun --env-file=.env core/e2e/scripts/start-e2e-server.ts",
       cwd: "../../",
-      // Wait for READINESS (plugins initialized), not just liveness - the app
-      // isn't usable until then. Playwright owns the lifecycle (no reuse) so
-      // there's no orphan-port race; the port must be free at start.
       url: "http://localhost:3100/.checkstack/ready",
       timeout: 180_000,
       reuseExistingServer: false,

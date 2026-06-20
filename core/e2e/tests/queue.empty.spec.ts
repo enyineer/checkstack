@@ -20,9 +20,15 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * timing. On a fresh boot the platform self-registers recurring system jobs, so
  * the Pending listing is POPULATED (not empty) while Active / Recent failed have
  * no jobs and surface their empty-states — this matches the runtime behaviour
- * the sibling `infrastructure.spec.ts` already relies on.
+ * the sibling `infrastructure.empty.spec.ts` already relies on.
  *
- * All tests share one fresh, empty DB, so run serially.
+ * Empty-state variant (`*.empty.spec.ts`): the suite boots the backend ONCE and
+ * runs all specs against a shared, non-empty DB in parallel. The "no active jobs
+ * / no recent failures" assertions here depend on a PRISTINE runtime — other
+ * specs' activity would enqueue background jobs and break them — so this file is
+ * scheduled in the `empty-state` project, which runs first on a pristine DB
+ * BEFORE any data spec triggers jobs. Within this file the tests still share one
+ * DB, so they run serially.
  */
 test.describe.configure({ mode: "serial" });
 

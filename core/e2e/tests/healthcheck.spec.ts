@@ -2,8 +2,15 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
  * Health checks config CRUD + history. Drives the authenticated admin through
- * the real UI against a fresh, empty DB. The whole file shares ONE backend /
- * Postgres, so tests run serially and empty-state assertions come first.
+ * the real UI.
+ *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * specs run in PARALLEL against that single shared DB. The DB is therefore
+ * non-empty and shared, so this file is fully data-isolated: every entity it
+ * creates is namespaced with a unique-per-run suffix (`NS`) so parallel specs
+ * never collide, and no test asserts on global table state (no empty-state, no
+ * global counts). Tests within this file still run serially (the create -> edit
+ * -> delete chain).
  *
  * Routes (SPA): /healthcheck/config (list), /healthcheck/config/create
  * (strategy picker), /healthcheck/config/:id/edit (IDE), /healthcheck/history.
@@ -16,56 +23,11 @@ test.describe.configure({ mode: "serial" });
 
 const NAV_TIMEOUT = 30_000;
 
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+
 test.describe("health checks", () => {
-  // Unique per run so re-runs against a non-reset DB never collide. The DB is
-  // reset per file, but uniqueness is cheap insurance and the brief asks for it.
-  const stamp = Date.now();
-  const checkName = `E2E HTTP Check ${stamp}`;
-
-  test("config list shows the empty state before any checks exist", async ({
-    page,
-  }) => {
-    await page.goto("/healthcheck/config", { timeout: NAV_TIMEOUT });
-
-    // Page chrome.
-    await expect(
-      page.getByRole("heading", { name: "Health Checks", level: 2 }),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await expect(
-      page.getByRole("button", { name: "Create Check" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "View History" }),
-    ).toBeVisible();
-
-    // ListEmptyState renders "No {resource} yet" (a styled <p>, not a heading)
-    // plus the descriptive copy.
-    await expect(page.getByText("No health checks yet")).toBeVisible();
-    await expect(
-      page.getByText(
-        "No health checks have been configured yet. Create one to start monitoring a system.",
-      ),
-    ).toBeVisible();
-  });
-
-  test("history page renders its empty run table initially", async ({
-    page,
-  }) => {
-    await page.goto("/healthcheck/history", { timeout: NAV_TIMEOUT });
-
-    await expect(
-      page.getByRole("heading", { name: "Health Check History", level: 2 }),
-    ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await expect(
-      page.getByRole("heading", { name: "Run History" }),
-    ).toBeVisible();
-    // Empty in-table message from HealthCheckRunsTable's default. Scope to the
-    // desktop table cell: the ResponsiveTable's display:none MobileCardList
-    // renders the same empty-state text, which would trip strict mode.
-    await expect(
-      page.getByRole("cell", { name: "No health check runs found." }),
-    ).toBeVisible();
-  });
+  const checkName = `E2E HTTP Check-${NS}`;
 
   test("strategy picker lists available strategies grouped by category", async ({
     page,
@@ -166,6 +128,8 @@ test.describe("health checks", () => {
       page.getByRole("heading", { name: "Health Checks", level: 2 }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
 
+    // Scoped to OUR namespaced check; the shared DB may hold rows from other
+    // parallel specs, so we never assert global counts or the empty state.
     const row = page.getByRole("row", { name: new RegExp(checkName) });
     await expect(row).toBeVisible({ timeout: NAV_TIMEOUT });
     await expect(row.getByText("HTTP/HTTPS Health Check")).toBeVisible();
@@ -215,8 +179,9 @@ test.describe("health checks", () => {
 
     await page.getByRole("button", { name: "Delete", exact: true }).click();
 
-    // Row is gone; with no checks left the empty state returns.
+    // The specific namespaced row is gone. Scoped to our own check only — the
+    // shared DB may still hold rows created by other parallel specs, so we never
+    // assert a global empty state.
     await expect(row).toBeHidden({ timeout: NAV_TIMEOUT });
-    await expect(page.getByText("No health checks yet")).toBeVisible();
   });
 });
