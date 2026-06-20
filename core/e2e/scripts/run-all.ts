@@ -142,18 +142,51 @@ console.log(`Running ${specs.length} spec file(s) in isolation:\n  ${specs.join(
 
 const failed: string[] = [];
 
+// Retry a FAILED spec file at the FILE level (CI only). Re-running the whole
+// `playwright test <file>` invocation re-boots the e2e backend (the Playwright
+// webServer uses `reuseExistingServer: false`), and that boot DROP/CREATEs the
+// e2e DB - so every attempt starts from a FRESH, empty, migration-reset
+// database. This makes EVERY spec retry-safe by construction: a serial group's
+// empty-state + create/edit/delete chain simply re-runs on a clean DB. (In-
+// process Playwright retries, by contrast, reuse the now-polluted DB - which is
+// what made "empty state on a fresh database" tests fail on retry. Playwright
+// retries are 0 in playwright.config so we don't burn those here.)
+const MAX_ATTEMPTS = process.env.CI ? 3 : 1;
+
 for (const spec of specs) {
   console.log(`\n========== ${spec} ==========`);
-  freePort();
-  await drainE2eConnections();
+  let exitCode = 1;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Clean boot each attempt: free the port and drain the previous backend's
+    // leaked connections before the (fresh) webServer boot resets the DB.
+    freePort();
+    await drainE2eConnections();
+    // Capture a trace only on a RETRY, so the happy path stays cheap (no
+    // per-test tracing overhead) while a failing re-run is still debuggable.
+    const traceArgs =
+      attempt > 1 ? ["--trace", "retain-on-failure"] : [];
+    const proc = Bun.spawnSync({
+      cmd: [
+        "bunx",
+        "playwright",
+        "test",
+        path.join("tests", spec),
+        "--reporter=line",
+        ...traceArgs,
+      ],
+      cwd: e2eDir,
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    exitCode = proc.exitCode ?? 1;
+    if (exitCode === 0) break;
+    if (attempt < MAX_ATTEMPTS) {
+      console.log(
+        `\n[retry] ${spec} failed (attempt ${attempt}/${MAX_ATTEMPTS}); re-running on a fresh backend + database...`,
+      );
+    }
+  }
 
-  const proc = Bun.spawnSync({
-    cmd: ["bunx", "playwright", "test", path.join("tests", spec), "--reporter=line"],
-    cwd: e2eDir,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-
-  if (proc.exitCode !== 0) failed.push(spec);
+  if (exitCode !== 0) failed.push(spec);
 }
 
 // Final cleanup so a finished run leaves Postgres idle.
