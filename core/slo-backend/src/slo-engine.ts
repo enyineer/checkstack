@@ -95,7 +95,12 @@ export class SloEngine {
    * because the true recovery time is unknown and the system is healthy, so the
    * unprovable downtime must not be counted.
    *
-   * Runs in a write context (the daily job), never from a read accessor.
+   * Safe to call from any WRITE-capable context — the daily job, objective
+   * mutations, and the user-facing RPC read HANDLERS (so the dashboard self-
+   * heals a missed recovery the moment it is viewed). It must NOT be called from
+   * the reactive entity `read` accessor / `computeStatus`, which feeds the wake
+   * index and must stay side-effect-free. Idempotent and a cheap no-op when the
+   * objective has no open events (one indexed lookup, no write).
    */
   async voidOrphanedDowntime({
     objective,
