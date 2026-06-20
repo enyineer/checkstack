@@ -18,14 +18,15 @@ describe("HttpHealthCheckStrategy", () => {
   ];
   const strategy = new HttpHealthCheckStrategy(publicLookup);
 
-  // A real local server backs the `client.exec` behaviour tests now that the
-  // probe is rebuilt on node http (no `fetch` to mock). A loopback resolver
-  // points the SSRF guard + IP pin at this server.
+  // A real local server backs the `client.exec` behaviour tests. The request is
+  // issued verbatim (no IP pinning), so the URL targets loopback directly; the
+  // SSRF guard validates the `127.0.0.1` literal (an allowed range) before the
+  // request goes out.
   let server: http.Server;
   let serverPort = 0;
   const loopbackLookup = async () => [{ address: "127.0.0.1", family: 4 }];
   const localStrategy = new HttpHealthCheckStrategy(loopbackLookup);
-  const localUrl = (path: string) => `http://local.test:${serverPort}${path}`;
+  const localUrl = (path: string) => `http://127.0.0.1:${serverPort}${path}`;
 
   beforeAll(async () => {
     server = http.createServer((req, res) => {
@@ -282,7 +283,7 @@ describe("HttpHealthCheckStrategy", () => {
       connectedClient.close();
     });
 
-    it("preserves the original Host header while pinning to the IP", async () => {
+    it("sends the request's Host header to the server", async () => {
       const connectedClient = await localStrategy.createClient({
         timeout: 5000,
       });
@@ -293,8 +294,8 @@ describe("HttpHealthCheckStrategy", () => {
       });
 
       const parsed = JSON.parse(result.body) as { host: string | null };
-      // The server sees the intended virtual host, not the pinned IP literal.
-      expect(parsed.host).toBe(`local.test:${serverPort}`);
+      // The request is issued verbatim, so the server sees the URL's authority.
+      expect(parsed.host).toBe(`127.0.0.1:${serverPort}`);
 
       connectedClient.close();
     });

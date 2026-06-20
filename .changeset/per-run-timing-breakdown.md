@@ -25,15 +25,26 @@ non-HTTP operation time). The run-detail view renders the phases it has, in
 transport order, and falls back to the previous Connection + Processing split
 for older runs that lack the finer data.
 
-For HTTP the request is unchanged - it still uses the same `fetch` path
-(IP-pinned, original Host + SNI), so request behavior is identical. The timing
-is measured around it: `fetch` resolves at the response headers, so wait
+For HTTP the request is issued verbatim through `fetch` (original URL, headers,
+and body), so request behavior is identical to a plain `fetch`. The timing is
+measured around it: `fetch` resolves at the response headers, so wait
 (time-to-first-byte) and transfer (body) are measured exactly on the request,
 DNS is timed at the resolve step, and connect/TLS come from a short-lived,
 best-effort raw `net`/`tls` probe to the same already-validated IP (the request
 socket exposes no connect/handshake events on the Bun runtime). The probe is
 timing-only and never fails the check. Other transports surface the connect and
 operation times they already measure.
+
+The SSRF guard now validates the resolved host (rejecting cloud-metadata /
+link-local and operator-denied ranges) as a pre-flight check and no longer pins
+the request to the resolved IP. Pinning rewrote the URL to the IP literal and
+moved the host to the `Host` header, which breaks HTTP/2 origins (their
+authority comes from the URL's `:authority`, not `Host`) - that is why real
+hosts such as `google.com` started answering 404/429 instead of 200. The
+pre-flight validation keeps blocking static metadata/link-local targets and
+direct denied IP literals; the only thing dropped is DNS-rebind TOCTOU
+protection (a narrow window that pinning closed at the cost of breaking
+legitimate HTTP/2 requests).
 
 The run-detail "slowest" badge no longer collides with the timing bar, and a
 genuinely sub-millisecond phase reads as "<1 ms" instead of a bare "0 ms".

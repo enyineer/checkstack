@@ -12,7 +12,6 @@ import {
   baseStrategyConfigSchema,
   DEFAULT_EGRESS_DENY_CIDRS,
   resolveAndValidateHost,
-  pinUrlToIp,
 } from "@checkstack/backend-api";
 import {
   healthResultString,
@@ -232,12 +231,22 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-          // Resolve the host to IP(s), reject any denied range, and PIN the
-          // connection to the validated IP (rewrite the URL host to the IP,
-          // restore the original Host header + TLS SNI). Pinning is what resists
-          // DNS-rebind: we connect to exactly the IP we checked. The REQUEST is
-          // byte-for-byte the path that has always worked - only the surrounding
-          // timing measurement is new, so request behaviour cannot regress.
+          // SSRF guard: resolve the host and reject any denied range (cloud
+          // metadata / link-local, plus operator extras) BEFORE issuing the
+          // request. We then `fetch` the ORIGINAL url verbatim - we do NOT pin
+          // the connection to the resolved IP. Pinning (rewriting the URL host
+          // to the IP + overriding the Host header + TLS SNI) breaks HTTP/2
+          // origins, whose authority comes from the URL's `:authority`
+          // pseudo-header, not the `Host` header - which is exactly what made
+          // real hosts like google.com answer 404/429 instead of 200. Issuing
+          // the original request keeps it byte-identical to a plain fetch.
+          //
+          // Trade-off: because `fetch` re-resolves DNS itself, this pre-flight
+          // validation has a DNS-rebind TOCTOU window (a host could resolve to
+          // an allowed IP here and a denied one at connect time). It still
+          // blocks the common cases - a host that statically resolves to a
+          // denied range, and direct denied IP literals. The resolved IP is
+          // reused only for the best-effort timing probe below.
           const requestUrl = new URL(request.url);
           const dnsStart = performance.now();
           const target = await resolveAndValidateHost({
@@ -246,9 +255,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
             ...(lookupFn === undefined ? {} : { lookupFn }),
           });
           const dnsMs = Math.max(0, performance.now() - dnsStart);
-          const pinnedUrl = pinUrlToIp(request.url, target.ip);
-          const pinned = new URL(pinnedUrl);
-          const isHttps = pinned.protocol === "https:";
+          const isHttps = requestUrl.protocol === "https:";
 
           // Connect/TLS timing comes from a short-lived raw probe to the SAME
           // validated IP: Bun's `fetch` socket exposes no connect/handshake
@@ -256,29 +263,25 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           // request, and never fails the check.
           const probePromise = probeConnectTiming({
             ip: target.ip,
-            port: pinned.port === "" ? (isHttps ? 443 : 80) : Number(pinned.port),
+            port:
+              requestUrl.port === ""
+                ? isHttps
+                  ? 443
+                  : 80
+                : Number(requestUrl.port),
             tls: isHttps,
             servername: requestUrl.hostname,
             timeoutMs,
           });
 
-          const pinnedHeaders: Record<string, string> = {
-            ...request.headers,
-            // Preserve the virtual host the server expects.
-            host: requestUrl.host,
-          };
-
           // `fetch` resolves at the response HEADERS (time-to-first-byte);
           // consuming the body is the transfer phase.
           const fetchStart = performance.now();
-          const response = await fetch(pinnedUrl, {
+          const response = await fetch(request.url, {
             method: request.method,
-            headers: pinnedHeaders,
+            headers: request.headers,
             body: request.body,
             signal: controller.signal,
-            // Bun: keep TLS validation against the ORIGINAL hostname even though
-            // we connected to an IP literal.
-            tls: { serverName: requestUrl.hostname },
           });
           const ttfbMs = Math.max(0, performance.now() - fetchStart);
 
