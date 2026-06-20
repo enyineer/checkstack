@@ -23,6 +23,18 @@
 import path from "node:path";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 
+// Disable the Testcontainers Ryuk reaper. Ryuk keeps a persistent TCP socket
+// open to its sidecar container for the whole process lifetime and relies on
+// `socket.unref()` so it does not keep the event loop alive. The Bun runtime
+// does NOT honor that `unref`, so after the suite finishes and the container is
+// stopped, that one socket keeps this process alive forever - which is the
+// teardown "stuck at stopping ephemeral Postgres..." hang (in CI the step pipes
+// us through `tee`, which only ends when our stdout closes). We do not need the
+// reaper: the `finally` below deterministically stops + removes the container on
+// every exit path, and CI runners are ephemeral, so there is nothing to reap.
+// Must be set before the first `.start()` (Testcontainers reads it lazily then).
+process.env.TESTCONTAINERS_RYUK_DISABLED = "true";
+
 // Mirror the credentials the repo has always used so the connection string
 // shape is identical to the previous compose / service-container setup.
 const POSTGRES_IMAGE = "postgres:16-alpine";
@@ -62,8 +74,9 @@ try {
   // reaps the now-dead sockets much later (run-all.ts relies on the same fact).
   // A graceful `docker stop` (SIGTERM -> Postgres "smart" shutdown) would then
   // block waiting for those connections to drain until the grace period elapses
-  // - which stalls teardown for a long time, especially on Docker Desktop, and
-  // is what makes this step look "stuck". The container is throwaway, so there
-  // is nothing to flush: kill it outright.
+  // - which stalls teardown, especially on Docker Desktop. The container is
+  // throwaway, so there is nothing to flush: kill it outright. `stop()` removes
+  // the container by default, so nothing is leaked even with Ryuk disabled.
   await container.stop({ timeout: 0 });
+  console.log("[e2e] teardown complete.");
 }
