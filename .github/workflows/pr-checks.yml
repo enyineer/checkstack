@@ -407,6 +407,68 @@ jobs:
             exit 1
           fi
 
+  # Derive the E2E shard matrix from the ACTUAL spec files so nothing is
+  # hand-maintained. Counts core/e2e/tests/*.spec.ts and picks a shard COUNT
+  # (~SPECS_PER_SHARD files each, capped so we never fan out to an unreasonable
+  # number of runners); `run-all.ts` then round-robins the sorted files across
+  # exactly that many shards (selectShard). Adding or removing a spec file needs
+  # NO workflow edit - the matrix follows the file count. Runs unconditionally
+  # (no branch `if`) so `needs.e2e_matrix.outputs.shards` is always valid JSON
+  # for the matrix expression, even when the e2e job itself is skipped.
+  e2e_matrix:
+    name: E2E Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.compute.outputs.shards }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Compute shard list from spec-file count
+        id: compute
+        run: |
+          count=$(find core/e2e/tests -maxdepth 1 -name '*.spec.ts' | wc -l | tr -d ' ')
+          per=11   # target spec files per shard
+          max=5    # cap concurrent runners (CI-minute / fan-out budget)
+          shards=$(( (count + per - 1) / per ))
+          [ "$shards" -lt 1 ] && shards=1
+          [ "$shards" -gt "$max" ] && shards=$max
+          # 1-based JSON array (GitHub matrix + selectShard convention): [1,2,...].
+          # `paste -sd,` joins with no trailing comma (portable; avoids the BSD
+          # `seq -s` trailing-separator quirk that would break fromJSON).
+          echo "shards=[$(seq 1 "$shards" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+          echo "::notice::E2E sharding: $count spec file(s) -> $shards shard(s)"
+
+  # Build the frontend + docs ONCE and share them with every shard, instead of
+  # rebuilding in each leg (the build dominates an e2e leg's time). Uploads the
+  # two dist dirs the e2e backend serves: core/frontend/dist (read via
+  # CHECKSTACK_FRONTEND_DIST) and docs/dist (the CHECKSTACK_DOCS_DIST default).
+  # Needs git-LFS for the docs images (NoImageMetadata otherwise). Same branch
+  # guard as the e2e job, so a release branch skips the build too.
+  e2e_build:
+    name: E2E Build
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+      - name: Build frontend + docs
+        run: |
+          bun run --filter @checkstack/frontend build
+          bun run --filter @checkstack/docs build
+      - name: Upload build (frontend + docs dist)
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-build
+          path: |
+            core/frontend/dist
+            docs/dist
+          if-no-files-found: error
+          retention-days: 1
+
   # Authenticated UI safety net (plan §1). Boots the REAL backend (better-auth,
   # not dev-auth) against an isolated, migration-fresh `checkstack_e2e` database
   # and drives the built SPA + docs through Playwright. Postgres is provisioned
@@ -425,6 +487,7 @@ jobs:
   # `run-all.ts` unchanged.
   e2e:
     name: E2E
+    needs: [e2e_matrix, e2e_build]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     # Shard the suite across independent runners. Each leg gets its OWN ephemeral
@@ -432,21 +495,21 @@ jobs:
     # single-Postgres / one-backend model is unchanged per runner, so there is no
     # cross-test contention; we only split the FILE list across runners to cut
     # wall-clock ~linearly. `run-all.ts` reads the shard env and round-robins the
-    # sorted spec files (selectShard). `fail-fast: false` so one shard's failure
-    # doesn't cancel the others (we want the full picture). `strategy.job-total`
-    # is the shard count, so the matrix size is the single source of truth.
+    # sorted spec files (selectShard). The shard list is DERIVED from the actual
+    # spec-file count by the e2e_matrix job - nothing here is hand-maintained.
+    # `fail-fast: false` so one shard's failure doesn't cancel the others (we
+    # want the full picture). `strategy.job-total` is the shard count, so
+    # SHARD_TOTAL below tracks the matrix size automatically.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(needs.e2e_matrix.outputs.shards) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
-        with:
-          # The docs build (served same-origin by the e2e backend) pulls
-          # logo/images tracked via git-LFS; without smudged files the Astro
-          # build fails with NoImageMetadata (same reason as the security job).
-          lfs: true
+        # No git-LFS here: this job no longer builds the docs - it downloads the
+        # prebuilt frontend + docs dist from e2e_build (the LFS-tracked images
+        # are already baked into docs/dist), so each shard also skips the smudge.
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/bun-install
@@ -469,10 +532,14 @@ jobs:
       - name: Install Playwright Chromium
         run: bun run playwright:install --with-deps
 
-      # `pretest:e2e` installs Playwright (idempotent) and builds the frontend +
-      # docs that the e2e backend serves same-origin.
-      - name: Build frontend + docs
-        run: bun run --filter @checkstack/e2e pretest:e2e
+      # Reuse the single shared build from e2e_build instead of rebuilding per
+      # shard. Restores to the repo-root-relative paths the e2e backend reads
+      # (core/frontend/dist via CHECKSTACK_FRONTEND_DIST, docs/dist default).
+      - name: Download shared build (frontend + docs)
+        uses: actions/download-artifact@v8
+        with:
+          name: e2e-build
+          path: .
 
       # `with-e2e-postgres.ts` starts an ephemeral Postgres (Testcontainers) and
       # runs `run-all.ts`, which boots one backend per spec file against the
@@ -669,7 +736,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, deps, test, integration, security, e2e]
+    needs: [typecheck, lint, deps, test, integration, security, e2e, e2e_matrix, e2e_build]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -770,6 +837,10 @@ jobs:
             const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
             const e2eResult = '${{ needs.e2e.result }}';
+            // E2E prerequisites: if either fails, `e2e` is SKIPPED (unsatisfied
+            // needs), which would otherwise read as a false green below.
+            const e2eMatrixResult = '${{ needs.e2e_matrix.result }}';
+            const e2eBuildResult = '${{ needs.e2e_build.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
             const depsPassed = depsResult === 'success' || depsResult === 'skipped';
@@ -777,7 +848,9 @@ jobs:
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
             const e2ePassed = e2eResult === 'success' || e2eResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed && e2ePassed;
+            const e2eMatrixPassed = e2eMatrixResult === 'success' || e2eMatrixResult === 'skipped';
+            const e2eBuildPassed = e2eBuildResult === 'success' || e2eBuildResult === 'skipped';
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed && e2ePassed && e2eMatrixPassed && e2eBuildPassed;
 
             // Read output files
             function readOutput(name) {
