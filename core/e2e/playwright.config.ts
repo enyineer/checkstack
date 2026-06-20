@@ -42,13 +42,6 @@ export default createPlaywrightConfig({
   baseURL: "http://localhost:3100",
   testDir: "./tests",
   overrides: {
-    // No IN-PROCESS retries: `run-all.ts` retries a failed spec at the FILE
-    // level instead, which re-boots the backend and resets the e2e DB so each
-    // attempt starts clean. Playwright's per-test retries reuse the same
-    // (now-polluted) DB, which is exactly what makes a serial group's
-    // empty-state / create chain fail on retry. Setting 0 here avoids burning
-    // those useless in-process retries before run-all re-runs on a fresh DB.
-    retries: 0,
     // Override the factory's single default project to add a setup project (for
     // login) + the main authed project. The factory's top-level `use`
     // (baseURL/trace/screenshot) is inherited by both; we only add per-project
