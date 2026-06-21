@@ -1,7 +1,19 @@
 import React from "react";
 import { cn } from "../utils";
-import { Command } from "lucide-react";
 import { usePerformance } from "./PerformanceProvider";
+import { SearchShortcutHint } from "./SearchShortcutHint";
+import { SEARCH_TRIGGER_PLACEHOLDER } from "./searchTrigger";
+
+// Re-export the shared search-trigger primitives so consumers (e.g. the wired
+// navbar trigger) can import them from "@checkstack/ui" without index.ts churn,
+// keeping a single source of truth for the trigger's copy + shortcut hint.
+export { SearchShortcutHint } from "./SearchShortcutHint";
+export {
+  SEARCH_TRIGGER_LABEL,
+  SEARCH_TRIGGER_PLACEHOLDER,
+  SEARCH_SHORTCUT_KEY,
+  isMacPlatform,
+} from "./searchTrigger";
 
 interface CommandPaletteProps {
   onClick?: () => void;
@@ -15,7 +27,7 @@ interface CommandPaletteProps {
  */
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onClick,
-  placeholder = "Search systems, incidents, or run commands...",
+  placeholder = SEARCH_TRIGGER_PLACEHOLDER,
   className,
 }) => {
   const { isLowPower } = usePerformance();
@@ -64,16 +76,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       </span>
 
       {/* Keyboard shortcut badge */}
-      <kbd
-        className={cn(
-          "hidden sm:flex items-center gap-1 px-2 py-1 rounded-md",
-          "bg-muted/50 border border-border/50",
-          "text-xs text-muted-foreground font-mono",
-        )}
-      >
-        <Command className="w-3 h-3" />
-        <span>K</span>
-      </kbd>
+      <SearchShortcutHint className="hidden sm:flex gap-1 px-2 py-1 rounded-md" />
     </button>
   );
 };

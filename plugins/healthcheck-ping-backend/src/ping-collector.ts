@@ -43,56 +43,63 @@ export type PingConfig = z.infer<typeof pingConfigSchema>;
 // ============================================================================
 
 const pingResultSchema = healthResultSchema({
+  // Echo of the configured probe count (`count`). A baseline over a near
+  // constant is meaningless, so anomaly detection is off by default. Still
+  // chartable; opt in if a probe count genuinely varies.
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Absolute twin of packetLoss. The percent form (packetLoss) is the better
+  // signal because it is config independent, so this absolute count is off by
+  // default to avoid duplicate, drift-prone alerts.
   packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Primary saturation signal: packet loss as a percent. Confirmation window
+  // debounces single-sample blips; a few-percent absolute floor keeps tiny
+  // jitter from alerting.
   packetLoss: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
   }),
+  // Min latency barely moves and is the least operationally meaningful of the
+  // three latency stats, so it is off by default. avgLatency is the kept signal.
   minLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Min Latency",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 50,
-    "x-anomaly-min-relative-delta": 0.5,
+    "x-anomaly-enabled": false,
   }).optional(),
+  // Representative latency signal. Wider band plus a confirmation window and
+  // both floors so fast endpoints do not alert on small jitter.
   avgLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }).optional(),
+  // Max latency is the spikiest of the three stats (single slow packet drives
+  // it) and is a frequent false-positive source, so it is off by default.
   maxLatency: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 50,
-    "x-anomaly-min-relative-delta": 0.5,
+    "x-anomaly-enabled": false,
   }).optional(),
 });
 
@@ -106,6 +113,9 @@ const pingAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   avgLatency: aggregatedAverage({
     "x-chart-type": "line",
@@ -113,6 +123,10 @@ const pingAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
 };
 

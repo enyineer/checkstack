@@ -467,6 +467,7 @@ export default createBackendPlugin({
           gitOpsClient,
           pluginId: pluginMetadata.pluginId,
           cache,
+          logger,
           getSystemEntity: () => systemEntity,
           getGroupEntity: () => groupEntity,
         });

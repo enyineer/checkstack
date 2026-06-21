@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import {
   TeamAccessEditor,
@@ -23,7 +24,6 @@ import { SystemLinksEditor } from "./SystemLinksEditor";
 import { SystemEnvironmentsEditor } from "./SystemEnvironmentsEditor";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { SystemEditorSlot } from "@checkstack/catalog-common";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface SystemEditorProps {
   open: boolean;
@@ -78,8 +78,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
       if (inline) {
         setOwnerTeamError(inline);
       } else {
-        const message = extractErrorMessage(error, "Failed to save system");
-        toast.error(message);
+        toastError(toast, "Failed to save system", error);
       }
     } finally {
       setLoading(false);

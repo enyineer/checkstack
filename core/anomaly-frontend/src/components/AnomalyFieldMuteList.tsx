@@ -1,9 +1,8 @@
 import React from "react";
 import { Bell, BellOff } from "lucide-react";
-import { Button, useToast } from "@checkstack/ui";
+import { Button, useToast, toastError } from "@checkstack/ui";
 import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { AnomalyApi } from "@checkstack/anomaly-common";
-import { extractErrorMessage } from "@checkstack/common";
 
 /**
  * Sub-controls panel rendered inside the generic SubscriptionRow when a
@@ -50,12 +49,12 @@ export const AnomalyFieldMuteList: React.FC<{
   const muteMutation = anomalyClient.muteAnomalyNotification.useMutation({
     onSuccess: () => void refetchMutes(),
     onError: (error) =>
-      toast.error(extractErrorMessage(error, "Failed to mute notifications")),
+      toastError(toast, "Failed to mute notifications", error),
   });
   const unmuteMutation = anomalyClient.unmuteAnomalyNotification.useMutation({
     onSuccess: () => void refetchMutes(),
     onError: (error) =>
-      toast.error(extractErrorMessage(error, "Failed to unmute notifications")),
+      toastError(toast, "Failed to unmute notifications", error),
   });
 
   const isPending = muteMutation.isPending || unmuteMutation.isPending;
@@ -109,11 +108,11 @@ export const AnomalyFieldMuteList: React.FC<{
 
       {fieldPaths.length === 0 ? (
         <div className="text-xs text-muted-foreground italic">
-          No tracked fields yet — mute will become available once anomalies
+          No tracked fields yet - mute will become available once anomalies
           are observed.
         </div>
       ) : (
-        <div className="flex flex-col divide-y rounded-md border">
+        <div className="flex flex-col divide-y rounded-md border bg-surface">
           {fieldPaths.map((fp) => {
             const muted = mutedFields.has(fp) || isSystemMuted;
             return (
@@ -127,7 +126,7 @@ export const AnomalyFieldMuteList: React.FC<{
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-10 w-10 shrink-0"
                     disabled={isPending || isSystemMuted}
                     title={muted ? "Unmute this field" : "Mute this field"}
                     onClick={() => handleToggle(fp, mutedFields.has(fp))}

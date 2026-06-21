@@ -8,6 +8,13 @@
  *   bun run src/benchmark.ts
  *
  * This is NOT a test file - it runs benchmarks and prints results.
+ *
+ * INTENTIONAL console.* usage: this is a standalone CLI report tool whose
+ * entire purpose is to print a human-readable benchmark table to stdout.
+ * `console.*` IS the output here, not stray debug logging, so the structured
+ * `Logger` abstraction used by the rest of the backend does not apply. The
+ * `no-console` lint rule is scoped to frontend packages and does not flag this
+ * backend script; the console calls below are deliberate and must stay.
  */
 
 import { InMemoryQueue } from "./memory-queue";

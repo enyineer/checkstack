@@ -42,7 +42,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
       </div>
 
       {/* Mode Selector */}
-      <div className="p-4 bg-muted/50 rounded-lg border">
+      <div className="p-4 bg-surface-inset rounded-lg border">
         <div className="flex items-center gap-2 mb-2">
           <Label className="text-sm font-medium">Evaluation Mode</Label>
           <Tooltip content="How health status is calculated based on check results" />
@@ -127,7 +127,7 @@ export const ThresholdsPanel: React.FC<ThresholdsPanelProps> = ({
       ) : (
         <div className="space-y-3">
           {/* Window Size */}
-          <div className="p-3 rounded-lg border bg-muted/30">
+          <div className="p-3 rounded-lg border bg-surface-inset">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">Window Size</span>

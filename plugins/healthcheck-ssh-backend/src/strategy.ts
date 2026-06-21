@@ -15,6 +15,7 @@ import {
   z,
   configString,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -90,13 +91,22 @@ const sshAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: err wider and require a sustained, practically-significant
+    // slowdown so small jitter never alerts.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // A per-bucket max is the most outlier-sensitive aggregate: a single slow
+    // run drives it, so baselining it produces noisy alerts. The average twin
+    // already covers sustained latency regressions, so keep this off by default
+    // (still chartable for tail-latency inspection).
+    "x-anomaly-enabled": false,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -104,12 +114,19 @@ const sshAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent: confirm a sustained drop and require a few percent
+    // of real movement before alerting.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Disabled by default: an absolute error count per bucket scales with the
+    // number of samples in the bucket, so its baseline drifts with traffic
+    // volume rather than with a real problem. Availability is already covered
+    // by successRate (the percent form), so prefer that and keep this off.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -265,6 +282,10 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<SshTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // The SSH handshake (TCP connect + auth + channel ready) is a single
+    // measurable phase up front; record it as connectMs. The per-command exec
+    // time is filled in below as processingMs (last-command-wins).
+    const connectStart = performance.now();
     const connection = await this.sshClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -274,11 +295,23 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
       passphrase: validatedConfig.passphrase,
       readyTimeout: validatedConfig.timeout,
     });
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     return {
       client: {
-        exec: (command: string) => connection.exec(command),
+        exec: async (command: string): Promise<SshCommandResult> => {
+          const start = performance.now();
+          const result = await connection.exec(command);
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - start),
+          );
+          return result;
+        },
       },
+      timings,
       close: () => connection.end(),
     };
   }

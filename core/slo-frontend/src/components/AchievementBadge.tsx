@@ -1,6 +1,6 @@
 import React from "react";
 import { Award } from "lucide-react";
-import { Badge } from "@checkstack/ui";
+import { Badge, formatDate } from "@checkstack/ui";
 
 interface AchievementBadgeProps {
   achievement: string;
@@ -82,11 +82,7 @@ export const AchievementBadge: React.FC<AchievementBadgeProps> = ({
           <div className="font-medium">{label}</div>
           <div className="text-muted-foreground">{description}</div>
           <div className="text-muted-foreground mt-1">
-            {new Date(unlockedAt).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
+            {formatDate(unlockedAt)}
           </div>
         </div>
       </div>

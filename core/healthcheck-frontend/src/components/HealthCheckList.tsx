@@ -11,14 +11,16 @@ import {
   TableHeader,
   TableRow,
   Button,
-  Badge,
   Skeleton,
   ResponsiveTable,
   MobileCardList,
   Card,
+  cn,
 } from "@checkstack/ui";
 import { Trash2, Edit, Pause, Play } from "lucide-react";
 import { useProvenanceLock } from "@checkstack/gitops-frontend";
+import { HealthStatusPill } from "./HealthStatusPill";
+import { pausedToTone, toneStyles } from "./healthcheckDisplay.logic";
 
 interface HealthCheckListProps {
   configurations: HealthCheckConfiguration[];
@@ -197,16 +199,20 @@ const HealthCheckRow: React.FC<HealthCheckRowProps> = ({
   });
 
   return (
-    <TableRow className={config.paused ? "opacity-60" : ""}>
+    <TableRow
+      className={cn(
+        "transition-colors hover:bg-surface-inset",
+        config.paused && "opacity-60",
+      )}
+    >
       <TableCell className="font-medium">{config.name}</TableCell>
       <TableCell>{strategyName}</TableCell>
       <TableCell>{config.intervalSeconds}</TableCell>
       <TableCell>
-        {config.paused ? (
-          <Badge variant="secondary">Paused</Badge>
-        ) : (
-          <Badge variant="default">Active</Badge>
-        )}
+        <HealthStatusPill
+          tone={pausedToTone({ paused: config.paused })}
+          label={config.paused ? "Paused" : "Active"}
+        />
       </TableCell>
       <TableCell className="text-right">
         <HealthCheckActionButtons
@@ -247,17 +253,29 @@ const HealthCheckMobileCard: React.FC<HealthCheckMobileCardProps> = ({
     entityId: config.id,
   });
 
+  const tone = pausedToTone({ paused: config.paused });
   return (
-    <Card className={`p-3 ${config.paused ? "opacity-60" : ""}`}>
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-medium truncate">{config.name}</span>
-        {config.paused ? (
-          <Badge variant="secondary">Paused</Badge>
-        ) : (
-          <Badge variant="default">Active</Badge>
-        )}
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]",
+        config.paused && "opacity-60",
+      )}
+    >
+      {/* Status accent stripe keyed to active/paused. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", toneStyles[tone].accent)}
+        aria-hidden
+      />
+      <div className="flex items-start justify-between gap-2 pl-2">
+        <span className="truncate font-medium text-foreground">
+          {config.name}
+        </span>
+        <HealthStatusPill
+          tone={tone}
+          label={config.paused ? "Paused" : "Active"}
+        />
       </div>
-      <div className="mt-1 text-xs text-muted-foreground">
+      <div className="mt-1 pl-2 text-xs text-muted-foreground">
         {strategyName} &middot; every {config.intervalSeconds}s
       </div>
       <div className="mt-3 flex justify-end gap-2">
@@ -271,7 +289,7 @@ const HealthCheckMobileCard: React.FC<HealthCheckMobileCardProps> = ({
           canManage={canManage}
         />
       </div>
-    </Card>
+    </div>
   );
 };
 

@@ -205,7 +205,20 @@ export class SloService {
     return mapDowntimeEventRow(event);
   }
 
-  async closeDowntimeEvent({ id }: { id: string }): Promise<SloDowntimeEvent> {
+  async closeDowntimeEvent({
+    id,
+    endTime,
+  }: {
+    id: string;
+    /**
+     * Explicit close timestamp. Defaults to now (the normal recovery-edge
+     * close). Pass the ACTUAL recovery time when reconciling a missed-recovery
+     * orphan, so the genuine downtime is preserved instead of lost. Clamped to
+     * be >= the event's `startTime` so a bad input can never write negative
+     * duration.
+     */
+    endTime?: Date;
+  }): Promise<SloDowntimeEvent> {
     const [event] = await this.db
       .select()
       .from(sloDowntimeEvents)
@@ -215,13 +228,17 @@ export class SloService {
       throw new Error(`Cannot close downtime event ${id}: not found or already closed`);
     }
 
-    const now = new Date();
+    const requestedEnd = endTime ?? new Date();
+    const end =
+      requestedEnd.getTime() < event.startTime.getTime()
+        ? event.startTime
+        : requestedEnd;
     const durationSeconds =
-      (now.getTime() - event.startTime.getTime()) / 1000;
+      (end.getTime() - event.startTime.getTime()) / 1000;
 
     await this.db
       .update(sloDowntimeEvents)
-      .set({ endTime: now, durationSeconds })
+      .set({ endTime: end, durationSeconds })
       .where(eq(sloDowntimeEvents.id, id));
 
     const [updated] = await this.db

@@ -81,8 +81,12 @@ const requestResultSchema = healthResultSchema({
   statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Off by default: the raw status code is an identifier, not a quantity
+    // with a meaningful baseline. Legitimate shifts (200 -> 301/302 redirects,
+    // content negotiation) are not problems, while real availability loss is
+    // already captured by the `success` boolean. Charting stays available for
+    // opt-in.
+    "x-anomaly-enabled": false,
   }),
   statusText: healthResultString({
     "x-chart-type": "text",
@@ -125,6 +129,13 @@ const requestAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: bias toward fewer false positives. Require several consecutive
+    // anomalous buckets, ignore small absolute jitter (tens of ms) so fast
+    // endpoints stay quiet, and require a meaningful relative jump.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -132,6 +143,11 @@ const requestAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent: the canonical saturation/failure signal. Debounce
+    // transient single-bucket dips and ignore sub-percent noise so only a real,
+    // sustained drop alerts.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 2,
   }),
 };
 
@@ -214,6 +230,14 @@ export class RequestCollector implements CollectorStrategy<
     });
 
     const responseTimeMs = Date.now() - startTime;
+    // `success` is an ASSERTABLE METRIC (2xx/3xx), not a collector-failure
+    // signal. Receiving ANY response - including a 4xx/5xx - is a successful
+    // collection: the server was reached and answered. A real transport failure
+    // (DNS, connect, TLS, timeout, aborted) throws out of `client.exec` above
+    // and the executor records it as a collector failure. We must NOT set the
+    // `error` field here for a received-but-non-2xx response, otherwise the
+    // executor hard-fails the run and assertions (e.g. "statusCode equals 404")
+    // never get a chance to decide health.
     const success = response.statusCode >= 200 && response.statusCode < 400;
 
     return {
@@ -225,9 +249,6 @@ export class RequestCollector implements CollectorStrategy<
         bodyLength: response.body?.length ?? 0,
         success,
       },
-      error: success
-        ? undefined
-        : `HTTP ${response.statusCode}: ${response.statusText}`,
     };
   }
 

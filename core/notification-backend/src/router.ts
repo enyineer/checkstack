@@ -137,14 +137,14 @@ async function assertTargetOwnedBy(opts: {
  * Auth and access rules are automatically enforced via autoAuthMiddleware
  * based on the contract's meta.userType and meta.access.
  */
-export const createNotificationRouter = (
-  database: SafeDatabase<typeof schema>,
-  configService: ConfigService,
-  signalService: SignalService,
-  strategyRegistry: NotificationStrategyRegistry,
-  rpcApi: RpcClient,
-  logger: Logger,
-  cache: NotificationCache,
+export interface NotificationRouterDeps {
+  database: SafeDatabase<typeof schema>;
+  configService: ConfigService;
+  signalService: SignalService;
+  strategyRegistry: NotificationStrategyRegistry;
+  rpcApi: RpcClient;
+  logger: Logger;
+  cache: NotificationCache;
   /**
    * Late-bound: returns the dispatch hook sink (delivered/failed
    * automation triggers). `init()` wires this with a closure on a
@@ -153,12 +153,23 @@ export const createNotificationRouter = (
    * test setups — the getter returns `undefined` and hook firing is
    * skipped without affecting persisted delivery attempts.
    */
-  getDispatchHookSink: () =>
+  getDispatchHookSink?: () =>
     | import("./delivery-attempts").DispatchAttemptHookSink
-    | undefined = () => {
+    | undefined;
+}
+
+export const createNotificationRouter = ({
+  database,
+  configService,
+  signalService,
+  strategyRegistry,
+  rpcApi,
+  logger,
+  cache,
+  getDispatchHookSink = () => {
     return;
   },
-) => {
+}: NotificationRouterDeps) => {
   // Create strategy service for config management
   const strategyService: StrategyService = createStrategyService({
     db: database,

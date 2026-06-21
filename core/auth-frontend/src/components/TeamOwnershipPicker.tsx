@@ -141,7 +141,7 @@ export const TeamOwnershipPicker: React.FC<TeamOwnershipPickerProps> = ({
         onValueChange={(v) => onChange(v === GLOBAL_VALUE ? null : v)}
         disabled={disabled}
       >
-        <SelectTrigger>
+        <SelectTrigger aria-label={label}>
           <SelectValue
             placeholder={allowGlobal ? "No team (global)" : "Select a team"}
           />

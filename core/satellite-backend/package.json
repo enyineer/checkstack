@@ -18,6 +18,7 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
     "@checkstack/automation-common": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
     "@checkstack/satellite-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",

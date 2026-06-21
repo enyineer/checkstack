@@ -10,6 +10,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   IMPORTANCE_EMOJI,
+  renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
@@ -139,14 +140,12 @@ const webexStrategy: NotificationStrategy<WebexConfig, WebexUserConfig> = {
         markdown += `\n\n${notification.body}`;
       }
 
-      const subjects = notification.subjects ?? [];
-      if (subjects.length > 0) {
-        const lines = subjects.map((subject) =>
-          subject.url
-            ? `- [${subject.name}](${subject.url})`
-            : `- ${subject.name}`,
-        );
-        markdown += `\n\n**Affected:**\n${lines.join("\n")}`;
+      const subjectsMarkdown = renderSubjectsAsMarkdown({
+        subjects: notification.subjects ?? [],
+        bullet: "-",
+      });
+      if (subjectsMarkdown) {
+        markdown += `\n\n${subjectsMarkdown}`;
       }
 
       if (notification.action?.url) {

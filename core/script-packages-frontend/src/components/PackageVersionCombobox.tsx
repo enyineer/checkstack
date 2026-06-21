@@ -149,7 +149,7 @@ export const PackageVersionCombobox: React.FC<PackageVersionComboboxProps> = ({
                   {tags.map((tag) => (
                     <span
                       key={tag}
-                      className="flex shrink-0 items-center gap-0.5 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                      className="flex shrink-0 items-center gap-0.5 rounded bg-surface-inset px-1 text-[10px] text-muted-foreground"
                     >
                       <Tag className="h-2.5 w-2.5" />
                       {tag}

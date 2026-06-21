@@ -6,12 +6,15 @@ import {
   DialogDescription,
   DialogTitle,
   Input,
-  DynamicIcon,
-  type LucideIconName,
+  cn,
+  usePerformance,
 } from "@checkstack/ui";
 import { useDebouncedSearch, useFormatShortcut } from "../index";
 import type { SearchResult } from "@checkstack/command-common";
 import { Search, ArrowUp, ArrowDown, CornerDownLeft } from "lucide-react";
+import { SearchResultRow } from "./SearchResultRow";
+import { PaletteEmptyState } from "./PaletteEmptyState";
+import { PALETTE_KBD_CHIP, PALETTE_SHELL_SHADOW } from "./paletteChrome";
 
 interface SearchDialogProps {
   open: boolean;
@@ -24,6 +27,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
 }) => {
   const navigate = useNavigate();
   const formatShortcut = useFormatShortcut();
+  const { isLowPower } = usePerformance();
   const {
     results,
     loading,
@@ -116,47 +120,14 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     const isSelected = globalIndex === selectedIndex;
 
     return (
-      <button
+      <SearchResultRow
         key={result.id}
-        onClick={() => handleSelect(result)}
-        onMouseEnter={() => setSelectedIndex(globalIndex)}
-        className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${
-          isSelected
-            ? "bg-primary/10 text-foreground"
-            : "text-muted-foreground hover:bg-muted/50"
-        }`}
-      >
-        <DynamicIcon
-          name={result.iconName as LucideIconName}
-          className="w-4 h-4 flex-shrink-0"
-        />
-        <div className="flex-1 min-w-0">
-          <span className="block truncate">{result.title}</span>
-          {result.subtitle && (
-            <span className="block text-xs text-muted-foreground truncate">
-              {result.subtitle}
-            </span>
-          )}
-        </div>
-        {/* Show shortcuts for commands */}
-        {result.type === "command" &&
-          result.shortcuts &&
-          result.shortcuts.length > 0 && (
-            <div className="flex gap-1">
-              {result.shortcuts.slice(0, 1).map((shortcut) => (
-                <kbd
-                  key={shortcut}
-                  className="px-1.5 py-0.5 text-xs rounded bg-muted border border-border font-mono"
-                >
-                  {formatShortcut(shortcut)}
-                </kbd>
-              ))}
-            </div>
-          )}
-        {isSelected && (
-          <CornerDownLeft className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-        )}
-      </button>
+        result={result}
+        isSelected={isSelected}
+        onSelect={() => handleSelect(result)}
+        onHover={() => setSelectedIndex(globalIndex)}
+        formatShortcut={formatShortcut}
+      />
     );
   };
 
@@ -167,7 +138,11 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="lg"
-        className="p-0 gap-0 overflow-hidden"
+        className={cn(
+          "p-0 gap-0 overflow-hidden rounded-xl border border-border/70",
+          "bg-gradient-to-b from-surface-2 to-surface",
+          PALETTE_SHELL_SHADOW,
+        )}
         hideCloseButton
         onKeyDown={handleKeyDown}
       >
@@ -177,8 +152,8 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
           Search commands and systems using the input below
         </DialogDescription>
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <Search className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60 bg-surface-2/60">
+          <Search className="w-5 h-5 text-muted-foreground/70 flex-shrink-0" />
           <Input
             ref={inputRef}
             value={query}
@@ -186,27 +161,34 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
               setQuery(e.target.value)
             }
             placeholder="Search commands and systems..."
-            className="border-0 bg-transparent focus-visible:ring-0 px-0 text-base"
+            className="border-0 bg-transparent focus-visible:ring-0 px-0 text-base placeholder:text-muted-foreground/60"
           />
         </div>
 
         {/* Results */}
         <div className="max-h-[300px] overflow-y-auto py-2">
           {loading ? (
-            <div className="px-4 py-8 text-center text-muted-foreground">
-              Searching...
-            </div>
+            <PaletteEmptyState message="Searching..." isLowPower={isLowPower} />
           ) : flatResults.length === 0 ? (
-            <div className="px-4 py-8 text-center text-muted-foreground">
-              {query ? "No results found" : "Start typing to search..."}
-            </div>
+            <PaletteEmptyState
+              message={query ? "No results found" : "Start typing to search..."}
+              isLowPower={isLowPower}
+            />
           ) : (
             Object.entries(groupedResults).map(
-              ([category, categoryResults]) => (
-                <div key={category}>
+              ([category, categoryResults], groupIndex) => (
+                <div
+                  key={category}
+                  className={cn(
+                    groupIndex > 0 && "mt-1 border-t border-border/40",
+                  )}
+                >
                   {/* Category header */}
-                  <div className="px-4 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider bg-muted/30">
-                    {category} ({categoryResults.length})
+                  <div className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    <span>{category}</span>
+                    <span className="text-muted-foreground/50">
+                      ({categoryResults.length})
+                    </span>
                   </div>
                   {/* Category results */}
                   {categoryResults.map((result) => {
@@ -221,20 +203,29 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
         </div>
 
         {/* Footer with keyboard hints */}
-        <div className="flex items-center gap-4 px-4 py-2 border-t border-border bg-muted/30 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <ArrowUp className="w-3 h-3" />
-            <ArrowDown className="w-3 h-3" />
+        <div
+          className={cn(
+            "flex items-center gap-4 px-4 py-2 border-t border-border/60 text-xs text-muted-foreground",
+            isLowPower ? "bg-surface-2" : "bg-surface-2/60 backdrop-blur",
+          )}
+        >
+          <div className="flex items-center gap-1.5">
+            <kbd className={PALETTE_KBD_CHIP}>
+              <ArrowUp className="size-3" />
+            </kbd>
+            <kbd className={PALETTE_KBD_CHIP}>
+              <ArrowDown className="size-3" />
+            </kbd>
             <span>Navigate</span>
           </div>
-          <div className="flex items-center gap-1">
-            <CornerDownLeft className="w-3 h-3" />
+          <div className="flex items-center gap-1.5">
+            <kbd className={PALETTE_KBD_CHIP}>
+              <CornerDownLeft className="size-3" />
+            </kbd>
             <span>Select</span>
           </div>
-          <div className="flex items-center gap-1">
-            <kbd className="px-1 rounded bg-muted border border-border font-mono">
-              esc
-            </kbd>
+          <div className="flex items-center gap-1.5">
+            <kbd className={PALETTE_KBD_CHIP}>esc</kbd>
             <span>Close</span>
           </div>
         </div>

@@ -4,21 +4,26 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * Authenticated E2E for the admin Secrets page (Settings -> Secrets,
  * route `/secrets/`).
  *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * `data-isolated specs` files run in PARALLEL against that single shared DB.
+ * The DB is therefore non-empty and shared, so this file is fully
+ * data-isolated: every entity it creates is namespaced with a unique-per-run
+ * suffix (`NS`) so parallel specs never collide, and no test asserts on global
+ * table state (no empty-state, no global counts). Tests within this file still
+ * run serially (the create -> rotate -> delete chain).
+ *
  * Hard security invariant under test: secret VALUES are write-only. The
  * create/rotate forms accept a value but no endpoint ever returns one, so
  * the list shows only the name + a `hasValue` badge and the entered value
  * must never appear back in the page.
- *
- * One fresh, empty DB is shared across this file, so the tests run serially
- * and ordered: the empty-state assertion runs before anything is created.
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique per run so reruns against a (normally fresh) DB never clash.
-const RUN = Date.now();
-const SECRET_NAME = `jira_token_${RUN}`;
-const SECRET_VALUE = `s3cr3t-value-${RUN}`;
-const ROTATED_VALUE = `rotated-value-${RUN}`;
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SECRET_NAME = `jira_token-${NS}`;
+const SECRET_VALUE = `s3cr3t-value-${NS}`;
+const ROTATED_VALUE = `rotated-value-${NS}`;
 
 /** The list renders each secret name inside a <code> element. */
 function secretRow(page: import("@playwright/test").Page, name: string) {
@@ -41,7 +46,9 @@ function deleteButton(
 }
 
 test.describe("admin secrets", () => {
-  test("shows the empty state with no secrets", async ({ page }) => {
+  test("disables the create button until name and value are provided", async ({
+    page,
+  }) => {
     await page.goto("/secrets/", { waitUntil: "domcontentloaded" });
 
     // The page-level title renders as an <h2>; the list card uses an <h3>
@@ -54,15 +61,6 @@ test.describe("admin secrets", () => {
     await expect(
       page.getByRole("heading", { name: "Add a secret" }),
     ).toBeVisible();
-
-    // Empty-state copy for a writable backend.
-    await expect(page.getByText("No secrets yet. Add one above.")).toBeVisible();
-  });
-
-  test("disables the create button until name and value are provided", async ({
-    page,
-  }) => {
-    await page.goto("/secrets/", { waitUntil: "domcontentloaded" });
 
     const addButton = page.getByRole("button", { name: "Add secret" });
     await expect(addButton).toBeVisible();
@@ -129,7 +127,7 @@ test.describe("admin secrets", () => {
     // Form clears -> the upsert succeeded.
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
 
-    // Still exactly one row for this name.
+    // Still exactly one row for THIS namespaced name (upsert, not duplicate).
     await expect(secretRow(page, SECRET_NAME)).toHaveCount(1);
 
     // The rotated value is never shown.
@@ -209,8 +207,9 @@ test.describe("admin secrets", () => {
       .getByRole("button", { name: "Delete", exact: true })
       .click();
 
-    // The row is gone and we are back to the empty state.
+    // The specific namespaced row is gone. Scoped to our own secret only -
+    // the shared DB may still hold rows created by other parallel specs, so
+    // we never assert a global empty state.
     await expect(secretRow(page, SECRET_NAME)).toHaveCount(0);
-    await expect(page.getByText("No secrets yet. Add one above.")).toBeVisible();
   });
 });

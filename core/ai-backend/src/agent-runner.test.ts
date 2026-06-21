@@ -215,7 +215,7 @@ describe("createAgentRunner", () => {
     expect(result.toolCalls).toEqual([{ tool: "incident_list", ok: true }]);
   });
 
-  it("records a tool failure and surfaces it to the model instead of aborting", async () => {
+  it("surfaces a tool failure as a THROWN tool error (so the model self-corrects, not an aborted run)", async () => {
     const registry = createAiToolRegistry();
     registry.register(
       readTool("plugin_boom", async () => {
@@ -224,12 +224,19 @@ describe("createAgentRunner", () => {
     );
     const resolver = createAiToolResolver({ registry });
 
-    let toolResult: unknown;
+    // The AI SDK renders a thrown `execute` error as a distinct `tool-error`
+    // result part; the model is told the call FAILED rather than receiving
+    // `{ error }` as a success value it can misread as the tool's data.
+    let thrown: unknown;
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
       const t = (args.tools ?? {})["plugin_boom"] as {
         execute: (i: unknown) => Promise<unknown>;
       };
-      toolResult = await t.execute({});
+      try {
+        await t.execute({});
+      } catch (error) {
+        thrown = error;
+      }
       return { text: "handled", usage: {} };
     });
 
@@ -246,7 +253,10 @@ describe("createAgentRunner", () => {
       prompt: "go",
     });
 
-    expect(toolResult).toEqual({ error: "missing access: plugin.read" });
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe("missing access: plugin.read");
+    // The run still completed (the throw is the per-tool feedback channel, not a
+    // run abort) and the failure is recorded in the audit/artifact tally.
     expect(result.toolCalls).toEqual([{ tool: "plugin_boom", ok: false }]);
     expect(result.object).toBeUndefined();
   });
@@ -274,7 +284,13 @@ describe("createAgentRunner", () => {
     const generateText = mock(async (args: { tools?: Record<string, unknown> }) => {
       const tools = args.tools ?? {};
       await (tools["plugin_ok"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
-      await (tools["plugin_boom"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
+      // The failing tool now THROWS (the `tool-error` channel); the SDK catches
+      // it per-step, so swallow it here to mirror the SDK's own handling.
+      try {
+        await (tools["plugin_boom"] as { execute: (i: unknown) => Promise<unknown> }).execute({});
+      } catch {
+        // expected — recorded as ok: false below
+      }
       return { text: "x", usage: {} };
     });
 

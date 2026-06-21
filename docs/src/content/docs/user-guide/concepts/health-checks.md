@@ -29,6 +29,12 @@ For most checks you only ever see strategies. Collectors come into play when a s
 > [!NOTE]
 > Strategies and collectors are both implemented as plugins. If you do not see the strategy you need (for example, gRPC or RCON), check the Plugin Manager for an off-the-shelf plugin before writing a custom one.
 
+### HTTP egress safety
+
+When the HTTP strategy runs on the core (rather than on a satellite), it applies a secure-by-default egress guard. It resolves the target host to its IP and refuses to connect to the cloud-metadata and link-local ranges (`169.254.0.0/16`, the IPv6 link-local and unique-local ranges that cover `fd00:ec2::254`, and similar), so a check cannot be pointed at `http://169.254.169.254/...` to read instance credentials. The connection is pinned to the validated IP to resist DNS-rebind.
+
+Internal and private-network targets (RFC1918, your own VPC) remain allowed by default, because probing internal services is a normal monitoring job. Operators who want to block additional ranges can list extra CIDRs in the HTTP strategy config's `egressDenyCidrs`; those are added on top of the always-on metadata/link-local block.
+
 ## Scheduling
 
 The platform schedules each check independently. A check with `intervalSeconds: 60` runs once per minute on every system it is attached to. There is no fancy distributed cron: the backend keeps an internal scheduler that fires queue jobs at the right time.
@@ -92,7 +98,7 @@ See [Script health checks](/checkstack/user-guide/reference/script-health-checks
 
 A simplified view of one run:
 
-```
+```text
 [scheduler] ----> queue job ----> [executor] ----> [strategy.connect()]
                                        |                  |
                                        |                  v

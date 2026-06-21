@@ -52,8 +52,12 @@ describe("NodeHealthCollector", () => {
     expect(result.result.busyExecutors).toBe(3);
     expect(result.result.totalExecutors).toBe(10);
     expect(result.result.executorUtilization).toBe(30);
-    // Error for offline nodes
-    expect(result.error).toContain("1 of 3 nodes offline");
+    // Regression: offline nodes are an ASSERTABLE METRIC (`offlineNodes`), not
+    // a collector failure. The request to Jenkins completed, so the collector
+    // reports transport success (no `error`) and the user asserts on
+    // `offlineNodes` to decide health. Previously this asserted the wrong
+    // behavior (`error` contains "1 of 3 nodes offline").
+    expect(result.error).toBeUndefined();
   });
 
   it("should collect single node info", async () => {

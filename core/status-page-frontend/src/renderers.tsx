@@ -7,7 +7,7 @@ import {
   HelpCircle,
   CalendarCheck,
 } from "lucide-react";
-import { MarkdownBlock } from "@checkstack/ui";
+import { MarkdownBlock, formatPercent } from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
@@ -45,7 +45,7 @@ export {
  * the public page render through this registry.
  */
 
-interface StatusMeta {
+export interface StatusMeta {
   label: string;
   /** Solid color for dots / uptime bars. */
   solid: string;
@@ -56,47 +56,52 @@ interface StatusMeta {
   Icon: React.ComponentType<{ className?: string }>;
 }
 
-const STATUS: Record<PublicStatus, StatusMeta> = {
+/**
+ * Shared status visual tokens (color + icon) keyed by the public status enum.
+ * Exported so the page-wide overall-status banner in {@link PublicStatusPage}
+ * reuses the exact same semantic tokens as the per-widget renderers.
+ */
+export const STATUS: Record<PublicStatus, StatusMeta> = {
   operational: {
     label: "Operational",
-    solid: "bg-success",
-    soft: "bg-success/10 text-success",
-    hero: "bg-success/10 text-success ring-success/20",
+    solid: "bg-status-ok",
+    soft: "bg-status-ok/10 text-status-ok",
+    hero: "bg-status-ok/10 text-status-ok ring-status-ok/20",
     Icon: CheckCircle2,
   },
   degraded: {
     label: "Degraded",
-    solid: "bg-warning",
-    soft: "bg-warning/10 text-warning",
-    hero: "bg-warning/10 text-warning ring-warning/20",
+    solid: "bg-status-warn",
+    soft: "bg-status-warn/10 text-status-warn",
+    hero: "bg-status-warn/10 text-status-warn ring-status-warn/20",
     Icon: AlertTriangle,
   },
   partial_outage: {
     label: "Partial outage",
-    solid: "bg-warning",
-    soft: "bg-warning/10 text-warning",
-    hero: "bg-warning/10 text-warning ring-warning/20",
+    solid: "bg-status-warn",
+    soft: "bg-status-warn/10 text-status-warn",
+    hero: "bg-status-warn/10 text-status-warn ring-status-warn/20",
     Icon: AlertTriangle,
   },
   major_outage: {
     label: "Major outage",
-    solid: "bg-destructive",
-    soft: "bg-destructive/10 text-destructive",
-    hero: "bg-destructive/10 text-destructive ring-destructive/20",
+    solid: "bg-status-down",
+    soft: "bg-status-down/10 text-status-down",
+    hero: "bg-status-down/10 text-status-down ring-status-down/20",
     Icon: AlertOctagon,
   },
   maintenance: {
     label: "Maintenance",
-    solid: "bg-info",
-    soft: "bg-info/10 text-info",
-    hero: "bg-info/10 text-info ring-info/20",
+    solid: "bg-status-unknown",
+    soft: "bg-status-unknown/10 text-status-unknown",
+    hero: "bg-status-unknown/10 text-status-unknown ring-status-unknown/20",
     Icon: Wrench,
   },
   unknown: {
     label: "Unknown",
-    solid: "bg-muted-foreground/40",
-    soft: "bg-muted text-muted-foreground",
-    hero: "bg-muted text-muted-foreground ring-border",
+    solid: "bg-status-unknown",
+    soft: "bg-status-unknown/10 text-status-unknown",
+    hero: "bg-status-unknown/10 text-status-unknown ring-status-unknown/20",
     Icon: HelpCircle,
   },
 };
@@ -134,9 +139,9 @@ const Section: React.FC<{
   action?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ label, action, children }) => (
-  <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+  <section className="overflow-hidden rounded-[var(--d-card-r)] border border-border bg-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
     {(label || action) && (
-      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-2 px-5 py-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </h3>
@@ -172,28 +177,44 @@ const StatusRow: React.FC<{
   label: string;
   status: PublicStatus;
   uptimePct?: number;
-}> = ({ label, status, uptimePct }) => (
-  <div className="flex items-center justify-between gap-3 py-2.5">
-    <span className="min-w-0 truncate text-sm font-medium text-foreground">
-      {label}
-    </span>
-    <div className="flex shrink-0 items-center gap-3">
-      {uptimePct !== undefined && (
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {uptimePct.toFixed(2)}%
+}> = ({ label, status, uptimePct }) => {
+  const meta = STATUS[status];
+  return (
+    <div className="-mx-2 flex items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors hover:bg-surface-inset">
+      <div className="flex min-w-0 items-center gap-2.5">
+        {/* Status by position + hue before the pill reads its label. */}
+        <span
+          aria-hidden
+          className={`size-2 shrink-0 rounded-full ${meta.solid}`}
+        />
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">
+          {label}
         </span>
-      )}
-      <StatusPill status={status} />
+      </div>
+      <div className="flex shrink-0 items-center gap-4">
+        {uptimePct !== undefined && (
+          <div className="text-right leading-tight">
+            <div className="text-sm font-semibold tabular-nums text-foreground">
+              {formatPercent(uptimePct, {
+                alreadyPercent: true,
+                fractionDigits: 2,
+              })}
+            </div>
+            <div className="text-[11px] text-muted-foreground">uptime</div>
+          </div>
+        )}
+        <StatusPill status={status} />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const SystemHealthRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = SystemHealthDtoSchema.safeParse(data);
   if (!parsed.success) return null;
   return (
     <Section label={label}>
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border/60">
         {parsed.data.systems.map((s, i) => (
           <StatusRow key={i} label={s.label} status={s.status} uptimePct={s.uptimePct} />
         ))}
@@ -210,7 +231,7 @@ const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
       label={label ?? parsed.data.label}
       action={<StatusPill status={parsed.data.status} />}
     >
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border/60">
         {parsed.data.systems.map((s, i) => (
           <StatusRow key={i} label={s.label} status={s.status} />
         ))}
@@ -229,29 +250,39 @@ const UptimeRenderer: React.FC<RendererProps> = ({ data, label }) => {
   // No buckets => no run history in the window. Show "no data" rather than a
   // misleading "0.00%" (a healthy system with no history is not 0% uptime).
   const hasData = bars.length > 0;
+  const windowLabel =
+    hasData && bars.length > 0
+      ? `${shortDate(bars[0].date)} - ${shortDate(bars.at(-1)?.date ?? bars[0].date)}`
+      : "";
   return (
-    <Section
-      label={label ?? parsed.data.label}
-      action={
-        hasData ? (
-          <span className="text-xs font-medium tabular-nums text-muted-foreground">
-            {parsed.data.uptimePct.toFixed(2)}% uptime
-          </span>
-        ) : undefined
-      }
-    >
+    <Section label={label ?? parsed.data.label}>
       {hasData ? (
         <>
-          <div className="flex h-9 items-stretch gap-[3px]">
-            {bars.map((bar, i) => (
-              <div
-                key={i}
-                role="img"
-                aria-label={`${shortDate(bar.date)}: ${bar.uptimePct.toFixed(1)}% uptime`}
-                title={`${shortDate(bar.date)}: ${bar.uptimePct.toFixed(1)}%`}
-                className={`flex-1 rounded-[2px] transition-opacity hover:opacity-70 ${STATUS[bar.status].solid}`}
-              />
-            ))}
+          {/* Hero readout: the single most important figure leads the card. */}
+          <div className="mb-4">
+            <div className="text-3xl font-bold tabular-nums text-foreground">
+              {formatPercent(parsed.data.uptimePct, {
+                alreadyPercent: true,
+                fractionDigits: 2,
+              })}
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              uptime over {windowLabel}
+            </div>
+          </div>
+          {/* Bars sit on a faint inset track so they read as inset segments. */}
+          <div className="rounded-md bg-surface-inset p-1">
+            <div className="flex h-10 items-stretch gap-[3px]">
+              {bars.map((bar, i) => (
+                <div
+                  key={i}
+                  role="img"
+                  aria-label={`${shortDate(bar.date)}: ${formatPercent(bar.uptimePct, { alreadyPercent: true, fractionDigits: 1 })} uptime`}
+                  title={`${shortDate(bar.date)}: ${formatPercent(bar.uptimePct, { alreadyPercent: true, fractionDigits: 1 })}`}
+                  className={`flex-1 rounded-[3px] transition-opacity hover:opacity-70 ${STATUS[bar.status].solid}`}
+                />
+              ))}
+            </div>
           </div>
           <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
             <span>{shortDate(bars[0].date)}</span>
@@ -274,10 +305,35 @@ const formatAt = (iso: string) =>
   });
 
 const SEVERITY_CLASS: Record<string, string> = {
-  critical: "bg-destructive/10 text-destructive",
-  major: "bg-warning/10 text-warning",
-  minor: "bg-muted text-muted-foreground",
+  critical: "bg-status-down/10 text-status-down",
+  major: "bg-status-warn/10 text-status-warn",
+  minor: "bg-status-unknown/10 text-status-unknown",
 };
+
+/** Solid accent-stripe hue per severity, reusing the colorblind-safe triad. */
+const SEVERITY_STRIPE: Record<string, string> = {
+  critical: "bg-status-down",
+  major: "bg-status-warn",
+  minor: "bg-status-unknown",
+};
+
+/**
+ * Depth card for an ACTIVE incident / maintenance item: layered surface,
+ * soft shadow, and a severity-driven left accent stripe so a live event
+ * visually announces itself. Mirrors {@link SloObjectiveCard}.
+ */
+const ActiveEventCard: React.FC<{
+  stripe: string;
+  children: React.ReactNode;
+}> = ({ stripe, children }) => (
+  <article className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+    <span
+      aria-hidden
+      className={`absolute inset-y-0 left-0 w-1 ${stripe}`}
+    />
+    <div className="pl-2">{children}</div>
+  </article>
+);
 
 type Update = { message: string; statusChange?: string; at: string };
 
@@ -314,7 +370,7 @@ const PastHeader: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const PastRow: React.FC<{ title: string; at?: string }> = ({ title, at }) => (
   <div className="flex items-center justify-between gap-2 py-1.5 text-sm">
     <span className="flex min-w-0 items-center gap-2">
-      <CheckCircle2 className="size-4 shrink-0 text-success" />
+      <CheckCircle2 className="size-4 shrink-0 text-status-ok" />
       <span className="truncate text-muted-foreground">{title}</span>
     </span>
     {at && (
@@ -335,16 +391,21 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
       <div className="space-y-5">
         {active.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="size-4 text-success" />
+            <CheckCircle2 className="size-4 text-status-ok" />
             No active incidents.
           </p>
         ) : (
           active.map((inc) => (
-            <article key={inc.id}>
+            <ActiveEventCard
+              key={inc.id}
+              stripe={
+                SEVERITY_STRIPE[inc.severity] ?? "bg-status-unknown"
+              }
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="font-semibold">{inc.title}</h4>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${SEVERITY_CLASS[inc.severity] ?? "bg-muted text-muted-foreground"}`}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${SEVERITY_CLASS[inc.severity] ?? "bg-status-unknown/10 text-status-unknown"}`}
                 >
                   {inc.severity}
                 </span>
@@ -358,7 +419,7 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
                 </p>
               )}
               <UpdatesTimeline updates={inc.updates} />
-            </article>
+            </ActiveEventCard>
           ))
         )}
         {past.length > 0 && (
@@ -389,11 +450,11 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
           </p>
         ) : (
           active.map((m) => (
-            <article key={m.id} className="rounded-lg bg-info/5 p-3">
+            <ActiveEventCard key={m.id} stripe="bg-status-unknown">
               <div className="flex flex-wrap items-center gap-2">
-                <Wrench className="size-4 text-info" />
+                <Wrench className="size-4 text-status-unknown" />
                 <h4 className="font-semibold">{m.title}</h4>
-                <span className="rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-medium capitalize text-info">
+                <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
                   {m.status.replace("_", " ")}
                 </span>
               </div>
@@ -406,7 +467,7 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
                 </p>
               )}
               <UpdatesTimeline updates={m.updates} />
-            </article>
+            </ActiveEventCard>
           ))
         )}
         {past.length > 0 && (

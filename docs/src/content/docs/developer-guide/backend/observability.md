@@ -20,7 +20,7 @@ The HTTP header `x-correlation-id` is the single source of truth.
   their own client-side logs to correlate the round trip.
 - **If the header is absent or empty**, the platform generates a fresh
   UUID v4 via `crypto.randomUUID()`. Handlers MUST NOT mint their
-  own IDs — the middleware is the only generation site.
+  own IDs - the middleware is the only generation site.
 - **The chosen ID is echoed back on the response** under the same
   `x-correlation-id` header, so the caller can log it after the fact
   even if they did not supply one upstream.
@@ -75,7 +75,7 @@ the following fields pre-bound to every log entry it produces:
 | `userId`        | `ctx.user.id` (real users + applications)      | Only when `ctx.user` has an `id` |
 
 Service users (`type: "service"`) do not have an `id` and so do not
-contribute a `userId` — those calls are still logged with
+contribute a `userId` - those calls are still logged with
 `correlationId` + `pluginId`.
 
 ## Adding more context inside a handler
@@ -100,8 +100,8 @@ the base logger when the method is absent.
 ## Structured metadata vs. varargs
 
 The `Logger` methods accept a trailing argument list (`...args: unknown[]`)
-so the long-standing varargs callsites — `logger.error("…", err)` where
-`err` is an `Error`, or `logger.info("…", value1, value2)` — keep
+so the long-standing varargs callsites - `logger.error("…", err)` where
+`err` is an `Error`, or `logger.info("…", value1, value2)` - keep
 working unchanged. Winston's `splat` handling treats:
 
 - a single trailing **`Error` instance** as a special-cased error
@@ -128,7 +128,7 @@ aggregator).
 ## What this enables
 
 Once the platform logger ingests the metadata, every entry produced by
-the request thread carries `{ correlationId, pluginId, userId? }` —
+the request thread carries `{ correlationId, pluginId, userId? }` - 
 including framework-level lines (auth failures, validation errors,
 queue dispatch). Grepping a log aggregator by `correlationId=…`
 reconstructs the request end-to-end across plugins and back-to-back

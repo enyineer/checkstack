@@ -33,6 +33,22 @@ export function createRouter({
     .use(correlationMiddleware)
     .use(autoAuthMiddleware);
 
+  // Self-heal a missed recovery before reporting status. Closing a downtime
+  // window relies on a transient health-recovery edge (`onEntityChanged`), and
+  // that edge is never emitted when the offending check is fixed, paused,
+  // deleted, or unassigned (those only invalidate the read cache) — and can be
+  // lost even on a plain edit if the single change delivery fails. The result
+  // is an orphaned open window that lingers until the once-daily reconcile.
+  // `computeStatus` already ignores such rows for the budget, but the row still
+  // shows as "ongoing" in the events list, so reconcile against live health on
+  // the user-facing read. Cheap no-op when there are no open events.
+  const computeStatusFresh = async (
+    objective: Parameters<typeof engine.computeStatus>[0]["objective"],
+  ): ReturnType<typeof engine.computeStatus> => {
+    await engine.reconcileOrphanedDowntime({ objective });
+    return engine.computeStatus({ objective });
+  };
+
   return os.router({
     // =========================================================================
     // OBJECTIVES
@@ -44,7 +60,7 @@ export function createRouter({
         const results = await Promise.all(
           objectives.map(async (objective) => ({
             objective,
-            status: await engine.computeStatus({ objective }),
+            status: await computeStatusFresh(objective),
           })),
         );
         return { objectives: results };
@@ -58,7 +74,7 @@ export function createRouter({
            
           return null;
         }
-        const status = await engine.computeStatus({ objective });
+        const status = await computeStatusFresh(objective);
         return { objective, status };
       }),
     ),
@@ -72,7 +88,7 @@ export function createRouter({
           return Promise.all(
             objectives.map(async (objective) => ({
               objective,
-              status: await engine.computeStatus({ objective }),
+              status: await computeStatusFresh(objective),
             })),
           );
         }),
@@ -98,7 +114,7 @@ export function createRouter({
               return Promise.all(
                 objectives.map(async (objective) => ({
                   objective,
-                  status: await engine.computeStatus({ objective }),
+                  status: await computeStatusFresh(objective),
                 })),
               );
             });
@@ -192,6 +208,14 @@ export function createRouter({
     // =========================================================================
 
     getDowntimeEvents: os.getDowntimeEvents.handler(async ({ input }) => {
+      // Self-heal a missed recovery before listing: an orphaned open window
+      // (system long since healthy, but the recovery edge was never delivered)
+      // would otherwise render as "ongoing" here forever — the exact mismatch
+      // where status reads 100% but the list still shows a live downtime.
+      const objective = await service.getObjective({ id: input.objectiveId });
+      if (objective) {
+        await engine.reconcileOrphanedDowntime({ objective });
+      }
       const events = await service.getRecentDowntimeEvents({
         objectiveId: input.objectiveId,
         limit: input.limit ?? 50,

@@ -3,21 +3,29 @@ import type { Page } from "@playwright/test";
 
 /**
  * Systems & Catalog E2E. Drives the real authenticated app (admin session via
- * storageState) against a freshly reset, empty database. The whole file shares
- * ONE database, so it runs serially and the empty-state assertions run before
- * the create/edit tests that populate the catalog.
+ * storageState) against a shared, non-empty database.
+ *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all specs
+ * run in PARALLEL against that single shared DB. The DB is therefore non-empty
+ * and shared, so this file is fully data-isolated: every entity it creates is
+ * namespaced with a unique-per-run suffix (`NS`) so parallel specs never
+ * collide, and no test asserts on global table state (no empty-state, no global
+ * counts - every assertion is scoped to this file's own namespaced data). Tests
+ * within this file still run serially (the create -> edit -> delete chain).
  *
  * Routes (plugin-prefixed): /catalog/ (browse), /catalog/config (manage),
  * /catalog/system/:systemId (detail).
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique suffix so re-runs / parallel files never collide on names.
-const SUFFIX = Date.now();
-const SYSTEM_NAME = `Payments API ${SUFFIX}`;
-const SYSTEM_DESCRIPTION = "Handles all customer payment processing";
-const SYSTEM_NAME_UPDATED = `Payments Gateway ${SUFFIX}`;
-const GROUP_NAME = `Payment Flow ${SUFFIX}`;
+// Unique per run so parallel specs sharing one DB never collide. Only the
+// numeric/hex suffix is appended so any slug derived from a name stays
+// URL-safe (no spaces in the suffix).
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SYSTEM_NAME = `Payments API ${NS}`;
+const SYSTEM_DESCRIPTION = `Handles all customer payment processing -${NS}`;
+const SYSTEM_NAME_UPDATED = `Payments Gateway ${NS}`;
+const GROUP_NAME = `Payment Flow ${NS}`;
 
 const NAV_TIMEOUT = 30_000;
 
@@ -61,48 +69,6 @@ async function expandBrowseSections(page: Page): Promise<void> {
 }
 
 test.describe("Systems & Catalog", () => {
-  test("browse shows the empty catalog state with a link to management", async ({
-    page,
-  }) => {
-    await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
-
-    await expect(
-      page.getByRole("heading", { name: "Catalog", exact: true }),
-    ).toBeVisible();
-
-    // Onboarding empty state for a brand-new, system-less catalog.
-    await expect(
-      page.getByText("No systems in the catalog yet"),
-    ).toBeVisible();
-
-    // The empty state offers a CTA into catalog management.
-    const addFirst = page.getByRole("link", {
-      name: "Add your first system",
-    });
-    await expect(addFirst).toBeVisible();
-    await expect(addFirst).toHaveAttribute("href", "/catalog/config");
-  });
-
-  test("management page shows empty systems and groups states", async ({
-    page,
-  }) => {
-    await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
-
-    await expect(
-      page.getByRole("heading", { name: "Catalog Management" }),
-    ).toBeVisible();
-
-    // The Systems tab (default) starts empty with its CTA.
-    await expect(page.getByText("No systems yet")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Add System" }),
-    ).toBeVisible();
-
-    // The Groups tab starts empty too.
-    await page.getByRole("tab", { name: "Groups" }).click();
-    await expect(page.getByText("No groups yet")).toBeVisible();
-  });
-
   test("creating a system requires a name", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
@@ -150,17 +116,19 @@ test.describe("Systems & Catalog", () => {
     // The dialog closes on success.
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
-    // The new system appears in the management systems list.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
-    await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
+    // The new system appears in the management systems list. Scope to the
+    // desktop `<table>`: the ResponsiveTable also renders a display:none
+    // MobileCardList with the same name/description, so an unscoped getByText
+    // would match both DOM nodes and trip Playwright strict mode.
+    const managementTable = page.getByRole("table");
+    await expect(managementTable.getByText(SYSTEM_NAME)).toBeVisible();
+    await expect(managementTable.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
 
-    // ...and in the public browse view. The empty-state onboarding is gone now
-    // that a system exists; the system lives inside the (default-collapsed,
-    // all-healthy) "Ungrouped" section, so expand it to reveal the row link.
+    // ...and in the public browse view. The system lives inside a
+    // (default-collapsed, all-healthy) section, so expand it to reveal the row
+    // link. The shared DB may hold other specs' systems, so we assert only that
+    // OUR namespaced row link is browsable - never a global empty/count state.
     await page.goto("/catalog/", { timeout: NAV_TIMEOUT });
-    await expect(
-      page.getByText("No systems in the catalog yet"),
-    ).toHaveCount(0);
     await expandBrowseSections(page);
     await expect(
       page.getByRole("link", { name: SYSTEM_NAME }),
@@ -174,15 +142,18 @@ test.describe("Systems & Catalog", () => {
   test("rejects a duplicate system name", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
-    // The first system must already be present from the previous test.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    // The first system must already be present from the previous test. Scope to
+    // the desktop `<table>`: the ResponsiveTable's display:none MobileCardList
+    // holds a duplicate of the name, which would otherwise trip strict mode.
+    const managementTable = page.getByRole("table");
+    await expect(managementTable.getByText(SYSTEM_NAME)).toBeVisible();
 
     await page.getByRole("button", { name: "Add System" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Name").fill(SYSTEM_NAME);
     await dialog
       .getByPlaceholder("Describe what this system does...")
-      .fill("Second system, same name");
+      .fill(`Second system, same name -${NS}`);
     await dialog.getByRole("button", { name: "Create System" }).click();
 
     // The backend rejects the duplicate (CONFLICT) and the reason is surfaced to
@@ -191,8 +162,16 @@ test.describe("Systems & Catalog", () => {
       page.getByText(/already exists/i),
     ).toBeVisible({ timeout: 8000 });
 
-    // No second row was added - exactly one system carries this name.
-    await expect(page.getByText(SYSTEM_NAME)).toHaveCount(1);
+    // The create dialog stays OPEN on error (so the user can fix the name).
+    // While it is open the modal aria-hides the page behind it, so the table is
+    // not reachable by role; dismiss it first, then assert no second row exists.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // No second row was added - exactly one system carries THIS namespaced name
+    // (counted in the desktop table, which renders one node per system). Scoped
+    // to our own name only, so it holds regardless of other specs' rows.
+    await expect(managementTable.getByText(SYSTEM_NAME)).toHaveCount(1);
   });
 
   test("opens the system detail page from browse", async ({ page }) => {
@@ -219,8 +198,12 @@ test.describe("Systems & Catalog", () => {
     ).toBeVisible({ timeout: NAV_TIMEOUT });
     await expect(page).toHaveURL(/\/catalog\/system\//);
 
-    // The "About" context panel renders the description.
-    await expect(page.getByText("About")).toBeVisible();
+    // The "About" context panel renders the description. Target the panel
+    // heading by role: a plain getByText("About") also substring-matches the
+    // AI-memory panel prose ("...saved about this system").
+    await expect(
+      page.getByRole("heading", { name: "About" }),
+    ).toBeVisible();
     await expect(page.getByText(SYSTEM_DESCRIPTION)).toBeVisible();
   });
 
@@ -243,7 +226,13 @@ test.describe("Systems & Catalog", () => {
     await dialog.getByRole("button", { name: "Save Changes" }).click();
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    // Scope to the desktop table: the ResponsiveTable's display:none
+    // MobileCardList renders the same name, which would trip strict mode.
+    // Longer timeout: under parallel load the list refetch after Save can take
+    // a beat longer than the default expect timeout.
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("creates a group and views it", async ({ page }) => {
@@ -265,9 +254,10 @@ test.describe("Systems & Catalog", () => {
     await submit.click();
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    // The "No groups yet" empty state is replaced by the new group.
-    await expect(page.getByText("No groups yet")).toHaveCount(0);
-    await expect(page.getByText(GROUP_NAME)).toBeVisible();
+    // Our new group is listed. Scope the name to the desktop table (the
+    // MobileCardList duplicates it in the DOM) and to our namespaced name only -
+    // the shared DB may hold other groups, so we never assert global state.
+    await expect(page.getByRole("table").getByText(GROUP_NAME)).toBeVisible();
   });
 
   test("assigns a system to a group via the Groups-tab picker", async ({
@@ -296,7 +286,7 @@ test.describe("Systems & Catalog", () => {
   test("creates an environment and attaches a system to it", async ({
     page,
   }) => {
-    const ENV_NAME = `Production ${SUFFIX}`;
+    const ENV_NAME = `Production ${NS}`;
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
     // Create an environment on the Environments tab.
@@ -309,7 +299,8 @@ test.describe("Systems & Catalog", () => {
     await dialog.getByLabel("Name").fill(ENV_NAME);
     await dialog.getByRole("button", { name: "Create Environment" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText(ENV_NAME)).toBeVisible();
+    // Scope to the desktop table (the MobileCardList duplicates the name).
+    await expect(page.getByRole("table").getByText(ENV_NAME)).toBeVisible();
 
     // Attach the system to it from the Systems tab's Environment picker.
     await page.getByRole("tab", { name: "Systems" }).click();
@@ -327,9 +318,12 @@ test.describe("Systems & Catalog", () => {
       }),
     ).toBeVisible();
 
-    // ...and the system shows as a member on the Environments tab.
+    // ...and the system shows as a member on the Environments tab. Scope to the
+    // desktop table (the MobileCardList duplicates the member name).
     await page.getByRole("tab", { name: "Environments" }).click();
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible();
   });
 
   test("filtered browse shows a no-matches state with clear-filters", async ({
@@ -344,10 +338,12 @@ test.describe("Systems & Catalog", () => {
       page.getByRole("link", { name: SYSTEM_NAME_UPDATED }),
     ).toBeVisible();
 
-    // Search for something guaranteed not to match.
+    // Search for a namespaced string guaranteed not to match ANY system in the
+    // shared DB (the `zzz-${NS}` token belongs to no entity here or elsewhere),
+    // so the no-matches state is reliable regardless of other specs' data.
     await page
       .getByRole("searchbox", { name: "Search systems and groups" })
-      .fill(`zzz-no-such-system-${SUFFIX}`);
+      .fill(`zzz-no-such-system-${NS}`);
 
     // The filtered-empty state appears with a clear-filters affordance.
     await expect(
@@ -372,7 +368,10 @@ test.describe("Systems & Catalog", () => {
   test("deletes a system with confirmation", async ({ page }) => {
     await page.goto("/catalog/config", { timeout: NAV_TIMEOUT });
 
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toBeVisible();
+    // Scope to the desktop table (the MobileCardList duplicates the name).
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toBeVisible();
 
     await page
       .getByRole("button", { name: `Delete ${SYSTEM_NAME_UPDATED}` })
@@ -382,13 +381,16 @@ test.describe("Systems & Catalog", () => {
     const confirm = page.getByRole("dialog");
     await expect(confirm.getByText("Delete System")).toBeVisible();
     await expect(
-      confirm.getByText(new RegExp(`delete .*${SUFFIX}`, "i")),
+      confirm.getByText(new RegExp(`delete .*${NS}`, "i")),
     ).toBeVisible();
 
     await confirm.getByRole("button", { name: "Delete" }).click();
 
-    // The system is gone; the management page returns to its empty state.
-    await expect(page.getByText(SYSTEM_NAME_UPDATED)).toHaveCount(0);
-    await expect(page.getByText("No systems yet")).toBeVisible();
+    // OUR namespaced system is gone. Scoped to our own system only - the shared
+    // DB may still hold rows created by other parallel specs, so we never assert
+    // a global empty state.
+    await expect(
+      page.getByRole("table").getByText(SYSTEM_NAME_UPDATED),
+    ).toHaveCount(0);
   });
 });

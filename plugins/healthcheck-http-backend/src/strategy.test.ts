@@ -1,11 +1,83 @@
-import { describe, expect, it, spyOn, afterEach } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+} from "bun:test";
+import * as http from "node:http";
+import { AddressInfo } from "node:net";
 import { HttpHealthCheckStrategy } from "./strategy";
 
 describe("HttpHealthCheckStrategy", () => {
-  const strategy = new HttpHealthCheckStrategy();
+  // Inject a deterministic DNS resolver so the in-process SSRF guard does not
+  // depend on real network DNS in unit tests. By default every host resolves
+  // to a public IP (allowed); specific tests override with their own resolver.
+  const publicLookup = async () => [
+    { address: "93.184.216.34", family: 4 },
+  ];
+  const strategy = new HttpHealthCheckStrategy(publicLookup);
 
-  afterEach(() => {
-    spyOn(globalThis, "fetch").mockRestore();
+  // A real local server backs the `client.exec` behaviour tests. The request is
+  // issued verbatim (no IP pinning), so the URL targets loopback directly; the
+  // SSRF guard validates the `127.0.0.1` literal (an allowed range) before the
+  // request goes out.
+  let server: http.Server;
+  let serverPort = 0;
+  const loopbackLookup = async () => [{ address: "127.0.0.1", family: 4 }];
+  const localStrategy = new HttpHealthCheckStrategy(loopbackLookup);
+  const localUrl = (path: string) => `http://127.0.0.1:${serverPort}${path}`;
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      const url = req.url ?? "/";
+      if (url === "/notfound") {
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("missing");
+        return;
+      }
+      if (url === "/echo") {
+        const chunks: Buffer[] = [];
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({
+              method: req.method,
+              body: Buffer.concat(chunks).toString("utf8"),
+              auth: req.headers["authorization"] ?? null,
+              custom: req.headers["x-custom-header"] ?? null,
+              host: req.headers["host"] ?? null,
+            }),
+          );
+        });
+        return;
+      }
+      if (url === "/text") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("Hello World");
+        return;
+      }
+      if (url === "/slow") {
+        // Delay the response so the server's processing time must land in the
+        // `waitMs` (time-to-first-byte) phase, not vanish.
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("slow");
+        }, 300);
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    serverPort = (server.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.close();
   });
 
   describe("config migration (assume-v1-on-read)", () => {
@@ -57,17 +129,11 @@ describe("HttpHealthCheckStrategy", () => {
 
   describe("client.exec", () => {
     it("should return successful response for valid request", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify({ status: "ok" }), {
-          status: 200,
-          statusText: "OK",
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
       const result = await connectedClient.client.exec({
-        url: "https://example.com/api",
+        url: localUrl("/api"),
         method: "GET",
         timeout: 5000,
       });
@@ -75,40 +141,67 @@ describe("HttpHealthCheckStrategy", () => {
       expect(result.statusCode).toBe(200);
       expect(result.statusText).toBe("OK");
       expect(result.contentType).toContain("application/json");
+      // The connected client surfaces the request's transport phase timings on
+      // its holder. wait + transfer come from the fetch (always present); dns
+      // is measured at the resolve step; connect/tls are best-effort.
+      const timings = connectedClient.timings;
+      if (!timings) throw new Error("expected the HTTP client to surface timings");
+      expect(timings.waitMs).toBeGreaterThanOrEqual(0);
+      expect(timings.transferMs).toBeGreaterThanOrEqual(0);
+      expect(timings.dnsMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });
 
-    it("should return 404 status for not found", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(null, { status: 404, statusText: "Not Found" }),
-      );
+    it("attributes a slow server response to the wait phase (not lost)", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      await connectedClient.client.exec({
+        url: localUrl("/slow"),
+        method: "GET",
+        timeout: 5000,
+      });
 
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const timings = connectedClient.timings;
+      if (!timings) throw new Error("expected the HTTP client to surface timings");
+      // The 300ms server delay must surface as wait time (the bug was the
+      // dominant phase vanishing, leaving only a sub-ms transfer).
+      expect(timings.waitMs).toBeGreaterThanOrEqual(250);
+      // The breakdown must roughly account for the whole request, not <1ms.
+      const total =
+        (timings.dnsMs ?? 0) +
+        (timings.connectMs ?? 0) +
+        (timings.tlsMs ?? 0) +
+        (timings.waitMs ?? 0) +
+        (timings.transferMs ?? 0);
+      expect(total).toBeGreaterThanOrEqual(250);
+
+      connectedClient.close();
+    });
+
+    it("should return 404 status for not found (received = success)", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
       const result = await connectedClient.client.exec({
-        url: "https://example.com/notfound",
+        url: localUrl("/notfound"),
         method: "GET",
         timeout: 5000,
       });
 
       expect(result.statusCode).toBe(404);
+      expect(result.body).toBe("missing");
 
       connectedClient.close();
     });
 
     it("should send custom headers with request", async () => {
-      let capturedHeaders: Record<string, string> | undefined;
-      spyOn(globalThis, "fetch").mockImplementation((async (
-        _url: RequestInfo | URL,
-        options?: RequestInit,
-      ) => {
-        capturedHeaders = options?.headers as Record<string, string>;
-        return new Response(null, { status: 200 });
-      }) as unknown as typeof fetch);
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
-      await connectedClient.client.exec({
-        url: "https://example.com/api",
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
         method: "GET",
         headers: {
           Authorization: "Bearer my-token",
@@ -117,45 +210,37 @@ describe("HttpHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      expect(capturedHeaders).toBeDefined();
-      expect(capturedHeaders?.["Authorization"]).toBe("Bearer my-token");
-      expect(capturedHeaders?.["X-Custom-Header"]).toBe("custom-value");
+      const parsed = JSON.parse(result.body) as {
+        auth: string | null;
+        custom: string | null;
+      };
+      expect(parsed.auth).toBe("Bearer my-token");
+      expect(parsed.custom).toBe("custom-value");
 
       connectedClient.close();
     });
 
     it("should return JSON body as string", async () => {
-      const responseBody = { foo: "bar", count: 42 };
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response(JSON.stringify(responseBody), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
       const result = await connectedClient.client.exec({
-        url: "https://example.com/api",
+        url: localUrl("/api"),
         method: "GET",
         timeout: 5000,
       });
 
-      expect(result.body).toBe(JSON.stringify(responseBody));
+      expect(result.body).toBe(JSON.stringify({ status: "ok" }));
 
       connectedClient.close();
     });
 
     it("should handle text body", async () => {
-      spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response("Hello World", {
-          status: 200,
-          headers: { "Content-Type": "text/plain" },
-        }),
-      );
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
       const result = await connectedClient.client.exec({
-        url: "https://example.com/api",
+        url: localUrl("/text"),
         method: "GET",
         timeout: 5000,
       });
@@ -166,47 +251,123 @@ describe("HttpHealthCheckStrategy", () => {
     });
 
     it("should send POST body", async () => {
-      let capturedBody: string | undefined;
-      spyOn(globalThis, "fetch").mockImplementation((async (
-        _url: RequestInfo | URL,
-        options?: RequestInit,
-      ) => {
-        capturedBody = options?.body as string;
-        return new Response(null, { status: 201 });
-      }) as unknown as typeof fetch);
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
-      await connectedClient.client.exec({
-        url: "https://example.com/api",
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
         method: "POST",
         body: JSON.stringify({ name: "test" }),
         timeout: 5000,
       });
 
-      expect(capturedBody).toBe('{"name":"test"}');
+      const parsed = JSON.parse(result.body) as { body: string };
+      expect(parsed.body).toBe('{"name":"test"}');
 
       connectedClient.close();
     });
 
     it("should use correct HTTP method", async () => {
-      let capturedMethod: string | undefined;
-      spyOn(globalThis, "fetch").mockImplementation((async (
-        _url: RequestInfo | URL,
-        options?: RequestInit,
-      ) => {
-        capturedMethod = options?.method;
-        return new Response(null, { status: 200 });
-      }) as unknown as typeof fetch);
-
-      const connectedClient = await strategy.createClient({ timeout: 5000 });
-      await connectedClient.client.exec({
-        url: "https://example.com/api",
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
         method: "DELETE",
         timeout: 5000,
       });
 
-      expect(capturedMethod).toBe("DELETE");
+      const parsed = JSON.parse(result.body) as { method: string };
+      expect(parsed.method).toBe("DELETE");
 
+      connectedClient.close();
+    });
+
+    it("sends the request's Host header to the server", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as { host: string | null };
+      // The request is issued verbatim, so the server sees the URL's authority.
+      expect(parsed.host).toBe(`127.0.0.1:${serverPort}`);
+
+      connectedClient.close();
+    });
+  });
+
+  describe("SSRF guard (in-process egress)", () => {
+    it("refuses a request whose host resolves to the cloud-metadata IP", async () => {
+      const metadataStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "169.254.169.254", family: 4 },
+      ]);
+
+      const connectedClient = await metadataStrategy.createClient({
+        timeout: 5000,
+      });
+
+      // The guard rejects in resolveTarget, BEFORE any socket is opened.
+      await expect(
+        connectedClient.client.exec({
+          url: "http://metadata.internal/latest/meta-data/",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
+
+      connectedClient.close();
+    });
+
+    it("refuses a direct cloud-metadata IP literal", async () => {
+      const connectedClient = await strategy.createClient({ timeout: 5000 });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "http://169.254.169.254/latest/meta-data/",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
+      connectedClient.close();
+    });
+
+    it("allows an internal RFC1918 host by default (monitoring stays allowed)", async () => {
+      // Resolve to loopback so the (allowed) request reaches the local server.
+      const internalStrategy = new HttpHealthCheckStrategy(loopbackLookup);
+      const connectedClient = await internalStrategy.createClient({
+        timeout: 5000,
+      });
+
+      const result = await connectedClient.client.exec({
+        url: localUrl("/healthz"),
+        method: "GET",
+        timeout: 5000,
+      });
+      expect(result.statusCode).toBe(200);
+      connectedClient.close();
+    });
+
+    it("honors an operator-extended denylist for an internal range", async () => {
+      const internalStrategy = new HttpHealthCheckStrategy(async () => [
+        { address: "10.5.5.5", family: 4 },
+      ]);
+      const connectedClient = await internalStrategy.createClient({
+        timeout: 5000,
+        egressDenyCidrs: ["10.0.0.0/8"],
+      });
+
+      await expect(
+        connectedClient.client.exec({
+          url: "http://internal.service.local/healthz",
+          method: "GET",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/denied egress range/);
       connectedClient.close();
     });
   });

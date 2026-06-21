@@ -75,6 +75,39 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        // Surface elevation ramp (bg < surface < surface-2 < surface-inset).
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          foreground: "hsl(var(--surface-foreground))",
+          2: "hsl(var(--surface-2))",
+          inset: "hsl(var(--surface-inset))",
+        },
+        // Aurora signature gradient stops (teal -> violet -> magenta).
+        aurora: {
+          1: "hsl(var(--aurora-1))",
+          2: "hsl(var(--aurora-2))",
+          3: "hsl(var(--aurora-3))",
+        },
+        // Colorblind-safe status triad (hue + luminance separated).
+        status: {
+          ok: {
+            DEFAULT: "hsl(var(--status-ok))",
+            foreground: "hsl(var(--status-ok-foreground))",
+          },
+          warn: {
+            DEFAULT: "hsl(var(--status-warn))",
+            foreground: "hsl(var(--status-warn-foreground))",
+          },
+          down: {
+            DEFAULT: "hsl(var(--status-down))",
+            foreground: "hsl(var(--status-down-foreground))",
+          },
+          unknown: {
+            DEFAULT: "hsl(var(--status-unknown))",
+            foreground: "hsl(var(--status-unknown-foreground))",
+          },
+        },
+        "grid-line": "hsl(var(--grid-line))",
       },
       borderRadius: {
         lg: "var(--radius)",

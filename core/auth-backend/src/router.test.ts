@@ -50,6 +50,9 @@ describe("Auth Router", () => {
     delete: mock(() => ({
       where: mock(() => Promise.resolve()),
     })),
+    // Raw SQL execution (used by the onboarding advisory lock). Resolves to an
+    // empty result; the lock has no observable return in tests.
+    execute: mock(() => Promise.resolve([])),
     transaction: mock((cb: any) => cb(mockDb)), // Updated reference to mockDb
   };
 
@@ -832,12 +835,9 @@ describe("Auth Router", () => {
   it("completeOnboarding rejects weak password", async () => {
     const context = createMockRpcContext({ user: undefined });
 
-    // No existing users
-    mockDb.select.mockImplementationOnce(() => ({
-      from: mock(() => createChain([])),
-    }));
-
-    expect(
+    // Password is validated BEFORE the transaction/existence check, so no
+    // select mock is queued here (queuing one would leak into the next test).
+    await expect(
       call(
         router.completeOnboarding,
         {
@@ -848,6 +848,61 @@ describe("Auth Router", () => {
         { context },
       ),
     ).rejects.toThrow();
+  });
+
+  it("completeOnboarding takes the advisory lock and re-checks existence inside the transaction (TOCTOU guard)", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    const callOrder: string[] = [];
+    mockDb.execute.mockImplementationOnce((arg: unknown) => {
+      callOrder.push("lock");
+      // Sanity: the advisory lock SQL is what runs first inside the txn.
+      expect(JSON.stringify(arg)).toContain("pg_advisory_xact_lock");
+      return Promise.resolve([]);
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      callOrder.push("existence-check");
+      return { from: mock(() => createChain([])) };
+    });
+
+    const result = await call(
+      router.completeOnboarding,
+      {
+        name: "Admin User",
+        email: "admin@example.com",
+        password: "ValidPass123",
+      },
+      { context },
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockDb.transaction).toHaveBeenCalled();
+    // The lock MUST be acquired before the existence re-check, and both happen
+    // inside the transaction (tx === mockDb in the mock).
+    expect(callOrder).toEqual(["lock", "existence-check"]);
+  });
+
+  it("completeOnboarding rejects a racing second caller whose existence re-check (under lock) now sees a user", async () => {
+    const context = createMockRpcContext({ user: undefined });
+
+    // Simulate the post-lock state: by the time this (second) caller acquires
+    // the advisory lock, the first caller has committed an admin user, so the
+    // re-check inside the locked transaction observes it and rejects.
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: "first-admin" }])),
+    }));
+
+    await expect(
+      call(
+        router.completeOnboarding,
+        {
+          name: "Second Admin",
+          email: "second@example.com",
+          password: "ValidPass123",
+        },
+        { context },
+      ),
+    ).rejects.toThrow("already been completed");
   });
 
   // ==========================================================================

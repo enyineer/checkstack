@@ -49,26 +49,22 @@ const sourceStatusResultSchema = z.object({
   humanPlayers: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Human Players",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 2,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Player population swings widely run to run with no stable baseline and
+    // no good or bad direction. Chart only, do not alert.
+    "x-anomaly-enabled": false,
   }),
   botPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Bot Players",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Bot count is a near-constant echo of server configuration. A baseline
+    // over a constant is meaningless. Chart only.
+    "x-anomaly-enabled": false,
   }),
   maxPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Max Players",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.1,
+    // Slot limit is a static config echo, not a health signal. Chart only.
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -79,14 +75,14 @@ const sourceStatusAggregatedFields = {
   avgHumanPlayers: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Human Players",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    // Volatile player population, see the per-run human players field. Chart
+    // only, do not alert.
+    "x-anomaly-enabled": false,
   }),
   maxHumanPlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Human Players",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    "x-anomaly-enabled": false,
   }),
 };
 

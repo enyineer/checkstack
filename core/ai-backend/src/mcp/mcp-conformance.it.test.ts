@@ -28,13 +28,38 @@ const OUT_OF_SCOPE_TOOL =
 const MUTATING_TOOL =
   process.env.CHECKSTACK_IT_MCP_MUTATING_TOOL ?? "incident.close";
 
-async function rpc(body: unknown): Promise<{ status: number; json: unknown }> {
+/**
+ * Open an MCP session and return the minted `mcp-session-id`. Post-initialize
+ * requests must echo this id or the server refuses them (Phase 4 session
+ * enforcement), so every test that issues a `tools/list` / `tools/call` first
+ * obtains a session here.
+ */
+async function openSession(): Promise<string> {
   const res = await fetch(MCP_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${MCP_TOKEN}`,
     },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+  });
+  const sessionId = res.headers.get("mcp-session-id");
+  if (!sessionId) throw new Error("initialize did not mint a session id");
+  return sessionId;
+}
+
+async function rpc(
+  body: unknown,
+  sessionId?: string,
+): Promise<{ status: number; json: unknown }> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    authorization: `Bearer ${MCP_TOKEN}`,
+  };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
+  const res = await fetch(MCP_URL, {
+    method: "POST",
+    headers,
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -65,33 +90,76 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
       expect(res.headers.get("mcp-session-id")).toBeTruthy();
     });
 
-    test("tools/list returns the read-only tool surface", async () => {
-      const { json } = (await rpc({
+    test("initialize echoes a negotiated protocol version", async () => {
+      const res = await fetch(MCP_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${MCP_TOKEN}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-03-26" },
+        }),
+      });
+      const json = (await res.json()) as {
+        result?: { protocolVersion?: string };
+      };
+      expect(json.result?.protocolVersion).toBe("2025-03-26");
+    });
+
+    test("tools/list WITHOUT a session id is refused (session enforced, not cosmetic)", async () => {
+      const { status, json } = (await rpc({
         jsonrpc: "2.0",
         id: 2,
         method: "tools/list",
-      })) as { json: { result?: { tools?: Array<{ name: string }> } } };
-      const names = (json.result?.tools ?? []).map((t) => t.name);
+      })) as { status: number; json: { error?: { code?: number } } };
+      expect(status).toBe(404);
+      expect(json.error?.code).toBe(-32000);
+    });
+
+    test("tools/list returns the read-only tool surface", async () => {
+      const sessionId = await openSession();
+      const { json } = (await rpc(
+        { jsonrpc: "2.0", id: 2, method: "tools/list" },
+        sessionId,
+      )) as {
+        json: {
+          result?: {
+            tools?: Array<{ name: string; outputSchema?: unknown }>;
+          };
+        };
+      };
+      const tools = json.result?.tools ?? [];
+      const names = tools.map((t) => t.name);
       // The principal must at least be able to list incidents in the IT env.
       expect(names).toContain("incident.list");
+      // At least one read tool advertises an outputSchema (system.issues etc.).
+      expect(tools.some((t) => t.outputSchema !== undefined)).toBe(true);
     });
 
     test("tools/call returns a non-error content block", async () => {
-      const { json } = (await rpc({
-        jsonrpc: "2.0",
-        id: 3,
-        method: "tools/call",
-        params: { name: "incident.list", arguments: {} },
-      })) as { json: { result?: { isError?: boolean } } };
+      const sessionId = await openSession();
+      const { json } = (await rpc(
+        {
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/call",
+          params: { name: "incident.list", arguments: {} },
+        },
+        sessionId,
+      )) as { json: { result?: { isError?: boolean } } };
       expect(json.result?.isError).toBe(false);
     });
 
     test("tools/list never lists an out-of-scope tool", async () => {
-      const { json } = (await rpc({
-        jsonrpc: "2.0",
-        id: 4,
-        method: "tools/list",
-      })) as { json: { result?: { tools?: Array<{ name: string }> } } };
+      const sessionId = await openSession();
+      const { json } = (await rpc(
+        { jsonrpc: "2.0", id: 4, method: "tools/list" },
+        sessionId,
+      )) as { json: { result?: { tools?: Array<{ name: string }> } } };
       const names = (json.result?.tools ?? []).map((t) => t.name);
       // The narrowed token does not grant the admin rule, so the tool is hidden.
       expect(names).not.toContain(OUT_OF_SCOPE_TOOL);
@@ -100,12 +168,16 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
     });
 
     test("tools/call for an out-of-scope tool is REFUSED 403 (not merely hidden)", async () => {
-      const { status, json } = (await rpc({
-        jsonrpc: "2.0",
-        id: 5,
-        method: "tools/call",
-        params: { name: OUT_OF_SCOPE_TOOL, arguments: {} },
-      })) as { status: number; json: { error?: { message?: string } } };
+      const sessionId = await openSession();
+      const { status, json } = (await rpc(
+        {
+          jsonrpc: "2.0",
+          id: 5,
+          method: "tools/call",
+          params: { name: OUT_OF_SCOPE_TOOL, arguments: {} },
+        },
+        sessionId,
+      )) as { status: number; json: { error?: { message?: string } } };
       // Handler-side authz holds when the model misbehaves: the resolver gate
       // refuses BEFORE the live router is re-entered.
       expect(status).toBe(403);
@@ -113,12 +185,16 @@ describe.skipIf(!process.env.CHECKSTACK_IT || !process.env.CHECKSTACK_IT_MCP_TOK
     });
 
     test("tools/call for a mutating tool is refused by the structural effect-gate", async () => {
-      const { status, json } = (await rpc({
-        jsonrpc: "2.0",
-        id: 6,
-        method: "tools/call",
-        params: { name: MUTATING_TOOL, arguments: {} },
-      })) as { status: number; json: { error?: { message?: string } } };
+      const sessionId = await openSession();
+      const { status, json } = (await rpc(
+        {
+          jsonrpc: "2.0",
+          id: 6,
+          method: "tools/call",
+          params: { name: MUTATING_TOOL, arguments: {} },
+        },
+        sessionId,
+      )) as { status: number; json: { error?: { message?: string } } };
       // A bare tools/call may only run a read tool; mutating tools MUST go
       // through propose/apply. The handler refuses with 403 and never executes.
       expect(status).toBe(403);

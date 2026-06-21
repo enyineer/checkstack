@@ -1,6 +1,11 @@
 import React from "react";
 import { Card, CardContent } from "./Card";
 import { cn } from "../utils";
+import {
+  DEFAULT_STATE_FOOTPRINT,
+  stateFootprintClass,
+  type StateFootprint,
+} from "./stateFootprint";
 
 interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   title: string;
@@ -17,6 +22,13 @@ interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
    * the description / steps. Use this for "Create your first X" buttons.
    */
   actions?: React.ReactNode;
+  /**
+   * Vertical footprint for the simple (non-coaching) layout. Defaults to
+   * `panel` so it matches {@link ErrorState} and the `panel`/`chart` Skeleton
+   * variants - swapping loading/empty/error causes no layout shift. Ignored in
+   * the coaching layout (steps/actions size the card naturally).
+   */
+  footprint?: StateFootprint;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -25,6 +37,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   icon,
   steps,
   actions,
+  footprint = DEFAULT_STATE_FOOTPRINT,
   className,
   ...props
 }) => {
@@ -38,7 +51,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <CardContent
         className={cn(
           "flex flex-col items-center text-center",
-          isCoaching ? "py-10" : "py-12 justify-center",
+          isCoaching
+            ? "py-10"
+            : cn("py-12 justify-center", stateFootprintClass(footprint)),
         )}
       >
         {icon && <div className="text-muted-foreground/40 mb-4">{icon}</div>}

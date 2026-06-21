@@ -22,6 +22,44 @@
 /** Default per-result character budget (~3k tokens at ~4 chars/token). */
 export const MAX_TOOL_RESULT_CHARS = 12_000;
 
+/** Rough chars-per-token used to convert a token window into a char budget. */
+const CHARS_PER_TOKEN = 4;
+/**
+ * A single tool result may use at most this fraction of the model's context
+ * window. Small enough that several reads + the system prompt + replayed history
+ * all coexist, large enough that a big-context model keeps more of one result.
+ */
+const RESULT_WINDOW_FRACTION = 1 / 16;
+/** Never clamp below this many chars (protects tiny-window models from over-clamping a single small read into uselessness). */
+const MIN_RESULT_CHARS = 4000;
+/** Never let one result exceed this many chars regardless of window (a sanity ceiling). */
+const MAX_RESULT_CHARS_CEILING = 60_000;
+
+/**
+ * Derive the per-result character budget from the connection's context window
+ * instead of a single hardcoded constant. A large-context model (e.g. a 1M
+ * Anthropic window on the OpenAI-compat path) keeps more of one read; a tiny
+ * local model (8-32k) stays protected. Falls back to {@link MAX_TOOL_RESULT_CHARS}
+ * when the connection declares no `contextWindowTokens`. The result is bounded
+ * by [{@link MIN_RESULT_CHARS}, {@link MAX_RESULT_CHARS_CEILING}].
+ */
+export function toolResultCharBudget({
+  contextWindowTokens,
+}: {
+  contextWindowTokens?: number;
+}): number {
+  if (!contextWindowTokens || contextWindowTokens <= 0) {
+    return MAX_TOOL_RESULT_CHARS;
+  }
+  const fromWindow = Math.floor(
+    contextWindowTokens * CHARS_PER_TOKEN * RESULT_WINDOW_FRACTION,
+  );
+  return Math.min(
+    MAX_RESULT_CHARS_CEILING,
+    Math.max(MIN_RESULT_CHARS, fromWindow),
+  );
+}
+
 /** Hint surfaced to the model when a result is clamped. */
 const CLAMP_HINT =
   "Result truncated to fit the context window. Narrow your filters (e.g. a " +

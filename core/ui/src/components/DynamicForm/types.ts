@@ -254,6 +254,17 @@ export interface FormFieldProps {
    * so a testable script field can forward it to {@link ScriptTestRenderer}.
    */
   siblingSecretEnv?: Record<string, string>;
+  /**
+   * Whether this field currently has an inline validation error. When true the
+   * top-level Label/Input render their invalid affordance (`aria-invalid` +
+   * destructive styling). Additive; defaults to no error.
+   */
+  invalid?: boolean;
+  /**
+   * DOM id of the inline error node (rendered by the parent form), wired to the
+   * field control's `aria-describedby` so assistive tech links field -> error.
+   */
+  errorId?: string;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

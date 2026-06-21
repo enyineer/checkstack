@@ -22,12 +22,17 @@ import {
   Badge,
   useToast,
   toastError,
+  formatDateTime,
+  usePerformance,
+  cn,
   // Brand marks were removed from lucide v1; use the vendored ones.
   GithubIcon as Github,
   GitlabIcon,
 } from "@checkstack/ui";
 import { Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
 import { ProviderEditor } from "./ProviderEditor";
+import { cardSurface, toneStyles } from "./statusTone";
+import { classifySyncHealth } from "./providerSyncHealth.logic";
 
 const formatInterval = (seconds: number) => {
   if (seconds < 60) return `${seconds}s`;
@@ -37,13 +42,15 @@ const formatInterval = (seconds: number) => {
 
 const formatLastSync = (date: Date | null) => {
   if (!date) return "Never";
-  return new Date(date).toLocaleString();
+  return formatDateTime(date);
 };
 
 export const ProviderList = () => {
   const client = usePluginClient(GitOpsApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  const { isLowPower } = usePerformance();
 
   const { allowed: canManage } = accessApi.useAccess(
     gitopsAccess.provider.manage,
@@ -156,7 +163,7 @@ export const ProviderList = () => {
                 plugin={gitopsPluginMetadata}
                 id="providers.create"
                 title="Manage Checkstack from Git"
-                description="Connect a GitHub or GitLab repository and Checkstack will sync your YAML descriptors — systems, groups, health checks — into the platform. Reviews happen as PRs, history lives in commits, and rollbacks are a `git revert` away."
+                description="Connect a GitHub or GitLab repository and Checkstack will sync your YAML descriptors - systems, groups, health checks - into the platform. Reviews happen as PRs, history lives in commits, and rollbacks are a `git revert` away."
                 side="bottom"
                 align="end"
               >
@@ -177,11 +184,11 @@ export const ProviderList = () => {
             <EmptyState
               icon={<Github className="size-10" />}
               title="No providers configured"
-              description="GitOps lets you keep your Checkstack infrastructure (systems, groups, health checks, secrets) in a Git repository and sync it into the platform automatically — pull-request reviews, audit trail, rollbacks, all included."
+              description="GitOps lets you keep your Checkstack infrastructure (systems, groups, health checks, secrets) in a Git repository and sync it into the platform automatically - pull-request reviews, audit trail, rollbacks, all included."
               steps={[
                 "Add a GitHub or GitLab provider with a token that can read the repository.",
                 "Create a sync target that points at a path in that repo containing your YAML descriptors.",
-                "Push a change and watch Checkstack apply it — provenance is tracked per resource.",
+                "Push a change and watch Checkstack apply it - provenance is tracked per resource.",
               ]}
               actions={
                 canManage ? (
@@ -194,25 +201,54 @@ export const ProviderList = () => {
             />
           ) : (
             <div className="space-y-3">
-              {providers.map((provider) => (
+              {providers.map((provider) => {
+                const health = classifySyncHealth({
+                  lastSyncAt: provider.lastSyncAt,
+                  lastSyncError: provider.lastSyncError,
+                });
+                const tone = toneStyles[health.tone];
+                return (
                 <div
                   key={provider.id}
-                  className="flex items-center justify-between p-4 rounded-lg border border-border bg-background/50 hover:bg-background/80 transition-colors"
+                  className={cn(
+                    cardSurface,
+                    "flex items-center justify-between p-4 transition-all",
+                    !isLowPower &&
+                      "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl",
+                  )}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className={cn("absolute inset-y-0 left-0 w-1", tone.accent)}
+                    aria-hidden
+                  />
+                  <div className="flex items-center gap-3 min-w-0 pl-2">
                     {provider.type === "github" ? (
                       <Github className="w-5 h-5 text-muted-foreground shrink-0" />
                     ) : (
                       <GitlabIcon className="w-5 h-5 text-muted-foreground shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="font-medium truncate">
-                        {provider.target}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-foreground truncate">
+                          {provider.target}
+                        </span>
+                        <span
+                          className={cn(
+                            "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+                            tone.pill,
+                          )}
+                        >
+                          <span
+                            className={cn("size-1.5 rounded-full", tone.dot)}
+                            aria-hidden
+                          />
+                          {health.label}
+                        </span>
                       </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                         <span className="truncate">{provider.pathPattern}</span>
                         <span>·</span>
-                        <span>
+                        <span className="tabular-nums">
                           every {formatInterval(provider.syncInterval)}
                         </span>
                         <span>·</span>
@@ -231,11 +267,11 @@ export const ProviderList = () => {
 
                   <div className="flex items-center gap-4 shrink-0">
                     <div className="text-right text-xs text-muted-foreground hidden md:block">
-                      <div>
+                      <div className="tabular-nums">
                         Last sync: {formatLastSync(provider.lastSyncAt)}
                       </div>
                       {provider.lastSyncError && (
-                        <div className="text-destructive truncate max-w-48">
+                        <div className="text-status-down truncate max-w-48">
                           {provider.lastSyncError}
                         </div>
                       )}
@@ -290,7 +326,8 @@ export const ProviderList = () => {
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

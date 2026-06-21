@@ -69,7 +69,7 @@ The SDK version is always identical to the platform release version tracked by
 `@checkstack/release` (the version baked into each Docker image). The stamp
 happens during the release flow:
 
-```
+```text
 inject-release.ts  →  changeset version  →  generate-sdk.ts
 ```
 
@@ -202,7 +202,7 @@ release. No install is needed inside the editor.
 
 The injection works through a version-keyed, HTTP-cacheable route:
 
-```
+```text
 GET /api/script-packages/sdk-types/:releaseVersion
 ```
 

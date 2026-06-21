@@ -17,12 +17,14 @@ import {
   useToast,
   Badge,
   toastError,
+  formatDateTime,
+  usePerformance,
+  cn,
 } from "@checkstack/ui";
 import { Plus, RotateCw, Trash2, KeyRound, ChevronDown, ChevronRight } from "lucide-react";
 import { SecretEditor } from "./SecretEditor";
 import { SecretRotateDialog } from "./SecretRotateDialog";
-
-const formatDate = (date: Date) => new Date(date).toLocaleString();
+import { cardSurface } from "./statusTone";
 
 /** Expandable usage panel for a single secret. */
 const SecretUsagePanel = ({ secretName }: { secretName: string }) => {
@@ -46,21 +48,28 @@ const SecretUsagePanel = ({ secretName }: { secretName: string }) => {
   }
 
   return (
-    <div className="px-4 pb-3 space-y-1">
-      {usage.map((entry) => (
-        <div
-          key={`${entry.kind}::${entry.entityName}`}
-          className="flex items-center gap-2 text-xs text-muted-foreground"
-        >
-          <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">
-            {entry.kind}
-          </Badge>
-          <span className="font-medium text-foreground">{entry.entityName}</span>
-          <span className="hidden sm:inline truncate">
-            {entry.repository}/{entry.filePath}
-          </span>
-        </div>
-      ))}
+    <div className="px-4 pb-3">
+      <div className="divide-y divide-border/50 border-t border-border/50">
+        {usage.map((entry) => (
+          <div
+            key={`${entry.kind}::${entry.entityName}`}
+            className="flex items-center gap-2 py-1.5 text-xs text-muted-foreground rounded-sm hover:bg-surface-inset"
+          >
+            <Badge
+              variant="outline"
+              className="text-[10px] font-mono px-1.5 py-0"
+            >
+              {entry.kind}
+            </Badge>
+            <span className="font-medium text-foreground">
+              {entry.entityName}
+            </span>
+            <span className="hidden sm:inline truncate">
+              {entry.repository}/{entry.filePath}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -69,6 +78,8 @@ export const SecretList = () => {
   const client = usePluginClient(GitOpsApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
+
+  const { isLowPower } = usePerformance();
 
   const { allowed: canManage } = accessApi.useAccess(
     gitopsAccess.secret.manage,
@@ -172,7 +183,7 @@ export const SecretList = () => {
               }
               steps={[
                 "Add a secret with a recognisable name (e.g. PROD_API_TOKEN).",
-                "Reference it in any descriptor with the ${{ secrets.NAME }} syntax — values are resolved server-side at apply time.",
+                "Reference it in any descriptor with the ${{ secrets.NAME }} syntax - values are resolved server-side at apply time.",
                 "Rotate by editing the secret here; descriptors don't have to change.",
               ]}
               actions={
@@ -191,7 +202,12 @@ export const SecretList = () => {
                 return (
                   <div
                     key={secret.id}
-                    className="rounded-lg border border-border bg-background/50 hover:bg-background/80 transition-colors"
+                    className={cn(
+                      cardSurface,
+                      "transition-all",
+                      !isLowPower &&
+                        "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl",
+                    )}
                   >
                     <div className="flex items-center justify-between p-4">
                       <button
@@ -207,7 +223,7 @@ export const SecretList = () => {
                         )}
                         <KeyRound className="w-4 h-4 text-muted-foreground shrink-0" />
                         <div className="min-w-0">
-                          <div className="font-medium font-mono text-sm">
+                          <div className="font-semibold font-mono text-sm text-foreground">
                             {secret.name}
                           </div>
                           {secret.description && (
@@ -220,7 +236,9 @@ export const SecretList = () => {
 
                       <div className="flex items-center gap-4 shrink-0">
                         <div className="text-right text-xs text-muted-foreground hidden md:block">
-                          <div>Updated: {formatDate(secret.updatedAt)}</div>
+                          <div className="tabular-nums">
+                            Updated: {formatDateTime(secret.updatedAt)}
+                          </div>
                         </div>
 
                         {canManage && (

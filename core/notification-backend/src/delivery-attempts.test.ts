@@ -344,15 +344,15 @@ function buildRouterForGetDeliveryAttempts({
   // `getDeliveryAttempts` (signalService, strategyRegistry, rpcApi,
   // cache, configService). We pass minimal mocks; any access from this
   // procedure would surface as an obvious test failure.
-  const router = createNotificationRouter(
-    db as never,
-    {} as never, // configService
-    {} as never, // signalService
-    { getStrategies: () => [] } as never, // strategyRegistry
-    { forPlugin: () => ({}) } as never, // rpcApi
-    makeLogger() as never,
-    {} as never, // cache
-  );
+  const router = createNotificationRouter({
+    database: db as never,
+    configService: {} as never,
+    signalService: {} as never,
+    strategyRegistry: { getStrategies: () => [] } as never,
+    rpcApi: { forPlugin: () => ({}) } as never,
+    logger: makeLogger() as never,
+    cache: {} as never,
+  });
 
   return { router, recorder };
 }

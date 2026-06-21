@@ -16,7 +16,8 @@ import {
   PageLayout,
   EmptyState,
   ListEmptyState,
-  LoadingSpinner,
+  QueryErrorState,
+  Skeleton,
   Button,
 } from "@checkstack/ui";
 import { Layers, ArrowRight, Plus } from "lucide-react";
@@ -38,7 +39,8 @@ const CatalogPageContent: React.FC = () => {
     catalogAccess.system.manage,
   );
 
-  const { data, isLoading } = catalogClient.getEntities.useQuery({});
+  const entitiesQuery = catalogClient.getEntities.useQuery({});
+  const { data, isLoading, isError } = entitiesQuery;
 
   const browse = useCatalogBrowseState();
 
@@ -96,14 +98,29 @@ const CatalogPageContent: React.FC = () => {
       actions={canManage ? manageLink : undefined}
     >
       {isLoading ? (
-        <div className="p-12 flex justify-center">
-          <LoadingSpinner />
+        <div className="space-y-6">
+          <div className="flex flex-wrap gap-3">
+            <Skeleton className="h-9 w-full max-w-xs rounded-md" />
+            <Skeleton className="h-9 w-32 rounded-md" />
+            <Skeleton className="h-9 w-32 rounded-md" />
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-lg" />
+            ))}
+          </div>
         </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={entitiesQuery.error}
+          onRetry={() => entitiesQuery.refetch()}
+          resource="systems"
+        />
       ) : model.isEmptyCatalog ? (
         <EmptyState
           icon={<Layers className="size-10" />}
           title="No systems in the catalog yet"
-          description="Systems are the things Checkstack keeps an eye on — services, hosts, jobs, databases. Almost everything else (health checks, SLOs, incidents) hangs off a system. Once you add one, it shows up here."
+          description="Systems are the things Checkstack keeps an eye on - services, hosts, jobs, databases. Almost everything else (health checks, SLOs, incidents) hangs off a system. Once you add one, it shows up here."
           steps={[
             "Open catalog management to register your first system.",
             "Group related systems by team, product area, or environment.",

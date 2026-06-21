@@ -51,7 +51,7 @@ Strategies are namespaced by their owning plugin's ID to prevent conflicts:
 
 Each registered strategy automatically generates an access rule:
 
-```
+```text
 Format: {ownerPluginId}.strategy.{strategyId}.use
 Example: notification-smtp.strategy.smtp.use
 ```
@@ -74,7 +74,7 @@ Strategies declare how they obtain user contact information:
 
 ### 1. Create Plugin Structure
 
-```
+```text
 plugins/notification-smtp-backend/
 ├── package.json
 ├── tsconfig.json
@@ -189,12 +189,12 @@ export default createBackendPlugin({
 
 ## Notification Bulking and Subjects
 
-A single backend event often affects many entities (e.g., an incident affecting three systems, a maintenance covering multiple services, a shared healthcheck failing across systems). Without coordination, each affected entity yields one notification per subscribed user — the same message arriving 3× in the bell and 3× by email.
+A single backend event often affects many entities (e.g., an incident affecting three systems, a maintenance covering multiple services, a shared healthcheck failing across systems). Without coordination, each affected entity yields one notification per subscribed user - the same message arriving 3× in the bell and 3× by email.
 
 The notification system supports two complementary forms of de-duplication:
 
-1. **Subject bulking** — one notification per recipient that lists every affected entity as a structured `subjects` array.
-2. **Collapse keys** — multiple notifications sharing a `collapseKey` collapse into one card on the recipient's bell, with a `+N updates` chevron that expands to a chronological timeline.
+1. **Subject bulking** - one notification per recipient that lists every affected entity as a structured `subjects` array.
+2. **Collapse keys** - multiple notifications sharing a `collapseKey` collapse into one card on the recipient's bell, with a `+N updates` chevron that expands to a chronological timeline.
 
 Both are optional fields on every `notify*` RPC and on the `NotificationPayload` delivered to strategies.
 
@@ -303,11 +303,11 @@ await catalogClient.notifyManySystemSubscribers({
 });
 ```
 
-The single-system `notifySystemSubscribers` and the lower-level `notifyUsers` / `notifyGroups` procedures all accept `collapseKey` and `subjects` too — use them when fan-out happens elsewhere.
+The single-system `notifySystemSubscribers` and the lower-level `notifyUsers` / `notifyGroups` procedures all accept `collapseKey` and `subjects` too - use them when fan-out happens elsewhere.
 
 ### Strategy obligation: render subjects natively
 
-`subjects` is part of `NotificationPayload`, so every strategy `send()` receives it. **Strategies MUST render subjects in their native format** rather than ignoring them — otherwise the recipient loses context about what was actually affected. Reference renderings:
+`subjects` is part of `NotificationPayload`, so every strategy `send()` receives it. **Strategies MUST render subjects in their native format** rather than ignoring them - otherwise the recipient loses context about what was actually affected. Reference renderings:
 
 | Strategy | Native rendering |
 |----------|------------------|
@@ -319,7 +319,49 @@ The single-system `notifySystemSubscribers` and the lower-level `notifyUsers` / 
 | Pushover | HTML `<ul>` (Pushover's `html: 1` flag) |
 | Gotify / Webex / Backstage | Plain-text or markdown bullet list appended to the body |
 
-The fallback for text-only channels is `Affected:\n• Name (url)\n…` — never silent omission.
+The fallback for text-only channels is `Affected:\n• Name (url)\n…` - never silent omission.
+
+#### Shared render helpers
+
+The plain-text and markdown bullet lists are single-sourced in
+`@checkstack/notification-common` (re-exported from
+`@checkstack/notification-backend` so strategy plugins import them alongside
+`SUBJECT_STATUS_EMOJI` without taking a direct dependency on
+`notification-common`). Use them instead of hand-rolling the `subjects.map(...)`
+list so the fallback string, the status-emoji prefix, and the "never silent
+omission" contract stay consistent across channels.
+
+```typescript
+import {
+  renderSubjectsAsPlainText,
+  renderSubjectsAsMarkdown,
+} from "@checkstack/notification-backend";
+
+// Plain-text channels (Gotify): "Affected:\n• Name (url)"
+const text = renderSubjectsAsPlainText({ subjects: notification.subjects ?? [] });
+if (text) message += `\n\n${text}`;
+
+// Markdown channels (Webex, Backstage, Telegram): "**Affected:**\n• [Name](url)"
+const md = renderSubjectsAsMarkdown({
+  subjects: notification.subjects ?? [],
+  bullet: "-", // optional: override the default "•"
+});
+
+// Slack mrkdwn links (`<url|name>`):
+const slack = renderSubjectsAsMarkdown({
+  subjects: notification.subjects ?? [],
+  linkStyle: "slack",
+});
+
+// Embed a bare list with no heading (e.g. a Discord field already named "Affected"):
+const value = renderSubjectsAsMarkdown({ subjects, heading: null });
+```
+
+Both helpers return an empty string for an empty list (so callers can append
+unconditionally), prefix the per-subject status emoji from `SUBJECT_STATUS_EMOJI`
+when a subject carries a `status`, and fall back to the bullet otherwise.
+Channels with a genuinely structured format (Teams `FactSet`, Pushover HTML)
+keep their own framing and read `SUBJECT_STATUS_EMOJI` directly.
 
 ### Frontend kind registry
 
@@ -340,7 +382,7 @@ registerSubjectKind(`${pluginMetadata.pluginId}.group`, {
 });
 ```
 
-Unknown kinds (e.g., emitted by a plugin not loaded in the current bundle) fall back to a generic chip with the subject's `name` — they never break rendering.
+Unknown kinds (e.g., emitted by a plugin not loaded in the current bundle) fall back to a generic chip with the subject's `name` - they never break rendering.
 
 ### Collapse + expand on the frontend
 
@@ -391,6 +433,14 @@ The platform provides utilities for converting markdown to target formats:
 | `markdownToHtml()` | HTML | Email body content |
 | `markdownToPlainText()` | Plain text | SMS, fallback content |
 | `markdownToSlackMrkdwn()` | Slack mrkdwn | Slack messages |
+
+> [!IMPORTANT]
+> `markdownToHtml()` sanitizes its output with an email-safe allow-list before
+> returning. Notification bodies can carry operator- or user-influenced
+> content, so the rendered HTML is stripped of `<script>`, `on*` event-handler
+> attributes, and `javascript:`/`data:` URLs. Ordinary formatting (emphasis,
+> lists, tables, code, headings, and `http`/`https`/`mailto` links) is
+> preserved. You do not need to sanitize the result again.
 
 ```typescript
 import { 

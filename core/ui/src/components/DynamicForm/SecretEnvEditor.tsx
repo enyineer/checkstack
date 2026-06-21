@@ -134,7 +134,7 @@ export const SecretEnvEditor: React.FC<SecretEnvEditorProps> = ({
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 <span>
                   No secret named{" "}
-                  <code className="font-mono">{row.secretName.trim()}</code> — it
+                  <code className="font-mono">{row.secretName.trim()}</code> - it
                   may have been deleted or renamed.
                 </span>
               </p>

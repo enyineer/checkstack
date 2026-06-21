@@ -95,6 +95,32 @@ export function computeGroupRollup({
 }
 
 /**
+ * The visual tone a group section's accent stripe + chrome adopt, drawn from
+ * the colorblind-safe status triad (plus a neutral `unknown` for "no signal").
+ * Purely presentational, derived from the same rollup DATA the header pill uses
+ * so position+hue and the inline pill never disagree.
+ */
+export type SectionTone = "ok" | "warn" | "down" | "unknown";
+
+/**
+ * Resolve a group section's accent tone from its health rollup. Mirrors the
+ * `HealthRollupBadge` precedence so the left stripe and the pill always agree:
+ *
+ * - no reported data -> `unknown` (neutral, the header shows counts only)
+ * - every member healthy -> `ok`
+ * - any unhealthy member -> `down` (worst wins over degraded)
+ * - any degraded member -> `warn`
+ * - otherwise (mixed healthy + unknown, no failures) -> `unknown`
+ */
+export function resolveSectionTone(rollup: GroupHealthRollup): SectionTone {
+  if (!rollup.hasData) return "unknown";
+  if (rollup.allHealthy) return "ok";
+  if (rollup.unhealthy > 0) return "down";
+  if (rollup.degraded > 0) return "warn";
+  return "unknown";
+}
+
+/**
  * Does a system pass the health filter? Derived from the reported status map.
  *
  * - `"all"` matches everything.

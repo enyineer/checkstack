@@ -57,6 +57,7 @@ describe("RedisHealthCheckStrategy", () => {
       expect(connectedClient.client).toBeDefined();
       expect(connectedClient.client.exec).toBeDefined();
       expect(connectedClient.close).toBeDefined();
+      expect(connectedClient.timings?.connectMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });
@@ -88,6 +89,7 @@ describe("RedisHealthCheckStrategy", () => {
       const result = await connectedClient.client.exec({ cmd: "PING" });
 
       expect(result.value).toBe("PONG");
+      expect(connectedClient.timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });

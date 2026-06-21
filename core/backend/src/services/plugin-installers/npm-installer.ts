@@ -13,6 +13,10 @@ import { installFromArtifact } from "./install-from-tarball";
 import { rootLogger } from "../../logger";
 import { extractErrorMessage } from "@checkstack/common";
 import { PluginInstallError } from "./plugin-install-error";
+import {
+  npmVersionMetadataSchema,
+  verifyNpmTarballIntegrity,
+} from "./integrity";
 
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 
@@ -70,11 +74,17 @@ export class NpmPluginInstaller implements PluginInstaller {
         `npm registry returned HTTP ${metaResp.status} for ${source.packageName}@${versionLabel}.`,
       );
     }
-    const meta = (await metaResp.json()) as {
-      name: string;
-      version: string;
-      dist?: { tarball?: string };
-    };
+    // Parse the registry document defensively — we rely on `dist.integrity`
+    // / `dist.shasum` for integrity pinning, so we must not trust their shape
+    // blindly.
+    const metaResult = npmVersionMetadataSchema.safeParse(await metaResp.json());
+    if (!metaResult.success) {
+      throw new PluginInstallError(
+        "BAD_GATEWAY",
+        `npm metadata for '${source.packageName}@${versionLabel}' had an unexpected shape: ${metaResult.error.message}`,
+      );
+    }
+    const meta = metaResult.data;
 
     const tarballUrl = meta.dist?.tarball;
     if (!tarballUrl) {
@@ -115,6 +125,19 @@ export class NpmPluginInstaller implements PluginInstaller {
         ).toFixed(0)}MB platform limit.`,
       );
     }
+
+    // Fail-closed integrity pinning: the downloaded bytes MUST match the
+    // registry-provided integrity (sha512 SRI, or legacy sha1 shasum) before
+    // we extract or install anything.
+    const { method } = verifyNpmTarballIntegrity({
+      tarball: buf,
+      dist: meta.dist,
+      packageRef: `${source.packageName}@${meta.version}`,
+      onWarn: (message) => rootLogger.warn(`⚠️  ${message}`),
+    });
+    rootLogger.info(
+      `🔐 Integrity verified for ${source.packageName}@${meta.version} (${method}).`,
+    );
 
     const bundle = await tryExtractBundle(buf);
     if (bundle) {

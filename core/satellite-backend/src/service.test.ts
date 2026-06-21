@@ -202,6 +202,36 @@ describe("SatelliteService", () => {
 
       expect(result).toBeUndefined();
     });
+
+    it("runs a bcrypt verify even for a missing clientId (timing-oracle guard)", async () => {
+      // Regression guard: a missing clientId MUST still perform a bcrypt verify
+      // (against a decoy hash) so its response time matches the wrong-token
+      // path. Otherwise an attacker could enumerate valid client IDs by timing.
+      const verifySpy = mock((_password: string, _hash: string) =>
+        Promise.resolve(false),
+      );
+      const original = Bun.password.verify;
+      // Replace with a spy that resolves false (decoy never matches).
+      Bun.password.verify = verifySpy as unknown as typeof Bun.password.verify;
+
+      try {
+        const { service } = createServiceWithMockDb({ selectResult: [] });
+
+        const result = await service.validateToken({
+          clientId: "definitely-missing",
+          token: "csat_any-token",
+        });
+
+        expect(result).toBeUndefined();
+        // The key assertion: a verify WAS performed despite no DB row.
+        expect(verifySpy).toHaveBeenCalledTimes(1);
+        // And it was called with the supplied token (against the decoy hash).
+        expect(verifySpy.mock.calls[0][0]).toBe("csat_any-token");
+        expect(typeof verifySpy.mock.calls[0][1]).toBe("string");
+      } finally {
+        Bun.password.verify = original;
+      }
+    });
   });
 
   describe("listSatellites", () => {

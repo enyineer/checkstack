@@ -7,9 +7,12 @@ import {
   TableHeader,
   TableRow,
   Button,
+  Card,
   Input,
   EmptyState,
   ListEmptyState,
+  MobileCardList,
+  ResponsiveTable,
 } from "@checkstack/ui";
 import {
   useProvenanceLock,
@@ -95,31 +98,48 @@ export function GroupsTab(props: GroupsTabProps): React.ReactElement {
           }
         />
       ) : (
-        <div className="rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-64">Name</TableHead>
-                <TableHead>Systems</TableHead>
-                <TableHead className="w-px text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {groups.map((group) => (
-                <GroupRow
-                  key={group.id}
-                  group={group}
-                  systemsById={systemsById}
-                  allSystems={allSystems}
-                  onDelete={props.onDeleteGroup}
-                  onRename={props.onRenameGroup}
-                  onAddToGroup={props.onAddToGroup}
-                  onRemoveFromGroup={props.onRemoveFromGroup}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <>
+          <ResponsiveTable className="rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-64">Name</TableHead>
+                  <TableHead>Systems</TableHead>
+                  <TableHead className="w-px text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {groups.map((group) => (
+                  <GroupRow
+                    key={group.id}
+                    group={group}
+                    systemsById={systemsById}
+                    allSystems={allSystems}
+                    onDelete={props.onDeleteGroup}
+                    onRename={props.onRenameGroup}
+                    onAddToGroup={props.onAddToGroup}
+                    onRemoveFromGroup={props.onRemoveFromGroup}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </ResponsiveTable>
+
+          <MobileCardList>
+            {groups.map((group) => (
+              <GroupMobileCard
+                key={group.id}
+                group={group}
+                systemsById={systemsById}
+                allSystems={allSystems}
+                onDelete={props.onDeleteGroup}
+                onRename={props.onRenameGroup}
+                onAddToGroup={props.onAddToGroup}
+                onRemoveFromGroup={props.onRemoveFromGroup}
+              />
+            ))}
+          </MobileCardList>
+        </>
       )}
     </div>
   );
@@ -135,15 +155,30 @@ interface GroupRowProps {
   onRemoveFromGroup: (groupId: string, systemId: string) => void;
 }
 
-function GroupRow({
+interface GroupRowState {
+  isLocked: boolean;
+  provenance: ReturnType<typeof useProvenanceLock>["provenance"];
+  editing: boolean;
+  draft: string;
+  setDraft: (value: string) => void;
+  startEditing: () => void;
+  cancelEditing: () => void;
+  commitRename: () => void;
+  members: System[];
+  available: System[];
+  lockTitle: string | undefined;
+}
+
+/** Shared row/card behaviour: provenance lock, rename draft, membership lists. */
+function useGroupRowState({
   group,
   systemsById,
   allSystems,
-  onDelete,
   onRename,
-  onAddToGroup,
-  onRemoveFromGroup,
-}: GroupRowProps): React.ReactElement {
+}: Pick<
+  GroupRowProps,
+  "group" | "systemsById" | "allSystems" | "onRename"
+>): GroupRowState {
   const { isLocked, provenance } = useProvenanceLock({
     kind: "Group",
     entityId: group.id,
@@ -165,110 +200,225 @@ function GroupRow({
     setEditing(false);
   };
 
+  const startEditing = (): void => {
+    setDraft(group.name);
+    setEditing(true);
+  };
+
+  const cancelEditing = (): void => {
+    setDraft(group.name);
+    setEditing(false);
+  };
+
+  return {
+    isLocked,
+    provenance,
+    editing,
+    draft,
+    setDraft,
+    startEditing,
+    cancelEditing,
+    commitRename,
+    members,
+    available,
+    lockTitle,
+  };
+}
+
+/** Group name display / inline rename editor, shared by row and card. */
+function GroupName({
+  group,
+  state,
+}: {
+  group: Group;
+  state: GroupRowState;
+}): React.ReactElement {
+  const { isLocked, provenance, editing, draft, setDraft } = state;
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={state.commitRename}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") state.commitRename();
+          if (e.key === "Escape") state.cancelEditing();
+        }}
+        className="h-8"
+        aria-label={`Rename ${group.name}`}
+      />
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="font-medium text-foreground">{group.name}</span>
+      {isLocked && provenance ? (
+        <GitOpsSourceBadge provenance={provenance} />
+      ) : (
+        <button
+          type="button"
+          aria-label={`Rename ${group.name}`}
+          className="text-muted-foreground hover:text-foreground"
+          onClick={state.startEditing}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Group membership chips plus the assign-system menu, shared by row and card. */
+function GroupMembers({
+  group,
+  state,
+  onAddToGroup,
+  onRemoveFromGroup,
+}: {
+  group: Group;
+  state: GroupRowState;
+  onAddToGroup: (systemId: string, groupId: string) => void;
+  onRemoveFromGroup: (groupId: string, systemId: string) => void;
+}): React.ReactElement {
+  const { members, available, isLocked, lockTitle } = state;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {members.length === 0 && (
+        <span className="text-xs text-muted-foreground">No systems</span>
+      )}
+      {members.map((system) => (
+        <span
+          key={system.id}
+          className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+        >
+          {system.name}
+          <button
+            type="button"
+            disabled={isLocked}
+            title={lockTitle ?? `Remove ${system.name}`}
+            aria-label={`Remove ${system.name} from ${group.name}`}
+            onClick={() => onRemoveFromGroup(group.id, system.id)}
+            className="text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <AssignMenu
+        disabled={isLocked || available.length === 0}
+        triggerLabel={lockTitle ?? `Add a system to ${group.name}`}
+        trigger={
+          <>
+            <Plus className="h-3 w-3" />
+            System
+          </>
+        }
+        items={available.map((s) => ({ id: s.id, label: s.name }))}
+        emptyLabel="All systems added"
+        onSelect={(systemId) => onAddToGroup(systemId, group.id)}
+      />
+    </div>
+  );
+}
+
+/** Save (when editing) / delete action cluster, shared by row and card. */
+function GroupActions({
+  group,
+  state,
+  onDelete,
+}: {
+  group: Group;
+  state: GroupRowState;
+  onDelete: (id: string) => void;
+}): React.ReactElement {
+  const { editing, isLocked, lockTitle } = state;
+  return (
+    <div className="flex items-center justify-end gap-1">
+      {editing && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          aria-label="Save name"
+          onClick={state.commitRename}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90"
+        disabled={isLocked}
+        title={lockTitle}
+        aria-label={`Delete ${group.name}`}
+        onClick={() => onDelete(group.id)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function GroupRow({
+  group,
+  systemsById,
+  allSystems,
+  onDelete,
+  onRename,
+  onAddToGroup,
+  onRemoveFromGroup,
+}: GroupRowProps): React.ReactElement {
+  const state = useGroupRowState({ group, systemsById, allSystems, onRename });
+
   return (
     <TableRow>
       <TableCell className="align-top">
-        {editing ? (
-          <Input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitRename();
-              if (e.key === "Escape") {
-                setDraft(group.name);
-                setEditing(false);
-              }
-            }}
-            className="h-8"
-            aria-label={`Rename ${group.name}`}
-          />
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{group.name}</span>
-            {isLocked && provenance ? (
-              <GitOpsSourceBadge provenance={provenance} />
-            ) : (
-              <button
-                type="button"
-                aria-label={`Rename ${group.name}`}
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setDraft(group.name);
-                  setEditing(true);
-                }}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        )}
+        <GroupName group={group} state={state} />
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {members.length === 0 && (
-            <span className="text-xs text-muted-foreground">No systems</span>
-          )}
-          {members.map((system) => (
-            <span
-              key={system.id}
-              className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
-            >
-              {system.name}
-              <button
-                type="button"
-                disabled={isLocked}
-                title={lockTitle ?? `Remove ${system.name}`}
-                aria-label={`Remove ${system.name} from ${group.name}`}
-                onClick={() => onRemoveFromGroup(group.id, system.id)}
-                className="text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          <AssignMenu
-            disabled={isLocked || available.length === 0}
-            triggerLabel={lockTitle ?? `Add a system to ${group.name}`}
-            trigger={
-              <>
-                <Plus className="h-3 w-3" />
-                System
-              </>
-            }
-            items={available.map((s) => ({ id: s.id, label: s.name }))}
-            emptyLabel="All systems added"
-            onSelect={(systemId) => onAddToGroup(systemId, group.id)}
-          />
-        </div>
+        <GroupMembers
+          group={group}
+          state={state}
+          onAddToGroup={onAddToGroup}
+          onRemoveFromGroup={onRemoveFromGroup}
+        />
       </TableCell>
       <TableCell>
-        <div className="flex items-center justify-end gap-1">
-          {editing && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              aria-label="Save name"
-              onClick={commitRename}
-            >
-              <Check className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90"
-            disabled={isLocked}
-            title={lockTitle}
-            aria-label={`Delete ${group.name}`}
-            onClick={() => onDelete(group.id)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <GroupActions group={group} state={state} onDelete={onDelete} />
       </TableCell>
     </TableRow>
+  );
+}
+
+function GroupMobileCard({
+  group,
+  systemsById,
+  allSystems,
+  onDelete,
+  onRename,
+  onAddToGroup,
+  onRemoveFromGroup,
+}: GroupRowProps): React.ReactElement {
+  const state = useGroupRowState({ group, systemsById, allSystems, onRename });
+
+  return (
+    <Card className="p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <GroupName group={group} state={state} />
+        </div>
+        <GroupActions group={group} state={state} onDelete={onDelete} />
+      </div>
+      <div className="mt-2">
+        <GroupMembers
+          group={group}
+          state={state}
+          onAddToGroup={onAddToGroup}
+          onRemoveFromGroup={onRemoveFromGroup}
+        />
+      </div>
+    </Card>
   );
 }

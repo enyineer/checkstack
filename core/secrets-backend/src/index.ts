@@ -6,17 +6,18 @@ import {
 import {
   pluginMetadata,
   secretsAccessRules,
+  secretsAccess,
+  secretsRoutes,
   secretsContract,
 } from "@checkstack/secrets-common";
 import type { PluginMetadata } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import {
   secretBackendExtensionPoint,
   type SecretBackend,
 } from "./secret-backend";
-import {
-  createSecretBackendRegistry,
-  type SecretBackendRegistry,
-} from "./secret-backend-registry";
+import { createSecretBackendRegistry } from "./secret-backend-registry";
 import {
   createSecretResolverService,
   type SecretResolverService,
@@ -70,21 +71,23 @@ export const internalSecretsRef = createServiceRef<InternalSecretsService>(
   "secrets.internal",
 );
 
-interface EnvStash {
-  backends: SecretBackendRegistry;
-  configStore?: BackendConfigStore;
-  emitChanged?: (input: {
-    name: string;
-    change: "created" | "rotated" | "deleted";
-  }) => Promise<void>;
-}
-
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
   register(env) {
     const backends = createSecretBackendRegistry();
-    (env as unknown as EnvStash).backends = backends;
+
+    // Bridge holders set in init()/afterPluginsReady() and read by the router
+    // and admin-service closures wired below. Pod-local setup handles, never
+    // queryable current state, so they are scale-safe (mirrors
+    // healthcheck-backend's `storedEmitHook`).
+    let configStore: BackendConfigStore | undefined;
+    let emitChangedSink:
+      | ((input: {
+          name: string;
+          change: "created" | "rotated" | "deleted";
+        }) => Promise<void>)
+      | undefined;
 
     env.registerAccessRules(secretsAccessRules);
 
@@ -112,7 +115,7 @@ export default createBackendPlugin({
     };
 
     const getActiveBackendId = async (): Promise<string> => {
-      const store = (env as unknown as EnvStash).configStore;
+      const store = configStore;
       const redacted = await store?.loadRedacted();
       const persisted = redacted?.activeBackend;
       if (persisted && backends.has(persisted)) return persisted;
@@ -120,7 +123,7 @@ export default createBackendPlugin({
     };
 
     const setActiveBackendId = async (id: string): Promise<void> => {
-      const store = (env as unknown as EnvStash).configStore;
+      const store = configStore;
       if (!store) {
         throw new Error("Backend config store is not initialized yet.");
       }
@@ -143,7 +146,7 @@ export default createBackendPlugin({
       name: string;
       change: "created" | "rotated" | "deleted";
     }): Promise<void> => {
-      await (env as unknown as EnvStash).emitChanged?.(input);
+      await emitChangedSink?.(input);
     };
 
     const getActiveBackend = async (): Promise<SecretBackend> =>
@@ -173,7 +176,7 @@ export default createBackendPlugin({
       init: async ({ logger, rpc, config }) => {
         logger.debug("🔐 Initializing Secrets Backend...");
 
-        (env as unknown as EnvStash).configStore = createBackendConfigStore({
+        configStore = createBackendConfigStore({
           config,
         });
 
@@ -186,11 +189,28 @@ export default createBackendPlugin({
         });
         rpc.registerRouter(router, secretsContract);
 
+        // Register the "Secrets" navigation command in the command palette so
+        // the sidebar destination is reachable from Cmd+K. Gated on manage,
+        // mirroring the nav entry (the page is the admin settings view).
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "home",
+              title: "Secrets",
+              subtitle: "Create, rotate, and delete secrets",
+              iconName: "KeyRound",
+              route: resolveRoute(secretsRoutes.routes.home),
+              requiredAccessRules: [secretsAccess.secret.manage],
+            },
+          ],
+        });
+
         logger.debug("✅ Secrets Backend initialized.");
       },
 
       afterPluginsReady: async ({ logger, emitHook }) => {
-        (env as unknown as EnvStash).emitChanged = async (input) => {
+        emitChangedSink = async (input) => {
           await emitHook(secretsChangedHook, input);
         };
         logger.debug("✅ Secrets Backend afterPluginsReady complete.");

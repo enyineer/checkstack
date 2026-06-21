@@ -724,8 +724,39 @@ describe("SloEngine", () => {
     });
   });
 
-  describe("voidOrphanedDowntime", () => {
-    it("voids open events when the system is currently healthy (missed-recovery orphan)", async () => {
+  describe("reconcileOrphanedDowntime", () => {
+    it("closes the orphan at the ACTUAL recovery time when resolvable (preserves real downtime)", async () => {
+      const objective = createObjective();
+      const start = new Date("2026-05-26T11:22:00Z");
+      const recovery = new Date("2026-06-20T13:00:00Z");
+      const orphan = createDowntimeEvent({ id: "orphan-1", startTime: start });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [orphan],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+      engine.setRecoveryTimeResolver(async () => recovery);
+
+      await engine.reconcileOrphanedDowntime({ objective });
+
+      // Closed at the real recovery instant, NOT deleted — the genuine downtime
+      // between start and recovery is recorded against the budget.
+      expect(mockService.closeDowntimeEvent).toHaveBeenCalledWith({
+        id: "orphan-1",
+        endTime: recovery,
+      });
+      expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("deletes the orphan only as a fallback when the recovery time can't be resolved", async () => {
       const objective = createObjective();
       const orphan = createDowntimeEvent({ id: "orphan-1" });
       mockService = createMockService({
@@ -741,12 +772,15 @@ describe("SloEngine", () => {
         logger: mockLogger as never,
       });
       engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+      // No recovery resolver (or it returns null) -> unprovable downtime.
+      engine.setRecoveryTimeResolver(async () => null);
 
-      await engine.voidOrphanedDowntime({ objective });
+      await engine.reconcileOrphanedDowntime({ objective });
 
       expect(mockService.deleteDowntimeEvent).toHaveBeenCalledWith({
         id: "orphan-1",
       });
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
     });
 
     it("keeps open events when the system is genuinely down", async () => {
@@ -766,9 +800,10 @@ describe("SloEngine", () => {
       });
       engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
 
-      await engine.voidOrphanedDowntime({ objective });
+      await engine.reconcileOrphanedDowntime({ objective });
 
       expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
     });
 
     it("does nothing when there are no open events", async () => {
@@ -785,7 +820,7 @@ describe("SloEngine", () => {
       });
       engine.setHealthStatusCallback(healthCallback);
 
-      await engine.voidOrphanedDowntime({ objective });
+      await engine.reconcileOrphanedDowntime({ objective });
 
       expect(healthCallback).not.toHaveBeenCalled();
       expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();

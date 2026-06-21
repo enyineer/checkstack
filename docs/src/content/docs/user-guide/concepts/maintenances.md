@@ -23,7 +23,7 @@ Maintenances live under **Maintenances** in the main nav.
 
 A maintenance moves through four statuses, driven by the configured start and end times:
 
-```
+```text
    +-----------+   start_at reached   +-------------+   end_at reached   +-----------+
    | scheduled |--------------------->| in_progress |------------------->| completed |
    +-----------+                      +-------------+                    +-----------+

@@ -1,11 +1,5 @@
 import React from "react";
-import {
-  Card,
-  CardContent,
-  Badge,
-  cn,
-  usePerformance,
-} from "@checkstack/ui";
+import { cn, usePerformance } from "@checkstack/ui";
 import {
   ChevronDown,
   FolderTree,
@@ -19,9 +13,25 @@ import { authApiRef } from "@checkstack/auth-frontend/api";
 import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import { catalogGroupTarget } from "@checkstack/catalog-common";
 import type { GroupSection } from "./filterEntities.logic";
-import type { GroupHealthRollup } from "./healthRollup.logic";
+import {
+  resolveSectionTone,
+  type GroupHealthRollup,
+  type SectionTone,
+} from "./healthRollup.logic";
 import type { Density } from "./browseState.logic";
 import { CatalogSystemRow } from "./CatalogSystemRow";
+
+/**
+ * Left-accent-stripe class per section tone. Spelled out as full literal strings
+ * (not interpolated) so Tailwind's JIT keeps them, driven by the colorblind-safe
+ * status triad. `unknown` stays neutral so color only appears on a real signal.
+ */
+const accentByTone: Record<SectionTone, string> = {
+  ok: "bg-status-ok",
+  warn: "bg-status-warn",
+  down: "bg-status-down",
+  unknown: "bg-border",
+};
 
 export interface CatalogGroupSectionProps {
   section: GroupSection;
@@ -30,11 +40,32 @@ export interface CatalogGroupSectionProps {
 }
 
 /**
+ * Shared pill shell for the health rollup: a tinted, rounded chip pairing the
+ * colorblind-safe status triad with an icon AND a text label, so the signal
+ * never relies on colour alone (a11y, plan §7).
+ */
+const HealthRollupPill: React.FC<{
+  className: string;
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  children: React.ReactNode;
+}> = ({ className, icon: Icon, children }) => (
+  <span
+    className={cn(
+      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+      className,
+    )}
+  >
+    <Icon className="h-3 w-3" aria-hidden={true} />
+    {children}
+  </span>
+);
+
+/**
  * Group health rollup pill, derived from the status DATA (`section.rollup`), not
  * from rendered badges. Renders nothing when no health source reported data
  * (`hasData` false) so the header falls back to the count-only `Badge`. Always
- * pairs colour with an icon AND a text label so it never relies on colour alone
- * (a11y, plan §7).
+ * pairs the status triad with an icon AND a text label so it never relies on
+ * colour alone (a11y, plan §7).
  */
 const HealthRollupBadge: React.FC<{ rollup: GroupHealthRollup }> = ({
   rollup,
@@ -43,29 +74,35 @@ const HealthRollupBadge: React.FC<{ rollup: GroupHealthRollup }> = ({
 
   if (rollup.allHealthy) {
     return (
-      <Badge variant="success" className="gap-1">
-        <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+      <HealthRollupPill
+        className="bg-status-ok/10 text-status-ok"
+        icon={CheckCircle2}
+      >
         All healthy
-      </Badge>
+      </HealthRollupPill>
     );
   }
 
   if (rollup.unhealthy > 0) {
     return (
-      <Badge variant="destructive" className="gap-1">
-        <XCircle className="h-3 w-3" aria-hidden="true" />
+      <HealthRollupPill
+        className="bg-status-down/10 text-status-down"
+        icon={XCircle}
+      >
         {rollup.unhealthy} unhealthy
         {rollup.degraded > 0 ? `, ${rollup.degraded} degraded` : ""}
-      </Badge>
+      </HealthRollupPill>
     );
   }
 
   if (rollup.degraded > 0) {
     return (
-      <Badge variant="warning" className="gap-1">
-        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+      <HealthRollupPill
+        className="bg-status-warn/10 text-status-warn"
+        icon={AlertTriangle}
+      >
         {rollup.degraded} degraded
-      </Badge>
+      </HealthRollupPill>
     );
   }
 
@@ -96,19 +133,27 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
   const authApi = useApi(authApiRef);
   const { data: session } = authApi.useSession();
   const Icon = section.isUngrouped ? Layers : FolderTree;
+  const tone = resolveSectionTone(section.rollup);
 
   // The synthetic "Ungrouped" bucket is not a real group, so it has no group
   // resource to subscribe to.
   const canSubscribe = !section.isUngrouped && !!session;
 
   return (
-    <Card>
-      <div className="flex items-center">
+    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+      {/* Status accent stripe: multi-encodes group health by position + hue,
+          not color alone (the inline pill carries the icon + label). */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accentByTone[tone])}
+        aria-hidden="true"
+      />
+
+      <div className="flex items-center pl-1">
         <button
           type="button"
           onClick={() => onToggle(section.id, !section.open)}
           aria-expanded={section.open}
-          className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-tl-lg"
+          className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-inset focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ChevronDown
             className={cn(
@@ -126,10 +171,15 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
             {section.name}
           </span>
           <HealthRollupBadge rollup={section.rollup} />
-          <Badge variant="secondary">
-            {section.totalCount}{" "}
-            {section.totalCount === 1 ? "system" : "systems"}
-          </Badge>
+          {/* Number-led hero: the member count is the group's headline figure. */}
+          <span className="flex shrink-0 flex-col items-end leading-none">
+            <span className="text-2xl font-bold leading-none tabular-nums text-foreground">
+              {section.totalCount}
+            </span>
+            <span className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {section.totalCount === 1 ? "system" : "systems"}
+            </span>
+          </span>
         </button>
         {canSubscribe && (
           <div className="shrink-0 pr-2 pl-1">
@@ -142,8 +192,11 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
       </div>
 
       {section.open && (
-        <CardContent
-          className={cn("pt-0", density === "compact" ? "space-y-0.5" : "space-y-1")}
+        <div
+          className={cn(
+            "px-4 pb-4 pl-5",
+            density === "compact" ? "space-y-0.5" : "space-y-1",
+          )}
         >
           {section.systems.length === 0 ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">
@@ -158,8 +211,8 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
               />
             ))
           )}
-        </CardContent>
+        </div>
       )}
-    </Card>
+    </div>
   );
 };

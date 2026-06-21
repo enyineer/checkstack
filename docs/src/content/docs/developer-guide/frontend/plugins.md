@@ -34,7 +34,7 @@ This will create a complete plugin structure with:
 - ✅ Initial changeset for version management
 
 **Generated structure:**
-```
+```text
 plugins/myfeature-frontend/
 ├── .changeset/
 │   └── initial.md              # Version changeset
@@ -199,10 +199,10 @@ without a chunk fetch (e.g. a login page on the unauthenticated critical path).
 
 Register UI to inject into extension slots. Provide exactly one of:
 
-- `component` — an eagerly-bundled component. Use for LIGHT, always-on
+- `component` - an eagerly-bundled component. Use for LIGHT, always-on
   contributions (navbar items, user-menu links, badges) where code-splitting
   would just add a load flash.
-- `load` — a lazy loader (same shape as a route's `load`). Use for HEAVY or
+- `load` - a lazy loader (same shape as a route's `load`). Use for HEAVY or
   page-scoped contributions (dashboards, editors, chart panels); the framework
   code-splits it behind Suspense + a per-plugin error boundary.
 
@@ -227,7 +227,7 @@ extensions: [
 
 #### `foreignSignals` (optional)
 
-Cross-plugin realtime invalidation. The frontend `SignalAutoInvalidator` already invalidates `[[pluginId]]` for **every** signal owned by your plugin — you do not register your own signals here. Use `foreignSignals` only when your plugin's queries embed data owned by **another** plugin and must refetch when that plugin's signals fire.
+Cross-plugin realtime invalidation. The frontend `SignalAutoInvalidator` already invalidates `[[pluginId]]` for **every** signal owned by your plugin - you do not register your own signals here. Use `foreignSignals` only when your plugin's queries embed data owned by **another** plugin and must refetch when that plugin's signals fire.
 
 ```typescript
 import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
@@ -309,7 +309,7 @@ export const CreateItemForm = () => {
 5. **Type Safety**: Full TypeScript inference from contract definitions
   );
 };
-```
+```text
 
 ### Benefits of Contract-Based Clients
 
@@ -1140,7 +1140,7 @@ const version = pluginRegistry.getVersion();
 ## Distributing your plugin
 
 When your `-frontend` package is part of a multi-package plugin (most are
-— they ship alongside a `-backend` and possibly a `-common`), it gets
+- they ship alongside a `-backend` and possibly a `-common`), it gets
 packed into a bundle by the runtime distribution tooling. See
 [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/)
 for how the primary package's `checkstack.bundle` field declares siblings,
@@ -1150,7 +1150,7 @@ tarball-upload distribution channels operators can install from.
 
 For local development, add `@checkstack/dev-server` as a devDependency,
 wire `"dev": "checkstack-dev"` into your `package.json` scripts, and
-run `bun run dev` from your plugin's repo — see
+run `bun run dev` from your plugin's repo - see
 [Developing Plugins in Isolation](/checkstack/developer-guide/getting-started/plugin-development/).
 
 ## Next Steps

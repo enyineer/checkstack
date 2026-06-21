@@ -13,8 +13,9 @@ import {
   DialogDescription,
   LoadingSpinner,
   useToast,
+  toastError,
+  toastSuccess,
 } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
 import { NotificationsPanel } from "./NotificationsPanel";
 
 interface PlatformDefaultsDialogProps {
@@ -46,12 +47,11 @@ export const PlatformDefaultsDialog: React.FC<PlatformDefaultsDialogProps> = ({
 
   const setMutation = client.setPlatformNotificationDefaults.useMutation({
     onSuccess: () => {
-      toast.success("Platform notification defaults saved");
+      toastSuccess(toast, "Platform notification defaults saved");
       void refetch();
       onOpenChange(false);
     },
-    onError: (error) =>
-      toast.error(extractErrorMessage(error, "Failed to save defaults")),
+    onError: (error) => toastError(toast, "Failed to save defaults", error),
   });
 
   const [draft, setDraft] = useState<NotificationPolicy>(

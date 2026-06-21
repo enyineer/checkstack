@@ -7,7 +7,7 @@ import {
   wrapInSuspense,
   ExtensionSlot,
 } from "@checkstack/frontend-api";
-import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { IncidentApi } from "../api";
 import {
   incidentRoutes,
@@ -28,10 +28,11 @@ import {
   useToast,
   StatusUpdateTimeline,
   PageLayout,
+  toastError,
+  cn,
 } from "@checkstack/ui";
 import {
   AlertTriangle,
-  Clock,
   Calendar,
   MessageSquare,
   CheckCircle2,
@@ -44,6 +45,7 @@ import { IncidentUpdateForm } from "../components/IncidentUpdateForm";
 import {
   getIncidentStatusBadge,
   getIncidentSeverityBadge,
+  getIncidentSeverityAccentClass,
 } from "../utils/badges";
 
 const IncidentDetailPageContent: React.FC = () => {
@@ -85,7 +87,7 @@ const IncidentDetailPageContent: React.FC = () => {
       void refetchIncident();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to resolve"));
+      toastError(toast, "Failed to resolve", error);
     },
   });
 
@@ -153,106 +155,115 @@ const IncidentDetailPageContent: React.FC = () => {
       }
     >
       <div className="space-y-6">
-        {/* Incident Info Card */}
-        <Card>
-          <CardHeader className="border-b border-border">
-            <CardHeaderRow>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Incident Details</CardTitle>
+        {/* Incident summary panel: severity-led hero with a duration figure,
+            multi-encoded status (hue + pill + left accent stripe), and a quiet
+            metadata zone beneath. Static depth - this is a detail page. */}
+        <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          {/* Severity accent stripe: signal by hue + position, not color alone. */}
+          <span
+            className={cn(
+              "absolute inset-y-0 left-0 w-1",
+              getIncidentSeverityAccentClass(incident.severity),
+            )}
+            aria-hidden
+          />
+
+          <div className="pl-2">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Incident Details
+            </h3>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              {/* Duration hero */}
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  {getIncidentSeverityBadge(incident.severity)}
+                  {getIncidentStatusBadge(incident.status)}
+                </div>
+                <p className="mt-3 text-3xl font-bold leading-none tabular-nums text-foreground">
+                  {formatDistanceToNow(new Date(incident.createdAt), {
+                    addSuffix: false,
+                  })}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">Duration</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {getIncidentSeverityBadge(incident.severity)}
-                {getIncidentStatusBadge(incident.status)}
-                {canResolve && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResolve}
-                    disabled={resolveMutation.isPending}
-                  >
-                    <CheckCircle2 className="h-4 w-4 mr-1" />
-                    Resolve
-                  </Button>
-                )}
-              </div>
-            </CardHeaderRow>
-          </CardHeader>
-          <CardContent className="p-6 space-y-4">
+              {canResolve && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResolve}
+                  disabled={resolveMutation.isPending}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                  Resolve
+                </Button>
+              )}
+            </div>
+
             {/* "Who can change this" — filled by auth-frontend; renders nothing
                 when the incident is not team-scoped. */}
             <ExtensionSlot slot={IncidentDetailsSlot} context={{ incident }} />
-            {incident.description && (
-              <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                  Description
-                </h4>
-                <p className="text-foreground">{incident.description}</p>
-              </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">
+            {/* Quiet metadata zone */}
+            <div className="mt-5 space-y-4 border-t border-border/60 pt-4">
+              {incident.description && (
+                <div>
+                  <h4 className="text-xs font-medium text-muted-foreground mb-1">
+                    Description
+                  </h4>
+                  <p className="text-sm text-foreground">
+                    {incident.description}
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-border/60 pt-4">
+                <h4 className="text-xs font-medium text-muted-foreground mb-1">
                   Started
                 </h4>
-                <div className="flex items-center gap-2 text-foreground">
-                  <Calendar className="h-4 w-4" />
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span>{format(new Date(incident.createdAt), "PPpp")}</span>
                 </div>
               </div>
-              <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                  Duration
-                </h4>
-                <div className="flex items-center gap-2 text-foreground">
-                  <Clock className="h-4 w-4" />
-                  <span>
-                    {formatDistanceToNow(new Date(incident.createdAt), {
-                      addSuffix: false,
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
 
-            <div>
-              <h4 className="text-sm font-medium text-muted-foreground mb-2">
-                Affected Systems
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                {incident.systemIds.map((systemId) => (
-                  <Badge key={systemId} variant="outline">
-                    <Server className="h-3 w-3 mr-1" />
-                    {getSystemName(systemId)}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-
-            {incident.links.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-muted-foreground mb-2">
-                  Hotlinks
+              <div className="border-t border-border/60 pt-4">
+                <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                  Affected Systems
                 </h4>
                 <div className="flex flex-wrap gap-2">
-                  {incident.links.map((link) => (
-                    <a
-                      key={link.id}
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-primary hover:bg-muted"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      <span>{link.label ?? link.url}</span>
-                    </a>
+                  {incident.systemIds.map((systemId) => (
+                    <Badge key={systemId} variant="outline">
+                      <Server className="h-3 w-3 mr-1" />
+                      {getSystemName(systemId)}
+                    </Badge>
                   ))}
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              {incident.links.length > 0 && (
+                <div className="border-t border-border/60 pt-4">
+                  <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                    Hotlinks
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {incident.links.map((link) => (
+                      <a
+                        key={link.id}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-primary hover:bg-muted"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        <span>{link.label ?? link.url}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* Status Updates Timeline */}
         <Card>

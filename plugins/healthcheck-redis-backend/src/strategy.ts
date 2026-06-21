@@ -17,6 +17,7 @@ import {
   configNumber,
   configBoolean,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -101,13 +102,22 @@ const redisAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: bias toward fewer alerts. Wider band, debounce, and both an
+    // absolute floor (tens of ms) and a relative floor so small jitter on a
+    // fast connection never alerts.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Per-bucket max captures the single worst sample, which spikes
+    // run-to-run with no stable baseline. Keep it chartable but do not alert
+    // on it: avgConnectionTime already carries the latency signal.
+    "x-anomaly-enabled": false,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -115,12 +125,18 @@ const redisAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability rate: debounce a single bad bucket and require a few
+    // percent of real movement before alerting.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw error count scales with bucket volume and traffic, so it has no
+    // stable baseline. The failure signal is already covered by successRate
+    // as a percent, so keep this chartable but off by default.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -264,6 +280,7 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RedisTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.redisClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -272,9 +289,14 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
       tls: validatedConfig.tls,
       connectTimeout: validatedConfig.timeout,
     });
+    // Connect + auth + db select all happen inside the single connect call.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: RedisTransportClient = {
       async exec(command: RedisCommand): Promise<RedisCommandResult> {
+        const cmdStart = performance.now();
         try {
           let value: string | undefined;
           switch (command.cmd) {
@@ -303,12 +325,19 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
             value: undefined,
             error: extractErrorMessage(error),
           };
+        } finally {
+          // Same timings reference returned on the client; last command wins.
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - cmdStart),
+          );
         }
       },
     };
 
     return {
       client,
+      timings,
       close: () => {
         connection.quit().catch(() => {
           // Ignore quit errors

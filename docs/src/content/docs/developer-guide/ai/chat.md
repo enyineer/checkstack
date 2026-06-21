@@ -49,7 +49,7 @@ That follow-up is a second mode of the same `/api/ai/chat` handler. Instead of a
 { conversationId, connectionId, model?, decision: { token, kind } }       // apply | decline
 ```
 
-The decision note handed to the model is derived SERVER-SIDE from the stored proposal (its tool name and the one-line summary captured at propose time), so no client-supplied text ever reaches the model. The note is EPHEMERAL: it is appended to that turn's history only and never persisted; the assistant's streamed reply is what gets saved, and it carries the outcome forward so later turns know the change is live. `streamDecision` re-checks ownership, that the proposal belongs to THIS conversation, and — for an `apply` — that the proposal is actually in the `applied` state (the apply ran first), refusing with a 409 otherwise so the model can never falsely claim a change took effect.
+The decision note handed to the model is derived SERVER-SIDE from the stored proposal (its tool name and the one-line summary captured at propose time), so no client-supplied text ever reaches the model. The note is EPHEMERAL: it is appended to that turn's history only and never persisted; the assistant's streamed reply is what gets saved, and it carries the outcome forward so later turns know the change is live. `streamDecision` re-checks ownership, that the proposal belongs to THIS conversation, and - for an `apply` - that the proposal is actually in the `applied` state (the apply ran first), refusing with a 409 otherwise so the model can never falsely claim a change took effect.
 
 ```ts
 proposeApply.describeProposal({ token }); // read-only: tool name, summary, status, conversation (no consume)
@@ -112,6 +112,16 @@ Model choice is a property of the credential and provider, so it lives on the Op
 resolveModelId({ connection, requested }); // requested, or defaultModel if out of allowlist
 ```
 
+## System prompt and model family
+
+The chat system prompt is assembled in `system-prompt.ts` as a **sectioned** prompt: clear `##` headings (access scope, investigating issues, grounding in docs, memory, current time) joined by blank lines, rather than one run-on paragraph. The safety-critical rules (access scope, investigation) sit near the top so they are not diluted by capability prose. The ~600-token automation-building playbook is **not** always on: it is injected only when an automation tool is in scope for the turn, and the same guidance lives in the `automation-author` builtin skill so a skill-led flow still gets it. The per-turn volatile preambles (always-inject memory, active skill, running summary) are appended **after** the stable base prompt so a caching-capable gateway can reuse the byte-stable prefix across turns.
+
+A connection may declare its `modelFamily` (`anthropic`, `openai`, or `generic`, default `generic`). This is an explicit operator declaration, never inferred from the model-id string. It is a **seam**: the transport stays `@ai-sdk/openai-compatible` (`/chat/completions`) for every value, and the family does not change the request today. Capable families (`anthropic`, `openai`) get a short prompt-calibration note that tells an instruction-following model to read the prompt's emphatic wording as emphasis, not as license to over-ask or over-refuse; `generic` keeps the firmer wording. Native Anthropic features (adaptive thinking, prompt-caching headers, `refusal` handling) are **not** part of the chat-completions shape and require a gateway that forwards them, so declaring `anthropic` records intent without enabling those features on its own.
+
+```ts
+modelFamily: "anthropic" // optional; declared family, default "generic"
+```
+
 ## Off-topic guard
 
 The assistant helps with operating Checkstack (incidents, health checks, anomalies, automations, monitoring, and on-call) AND with questions about the assistant itself or how to use Checkstack. Two layers keep clearly unrelated requests (general coding help, creative writing, general trivia) from spending tokens on the expensive tool loop.
@@ -138,6 +148,12 @@ buildClassifierPrompt({ userText });   // { system, prompt } for the cheap call
 parseClassifierVerdict(raw);           // "ON_TOPIC" | "OFF_TOPIC" (ambiguous -> ON_TOPIC)
 ```
 
+The pre-classifier round-trip is optional. On a capable model the in-prompt decline (the first layer) is sufficient, and the extra per-first-message call is redundant latency and cost. Set `disableTopicalClassifier: true` on the connection to skip it; the in-prompt decline then carries off-topic handling on its own. Leave it off (the default) to keep the belt-and-suspenders classifier, which is the safer choice for smaller or local models.
+
+```ts
+disableTopicalClassifier: true // optional; skip the classifier round-trip
+```
+
 ## Per-integration LLM spend cap
 
 Each OpenAI-compatible connection may carry an optional `spendCap`. It is OFF by default: no cap is enforced unless you configure one in the connection's settings form. The cap is a token-count budget, not a USD budget, because token counts are deterministic and provider-agnostic. Every OpenAI-compatible provider (OpenAI, Azure, OpenRouter, Ollama, vLLM, LM Studio) reports token usage through the AI SDK, but only some publish a price table and self-hosted models have none, so a USD cap would need a per-model pricing table that drifts and is meaningless for local models.
@@ -152,7 +168,7 @@ When a cap is set, the loop refuses a new turn once the principal's token usage 
 
 A long conversation, or one verbose tool pull, would otherwise overflow the model's context window: the loop replays the full message history verbatim every turn, so accumulated tool results keep costing tokens turn after turn. Two layers keep the prompt within budget.
 
-First, every read tool result is size-clamped before it enters the context. Reads flow through one chokepoint (`runRead`), which applies the owning plugin's optional lean projection (see `projectResult` in [registering tools](/checkstack/developer-guide/ai/registering-tools/)) and then a generic clamp: a result that serializes past a character budget has its largest arrays head-trimmed and gains a `_truncated` note telling the model how much was dropped and to narrow filters, paginate, or use an aggregate tool. The clamp is pure and unit-tested in `core/ai-backend/src/chat/result-clamp.logic.ts`.
+First, every read tool result is size-clamped before it enters the context. Reads flow through one chokepoint (`runRead`), which applies the owning plugin's optional lean projection (see `projectResult` in [registering tools](/checkstack/developer-guide/ai/registering-tools/)) and then a generic clamp: a result that serializes past a character budget has its largest arrays head-trimmed and gains a `_truncated` note telling the model how much was dropped and to narrow filters, paginate, or use an aggregate tool. The per-result character budget is derived from the connection's `contextWindowTokens` (a small fraction of the window, bounded by a floor and a ceiling) rather than a single hardcoded constant, so a large-context model keeps more of one result while a tiny local model stays protected; a connection that declares no window falls back to a conservative default. The clamp and the budget derivation are pure and unit-tested in `core/ai-backend/src/chat/result-clamp.logic.ts`.
 
 Second, the conversation is compacted before it overflows. Each turn the loop estimates the prompt's tokens (a provider-agnostic ~4-chars-per-token heuristic, since the model is an arbitrary OpenAI-compatible endpoint) against a budget derived from the connection's context window. When the history would exceed it, the oldest turns are summarized into a durable running summary and dropped from the verbatim replay; the summary is folded into the system prompt so the model keeps their gist. The split happens at message-ROW boundaries, never inside a turn, so a tool-call is never orphaned from its result (the malformed sequence a provider rejects). The summary and a marker (the last message it covers) are persisted on the conversation row in shared Postgres, so any pod resumes from the same compacted state. The planner and token estimate are pure and unit-tested (`compaction.logic.ts`, `token-estimate.logic.ts`); the summarization call is fail-open, so a hiccup falls back to the full history rather than crashing the turn.
 

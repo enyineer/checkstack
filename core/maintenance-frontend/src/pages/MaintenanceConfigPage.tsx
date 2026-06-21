@@ -33,6 +33,8 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   Select,
   SelectTrigger,
   SelectValue,
@@ -41,6 +43,7 @@ import {
   useToast,
   ConfirmationModal,
   PageLayout,
+  toastError,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -53,8 +56,14 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { MaintenanceEditor } from "../components/MaintenanceEditor";
-import { getMaintenanceStatusBadge } from "../utils/badges";
-import { extractErrorMessage } from "@checkstack/common";
+import { MaintenanceScheduleHero } from "../components/MaintenanceScheduleHero";
+import {
+  getMaintenanceStatusBadge,
+  getMaintenanceStatusTone,
+  getMaintenanceToneAccentClass,
+} from "../utils/badges";
+import { canComplete, summarizeSystemNames } from "./maintenanceConfig.logic";
+import { cn } from "@checkstack/ui";
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -126,7 +135,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete", error);
     },
   });
 
@@ -137,9 +146,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
       setCompleteId(undefined);
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to complete"),
-      );
+      toastError(toast, "Failed to complete", error);
     },
   });
 
@@ -167,19 +174,6 @@ const MaintenanceConfigPageContent: React.FC = () => {
     setEditorOpen(false);
     void refetchMaintenances();
   };
-
-  const getSystemNames = (systemIds: string[]): string => {
-    const names = systemIds
-      .map((id) => systems.find((s) => s.id === id)?.name ?? id)
-      .slice(0, 3);
-    if (systemIds.length > 3) {
-      names.push(`+${systemIds.length - 3} more`);
-    }
-    return names.join(", ");
-  };
-
-  const canComplete = (status: MaintenanceStatus) =>
-    status !== "completed" && status !== "cancelled";
 
   return (
     <PageLayout
@@ -258,7 +252,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
             <EmptyState
               icon={<Wrench className="size-10" />}
               title="No planned maintenances"
-              description="A maintenance window tells Checkstack “this system is expected to be down or degraded” for a defined period. Failed health checks during the window are still recorded but are treated as expected — the system is flagged as “in maintenance” on the public status page, and notifications about it are suppressed."
+              description="A maintenance window tells Checkstack “this system is expected to be down or degraded” for a defined period. Failed health checks during the window are still recorded but are treated as expected - the system is flagged as “in maintenance” on the public status page, and notifications about it are suppressed."
               steps={[
                 "Click “Create Maintenance” and pick the systems that will be affected.",
                 "Set a start time, end time, and a short summary your users will see.",
@@ -274,51 +268,153 @@ const MaintenanceConfigPageContent: React.FC = () => {
               }
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Systems</TableHead>
-                  <TableHead>Schedule</TableHead>
-                  <TableHead className="w-32">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Systems</TableHead>
+                      <TableHead>Schedule</TableHead>
+                      <TableHead className="w-32">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {maintenances.map((m) => (
+                      <TableRow
+                        key={m.id}
+                        className="transition-colors hover:bg-surface-inset"
+                      >
+                        <TableCell>
+                          <div className="relative pl-3">
+                            <span
+                              className={cn(
+                                "absolute inset-y-0 left-0 w-1 rounded-full",
+                                getMaintenanceToneAccentClass(
+                                  getMaintenanceStatusTone(m.status),
+                                ),
+                              )}
+                              aria-hidden
+                            />
+                            <p className="font-medium">{m.title}</p>
+                            {m.description && (
+                              <p className="text-sm text-muted-foreground truncate max-w-xs">
+                                {m.description}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getMaintenanceStatusBadge(m.status)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {summarizeSystemNames({ systemIds: m.systemIds, systems })}
+                        </TableCell>
+                        <TableCell>
+                          <MaintenanceScheduleHero
+                            startAt={m.startAt}
+                            endAt={m.endAt}
+                          />
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              <span>
+                                {format(new Date(m.startAt), "MMM d, HH:mm")}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              <span>
+                                {format(new Date(m.endAt), "MMM d, HH:mm")}
+                              </span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(m)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            {canComplete({ status: m.status }) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCompleteId(m.id)}
+                              >
+                                <CheckCircle2 className="h-4 w-4 text-success" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteId(m.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-4">
                 {maintenances.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{m.title}</p>
-                        {m.description && (
-                          <p className="text-sm text-muted-foreground truncate max-w-xs">
-                            {m.description}
-                          </p>
+                  <div key={m.id} className="group">
+                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-1",
+                          getMaintenanceToneAccentClass(
+                            getMaintenanceStatusTone(m.status),
+                          ),
                         )}
+                        aria-hidden
+                      />
+                      <div className="flex items-start justify-between gap-2 pl-2">
+                        <p className="min-w-0 truncate font-medium">{m.title}</p>
+                        {getMaintenanceStatusBadge(m.status)}
                       </div>
-                    </TableCell>
-                    <TableCell>{getMaintenanceStatusBadge(m.status)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {getSystemNames(m.systemIds)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm space-y-1">
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                      {m.description && (
+                        <p className="mt-1 truncate pl-2 text-xs text-muted-foreground">
+                          {m.description}
+                        </p>
+                      )}
+                      <div className="mt-3 pl-2">
+                        <MaintenanceScheduleHero
+                          startAt={m.startAt}
+                          endAt={m.endAt}
+                        />
+                      </div>
+                      {m.systemIds.length > 0 && (
+                        <p className="mt-2 pl-2 text-xs text-muted-foreground">
+                          {summarizeSystemNames({
+                            systemIds: m.systemIds,
+                            systems,
+                          })}
+                        </p>
+                      )}
+                      <div className="mt-2 space-y-1 pl-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
                           <span>
                             {format(new Date(m.startAt), "MMM d, HH:mm")}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                        <div className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           <span>
                             {format(new Date(m.endAt), "MMM d, HH:mm")}
                           </span>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
+                      <div className="mt-3 flex justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -326,7 +422,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
-                        {canComplete(m.status) && (
+                        {canComplete({ status: m.status }) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -343,11 +439,11 @@ const MaintenanceConfigPageContent: React.FC = () => {
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>

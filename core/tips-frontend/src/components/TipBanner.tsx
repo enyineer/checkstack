@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, CardContent, Button, cn } from "@checkstack/ui";
+import { Button, cn, usePerformance } from "@checkstack/ui";
 import type { PluginMetadata } from "@checkstack/common";
 import { Lightbulb, X } from "lucide-react";
 import { useTipState } from "../hooks/useTipState";
@@ -47,29 +47,39 @@ export const TipBanner: React.FC<TipBannerProps> = ({
   className,
 }) => {
   const { isDismissed, isLoading, dismiss } = useTipState({ plugin, id });
+  const { isLowPower } = usePerformance();
 
   if (isDismissed || isLoading) return null;
 
   return (
-    <Card
+    <div
       className={cn(
-        "border border-primary/30 bg-primary/5",
+        "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 p-[var(--d-pad)] transition-colors hover:border-warning/40",
+        isLowPower
+          ? "bg-surface-2"
+          : "bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]",
         className,
       )}
     >
-      <CardContent className="flex items-start gap-3 py-4">
-        <div className="text-primary mt-0.5">
+      {/* Left accent stripe: amber = the insight/lightbulb signal, kept off
+          the ok/warn/down status triad since a tip is not a health state. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-1 bg-warning"
+      />
+      <div className="flex items-start gap-3 pl-2">
+        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
           {icon ?? <Lightbulb className="size-5" />}
-        </div>
+        </span>
         <div className="flex-1">
           <p className="text-sm font-semibold text-foreground">{title}</p>
           {description && (
-            <div className="mt-1 text-sm text-muted-foreground">
+            <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               {description}
             </div>
           )}
           {(action || actionHint) && (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 pt-3">
               {action ? (
                 <Button
                   size="sm"
@@ -85,7 +95,7 @@ export const TipBanner: React.FC<TipBannerProps> = ({
                 <span />
               )}
               {actionHint && (
-                <div className="text-xs text-muted-foreground sm:text-right ml-auto">
+                <div className="ml-auto text-xs text-muted-foreground sm:text-right">
                   {actionHint}
                 </div>
               )}
@@ -100,7 +110,7 @@ export const TipBanner: React.FC<TipBannerProps> = ({
         >
           <X className="size-4" />
         </button>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };

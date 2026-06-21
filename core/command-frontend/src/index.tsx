@@ -28,6 +28,34 @@ export const commandPlugin = createFrontendPlugin({
 });
 
 // =============================================================================
+// PALETTE OPENER
+// =============================================================================
+
+/**
+ * Programmatically open the global search palette from anywhere in the app
+ * (e.g. a mobile-drawer search entry) without duplicating its open state.
+ *
+ * The palette's open state is owned by {@link NavbarSearch}, which listens for
+ * the ⌘K / Ctrl+K shortcut globally. Re-dispatching that same synthetic
+ * keyboard event keeps a single source of truth for the dialog instead of
+ * threading shared state through the shell.
+ */
+export function openSearchPalette(): void {
+  if (typeof document === "undefined") return;
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent);
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: isMac,
+      ctrlKey: !isMac,
+      bubbles: true,
+    }),
+  );
+}
+
+// =============================================================================
 // SHORTCUT UTILITIES (Frontend-only - requires DOM types)
 // =============================================================================
 

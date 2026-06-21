@@ -7,8 +7,8 @@ description: "When and how to wire `onMutate` / rollback / settle on a TanStack 
 By default every oRPC `useMutation()` in this codebase auto-invalidates
 its owning plugin's queries on success (see
 [Query Invalidation](/checkstack/developer-guide/frontend/query-invalidation/) for the
-full story). That's the right default — a single round-trip, no stale
-data — but on high-frequency cheap toggles it still costs the user a
+full story). That's the right default - a single round-trip, no stale
+data - but on high-frequency cheap toggles it still costs the user a
 visible "click → wait → flip" latency.
 
 Optimistic updates close that gap: the cache is patched immediately so
@@ -16,7 +16,7 @@ the UI flips on click, with a rollback wired up in case the server
 rejects the mutation.
 
 This page documents the canonical pattern. Today (May 2026) it's
-applied to exactly two mutations — `markAsRead` on the Notifications
+applied to exactly two mutations - `markAsRead` on the Notifications
 page and `pauseConfiguration` / `resumeConfiguration` on the
 Health Check Config page. Broader rollout is a v1.1 task; the pattern
 below is the contract any new use must follow.
@@ -32,7 +32,7 @@ Optimistic UI is a good fit when **all** of the following hold:
   rows is not a good candidate.
 - Rollback is visually obvious. If a failed flip silently undoes a
   user action two seconds later they'll think the click "didn't
-  work" — the rollback only feels right when it's plausibly tied to
+  work" - the rollback only feels right when it's plausibly tied to
   the original click.
 - The toggled state is local to a single row, not cross-cutting.
   Cascade effects across multiple cached queries multiply the
@@ -43,13 +43,13 @@ Optimistic UI is a good fit when **all** of the following hold:
 > [!CAUTION]
 > Reach for an optimistic update only when you've ruled out every
 > case below. Optimistic UI without rollback (or with the wrong
-> rollback) is worse than no optimistic UI — it lies to the user.
+> rollback) is worse than no optimistic UI - it lies to the user.
 
 - **Creates with server-generated IDs.** You don't know the row's
   id until the server replies, so the placeholder row has no stable
   identity, can't be selected, and gets awkward to reconcile.
 - **Irreversible mutations.** `delete`, "send notification now",
-  "kick user" — anything where the user reasonably expects a
+  "kick user" - anything where the user reasonably expects a
   confirmation moment. Pretending it already happened robs them of
   the chance to bail.
 - **Cascade mutations.** Anything that changes state in multiple
@@ -57,19 +57,19 @@ Optimistic UI is a good fit when **all** of the following hold:
   snapshot; cascades need bespoke handling and usually a redesign.
 - **Mutations that resolve into a navigation.** The render
   immediately after a successful create/edit usually unmounts the
-  caller — there's nothing to optimistically update.
+  caller - there's nothing to optimistically update.
 
 ## The canonical four-step cycle
 
 Every optimistic mutation MUST follow these four steps in order:
 
-1. `onMutate` — cancel any in-flight refetch for the affected query,
+1. `onMutate` - cancel any in-flight refetch for the affected query,
    snapshot the cache, patch it optimistically, return the snapshot
    as the mutation context.
-2. `onError` — restore the snapshot from the returned context.
-3. `onSettled` — invalidate the affected query so the cache
+2. `onError` - restore the snapshot from the returned context.
+3. `onSettled` - invalidate the affected query so the cache
    reconciles with server truth (success and error both).
-4. Toast voice — suppress success toasts (the UI already flipped),
+4. Toast voice - suppress success toasts (the UI already flipped),
    keep error toasts (the rollback alone isn't always enough signal).
 
 The exact snippet, using the project's oRPC `useMutation` wrapper
@@ -137,7 +137,7 @@ const markAsRead = notificationClient.markAsRead.useMutation({
 - **Type the `setQueryData` callback.** Read the existing
   `previous` value with the same type the loader uses
   (`queryClient.getQueryData<TLoaderOutput>(key)`). Never reach for
-  `any` — narrow with `if (previous)` if the cache miss is possible
+  `any` - narrow with `if (previous)` if the cache miss is possible
   (it usually is on the first interaction).
 - **Return `{ previous }` from `onMutate`.** TanStack passes this
   to `onError` as the third arg. Don't stash it in module state.
@@ -147,7 +147,7 @@ const markAsRead = notificationClient.markAsRead.useMutation({
   On error it pulls server truth back so the just-restored snapshot
   doesn't itself go stale.
 - **Suppress success toasts.** The user clicked "mark as read" and
-  the row faded — that's the feedback. A toast on top is noise.
+  the row faded - that's the feedback. A toast on top is noise.
 - **Keep error toasts.** The rollback alone tells the user "the UI
   is back where it was" but not why. `toastError(toast, "...", err)`
   is the right shape (see [List & Query States](/checkstack/developer-guide/frontend/list-states/)
@@ -160,7 +160,7 @@ The optimistic write, the snapshot, the rollback, and the
 being patched. The auto-invalidator in
 [`core/frontend-api/src/orpc-query.tsx`](https://github.com/enyineer/checkstack/blob/main/core/frontend-api/src/orpc-query.tsx)
 matches by prefix (`[[pluginId]]`), but `setQueryData` needs an
-**exact** match — it writes one entry, not "every entry under
+**exact** match - it writes one entry, not "every entry under
 prefix".
 
 oRPC builds query keys in a fixed shape (see
@@ -192,14 +192,14 @@ input `{ limit: 20, offset: 0, unreadOnly: false }`, the key is:
 
 When the loader uses paging/filter state, build the key from the
 same state variables the `useQuery` reads, in the same render. The
-two call sites currently using this pattern do exactly that — see
+two call sites currently using this pattern do exactly that - see
 `core/notification-frontend/src/pages/NotificationsPage.tsx` and
 `core/healthcheck-frontend/src/pages/HealthCheckConfigPage.tsx`.
 
 ## What auto-invalidation still does
 
 The oRPC `useMutation` wrapper still fires its
-plugin-wide invalidation on `onSuccess` — that hasn't changed. The
+plugin-wide invalidation on `onSuccess` - that hasn't changed. The
 optimistic write is **additive**: it patches the cache before the
 network roundtrip starts, and the auto-invalidation pulls server
 truth in after the response. On error, our explicit rollback wins
@@ -207,13 +207,13 @@ because `onError` runs before any success path.
 
 If you ever override `onSuccess` on an optimistic mutation, remember
 that the wrapper composes your handler with its built-in
-invalidation — you don't need to invalidate yourself in `onSuccess`,
+invalidation - you don't need to invalidate yourself in `onSuccess`,
 only in `onSettled` (so the error path also gets reconciled).
 
 ## Anti-patterns
 
 - **Skipping `cancelQueries`.** Don't. An in-flight refetch will
-  race and silently overwrite the optimistic write — the user sees
+  race and silently overwrite the optimistic write - the user sees
   a flip, then a half-second later it un-flips, then flips again.
   Worst of both worlds.
 - **Forgetting `onError` rollback.** Optimistic UI without rollback
@@ -230,4 +230,4 @@ only in `onSettled` (so the error path also gets reconciled).
   Module state races between concurrent mutations.
 - **Using `any` for the snapshot type.** Narrow with
   `queryClient.getQueryData<TLoaderOutput>(key)` and a runtime
-  `if (previous)` guard — the cache miss is a real case.
+  `if (previous)` guard - the cache miss is a real case.

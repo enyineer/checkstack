@@ -18,7 +18,7 @@ export default createFrontendPlugin({
       title: "Plugin Manager",
       accessRule: pluginManagerAccess.view,
       nav: {
-        group: "Configuration",
+        group: "Platform",
         icon: Puzzle,
       },
     },

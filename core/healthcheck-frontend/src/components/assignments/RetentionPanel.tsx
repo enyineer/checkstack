@@ -51,7 +51,7 @@ export const RetentionPanel: React.FC<RetentionPanelProps> = ({
       </div>
 
       {!data.isCustom && (
-        <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+        <div className="rounded-md bg-surface-inset p-3 text-sm text-muted-foreground">
           Using default retention settings. Customize below to override.
         </div>
       )}
@@ -139,7 +139,7 @@ function RetentionTier({
   disabled?: boolean;
 }) {
   return (
-    <div className="p-3 rounded-lg border bg-muted/30">
+    <div className="p-3 rounded-lg border bg-surface-inset">
       <div className="flex items-center justify-between">
         <div>
           <span className="text-sm font-medium">{label}</span>

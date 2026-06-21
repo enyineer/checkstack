@@ -1,6 +1,34 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import type { OpenAiCompatibleConnection } from "@checkstack/ai-common";
+import {
+  DEFAULT_AI_MODEL_FAMILY,
+  type AiModelFamily,
+  type OpenAiCompatibleConnection,
+} from "@checkstack/ai-common";
+
+/**
+ * Resolve the connection's declared model family (defaulting to `"generic"`).
+ *
+ * This is the Phase-3 SEAM: downstream code can branch on the family (lighter
+ * prompt wording for capable families, future caching-breakpoint placement)
+ * WITHOUT inferring it from the model-id string (which is brittle). The
+ * transport is identical for every family today — `@ai-sdk/openai-compatible`
+ * over `/chat/completions`.
+ *
+ * IMPORTANT: a declared `"anthropic"` family does NOT enable native Anthropic
+ * features (adaptive thinking, prompt-caching headers, `refusal` handling).
+ * Those are not part of the chat-completions request shape; they require either
+ * a native Anthropic provider or a gateway that forwards `anthropic-beta` /
+ * `cache-control`. That is a GATEWAY capability and is intentionally out of
+ * scope here — this seam only records the operator's declared intent.
+ */
+export function resolveModelFamily({
+  connection,
+}: {
+  connection: OpenAiCompatibleConnection;
+}): AiModelFamily {
+  return connection.modelFamily ?? DEFAULT_AI_MODEL_FAMILY;
+}
 
 /**
  * Build a provider-agnostic language model from an OpenAI-compatible connection
@@ -40,6 +68,13 @@ export function buildLanguageModel({
     apiKey: connection.apiKey,
   });
   const modelId = resolveModelId({ connection, requested: model });
+  // SEAM: the declared model family is resolved here so a future branch (e.g.
+  // family-specific provider options or caching hints) has a single threading
+  // point. Today it does not alter the request — the transport is the same
+  // chat-completions API for every family — but resolving it keeps the seam
+  // wired rather than dead. See resolveModelFamily for why native Anthropic
+  // features are intentionally NOT enabled by a declared family.
+  void resolveModelFamily({ connection });
   // `.chatModel` pins the `/chat/completions` API (see the Responses-API note
   // above), the lingua franca every OpenAI-compatible gateway supports.
   return provider.chatModel(modelId);

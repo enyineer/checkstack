@@ -43,6 +43,44 @@ describe("markdownToHtml", () => {
     const result = markdownToHtml("use `code` here");
     expect(result).toContain("<code>code</code>");
   });
+
+  // --- XSS / sanitization regression guards (Finding 3) -------------------
+
+  it("strips raw <script> tags from rendered HTML", () => {
+    const result = markdownToHtml(
+      "hello\n\n<script>alert(document.cookie)</script>",
+    );
+    expect(result).not.toContain("<script");
+    expect(result).not.toContain("alert(document.cookie)");
+    expect(result).toContain("hello");
+  });
+
+  it("strips event-handler attributes like onerror=", () => {
+    const result = markdownToHtml('<img src="x" onerror="alert(1)">');
+    expect(result.toLowerCase()).not.toContain("onerror");
+    expect(result).not.toContain("alert(1)");
+  });
+
+  it("drops javascript: URLs on links", () => {
+    // marked renders this as an anchor with a javascript: href; the sanitizer
+    // must strip the unsafe scheme so the href cannot execute.
+    const result = markdownToHtml("[click](javascript:alert(1))");
+    expect(result.toLowerCase()).not.toContain("javascript:");
+    expect(result).not.toContain("alert(1)");
+  });
+
+  it("drops data: URLs on images", () => {
+    const result = markdownToHtml(
+      '<img src="data:text/html;base64,PHNjcmlwdD4=">',
+    );
+    expect(result.toLowerCase()).not.toContain("data:");
+  });
+
+  it("preserves safe http/https links", () => {
+    const result = markdownToHtml("[link](https://example.com)");
+    expect(result).toContain('href="https://example.com"');
+    expect(result).toContain("link");
+  });
 });
 
 describe("markdownToPlainText", () => {

@@ -4,15 +4,21 @@ import type { Page } from "@playwright/test";
 /**
  * Authenticated E2E for the Incidents area.
  *
- * The whole file shares ONE freshly-reset, empty database (only the admin user
- * exists at start), so the suite runs serially and seeds its own prerequisites
- * (a catalog system) through the UI before exercising incidents:
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then specs run
+ * in PARALLEL against that single shared, non-empty DB. This file is fully
+ * data-isolated: every entity it creates (its prerequisite catalog system, the
+ * incident title and description) is namespaced with a unique-per-run suffix
+ * (`NS`) so parallel specs never collide, and no test asserts on global table
+ * state (no empty-state, no global counts). Tests within this file still run
+ * serially because they form one create -> resolve chain, seeding their own
+ * prerequisites (a catalog system) through the UI before exercising incidents:
  *
- * - empty incidents state (asserted before anything is created)
- * - creating an incident without a system is validated
+ * - creating an incident without a system selected is validated
  * - create a system, then create an incident against it
  * - open the incident detail page via the system history
  * - change status to resolved and see it reflected in the UI
+ * - resolved incident hidden by default, shown via "Show resolved" (scoped to
+ *   OUR namespaced incident only)
  *
  * Selectors are derived from the real component source (IncidentConfigPage,
  * IncidentEditor, IncidentDetailPage, SystemIncidentHistoryPage, CatalogConfigPage,
@@ -20,11 +26,11 @@ import type { Page } from "@playwright/test";
  */
 test.describe.configure({ mode: "serial" });
 
-// Unique suffix so re-runs / parallel files never collide on names.
-const RUN_ID = Date.now();
-const SYSTEM_NAME = `Incident E2E System ${RUN_ID}`;
-const INCIDENT_TITLE = `Checkout outage ${RUN_ID}`;
-const INCIDENT_DESCRIPTION = `Users cannot complete checkout (${RUN_ID}).`;
+// Unique per run so parallel specs sharing one DB never collide on names.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SYSTEM_NAME = `Incident E2E System-${NS}`;
+const INCIDENT_TITLE = `Checkout outage-${NS}`;
+const INCIDENT_DESCRIPTION = `Users cannot complete checkout (-${NS}).`;
 
 const NAV_TIMEOUT = 30_000;
 
@@ -97,23 +103,6 @@ async function gotoSystemIncidentHistory(page: Page): Promise<void> {
 }
 
 test.describe("incidents", () => {
-  test("shows the empty incidents state on a fresh database", async ({
-    page,
-  }) => {
-    await page.goto("/incident/config", { timeout: NAV_TIMEOUT });
-
-    await expect(
-      page.getByRole("heading", { name: "Incident Management" }),
-    ).toBeVisible();
-
-    // Empty state from IncidentConfigPage (EmptyState renders the title as a
-    // paragraph, not a heading).
-    await expect(page.getByText("No incidents found")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Report incident manually" }),
-    ).toBeVisible();
-  });
-
   test("validates that an incident requires at least one system", async ({
     page,
   }) => {
@@ -127,14 +116,15 @@ test.describe("incidents", () => {
       dialog.getByRole("heading", { name: "Create Incident" }),
     ).toBeVisible();
 
-    // No systems exist yet, so the affected-systems list shows the empty hint.
-    await expect(dialog.getByText("No systems available")).toBeVisible();
-
-    // Provide a title but no system, then attempt to create.
-    await dialog.getByLabel("Title").fill(`Premature incident ${RUN_ID}`);
+    // Provide a title but select NO system, then attempt to create. (We do not
+    // assert the affected-systems list is empty: the shared DB may already hold
+    // systems created by other parallel specs. The validation under test fires
+    // purely from having zero systems *selected*, independent of how many
+    // exist.)
+    await dialog.getByLabel("Title").fill(`Premature incident-${NS}`);
     await dialog.getByRole("button", { name: "Create" }).click();
 
-    // Validation surfaces as a toast and the dialog stays open.
+    // Validation now surfaces as an inline error and the dialog stays open.
     await expect(
       page.getByText("At least one system must be selected"),
     ).toBeVisible();
@@ -142,8 +132,18 @@ test.describe("incidents", () => {
       dialog.getByRole("heading", { name: "Create Incident" }),
     ).toBeVisible();
 
+    // The form is dirty (title filled), so Cancel opens the discard-confirm
+    // modal instead of closing immediately. Confirm the discard, then the
+    // editor dialog closes. Scope to the discard modal (title "Discard
+    // changes?", confirm button "Discard") to avoid the two-dialog strict-mode
+    // ambiguity while both are mounted.
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toBeHidden();
+    const discard = page.getByRole("dialog", { name: "Discard changes?" });
+    await expect(discard).toBeVisible();
+    await discard.getByRole("button", { name: "Discard" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Create Incident" }),
+    ).toBeHidden();
   });
 
   test("creates a system via the catalog so incidents can target it", async ({
@@ -175,8 +175,9 @@ test.describe("incidents", () => {
     await dialog.getByRole("button", { name: "Create System" }).click();
 
     await expect(dialog).toBeHidden();
-    // The new system appears in the management list.
-    await expect(page.getByText(SYSTEM_NAME)).toBeVisible();
+    // The new system appears in the management list. Scope to the desktop table:
+    // the ResponsiveTable's display:none MobileCardList duplicates the name.
+    await expect(page.getByRole("table").getByText(SYSTEM_NAME)).toBeVisible();
   });
 
   test("creates an incident against the system", async ({ page }) => {
@@ -264,14 +265,17 @@ test.describe("incidents", () => {
       page.getByRole("heading", { name: "Incident Management" }),
     ).toBeVisible();
 
-    // Resolved incidents are filtered out by default → empty state returns.
-    await expect(page.getByText("No incidents found")).toBeVisible();
+    // Resolved incidents are filtered out by default. Scope to OUR namespaced
+    // incident only - the shared DB may hold other parallel specs' incidents
+    // (open or resolved), so we never assert a global empty state, just that
+    // our resolved incident is absent from the default (open-only) list.
+    const ourRow = page.getByRole("row", { name: new RegExp(INCIDENT_TITLE) });
+    await expect(ourRow).toHaveCount(0);
 
-    // Toggling "Show resolved" brings the resolved incident back into the list.
+    // Toggling "Show resolved" brings our resolved incident back into the list.
     await page.getByLabel("Show resolved").check();
 
-    const row = page.getByRole("row", { name: new RegExp(INCIDENT_TITLE) });
-    await expect(row).toBeVisible();
-    await expect(row.getByText("Resolved")).toBeVisible();
+    await expect(ourRow).toBeVisible();
+    await expect(ourRow.getByText("Resolved")).toBeVisible();
   });
 });

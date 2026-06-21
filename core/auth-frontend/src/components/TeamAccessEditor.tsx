@@ -8,6 +8,7 @@ import {
   Button,
   Badge,
   useToast,
+  toastError,
   LoadingSpinner,
   Select,
   SelectContent,
@@ -32,7 +33,6 @@ import {
   accessApiRef,
 } from "@checkstack/frontend-api";
 import { AuthApi, authAccess } from "@checkstack/auth-common";
-import { extractErrorMessage } from "@checkstack/common";
 import { deriveTeamAccessSummary } from "../lib/deriveTeamAccessSummary";
 
 interface TeamAccess {
@@ -134,7 +134,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
       onChange?.();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update access"));
+      toastError(toast, "Failed to update access", error);
     },
   });
 
@@ -145,7 +145,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
       onChange?.();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to remove access"));
+      toastError(toast, "Failed to remove access", error);
     },
   });
 
@@ -155,7 +155,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
       onChange?.();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update settings"));
+      toastError(toast, "Failed to update settings", error);
     },
   });
 
@@ -207,7 +207,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
         objectId: resourceId,
         isPublic: true,
       });
-      toast.info("Private turned off — no teams remain");
+      toast.info("Private turned off - no teams remain");
     }
   };
 
@@ -231,7 +231,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
         return "Not scoped to a team. Anyone with access can view it; changing it needs the global manage permission. Add a team to let that team change it.";
       }
       case "private": {
-        return `Private to teams — only ${summary.teams.join(", ")} can view or change this.`;
+        return `Private to teams - only ${summary.teams.join(", ")} can view or change this.`;
       }
       case "managed": {
         return `Readable by anyone with read access. Managed by ${summary.managingTeams.join(", ")}.`;
@@ -274,7 +274,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
 
   // Shared status banner.
   const statusBanner = (
-    <p className="text-xs text-muted-foreground bg-muted/30 rounded-md p-2">
+    <p className="text-xs text-muted-foreground bg-surface-inset rounded-md p-2">
       {statusText}
     </p>
   );
@@ -287,7 +287,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   const noTeamsYet = typedAccessList.length === 0;
   const noManagerYet = summary.kind === "readonly-grants";
   const privateRow = (
-    <div className="flex items-center justify-between p-2 bg-muted/30 rounded-md">
+    <div className="flex items-center justify-between p-2 bg-surface-inset rounded-md">
       <div className="flex items-center gap-2">
         <Lock className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm">Private</span>
@@ -296,7 +296,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
             ? "(add a team first to hide this from everyone else)"
             : noManagerYet
               ? "(give a team Manage before making this private)"
-              : "(hide from everyone else — only the team(s) above can see it)"}
+              : "(hide from everyone else - only the team(s) above can see it)"}
         </span>
       </div>
       <Toggle
@@ -312,7 +312,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   const addRow = canManageTeams && (
     <div className="flex gap-2">
       <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
-        <SelectTrigger className="flex-1">
+        <SelectTrigger className="flex-1" aria-label="Add a team that can change this">
           <SelectValue placeholder="Add a team that can change this" />
         </SelectTrigger>
         <SelectContent>
@@ -347,7 +347,7 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   const accessRow = (access: TeamAccess) => (
     <div
       key={access.teamId}
-      className="flex items-center justify-between gap-2 p-2 bg-muted/50 rounded-md"
+      className="flex items-center justify-between gap-2 p-2 bg-surface-inset rounded-md"
     >
       <div className="flex items-center gap-2 min-w-0">
         <Users2 className="h-4 w-4 text-muted-foreground shrink-0" />

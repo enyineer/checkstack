@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 import { z } from "zod";
-import { configString, isSecretSchema } from "@checkstack/backend-api";
+import {
+  configString,
+  isSecretSchema,
+  DecryptionError,
+  type Logger,
+  type SafeDatabase,
+} from "@checkstack/backend-api";
 import { encrypt, decrypt, isEncrypted } from "@checkstack/backend-api";
+import { ConfigServiceImpl } from "./config-service";
 
 describe("Secret Detection", () => {
   it("should detect direct secret fields", () => {
@@ -62,5 +69,123 @@ describe("Encryption and Decryption", () => {
 
     expect(isEncrypted(plaintext)).toBe(false);
     expect(isEncrypted(encrypted)).toBe(true);
+  });
+});
+
+/**
+ * Captures structured logger calls so we can assert the fail-loud decrypt path
+ * logs context but NEVER the ciphertext or secret value.
+ */
+interface CapturedLog {
+  level: "info" | "error" | "warn" | "debug";
+  message: string;
+  args: unknown[];
+}
+
+const makeCapturingLogger = (sink: CapturedLog[]): Logger => {
+  const push =
+    (level: CapturedLog["level"]) =>
+    (message: string, ...args: unknown[]) => {
+      sink.push({ level, message, args });
+    };
+  return {
+    info: push("info"),
+    error: push("error"),
+    warn: push("warn"),
+    debug: push("debug"),
+  };
+};
+
+/**
+ * Minimal db mock whose select chain resolves to a single stored row. Only the
+ * `select().from().where().limit()` path `get()` uses is implemented.
+ */
+const makeReadOnlyDb = (
+  storedRow: { data: unknown } | undefined
+): SafeDatabase<Record<string, unknown>> => {
+  const chain = {
+    from() {
+      return this;
+    },
+    where() {
+      return this;
+    },
+    limit() {
+      return Promise.resolve(storedRow ? [storedRow] : []);
+    },
+  };
+  // The mock implements only the read surface ConfigService.get() touches; the
+  // unused write/delete methods are never called in this test, so we model just
+  // the read chain. Cast is unavoidable for a partial test double of a wide
+  // interface, and is confined to test code.
+  return { select: () => chain } as unknown as SafeDatabase<
+    Record<string, unknown>
+  >;
+};
+
+describe("ConfigService fail-loud decrypt (no ciphertext substitution)", () => {
+  const TEST_KEY =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const OTHER_KEY = "abababababababababababababababababababababababababababababababab";
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_MASTER_KEY = TEST_KEY;
+  });
+
+  const schema = z.object({
+    apiKey: configString({ "x-secret": true }),
+  });
+
+  it("throws a typed DecryptionError and surfaces via logger, never substituting ciphertext", async () => {
+    // Encrypt under a DIFFERENT, now-unconfigured key so decrypt fails closed.
+    const original = process.env.ENCRYPTION_MASTER_KEY;
+    process.env.ENCRYPTION_MASTER_KEY = OTHER_KEY;
+    const ciphertext = encrypt("super-secret-value");
+    process.env.ENCRYPTION_MASTER_KEY = original;
+    delete process.env.ENCRYPTION_MASTER_KEY_PREVIOUS;
+
+    const storedRow = {
+      data: { version: 1, pluginId: "p1", data: { apiKey: ciphertext } },
+    };
+    const logs: CapturedLog[] = [];
+    const service = new ConfigServiceImpl(
+      "p1",
+      makeReadOnlyDb(storedRow),
+      makeCapturingLogger(logs)
+    );
+
+    // Fail CLOSED: the whole read throws a typed error.
+    await expect(service.get("c1", schema, 1)).rejects.toBeInstanceOf(
+      DecryptionError
+    );
+
+    // Surfaced via the structured logger at error level with context.
+    const errorLog = logs.find((l) => l.level === "error");
+    expect(errorLog).toBeDefined();
+    expect(errorLog?.message).toContain("Failed to decrypt secret");
+
+    // NEVER log the ciphertext or the plaintext secret value.
+    const serialized = JSON.stringify(logs);
+    expect(serialized).not.toContain(ciphertext);
+    expect(serialized).not.toContain("super-secret-value");
+  });
+
+  it("decrypts normally and does NOT substitute ciphertext when the key matches", async () => {
+    const ciphertext = encrypt("readable-secret");
+    const storedRow = {
+      data: { version: 1, pluginId: "p1", data: { apiKey: ciphertext } },
+    };
+    const logs: CapturedLog[] = [];
+    const service = new ConfigServiceImpl(
+      "p1",
+      makeReadOnlyDb(storedRow),
+      makeCapturingLogger(logs)
+    );
+
+    const result = await service.get("c1", schema, 1);
+    expect(result?.apiKey).toBe("readable-secret");
+    // The returned value must be the PLAINTEXT, never the ciphertext.
+    expect(result?.apiKey).not.toBe(ciphertext);
+    expect(logs.find((l) => l.level === "error")).toBeUndefined();
   });
 });

@@ -16,6 +16,7 @@ import {
   configString,
   configNumber,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -72,7 +73,8 @@ const mysqlResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    // Err wider so small jitter on a fast connection does not alert.
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -94,13 +96,19 @@ const mysqlAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Max within a bucket is dominated by single transient spikes, so a learned
+    // baseline over it is highly noisy. Avg connection time already covers the
+    // latency signal, so this is off by default and remains chartable.
+    "x-anomaly-enabled": false,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -108,12 +116,18 @@ const mysqlAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    // Ignore sub-5% wobble in the success rate so brief blips do not alert.
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw error count scales with how many checks landed in the bucket, so its
+    // baseline drifts with cadence rather than health. Success rate (percent)
+    // is the stable twin for this signal, so the absolute count is off by
+    // default and remains chartable.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -251,6 +265,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<MysqlTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.dbClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
@@ -259,11 +274,19 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
       password: validatedConfig.password,
       connectTimeout: validatedConfig.timeout,
     });
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: MysqlTransportClient = {
       async exec(request: SqlQueryRequest): Promise<SqlQueryResult> {
         try {
+          const queryStart = performance.now();
           const result = await connection.query(request.query);
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - queryStart),
+          );
           return { rowCount: result.rowCount };
         } catch (error) {
           return {
@@ -276,6 +299,7 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         connection.end().catch(() => {
           // Ignore close errors

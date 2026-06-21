@@ -34,7 +34,7 @@ export default createFrontendPlugin({
       title: "Script packages",
       accessRule: scriptPackagesAccess.manage,
       nav: {
-        group: "Configuration",
+        group: "Developer",
         icon: Package,
         label: "Script Packages",
       },
@@ -48,7 +48,7 @@ export default createFrontendPlugin({
       title: "Script sandbox",
       accessRule: scriptSandboxAccess.manage,
       nav: {
-        group: "Configuration",
+        group: "Developer",
         icon: ShieldCheck,
         label: "Script Sandbox",
       },

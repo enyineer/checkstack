@@ -314,6 +314,34 @@ export default createBackendPlugin({
           execute: deferredProjectionExecute,
         });
 
+        // The per-system ASSIGNMENT of checks: given a `systemId`, list the
+        // health checks assigned to that system (id, name, strategy, interval,
+        // collectors/assertions, paused state). This is the mapping
+        // `healthcheck.status` lacks - `getConfigurations` lists every check
+        // GLOBALLY with no system attribution, so from it alone the assistant
+        // cannot tell WHICH check monitors a given system (it would have to
+        // guess). The assistant resolves a system NAME to its id via
+        // catalog.listSystems, then calls this to attribute a named/failing
+        // check to the right system. Same system-scoped `configuration.read`
+        // gate as the dashboard's per-system configuration view.
+        env.getExtensionPoint(aiToolProjectionExtensionPoint).expose({
+          procedure: healthCheckContract.getSystemConfigurations,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "getSystemConfigurations",
+          name: "healthcheck.listSystemChecks",
+          description:
+            "List the health checks ASSIGNED to a specific system, given its " +
+            "`systemId` (resolve a system NAME to its id with " +
+            "catalog.listSystems first). Returns each assigned check's id, " +
+            "name, strategy, interval, collectors/assertions, and paused " +
+            "state. Use this to answer 'which checks monitor system X' or to " +
+            "attribute a specific or failing check to a system - " +
+            "healthcheck.status lists ALL checks globally WITHOUT the " +
+            "system mapping. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+
         // Historical run-by-run check results, filterable by system, time
         // window, and status. Complements `healthcheck.status` (which is only
         // CURRENT state): this is how the assistant answers "what issues did

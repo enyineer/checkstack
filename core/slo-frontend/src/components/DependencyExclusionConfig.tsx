@@ -69,13 +69,13 @@ export const DependencyExclusionConfig: React.FC<
             <SelectItem value="strict">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-destructive" />
-                Strict — All downtime counts
+                Strict - All downtime counts
               </div>
             </SelectItem>
             <SelectItem value="self-only">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                Self-Only — Exclude upstream-attributed downtime
+                <ShieldCheck className="w-4 h-4 text-success" />
+                Self-Only - Exclude upstream-attributed downtime
               </div>
             </SelectItem>
           </SelectContent>

@@ -11,6 +11,7 @@ import {
   mergeCounter,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -107,6 +108,12 @@ const tcpAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency aggregate: widen the band and require practical-significance
+    // floors so fast endpoints do not alert on small jitter.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -114,12 +121,19 @@ const tcpAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability is the primary, real signal. Debounce so a single
+    // transient failed bucket does not alert.
+    "x-anomaly-confirmation-window": 3,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw per-bucket error count scales with how many runs land in a bucket,
+    // so it has no stable baseline and is fully redundant with successRate
+    // (which already captures the same failures as a rate). Charting stays
+    // available; alerting is owned by successRate to avoid duplicate, noisy
+    // alerts on the same failures.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -278,10 +292,15 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
     const validatedConfig = this.config.validate(config);
     const socket = this.socketFactory();
 
+    const connectStart = performance.now();
     await socket.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
     });
+    // The only meaningful sub-phase for a raw TCP probe is the connect itself.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     const client: TcpTransportClient = {
       async exec(request: TcpConnectRequest): Promise<TcpConnectResult> {
@@ -295,6 +314,7 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => socket.close(),
     };
   }

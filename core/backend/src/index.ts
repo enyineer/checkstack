@@ -559,7 +559,11 @@ const init = async () => {
 
   // 1.6. Create backend-scoped ConfigService for core services
   const { ConfigServiceImpl } = await import("./services/config-service");
-  const configService = new ConfigServiceImpl("backend", db);
+  const configService = new ConfigServiceImpl(
+    "backend",
+    db,
+    rootLogger.child({ plugin: "backend" }),
+  );
 
   // 1.7. Register Queue Services
   rootLogger.debug("Registering queue services...");

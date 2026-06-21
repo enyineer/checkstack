@@ -49,8 +49,13 @@ test.describe("navigation, sidebar & access", () => {
     await expect(
       sidebar.getByRole("button", { name: "Reliability" }),
     ).toBeVisible();
+    // The former "Configuration" group was split into Settings / Platform /
+    // Developer; assert the new section headers.
     await expect(
-      sidebar.getByRole("button", { name: "Configuration" }),
+      sidebar.getByRole("button", { name: "Settings", exact: true }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole("button", { name: "Platform", exact: true }),
     ).toBeVisible();
 
     // Key entries are links directly in the rail (no menu to open).

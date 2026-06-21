@@ -64,6 +64,13 @@
       "when": 1781116020142,
       "tag": "0008_worthless_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781862252196,
+      "tag": "0009_gifted_quasar",
+      "breakpoints": true
     }
   ]
 }

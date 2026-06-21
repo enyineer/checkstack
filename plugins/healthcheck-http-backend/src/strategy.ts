@@ -8,13 +8,17 @@ import {
   z,
   type InferAggregatedResult,
   type ConnectedClient,
+  type TransportTimings,
   baseStrategyConfigSchema,
+  DEFAULT_EGRESS_DENY_CIDRS,
+  resolveAndValidateHost,
 } from "@checkstack/backend-api";
 import {
   healthResultString,
   healthResultSchema,
   StrategyCategory,
 } from "@checkstack/healthcheck-common";
+import { probeConnectTiming } from "./connect-probe";
 import type {
   HttpTransportClient,
   HttpRequest,
@@ -28,8 +32,25 @@ import type {
 /**
  * HTTP health check configuration schema.
  * Global defaults only - action params moved to RequestCollector.
+ *
+ * `egressDenyCidrs` extends the SSRF guard's default denylist. The collector
+ * runs in-process on the trusted core, so it always refuses to connect to
+ * cloud-metadata + link-local ranges (the secure default); operators can add
+ * further CIDRs here (e.g. to block a sensitive internal range) WITHOUT losing
+ * the metadata/link-local block. Leaving it unset keeps the secure default.
+ * RFC1918 / internal probing stays allowed by default (a monitoring tool's job).
+ *
+ * Optional + additive: existing stored configs (which lack this field) remain
+ * valid, so no schema-version bump / migration is required.
  */
-export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({});
+export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({
+  egressDenyCidrs: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Extra CIDR ranges to deny for outbound requests (added on top of the always-on cloud-metadata/link-local block).",
+    ),
+});
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
 
@@ -64,8 +85,12 @@ const httpAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Off by default: a raw per-bucket error COUNT scales with how many runs
+    // land in the bucket, so it has no stable baseline and drifts with traffic
+    // volume. The percent form of the same signal (`successRate`) is the one
+    // that alerts; this absolute twin stays chart-only to avoid duplicate,
+    // noisy alerting.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -85,6 +110,17 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   displayName = "HTTP/HTTPS Health Check";
   description = "HTTP endpoint health monitoring";
   category = StrategyCategory.NETWORKING;
+
+  /**
+   * DNS resolver used by the SSRF guard. Defaults to the system resolver
+   * (`resolveAndValidateHost`'s built-in). Injectable so tests can drive the
+   * guard deterministically without real network DNS.
+   */
+  constructor(
+    private readonly lookupFn?: (
+      hostname: string,
+    ) => Promise<Array<{ address: string; family: number }>>,
+  ) {}
 
   config: Versioned<HttpHealthCheckConfig> = new Versioned({
     version: 3, // v3 for createClient pattern with action params moved to RequestCollector
@@ -174,33 +210,118 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<HttpTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // SSRF secure default: deny cloud-metadata + link-local always, plus any
+    // operator-configured extra ranges. This collector runs IN-PROCESS on the
+    // trusted core, so without this guard a healthcheck author could point a
+    // check at http://169.254.169.254/... and read the response body.
+    const denyCidrs = [
+      ...DEFAULT_EGRESS_DENY_CIDRS,
+      ...(validatedConfig.egressDenyCidrs ?? []),
+    ];
+    const lookupFn = this.lookupFn;
+
+    // Mutable per-run timings holder. `exec` writes the request's transport
+    // phases here so the executor can lift them into `metadata.timings`.
+    const timings: TransportTimings = {};
+
     const client: HttpTransportClient = {
       async exec(request: HttpRequest): Promise<HttpResponse> {
         const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () => controller.abort(),
-          request.timeout ?? validatedConfig.timeout,
-        );
+        const timeoutMs = request.timeout ?? validatedConfig.timeout;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
+          // SSRF guard: resolve the host and reject any denied range (cloud
+          // metadata / link-local, plus operator extras) BEFORE issuing the
+          // request. We then `fetch` the ORIGINAL url verbatim - we do NOT pin
+          // the connection to the resolved IP. Pinning (rewriting the URL host
+          // to the IP + overriding the Host header + TLS SNI) breaks HTTP/2
+          // origins, whose authority comes from the URL's `:authority`
+          // pseudo-header, not the `Host` header - which is exactly what made
+          // real hosts like google.com answer 404/429 instead of 200. Issuing
+          // the original request keeps it byte-identical to a plain fetch.
+          //
+          // Trade-off: because `fetch` re-resolves DNS itself, this pre-flight
+          // validation has a DNS-rebind TOCTOU window (a host could resolve to
+          // an allowed IP here and a denied one at connect time). It still
+          // blocks the common cases - a host that statically resolves to a
+          // denied range, and direct denied IP literals. The resolved IP is
+          // reused only for the best-effort timing probe below.
+          const requestUrl = new URL(request.url);
+          const dnsStart = performance.now();
+          const target = await resolveAndValidateHost({
+            host: requestUrl.hostname,
+            denyCidrs,
+            ...(lookupFn === undefined ? {} : { lookupFn }),
+          });
+          const dnsMs = Math.max(0, performance.now() - dnsStart);
+          const isHttps = requestUrl.protocol === "https:";
+
+          // Connect/TLS timing comes from a short-lived raw probe to the SAME
+          // validated IP: Bun's `fetch` socket exposes no connect/handshake
+          // events, but raw net/tls sockets do. Best-effort, runs alongside the
+          // request, and never fails the check.
+          const probePromise = probeConnectTiming({
+            ip: target.ip,
+            port:
+              requestUrl.port === ""
+                ? isHttps
+                  ? 443
+                  : 80
+                : Number(requestUrl.port),
+            tls: isHttps,
+            servername: requestUrl.hostname,
+            timeoutMs,
+          });
+
+          // `fetch` resolves at the response HEADERS (time-to-first-byte);
+          // consuming the body is the transfer phase.
+          const fetchStart = performance.now();
           const response = await fetch(request.url, {
             method: request.method,
             headers: request.headers,
             body: request.body,
             signal: controller.signal,
           });
+          const ttfbMs = Math.max(0, performance.now() - fetchStart);
 
-          // Read body BEFORE clearing timeout - body streaming can also hang
+          // Read body BEFORE clearing the timeout - body streaming can also hang.
+          const transferStart = performance.now();
           const body = await response.text();
+          const transferMs = Math.max(0, performance.now() - transferStart);
 
           clearTimeout(timeoutId);
+
+          const probe = await probePromise;
+          // Server wait = time-to-first-byte minus the connection setup we could
+          // measure. Clamped: the probe is a parallel connection, so on a warm
+          // path its setup can exceed the request's ttfb.
+          const waitMs = Math.max(
+            0,
+            ttfbMs - ((probe.connectMs ?? 0) + (probe.tlsMs ?? 0)),
+          );
+
+          // Last-request-wins: reset then write this request's phases.
+          delete timings.dnsMs;
+          delete timings.connectMs;
+          delete timings.tlsMs;
+          delete timings.waitMs;
+          delete timings.transferMs;
+          delete timings.processingMs;
+          timings.dnsMs = dnsMs;
+          if (probe.connectMs !== undefined) timings.connectMs = probe.connectMs;
+          if (probe.tlsMs !== undefined) timings.tlsMs = probe.tlsMs;
+          timings.waitMs = waitMs;
+          timings.transferMs = transferMs;
+
           const headers: Record<string, string> = {};
-
-          // eslint-disable-next-line unicorn/no-array-for-each
-          response.headers.forEach((value, key) => {
+          for (const [key, value] of response.headers) {
             headers[key.toLowerCase()] = value;
-          });
+          }
 
+          // A received response - INCLUDING a 4xx/5xx - returns normally and is
+          // an assertable metric (never an error). Only a genuine transport
+          // failure (DNS, connect, TLS, timeout, abort) throws.
           return {
             statusCode: response.status,
             statusText: response.statusText,
@@ -217,6 +338,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // HTTP is stateless, nothing to close
       },

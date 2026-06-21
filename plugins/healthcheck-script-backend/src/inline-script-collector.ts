@@ -153,8 +153,12 @@ const inlineScriptResultSchema = healthResultSchema({
   value: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Value",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    // Free-form user-returned number with no stable baseline and no
+    // universal good/bad direction (it could be a load average, a queue
+    // depth, a row count, anything). A learned band over an arbitrary
+    // value is the core alert-fatigue case, so do not alert by default.
+    // It stays fully chartable and a user can opt in per check.
+    "x-anomaly-enabled": false,
   }).optional(),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -162,7 +166,7 @@ const inlineScriptResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -170,8 +174,9 @@ const inlineScriptResultSchema = healthResultSchema({
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Always implies `success: false`; alerting here as well double-fires
+    // on the same incident. Keep chartable, let `success` carry the alert.
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -185,6 +190,10 @@ const inlineScriptAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -192,6 +201,8 @@ const inlineScriptAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

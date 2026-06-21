@@ -15,9 +15,9 @@ import {
   Input,
   Label,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { Copy, AlertTriangle, RefreshCw } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface Props {
   satellite: SatelliteWithStatus | undefined;
@@ -58,7 +58,7 @@ export const RotateSatelliteTokenDialog: React.FC<Props> = ({
       onRotated();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to rotate token"));
+      toastError(toast, "Failed to rotate token", error);
     },
   });
 
@@ -85,7 +85,7 @@ export const RotateSatelliteTokenDialog: React.FC<Props> = ({
           <DialogHeader>
             <DialogTitle>New Token Issued</DialogTitle>
             <DialogDescription>
-              Save the new token securely — the previous token has been
+              Save the new token securely - the previous token has been
               invalidated and the new one will not be shown again.
             </DialogDescription>
           </DialogHeader>
@@ -144,7 +144,7 @@ export const RotateSatelliteTokenDialog: React.FC<Props> = ({
 
             <div className="grid gap-2 mt-2">
               <Label>Environment Variables</Label>
-              <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto">
+              <pre className="rounded-md bg-surface-inset p-3 text-xs font-mono overflow-x-auto">
                 {`CHECKSTACK_CORE_URL=<your-core-url>\nCHECKSTACK_SATELLITE_CLIENT_ID=${credentials.clientId}\nCHECKSTACK_SATELLITE_TOKEN=${credentials.token}`}
               </pre>
             </div>

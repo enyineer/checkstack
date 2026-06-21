@@ -30,6 +30,7 @@ import {
   useToast,
   usePerformance,
   cn,
+  toastError,
 } from "@checkstack/ui";
 import { Maximize2, Save, RefreshCw, Trash2, GitBranch } from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
@@ -47,43 +48,10 @@ import {
   type DependencyEdgeData,
 } from "./canvas/DependencyEdge";
 import { extractErrorMessage } from "@checkstack/common";
+import { autoLayout } from "./dependencyDisplay.logic";
 
 const nodeTypes = { system: SystemNodeComponent };
 const edgeTypes = { dependency: DependencyEdgeComponent };
-
-/**
- * Auto-layout for nodes without saved positions.
- * Places nodes in a grid pattern with reasonable spacing.
- */
-function autoLayout(
-  systemIds: string[],
-  savedPositions: NodePosition[],
-): Map<string, { x: number; y: number }> {
-  const posMap = new Map<string, { x: number; y: number }>();
-  const savedMap = new Map(savedPositions.map((p) => [p.systemId, p]));
-
-  const unpositioned = systemIds.filter((id) => !savedMap.has(id));
-  const cols = Math.ceil(Math.sqrt(unpositioned.length));
-  const spacingX = 250;
-  const spacingY = 120;
-
-  // Apply saved positions
-  for (const pos of savedPositions) {
-    posMap.set(pos.systemId, { x: pos.x, y: pos.y });
-  }
-
-  // Auto-position remaining systems
-  for (const [index, id] of unpositioned.entries()) {
-    const col = index % cols;
-    const row = Math.floor(index / cols);
-    posMap.set(id, {
-      x: col * spacingX + 100,
-      y: row * spacingY + 100,
-    });
-  }
-
-  return posMap;
-}
 
 function DependencyMapContent() {
   const { isLowPower } = usePerformance();
@@ -203,7 +171,7 @@ function DependencyMapContent() {
       void refetchWarnings();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update"));
+      toastError(toast, "Failed to update", error);
     },
   });
 
@@ -216,7 +184,7 @@ function DependencyMapContent() {
       void refetchWarnings();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete", error);
     },
   });
 
@@ -233,7 +201,7 @@ function DependencyMapContent() {
       }).isLocked;
       if (sourceLocked) {
         toast.error(
-          "Source system is managed by GitOps — declare the dependency in its YAML.",
+          "Source system is managed by GitOps - declare the dependency in its YAML.",
         );
         return;
       }
@@ -293,7 +261,10 @@ function DependencyMapContent() {
     const unpositioned = systemsData.systems
       .map((s) => s.id)
       .filter((id) => !savedPositionMap.has(id) && !currentPositionMap.has(id));
-    const fallbackPositions = autoLayout(unpositioned, []);
+    const fallbackPositions = autoLayout({
+      systemIds: unpositioned,
+      savedPositions: [],
+    });
 
     const newNodes: SystemNode[] = systemsData.systems.map((system) => {
       const pos =
@@ -419,7 +390,7 @@ function DependencyMapContent() {
   }
 
   return (
-    <div className="flex-1 min-h-0 rounded-xl border border-border overflow-hidden bg-background/50">
+    <div className="flex-1 min-h-0 rounded-[var(--d-card-r)] border border-border overflow-hidden bg-surface-inset">
       <ReactFlow<SystemNode, DependencyEdge>
         nodes={nodes}
         edges={edges}
@@ -465,15 +436,15 @@ function DependencyMapContent() {
           nodeColor={(n) => {
             const data = n.data as SystemNodeData;
             const status = data.derivedState ?? data.status ?? "operational";
-            if (status === "down") return "rgb(239 68 68)";
-            if (status === "degraded") return "rgb(245 158 11)";
-            return "rgb(16 185 129)";
+            if (status === "down") return "hsl(var(--status-down))";
+            if (status === "degraded") return "hsl(var(--status-warn))";
+            return "hsl(var(--status-ok))";
           }}
           maskColor="rgba(0, 0, 0, 0.2)"
         />
 
         {/* Top-right panel with actions */}
-        <Panel position="top-right" className="flex gap-2">
+        <Panel position="top-right" className="flex flex-wrap justify-end gap-2 max-w-[calc(100vw-2rem)]">
           {hasUnsaved && (
             <Badge
               variant="warning"
@@ -520,7 +491,7 @@ function DependencyMapContent() {
         <Panel position="bottom-left">
           <div
             className={cn(
-              "border border-border rounded-lg p-3 shadow-lg max-w-64",
+              "border border-border rounded-lg p-3 shadow-lg max-w-[calc(100vw-2rem)] sm:max-w-64",
               isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm",
             )}
           >
@@ -606,7 +577,7 @@ function DependencyMapContent() {
           <Panel position="top-left">
             <div
               className={cn(
-                "border border-border rounded-lg shadow-lg p-4 w-72 space-y-3",
+                "border border-border rounded-lg shadow-lg p-4 w-[calc(100vw-2rem)] sm:w-72 space-y-3",
                 isLowPower ? "bg-card" : "bg-card/95 backdrop-blur-sm",
               )}
             >

@@ -1,42 +1,12 @@
 import React from "react";
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { SystemStateBadgesSlot } from "@checkstack/catalog-common";
-import {
-  DependencyApi,
-  type DerivedState,
-} from "@checkstack/dependency-common";
-import { StatusBadge, type StatusTone } from "@checkstack/ui";
+import { DependencyApi } from "@checkstack/dependency-common";
+import { StatusBadge } from "@checkstack/ui";
 import { GitBranch } from "lucide-react";
+import { getBadgeLabel, getBadgeTone } from "./dependencyDisplay.logic";
 
 type Props = SlotContext<typeof SystemStateBadgesSlot>;
-
-function getBadgeTone(state: DerivedState): StatusTone {
-  switch (state) {
-    case "down": {
-      return "error";
-    }
-    case "degraded": {
-      return "warn";
-    }
-    default: {
-      return "info";
-    }
-  }
-}
-
-function getBadgeLabel(state: DerivedState): string {
-  switch (state) {
-    case "down": {
-      return "Upstream down";
-    }
-    case "degraded": {
-      return "Upstream degraded";
-    }
-    default: {
-      return "Dependency info";
-    }
-  }
-}
 
 /**
  * Displays a dependency warning badge for a system on the dashboard.
@@ -58,9 +28,9 @@ export const DependencyBadge: React.FC<Props> = ({ system }) => {
 
   return (
     <StatusBadge
-      tone={getBadgeTone(data.derivedState)}
+      tone={getBadgeTone({ state: data.derivedState })}
       icon={GitBranch}
-      label={getBadgeLabel(data.derivedState)}
+      label={getBadgeLabel({ state: data.derivedState })}
     />
   );
 };

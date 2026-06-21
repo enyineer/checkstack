@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, Lock, Mail, CheckCircle, AlertCircle } from "lucide-react";
+import { User, Lock, Mail, CheckCircle, AlertCircle, Check } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { AuthApi, authRoutes, passwordSchema } from "@checkstack/auth-common";
+import {
+  AuthApi,
+  authRoutes,
+  passwordSchema,
+  evaluatePasswordCriteria,
+} from "@checkstack/auth-common";
 import { resolveRoute, extractErrorMessage} from "@checkstack/common";
 import {
   Button,
@@ -33,7 +38,20 @@ export const OnboardingPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  // Live, per-criterion password feedback bound to the shared password schema's
+  // rules: each requirement ticks green as the user types instead of only
+  // surfacing as a destructive list on submit. `passwordValid` mirrors
+  // `passwordSchema.safeParse(...).success` (the criteria are in lock-step with
+  // the schema) and gates the submit button.
+  const passwordCriteria = useMemo(
+    () => evaluatePasswordCriteria(password),
+    [password],
+  );
+  const passwordValid = useMemo(
+    () => passwordCriteria.every((criterion) => criterion.met),
+    [passwordCriteria],
+  );
 
   const authClient = usePluginClient(AuthApi);
   const completeOnboardingMutation =
@@ -55,20 +73,6 @@ export const OnboardingPage = () => {
       navigate(resolveRoute(authRoutes.routes.login));
     }
   }, [checkingStatus, onboardingStatus, navigate]);
-
-  // Validate password on change
-  useEffect(() => {
-    if (password) {
-      const result = passwordSchema.safeParse(password);
-      if (result.success) {
-        setValidationErrors([]);
-      } else {
-        setValidationErrors(result.error.issues.map((issue) => issue.message));
-      }
-    } else {
-      setValidationErrors([]);
-    }
-  }, [password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -246,15 +250,32 @@ export const OnboardingPage = () => {
                   required
                 />
               </div>
-              {validationErrors.length > 0 && (
-                <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
-                  {validationErrors.map((validationError, i) => (
-                    <li key={i} className="text-destructive">
-                      {validationError}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ul className="space-y-1 pt-1">
+                {passwordCriteria.map((criterion) => (
+                  <li
+                    key={criterion.id}
+                    className={cn(
+                      "flex items-center gap-2 text-sm transition-colors",
+                      criterion.met
+                        ? "text-success"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                        criterion.met
+                          ? "border-success bg-success/10"
+                          : "border-muted-foreground/40",
+                      )}
+                      aria-hidden="true"
+                    >
+                      {criterion.met ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <span>{criterion.label}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="space-y-2">
@@ -278,14 +299,6 @@ export const OnboardingPage = () => {
               )}
             </div>
 
-            <div className="text-xs text-muted-foreground">
-              Password must be at least 8 characters and contain:
-              <ul className="list-disc pl-5 mt-1">
-                <li>At least one uppercase letter</li>
-                <li>At least one lowercase letter</li>
-                <li>At least one number</li>
-              </ul>
-            </div>
           </CardContent>
           <CardFooter>
             <Button
@@ -293,7 +306,7 @@ export const OnboardingPage = () => {
               className="w-full"
               disabled={
                 loading ||
-                validationErrors.length > 0 ||
+                !passwordValid ||
                 password !== confirmPassword ||
                 !name ||
                 !email

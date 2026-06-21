@@ -36,8 +36,9 @@ import {
   EmptyState,
   ConfirmationModal,
   useToast,
+  toastError,
+  cn,
 } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
 
 const TARGETS: { value: AiSkillTarget; label: string }[] = [
   { value: "chat", label: "Chat assistant" },
@@ -95,7 +96,7 @@ const SkillsContent: React.FC = () => {
       toast.success("Skill created");
       setForm(undefined);
     },
-    onError: (e) => toast.error(extractErrorMessage(e)),
+    onError: (e) => toastError(toast, "Failed to create skill", e),
   });
   const updateMutation = client.updateSkill.useMutation({
     onSuccess: () => {
@@ -103,14 +104,14 @@ const SkillsContent: React.FC = () => {
       setForm(undefined);
       setEditingId(undefined);
     },
-    onError: (e) => toast.error(extractErrorMessage(e)),
+    onError: (e) => toastError(toast, "Failed to update skill", e),
   });
   const deleteMutation = client.deleteSkill.useMutation({
     onSuccess: () => {
       toast.success("Skill deleted");
       setPendingDelete(undefined);
     },
-    onError: (e) => toast.error(extractErrorMessage(e)),
+    onError: (e) => toastError(toast, "Failed to delete skill", e),
   });
 
   const startCreate = () => {
@@ -269,34 +270,52 @@ const SkillsContent: React.FC = () => {
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {skills.map((skill) => (
-              <Card
-                key={skill.id}
-                className="flex cursor-pointer flex-col transition-colors hover:border-primary"
-                onClick={() => setViewing(skill)}
-              >
-                <CardHeader className="flex-row items-start justify-between space-y-0">
-                  <CardTitle className="text-base leading-snug">
-                    {skill.name}
-                  </CardTitle>
-                  <Badge variant={skill.source === "builtin" ? "outline" : "secondary"}>
-                    {skill.source === "builtin" ? "Builtin" : "User"}
-                  </Badge>
-                </CardHeader>
-                <CardContent className="flex flex-1 flex-col justify-between gap-3">
-                  <p className="text-sm text-muted-foreground">
-                    {skill.description}
-                  </p>
-                  <div className="flex gap-1">
-                    {skill.targets.map((t) => (
-                      <Badge key={t} variant="outline" className="font-normal">
-                        {t === "chat" ? "Chat" : "Analyze"}
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {skills.map((skill) => {
+              const builtin = skill.source === "builtin";
+              return (
+                <div key={skill.id} className="group h-full">
+                  <button
+                    type="button"
+                    onClick={() => setViewing(skill)}
+                    className="relative flex h-full w-full flex-col gap-3 overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] text-left shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl group-hover:shadow-primary/10"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <Lightbulb className="h-4 w-4" />
+                        </span>
+                        <span className="truncate text-base font-semibold leading-snug">
+                          {skill.name}
+                        </span>
+                      </div>
+                      <span
+                        className={cn(
+                          "inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                          builtin
+                            ? "bg-surface-inset text-muted-foreground"
+                            : "bg-primary/10 text-primary",
+                        )}
+                      >
+                        {builtin ? "Builtin" : "User"}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-sm text-muted-foreground">
+                      {skill.description}
+                    </p>
+                    <div className="mt-auto flex flex-wrap gap-1.5">
+                      {skill.targets.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center rounded-full bg-surface-inset px-2 py-0.5 text-xs text-muted-foreground"
+                        >
+                          {t === "chat" ? "Chat" : "Analyze"}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -335,7 +354,7 @@ const SkillsContent: React.FC = () => {
                 {viewing.systemPrompt && (
                   <div className="space-y-1">
                     <Label>System prompt</Label>
-                    <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+                    <pre className="whitespace-pre-wrap rounded-md bg-surface-inset p-3 text-xs">
                       {viewing.systemPrompt}
                     </pre>
                   </div>
@@ -343,7 +362,7 @@ const SkillsContent: React.FC = () => {
                 {viewing.promptTemplate && (
                   <div className="space-y-1">
                     <Label>Starter prompt</Label>
-                    <pre className="whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+                    <pre className="whitespace-pre-wrap rounded-md bg-surface-inset p-3 text-xs">
                       {viewing.promptTemplate}
                     </pre>
                   </div>
@@ -356,7 +375,7 @@ const SkillsContent: React.FC = () => {
                         {viewing.suggestedOutputFields.map((f) => (
                           <li
                             key={f.key}
-                            className="rounded-md border px-3 py-2"
+                            className="rounded-md border border-border/70 bg-surface-inset px-3 py-2"
                           >
                             <span className="font-mono">{f.key}</span>{" "}
                             <Badge variant="outline" className="font-normal">

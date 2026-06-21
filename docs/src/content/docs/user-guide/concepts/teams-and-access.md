@@ -94,8 +94,8 @@ Key takeaways:
 
 When a plugin needs to know whether the current user can see a particular resource, it does not reimplement team-grant logic. The auth backend exposes two service-to-service endpoints that every other plugin uses:
 
-- `checkResourceTeamAccess` for fast-path single-resource decisions ("can this user see system X?").
-- `getAccessibleResourceIds` for list paths ("of these system IDs, which ones can this user see?").
+- A single-resource access check for fast-path decisions ("can this user see system X?").
+- A list filter for list paths ("of these system IDs, which ones can this user see?").
 
 Both take a `hasGlobalAccess` argument (the caller's role-based verdict). If global access is granted, the backend returns true. Otherwise it consults team grants in a single query.
 

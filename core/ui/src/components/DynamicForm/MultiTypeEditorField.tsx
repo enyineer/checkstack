@@ -391,7 +391,7 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
         Native-code editors (javascript / typescript / shell) intentionally
         do NOT receive `templateProperties`: `{{ }}` template syntax is for
         text/markup fields only. Code fields access run context through
-        their language's native mechanism instead — a typed `context`
+        their language's native mechanism instead - a typed `context`
         object (driven by `typeDefinitions`) for TS/JS, and `$`-prefixed
         env vars (driven by `shellEnvVars`) for shell.
       */}

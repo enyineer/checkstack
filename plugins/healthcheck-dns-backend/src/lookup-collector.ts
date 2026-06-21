@@ -47,17 +47,24 @@ const lookupResultSchema = healthResultSchema({
   recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Off by default: the number of records a name returns legitimately
+    // varies run to run (round-robin A sets, CDN rotation, MX/NS changes),
+    // so a learned baseline over it produces alert fatigue rather than real
+    // problems. Failed lookups are already covered by success rate. Still
+    // chartable; users can opt in for names they know are fixed-size.
+    "x-anomaly-enabled": false,
   }),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
+    // Latency is a stable, baseline-able signal. Err wider and debounce so a
+    // single slow lookup does not page; floors keep fast resolvers from
+    // alerting on small absolute jitter.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
@@ -71,15 +78,26 @@ const lookupAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
+    // Bucket-averaged latency. Wider band plus debounce keeps a single slow
+    // bucket from paging; floors avoid alerting on small absolute drift.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    // Availability percent: the primary real-problem signal. Debounce one
+    // bucket of transient dips and require a few percent of real drop before
+    // alerting.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

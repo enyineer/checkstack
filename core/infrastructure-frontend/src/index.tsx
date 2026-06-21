@@ -22,7 +22,7 @@ export const infrastructurePlugin = createFrontendPlugin({
       // runtime. Show the sidebar entry only when the user can READ at least one
       // contributed tab; otherwise the page would just render "Access Denied".
       nav: {
-        group: "Configuration",
+        group: "Platform",
         icon: Server,
         isVisible: ({ accessRules }) =>
           pluginRegistry

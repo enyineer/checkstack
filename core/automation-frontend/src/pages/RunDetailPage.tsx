@@ -37,13 +37,26 @@ import {
   Alert,
   AlertTitle,
   AlertDescription,
+  cn,
 } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
+import {
+  RunStatusPill,
+  RUN_STATUS_TONE,
+  RUN_TONE_STYLES,
+} from "./run-status-pill";
+import { formatDuration } from "./run-duration";
 
 const noop = (): void => {
   return;
 };
+
+/**
+ * Poll interval for a live (`running`/`waiting`) run. Polling stops the moment
+ * the run reaches a terminal status, so a finished run makes no further calls.
+ */
+const RUN_POLL_INTERVAL_MS = 2000;
 
 const STEP_STATUS_ICON: Record<StepStatus, React.ComponentType<{ className?: string }>> = {
   pending: Clock,
@@ -54,26 +67,29 @@ const STEP_STATUS_ICON: Record<StepStatus, React.ComponentType<{ className?: str
   waiting: Hourglass,
 };
 
+// Step status icons carry the signal via shape + the status triad hue (never
+// hue alone): terminal outcomes map to the colorblind-safe status colors, while
+// in-flight/neutral lifecycle states stay muted/primary.
 const STEP_STATUS_COLOR: Record<StepStatus, string> = {
   pending: "text-muted-foreground",
   running: "text-primary",
-  success: "text-emerald-500",
-  failed: "text-destructive",
+  success: "text-status-ok",
+  failed: "text-status-down",
   skipped: "text-muted-foreground",
-  waiting: "text-amber-500",
+  waiting: "text-status-warn",
 };
 
-const RUN_STATUS_VARIANT: Record<
-  RunStatus,
-  "default" | "secondary" | "outline" | "destructive" | "success" | "warning"
-> = {
-  pending: "outline",
-  running: "secondary",
-  waiting: "warning",
-  success: "success",
-  failed: "destructive",
-  cancelled: "outline",
-  skipped: "outline",
+// Left status-accent for each step, mirroring STEP_STATUS_COLOR's tone intent
+// so a failed/waiting step reads down the timeline's left edge by position +
+// hue, not the icon alone. Neutral lifecycle states stay muted. Spelled out as
+// full literal strings so Tailwind's JIT keeps them.
+const STEP_STATUS_ACCENT: Record<StepStatus, string> = {
+  pending: "bg-muted-foreground/40",
+  running: "bg-primary",
+  success: "bg-status-ok",
+  failed: "bg-status-down",
+  skipped: "bg-muted-foreground/40",
+  waiting: "bg-status-warn",
 };
 
 /**
@@ -103,8 +119,23 @@ const RunDetailContent: React.FC = () => {
 
   const query = client.getRun.useQuery(
     { id: runId ?? "" },
-    { enabled: Boolean(runId) },
+    {
+      enabled: Boolean(runId),
+      // Live runs only: poll every 2s while the run is `running`/`waiting` so a
+      // user watching an execution sees steps progress without a manual reload.
+      // Returning `false` on a terminal status stops the polling entirely.
+      refetchInterval: (query) => {
+        const status = query.state.data?.run.status;
+        return status === "running" || status === "waiting"
+          ? RUN_POLL_INTERVAL_MS
+          : false;
+      },
+    },
   );
+
+  const isLive =
+    query.data?.run.status === "running" ||
+    query.data?.run.status === "waiting";
 
   const cancelMutation = client.cancelRun.useMutation();
 
@@ -133,6 +164,12 @@ const RunDetailContent: React.FC = () => {
       allowed={allowed}
       actions={
         <div className="flex items-center gap-2">
+          {isLive && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+              <CircleDot className="h-3.5 w-3.5" />
+              Live
+            </span>
+          )}
           <Link
             to={resolveRoute(automationRoutes.routes.runs, { automationId })}
           >
@@ -219,7 +256,7 @@ const RunDetailContent: React.FC = () => {
                   query.data.artifacts.map((artifact) => (
                     <details
                       key={artifact.id}
-                      className="rounded border border-border bg-card"
+                      className="rounded border border-border bg-surface-inset"
                     >
                       <summary className="flex cursor-pointer items-center justify-between px-2 py-1 text-xs">
                         <Badge variant="outline" className="font-mono">
@@ -248,13 +285,27 @@ const RunDetailContent: React.FC = () => {
 
 const RunHeader: React.FC<{
   run: { status: RunStatus; startedAt: Date; finishedAt?: Date };
-}> = ({ run }) => (
-  <Card>
-    <CardContent className="flex flex-wrap items-center gap-4 p-4">
-      <Badge variant={RUN_STATUS_VARIANT[run.status]} className="capitalize">
-        {run.status}
-      </Badge>
-      <div className="flex flex-col text-xs text-muted-foreground">
+}> = ({ run }) => {
+  const accent = RUN_TONE_STYLES[RUN_STATUS_TONE[run.status]].accent;
+  const duration = formatDuration(run.startedAt, run.finishedAt);
+
+  return (
+    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+      {/* Status accent stripe, matching the run-status pill's tone. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accent)}
+        aria-hidden
+      />
+      <div className="flex items-start justify-between gap-4 pl-2">
+        <div>
+          <p className="text-3xl font-bold leading-none tabular-nums text-foreground">
+            {duration}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">duration</p>
+        </div>
+        <RunStatusPill status={run.status} />
+      </div>
+      <div className="mt-4 flex flex-col gap-0.5 pl-2 text-xs text-muted-foreground">
         <span>
           Started{" "}
           {formatDistanceToNow(new Date(run.startedAt), { addSuffix: true })}
@@ -266,9 +317,9 @@ const RunHeader: React.FC<{
           </span>
         )}
       </div>
-    </CardContent>
-  </Card>
-);
+    </div>
+  );
+};
 
 const StepRow: React.FC<{
   step: {
@@ -285,11 +336,17 @@ const StepRow: React.FC<{
 }> = ({ step }) => {
   const Icon = STEP_STATUS_ICON[step.status];
   const colorClass = STEP_STATUS_COLOR[step.status];
+  const accentClass = STEP_STATUS_ACCENT[step.status];
 
   return (
-    <div className="rounded border border-border bg-card">
-      <div className="flex items-start gap-2 p-2">
-        <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${colorClass}`} />
+    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface">
+      {/* Step status accent: failed/waiting read down the left edge by hue. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accentClass)}
+        aria-hidden
+      />
+      <div className="flex items-start gap-2 p-2 pl-4">
+        <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", colorClass)} />
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <code className="truncate font-mono text-xs">
@@ -317,11 +374,11 @@ const StepRow: React.FC<{
         </div>
       </div>
       {step.resultPayload && Object.keys(step.resultPayload).length > 0 && (
-        <details className="border-t border-border">
-          <summary className="cursor-pointer px-2 py-1 text-[10px] text-muted-foreground">
+        <details className="border-t border-border/70">
+          <summary className="cursor-pointer px-2 py-1 pl-4 text-[10px] text-muted-foreground">
             Result payload
           </summary>
-          <pre className="overflow-x-auto p-2 text-xs">
+          <pre className="overflow-x-auto p-2 pl-4 text-xs">
             {JSON.stringify(step.resultPayload, null, 2)}
           </pre>
         </details>

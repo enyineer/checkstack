@@ -105,10 +105,33 @@ export interface SatelliteSandboxPolicySink {
 
 /**
  * Active satellite connection tracking.
+ *
+ * `allowedResults` is a per-connection cache of the (configId, systemId) pairs
+ * the satellite is actually assigned. It authorizes inbound `result` messages
+ * (a satellite may only report for what it is assigned), is seeded on connect
+ * and refreshed on every `pushConfigUpdate`, and is pod-local transport
+ * bookkeeping (`declareNonReactiveState`): the authoritative assignment set
+ * lives in the durable healthcheck tables and is re-read on each push. The key
+ * is `configId\u0000systemId` (NUL separator can't occur in an id).
  */
 interface SatelliteConnection {
   satellite: SatelliteWithStatus;
   ws: WsConnection;
+  allowedResults: Set<string>;
+}
+
+/** Build the per-connection authorization key for a (configId, systemId). */
+function resultAuthKey(configId: string, systemId: string): string {
+  return `${configId}\u0000${systemId}`;
+}
+
+/** Derive the allowed (configId, systemId) set from a satellite's assignments. */
+function buildAllowedResults(
+  assignments: ReadonlyArray<{ configId: string; systemId: string }>,
+): Set<string> {
+  return new Set(
+    assignments.map((a) => resultAuthKey(a.configId, a.systemId)),
+  );
 }
 
 /**
@@ -203,8 +226,19 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
 
         authenticatedSatellite = satellite;
 
-        // Track connection
-        this.connections.set(satellite.id, { satellite, ws });
+        // Fetch the authoritative assignment set up-front: it both feeds the
+        // `authenticated` payload below AND seeds the per-connection result
+        // authorization cache (a satellite may only report for what it is
+        // assigned). One read, used twice.
+        const assignments =
+          await this.configRelay.getAssignmentsForSatellite(satellite.id);
+
+        // Track connection (with the seeded result-authorization cache).
+        this.connections.set(satellite.id, {
+          satellite,
+          ws,
+          allowedResults: buildAllowedResults(assignments),
+        });
 
         // Drive the `connected` edge into the reactive entity (best-effort —
         // never block the auth handshake on a mirror failure). `apply` sets
@@ -235,8 +269,6 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         // Send authenticated response with full config. Carry the desired
         // script-package lockfile hash as the durable convergence backstop:
         // a satellite that missed a refresh push reconciles on connect.
-        const assignments =
-          await this.configRelay.getAssignmentsForSatellite(satellite.id);
         const scriptPackagesLockfileHash =
           await this.resolveDesiredLockfileHash();
         const sandboxPolicy = await this.resolveSandboxPolicy();
@@ -266,6 +298,27 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           break;
         }
         case "result": {
+          // AUTHORIZATION (not just authentication): a satellite may only
+          // report results for (configId, systemId) pairs it is actually
+          // assigned. The handshake proves WHICH satellite this is; this check
+          // proves WHAT it may report for. Without it, a compromised satellite
+          // could forge health data for any system (suppress a real outage,
+          // raise false alarms, inject payloads into charts/aggregates).
+          //
+          // Reject = log + DROP the single message (do NOT close the socket):
+          // a stale cache after a just-applied reassignment is corrected by the
+          // `config_updated` push, and we must never tear down a connection
+          // (and its legitimate results) over one unauthorized message.
+          const conn = this.connections.get(authenticatedSatellite.id);
+          const authKey = resultAuthKey(parsed.configId, parsed.systemId);
+          if (!conn || !conn.allowedResults.has(authKey)) {
+            this.logger.warn(
+              `Satellite ${authenticatedSatellite.name} (${authenticatedSatellite.region}) ` +
+                `reported a result for unassigned config=${parsed.configId} ` +
+                `system=${parsed.systemId}; dropping (not in its assignment set)`,
+            );
+            break;
+          }
           await this.resultHandler.handleResult({
             satelliteId: authenticatedSatellite.id,
             sourceLabel: `${authenticatedSatellite.name} (${authenticatedSatellite.region})`,
@@ -409,6 +462,12 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
     const assignments =
       await this.configRelay.getAssignmentsForSatellite(satelliteId);
     const scriptPackagesLockfileHash = await this.resolveDesiredLockfileHash();
+
+    // Keep the result-authorization cache in lockstep with the pushed
+    // assignments so a reassignment immediately changes what the satellite may
+    // report for (a removed assignment can no longer post results, a new one
+    // can). The durable assignment tables remain the source of truth.
+    conn.allowedResults = buildAllowedResults(assignments);
 
     this.sendMessage(conn.ws, {
       type: "config_updated",

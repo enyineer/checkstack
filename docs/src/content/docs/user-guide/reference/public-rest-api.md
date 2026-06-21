@@ -239,7 +239,7 @@ Common error codes:
 
 Applications use the same RBAC system as users. To call an endpoint, the application must have a role with the required access rule. Access rule format:
 
-```
+```text
 {pluginId}.{accessRuleId}
 ```
 

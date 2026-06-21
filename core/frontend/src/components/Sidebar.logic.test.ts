@@ -137,4 +137,19 @@ describe("selectNavGroups", () => {
       groups.find((g) => g.group === "Configuration")?.items.map((r) => r.path),
     ).toEqual(["/c1", "/c2"]);
   });
+
+  test("marks single-entry groups flat and multi-entry groups not flat", () => {
+    const groups = selectNavGroups({
+      routes: [
+        route("/solo", { group: "Workspace" }),
+        route("/c1", { group: "Configuration", order: 1 }),
+        route("/c2", { group: "Configuration", order: 2 }),
+      ],
+      accessRules: [],
+      isAuthenticated: true,
+      groupOrder: GROUP_ORDER,
+    });
+    expect(groups.find((g) => g.group === "Workspace")?.flat).toBe(true);
+    expect(groups.find((g) => g.group === "Configuration")?.flat).toBe(false);
+  });
 });

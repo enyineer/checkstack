@@ -175,7 +175,7 @@ export const ProviderEditor: React.FC<ProviderEditorProps> = ({
                 Auth Token {initialData ? "(leave empty to keep current)" : "(optional)"}
               </Label>
               {clearToken ? (
-                <div className="flex items-center gap-2 p-2 rounded-md border border-border bg-muted/50">
+                <div className="flex items-center gap-2 p-2 rounded-md border border-border bg-surface-inset">
                   <span className="text-sm text-muted-foreground flex-1">
                     Token will be removed on save
                   </span>

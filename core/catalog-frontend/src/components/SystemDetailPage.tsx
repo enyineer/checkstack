@@ -15,8 +15,6 @@ import {
 } from "@checkstack/catalog-common";
 import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import {
-  Card,
-  CardContent,
   Page,
   PageContent,
   PageLayout,
@@ -39,12 +37,10 @@ const MetadataSection: React.FC<{
   if (entries.length === 0) return null;
 
   return (
-    <>
-      <div className="h-px bg-border" />
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Metadata
-        </h3>
+    <div className="space-y-2 border-t border-border/60 pt-4">
+      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        Metadata
+      </h3>
         <dl className="space-y-1.5">
           {entries.map(({ key, displayValue }) => (
             <div key={key} className="flex gap-2 text-xs min-w-0">
@@ -57,8 +53,7 @@ const MetadataSection: React.FC<{
             </div>
           ))}
         </dl>
-      </div>
-    </>
+    </div>
   );
 };
 
@@ -174,134 +169,138 @@ export const SystemDetailPage: React.FC = () => {
         </div>
 
         {/* Right Column — System Context */}
-        <Card className="h-fit">
-          <CardContent className="p-4 space-y-4">
-            {/* System Information */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                About
-              </h3>
-              <p className="text-sm text-foreground">
-                {system.description || "No description provided"}
-              </p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3 w-3" />
-                  Created {formatDate(system.createdAt)}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3 w-3" />
-                  Updated {formatDate(system.updatedAt)}
-                </span>
+        <div className="h-fit space-y-4 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-4 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          {/* System Information */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              About
+            </h3>
+            <p className="text-sm text-foreground">
+              {system.description || "No description provided"}
+            </p>
+            {/* Number-led focal moment: concrete created/updated figures open
+                the panel instead of a grey inline run of prose. */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-md bg-surface-inset/60 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <Calendar className="h-3 w-3" aria-hidden="true" />
+                  Created
+                </div>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                  {formatDate(system.createdAt)}
+                </p>
+              </div>
+              <div className="rounded-md bg-surface-inset/60 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <Calendar className="h-3 w-3" aria-hidden="true" />
+                  Updated
+                </div>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                  {formatDate(system.updatedAt)}
+                </p>
               </div>
             </div>
+          </div>
 
-            {/* Access — "who can change this" (filled by auth-frontend; renders
-                nothing when the system is not team-scoped). */}
-            <ExtensionSlot slot={SystemMetaSlot} context={{ system }} />
+          {/* Access — "who can change this" (filled by auth-frontend; renders
+              nothing when the system is not team-scoped). */}
+          <ExtensionSlot slot={SystemMetaSlot} context={{ system }} />
 
-            <div className="h-px bg-border" />
-
-            {/* Contacts */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Contacts
-              </h3>
-              {!contactsData || contactsData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No contacts assigned
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {contactsData.map((contact) => (
-                    <div
-                      key={contact.id}
-                      className="flex items-center gap-2 text-sm"
+          {/* Contacts */}
+          <div className="space-y-2 border-t border-border/60 pt-4">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Contacts
+            </h3>
+            {!contactsData || contactsData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No contacts assigned
+              </p>
+            ) : (
+              <div className="space-y-0.5">
+                {contactsData.map((contact) => (
+                  <div
+                    key={contact.id}
+                    className="-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 text-sm transition-colors hover:bg-surface-inset"
+                  >
+                    {contact.type === "user" ? (
+                      <User className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                    <a
+                      href={`mailto:${contact.type === "user" ? contact.userEmail : contact.email}`}
+                      className="text-primary hover:underline truncate"
                     >
-                      {contact.type === "user" ? (
-                        <User className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
-                        <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                      <a
-                        href={`mailto:${contact.type === "user" ? contact.userEmail : contact.email}`}
-                        className="text-primary hover:underline truncate"
-                      >
-                        {contact.type === "user"
-                          ? (contact.userName ?? contact.userId)
-                          : contact.email}
-                      </a>
-                      {contact.label && (
-                        <span className="text-muted-foreground text-xs">
-                          ({contact.label})
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                      {contact.type === "user"
+                        ? (contact.userName ?? contact.userId)
+                        : contact.email}
+                    </a>
+                    {contact.label && (
+                      <span className="text-muted-foreground text-xs">
+                        ({contact.label})
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-            <div className="h-px bg-border" />
-
-            {/* Additional Links */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Additional Links
-              </h3>
-              {!linksData || linksData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No links</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {linksData.map((link) => (
-                    <div
-                      key={link.id}
-                      className="flex items-center gap-2 text-sm"
+          {/* Additional Links */}
+          <div className="space-y-2 border-t border-border/60 pt-4">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Additional Links
+            </h3>
+            {!linksData || linksData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No links</p>
+            ) : (
+              <div className="space-y-0.5">
+                {linksData.map((link) => (
+                  <div
+                    key={link.id}
+                    className="-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 text-sm transition-colors hover:bg-surface-inset"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline truncate"
                     >
-                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline truncate"
-                      >
-                        {link.label ?? link.url}
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                      {link.label ?? link.url}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-            <div className="h-px bg-border" />
+          {/* Groups */}
+          <div className="space-y-2 border-t border-border/60 pt-4">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Groups
+            </h3>
+            {groups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Not part of any groups
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {groups.map((group) => (
+                  <span
+                    key={group.id}
+                    className="inline-flex items-center rounded-full border border-border/70 bg-surface-inset px-2.5 py-0.5 text-xs font-medium text-foreground"
+                  >
+                    {group.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
-            {/* Groups */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Groups
-              </h3>
-              {groups.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Not part of any groups
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {groups.map((group) => (
-                    <span
-                      key={group.id}
-                      className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
-                    >
-                      {group.name}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Metadata (conditional) */}
-            <MetadataSection metadata={system.metadata} />
-          </CardContent>
-        </Card>
+          {/* Metadata (conditional) */}
+          <MetadataSection metadata={system.metadata} />
+        </div>
       </div>
     </PageLayout>
   );

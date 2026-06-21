@@ -3,8 +3,7 @@ import { Toggle, Label, LoadingSpinner } from "@checkstack/ui";
 import { PlusSquare, AlertCircle } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AuthApi } from "@checkstack/auth-common";
-import { useToast } from "@checkstack/ui";
-import { extractErrorMessage } from "@checkstack/common";
+import { useToast, toastError } from "@checkstack/ui";
 
 export interface TeamCreateGrantsEditorProps {
   /** The team whose create-capability grants are being managed. */
@@ -49,7 +48,7 @@ export const TeamCreateGrantsEditor: React.FC<TeamCreateGrantsEditorProps> = ({
 
   const onSettled = () => setPendingType(null);
   const setGrantMutation = authClient.setCreateGrant.useMutation({
-    onError: (e) => toast.error(extractErrorMessage(e)),
+    onError: (e) => toastError(toast, "Failed to update grants", e),
     onSettled,
   });
 

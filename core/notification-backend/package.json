@@ -18,6 +18,7 @@
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/automation-backend": "workspace:*",
+    "@checkstack/command-backend": "workspace:*",
     "@checkstack/cache-api": "workspace:*",
     "@checkstack/cache-utils": "workspace:*",
     "@checkstack/signal-common": "workspace:*",

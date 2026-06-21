@@ -41,6 +41,12 @@ Every tool declares an `effect`. It is required and is never inferred from the p
 
 Tools are owned by the plugins whose domain they act on: each plugin registers its own through these extension points from its own init, and `ai-backend` never depends on a capability plugin. For a worked, end-to-end example see [Registering AI tools from a plugin](/checkstack/developer-guide/ai/registering-tools/).
 
+## Where steering lives: description vs system prompt
+
+Trigger guidance for a tool, the "call this WHEN..." and "pass an id, not a name" rules, belongs in that tool's own `description`. It then travels with the tool across both transports and cannot drift from a separate prompt edit. The chat [system prompt](/checkstack/developer-guide/ai/chat/) carries only cross-tool strategy that no single tool can own (for example "do not answer a health question from one source; fan out across these tools, and do not stop at the first hit") and the universal id-discipline rule.
+
+The conversation's permission mode is stated once, by the system prompt's permission-mode line, never by mutating tool descriptions at wire time. A tool's `description` is therefore identical in `approve` and `auto` mode, so tool identity stays decoupled from conversation state. Do not append a per-mode note ("(auto-applied...)", "(requires human confirmation...)") to a description.
+
 ## Path 1: hand-authored composite tools
 
 Register a purpose-built tool through `aiToolExtensionPoint.registerTool` when the model needs a coarser or curated surface than raw CRUD. The name is qualified with the registering plugin id.

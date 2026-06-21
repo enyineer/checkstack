@@ -44,10 +44,15 @@ const minecraftServerResultSchema = z.object({
   tps: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "TPS",
+    // TPS is a real server performance signal: it sits near the healthy
+    // ceiling (20) and a sustained drop means the server is lagging. Keep
+    // enabled but debounce and widen the band so brief dips do not alert.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.05,
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 2,
+    "x-anomaly-min-relative-delta": 0.1,
   }).optional(),
 });
 
@@ -58,14 +63,22 @@ const minecraftServerAggregatedFields = {
   avgTps: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg TPS",
+    // Bucket-averaged server performance: keep enabled, debounce, and apply a
+    // practical floor so brief dips do not alert.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 2,
+    "x-anomaly-min-relative-delta": 0.1,
   }),
   minTps: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min TPS",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    // The per-bucket minimum is dominated by single worst-case ticks and is
+    // far noisier than the average twin we keep enabled. Disable to avoid
+    // alert fatigue from one-off lag spikes.
+    "x-anomaly-enabled": false,
   }),
 };
 

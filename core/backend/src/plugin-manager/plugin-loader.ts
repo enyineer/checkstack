@@ -17,6 +17,7 @@ import {
   RpcContext,
 } from "@checkstack/backend-api";
 import type { AccessRule, InstanceAccessConfig } from "@checkstack/common";
+import { extractErrorMessage } from "@checkstack/common";
 import { getPluginSchemaName } from "@checkstack/drizzle-helper";
 import { rootLogger } from "../logger";
 import type { ServiceRegistry } from "../services/service-registry";
@@ -28,6 +29,7 @@ import {
   discoverLocalPlugins,
   syncPluginsToDatabase,
 } from "../utils/plugin-discovery";
+import { verifyAndBackfillArtifactDigest } from "../services/plugin-installers/reload-verification";
 import type { InitCallback, PendingInit } from "./types";
 import { sortPlugins } from "./dependency-sorter";
 import {
@@ -1112,6 +1114,22 @@ async function bootstrapRuntimePlugins({
     if (!artifact) {
       rootLogger.warn(
         `   -> No artifact for ${row.name}@${row.version} — skipping. Re-install from the original source.`,
+      );
+      continue;
+    }
+    // Fail-closed integrity re-verification at boot. A tamper mismatch must
+    // refuse to load THIS plugin without crashing the whole boot, so we
+    // catch+skip rather than letting it propagate.
+    try {
+      await verifyAndBackfillArtifactDigest({
+        db,
+        pluginName: row.name,
+        tarball: artifact.tarball,
+        recordedDigest: row.installedDigest,
+      });
+    } catch (error) {
+      rootLogger.error(
+        `   -> 🚨 Integrity verification FAILED for ${row.name}@${row.version}; refusing to load it. ${extractErrorMessage(error)}`,
       );
       continue;
     }

@@ -8,6 +8,9 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
+  Card,
   HealthBadge,
   LoadingSpinner,
 } from "@checkstack/ui";
@@ -45,31 +48,51 @@ export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
   }
 
   return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Status</TableHead>
-            <TableHead>Time</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {history.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell>
-                <HealthBadge status={run.status} />
-              </TableCell>
-              <TableCell className="text-sm text-muted-foreground">
-                {run.timestamp
-                  ? formatDistanceToNow(new Date(run.timestamp), {
-                      addSuffix: true,
-                    })
-                  : "Unknown"}
-              </TableCell>
+    <>
+      <ResponsiveTable className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Status</TableHead>
+              <TableHead>Time</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {history.map((run) => (
+              <TableRow key={run.id}>
+                <TableCell>
+                  <HealthBadge status={run.status} />
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {run.timestamp
+                    ? formatDistanceToNow(new Date(run.timestamp), {
+                        addSuffix: true,
+                      })
+                    : "Unknown"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </ResponsiveTable>
+
+      <MobileCardList>
+        {history.map((run) => (
+          <Card
+            key={run.id}
+            className="flex flex-row items-center justify-between gap-2 p-3"
+          >
+            <HealthBadge status={run.status} />
+            <span className="text-xs text-muted-foreground">
+              {run.timestamp
+                ? formatDistanceToNow(new Date(run.timestamp), {
+                    addSuffix: true,
+                  })
+                : "Unknown"}
+            </span>
+          </Card>
+        ))}
+      </MobileCardList>
+    </>
   );
 };

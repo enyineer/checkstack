@@ -77,7 +77,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       </div>
 
       {/* Include Local Toggle */}
-      <div className="p-4 bg-muted/50 rounded-lg border">
+      <div className="p-4 bg-surface-inset rounded-lg border">
         <div className="flex items-center gap-3">
           <Checkbox
             checked={includeLocal}
@@ -209,7 +209,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
       </div>
 
       {/* Execution Summary */}
-      <div className="p-3 bg-muted/30 rounded-lg border text-xs text-muted-foreground">
+      <div className="p-3 bg-surface-inset rounded-lg border text-xs text-muted-foreground">
         <span className="font-medium">Execution: </span>
         {willRunAnywhere ? (
           <>

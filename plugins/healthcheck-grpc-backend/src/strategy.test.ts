@@ -51,6 +51,8 @@ describe("GrpcHealthCheckStrategy", () => {
       const result = await connectedClient.client.exec({ service: "" });
 
       expect(result.status).toBe("SERVING");
+      // The RPC round-trip is recorded as processingMs (last-request-wins).
+      expect(connectedClient.timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });
@@ -87,6 +89,8 @@ describe("GrpcHealthCheckStrategy", () => {
       const result = await connectedClient.client.exec({ service: "" });
 
       expect(result.error).toContain("Connection refused");
+      // A failed RPC still records the elapsed processing time.
+      expect(connectedClient.timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });

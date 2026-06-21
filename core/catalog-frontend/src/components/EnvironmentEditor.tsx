@@ -10,9 +10,9 @@ import {
   DialogTitle,
   DialogFooter,
   useToast,
+  toastError,
 } from "@checkstack/ui";
 import { Plus, Trash2 } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 import {
   metadataToRows,
   rowsToMetadata,
@@ -99,7 +99,7 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
       });
       onClose();
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Failed to save environment"));
+      toastError(toast, "Failed to save environment", error);
     } finally {
       setLoading(false);
     }

@@ -5,6 +5,7 @@ import {
   timestamp,
   primaryKey,
   integer,
+  bigint,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -380,3 +381,20 @@ export const aiRateLimit = pgTable(
     keyIdx: index("ai_rate_limit_key_idx").on(t.key, t.windowStart),
   }),
 );
+
+// --- better-auth rate-limit storage (shared-Postgres, state-and-scale §14.5) ---
+//
+// better-auth's BUILT-IN brute-force limiter (login, password-reset, etc.)
+// defaults to `storage: "memory"`, i.e. a per-pod in-process Map. With N pods
+// behind one database that makes the effective limit N x the intended cap — a
+// classic horizontal-scale brute-force hole that a single-process test never
+// catches. We back better-auth's limiter with THIS shared table via a
+// `customStorage` adapter (see `better-auth-rate-limit-store.ts`), so the
+// counter is global across all pods. `key` is better-auth's per-IP+path key,
+// `count` the running count in the current window, `lastRequest` the last hit
+// in epoch milliseconds.
+export const betterAuthRateLimit = pgTable("better_auth_rate_limit", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull().default(0),
+});

@@ -5,7 +5,10 @@ import {
   configString,
   markdownToPlainText,
 } from "@checkstack/backend-api";
-import { notificationStrategyExtensionPoint } from "@checkstack/notification-backend";
+import {
+  notificationStrategyExtensionPoint,
+  renderSubjectsAsMarkdown,
+} from "@checkstack/notification-backend";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
 import { extractErrorMessage } from "@checkstack/common";
@@ -194,14 +197,11 @@ const backstageStrategy: NotificationStrategy<
     let description = notification.body
       ? markdownToPlainText(notification.body)
       : undefined;
-    const subjects = notification.subjects ?? [];
-    if (subjects.length > 0) {
-      const lines = subjects.map((subject) =>
-        subject.url
-          ? `- [${subject.name}](${subject.url})`
-          : `- ${subject.name}`,
-      );
-      const block = `**Affected:**\n${lines.join("\n")}`;
+    const block = renderSubjectsAsMarkdown({
+      subjects: notification.subjects ?? [],
+      bullet: "-",
+    });
+    if (block) {
       description = description ? `${description}\n\n${block}` : block;
     }
 

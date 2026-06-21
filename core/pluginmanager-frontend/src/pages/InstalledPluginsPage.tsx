@@ -8,7 +8,6 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  Badge,
   Button,
   EmptyState,
   Table,
@@ -19,7 +18,13 @@ import {
   TableCell,
   Checkbox,
   Label,
+  ConfirmationModal,
   useToast,
+  toastError,
+  toastSuccess,
+  ResponsiveTable,
+  MobileCardList,
+  cn,
 } from "@checkstack/ui";
 import {
   usePluginClient,
@@ -27,7 +32,7 @@ import {
   useApi,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
-import { extractErrorMessage, resolveRoute } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import {
   PluginManagerApi,
   pluginManagerAccess,
@@ -36,7 +41,12 @@ import {
   type InstalledPlugin,
 } from "@checkstack/pluginmanager-common";
 import { Tip } from "@checkstack/tips-frontend";
-import { TypedConfirmModal } from "../components/TypedConfirmModal";
+import {
+  PLUGIN_TONE_STYLES,
+  presentPluginSource,
+  presentPluginStatus,
+} from "../components/pluginDisplay.logic";
+import { PluginStatusPill } from "../components/PluginStatusPill";
 
 const InstalledPluginsPageContent: React.FC = () => {
   const client = usePluginClient(PluginManagerApi);
@@ -61,7 +71,8 @@ const InstalledPluginsPageContent: React.FC = () => {
 
   const uninstallMutation = client.uninstall.useMutation({
     onSuccess: ({ uninstalledPackages }) => {
-      toast.success(
+      toastSuccess(
+        toast,
         `Uninstalled ${uninstalledPackages.length} package${
           uninstalledPackages.length === 1 ? "" : "s"
         }`,
@@ -69,8 +80,7 @@ const InstalledPluginsPageContent: React.FC = () => {
       setTarget(undefined);
       refetch();
     },
-    onError: (error) =>
-      toast.error(extractErrorMessage(error, "Uninstall failed")),
+    onError: (error) => toastError(toast, "Failed to uninstall plugin", error),
   });
 
   const installPath = resolveRoute(pluginManagerRoutes.routes.install);
@@ -89,7 +99,7 @@ const InstalledPluginsPageContent: React.FC = () => {
           plugin={pluginManagerMetadata}
           id="install"
           title="Extend Checkstack at runtime"
-          description="Plugins add new health-check protocols, notification channels, integrations, even auth backends — without rebuilding the platform. Install one from npm, a GitHub release, or upload a tarball directly."
+          description="Plugins add new health-check protocols, notification channels, integrations, even auth backends - without rebuilding the platform. Install one from npm, a GitHub release, or upload a tarball directly."
           side="bottom"
           align="end"
         >
@@ -141,11 +151,11 @@ const InstalledPluginsPageContent: React.FC = () => {
             <EmptyState
               icon={<Puzzle className="size-10" />}
               title="No plugins discovered yet"
-              description="Almost everything in Checkstack is a plugin — health-check protocols, notification channels, integrations, even auth backends. New ones can be installed at runtime from npm, a GitHub release, or a tarball you upload."
+              description="Almost everything in Checkstack is a plugin - health-check protocols, notification channels, integrations, even auth backends. New ones can be installed at runtime from npm, a GitHub release, or a tarball you upload."
               steps={[
                 "Click “Install plugin” to add a runtime plugin (e.g. a custom notification channel).",
                 "Drop in a tarball, paste an npm package name, or point at a GitHub release.",
-                "Bundled platform plugins always show up here too — they're read-only and managed by the Checkstack release.",
+                "Bundled platform plugins always show up here too - they're read-only and managed by the Checkstack release.",
               ]}
               actions={
                 <Button asChild>
@@ -157,60 +167,120 @@ const InstalledPluginsPageContent: React.FC = () => {
               }
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {plugins.map((p) => (
-                  <TableRow key={p.name}>
-                    <TableCell className="font-mono">{p.name}</TableCell>
-                    <TableCell>{p.version || "—"}</TableCell>
-                    <TableCell>
-                      <Badge variant={typeBadgeVariant(p.type)}>{p.type}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {p.source ? (
-                        <Badge variant="info">{p.source.type}</Badge>
-                      ) : (
-                        <Badge variant="secondary">monorepo</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {p.isUninstallable ? (
-                        <Badge variant="info">runtime</Badge>
-                      ) : (
-                        <Badge variant="secondary">core</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {p.isUninstallable && uninstallAccess.allowed ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setTarget(p)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Uninstall
-                        </Button>
-                      ) : undefined}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Version</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {plugins.map((p) => (
+                      <TableRow
+                        key={p.name}
+                        className="group transition-colors hover:bg-surface-inset"
+                      >
+                        <TableCell>
+                          <span className="font-mono text-sm font-semibold text-foreground break-all">
+                            {p.name}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                            v{p.version || "—"}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {p.type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {presentPluginSource({ source: p.source })}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <PluginStatusPill isUninstallable={p.isUninstallable} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {p.isUninstallable && uninstallAccess.allowed ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="opacity-70 transition-opacity group-hover:opacity-100"
+                              onClick={() => setTarget(p)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Uninstall
+                            </Button>
+                          ) : undefined}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList>
+                {plugins.map((p) => {
+                  const { tone } = presentPluginStatus({
+                    isUninstallable: p.isUninstallable,
+                  });
+                  return (
+                    <div key={p.name} className="group">
+                      <div className="relative flex flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                        <span
+                          className={cn(
+                            "absolute inset-y-0 left-0 w-1",
+                            PLUGIN_TONE_STYLES[tone].accent,
+                          )}
+                          aria-hidden
+                        />
+                        <div className="flex items-start justify-between gap-2 pl-2">
+                          <span className="font-mono text-sm font-semibold text-foreground break-all">
+                            {p.name}
+                          </span>
+                          <PluginStatusPill
+                            isUninstallable={p.isUninstallable}
+                          />
+                        </div>
+                        <div className="mt-1 pl-2 text-xs text-muted-foreground">
+                          <span className="tabular-nums">
+                            v{p.version || "—"}
+                          </span>{" "}
+                          &middot; {p.type} &middot;{" "}
+                          {presentPluginSource({ source: p.source })}
+                        </div>
+                        {p.isUninstallable && uninstallAccess.allowed && (
+                          <div className="mt-3 flex justify-end border-t border-border/60 pt-3 pl-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setTarget(p)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Uninstall
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>
 
-      <TypedConfirmModal
+      <ConfirmationModal
         isOpen={!!target}
         onClose={() => setTarget(undefined)}
         onConfirm={() => {
@@ -225,10 +295,10 @@ const InstalledPluginsPageContent: React.FC = () => {
         }}
         title={`Uninstall ${target?.name}`}
         confirmPhrase={target?.name ?? ""}
-        confirmLabel="Uninstall"
+        confirmText="Uninstall"
         variant="danger"
         isLoading={uninstallMutation.isPending}
-        description={
+        message={
           target ? (
             <UninstallDescription
               target={target}
@@ -248,20 +318,6 @@ const InstalledPluginsPageContent: React.FC = () => {
     </PageLayout>
   );
 };
-
-function typeBadgeVariant(type: string): "default" | "secondary" | "info" {
-  switch (type) {
-    case "backend": {
-      return "default";
-    }
-    case "frontend": {
-      return "info";
-    }
-    default: {
-      return "secondary";
-    }
-  }
-}
 
 const UninstallDescription: React.FC<{
   target: InstalledPlugin;
@@ -305,7 +361,7 @@ const UninstallDescription: React.FC<{
         {preview.dependents.length > 0 ? (
           <li className="text-warning">
             Dependent plugins:{" "}
-            <code>{preview.dependents.join(", ")}</code> — enable cascade
+            <code>{preview.dependents.join(", ")}</code> - enable cascade
             below to remove them too.
           </li>
         ) : undefined}
@@ -342,7 +398,7 @@ const UninstallDescription: React.FC<{
             checked={cascade}
             onCheckedChange={setCascade}
           />
-          <Label htmlFor="cascade">Cascade — also uninstall dependents</Label>
+          <Label htmlFor="cascade">Cascade - also uninstall dependents</Label>
         </div>
       ) : undefined}
     </div>

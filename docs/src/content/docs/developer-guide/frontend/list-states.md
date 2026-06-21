@@ -7,16 +7,16 @@ description: "Shared UI primitives for empty lists, query errors, skeleton loade
 `@checkstack/ui` ships a small family of primitives that cover the
 recurring "loading / empty / error / responsive list" surfaces every
 plugin frontend ends up reinventing. Reach for these before rolling
-your own — they encode the project's accessibility, performance, and
+your own - they encode the project's accessibility, performance, and
 copy conventions in one place.
 
 The current page sweeps that retrofit existing screens onto these
-primitives are tracked in Phases 5–7 of the v1 polishing plan.
+primitives are tracked in Phases 5 - 7 of the v1 polishing plan.
 
 > [!NOTE]
-> Every helper on this page is additive — adopting them is opt-in and
+> Every helper on this page is additive - adopting them is opt-in and
 > doesn't change the rendering of any existing screen. The page sweeps
-> in Phases 5–7 will migrate consumers one plugin at a time.
+> in Phases 5 - 7 will migrate consumers one plugin at a time.
 
 ## `ListEmptyState`
 
@@ -87,7 +87,7 @@ Dual-layout primitive for tabular data that has to degrade on narrow
 viewports. `ResponsiveTable` renders the standard `Table` markup on
 `sm` and up; `MobileCardList` renders a stacked card layout below the
 `sm` breakpoint. Both wrappers swap purely in CSS via Tailwind's
-`hidden` / `sm:hidden` utilities — no JS media-query gating and no
+`hidden` / `sm:hidden` utilities - no JS media-query gating and no
 SSR/CSR mismatch risk.
 
 ```tsx
@@ -143,7 +143,7 @@ import {
 > An earlier draft considered a context-driven `priority` prop on a
 > dedicated `ResponsiveTableHead`. That requires either cloning every
 > cell to inject a context attribute or maintaining a parallel index
-> from `TableHead` children to `TableCell` indices — both leak
+> from `TableHead` children to `TableCell` indices - both leak
 > coordination into the primitive. The `MobileCardList` companion is
 > deliberately the simpler, type-safe shape; callers decide which
 > fields show on mobile.
@@ -151,8 +151,8 @@ import {
 ### Sweeping a list page onto the dual layout
 
 The Phase 6 sweep retrofitted the highest-traffic configuration list
-tables — `HealthCheckList`, `SloConfigPage`, and the integration
-`DeliveryLogsPage` — onto this pattern. The transformation follows the
+tables - `HealthCheckList`, `SloConfigPage`, and the integration
+`DeliveryLogsPage` - onto this pattern. The transformation follows the
 same rhythm in every file and keeps the desktop table untouched:
 
 1. Wrap the existing `<Table>` chrome in a `<ResponsiveTable>` so it
@@ -162,7 +162,7 @@ same rhythm in every file and keeps the desktop table untouched:
    resource name and a status badge) at the top of each card, push the
    remaining columns into a muted secondary line, and keep the row's
    action buttons in a right-aligned footer.
-3. Mirror the dual layout in the page's `Skeleton` placeholder — both
+3. Mirror the dual layout in the page's `Skeleton` placeholder - both
    branches need a loading state, otherwise the page jumps on resolve.
 4. Reuse the existing per-row helpers (badges, action handlers,
    provenance locks) across both branches so business rules can't drift
@@ -171,7 +171,7 @@ same rhythm in every file and keeps the desktop table untouched:
 > [!IMPORTANT]
 > Don't add columns to the mobile card that aren't on the desktop
 > table, and don't reorder desktop columns. The sweep is a presentation
-> change only — same data, two layouts.
+> change only - same data, two layouts.
 
 ## `toastSuccess` / `toastError`
 
@@ -201,7 +201,7 @@ const { mutateAsync } = healthCheckClient.create.useMutation({
 Every list page that drives its data from a single `useQuery` should
 branch through the same four-state ladder: loading, error, empty,
 data. Copy this snippet verbatim and only swap the resource noun and
-the skeleton / list markup — the ordering and prop names are
+the skeleton / list markup - the ordering and prop names are
 load-bearing.
 
 ```tsx
@@ -243,21 +243,21 @@ Notes:
 - Skeletons should mimic the final layout. When the data path renders
   a table, render 2-3 placeholder rows that match the column count
   (`<Skeleton className="h-4 w-32" />` inside `<TableCell>` works well)
-  rather than a single generic block — the page should not jump when
+  rather than a single generic block - the page should not jump when
   data resolves.
 - `onRetry` is wrapped in an arrow that ignores the returned promise
   so the prop's `() => void` signature is respected without `void`
   call-site noise inside the JSX expression.
 - For detail pages where `useQuery` returns a single record, keep the
   existing `if (!data) return null` early-return and add a sibling
-  `if (isError)` branch that renders `QueryErrorState` — the ladder
+  `if (isError)` branch that renders `QueryErrorState` - the ladder
   pattern is for list pages, not single-record loads.
 
 ## Respecting low-power mode
 
 Decorative motion and blur effects should drop to a static state when
 `usePerformance().isLowPower` is true. Use the hook directly with an
-inline ternary (or `cn` for cleaner composition) — there is no helper
+inline ternary (or `cn` for cleaner composition) - there is no helper
 hook, the flag is the API.
 
 ```tsx
@@ -286,12 +286,12 @@ already gated), `backdrop-blur-*`, `hover:scale-*`, decorative
 
 Don't wrap:
 
-- **Colour transitions** (`transition-colors`) — they're cheap and
+- **Colour transitions** (`transition-colors`) - they're cheap and
   don't degrade UX on low-end devices.
-- **Functional UX transitions** — Drawer open/close, Dialog enter/exit,
+- **Functional UX transitions** - Drawer open/close, Dialog enter/exit,
   and other Radix-driven animations are already centrally managed by
   `@checkstack/ui`. Leave them alone.
-- **Skeletons** — the `Skeleton` primitive already drops its pulse in
+- **Skeletons** - the `Skeleton` primitive already drops its pulse in
   low-power mode. If you see raw `animate-pulse` on loading placeholders
   it's a candidate for migration to `Skeleton`, not for gating.
 
@@ -334,12 +334,12 @@ try {
 
 Conventions:
 
-- The action argument is a verb phrase ending **without** a colon —
+- The action argument is a verb phrase ending **without** a colon - 
   `toastError` adds the `": "` separator itself.
 - Leave terse one-liners like `toast.success("Saved")` or
-  `toast.error("Title is required")` alone — `toastSuccess`/`toastError`
+  `toast.error("Title is required")` alone - `toastSuccess`/`toastError`
   exist for the multi-clause, error-bearing shape, not as a blanket
   replacement.
 - When you migrate every `extractErrorMessage` call in a file onto
-  `toastError`, drop the now-orphaned import — leaving it triggers the
+  `toastError`, drop the now-orphaned import - leaving it triggers the
   unused-import warning.

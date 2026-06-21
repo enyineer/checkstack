@@ -1,5 +1,7 @@
 import React from "react";
 import { Flame, Trophy } from "lucide-react";
+import { usePerformance } from "@checkstack/ui";
+import { classifyStreak } from "./sloDisplay.logic";
 
 interface StreakCounterProps {
   currentStreak: number;
@@ -14,18 +16,30 @@ export const StreakCounter: React.FC<StreakCounterProps> = ({
   currentStreak,
   bestStreak,
 }) => {
+  const { isLowPower } = usePerformance();
+
   const getFlameColor = () => {
-    if (currentStreak >= 90) return "text-amber-400";
-    if (currentStreak >= 30) return "text-orange-500";
-    if (currentStreak >= 7) return "text-orange-400";
-    return "text-muted-foreground";
+    switch (classifyStreak({ currentStreak })) {
+      case "blazing": {
+        return "text-amber-400";
+      }
+      case "hot": {
+        return "text-orange-500";
+      }
+      case "warm": {
+        return "text-orange-400";
+      }
+      default: {
+        return "text-muted-foreground";
+      }
+    }
   };
 
   return (
     <div className="flex items-center gap-4">
       <div className="flex items-center gap-2">
         <Flame
-          className={`w-5 h-5 ${getFlameColor()} ${currentStreak > 0 ? "animate-pulse" : ""}`}
+          className={`w-5 h-5 ${getFlameColor()} ${currentStreak > 0 && !isLowPower ? "animate-pulse" : ""}`}
         />
         <span className="text-2xl font-bold tabular-nums">
           {currentStreak}

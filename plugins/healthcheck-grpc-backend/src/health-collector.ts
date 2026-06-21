@@ -38,17 +38,24 @@ export type HealthConfig = z.infer<typeof healthConfigSchema>;
 // ============================================================================
 
 const grpcHealthResultSchema = healthResultSchema({
+  // Informational echo of the gRPC status enum. Availability is already
+  // captured by the `serving` boolean (dominance), so leaving anomaly on the
+  // raw status text only adds a redundant, noisy categorical signal. Disabled
+  // by default; still chartable and opt-in.
   status: healthResultString({
     "x-chart-type": "text",
     "x-chart-label": "Status",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    "x-anomaly-enabled": false,
   }),
+  // Canonical availability signal. Dominance flip (SERVING -> not) is the
+  // real problem. A confirmation window debounces single-sample flaps so a
+  // transient blip does not page.
   serving: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Serving",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-anomaly-confirmation-window": 3,
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -73,13 +80,20 @@ const healthAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   servingRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Serving Rate",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 
@@ -132,6 +146,15 @@ export class HealthCollector implements CollectorStrategy<
     });
 
     const responseTimeMs = Date.now() - startTime;
+    // `serving` (and the raw `status` enum) are ASSERTABLE METRICS, not a
+    // collector-failure signal. A completed health RPC that answers
+    // NOT_SERVING / SERVICE_UNKNOWN / UNKNOWN is a SUCCESSFUL collection: the
+    // server was reached and responded. Only a real transport failure (the RPC
+    // could not complete - connection refused, deadline exceeded) sets
+    // `response.error` in the transport client, and that is the only thing we
+    // forward as a collector error. Whether a non-SERVING status makes the
+    // check unhealthy is decided by the user's assertions (e.g. "serving is
+    // true", or "status equals NOT_SERVING" when that is the wanted state).
     const serving = response.status === "SERVING";
 
     return {
@@ -140,8 +163,7 @@ export class HealthCollector implements CollectorStrategy<
         serving,
         responseTimeMs,
       },
-      error:
-        response.error ?? (serving ? undefined : `Status: ${response.status}`),
+      error: response.error,
     };
   }
 

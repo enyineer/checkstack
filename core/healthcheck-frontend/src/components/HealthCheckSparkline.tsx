@@ -1,7 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
-import { cn } from "@checkstack/ui";
-import { SparklineTooltip } from "./SparklineTooltip";
+import { UptimeRibbon, cn, type RibbonCell, type RibbonStatus } from "@checkstack/ui";
 
 interface HealthCheckSparklineProps {
   runs: Array<{
@@ -10,38 +9,56 @@ interface HealthCheckSparklineProps {
   className?: string;
 }
 
-const statusColors: Record<HealthCheckStatus, string> = {
-  healthy: "bg-success",
-  degraded: "bg-warning",
-  unhealthy: "bg-destructive",
+const SLOT_COUNT = 25;
+
+const statusToRibbon: Record<HealthCheckStatus, RibbonStatus> = {
+  healthy: "ok",
+  degraded: "warn",
+  unhealthy: "down",
+};
+
+const statusLabel: Record<HealthCheckStatus, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  unhealthy: "Unhealthy",
 };
 
 /**
- * Sparkline visualization showing recent health check runs.
- * Each run is represented as a small colored rectangle.
- * Runs are displayed oldest (left) to newest (right) for consistency
- * with other time-based charts.
+ * Per-run status track for a list row: a row of green / amber / red segments,
+ * oldest (left) to newest (right). Reskinned onto the design-system
+ * {@link UptimeRibbon} primitive (`reviews/design/expressive` uptime ribbon +
+ * `reviews/design/calm-premium` per-system track) so the all-good state reads
+ * serene and the status is multi-encoded (hue + per-cell title + the ribbon's
+ * accessible uptime summary), never color alone.
+ *
+ * Runs come in chronological order from the API (oldest first). Missing slots
+ * render as `unknown` cells so the footprint stays fixed (no layout shift).
  */
 export const HealthCheckSparkline: React.FC<HealthCheckSparklineProps> = ({
   runs,
   className,
 }) => {
-  // Runs come in chronological order from API (oldest first, newest last)
-  // Ensure we show 25 slots (with empty placeholders if fewer runs)
-  const slots = Array.from({ length: 25 }, (_, i) => runs[i]?.status);
+  const cells = useMemo<RibbonCell[]>(
+    () =>
+      Array.from({ length: SLOT_COUNT }, (_, i): RibbonCell => {
+        const status = runs[i]?.status;
+        return status
+          ? {
+              id: `run-${i}`,
+              status: statusToRibbon[status],
+              label: statusLabel[status],
+            }
+          : { id: `empty-${i}`, status: "unknown", label: "No data" };
+      }),
+    [runs],
+  );
 
   return (
-    <div className={cn("flex gap-0.5 items-center", className)}>
-      {slots.map((status, index) => (
-        <SparklineTooltip key={index} content={status || "No data"}>
-          <div
-            className={cn(
-              "w-2 h-4 rounded-sm transition-all hover:scale-110",
-              status ? statusColors[status] : "bg-muted/40",
-            )}
-          />
-        </SparklineTooltip>
-      ))}
-    </div>
+    <UptimeRibbon
+      cells={cells}
+      height={16}
+      gap={2}
+      className={cn("w-[88px]", className)}
+    />
   );
 };

@@ -16,12 +16,15 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/queue-api": "workspace:*",
-    "@checkstack/signal-common": "workspace:*"
+    "@checkstack/signal-common": "workspace:*",
+    "drizzle-orm": "^0.45.0",
+    "pg": "^8.21.0"
   },
   "devDependencies": {
-    "@checkstack/tsconfig": "workspace:*",
     "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "latest",
+    "@types/pg": "^8.20.0",
     "zod": "^4.0.0"
   }
 }

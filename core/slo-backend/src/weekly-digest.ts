@@ -53,7 +53,7 @@ export async function setupWeeklyDigestJob(deps: WeeklyDigestDeps) {
  * Core logic for the weekly SLO digest.
  * Computes status for all objectives, categorizes them, and emits the digest hook.
  */
-async function runWeeklyDigest(deps: {
+export async function runWeeklyDigest(deps: {
   service: SloService;
   engine: SloEngine;
   logger: Logger;

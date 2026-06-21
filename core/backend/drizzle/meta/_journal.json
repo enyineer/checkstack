@@ -15,6 +15,13 @@
       "when": 1777826951043,
       "tag": "0001_slim_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781863965425,
+      "tag": "0002_cheerful_marvex",
+      "breakpoints": true
     }
   ]
 }

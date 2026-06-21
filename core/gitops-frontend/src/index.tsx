@@ -15,7 +15,7 @@ export const gitopsPlugin = createFrontendPlugin({
       load: () => import("./pages/GitOpsPage").then((m) => ({ default: m.GitOpsPage })),
       accessRule: gitopsAccess.provider.read,
       nav: {
-        group: "Configuration",
+        group: "Platform",
         icon: GitBranch,
         label: "GitOps",
       },

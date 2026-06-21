@@ -140,6 +140,8 @@ function makeService(
   describeProposalResult?: ProposalDouble,
   /** Always-inject memory contents to fold into the system prompt this turn. */
   alwaysInjectContents: string[] = [],
+  /** Override the resolved connection (e.g. to flip the classifier toggle). */
+  connectionOverride?: Partial<OpenAiCompatibleConnection>,
 ) {
   const appended: Array<{ role: string; text: unknown }> = [];
   const spendInserts: Array<Record<string, unknown>> = [];
@@ -207,7 +209,9 @@ function makeService(
     } as never,
     systemAccessResolver: { accessibleSystemIds: async () => [] } as never,
     skillResolver: { list: async () => [], resolve: async () => undefined } as never,
-    connections: { resolve: async () => connection },
+    connections: {
+      resolve: async () => ({ ...connection, ...connectionOverride }),
+    },
     readInvoker: { invoke: async () => ({}) },
     recordExecuted: async () => {},
     db,
@@ -305,6 +309,31 @@ describe("streamTurn topical pre-classifier", () => {
     expect(spendInserts).toHaveLength(2);
   });
 
+  test("disableTopicalClassifier skips the classifier round-trip entirely", async () => {
+    // With the toggle on, the cheap pre-classifier must NOT run (no spend row for
+    // it), and the turn proceeds straight to the tool loop — the in-prompt
+    // decline carries off-topic handling instead.
+    let classifierCalls = 0;
+    const countingClassifier: ClassifierTextGenerator = async () => {
+      classifierCalls += 1;
+      return { text: "OFF_TOPIC", usage: usage(3, 1) };
+    };
+    const { service, spendInserts } = makeService(
+      countingClassifier,
+      undefined,
+      [],
+      { disableTopicalClassifier: true },
+    );
+    const res = await service.streamTurn(turn);
+    expect(res.status).toBe(200);
+    // The classifier was never invoked despite an "OFF_TOPIC"-returning stub...
+    expect(classifierCalls).toBe(0);
+    // ...so no classifier spend row was written...
+    expect(spendInserts).toHaveLength(0);
+    // ...and the normal tool loop ran (no short-circuit refusal).
+    expect(streamTextCalls).toHaveLength(1);
+  });
+
   test("hands streamText a normalized message history (starts with a user row)", async () => {
     const { service } = makeService(verdict("ON_TOPIC"));
     await service.streamTurn({ ...turn, userText: "list incidents" });
@@ -332,6 +361,27 @@ describe("streamTurn topical pre-classifier", () => {
     const { service } = makeService(verdict("ON_TOPIC"));
     await service.streamTurn({ ...turn, userText: "anything" });
     expect(streamTextCalls[0]?.system).not.toMatch(/Saved operator preferences/i);
+  });
+
+  test("PROMPT-CACHE ORDERING: the stable base prompt precedes the volatile memory preamble", async () => {
+    // Cache-friendliness (Phase 3): the byte-stable base system prompt must come
+    // FIRST so a caching-capable gateway can reuse the prefix; the per-turn
+    // volatile preambles (memory / skill / summary) come AFTER it. Prepending the
+    // volatile block (the prior bug) put changing content at the front and
+    // defeated any prefix cache.
+    const { service } = makeService(verdict("ON_TOPIC"), undefined, [
+      "Never use em-dashes in chat responses.",
+    ]);
+    await service.streamTurn({ ...turn, userText: "anything" });
+    const system = streamTextCalls[0]?.system as string;
+    // The stable base prompt opens the system message...
+    expect(system.startsWith("You are Checkstack's built-in assistant")).toBe(
+      true,
+    );
+    // ...and the volatile preference block comes strictly after it.
+    expect(system.indexOf("You are Checkstack's built-in assistant")).toBeLessThan(
+      system.indexOf("Saved operator preferences"),
+    );
   });
 
   test("surfaces a masked provider error (HTTP body) to the UI and the log", async () => {

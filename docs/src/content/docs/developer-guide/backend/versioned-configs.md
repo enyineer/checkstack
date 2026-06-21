@@ -522,7 +522,7 @@ describe("Config Migrations", () => {
 
 ### 5. Keep Old Schemas
 
-Don't delete old schema definitions—you need them for type safety in migrations:
+Don't delete old schema definitions - you need them for type safety in migrations:
 
 ```typescript
 // Keep all versions for reference

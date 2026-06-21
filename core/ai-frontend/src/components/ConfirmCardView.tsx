@@ -1,18 +1,17 @@
 import { useState } from "react";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  Button,
-  Badge,
-} from "@checkstack/ui";
+import { Button, cn } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { AiApi } from "@checkstack/ai-common";
 import { extractErrorMessage } from "@checkstack/common";
 import { ShieldAlert, Check, X } from "lucide-react";
 import type { ConfirmCard } from "../lib/stream-parser";
 import { DiffView } from "./DiffView";
+import {
+  toolCardToneStyles,
+  toolCardShell,
+  toolCardInset,
+  toolCardPill,
+} from "./tool-card-styles";
 
 /**
  * Renders a CONFIRM CARD for a mutate/destructive tool the model proposed. The
@@ -55,36 +54,56 @@ export function ConfirmCardView({
   };
 
   const destructive = card.effect === "destructive";
+  // A destructive proposal reads as "down" (a removal); a mutate/create
+  // proposal reads as "warn" (a proposed-but-not-yet-applied change). Status is
+  // encoded by accent-stripe position + hue + the pill, not by border alone.
+  const tone = destructive ? "down" : "warn";
+  const styles = toolCardToneStyles[tone];
 
   return (
-    <Card className={destructive ? "border-destructive/50" : "border-primary/40"}>
-      <CardHeader className="flex flex-row items-center gap-2">
-        <ShieldAlert
-          className={`w-4 h-4 ${destructive ? "text-destructive" : "text-primary"}`}
-        />
-        <CardTitle className="text-sm">
-          Confirm: {card.toolName}
-        </CardTitle>
-        <Badge variant={destructive ? "destructive" : "secondary"}>
-          {card.effect}
-        </Badge>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">{card.summary}</p>
+    <div className={toolCardShell}>
+      {/* Status accent stripe: status by position + hue, not color alone. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", styles.accent)}
+        aria-hidden
+      />
+      <div className="space-y-3 pl-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <ShieldAlert className={cn("mt-0.5 h-4 w-4 shrink-0", styles.icon)} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                {card.summary}
+              </p>
+              <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                {card.toolName}
+              </p>
+            </div>
+          </div>
+          <span className={cn(toolCardPill, styles.pill)}>
+            <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+            {card.effect}
+          </span>
+        </div>
+
         {/* For an update we show the before -> after diff (what changes);
             otherwise the full ready-to-apply payload (what will be created). */}
-        {card.diff && card.diff.length > 0 ? (
-          <div className="max-h-72 overflow-auto rounded bg-muted p-2">
-            <DiffView diff={card.diff} />
-          </div>
-        ) : (
-          <pre className="text-xs bg-muted rounded p-2 overflow-auto max-h-48">
-            {JSON.stringify(card.payload, null, 2)}
-          </pre>
-        )}
-        {error ? (
-          <p className="text-xs text-destructive">{error}</p>
-        ) : null}
+        <div className={cn(toolCardInset, "overflow-hidden")}>
+          <p className="px-2 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Preview
+          </p>
+          {card.diff && card.diff.length > 0 ? (
+            <div className="max-h-72 overflow-auto p-2 pt-1">
+              <DiffView diff={card.diff} />
+            </div>
+          ) : (
+            <pre className="max-h-48 overflow-auto p-2 pt-1 text-xs">
+              {JSON.stringify(card.payload, null, 2)}
+            </pre>
+          )}
+        </div>
+
+        {error ? <p className="text-xs text-status-down">{error}</p> : null}
         {state === "pending" ? (
           <div className="flex gap-2">
             <Button
@@ -107,11 +126,27 @@ export function ConfirmCardView({
             </Button>
           </div>
         ) : (
-          <p className="text-xs font-medium">
+          <span
+            className={cn(
+              toolCardPill,
+              state === "applied"
+                ? toolCardToneStyles.ok.pill
+                : "bg-surface-inset text-muted-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                state === "applied"
+                  ? toolCardToneStyles.ok.dot
+                  : "bg-muted-foreground",
+              )}
+              aria-hidden
+            />
             {state === "applied" ? "Applied." : "Declined."}
-          </p>
+          </span>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

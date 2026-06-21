@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { cn, usePerformance } from "@checkstack/ui";
+import { combineStatus, type NodeStatus } from "../dependencyDisplay.logic";
 
 export interface SystemNodeData extends Record<string, unknown> {
   label: string;
@@ -15,55 +16,64 @@ export interface SystemNodeData extends Record<string, unknown> {
 
 export type SystemNode = Node<SystemNodeData, "system">;
 
-const statusStyles: Record<string, { border: string; bg: string; glow: string; dot: string }> = {
+/**
+ * Per-status class sets for the node's left accent stripe, status pill, and dot.
+ * Spelled out as full literal strings (not interpolated) so Tailwind's JIT keeps
+ * them, and driven by the colorblind-safe status triad.
+ */
+const statusStyles: Record<
+  NodeStatus,
+  { accent: string; pill: string; dot: string }
+> = {
   operational: {
-    border: "border-emerald-500/40",
-    bg: "bg-emerald-500/5",
-    glow: "shadow-emerald-500/10",
-    dot: "bg-emerald-500",
+    accent: "bg-status-ok",
+    pill: "bg-status-ok/10 text-status-ok",
+    dot: "bg-status-ok",
   },
   degraded: {
-    border: "border-amber-500/40",
-    bg: "bg-amber-500/5",
-    glow: "shadow-amber-500/10",
-    dot: "bg-amber-500",
+    accent: "bg-status-warn",
+    pill: "bg-status-warn/10 text-status-warn",
+    dot: "bg-status-warn",
   },
   down: {
-    border: "border-red-500/40",
-    bg: "bg-red-500/5",
-    glow: "shadow-red-500/10",
-    dot: "bg-red-500",
+    accent: "bg-status-down",
+    pill: "bg-status-down/10 text-status-down",
+    dot: "bg-status-down",
   },
 };
 
-function combineStatus(
-  status?: string,
-  derivedState?: string,
-): "operational" | "degraded" | "down" {
-  const order = { operational: 0, info: 0, degraded: 1, down: 2 };
-  const ownLevel = order[(status ?? "operational") as keyof typeof order] ?? 0;
-  const derivedLevel =
-    order[(derivedState ?? "operational") as keyof typeof order] ?? 0;
-  const level = Math.max(ownLevel, derivedLevel);
-  if (level >= 2) return "down";
-  if (level >= 1) return "degraded";
-  return "operational";
-}
+const ownStatusLabel: Record<string, string> = {
+  operational: "Healthy",
+  degraded: "Degraded",
+  down: "Unhealthy",
+};
+
+const derivedStateLabel: Record<string, string> = {
+  info: "↑ Upstream issue",
+  degraded: "↑ Upstream degraded",
+  down: "↑ Upstream down",
+};
 
 /**
- * Custom React Flow node representing a system in the dependency graph.
- * Color-coded by worst of own status and derived warning state.
- * Features a split footer bar showing directional dependency counts
- * and color-coded handles for clear directionality.
+ * Custom React Flow node representing a system in the dependency graph,
+ * styled as a mini premium card: layered depth, a left accent stripe keyed to
+ * the worst of own + derived status, a multi-encoded status pill, and the two
+ * directional dependency counts promoted to number-led heroes. Color-coded
+ * handles preserve directionality.
  */
 export const SystemNodeComponent = memo(function SystemNodeComponent({
   data,
   selected,
 }: NodeProps<SystemNode>) {
   const { isLowPower } = usePerformance();
-  const effectiveStatus = combineStatus(data.status, data.derivedState);
+  const effectiveStatus = combineStatus({
+    status: data.status,
+    derivedState: data.derivedState,
+  });
   const styles = statusStyles[effectiveStatus];
   const hasConnections = data.upstreamCount > 0 || data.downstreamCount > 0;
+
+  const ownStatus = data.status ?? "operational";
 
   return (
     <>
@@ -76,100 +86,77 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
 
       <div
         className={cn(
-          "rounded-xl border-2 shadow-lg",
-          !isLowPower && "backdrop-blur-sm transition-all duration-200",
-          styles.border,
-          styles.bg,
-          styles.glow,
+          "relative min-w-[140px] max-w-[220px] overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]",
+          !isLowPower &&
+            "backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl",
           selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
           !isLowPower && "hover:scale-[1.02]",
-          "cursor-grab active:cursor-grabbing min-w-[140px] max-w-[220px] overflow-hidden",
+          "cursor-grab active:cursor-grabbing",
         )}
       >
-        {/* Main body */}
-        <div className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            {/* Status dot */}
-            <div className="relative flex-shrink-0">
-              <div
-                className={`w-2.5 h-2.5 rounded-full ${styles.dot}`}
-              />
-              {effectiveStatus !== "operational" && !isLowPower && (
-                <div
-                  className={`absolute inset-0 w-2.5 h-2.5 rounded-full ${styles.dot} animate-ping opacity-75`}
-                />
-              )}
-            </div>
+        {/* Status accent stripe: status by position + hue, not border tint alone. */}
+        <span
+          className={cn("absolute inset-y-0 left-0 w-1", styles.accent)}
+          aria-hidden
+        />
 
-            {/* System name */}
-            <span className="text-sm font-medium text-foreground truncate">
+        {/* Main body */}
+        <div className="py-3 pl-3 pr-3">
+          <div className="flex items-start justify-between gap-2">
+            <span className="mt-0.5 truncate text-sm font-medium text-foreground">
               {data.label}
             </span>
+            {/* Status pill */}
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                styles.pill,
+              )}
+            >
+              <span className="relative flex-shrink-0">
+                <span
+                  className={cn("block size-1.5 rounded-full", styles.dot)}
+                />
+                {effectiveStatus !== "operational" && !isLowPower && (
+                  <span
+                    className={cn(
+                      "absolute inset-0 size-1.5 rounded-full opacity-75 animate-ping",
+                      styles.dot,
+                    )}
+                  />
+                )}
+              </span>
+              {ownStatusLabel[ownStatus]}
+            </span>
           </div>
 
-          {/* Status labels */}
-          <div className="mt-1.5 flex flex-col gap-0.5">
-            <span
-              className={`text-[10px] uppercase tracking-wider font-semibold ${
-                (data.status ?? "operational") === "operational"
-                  ? "text-emerald-500/70"
-                  : (data.status ?? "operational") === "degraded"
-                    ? "text-amber-500/70"
-                    : "text-red-500/70"
-              }`}
-            >
-              {(data.status ?? "operational") === "operational"
-                ? "Healthy"
-                : (data.status ?? "operational") === "degraded"
-                  ? "Degraded"
-                  : "Unhealthy"}
-            </span>
-            {data.derivedState && (
-              <span
-                className={`text-[10px] uppercase tracking-wider font-semibold ${
-                  data.derivedState === "info"
-                    ? "text-blue-400/70"
-                    : data.derivedState === "degraded"
-                      ? "text-amber-500/70"
-                      : "text-red-500/70"
-                }`}
-              >
-                {data.derivedState === "info"
-                  ? "↑ Upstream issue"
-                  : data.derivedState === "degraded"
-                    ? "↑ Upstream degraded"
-                    : "↑ Upstream down"}
-              </span>
-            )}
-          </div>
+          {data.derivedState && (
+            <p className="mt-1.5 text-[10px] text-muted-foreground">
+              {derivedStateLabel[data.derivedState]}
+            </p>
+          )}
         </div>
 
-        {/* Directional footer — only shown when the node has connections */}
+        {/* Directional footer — the number-led moment, only when connected */}
         {hasConnections && (
-          <div className="flex border-t border-border/40">
+          <div className="flex border-t border-border/60">
             {/* Left zone: incoming — systems that depend on this node */}
-            <div className="flex-1 flex items-center gap-1 px-2.5 py-1.5 bg-teal-500/5 border-r border-border/30">
-              <span className="text-[10px] text-teal-400/80 font-medium">
-                ←
-              </span>
-              <span className="text-[10px] text-teal-400/80 font-medium tabular-nums">
+            <div className="flex flex-1 flex-col items-start px-3 py-2 border-r border-border/40">
+              <span className="text-xl font-bold tabular-nums text-foreground leading-none">
                 {data.downstreamCount}
               </span>
-              <span className="text-[10px] text-muted-foreground/60 truncate">
+              <span className="mt-0.5 text-[10px] text-muted-foreground">
                 used by
               </span>
             </div>
 
             {/* Right zone: outgoing — systems this node depends on */}
-            <div className="flex-1 flex items-center justify-end gap-1 px-2.5 py-1.5 bg-violet-500/5">
-              <span className="text-[10px] text-muted-foreground/60 truncate">
-                depends
-              </span>
-              <span className="text-[10px] text-violet-400/80 font-medium tabular-nums">
+            <div className="flex flex-1 flex-col items-end px-3 py-2">
+              <span className="text-xl font-bold tabular-nums text-foreground leading-none">
                 {data.upstreamCount}
               </span>
-              <span className="text-[10px] text-violet-400/80 font-medium">
-                →
+              <span className="mt-0.5 text-[10px] text-muted-foreground">
+                depends
               </span>
             </div>
           </div>

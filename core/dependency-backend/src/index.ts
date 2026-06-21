@@ -8,12 +8,16 @@ import {
 } from "@checkstack/ai-backend";
 import {
   dependencyAccessRules,
+  dependencyAccess,
+  dependencyRoutes,
   pluginMetadata,
   dependencyContract,
   dependencySystemSubscription,
   dependencyGroupSubscription,
 } from "@checkstack/dependency-common";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import { resolveRoute } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
@@ -197,6 +201,22 @@ export default createBackendPlugin({
             logger,
           }),
         );
+
+        // Register the "Dependency Map" navigation command in the command
+        // palette so the sidebar destination is reachable from Cmd+K.
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "map",
+              title: "Dependency Map",
+              subtitle: "View the full system-topology graph",
+              iconName: "GitBranch",
+              route: resolveRoute(dependencyRoutes.routes.map),
+              requiredAccessRules: [dependencyAccess.map],
+            },
+          ],
+        });
 
         logger.debug("✅ Dependency Backend initialized.");
       },

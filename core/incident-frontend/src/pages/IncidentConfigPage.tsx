@@ -15,8 +15,9 @@ import {
   incidentAccess,
   pluginMetadata as incidentPluginMetadata,
 } from "@checkstack/incident-common";
-import { Tip } from "@checkstack/tips-frontend";
+import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
   Card,
   CardHeader,
@@ -24,7 +25,6 @@ import {
   CardTitle,
   CardContent,
   Button,
-  Badge,
   LoadingSpinner,
   EmptyState,
   QueryErrorState,
@@ -34,6 +34,8 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   Select,
   SelectTrigger,
   SelectValue,
@@ -42,6 +44,8 @@ import {
   useToast,
   ConfirmationModal,
   PageLayout,
+  toastError,
+  cn,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -50,10 +54,35 @@ import {
   Edit2,
   Clock,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { IncidentEditor } from "../components/IncidentEditor";
-import { extractErrorMessage } from "@checkstack/common";
+import {
+  getIncidentStatusBadge,
+  getIncidentSeverityBadge,
+  getIncidentSeverityAccentClass,
+} from "../utils/badges";
+
+/**
+ * In-app deep-link to the Incidents concept page (same-origin Starlight build
+ * served at `/checkstack/*`). Slug is centralised in `APP_DOC_SLUGS` and guarded
+ * against renames by `docs-links.test.ts`.
+ */
+const DOCS_INCIDENTS = docsPath(APP_DOC_SLUGS.incidents);
+
+/** Inline "Learn more" link to the incidents concept docs. */
+const IncidentLearnMore = () => (
+  <a
+    href={DOCS_INCIDENTS}
+    target="_blank"
+    rel="noreferrer"
+    className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+  >
+    Learn more
+    <ExternalLink className="h-3 w-3" />
+  </a>
+);
 
 const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
@@ -122,7 +151,7 @@ const IncidentConfigPageContent: React.FC = () => {
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete", error);
     },
   });
 
@@ -133,7 +162,7 @@ const IncidentConfigPageContent: React.FC = () => {
       setResolveId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to resolve"));
+      toastError(toast, "Failed to resolve", error);
     },
   });
 
@@ -162,43 +191,6 @@ const IncidentConfigPageContent: React.FC = () => {
     void refetchIncidents();
   };
 
-  const getStatusBadge = (status: IncidentStatus) => {
-    switch (status) {
-      case "investigating": {
-        return <Badge variant="destructive">Investigating</Badge>;
-      }
-      case "identified": {
-        return <Badge variant="warning">Identified</Badge>;
-      }
-      case "fixing": {
-        return <Badge variant="warning">Fixing</Badge>;
-      }
-      case "monitoring": {
-        return <Badge variant="info">Monitoring</Badge>;
-      }
-      case "resolved": {
-        return <Badge variant="success">Resolved</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
-  };
-
-  const getSeverityBadge = (severity: string) => {
-    switch (severity) {
-      case "critical": {
-        return <Badge variant="destructive">Critical</Badge>;
-      }
-      case "major": {
-        return <Badge variant="warning">Major</Badge>;
-      }
-      default: {
-        return <Badge variant="secondary">Minor</Badge>;
-      }
-    }
-  };
-
   const getSystemNames = (systemIds: string[]): string => {
     const names = systemIds
       .map((id) => systems.find((s) => s.id === id)?.name ?? id)
@@ -221,7 +213,16 @@ const IncidentConfigPageContent: React.FC = () => {
           plugin={incidentPluginMetadata}
           id="report"
           title="Incidents are deliberate, not automatic"
-          description="Incidents in Checkstack are events you open by hand for real, user-visible problems — they're not auto-created from failing health checks. Use “Report Incident” to record an outage you've detected (your own monitoring, a customer ticket, a security event) so it shows up on the dashboard and the public status page, and so subscribers get notified."
+          description={
+            <>
+              Incidents in Checkstack are events you open by hand for real,
+              user-visible problems - they're not auto-created from failing
+              health checks. Use “Report Incident” to record an outage you've
+              detected (your own monitoring, a customer ticket, a security event)
+              so it shows up on the dashboard and the public status page, and so
+              subscribers get notified. <IncidentLearnMore />
+            </>
+          }
           side="bottom"
           align="end"
         >
@@ -232,6 +233,20 @@ const IncidentConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
+      <TipBanner
+        plugin={incidentPluginMetadata}
+        id="config.intro"
+        title="What an incident is here"
+        description={
+          <>
+            An incident is a manual record of a real, user-visible outage. You
+            open it by hand - Checkstack never creates one from a failed health
+            check - so it surfaces on the dashboard and status page and reaches
+            subscribers. <IncidentLearnMore />
+          </>
+        }
+      />
+
       <Card>
         <CardHeader className="border-b border-border">
           <CardHeaderRow>
@@ -287,11 +302,11 @@ const IncidentConfigPageContent: React.FC = () => {
             <EmptyState
               icon={<AlertTriangle className="size-10" />}
               title="No incidents found"
-              description="Incidents capture real, user-visible problems with the systems you monitor. They're created intentionally — Checkstack does not auto-open them from failed health checks, because not every failed check is a real outage. Open one by hand whenever something's actually broken so it shows up on the dashboard, on the status page, and reaches subscribers."
+              description="Incidents capture real, user-visible problems with the systems you monitor. They're created intentionally - Checkstack does not auto-open them from failed health checks, because not every failed check is a real outage. Open one by hand whenever something's actually broken so it shows up on the dashboard, on the status page, and reaches subscribers."
               steps={[
                 "Adjust the filters above if you're looking for resolved or older incidents.",
                 "Click “Report Incident” to record an outage you've detected.",
-                "Linked systems and severity drive who gets notified — set them deliberately.",
+                "Linked systems and severity drive who gets notified - set them deliberately.",
               ]}
               actions={
                 canManage ? (
@@ -303,76 +318,169 @@ const IncidentConfigPageContent: React.FC = () => {
               }
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Systems</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead className="w-32">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-6" aria-hidden />
+                      <TableHead>Title</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Systems</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead className="w-32">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {incidents.map((i) => (
+                      <TableRow key={i.id} className="hover:bg-surface-inset">
+                        <TableCell className="pr-0">
+                          {/* Severity lead: scannable by hue + position. */}
+                          <span
+                            className={cn(
+                              "block size-2.5 rounded-full",
+                              getIncidentSeverityAccentClass(i.severity),
+                            )}
+                            aria-hidden
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">
+                              {i.title}
+                            </p>
+                            {i.description && (
+                              <p className="text-xs text-muted-foreground truncate max-w-xs">
+                                {i.description}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getIncidentSeverityBadge(i.severity)}
+                        </TableCell>
+                        <TableCell>
+                          {getIncidentStatusBadge(i.status)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {getSystemNames(i.systemIds)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            <span className="tabular-nums">
+                              {formatDistanceToNow(new Date(i.createdAt), {
+                                addSuffix: false,
+                              })}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(i)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            {i.status !== "resolved" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setResolveId(i.id)}
+                              >
+                                <CheckCircle2 className="h-4 w-4 text-success" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteId(i.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-4">
                 {incidents.map((i) => (
-                  <TableRow key={i.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{i.title}</p>
-                        {i.description && (
-                          <p className="text-sm text-muted-foreground truncate max-w-xs">
-                            {i.description}
-                          </p>
-                        )}
+                  <div
+                    key={i.id}
+                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+                  >
+                    {/* Severity accent: multi-encoded by hue + position. */}
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1",
+                        getIncidentSeverityAccentClass(i.severity),
+                      )}
+                      aria-hidden
+                    />
+                    <div className="pl-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 truncate font-semibold text-foreground">
+                          {i.title}
+                        </p>
+                        {getIncidentStatusBadge(i.status)}
                       </div>
-                    </TableCell>
-                    <TableCell>{getSeverityBadge(i.severity)}</TableCell>
-                    <TableCell>{getStatusBadge(i.status)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {getSystemNames(i.systemIds)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>
-                          {formatDistanceToNow(new Date(i.createdAt), {
-                            addSuffix: false,
-                          })}
+                      {i.description && (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {i.description}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {getIncidentSeverityBadge(i.severity)}
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          <span className="tabular-nums">
+                            {formatDistanceToNow(new Date(i.createdAt), {
+                              addSuffix: false,
+                            })}
+                          </span>
                         </span>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
+                      {i.systemIds.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {getSystemNames(i.systemIds)}
+                        </p>
+                      )}
+                      <div className="mt-3 flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(i)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      {i.status !== "resolved" && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleEdit(i)}
+                          onClick={() => setResolveId(i.id)}
                         >
-                          <Edit2 className="h-4 w-4" />
+                          <CheckCircle2 className="h-4 w-4 text-success" />
                         </Button>
-                        {i.status !== "resolved" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setResolveId(i.id)}
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-success" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(i.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteId(i.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>

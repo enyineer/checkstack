@@ -59,7 +59,7 @@ Use this guide when deciding where to place new code:
 
 ## Architecture Diagram
 
-```
+```text
 core/
 ├── backend/           # Core backend server
 ├── frontend/          # Core frontend app

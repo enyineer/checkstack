@@ -33,7 +33,7 @@ export default createBackendPlugin({
         logger.debug("Initializing Command Backend...");
 
         // Register oRPC router
-        const commandRouter = createCommandRouter();
+        const commandRouter = createCommandRouter({ logger });
         rpc.registerRouter(commandRouter, commandContract);
 
         logger.debug("✅ Command Backend initialized.");

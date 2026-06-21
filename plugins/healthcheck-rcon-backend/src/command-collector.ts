@@ -43,6 +43,8 @@ const commandResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Command execution time is a real latency signal. Err wide and require a
+    // sustained, practically significant slowdown before alerting.
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
@@ -60,6 +62,12 @@ const commandAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: wider band, debounce, and practical floors so small jitter on
+    // fast commands does not alert.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
 };
 

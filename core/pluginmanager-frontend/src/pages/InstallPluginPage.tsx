@@ -2,14 +2,16 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PageLayout,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Alert,
+  AlertIcon,
+  AlertContent,
   Badge,
   Button,
+  ConfirmationModal,
   useToast,
+  toastError,
+  toastSuccess,
+  formatBytes,
 } from "@checkstack/ui";
 import {
   usePluginClient,
@@ -27,7 +29,6 @@ import {
 } from "@checkstack/pluginmanager-common";
 import { ShieldAlert, Plus } from "lucide-react";
 import { SourceForm } from "../components/SourceForm";
-import { TypedConfirmModal } from "../components/TypedConfirmModal";
 
 const InstallPluginPageContent: React.FC = () => {
   const client = usePluginClient(PluginManagerApi);
@@ -57,7 +58,8 @@ const InstallPluginPageContent: React.FC = () => {
 
   const installMutation = client.install.useMutation({
     onSuccess: ({ installedPackages }) => {
-      toast.success(
+      toastSuccess(
+        toast,
         `Installed ${installedPackages.length} package${
           installedPackages.length === 1 ? "" : "s"
         }`,
@@ -67,8 +69,7 @@ const InstallPluginPageContent: React.FC = () => {
       setPendingSource(undefined);
       navigate(resolveRoute(pluginManagerRoutes.routes.installed));
     },
-    onError: (error) =>
-      toast.error(extractErrorMessage(error, "Install failed")),
+    onError: (error) => toastError(toast, "Failed to install plugin", error),
   });
 
   const handleSourceSubmit = (source: PluginSource) => {
@@ -87,22 +88,20 @@ const InstallPluginPageContent: React.FC = () => {
       allowed={allowed}
     >
       <Alert variant="warning">
-        <div className="flex items-start gap-3 text-sm">
-          <ShieldAlert className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <div>
-            <strong>Plugins run with full platform access.</strong> They can
-            read and write any data, including secrets. Only install plugins
-            from sources you trust. Malicious plugins can exfiltrate sensitive
-            data and damage your platform.
-          </div>
-        </div>
+        <AlertIcon>
+          <ShieldAlert className="h-5 w-5" aria-hidden />
+        </AlertIcon>
+        <AlertContent className="text-sm text-foreground">
+          <strong>Plugins run with full platform access.</strong> They can read
+          and write any data, including secrets. Only install plugins from
+          sources you trust. Malicious plugins can exfiltrate sensitive data and
+          damage your platform.
+        </AlertContent>
       </Alert>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Source</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="mt-6 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+        <h2 className="text-sm font-semibold text-foreground">Source</h2>
+        <div className="mt-4">
           <SourceForm
             onSubmit={handleSourceSubmit}
             isLoading={previewMutation.isPending}
@@ -110,10 +109,10 @@ const InstallPluginPageContent: React.FC = () => {
           {previewError ? (
             <p className="text-destructive text-sm mt-3">{previewError}</p>
           ) : undefined}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <TypedConfirmModal
+      <ConfirmationModal
         isOpen={confirmOpen && !!preview}
         onClose={() => setConfirmOpen(false)}
         onConfirm={() => {
@@ -129,12 +128,12 @@ const InstallPluginPageContent: React.FC = () => {
             : "Install"
         }
         confirmPhrase={preview?.primary.name ?? "INSTALL"}
-        confirmLabel={
-          blockable ? "Compatibility issues — fix first" : "Install"
+        confirmText={
+          blockable ? "Compatibility issues - fix first" : "Install"
         }
         variant="warning"
         isLoading={installMutation.isPending}
-        description={
+        message={
           preview ? <InstallDescription preview={preview} /> : "Loading…"
         }
       />
@@ -188,7 +187,7 @@ const InstallDescription: React.FC<{ preview: InstallPreview }> = ({
         </div>
       ) : undefined}
       <div className="text-xs text-muted-foreground">
-        Total size: {(preview.totalSizeBytes / 1024).toFixed(1)} KB
+        Total size: {formatBytes(preview.totalSizeBytes)}
       </div>
       {preview.hasInstallScripts ? (
         <Alert variant="warning">
@@ -204,7 +203,7 @@ const InstallDescription: React.FC<{ preview: InstallPreview }> = ({
           <summary className="cursor-pointer font-medium">
             Usage instructions
           </summary>
-          <pre className="whitespace-pre-wrap mt-2 p-3 bg-muted rounded text-xs">
+          <pre className="whitespace-pre-wrap mt-2 p-3 bg-surface-inset rounded text-xs">
             {preview.primary.checkstack.usageInstructions}
           </pre>
         </details>
@@ -212,7 +211,7 @@ const InstallDescription: React.FC<{ preview: InstallPreview }> = ({
       {compatibilityIssues.length > 0 ? (
         <Alert variant="error">
           <div className="text-sm">
-            <strong>Compatibility issues — install will fail:</strong>
+            <strong>Compatibility issues - install will fail:</strong>
             <ul className="list-disc pl-5 mt-1">
               {compatibilityIssues.map((iss, i) => (
                 <li key={i}>{iss.message}</li>

@@ -168,7 +168,7 @@ function MyComponent() {
 
 The plugin registry automatically validates that route `pluginId` matches the frontend plugin name. For example, if a plugin named `maintenance-frontend` registers a route with `pluginId: "maintenence"` (typo), an error is thrown:
 
-```
+```text
 ❌ Route pluginId mismatch: route "maintenence.config" has pluginId "maintenence" 
 but plugin is "maintenance-frontend" (base: "maintenance")
 ```

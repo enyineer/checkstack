@@ -21,7 +21,7 @@ export const GitOpsLockBanner: React.FC<GitOpsLockBannerProps> = ({
           Managed by GitOps
         </span>
         <span className="text-muted-foreground ml-1">
-          — edits are disabled. Changes must be made in Git.
+          - edits are disabled. Changes must be made in Git.
         </span>
         {provenance.sourceUrl ? (
           <a

@@ -14,7 +14,7 @@ import {
   healthCheckAccess,
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
-import { Tip } from "@checkstack/tips-frontend";
+import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import {
   HealthCheckList,
   HealthCheckListSkeleton,
@@ -28,9 +28,29 @@ import {
   useToast,
   toastError,
 } from "@checkstack/ui";
-import { Plus, History, Activity } from "lucide-react";
+import { Plus, History, Activity, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
-import { resolveRoute } from "@checkstack/common";
+import { resolveRoute, APP_DOC_SLUGS, docsPath } from "@checkstack/common";
+
+/**
+ * In-app deep-link to the Health checks concept page (same-origin Starlight
+ * build served at `/checkstack/*`). Slug is centralised in `APP_DOC_SLUGS` and
+ * guarded against renames by `docs-links.test.ts`.
+ */
+const DOCS_HEALTH_CHECKS = docsPath(APP_DOC_SLUGS.healthChecks);
+
+/** Inline "Learn more" link to the health-checks concept docs. */
+const HealthCheckLearnMore = () => (
+  <a
+    href={DOCS_HEALTH_CHECKS}
+    target="_blank"
+    rel="noreferrer"
+    className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+  >
+    Learn more
+    <ExternalLink className="h-3 w-3" />
+  </a>
+);
 import { useState } from "react";
 
 /**
@@ -228,7 +248,17 @@ const HealthCheckConfigPageContent = () => {
             plugin={healthcheckPluginMetadata}
             id="create"
             title="Health checks bring systems to life"
-            description="Each check decides what 'healthy' means for one of your systems — an HTTP endpoint returning 200, a TCP port being open, a Postgres query succeeding, anything you can express. Failed checks flip the system's health status, notify subscribers, and burn SLO error budget. They do NOT auto-open incidents — those are reported by hand when there's a real outage."
+            description={
+              <>
+                Each check decides what 'healthy' means for one of your systems -
+                an HTTP endpoint returning 200, a TCP port being open, a Postgres
+                query succeeding, anything you can express. Failed checks flip
+                the system's health status, notify subscribers, and burn SLO
+                error budget. They do NOT auto-open incidents - those are
+                reported by hand when there's a real outage.{" "}
+                <HealthCheckLearnMore />
+              </>
+            }
             side="bottom"
             align="end"
           >
@@ -239,6 +269,20 @@ const HealthCheckConfigPageContent = () => {
         </div>
       }
     >
+      <TipBanner
+        plugin={healthcheckPluginMetadata}
+        id="config.intro"
+        title="What health checks do"
+        description={
+          <>
+            A health check is a probe that runs on a schedule and decides whether
+            one of your systems is healthy. Failing checks flip that system's
+            status, notify subscribers, and burn SLO error budget - but they do
+            not open incidents automatically. <HealthCheckLearnMore />
+          </>
+        }
+      />
+
       {configurationsQuery.isLoading ? (
         <HealthCheckListSkeleton />
       ) : configurationsQuery.isError ? (

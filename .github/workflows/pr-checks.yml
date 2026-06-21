@@ -407,6 +407,180 @@ jobs:
             exit 1
           fi
 
+  # Derive the E2E shard matrix from the ACTUAL spec files so nothing is
+  # hand-maintained. Counts core/e2e/tests/*.spec.ts and picks a shard COUNT
+  # (~SPECS_PER_SHARD files each, capped so we never fan out to an unreasonable
+  # number of runners); Playwright's native `--shard=i/N` then splits the test
+  # list across exactly that many shards. Adding or removing a spec file needs
+  # NO workflow edit - the matrix follows the file count. Runs unconditionally
+  # (no branch `if`) so `needs.e2e_matrix.outputs.shards` is always valid JSON
+  # for the matrix expression, even when the e2e job itself is skipped.
+  e2e_matrix:
+    name: E2E Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.compute.outputs.shards }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+      - name: Compute shard list from spec-file count
+        id: compute
+        run: |
+          count=$(find core/e2e/tests -maxdepth 1 -name '*.spec.ts' | wc -l | tr -d ' ')
+          per=11   # target spec files per shard
+          max=5    # cap concurrent runners (CI-minute / fan-out budget)
+          shards=$(( (count + per - 1) / per ))
+          [ "$shards" -lt 1 ] && shards=1
+          [ "$shards" -gt "$max" ] && shards=$max
+          # 1-based JSON array (GitHub matrix + selectShard convention): [1,2,...].
+          # `paste -sd,` joins with no trailing comma (portable; avoids the BSD
+          # `seq -s` trailing-separator quirk that would break fromJSON).
+          echo "shards=[$(seq 1 "$shards" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+          echo "::notice::E2E sharding: $count spec file(s) -> $shards shard(s)"
+
+  # Build the frontend + docs ONCE and share them with every shard, instead of
+  # rebuilding in each leg (the build dominates an e2e leg's time). Uploads the
+  # two dist dirs the e2e backend serves: core/frontend/dist (read via
+  # CHECKSTACK_FRONTEND_DIST) and docs/dist (the CHECKSTACK_DOCS_DIST default).
+  # Needs git-LFS for the docs images (NoImageMetadata otherwise). Same branch
+  # guard as the e2e job, so a release branch skips the build too.
+  e2e_build:
+    name: E2E Build
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+      - name: Build frontend + docs
+        run: |
+          bun run --filter @checkstack/frontend build
+          bun run --filter @checkstack/docs build
+      - name: Upload build (frontend + docs dist)
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-build
+          path: |
+            core/frontend/dist
+            docs/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # Authenticated UI safety net (plan §1). Boots the REAL backend (better-auth,
+  # not dev-auth) against an isolated, migration-fresh `checkstack_e2e` database
+  # and drives the built SPA + docs through Playwright. Postgres is provisioned
+  # by the test runner itself (Testcontainers), the same way local runs get it -
+  # no GitHub Actions service container.
+  #
+  # BLOCKING: the suite is stable and fully green, so a red e2e run fails the
+  # aggregated PR-checks report (the `e2e` job is in the `report` job's `needs`).
+  #
+  # The harness reads its config from a repo-root `.env` (for the auth secrets).
+  # CI has no committed `.env`, so we materialise one with DETERMINISTIC,
+  # NON-SECRET values. `DATABASE_URL` is intentionally NOT set here:
+  # `with-e2e-postgres.ts` starts an ephemeral `postgres:16-alpine` and injects
+  # it, and Bun's `--env-file` never overrides an env var already in the
+  # environment, so that container URL flows down to `start-e2e-server.ts` and
+  # `run-all.ts` unchanged.
+  e2e:
+    name: E2E
+    needs: [e2e_matrix, e2e_build]
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    # Shard the suite across independent runners. Each leg gets its OWN ephemeral
+    # Postgres (Testcontainers) and boots ONE backend, then runs its slice of the
+    # tests in parallel (Playwright `--shard=i/N` splits the test list). The shard
+    # COUNT is DERIVED from the actual spec-file count by the e2e_matrix job -
+    # nothing here is hand-maintained. `fail-fast: false` so one shard's failure
+    # doesn't cancel the others (we want the full picture). `strategy.job-total`
+    # is the shard count, passed to `--shard` so it never drifts from the matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.e2e_matrix.outputs.shards) }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        # No git-LFS here: this job no longer builds the docs - it downloads the
+        # prebuilt frontend + docs dist from e2e_build (the LFS-tracked images
+        # are already baked into docs/dist), so each shard also skips the smudge.
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+
+      # Materialise the harness env. Values are deterministic CI defaults (never
+      # real secrets): the auth stack only needs SOME stable secret/key to boot.
+      # `DATABASE_URL` is intentionally omitted - `with-e2e-postgres.ts` starts
+      # an ephemeral Postgres and injects it (see the job comment above).
+      - name: Write CI .env for the e2e harness
+        run: |
+          cat > .env <<'ENV'
+          BASE_URL=http://localhost:3100
+          ENCRYPTION_MASTER_KEY=0000000000000000000000000000000000000000000000000000000000000000
+          BETTER_AUTH_SECRET=checkstack-e2e-ci-deterministic-secret
+          LOG_LEVEL=info
+          ENV
+
+      # `playwright:install` pins the browser download to the bun.lock-resolved
+      # Playwright version and includes the headless shell + OS deps.
+      - name: Install Playwright Chromium
+        run: bun run playwright:install --with-deps
+
+      # Reuse the single shared build from e2e_build instead of rebuilding per
+      # shard. Restores to the repo-root-relative paths the e2e backend reads
+      # (core/frontend/dist via CHECKSTACK_FRONTEND_DIST, docs/dist default).
+      - name: Download shared build (frontend + docs)
+        uses: actions/download-artifact@v8
+        with:
+          name: e2e-build
+          path: .
+
+      # `with-e2e-postgres.ts` starts an ephemeral Postgres (Testcontainers) and
+      # runs Playwright ONCE: the backend boots a single time against the
+      # freshly-reset e2e DB, then the data-isolated specs run in parallel.
+      # `--shard=i/N` is Playwright's native sharding - it splits the test list
+      # across runners, so each shard boots once and runs its slice. This is the
+      # exact command `bun run test:e2e` runs locally - CI and local are unified.
+      - name: Run E2E suite
+        id: e2e
+        run: |
+          set +e
+          bun --env-file=../../.env scripts/with-e2e-postgres.ts \
+            --shard="${{ matrix.shard }}/${{ strategy.job-total }}" \
+            2>&1 | tee "/tmp/e2e-output-${{ matrix.shard }}.txt"
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        working-directory: core/e2e
+
+      # Traces (on-first-retry) + screenshots (on-failure) land in
+      # core/e2e/test-results. Upload them so a failure is debuggable from the
+      # PR without re-running locally.
+      # Per-shard artifact names: parallel matrix legs cannot upload the same
+      # artifact name (v4+ rejects duplicates), so suffix each with the shard.
+      - name: Upload Playwright traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces-${{ matrix.shard }}
+          path: core/e2e/test-results
+          if-no-files-found: ignore
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-output-${{ matrix.shard }}
+          path: /tmp/e2e-output-${{ matrix.shard }}.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.e2e.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   security:
     name: Security
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
@@ -557,7 +731,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, deps, test, integration, security]
+    needs: [typecheck, lint, deps, test, integration, security, e2e, e2e_matrix, e2e_build]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -609,6 +783,18 @@ jobs:
           path: /tmp/artifacts/security
         continue-on-error: true
 
+      # E2E is sharded: collect every shard's output. Each artifact holds a
+      # distinctly-named file (e2e-output-<n>.txt), so merge-multiple lands them
+      # side by side; readOutput concatenates all .txt in the dir.
+      - name: Download E2E Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-output-*
+          path: /tmp/artifacts/e2e
+          merge-multiple: true
+        continue-on-error: true
+
       - name: Count previous failure comments
         id: count-failures
         uses: actions/github-script@v9
@@ -645,19 +831,37 @@ jobs:
             const testResult = '${{ needs.test.result }}';
             const integrationResult = '${{ needs.integration.result }}';
             const securityResult = '${{ needs.security.result }}';
+            const e2eResult = '${{ needs.e2e.result }}';
+            // E2E prerequisites: if either fails, `e2e` is SKIPPED (unsatisfied
+            // needs), which would otherwise read as a false green below.
+            const e2eMatrixResult = '${{ needs.e2e_matrix.result }}';
+            const e2eBuildResult = '${{ needs.e2e_build.result }}';
             const typecheckPassed = typecheckResult === 'success' || typecheckResult === 'skipped';
             const lintPassed = lintResult === 'success' || lintResult === 'skipped';
             const depsPassed = depsResult === 'success' || depsResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed;
+            const e2ePassed = e2eResult === 'success' || e2eResult === 'skipped';
+            const e2eMatrixPassed = e2eMatrixResult === 'success' || e2eMatrixResult === 'skipped';
+            const e2eBuildPassed = e2eBuildResult === 'success' || e2eBuildResult === 'skipped';
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed && e2ePassed && e2eMatrixPassed && e2eBuildPassed;
 
             // Read output files
             function readOutput(name) {
-              const filePath = path.join('/tmp/artifacts', name, `${name}-output.txt`);
+              const dir = path.join('/tmp/artifacts', name);
               try {
-                const content = fs.readFileSync(filePath, 'utf8');
+                // Read every .txt in the job's artifact dir and concatenate.
+                // Single-job dirs hold one `<name>-output.txt`; the sharded E2E
+                // dir holds one `e2e-output-<n>.txt` per shard.
+                const files = fs
+                  .readdirSync(dir)
+                  .filter((f) => f.endsWith('.txt'))
+                  .sort();
+                if (files.length === 0) return 'Output not available.';
+                const content = files
+                  .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
+                  .join('\n');
                 const lines = content.split('\n');
                 // Keep last 100 lines to avoid massive comments
                 if (lines.length > 100) {
@@ -690,6 +894,7 @@ jobs:
                 '| Test | ✅ Passed |',
                 '| Integration | ✅ Passed |',
                 '| Security | ✅ Passed |',
+                '| E2E | ✅ Passed |',
                 '',
                 '',
                 '@enyineer All quality checks have passed. This PR is ready for your review.',
@@ -800,6 +1005,22 @@ jobs:
                 ].join('\n'));
               }
 
+              if (!e2ePassed) {
+                const output = readOutput('e2e');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ E2E Failures</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** These are the Playwright end-to-end tests. Reproduce locally with `bun run --filter @checkstack/e2e test:e2e` (it provisions an ephemeral Postgres via Testcontainers, so Docker must be running). Read the failing assertions and uploaded traces, then fix the implementation or the selectors so the flows pass. Do not weaken or skip the tests.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
               // Build the trailing line based on escalation
               const trailingLine = escalate
                 ? '@enyineer The above code quality issues were found in this PR. Automated fixes have not resolved them after 3 attempts. Manual intervention is required.'
@@ -818,6 +1039,7 @@ jobs:
                 `| Test | ${icon(testPassed)} |`,
                 `| Integration | ${icon(integrationPassed)} |`,
                 `| Security | ${icon(securityPassed)} |`,
+                `| E2E | ${icon(e2ePassed)} |`,
                 '',
                 ...sections,
                 '',

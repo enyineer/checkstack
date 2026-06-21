@@ -37,10 +37,12 @@ const queryResultSchema = healthResultSchema({
   rowCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Row Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Row counts of arbitrary user-supplied SQL have no stable, universal
+    // baseline (a JOIN, a COUNT(*), a paginated SELECT all behave wildly
+    // differently) and no inherent good/bad direction. Baselining this would
+    // fire on routine data growth, so it is off by default. Still chartable
+    // and opt-in per check.
+    "x-anomaly-enabled": false,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -71,6 +73,12 @@ const queryAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency saturation signal. Err wider and require sustained drift plus a
+    // practical floor so a fast query is not flagged on sub-perceptible jitter.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -78,6 +86,10 @@ const queryAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Availability percent. Require a few consecutive degraded buckets and a
+    // meaningful absolute drop so a single transient failure does not alert.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 

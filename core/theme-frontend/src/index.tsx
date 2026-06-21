@@ -6,6 +6,7 @@ import {
 import { pluginMetadata } from "@checkstack/theme-common";
 import { ThemeToggleMenuItem } from "./components/ThemeToggleMenuItem";
 import { PerformanceToggleMenuItem } from "./components/PerformanceToggleMenuItem";
+import { DensityToggleMenuItem } from "./components/DensityToggleMenuItem";
 import { ThemeSynchronizer } from "./components/ThemeSynchronizer";
 import { NavbarThemeToggle } from "./components/NavbarThemeToggle";
 import { NavbarPerformanceToggle } from "./components/NavbarPerformanceToggle";
@@ -25,6 +26,12 @@ export const themePlugin = createFrontendPlugin({
       id: "theme.user-menu.performance.toggle",
       slot: UserMenuItemsBottomSlot,
       component: PerformanceToggleMenuItem,
+    },
+    // Density toggle in user menu (comfortable vs compact)
+    {
+      id: "theme.user-menu.density.toggle",
+      slot: UserMenuItemsBottomSlot,
+      component: DensityToggleMenuItem,
     },
     // Theme synchronizer - headless component that syncs theme from backend on load
     {

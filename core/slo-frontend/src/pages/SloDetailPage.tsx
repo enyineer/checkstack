@@ -23,6 +23,7 @@ import {
   Badge,
   ListEmptyState,
   QueryErrorState,
+  formatPercent,
 } from "@checkstack/ui";
 import {
   Target,
@@ -142,7 +143,12 @@ const SloDetailPageContent: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {status.currentAvailability?.toFixed(3) ?? "—"}%
+              {status.currentAvailability === null
+                ? "—"
+                : formatPercent(status.currentAvailability, {
+                    alreadyPercent: true,
+                    fractionDigits: 3,
+                  })}
             </div>
             <div className="text-sm text-muted-foreground mt-1">
               Target: {objective.target}%

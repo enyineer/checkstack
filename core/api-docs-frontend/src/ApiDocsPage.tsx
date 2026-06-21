@@ -8,10 +8,11 @@ import {
   Badge,
   Button,
   PageLayout,
+  cn,
+  usePerformance,
 } from "@checkstack/ui";
 import {
   ChevronDown,
-  ChevronRight,
   Copy,
   Check,
   Lock,
@@ -19,8 +20,14 @@ import {
   User,
   Server,
   FileCode,
+  KeyRound,
 } from "lucide-react";
 import { extractErrorMessage } from "@checkstack/common";
+import {
+  accessToneForUserType,
+  isExternallyAccessible,
+} from "./apiDocsStatus.logic";
+import { accessToneStyles } from "./apiDocsTone";
 
 interface OpenApiSpec {
   info: {
@@ -84,47 +91,50 @@ interface SchemaObject {
   allOf?: SchemaObject[];
 }
 
+/**
+ * Pick the access-status icon for a userType. The glyph distinguishes the four
+ * concrete types (public/user/service/authenticated); its color is driven by
+ * the colorblind-safe access triad so the hue still maps to security posture.
+ */
 function getUserTypeIcon(userType?: string) {
+  const iconColor = accessToneStyles[accessToneForUserType(userType)].icon;
   switch (userType) {
     case "public": {
-      return <Globe className="w-4 h-4 text-green-500" />;
+      return <Globe className={cn("w-4 h-4", iconColor)} />;
     }
     case "user": {
-      return <User className="w-4 h-4 text-blue-500" />;
+      return <User className={cn("w-4 h-4", iconColor)} />;
     }
     case "service": {
-      return <Server className="w-4 h-4 text-purple-500" />;
+      return <Server className={cn("w-4 h-4", iconColor)} />;
     }
     case "authenticated": {
-      return <Lock className="w-4 h-4 text-amber-500" />;
+      return <Lock className={cn("w-4 h-4", iconColor)} />;
     }
     default: {
-      return <Lock className="w-4 h-4 text-gray-500" />;
+      return <Lock className={cn("w-4 h-4", iconColor)} />;
     }
   }
 }
 
-function getUserTypeBadge(userType?: string) {
-  const colors: Record<string, string> = {
-    public:
-      "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-    user: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-    service:
-      "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-    authenticated:
-      "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-  };
-  return (
-    colors[userType ?? ""] ??
-    "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
-  );
-}
-
 /**
- * Check if an endpoint is accessible via external application tokens.
+ * The multi-encoded access status pill: a tone-colored dot plus the exact
+ * userType label (public/user/service/authenticated/unknown). Hue and dot
+ * both carry the security posture so the signal is not color-only.
  */
-function isExternallyAccessible(userType?: string): boolean {
-  return userType === "authenticated" || userType === "public";
+function AccessStatusPill({ userType }: { userType?: string }) {
+  const styles = accessToneStyles[accessToneForUserType(userType)];
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        styles.pill,
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+      {userType ?? "unknown"}
+    </span>
+  );
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -191,11 +201,11 @@ const PRIMITIVE_COLORS: Record<string, string> = {
   number: "text-amber-600 dark:text-amber-400",
   boolean: "text-red-600 dark:text-red-400",
   integer: "text-amber-600 dark:text-amber-400",
-  null: "text-gray-500",
+  null: "text-muted-foreground",
 };
 
 function PrimitiveType({ type, format }: { type: string; format?: string }) {
-  const className = PRIMITIVE_COLORS[type] ?? "text-gray-600";
+  const className = PRIMITIVE_COLORS[type] ?? "text-muted-foreground";
   return (
     <span className={className}>
       {type}
@@ -329,7 +339,7 @@ function SchemaDisplay({
           {"{ "}
           <span className="text-muted-foreground">[key]</span>:{" "}
           {ap === true ? (
-            <span className="text-gray-600">any</span>
+            <span className="text-muted-foreground">any</span>
           ) : (
             <SchemaDisplay schema={ap} depth={depth + 1} refStack={refStack} />
           )}
@@ -363,7 +373,7 @@ function SchemaDisplay({
             <div className="ml-4">
               <span className="text-muted-foreground">[key]</span>:{" "}
               {ap === true ? (
-                <span className="text-gray-600">any</span>
+                <span className="text-muted-foreground">any</span>
               ) : (
                 <SchemaDisplay
                   schema={ap}
@@ -398,7 +408,7 @@ function SchemaDisplay({
     return <PrimitiveType type={schema.type} format={schema.format} />;
   }
 
-  return <span className="text-gray-600">unknown</span>;
+  return <span className="text-muted-foreground">unknown</span>;
 }
 
 function ParametersTable({
@@ -426,7 +436,7 @@ function ParametersTable({
         return (
           <div key={loc}>
             <h4 className="mb-2 text-sm font-medium">{sectionTitle[loc]}</h4>
-            <div className="overflow-x-auto rounded-md bg-muted">
+            <div className="overflow-x-auto rounded-md bg-surface-inset">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left border-b border-border/50">
@@ -484,6 +494,11 @@ function EndpointCard({
     "application/json"
   ]?.schema;
 
+  const { isLowPower } = usePerformance();
+
+  // Raw HTTP-method palette colors are an intentional API-docs convention and
+  // are preserved deliberately; only the security/access status moves to the
+  // colorblind-safe triad.
   const methodColors: Record<string, string> = {
     get: "bg-green-500",
     post: "bg-blue-500",
@@ -492,48 +507,63 @@ function EndpointCard({
     delete: "bg-red-500",
   };
 
-  return (
-    <Card className="mb-2">
-      <CardHeader
-        className="py-3 transition-colors cursor-pointer hover:bg-accent/50"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <div className="flex items-center gap-3">
-          {isOpen ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
-          )}
-          <Badge
-            className={`${methodColors[method]} text-white uppercase text-xs font-mono`}
-          >
-            {method}
-          </Badge>
-          <code className="flex-1 font-mono text-sm text-left">{path}</code>
-          <div className="flex items-center gap-2">
-            {getUserTypeIcon(meta?.userType)}
-            <Badge
-              variant="outline"
-              className={getUserTypeBadge(meta?.userType)}
-            >
-              {meta?.userType ?? "unknown"}
-            </Badge>
-            {!isExternallyAccessible(meta?.userType) && (
-              <Badge variant="destructive" className="text-xs">
-                Internal Only
-              </Badge>
-            )}
-          </div>
-        </div>
-        {operation.summary && (
-          <CardDescription className="ml-8 text-left">
-            {operation.summary}
-          </CardDescription>
-        )}
-      </CardHeader>
+  const accent = accessToneStyles[accessToneForUserType(meta?.userType)].accent;
 
-      {isOpen && (
-        <CardContent className="pt-0 space-y-4">
+  return (
+    <div className="group mb-2">
+      <Card
+        className={cn(
+          "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-0 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all",
+          !isLowPower &&
+            "group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl",
+        )}
+      >
+        {/* Access status accent stripe: status by position + hue, not color alone. */}
+        <span
+          className={cn("absolute inset-y-0 left-0 w-1", accent)}
+          aria-hidden
+        />
+
+        <CardHeader
+          className="cursor-pointer py-3 pl-5 transition-colors hover:bg-surface-inset/60"
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          <div className="flex items-center gap-3">
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 shrink-0 text-muted-foreground transition-transform",
+                !isOpen && "-rotate-90",
+              )}
+            />
+            <Badge
+              className={`${methodColors[method]} text-white uppercase text-xs font-mono`}
+            >
+              {method}
+            </Badge>
+            <div className="flex min-w-0 flex-1 flex-col text-left">
+              <code className="truncate font-mono text-sm font-medium text-foreground">
+                {path}
+              </code>
+              {operation.summary && (
+                <span className="truncate text-xs text-muted-foreground">
+                  {operation.summary}
+                </span>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {getUserTypeIcon(meta?.userType)}
+              <AccessStatusPill userType={meta?.userType} />
+              {!isExternallyAccessible(meta?.userType) && (
+                <Badge variant="destructive" className="text-xs">
+                  Internal Only
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+
+        {isOpen && (
+          <CardContent className="space-y-4 border-t border-border/60 bg-surface/40 pl-5 pt-4">
           {operation.description && (
             <p className="text-sm text-muted-foreground">
               {operation.description}
@@ -567,7 +597,7 @@ function EndpointCard({
                     ? "Input Schema (encoded as query params)"
                     : "Input Schema"}
                 </h4>
-                <div className="p-3 overflow-x-auto rounded-md bg-muted">
+                <div className="p-3 overflow-x-auto rounded-md bg-surface-inset">
                   <SchemaDisplay schema={inputSchema} />
                 </div>
               </div>
@@ -576,7 +606,7 @@ function EndpointCard({
             {outputSchema && (
               <div>
                 <h4 className="mb-2 text-sm font-medium">Output Schema</h4>
-                <div className="p-3 overflow-x-auto rounded-md bg-muted">
+                <div className="p-3 overflow-x-auto rounded-md bg-surface-inset">
                   <SchemaDisplay schema={outputSchema} />
                 </div>
               </div>
@@ -590,13 +620,46 @@ function EndpointCard({
                 text={generateFetchExample(path, method, operation)}
               />
             </div>
-            <pre className="p-3 overflow-x-auto text-sm rounded-md bg-muted">
+            <pre className="p-3 overflow-x-auto text-sm rounded-md bg-surface-inset">
               <code>{generateFetchExample(path, method, operation)}</code>
             </pre>
           </div>
-        </CardContent>
-      )}
-    </Card>
+          </CardContent>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * An access filter button that echoes the same status triad used on the
+ * endpoint rows via a leading tone dot. Selection logic is unchanged: it is
+ * still primary when active and outline otherwise.
+ */
+function FilterChip({
+  label,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string;
+  tone: "ok" | "warn";
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      variant={active ? "primary" : "outline"}
+      size="sm"
+      onClick={onClick}
+      className="gap-1.5"
+    >
+      <span
+        className={cn("size-1.5 rounded-full", accessToneStyles[tone].dot)}
+        aria-hidden
+      />
+      {label}
+    </Button>
   );
 }
 
@@ -696,10 +759,9 @@ export function ApiDocsPage() {
         loading={loading}
         maxWidth="full"
       >
-        <Badge variant="secondary">v{spec.info.version}</Badge>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 rounded-[var(--d-card-r)] border border-border/70 bg-surface-2/60 p-3">
+          <Badge variant="secondary">v{spec.info.version}</Badge>
+          <span className="ml-1 text-sm text-muted-foreground">
             Filter by access:
           </span>
           <Button
@@ -709,62 +771,71 @@ export function ApiDocsPage() {
           >
             All
           </Button>
-          <Button
-            variant={selectedTypes.has("authenticated") ? "primary" : "outline"}
-            size="sm"
+          <FilterChip
+            label="Authenticated"
+            tone="ok"
+            active={selectedTypes.has("authenticated")}
             onClick={() => toggleType("authenticated")}
-          >
-            Authenticated
-          </Button>
-          <Button
-            variant={selectedTypes.has("public") ? "primary" : "outline"}
-            size="sm"
+          />
+          <FilterChip
+            label="Public"
+            tone="ok"
+            active={selectedTypes.has("public")}
             onClick={() => toggleType("public")}
-          >
-            Public
-          </Button>
-          <Button
-            variant={selectedTypes.has("user") ? "primary" : "outline"}
-            size="sm"
+          />
+          <FilterChip
+            label="User Only"
+            tone="warn"
+            active={selectedTypes.has("user")}
             onClick={() => toggleType("user")}
-          >
-            User Only
-          </Button>
-          <Button
-            variant={selectedTypes.has("service") ? "primary" : "outline"}
-            size="sm"
+          />
+          <FilterChip
+            label="Service Only"
+            tone="warn"
+            active={selectedTypes.has("service")}
             onClick={() => toggleType("service")}
-          >
-            Service Only
-          </Button>
+          />
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Authentication</CardTitle>
-            <CardDescription>
-              Endpoints marked as <strong>authenticated</strong> or{" "}
-              <strong>public</strong> can be accessed using an application
-              token. Other endpoints are for internal use only.
-            </CardDescription>
+        <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+          <CardHeader className="flex-row items-start gap-3 space-y-0 p-0">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <KeyRound className="size-5" />
+            </span>
+            <div className="space-y-1">
+              <CardTitle>Authentication</CardTitle>
+              <CardDescription>
+                Endpoints marked as <strong>authenticated</strong> or{" "}
+                <strong>public</strong> can be accessed using an application
+                token. Other endpoints are for internal use only.
+              </CardDescription>
+            </div>
           </CardHeader>
-          <CardContent>
-            <pre className="p-3 overflow-x-auto text-sm rounded-md bg-muted">
-              <code>
-                Authorization: Bearer ck_{"<application-id>"}_{"<secret>"}
-              </code>
-            </pre>
+          <CardContent className="p-0 pt-4">
+            <div className="flex items-center gap-2 rounded-md border border-border/60 bg-surface-inset p-1 pl-3">
+              <pre className="flex-1 overflow-x-auto text-sm">
+                <code>
+                  Authorization: Bearer ck_{"<application-id>"}_{"<secret>"}
+                </code>
+              </pre>
+              <CopyButton text="Authorization: Bearer ck_<application-id>_<secret>" />
+            </div>
           </CardContent>
         </Card>
 
-        <div className="space-y-8">
+        <div className="space-y-10">
           {Object.entries(endpointsByPlugin)
             .toSorted(([a], [b]) => a.localeCompare(b))
             .map(([pluginName, endpoints]) => (
               <div key={pluginName}>
-                <h2 className="mb-4 text-xl font-semibold capitalize">
-                  {pluginName}
-                </h2>
+                <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-border/60 pb-2">
+                  <h2 className="text-xl font-semibold capitalize">
+                    {pluginName}
+                  </h2>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {endpoints.length} endpoints
+                  </span>
+                </div>
                 {endpoints.map(({ path, method, operation }) => (
                   <EndpointCard
                     key={`${method}-${path}`}

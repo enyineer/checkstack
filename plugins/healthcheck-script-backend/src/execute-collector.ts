@@ -174,8 +174,11 @@ const executeResultSchema = healthResultSchema({
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Exit Code",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // Exit codes are arbitrary integers (0, 1, 2, 127, -1, ...) with no
+    // stable distribution; the pass/fail signal they carry is already
+    // covered by `success`. Charting it stays useful; alerting on it just
+    // double-fires (and flaps for scripts that vary their nonzero codes).
+    "x-anomaly-enabled": false,
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
@@ -193,7 +196,9 @@ const executeResultSchema = healthResultSchema({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-sensitivity": 2,
+    // Err wider than the default band: only sustained, materially-larger
+    // run times should alert, not normal jitter.
+    "x-anomaly-sensitivity": 2.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
@@ -207,8 +212,10 @@ const executeResultSchema = healthResultSchema({
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "dominance",
+    // A timeout always implies `success: false`, so alerting here on top of
+    // `success` double-fires on the same incident. Keep it chartable, let
+    // `success` carry the alert.
+    "x-anomaly-enabled": false,
   }),
 });
 
@@ -222,6 +229,10 @@ const executeAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -229,6 +240,10 @@ const executeAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    // Only a real drop in availability should alert, not single-sample
+    // jitter in the rate.
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 
@@ -253,8 +268,12 @@ export type ExecuteAggregatedResult = InferAggregatedResult<
  * awk -v l="$load" 'BEGIN { exit (l+0 > 0.60) ? 1 : 0 }'
  * ```
  *
- * Exit code 0 = healthy, anything else = unhealthy. stdout / stderr are
- * captured and reported with the run.
+ * The exit code is exposed as the assertable `exitCode` / `success` metric
+ * (`success` is true when the exit code is 0). It does NOT hard-fail the
+ * collector: add an assertion (e.g. "success is true", or "exitCode equals 0")
+ * to turn a non-zero exit into an unhealthy result. Only a genuine transport
+ * failure (the script could not be spawned, or it timed out) fails the
+ * collector itself. stdout / stderr are captured and reported with the run.
  */
 export class ExecuteCollector implements CollectorStrategy<
   ScriptTransportClient,
@@ -264,7 +283,8 @@ export class ExecuteCollector implements CollectorStrategy<
 > {
   id = "execute";
   displayName = "Shell Script";
-  description = "Run a shell script and treat exit code 0 as healthy";
+  description =
+    "Run a shell script and expose its exit code as an assertable metric";
 
   supportedPlugins = [pluginMetadata];
 
@@ -354,7 +374,23 @@ export class ExecuteCollector implements CollectorStrategy<
     });
 
     const executionTimeMs = Date.now() - startTime;
+    // `success` (exit code 0) and the raw `exitCode` are ASSERTABLE METRICS,
+    // not a collector-failure signal. A script that ran to completion and
+    // exited non-zero is a SUCCESSFUL collection: the command executed and
+    // reported a result. Whether a non-zero exit makes the check unhealthy is
+    // the user's decision via assertions (e.g. "exitCode equals 0", or
+    // "exitCode equals 1" when a non-zero exit is the wanted state). We must
+    // NOT set the `error` field on a non-zero exit, otherwise the executor
+    // hard-fails the run before assertions get to decide.
+    //
+    // Only a genuine transport failure fails the collector: `masked.error`
+    // (the script could not be spawned / a runner-level error) or `timedOut`
+    // (the script could not complete within the timeout). Those propagate as
+    // the collector `error`.
     const success = response.exitCode === 0 && !response.timedOut;
+    const transportError = response.timedOut
+      ? (masked.error ?? "Script execution timed out")
+      : masked.error;
 
     return {
       result: {
@@ -365,9 +401,7 @@ export class ExecuteCollector implements CollectorStrategy<
         success,
         timedOut: response.timedOut,
       },
-      error:
-        masked.error ??
-        (success ? undefined : `Exit code: ${response.exitCode}`),
+      error: transportError,
     };
   }
 

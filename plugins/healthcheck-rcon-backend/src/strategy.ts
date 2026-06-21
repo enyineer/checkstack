@@ -15,6 +15,7 @@ import {
   z,
   configString,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -87,26 +88,38 @@ const rconAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    // Latency: wider band, debounce, and practical floors.
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Connection Time",
     "x-chart-unit": "ms",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // The per-bucket maximum is dominated by single slow outliers and is far
+    // noisier than the average twin, which we keep enabled. Disable to avoid
+    // alert fatigue from one-off connection spikes.
+    "x-anomaly-enabled": false,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    // Availability percent: a sustained drop is a real problem.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    // Raw per-bucket error counts vary with traffic and bucket boundaries and
+    // have no stable baseline. Success rate already covers failures as a
+    // normalized percent, so disable this absolute twin.
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -224,20 +237,32 @@ export class RconHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RconTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    const connectStart = performance.now();
     const connection = await this.rconClient.connect({
       host: validatedConfig.host,
       port: validatedConfig.port,
       password: validatedConfig.password,
       timeout: validatedConfig.timeout,
     });
+    // connect() establishes the socket and authenticates in one step.
+    const timings: TransportTimings = {
+      connectMs: Math.max(0, Math.round(performance.now() - connectStart)),
+    };
 
     return {
       client: {
         exec: async (command: string) => {
+          const cmdStart = performance.now();
           const response = await connection.command(command);
+          // Same timings reference returned below; last command wins.
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - cmdStart),
+          );
           return { response };
         },
       },
+      timings,
       close: () => connection.disconnect(),
     };
   }

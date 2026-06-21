@@ -46,7 +46,7 @@ The single locked invariant is that a token can only narrow a principal, never w
 3. The bound user is enriched to their current, live access rules and team memberships, exactly as a UI session would be.
 4. The granted scopes (bundles expanded) are intersected with those live rules. The result is the principal's `accessRules` for this request.
 
-```
+```text
 narrowed = expandBundles(grantedScopes) ∩ effectiveRules(liveRules)
 ```
 

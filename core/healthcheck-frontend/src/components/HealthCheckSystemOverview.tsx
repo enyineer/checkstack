@@ -7,16 +7,22 @@ import {
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
-  HealthBadge,
   LoadingSpinner,
-  Card,
   CardContent,
   CardHeader,
   CardTitle,
   Button,
+  cn,
 } from "@checkstack/ui";
 import { Heart } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
+import { HealthStatusPill } from "./HealthStatusPill";
+import {
+  countHealthy,
+  statusToLabel,
+  statusToTone,
+  toneStyles,
+} from "./healthcheckDisplay.logic";
 // Lazy-loaded: the drawer pulls in the recharts-based latency/timeline charts
 // (~300 KB). This component is an eagerly-registered slot extension, so a static
 // import would ship recharts in the initial bundle. The drawer only renders when
@@ -135,7 +141,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
 
   return (
     <>
-      <Card>
+      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -145,7 +151,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
               </CardTitle>
             </div>
             <div
-              className="flex items-center gap-1 rounded-md border bg-muted/30 p-0.5"
+              className="flex items-center gap-1 rounded-md border bg-surface-inset p-0.5"
               role="tablist"
               aria-label="Filter health checks"
             >
@@ -175,42 +181,74 @@ export function HealthCheckSystemOverview(props: SlotProps) {
               <span className="font-medium">{filter}</span> filter.
             </div>
           ) : (
-            <div className="divide-y divide-border">
-              {visible.map((item) => (
-              <button
-                key={item.configurationId}
-                className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors flex items-center gap-3"
-                onClick={() => setSelectedCheck(item)}
-              >
-                {/* Check name */}
-                <span className="font-medium truncate flex-1 min-w-0 text-sm">
-                  {item.name}
-                </span>
-
-                {/* Status badge */}
-                <HealthBadge status={item.state} />
-
-                {/* Sparkline */}
-                {item.recentStatusHistory.length > 0 && (
-                  <div className="hidden sm:block shrink-0">
-                    <HealthCheckSparkline
-                      runs={item.recentStatusHistory.map((status) => ({
-                        status,
-                      }))}
+            <div className="divide-y divide-border/60">
+              {visible.map((item) => {
+                const tone = statusToTone({ status: item.state });
+                const historyLength = item.recentStatusHistory.length;
+                const healthyCount = countHealthy({
+                  history: item.recentStatusHistory,
+                });
+                return (
+                  <button
+                    key={item.configurationId}
+                    className="group relative flex w-full items-center gap-3 py-3 pl-5 pr-4 text-left transition-colors hover:bg-surface-inset"
+                    onClick={() => setSelectedCheck(item)}
+                  >
+                    {/* Status accent stripe: status by position + hue. */}
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-1",
+                        toneStyles[tone].accent,
+                      )}
+                      aria-hidden
                     />
-                  </div>
-                )}
 
-                {/* Last run — compact fixed-width to prevent shift */}
-                <span className="hidden md:block text-xs text-muted-foreground w-10 text-right shrink-0 tabular-nums">
-                  {formatCompactTime(item.lastRunAt)}
-                </span>
-              </button>
-              ))}
+                    {/* Status pill + check name */}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {item.name}
+                      </span>
+                      <HealthStatusPill
+                        tone={tone}
+                        label={statusToLabel({ status: item.state })}
+                        className="self-start"
+                      />
+                    </div>
+
+                    {/* Recent-history hero figure */}
+                    {historyLength > 0 && (
+                      <div className="hidden shrink-0 text-right sm:block">
+                        <span className="text-lg font-semibold leading-none tabular-nums text-foreground">
+                          {healthyCount}/{historyLength}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                          healthy
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Sparkline */}
+                    {historyLength > 0 && (
+                      <div className="hidden shrink-0 md:block">
+                        <HealthCheckSparkline
+                          runs={item.recentStatusHistory.map((status) => ({
+                            status,
+                          }))}
+                        />
+                      </div>
+                    )}
+
+                    {/* Last run — compact fixed-width to prevent shift */}
+                    <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground md:block">
+                      {formatCompactTime(item.lastRunAt)}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </CardContent>
-      </Card>
+      </div>
 
       {/* Slide-over Drawer (lazy: loads the chart bundle on first open) */}
       {selectedCheck && (

@@ -707,10 +707,10 @@ export const MySystemAction: React.FC<Props> = ({ systemId, systemName }) => {
 
 Every extension provides exactly one of `component` or `load`:
 
-- `component` (eager) — bundled with the plugin and registered at load. Use for
+- `component` (eager) - bundled with the plugin and registered at load. Use for
   LIGHT, always-rendered contributions (navbar items, user-menu links, status
   badges) where code-splitting would only add a load flash.
-- `load` (lazy) — a `() => import(...).then((m) => ({ default: m.X }))` thunk.
+- `load` (lazy) - a `() => import(...).then((m) => ({ default: m.X }))` thunk.
   The framework renders it through `React.lazy` inside a Suspense boundary and a
   per-plugin error boundary, so its chunk is fetched on demand and a failed load
   is contained to that one contribution. Use for HEAVY or page-scoped
@@ -733,7 +733,7 @@ are handled uniformly.
 #### Typed Metadata on Extensions
 
 Some slots need each extension to declare a static descriptor at registration
-time — for example, the Infrastructure Settings tab bar needs a label, icon,
+time - for example, the Infrastructure Settings tab bar needs a label, icon,
 and access rules to render its nav before the tab body is mounted. Pass a
 second type argument to `createSlot` to express that contract:
 
@@ -851,16 +851,16 @@ The user menu groups `UserMenuItemsSlot` extensions by their optional
 `group` field and renders each group under a labeled header. Canonical
 groups (rendered in this order) are:
 
-- `"Workspace"` — domain-level browsing (catalogs, dashboards, dependency graphs)
-- `"Reliability"` — operational signals (health checks, incidents, maintenances, SLOs)
-- `"Configuration"` — admin/setup pages (auth, infrastructure, integrations, plugins)
-- `"Documentation"` — reference material (API docs, kind registry)
-- `"Account"` — personal items (profile)
+- `"Workspace"` - domain-level browsing (catalogs, dashboards, dependency graphs)
+- `"Reliability"` - operational signals (health checks, incidents, maintenances, SLOs)
+- `"Configuration"` - admin/setup pages (auth, infrastructure, integrations, plugins)
+- `"Documentation"` - reference material (API docs, kind registry)
+- `"Account"` - personal items (profile)
 
 Extensions without a `group` are rendered last (no header), and any custom
 group strings introduced by plugins are rendered after the canonical groups
 in alphabetical order. `UserMenuItemsBottomSlot` always renders below the
-top section, separated by a divider — no `group` is honored there.
+top section, separated by a divider - no `group` is honored there.
 
 #### Example: Dashboard Widget
 

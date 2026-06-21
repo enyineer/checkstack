@@ -17,6 +17,22 @@ Standard email/password authentication with:
 - Password reset via email
 - Account lockout protection
 
+#### Brute-force protection
+
+Sensitive endpoints (sign-in, password reset) are rate-limited per client IP. The
+limiter is enabled automatically in production (`NODE_ENV=production`) and is
+disabled in local development so it does not get in your way.
+
+The rate-limit counter is stored in a shared database table
+(`better_auth_rate_limit`), not in each pod's memory. This matters when you run
+Checkstack as multiple replicas behind one database: an in-memory per-pod counter
+would let N replicas each allow the full limit, multiplying the effective cap by
+N. Backing the counter with the shared database keeps a single global limit across
+all replicas. No configuration is required.
+
+Expired counter entries are pruned automatically: an hourly background job deletes
+rows whose window has long elapsed, so the shared table does not grow unbounded.
+
 ### GitHub OAuth
 
 Single sign-on using GitHub accounts. Users authenticate through GitHub and are automatically created in Checkstack on first login.
@@ -71,7 +87,7 @@ Both SAML and LDAP strategies support automatic role assignment based on directo
 
 Enable group mapping in the strategy configuration:
 
-```
+```text
 Group Mapping:
   - Enabled: true
   - Group Attribute: memberOf (LDAP) or http://schemas.xmlsoap.org/claims/Group (SAML)

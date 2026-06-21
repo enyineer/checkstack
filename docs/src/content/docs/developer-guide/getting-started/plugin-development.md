@@ -21,7 +21,7 @@ run a stale cached copy (see [Keep the tooling current](#keep-the-tooling-curren
 The command boots the same backend code path Checkstack uses
 in production, with two well-defined dev overrides:
 
-- **Filesystem plugin discovery is skipped.** Only your plugin loads —
+- **Filesystem plugin discovery is skipped.** Only your plugin loads - 
   nothing else from a `core/` or `plugins/` directory.
 - **Auth is synthetic.** Every access rule the platform registers is
   auto-granted to a `dev-user` identity. No login flow.
@@ -29,7 +29,7 @@ in production, with two well-defined dev overrides:
 Your plugin's `register()` runs against a real `PluginManager`, real
 `coreServices.*`, real oRPC routing, real Drizzle migrations. The boot
 code is the *exact* same module that ships in the production Docker image
-— there is no parallel "dev backend" stack to drift from.
+ - there is no parallel "dev backend" stack to drift from.
 
 When you save a file under `./src`, the backend restarts. Bun cold-starts
 in well under a second for a single plugin, so the loop stays tight.
@@ -38,7 +38,7 @@ in well under a second for a single plugin, so the loop stays tight.
 
 1. **Bun installed locally** (`curl -fsSL https://bun.sh/install | bash`).
 2. **A running Postgres** reachable at `localhost:5432`. The dev server
-   doesn't ship one — it expects one. The smallest setup:
+   doesn't ship one - it expects one. The smallest setup:
 
    ```bash
    docker run --name checkstack-dev-pg -d -p 5432:5432 \
@@ -126,7 +126,7 @@ rm -rf ~/.bun/install/cache/create-checkstack-plugin@*
 
 The result is a Bun workspace ready to boot:
 
-```
+```text
 widget/
   package.json          # private root: workspaces ["packages/*"], forwarding scripts
   tsconfig.json
@@ -203,7 +203,7 @@ procedures it exposes are reachable at `/api/<pluginId>/*`.
 
 ## Core plugin dependencies are co-loaded
 
-Real plugins almost always depend on platform plugins —
+Real plugins almost always depend on platform plugins - 
 `@checkstack/healthcheck-backend` for a health check strategy,
 `@checkstack/notification-backend` for a notification strategy,
 `@checkstack/catalog-backend` for a custom catalog kind, etc. The dev
@@ -227,13 +227,13 @@ Two cases the resolver handles automatically:
 
 You'll see a line like the following in the boot log:
 
-```
+```text
 📦 Co-loading 3 core plugin deps:
    @checkstack/healthcheck-backend, @checkstack/queue-memory-backend, @checkstack/cache-memory-backend
 ```
 
 Frontend (`-frontend`) and tooling-type packages are not co-loaded as
-backend plugins — they're resolved through their own paths (the Vite
+backend plugins - they're resolved through their own paths (the Vite
 dev server for frontend, transitive type imports for common).
 
 ## Frontend plugins
@@ -245,11 +245,11 @@ also spawns a Vite dev server with HMR on
 `/api` and `/assets/plugins` to the backend on :3000, so the SPA can
 talk to the plugin you just registered.
 
-Behind the scenes, Vite serves `core/frontend`'s `dev-main.tsx` shell —
+Behind the scenes, Vite serves `core/frontend`'s `dev-main.tsx` shell - 
 the same `App.tsx`, `loadPlugins()`, `ThemeProvider`, etc. that ship in
 production. Your plugin module is mounted via the
 `virtual:checkstack-dev-plugin` alias resolved at config time. Saving a
-component in your plugin triggers React Fast Refresh in the browser —
+component in your plugin triggers React Fast Refresh in the browser - 
 no full reload.
 
 For pure backend plugins, the Vite server is skipped; only port 3000
@@ -287,13 +287,13 @@ sequenceDiagram
     DevServer->>Backend: respawn
 ```
 
-Two env vars do the work. Both are inert in production — `core/backend`
+Two env vars do the work. Both are inert in production - `core/backend`
 refuses `CHECKSTACK_DEV_AUTH=true` when `NODE_ENV=production` and ignores
 `CHECKSTACK_DEV_PLUGIN_PATH` if unset.
 
 ## Command-line flags
 
-```
+```text
 bunx @checkstack/dev-server@latest --help
 ```
 
@@ -329,7 +329,7 @@ automatically if you wire a typed client.
 
 The dev server pipes the backend's `stdout` / `stderr` to your terminal
 via `stdio: "inherit"`. You see exactly what production logs would show
-— Winston-formatted lines including request/response logs, plugin
+ - Winston-formatted lines including request/response logs, plugin
 lifecycle events, and any RPC error stack traces.
 
 ## Database state
@@ -350,8 +350,8 @@ docker exec -it checkstack-dev-pg \
 
 ## Validation against production
 
-Before tagging a release, validate that the runtime install path —
-metadata schema, compatibility check, install scripts handling — is
+Before tagging a release, validate that the runtime install path - 
+metadata schema, compatibility check, install scripts handling - is
 happy with what you've built:
 
 ```bash
@@ -370,7 +370,7 @@ final check.
 **`Could not locate @checkstack/backend`**
 
 Make sure `@checkstack/dev-server` is in your devDependencies, and that
-the platform package matching your plugin's type is too — `@checkstack/backend`
+the platform package matching your plugin's type is too - `@checkstack/backend`
 for a backend plugin, `@checkstack/frontend` for a frontend plugin (or
 both for a multi-package plugin that ships frontend + backend together).
 The dev server resolves them from your plugin's own `node_modules` (so
@@ -390,7 +390,7 @@ instance.
 
 Add the missing field. The error lists the exact path
 (`checkstack.pluginId`, `description`, etc.). The validator is the same
-Zod schema the runtime install uses — see the
+Zod schema the runtime install uses - see the
 [required fields table](/checkstack/developer-guide/architecture/plugin-distribution/#required-packagejson-fields).
 
 **Restart loop on every save with no actual change**
@@ -402,8 +402,8 @@ filename so we can extend the filter.
 
 ## Fallback: workspace fork
 
-For deep core debugging — stepping through `core/backend` while a plugin
-runs — checking out the upstream Checkstack repo and dropping your
+For deep core debugging - stepping through `core/backend` while a plugin
+runs - checking out the upstream Checkstack repo and dropping your
 plugin into `plugins/` still works as it always did:
 
 ```bash
@@ -415,14 +415,14 @@ bun run typecheck:references:generate
 bun run dev
 ```
 
-Use this when the dev server isn't enough — almost always when you're
+Use this when the dev server isn't enough - almost always when you're
 contributing a core change *alongside* a plugin change.
 
 ## See also
 
-- [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/) —
+- [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/) - 
   how to ship your plugin once it's working
-- [Backend Plugin Development](/checkstack/developer-guide/backend/plugins/) — writing the
+- [Backend Plugin Development](/checkstack/developer-guide/backend/plugins/) - writing the
   plugin's code itself
 - [Frontend Plugin Development](/checkstack/developer-guide/frontend/plugins/)
 - [Common Plugin Guidelines](/checkstack/developer-guide/common/plugins/)

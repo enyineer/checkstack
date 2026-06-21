@@ -1,4 +1,5 @@
 import type { TransportClient } from "@checkstack/common";
+import type { TransportTimings } from "@checkstack/backend-api";
 
 /**
  * HTTP request configuration.
@@ -20,6 +21,12 @@ export interface HttpResponse {
   headers: Record<string, string>;
   body: string;
   contentType?: string;
+  /**
+   * Structured transport timing breakdown for this request (DNS / connect /
+   * TLS / wait / transfer), populated by the instrumented node-http client.
+   * Absent if the request never produced socket events.
+   */
+  timings?: TransportTimings;
 }
 
 /**

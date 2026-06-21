@@ -12,8 +12,8 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
-  SUBJECT_STATUS_EMOJI,
   IMPORTANCE_EMOJI,
+  renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
@@ -112,16 +112,7 @@ function buildDiscordEmbed(options: DiscordEmbedOptions): DiscordEmbed {
     // status with a colored circle when present.
     fields.push({
       name: "Affected",
-      value: subjects
-        .map((subject) => {
-          const prefix = subject.status
-            ? `${SUBJECT_STATUS_EMOJI[subject.status]} `
-            : "• ";
-          return subject.url
-            ? `${prefix}[${subject.name}](${subject.url})`
-            : `${prefix}${subject.name}`;
-        })
-        .join("\n"),
+      value: renderSubjectsAsMarkdown({ subjects, heading: null }),
       inline: false,
     });
   }

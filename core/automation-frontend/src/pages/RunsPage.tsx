@@ -19,7 +19,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Badge,
   Button,
   Table,
   TableHeader,
@@ -30,22 +29,13 @@ import {
   LoadingSpinner,
   QueryErrorState,
   EmptyState,
+  ResponsiveTable,
+  MobileCardList,
 } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
-
-const RUN_STATUS_VARIANT: Record<
-  RunStatus,
-  "default" | "secondary" | "outline" | "destructive" | "success" | "warning"
-> = {
-  pending: "outline",
-  running: "secondary",
-  waiting: "warning",
-  success: "success",
-  failed: "destructive",
-  cancelled: "outline",
-  skipped: "outline",
-};
+import { RunStatusPill } from "./run-status-pill";
+import { formatDuration } from "./run-duration";
 
 /**
  * Run history for a single automation. Status filter pinned to the top;
@@ -87,7 +77,7 @@ const RunsPageContent: React.FC = () => {
     <PageLayout
       title={
         automationQuery.data
-          ? `${automationQuery.data.name} — runs`
+          ? `${automationQuery.data.name} - runs`
           : "Run history"
       }
       subtitle="Past executions of this automation"
@@ -152,82 +142,112 @@ const RunsPageContent: React.FC = () => {
               description="Manually trigger the automation from the edit page to generate a run."
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead className="w-24 text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Trigger</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead className="w-24 text-right" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {runs.map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell>
+                          <RunStatusPill status={run.status} />
+                        </TableCell>
+                        <TableCell>
+                          <code className="font-mono text-xs">
+                            {run.triggerEventId || "manual"}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(new Date(run.startedAt), {
+                              addSuffix: true,
+                            })}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDuration(run.startedAt, run.finishedAt)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {automationId && (
+                            <Link
+                              to={resolveRoute(
+                                automationRoutes.routes.runDetail,
+                                {
+                                  automationId,
+                                  runId: run.id,
+                                },
+                              )}
+                            >
+                              <Button variant="ghost" size="sm">
+                                Open
+                              </Button>
+                            </Link>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-4">
                 {runs.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell>
-                      <Badge
-                        variant={RUN_STATUS_VARIANT[run.status] ?? "outline"}
-                        className="capitalize"
-                      >
-                        {run.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <code className="font-mono text-xs">
-                        {run.triggerEventId || "manual"}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(run.startedAt), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDuration(run.startedAt, run.finishedAt)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
+                  <div
+                    key={run.id}
+                    className="rounded-md border bg-surface p-4"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <RunStatusPill status={run.status} />
                       {automationId && (
                         <Link
-                          to={resolveRoute(
-                            automationRoutes.routes.runDetail,
-                            {
-                              automationId,
-                              runId: run.id,
-                            },
-                          )}
+                          to={resolveRoute(automationRoutes.routes.runDetail, {
+                            automationId,
+                            runId: run.id,
+                          })}
                         >
                           <Button variant="ghost" size="sm">
                             Open
                           </Button>
                         </Link>
                       )}
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                    <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <span>Trigger:</span>
+                        <code className="font-mono">
+                          {run.triggerEventId || "manual"}
+                        </code>
+                      </div>
+                      <div>
+                        Started{" "}
+                        {formatDistanceToNow(new Date(run.startedAt), {
+                          addSuffix: true,
+                        })}
+                      </div>
+                      <div>
+                        Duration:{" "}
+                        {formatDuration(run.startedAt, run.finishedAt)}
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>
     </PageLayout>
   );
 };
-
-function formatDuration(
-  startedAt: Date | string,
-  finishedAt: Date | string | null | undefined,
-): string {
-  if (!finishedAt) return "—";
-  const ms =
-    new Date(finishedAt).getTime() - new Date(startedAt).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms / 60_000)}m`;
-}
 
 export const RunsPage = wrapInSuspense(RunsPageContent);

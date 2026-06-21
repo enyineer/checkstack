@@ -10,6 +10,7 @@ import {
   mergeCounter,
   z,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -75,17 +76,24 @@ const dnsResultSchema = healthResultSchema({
   recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Off by default: the number of records a name returns legitimately
+    // varies run to run (round-robin A sets, CDN rotation, MX/NS changes),
+    // so a learned baseline over it produces alert fatigue rather than real
+    // problems. Failed lookups are already covered by failure/error counts.
+    // Still chartable; users can opt in for names they know are fixed-size.
+    "x-anomaly-enabled": false,
   }),
   resolutionTimeMs: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
+    // Latency is a stable, baseline-able signal. Err wider and debounce so a
+    // single slow lookup does not page; floors keep fast resolvers from
+    // alerting on small absolute jitter.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
@@ -104,20 +112,35 @@ const dnsAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
+    // Bucket-averaged latency. Wider band plus debounce keeps a single slow
+    // bucket from paging; floors avoid alerting on small absolute drift.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
   failureCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Failures",
+    // Failed lookups per bucket map to a real availability problem. Debounce
+    // a single bucket and require at least one failure above baseline so
+    // healthy buckets stay quiet.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 1,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    // Resolver errors per bucket map to a real problem. Debounce a single
+    // bucket and require at least one error above baseline.
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 1,
   }),
 };
 
@@ -239,6 +262,11 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
       resolver.setServers([validatedConfig.nameserver]);
     }
 
+    // Mutable holder: the DNS lookup happens per-exec (no persistent
+    // connection), so the resolution time is measured there and surfaced as
+    // the `dnsMs` phase for the executor (last-request-wins).
+    const timings: TransportTimings = {};
+
     const client: DnsTransportClient = {
       exec: async (request: DnsLookupRequest): Promise<DnsLookupResult> => {
         const timeout = validatedConfig.timeout;
@@ -249,6 +277,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
           ),
         );
 
+        const start = performance.now();
         try {
           const resolvePromise = this.resolveRecords(
             resolver,
@@ -257,8 +286,12 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
           );
 
           const values = await Promise.race([resolvePromise, timeoutPromise]);
+          timings.dnsMs = Math.max(0, Math.round(performance.now() - start));
           return { values };
         } catch (error) {
+          // A failed lookup still took time; record it so a slow-then-failing
+          // resolver still surfaces a DNS phase.
+          timings.dnsMs = Math.max(0, Math.round(performance.now() - start));
           return {
             values: [],
             error: extractErrorMessage(error),
@@ -269,6 +302,7 @@ export class DnsHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // DNS resolver is stateless, nothing to close
       },

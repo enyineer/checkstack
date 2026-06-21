@@ -38,29 +38,23 @@ const queueInfoResultSchema = z.object({
     "x-anomaly-min-absolute-delta": 1,
     "x-anomaly-min-relative-delta": 0.25,
   }),
+  // Spiky sub-counts of the queue that sit on a near-zero baseline and flip
+  // with normal scheduling. Off by default to avoid alert fatigue; overall
+  // queue depth and wait times carry the saturation signal.
   blockedCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Blocked Items",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   buildableCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Buildable Items",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   stuckCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Stuck Items",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   oldestWaitingMs: healthResultNumber({
     "x-chart-type": "line",
@@ -68,6 +62,8 @@ const queueInfoResultSchema = z.object({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
@@ -77,6 +73,8 @@ const queueInfoResultSchema = z.object({
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
   }),
@@ -91,12 +89,18 @@ const queueInfoAggregatedFields = {
     "x-chart-label": "Avg Queue Length",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
+  // Bucket maximum captures transient queue spikes that are normal under
+  // bursty CI load; alerting on it produces noise. Average queue length is
+  // the stable saturation signal.
   maxQueueLength: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Queue Length",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-enabled": false,
   }),
   avgWaitTime: aggregatedAverage({
     "x-chart-type": "line",
@@ -104,6 +108,10 @@ const queueInfoAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 2,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
 };
 

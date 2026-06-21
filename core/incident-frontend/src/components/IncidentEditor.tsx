@@ -30,11 +30,18 @@ import {
   LinksEditor,
   toastError,
   Spinner,
+  FormError,
+  ConfirmationModal,
+  useUnsavedChanges,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
 import { TeamAccessEditor, TeamOwnershipPicker, teamCreateErrorMessage } from "@checkstack/auth-frontend";
+import {
+  deriveIncidentFieldErrors,
+  type IncidentFieldKey,
+} from "../utils/incident.logic";
 
 interface Props {
   open: boolean;
@@ -76,6 +83,20 @@ export const IncidentEditor: React.FC<Props> = ({
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
   const [loadingUpdates, _setLoadingUpdates] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
+
+  // Inline validation: a per-field error map is the single source of truth for
+  // both the inline FormError messages and submit-validity. Errors are only
+  // revealed for fields the user has touched (or after a submit attempt) so the
+  // form does not nag while it is still being filled in.
+  const [touched, setTouched] = useState<Partial<Record<IncidentFieldKey, boolean>>>(
+    {},
+  );
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  // Dirty tracking for the unsaved-changes guard. We snapshot the editor's
+  // fields and compare against the live values; the snapshot is reset whenever
+  // the dialog (re)opens for a given incident.
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   // Mutations
   const createMutation = incidentClient.createIncident.useMutation({
@@ -137,6 +158,9 @@ export const IncidentEditor: React.FC<Props> = ({
 
   // Reset form when incident changes
   useEffect(() => {
+    setTouched({});
+    setSubmitAttempted(false);
+    setDiscardOpen(false);
     if (incident) {
       setTitle(incident.title);
       setDescription(incident.description ?? "");
@@ -156,6 +180,77 @@ export const IncidentEditor: React.FC<Props> = ({
     }
   }, [incident, open]);
 
+  // Per-field error map (single source of truth for inline errors + validity).
+  const fieldErrors = deriveIncidentFieldErrors({
+    title,
+    selectedSystemCount: selectedSystemIds.size,
+  });
+  const showError = (field: IncidentFieldKey): string | undefined =>
+    touched[field] || submitAttempted ? fieldErrors[field] : undefined;
+
+  // Dirty tracking: compare the live editor fields against the incident's
+  // persisted values (or the create-mode defaults). The status-update and
+  // hotlink sub-editors persist via their own mutations, so they are not part
+  // of this dialog's "unsaved" surface.
+  const isDirty = (() => {
+    const initialSystemIds = incident ? incident.systemIds.toSorted() : [];
+    const currentSystemIds = [...selectedSystemIds].toSorted();
+    const systemsChanged =
+      initialSystemIds.length !== currentSystemIds.length ||
+      initialSystemIds.some((id, i) => id !== currentSystemIds[i]);
+    if (incident) {
+      return (
+        title !== incident.title ||
+        description !== (incident.description ?? "") ||
+        severity !== incident.severity ||
+        suppressNotifications !== incident.suppressNotifications ||
+        systemsChanged
+      );
+    }
+    return (
+      title.trim() !== "" ||
+      description.trim() !== "" ||
+      severity !== "major" ||
+      suppressNotifications ||
+      currentSystemIds.length > 0 ||
+      ownerTeamId !== null
+    );
+  })();
+
+  const { confirmDiscard, cancelDiscard, isBlocked } = useUnsavedChanges({
+    isDirty: isDirty && open,
+  });
+
+  // Resolve a react-router-blocked navigation through the discard modal so the
+  // in-app guard and the close-button guard share one confirmation surface.
+  useEffect(() => {
+    if (isBlocked) setDiscardOpen(true);
+  }, [isBlocked]);
+
+  // Close the dialog, guarding against discarding unsaved edits. A dirty form
+  // opens the confirm modal instead of closing immediately.
+  const requestClose = () => {
+    if (isDirty) {
+      setDiscardOpen(true);
+      return;
+    }
+    onOpenChange(false);
+  };
+
+  const handleDiscardConfirm = () => {
+    setDiscardOpen(false);
+    if (isBlocked) {
+      confirmDiscard();
+      return;
+    }
+    onOpenChange(false);
+  };
+
+  const handleDiscardCancel = () => {
+    setDiscardOpen(false);
+    if (isBlocked) cancelDiscard();
+  };
+
   const handleSystemToggle = (systemId: string) => {
     setSelectedSystemIds((prev) => {
       const next = new Set(prev);
@@ -168,14 +263,11 @@ export const IncidentEditor: React.FC<Props> = ({
     });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     setOwnerTeamError(null);
-    if (!title.trim()) {
-      toast.error("Title is required");
-      return;
-    }
-    if (selectedSystemIds.size === 0) {
-      toast.error("At least one system must be selected");
+    setSubmitAttempted(true);
+    if (Object.keys(fieldErrors).length > 0) {
       return;
     }
 
@@ -212,8 +304,18 @@ export const IncidentEditor: React.FC<Props> = ({
   const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          requestClose();
+          return;
+        }
+        onOpenChange(true);
+      }}
+    >
       <DialogContent size="xl">
+        <form onSubmit={handleSubmit}>
         <DialogHeader>
           <DialogTitle>
             {incident ? "Edit Incident" : "Create Incident"}
@@ -229,13 +331,24 @@ export const IncidentEditor: React.FC<Props> = ({
           {/* Basic Info Section */}
           <div className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>
+                Title
+              </Label>
               <Input
                 id="title"
+                autoFocus
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, title: true }))}
                 placeholder="API degradation affecting users"
+                aria-invalid={Boolean(showError("title"))}
+                aria-describedby={
+                  showError("title") ? "title-error" : undefined
+                }
               />
+              <FormError id="title-error" className="text-xs">
+                {showError("title")}
+              </FormError>
             </div>
 
             <div className="grid gap-2">
@@ -250,12 +363,14 @@ export const IncidentEditor: React.FC<Props> = ({
             </div>
 
             <div className="grid gap-2">
-              <Label>Severity</Label>
+              <Label id="severity-label" required>
+                Severity
+              </Label>
               <Select
                 value={severity}
                 onValueChange={(v) => setSeverity(v as IncidentSeverity)}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-labelledby="severity-label">
                   <SelectValue placeholder="Select severity" />
                 </SelectTrigger>
                 <SelectContent>
@@ -267,8 +382,18 @@ export const IncidentEditor: React.FC<Props> = ({
             </div>
 
             <div className="grid gap-2">
-              <Label>Affected Systems</Label>
-              <div className="max-h-36 overflow-y-auto border rounded-md p-3 space-y-2">
+              <Label id="systems-label" required>
+                Affected Systems
+              </Label>
+              <div
+                role="group"
+                aria-labelledby="systems-label"
+                aria-invalid={Boolean(showError("systems"))}
+                aria-describedby={
+                  showError("systems") ? "systems-error" : undefined
+                }
+                className="max-h-36 overflow-y-auto border rounded-md bg-surface-inset p-3 space-y-2"
+              >
                 {systems.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No systems available
@@ -278,7 +403,10 @@ export const IncidentEditor: React.FC<Props> = ({
                     <div
                       key={system.id}
                       className="flex items-center space-x-2 p-2 rounded hover:bg-accent cursor-pointer"
-                      onClick={() => handleSystemToggle(system.id)}
+                      onClick={() => {
+                        setTouched((prev) => ({ ...prev, systems: true }));
+                        handleSystemToggle(system.id);
+                      }}
                     >
                       <Checkbox
                         id={`system-${system.id}`}
@@ -297,10 +425,13 @@ export const IncidentEditor: React.FC<Props> = ({
               <p className="text-xs text-muted-foreground">
                 {selectedSystemIds.size} system(s) selected
               </p>
+              <FormError id="systems-error" className="text-xs">
+                {showError("systems")}
+              </FormError>
             </div>
 
             {/* Notification Suppression Toggle */}
-            <div className="border rounded-md p-4 bg-muted/30">
+            <div className="border rounded-md p-4 bg-surface-inset">
               <div
                 className="flex items-center gap-3 cursor-pointer"
                 onClick={() => setSuppressNotifications(!suppressNotifications)}
@@ -431,14 +562,26 @@ export const IncidentEditor: React.FC<Props> = ({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={requestClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={saving}>
+          <Button type="submit" disabled={saving}>
             {saving ? "Saving..." : incident ? "Update" : "Create"}
           </Button>
         </DialogFooter>
+        </form>
       </DialogContent>
+
+      <ConfirmationModal
+        isOpen={discardOpen}
+        onClose={handleDiscardCancel}
+        onConfirm={handleDiscardConfirm}
+        title="Discard changes?"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmText="Discard"
+        cancelText="Keep editing"
+        variant="warning"
+      />
     </Dialog>
   );
 };

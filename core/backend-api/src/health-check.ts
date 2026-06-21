@@ -29,6 +29,30 @@ export interface HealthCheckRunForAggregation<
 }
 
 /**
+ * Optional, structured transport timing breakdown a strategy can surface to
+ * the executor. Mirrors `RunTimings` in `@checkstack/healthcheck-common` (the
+ * canonical zod schema) but is declared here so `backend-api` stays free of a
+ * dependency on the healthcheck domain package. Every field is OPTIONAL and in
+ * milliseconds; a strategy populates only the phases it can measure.
+ *
+ * - `dnsMs`: DNS resolution.
+ * - `connectMs`: TCP connect (after DNS).
+ * - `tlsMs`: TLS handshake (https / secured transports only).
+ * - `waitMs`: server processing / time-to-first-byte.
+ * - `transferMs`: response body transfer.
+ * - `processingMs`: operation time for non-HTTP transports (DB query, command
+ *   exec, RPC) where the finer network phases do not apply.
+ */
+export interface TransportTimings {
+  dnsMs?: number;
+  connectMs?: number;
+  tlsMs?: number;
+  waitMs?: number;
+  transferMs?: number;
+  processingMs?: number;
+}
+
+/**
  * Connected transport client with cleanup capability.
  */
 export interface ConnectedClient<
@@ -38,6 +62,17 @@ export interface ConnectedClient<
   client: TClient;
   /** Close the connection and release resources */
   close(): void;
+  /**
+   * Optional, MUTABLE transport timing breakdown for this run. The executor
+   * reads it AFTER collectors finish and lifts it into the run's
+   * `metadata.timings`. Strategies whose connect/handshake phases are measured
+   * in `createClient` populate this once up front; strategies whose phases are
+   * measured per-request (e.g. HTTP) mutate it from inside `exec` so the
+   * executor observes the last request's phases. Absent for strategies that
+   * cannot measure sub-phases - the executor then falls back to the coarse
+   * `connectionTimeMs` + processing split.
+   */
+  timings?: TransportTimings;
 }
 
 /**

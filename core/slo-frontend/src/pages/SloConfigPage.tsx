@@ -12,8 +12,9 @@ import {
   pluginMetadata as sloPluginMetadata,
   type SloObjective,
 } from "@checkstack/slo-common";
-import { Tip } from "@checkstack/tips-frontend";
+import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import { CatalogApi } from "@checkstack/catalog-common";
+import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
   Card,
   CardHeader,
@@ -31,14 +32,35 @@ import {
   TableBody,
   TableCell,
   useToast,
+  toastError,
+  toastSuccess,
   ConfirmationModal,
   PageLayout,
   ResponsiveTable,
   MobileCardList,
 } from "@checkstack/ui";
-import { Plus, Target, Trash2, Edit2 } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
+import { Plus, Target, Trash2, Edit2, ExternalLink } from "lucide-react";
 import { SloEditor } from "../components/SloEditor";
+
+/**
+ * In-app deep-link to the SLO concept page (same-origin Starlight build served
+ * at `/checkstack/*`). Slug is centralised in `APP_DOC_SLUGS` and guarded
+ * against renames by `docs-links.test.ts`.
+ */
+const DOCS_SLO = docsPath(APP_DOC_SLUGS.slo);
+
+/** Inline "Learn more" link to the SLO concept docs. */
+const SloLearnMore = () => (
+  <a
+    href={DOCS_SLO}
+    target="_blank"
+    rel="noreferrer"
+    className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+  >
+    Learn more
+    <ExternalLink className="h-3 w-3" />
+  </a>
+);
 
 const SloConfigPageContent: React.FC = () => {
   const sloClient = usePluginClient(SloApi);
@@ -102,12 +124,12 @@ const SloConfigPageContent: React.FC = () => {
 
   const deleteMutation = sloClient.deleteObjective.useMutation({
     onSuccess: () => {
-      toast.success("SLO objective deleted");
+      toastSuccess(toast, "SLO objective deleted");
       void refetchObjectives();
       setDeleteId(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete"));
+      toastError(toast, "Failed to delete", error);
     },
   });
 
@@ -161,7 +183,14 @@ const SloConfigPageContent: React.FC = () => {
           plugin={sloPluginMetadata}
           id="objectives.create"
           title="Set the bar for reliability"
-          description="An SLO is a contract you set with yourself — “this service is healthy 99.9% of the time over 30 days”. Checkstack measures it from your existing health-check history, tracks the error budget, and shows you when you're burning it too fast."
+          description={
+            <>
+              An SLO is a contract you set with yourself - “this service is
+              healthy 99.9% of the time over 30 days”. Checkstack measures it
+              from your existing health-check history, tracks the error budget,
+              and shows you when you're burning it too fast. <SloLearnMore />
+            </>
+          }
           side="bottom"
           align="end"
         >
@@ -172,6 +201,21 @@ const SloConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
+      <TipBanner
+        plugin={sloPluginMetadata}
+        id="config.intro"
+        title="What an SLO does here"
+        description={
+          <>
+            An SLO turns raw uptime into a reliability target you hold a system
+            to (for example, healthy 99.9% of the time over 30 days). Checkstack
+            measures it from your existing health-check history and tracks the
+            error budget, so it builds on the checks you already run.{" "}
+            <SloLearnMore />
+          </>
+        }
+      />
+
       <Card>
         <CardHeader className="border-b border-border">
           <div className="flex items-center gap-2">
@@ -200,7 +244,7 @@ const SloConfigPageContent: React.FC = () => {
               steps={[
                 "Click “Create SLO” and pick the system to measure.",
                 "Choose a target (e.g. 99.9%) and a rolling window (e.g. 30 days).",
-                "Decide whether scheduled maintenances eat into the error budget — usually you want them excluded.",
+                "Decide whether scheduled maintenances eat into the error budget - usually you want them excluded.",
               ]}
               actions={
                 canManage ? (

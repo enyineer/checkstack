@@ -7,7 +7,7 @@ The cache system provides pluggable, scoped, TTL-based key-value storage for plu
 
 ## Architecture
 
-```
+```text
 core/cache-api         → CacheProvider interface, CachePlugin contract, CacheManager, scoped cache factory
 core/cache-common      → DTOs, RPC contract, access rules
 core/cache-backend     → RPC router for configuration endpoints
@@ -16,7 +16,7 @@ plugins/cache-memory-backend  → Default in-memory implementation
 plugins/cache-memory-common   → Access rules for the memory plugin
 ```
 
-The core only depends on the `CacheProvider` and `CachePlugin` types — no backend implementation lives in `core/`. The default in-memory backend is a regular plugin, exactly the same as `queue-memory-backend`.
+The core only depends on the `CacheProvider` and `CachePlugin` types - no backend implementation lives in `core/`. The default in-memory backend is a regular plugin, exactly the same as `queue-memory-backend`.
 
 ## CacheProvider Interface
 
@@ -33,7 +33,7 @@ interface CacheProvider {
 
 Notes:
 
-- `get` returns `undefined` for missing **and** expired keys — TTL is enforced lazily on read.
+- `get` returns `undefined` for missing **and** expired keys - TTL is enforced lazily on read.
 - `set` replaces both value and TTL when the key already exists.
 - `has` exists so callers can distinguish "missing" from "stored as `undefined`" without paying for full deserialization.
 - Implementations must be safe to call concurrently. The provider owns its internal state (eviction, connections, sweepers); callers only see the four operations.
@@ -92,10 +92,10 @@ export default createBackendPlugin({
 
 Two important properties:
 
-1. **`cacheManager.getProvider()` always returns the *currently active* provider.** When the operator switches the backend in the Infrastructure Configuration UI, `setActiveBackend` shuts down the old provider and replaces the reference atomically. Plugins should *not* cache the result of `getProvider()` long-term — re-fetch when needed, or use the value within the lifetime of the operation.
+1. **`cacheManager.getProvider()` always returns the *currently active* provider.** When the operator switches the backend in the Infrastructure Configuration UI, `setActiveBackend` shuts down the old provider and replaces the reference atomically. Plugins should *not* cache the result of `getProvider()` long-term - re-fetch when needed, or use the value within the lifetime of the operation.
 2. **`createScopedCache` is a thin wrapper, not a copy.** Calling it once per init and storing the scoped provider is fine.
 
-For real-world usage, see [core/anomaly-backend/src/plugin.ts](../../core/anomaly-backend/src/plugin.ts) and [core/anomaly-backend/src/jobs/baseline-analyzer.ts](../../core/anomaly-backend/src/jobs/baseline-analyzer.ts) — the anomaly detection plugin caches per-field baselines under keys like `baseline:${configurationId}:${systemId}:${fieldPath}`.
+For real-world usage, see [core/anomaly-backend/src/plugin.ts](../../core/anomaly-backend/src/plugin.ts) and [core/anomaly-backend/src/jobs/baseline-analyzer.ts](../../core/anomaly-backend/src/jobs/baseline-analyzer.ts) - the anomaly detection plugin caches per-field baselines under keys like `baseline:${configurationId}:${systemId}:${fieldPath}`.
 
 ## CachePlugin Contract
 
@@ -115,7 +115,7 @@ interface CachePlugin<Config = unknown> {
 
 | Field | Purpose |
 |---|---|
-| `id` | Stable identifier (e.g. `"memory"`, `"redis"`) — referenced by configuration storage and by the Infrastructure Configuration UI. |
+| `id` | Stable identifier (e.g. `"memory"`, `"redis"`) - referenced by configuration storage and by the Infrastructure Configuration UI. |
 | `displayName` | Human-readable name shown in the cache backend selector. |
 | `description` | Optional one-line description shown next to the selector. |
 | `configVersion` | Current version of the plugin's `configSchema`. Increment when changing the schema in a non-additive way. |
@@ -209,8 +209,8 @@ The cache backend exposes three RPC endpoints used by the Infrastructure Configu
 The shipped `InMemoryCache` ([plugins/cache-memory-backend/src/memory-cache.ts](../../plugins/cache-memory-backend/src/memory-cache.ts)) provides:
 
 - **Passive TTL eviction** on `get()` and `has()`.
-- **Active sweep** — a background timer periodically removes expired entries.
-- **LRU-style capacity limits** — oldest entries (by insertion order) are evicted when `maxEntries` is reached.
+- **Active sweep** - a background timer periodically removes expired entries.
+- **LRU-style capacity limits** - oldest entries (by insertion order) are evicted when `maxEntries` is reached.
 
 Configuration:
 
@@ -223,10 +223,10 @@ This backend is appropriate for single-instance deployments and the dev environm
 
 ## Configuration UI
 
-The cache backend is configured through the Cache tab of the Infrastructure Configuration page — see [Infrastructure Configuration](/checkstack/developer-guide/frontend/infrastructure-config/).
+The cache backend is configured through the Cache tab of the Infrastructure Configuration page - see [Infrastructure Configuration](/checkstack/developer-guide/frontend/infrastructure-config/).
 
 ## Related Documentation
 
-- [Queue System](/checkstack/developer-guide/backend/queue-system/) — sibling pattern, more sophisticated lifecycle.
-- [Plugin Architecture](/checkstack/developer-guide/architecture/plugin-system/) — overall plugin model.
-- [Infrastructure Configuration](/checkstack/developer-guide/frontend/infrastructure-config/) — the UI that hosts the Cache tab.
+- [Queue System](/checkstack/developer-guide/backend/queue-system/) - sibling pattern, more sophisticated lifecycle.
+- [Plugin Architecture](/checkstack/developer-guide/architecture/plugin-system/) - overall plugin model.
+- [Infrastructure Configuration](/checkstack/developer-guide/frontend/infrastructure-config/) - the UI that hosts the Cache tab.

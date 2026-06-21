@@ -80,12 +80,12 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
                 <span className="font-medium text-warning">
                   Custom override
                 </span>{" "}
-                — this check ignores the platform defaults.
+                - this check ignores the platform defaults.
               </>
             ) : (
               <>
                 <span className="font-medium">Using platform defaults</span>{" "}
-                — fields below are read-only. Click Override to customise
+                - fields below are read-only. Click Override to customise
                 them for this check only.
               </>
             )}
@@ -114,7 +114,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
       )}
 
       {/* Suppress de-escalations */}
-      <div className="p-4 bg-muted/50 rounded-lg border space-y-3">
+      <div className="p-4 bg-surface-inset rounded-lg border space-y-3">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">

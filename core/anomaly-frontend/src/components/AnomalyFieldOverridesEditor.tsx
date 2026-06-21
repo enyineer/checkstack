@@ -107,7 +107,7 @@ const PRESET_COPY: Record<
   balanced: {
     label: "Balanced",
     description:
-      "Recommended. Uses the plugin's tuned defaults — alerts on sustained, meaningful deviations.",
+      "Recommended. Uses the plugin's tuned defaults - alerts on sustained, meaningful deviations.",
   },
   relaxed: {
     label: "Relaxed",
@@ -465,12 +465,12 @@ function FieldAccordionItem({
       <AccordionContent className="px-5 pt-2 pb-5 border-t border-border/30">
         <div className="mt-4 space-y-5">
           {/* Plain-language summary of effective config */}
-          <p className="text-xs leading-relaxed text-muted-foreground bg-muted/30 border border-border/40 rounded-md px-3 py-2">
+          <p className="text-xs leading-relaxed text-muted-foreground bg-surface-inset border border-border/40 rounded-md px-3 py-2">
             {summary}
           </p>
 
           {/* Enable/disable */}
-          <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+          <div className="flex items-center justify-between p-3 border rounded-lg bg-surface-inset">
             <div className="space-y-0.5">
               <Label className="text-sm font-medium">
                 Monitor this field
@@ -554,7 +554,7 @@ function PresetSelector({ value, onChange, disabled }: PresetSelectorProps) {
   const options: Preset[] = ["strict", "balanced", "relaxed", "custom"];
   const description =
     value === "custom"
-      ? "Custom — fine-tuned values that don't match a preset. Edit them in the advanced section below."
+      ? "Custom - fine-tuned values that don't match a preset. Edit them in the advanced section below."
       : PRESET_COPY[value].description;
 
   return (
@@ -565,7 +565,7 @@ function PresetSelector({ value, onChange, disabled }: PresetSelectorProps) {
         </Label>
         <Tooltip content="Presets bundle sensitivity, confirmation window, and noise floors into one choice. Pick Custom to fine-tune each value." />
       </div>
-      <div className="inline-flex items-stretch p-1 border rounded-lg bg-muted/30 gap-0.5">
+      <div className="inline-flex items-stretch p-1 border rounded-lg bg-surface-inset gap-0.5">
         {options.map((opt) => {
           const selected = value === opt;
           return (
@@ -578,7 +578,7 @@ function PresetSelector({ value, onChange, disabled }: PresetSelectorProps) {
                 "px-4 py-1.5 text-xs font-semibold rounded-md",
                 !isLowPower && "transition-all",
                 selected
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-surface-2 text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
                 "disabled:opacity-50 disabled:cursor-not-allowed capitalize",
               )}
@@ -625,7 +625,7 @@ function BehaviorSelector({
         onValueChange={(val) => onChange(val as AnomalyDirection | "auto")}
         disabled={disabled}
       >
-        <SelectTrigger className="h-10 transition-colors bg-background/50 focus:bg-background">
+        <SelectTrigger className="h-10 transition-colors bg-surface focus:bg-surface-2">
           <SelectValue placeholder="Auto-detect">
             <div className="flex items-center gap-2 min-w-0">
               <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -674,7 +674,7 @@ function AdvancedDisclosure({
 }: AdvancedDisclosureProps) {
   const { isLowPower } = usePerformance();
   return (
-    <div className="border border-border/40 rounded-md bg-background/30">
+    <div className="border border-border/40 rounded-md bg-surface-inset">
       <button
         type="button"
         onClick={onToggle}
@@ -813,7 +813,7 @@ function AdvancedControls({
                 onChange(field, "minAbsoluteDelta", next);
               }}
               disabled={disabled}
-              className="h-10 transition-colors bg-background/50 focus:bg-background"
+              className="h-10 transition-colors bg-surface focus:bg-surface-2"
             />
             <p className="text-[10.5px] text-muted-foreground leading-relaxed">
               Anomaly only fires when the value differs from the recent average
@@ -856,7 +856,7 @@ function AdvancedControls({
                 onChange(field, "minRelativeDelta", next);
               }}
               disabled={disabled}
-              className="h-10 transition-colors bg-background/50 focus:bg-background"
+              className="h-10 transition-colors bg-surface focus:bg-surface-2"
             />
             <p className="text-[10.5px] text-muted-foreground leading-relaxed">
               Anomaly only fires when the proportional change exceeds this
@@ -883,7 +883,7 @@ function AdvancedControls({
               </Label>
               <Tooltip content="Catches gradual degradation that never triggers a single-spike alert." />
             </div>
-            <div className="flex items-center justify-between p-2 border rounded-md bg-muted/30">
+            <div className="flex items-center justify-between p-2 border rounded-md bg-surface-inset">
               <span className="text-xs text-muted-foreground">
                 {effective.driftEnabled ? "Detecting drift" : "Drift muted"}
               </span>

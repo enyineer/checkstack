@@ -35,7 +35,7 @@ This will create a complete plugin structure with:
 - ✅ Initial changeset for version management
 
 **Generated structure:**
-```
+```text
 plugins/myfeature-backend/
 ├── .changeset/
 │   └── initial.md              # Version changeset
@@ -782,7 +782,7 @@ When a procedure is `GET`, the **top-level input schema must be an
 `object`** (or `any` / `unknown`). A bare scalar like `.input(z.string())`
 will cause the OpenAPI generator to throw at boot:
 
-```
+```text
 [OpenAPIGenerator] Error occurred while generating OpenAPI for procedure
 at path: <plugin>.<procedure>
 When method is "GET", input schema must satisfy: object | any | unknown
@@ -1156,7 +1156,7 @@ Quick checklist before your first release:
    only - all siblings ship at the same version.
 4. Run `bun run pack` (or `bun run pack -- --bundle` for bundles) locally
    to verify metadata before pushing the release tag.
-5. Use the [release workflow template](../examples/plugin-release.yml) as a
+5. Use the [release workflow template](/checkstack/examples/plugin-release.yml) as a
    starting point for CI.
 
 ## Next Steps

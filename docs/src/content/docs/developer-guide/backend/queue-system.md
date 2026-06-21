@@ -320,7 +320,7 @@ The Queue system provides **at-least-once delivery**:
 
 When using `scheduleRecurring()`, jobs run on a **fixed wall-clock interval** (same as BullMQ):
 
-```
+```text
 T=0:   Job A starts (intervalSeconds = 1)
 T=1:   Job B starts (Job A still running)
 T=2:   Job C starts (Job A still running, Job B running)

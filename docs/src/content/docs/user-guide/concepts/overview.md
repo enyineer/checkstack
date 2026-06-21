@@ -34,7 +34,7 @@ Optional pieces you might add later:
 
 Everything you do in Checkstack maps onto four concepts that build on each other:
 
-```
+```text
 Systems -> Health checks -> Incidents -> Notifications
    |             |              |              |
    |             |              |              +-- in-app + Slack/Jira/...

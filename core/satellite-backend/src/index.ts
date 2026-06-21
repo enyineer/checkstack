@@ -3,10 +3,14 @@ import type { SafeDatabase } from "@checkstack/backend-api";
 import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
 import {
   satelliteAccessRules,
+  satelliteAccess,
+  satelliteRoutes,
   satelliteContract,
   pluginMetadata,
   HEARTBEAT_INTERVAL_MS,
 } from "@checkstack/satellite-common";
+import { resolveRoute } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { healthCheckHooks } from "@checkstack/healthcheck-backend";
 import { ScriptPackagesApi } from "@checkstack/script-packages-common";
@@ -143,6 +147,23 @@ export default createBackendPlugin({
           logger,
         });
         rpc.registerRouter(router, satelliteContract);
+
+        // Register the "Satellites" navigation command in the command palette
+        // so the sidebar destination is reachable from Cmd+K. Gated on manage
+        // (the page is entirely manage-gated, mirroring the nav entry).
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "list",
+              title: "Satellites",
+              subtitle: "View and manage satellite agents",
+              iconName: "Satellite",
+              route: resolveRoute(satelliteRoutes.routes.list),
+              requiredAccessRules: [satelliteAccess.satellite.manage],
+            },
+          ],
+        });
 
         logger.debug("✅ Satellite Backend initialized.");
       },

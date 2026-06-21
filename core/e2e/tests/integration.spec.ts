@@ -7,10 +7,17 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  *  - `/integration/` landing page listing every registered provider.
  *  - `/integration/connections/:providerId` per-provider connection management.
  *
- * The whole file shares ONE freshly-reset, empty database (only the admin
- * user exists). Providers (Jira, Microsoft Teams, Webex) are registered by
- * their backend plugins at boot, so they are present without any seeding.
- * Tests run serially with empty-state assertions before any create flow.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * `*.spec.ts` files run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: any
+ * entity it creates is namespaced with a unique-per-run suffix (`NS`) so
+ * parallel specs never collide, and no test asserts on global table state (no
+ * empty-state, no global connection counts). Tests within this file still run
+ * serially.
+ *
+ * Providers (Jira, Microsoft Teams, Webex) are registered by their backend
+ * plugins at boot, so they are present regardless of DB data - asserting they
+ * appear is independent of any connection rows and stays safe under sharing.
  *
  * Routes are prefixed with the plugin id by `resolveRoute`, so the landing
  * lives at `/integration/` and a provider's page at
@@ -21,6 +28,10 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * used or needed.
  */
 test.describe.configure({ mode: "serial" });
+
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const CONNECTION_NAME = `Webex E2E ${NS}`;
 
 // Webex has the simplest connection schema: a single required secret field
 // (`botToken`), which makes the required-field validation assertions robust.
@@ -36,6 +47,8 @@ test.describe("integrations & connections", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     // Every connection-capable backend plugin shows up as a provider card.
+    // Providers are registered at boot, not seeded into the DB, so these
+    // assertions are independent of the shared connection rows.
     await expect(page.getByText("Jira", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Microsoft Teams", { exact: true }),
@@ -47,32 +60,6 @@ test.describe("integrations & connections", () => {
       `a[href="/integration/connections/${WEBEX_PROVIDER_ID}"]`,
     );
     await expect(webexCard).toBeVisible();
-  });
-
-  test("opening a provider shows the empty connections state", async ({
-    page,
-  }) => {
-    await page.goto(`/integration/connections/${WEBEX_PROVIDER_ID}`, {
-      waitUntil: "domcontentloaded",
-    });
-
-    // Title is "<displayName> Connections".
-    await expect(
-      page.getByRole("heading", { name: "Webex Connections" }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    // Fresh DB => no connections yet => the empty state renders.
-    await expect(
-      page.getByText("No connections configured"),
-    ).toBeVisible();
-
-    // Both the page action and the empty-state CTA can open the create dialog.
-    await expect(
-      page.getByRole("button", { name: "New Connection" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create connection" }),
-    ).toBeVisible();
   });
 
   test("the add-connection form renders with name and config fields", async ({
@@ -129,9 +116,10 @@ test.describe("integrations & connections", () => {
     await expect(submit).toBeDisabled();
 
     // Name only, still missing the required botToken => submit stays disabled.
+    // The name is namespaced so it never collides with parallel specs.
     await dialog
       .getByPlaceholder("e.g., Production Server")
-      .fill(`Webex E2E ${Date.now()}`);
+      .fill(CONNECTION_NAME);
     await expect(submit).toBeDisabled();
 
     // Fill the required secret field => the form becomes valid and submit

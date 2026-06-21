@@ -25,7 +25,14 @@ export interface McpExecutableTool {
 }
 
 const JSONRPC_VERSION = "2.0";
+/** Protocol version we implement; echoed unless the client negotiates a known one. */
 const MCP_PROTOCOL_VERSION = "2025-06-18";
+/**
+ * Protocol versions this server understands. When the client's `initialize`
+ * `params.protocolVersion` is one of these, we echo it back (negotiation);
+ * otherwise we answer with our own {@link MCP_PROTOCOL_VERSION}.
+ */
+const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-06-18", "2025-03-26"]);
 const MCP_SESSION_HEADER = "mcp-session-id";
 
 /** JSON-RPC 2.0 + MCP error codes (named to avoid magic numbers). */
@@ -34,6 +41,8 @@ const RPC_METHOD_NOT_FOUND = -32_601;
 const RPC_INVALID_PARAMS = -32_602;
 const RPC_UNAUTHORIZED = -32_001;
 const RPC_FORBIDDEN = -32_003;
+/** Missing/unknown `Mcp-Session-Id` on a post-initialize request (spec §session). */
+const RPC_SESSION_INVALID = -32_000;
 /** Custom application error for an exceeded per-principal tool budget (§14.5). */
 const RPC_RATE_LIMITED = -32_010;
 
@@ -84,6 +93,39 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
 }
 
 /**
+ * Negotiate the protocol version from the client's `initialize` params: echo a
+ * version we support, otherwise answer with our own. A non-string or unknown
+ * value falls back to {@link MCP_PROTOCOL_VERSION} (we never fail initialize on
+ * version alone — the client adapts to what we return).
+ */
+function negotiateProtocolVersion(params: Record<string, unknown> | undefined): string {
+  const requested = params?.protocolVersion;
+  if (typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.has(requested)) {
+    return requested;
+  }
+  return MCP_PROTOCOL_VERSION;
+}
+
+/**
+ * `Origin` guard (Streamable-HTTP security note). A browser attaches `Origin` to
+ * cross-site requests; a server-to-server MCP client omits it. We therefore
+ * reject ONLY when an `Origin` is present AND its host differs from the request
+ * host (a cross-site browser request to a server-to-server endpoint). A missing
+ * `Origin` is allowed (the normal MCP client case). Returns true when the
+ * request should be refused.
+ */
+function isForbiddenOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== new URL(req.url).host;
+  } catch {
+    // A malformed Origin header is treated as hostile.
+    return true;
+  }
+}
+
+/**
  * Build the Streamable-HTTP MCP request handler (decision §9 — Streamable HTTP,
  * NOT the deprecated HTTP+SSE). Handles the read-only surface: `initialize`,
  * `tools/list`, `tools/call`, and the `notifications/initialized` ack.
@@ -130,9 +172,18 @@ export function createMcpRequestHandler({
     if (req.method !== "POST") {
       return new Response(null, { status: 405 });
     }
+    // ORIGIN GUARD (Streamable-HTTP security note): refuse a cross-site browser
+    // request before doing any work. A normal server-to-server MCP client omits
+    // `Origin`, so this never affects them.
+    if (isForbiddenOrigin(req)) {
+      return jsonResponse(rpcError(null, RPC_FORBIDDEN, "Forbidden origin"), {
+        status: 403,
+      });
+    }
 
     const bearerToken = opaqueBearerToken(req);
     const principal: AuthUser | undefined = await auth.authenticate(req);
+    const sessionHeader = req.headers.get(MCP_SESSION_HEADER) ?? undefined;
 
     let payload: JsonRpcRequest;
     try {
@@ -144,6 +195,29 @@ export function createMcpRequestHandler({
     }
 
     const id = payload.id ?? null;
+
+    /**
+     * Require + validate the `Mcp-Session-Id` on a POST-initialize request. The
+     * id is minted by `initialize` and tracked in the (pod-local) connection
+     * registry; a request that omits it, or carries one this pod did not mint,
+     * is refused with a `404` + JSON-RPC `-32000`. Returns a `Response` to send
+     * (the refusal) or `undefined` when the session is valid. Skipped before a
+     * principal exists (auth refuses first) so the session check only gates
+     * authenticated, post-initialize traffic.
+     */
+    const sessionRefusal = (): Response | undefined => {
+      if (!sessionHeader || !connections.get(sessionHeader)) {
+        return jsonResponse(
+          rpcError(
+            id,
+            RPC_SESSION_INVALID,
+            "Missing or unknown Mcp-Session-Id; call initialize first and echo the returned session id.",
+          ),
+          { status: 404 },
+        );
+      }
+      return undefined;
+    };
 
     switch (payload.method) {
       case "initialize": {
@@ -157,7 +231,9 @@ export function createMcpRequestHandler({
         }
         return jsonResponse(
           rpcResult(id, {
-            protocolVersion: MCP_PROTOCOL_VERSION,
+            // Negotiated: echo the client's requested version when we support
+            // it, else fall back to ours.
+            protocolVersion: negotiateProtocolVersion(payload.params),
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: "checkstack", version: "1.0.0" },
           }),
@@ -166,7 +242,11 @@ export function createMcpRequestHandler({
       }
 
       case "notifications/initialized": {
-        // Notification: no response body (id is absent).
+        // Notification: no response body (id is absent). Still require a valid
+        // session so the lifecycle is enforced, not cosmetic.
+        if (!sessionHeader || !connections.get(sessionHeader)) {
+          return new Response(null, { status: 404 });
+        }
         return new Response(null, { status: 202 });
       }
 
@@ -176,6 +256,8 @@ export function createMcpRequestHandler({
             status: 401,
           });
         }
+        const invalid = sessionRefusal();
+        if (invalid) return invalid;
         // Only read-effect tools are listed: the read-only MCP surface invokes
         // tools via a bare `tools/call`, which the structural effect-gate
         // refuses for mutate/destructive tools. Listing a tool that could only
@@ -188,6 +270,11 @@ export function createMcpRequestHandler({
           name: d.name,
           description: d.description,
           inputSchema: d.inputSchema,
+          // MCP 2025-06-18 `outputSchema`: the serializer already produces it for
+          // any tool that declares an `output` schema, so the model can reason
+          // about the result shape before calling. Omitted when the tool declares
+          // no output (do not emit an `undefined` field on the wire).
+          ...(d.outputSchema ? { outputSchema: d.outputSchema } : {}),
         }));
         return jsonResponse(rpcResult(id, { tools: descriptors }));
       }
@@ -198,6 +285,8 @@ export function createMcpRequestHandler({
             status: 401,
           });
         }
+        const invalid = sessionRefusal();
+        if (invalid) return invalid;
         const name = payload.params?.name;
         if (typeof name !== "string") {
           return jsonResponse(
@@ -276,6 +365,14 @@ export function createMcpRequestHandler({
           return jsonResponse(
             rpcResult(id, {
               content: [{ type: "text", text: JSON.stringify(result) }],
+              // MCP 2025-06-18 `structuredContent`: when the tool declares an
+              // `output` schema, return the parsed result alongside the text
+              // block so a structured-output-aware client can consume it
+              // directly (the `outputSchema` in tools/list describes its shape).
+              // Omitted for tools with no declared output.
+              ...(executable.tool.output
+                ? { structuredContent: result }
+                : {}),
               isError: false,
             }),
           );

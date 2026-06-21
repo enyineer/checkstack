@@ -7,7 +7,7 @@ The Integration System enables external webhook delivery for platform events. Do
 
 ## Architecture Overview
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────┐
 │                           Platform Hooks                              │
 │  (incident-backend, maintenance-backend, healthcheck-backend, etc.)  │

@@ -1,5 +1,5 @@
 import React from "react";
-import { KeyRound, Plus, Trash2, RefreshCw } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import {
   usePluginClient,
   accessApiRef,
@@ -16,7 +16,6 @@ import {
   Button,
   Input,
   Label,
-  Badge,
   Alert,
   AlertTitle,
   AlertDescription,
@@ -32,6 +31,8 @@ import {
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
 import { BackendConfigCard } from "../components/BackendConfigCard";
+import { SecretsInventorySummary } from "../components/SecretsInventorySummary";
+import { SecretRow } from "../components/SecretRow";
 
 const SettingsContent: React.FC = () => {
   const client = usePluginClient(SecretsApi);
@@ -197,6 +198,9 @@ const SettingsContent: React.FC = () => {
           </Card>
         )}
 
+        {/* Inventory summary - the page's single number-led hero moment. */}
+        {secrets.length > 0 && <SecretsInventorySummary secrets={secrets} />}
+
         {/* List */}
         <Card>
           <CardHeader>
@@ -214,52 +218,18 @@ const SettingsContent: React.FC = () => {
                   : "No indexed secrets yet."}
               </p>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul className="space-y-2">
                 {secrets.map((secret) => (
-                  <li
+                  <SecretRow
                     key={secret.id}
-                    className="flex items-center justify-between gap-3 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <code className="font-medium">{secret.name}</code>
-                        {secret.hasValue ? (
-                          <Badge variant="secondary">set</Badge>
-                        ) : (
-                          <Badge variant="destructive">no value</Badge>
-                        )}
-                      </div>
-                      {secret.description && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {secret.description}
-                        </p>
-                      )}
-                    </div>
-                    {writable && (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setRotateName(secret.name);
-                            setRotateValue("");
-                          }}
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                          Rotate
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => setConfirmDelete(secret.name)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </li>
+                    secret={secret}
+                    writable={writable}
+                    onRotate={(secretName) => {
+                      setRotateName(secretName);
+                      setRotateValue("");
+                    }}
+                    onDelete={(secretName) => setConfirmDelete(secretName)}
+                  />
                 ))}
               </ul>
             )}

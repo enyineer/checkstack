@@ -11,6 +11,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
+  renderSubjectsAsPlainText,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
 
@@ -139,14 +140,11 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
     let message = notification.body
       ? markdownToPlainText(notification.body)
       : notification.title;
-    const subjects = notification.subjects ?? [];
-    if (subjects.length > 0) {
-      const lines = subjects.map((subject) =>
-        subject.url
-          ? `• ${subject.name} (${subject.url})`
-          : `• ${subject.name}`,
-      );
-      message += `\n\nAffected:\n${lines.join("\n")}`;
+    const subjectsText = renderSubjectsAsPlainText({
+      subjects: notification.subjects ?? [],
+    });
+    if (subjectsText) {
+      message += `\n\n${subjectsText}`;
     }
 
     // Add action URL to extras if present

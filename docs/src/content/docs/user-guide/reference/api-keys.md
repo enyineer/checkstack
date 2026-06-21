@@ -24,7 +24,7 @@ New applications are automatically assigned the `applications` role. Assign addi
 
 Application secrets follow a structured format:
 
-```
+```text
 ck_{applicationId}_{randomSecret}
 ```
 
@@ -34,7 +34,7 @@ ck_{applicationId}_{randomSecret}
 
 Example:
 
-```
+```text
 ck_a1b2c3d4-e5f6-7890-abcd-ef1234567890_f8k2mN9xZpW3qR7vL5tY
 ```
 

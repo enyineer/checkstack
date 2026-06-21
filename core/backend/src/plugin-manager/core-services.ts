@@ -490,7 +490,11 @@ export function registerCoreServices({
   // 8. Config Service (Scoped Factory)
   registry.registerFactory(coreServices.config, async (metadata) => {
     const { ConfigServiceImpl } = await import("../services/config-service.js");
-    return new ConfigServiceImpl(metadata.pluginId, db);
+    return new ConfigServiceImpl(
+      metadata.pluginId,
+      db,
+      rootLogger.child({ plugin: metadata.pluginId }),
+    );
   });
 
   // 9. EventBus (Global Singleton)

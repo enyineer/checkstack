@@ -31,7 +31,46 @@ export interface OpenAiCompatibleConnection {
    * to your model's real window (e.g. 128000) for tighter, more accurate use.
    */
   contextWindowTokens?: number;
+  /**
+   * OPTIONAL declared model family behind the OpenAI-compatible gateway
+   * (`"anthropic"` | `"openai"` | `"generic"`, default `"generic"`). This is an
+   * explicit operator declaration, NOT inferred from the model-id string (which
+   * is brittle). The transport stays `@ai-sdk/openai-compatible`
+   * (`/chat/completions`) for every family; the family is only a SEAM so
+   * downstream code can branch later.
+   *
+   * Native Anthropic features (adaptive thinking, prompt-caching headers,
+   * `refusal` handling) are NOT available on the chat-completions path itself.
+   * They require either a native Anthropic provider or a gateway that forwards
+   * `anthropic-beta` / `cache-control` — a GATEWAY capability, not something the
+   * chat-completions shape exposes. Setting this to `"anthropic"` records the
+   * intent; it does not enable those features on its own.
+   */
+  modelFamily?: AiModelFamily;
+  /**
+   * OPTIONAL: turn OFF the cheap topical pre-classifier round-trip (default
+   * OFF-the-toggle, i.e. the classifier RUNS by default). The chat system prompt
+   * ALREADY instructs the model to decline off-topic requests, so on a capable
+   * model the extra per-first-message classifier call is redundant latency and
+   * cost. Set this `true` on a deployment that trusts the in-prompt decline to
+   * skip the round-trip. Leave blank/false to keep the belt-and-suspenders
+   * pre-classifier (the safe default for smaller/local models).
+   */
+  disableTopicalClassifier?: boolean;
 }
+
+/**
+ * Declared model family behind an OpenAI-compatible gateway. A seam for
+ * future family-specific steering (caching breakpoints, lighter prompt
+ * wording); the transport is identical for every value today.
+ */
+export type AiModelFamily = "anthropic" | "openai" | "generic";
+
+/** Allowed `modelFamily` values, shared by the zod schema and any branching. */
+export const AI_MODEL_FAMILIES = ["anthropic", "openai", "generic"] as const;
+
+/** Default family when a connection does not declare one. */
+export const DEFAULT_AI_MODEL_FAMILY: AiModelFamily = "generic";
 
 /**
  * Optional per-integration LLM spend cap (Phase 6). Token-count, not USD:

@@ -82,7 +82,7 @@ export const UserPickerCombobox: React.FC<UserPickerComboboxProps> = ({
   return (
     <Popover open={open && canSearch} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
-        <div className="flex flex-1 items-center gap-2 rounded-md border border-input bg-background px-2">
+        <div className="flex flex-1 items-center gap-2 rounded-md border border-input bg-surface-inset px-2">
           <Search className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground" />
           <Input
             ref={inputRef}

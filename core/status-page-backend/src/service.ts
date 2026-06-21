@@ -14,6 +14,7 @@ import {
   type PublishedStatusPage,
   type ResolvedBlock,
   type WidgetTypeDescriptor,
+  deriveOverallStatus,
   type CustomDomainInfo,
 } from "@checkstack/status-page-common";
 import * as schema from "./schema";
@@ -484,6 +485,10 @@ export class StatusPageService {
       title: row.title,
       theme: rowTheme(row),
       blocks,
+      // Worst-status-wins rollup over the blocks we just resolved. Derived from
+      // their public DTOs only (no domain reach-in), so the banner reflects
+      // exactly what the page already shows.
+      overallStatus: deriveOverallStatus({ blocks }),
       rendererRemotes: [...remoteByType].map(([widgetTypeId, packageName]) => ({
         widgetTypeId,
         packageName,

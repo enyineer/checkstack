@@ -1,4 +1,4 @@
-import { InfoBanner } from "@checkstack/ui";
+import { Alert } from "@checkstack/ui";
 
 interface AggregatedDataBannerProps {
   /** Bucket interval in seconds */
@@ -59,9 +59,9 @@ export function AggregatedDataBanner({
   const tier = getResolutionTier(bucketIntervalSeconds);
 
   return (
-    <InfoBanner variant="info">
+    <Alert variant="info">
       {TIER_LABELS[tier]} • Data aggregated into{" "}
       {formatDuration(bucketIntervalSeconds)} intervals
-    </InfoBanner>
+    </Alert>
   );
 }

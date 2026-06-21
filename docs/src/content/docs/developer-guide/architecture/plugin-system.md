@@ -24,11 +24,11 @@ The platform supports four install sources, all going through a discriminated
 | `npm`      | Public or private npm registry (configurable)   |
 | `tarball`  | Uploaded `.tgz` (filesystem analogue)           |
 | `github`   | GitHub release asset (`.tgz` packed by our CLI) |
-| `catalog`  | Curated marketplace (stub — coming soon)        |
+| `catalog`  | Curated marketplace (stub - coming soon)        |
 
 Plugin tarballs (single package or `--bundle`-mode multi-package) are
 persisted in `plugin_artifacts` (Postgres `bytea`). A freshly spun replica
-recovers every runtime-installed plugin from this table at boot — no
+recovers every runtime-installed plugin from this table at boot - no
 re-fetch from the original source is needed for replicas to come up.
 
 For plugin authors: see [Plugin Distribution & Packing](/checkstack/developer-guide/architecture/plugin-distribution/)
@@ -62,7 +62,7 @@ Each plugin is a standalone npm package that can:
 
 ## Project Structure
 
-```
+```text
 checkstack/
 ├── core/
 │   ├── backend/           # Core backend framework
@@ -167,7 +167,7 @@ graph TD
 
 Each backend plugin gets its own **isolated PostgreSQL schema**:
 
-```
+```text
 Database: checkstack
 ├── Schema: public (core only)
 ├── Schema: plugin_catalog-backend
@@ -274,7 +274,9 @@ wsRegistry.register("/events", eventsHandler);
 // → Available at /api/ws/{pluginId}/events
 ```
 
-The registry uses the same **scoped factory pattern** as RPC and health check registries — plugins never provide their ID manually.
+The registry uses the same **scoped factory pattern** as RPC and health check registries - plugins never provide their ID manually.
+
+The satellite transport is the canonical example of a plugin-registered WebSocket route; see [Satellites architecture](/checkstack/developer-guide/architecture/satellite/) for its enrollment handshake and dispatch/result protocol.
 
 > **Note:** The signal/realtime WebSocket (`/api/signals/ws`) uses Bun's native pub/sub and is handled separately from the registry.
 

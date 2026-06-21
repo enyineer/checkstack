@@ -64,13 +64,16 @@ describe("RconHealthCheckStrategy", () => {
       const mockClient = createMockRconClient("list response");
       const strategy = new RconHealthCheckStrategy(mockClient);
 
-      const { client, close } = await strategy.createClient({
+      const { client, close, timings } = await strategy.createClient({
         host: "localhost",
         password: "test",
       });
 
+      expect(timings?.connectMs).toBeGreaterThanOrEqual(0);
+
       const result = await client.exec("list");
       expect(result.response).toBe("list response");
+      expect(timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       close();
     });

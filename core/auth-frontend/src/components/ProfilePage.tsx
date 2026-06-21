@@ -15,7 +15,6 @@ import {
   Button,
   Input,
   Label,
-  Card,
   CardHeader,
   CardTitle,
   CardDescription,
@@ -29,6 +28,8 @@ import {
   usePerformance,
   cn,
 } from "@checkstack/ui";
+import { AuthLandingCard } from "./AuthLandingCard";
+import { deriveInitial } from "./identity.logic";
 
 export const ProfilePage = () => {
   const navigate = useNavigate();
@@ -104,7 +105,7 @@ export const ProfilePage = () => {
   if (loadingProfile) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
-        <Card className="w-full max-w-md">
+        <AuthLandingCard>
           <CardContent className="pt-6">
             <div className="space-y-4">
               <div
@@ -127,16 +128,31 @@ export const ProfilePage = () => {
               />
             </div>
           </CardContent>
-        </Card>
+        </AuthLandingCard>
       </div>
     );
   }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
-      <Card className="w-full max-w-md">
+      <AuthLandingCard>
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Profile</CardTitle>
+          <div className="flex items-center gap-3">
+            <span
+              className="grid size-12 shrink-0 place-items-center rounded-full bg-surface-inset text-base font-semibold text-muted-foreground"
+              aria-hidden
+            >
+              {deriveInitial({ name, email })}
+            </span>
+            <div className="min-w-0">
+              <CardTitle className="text-2xl font-bold">Profile</CardTitle>
+              {email && (
+                <p className="truncate text-xs text-muted-foreground">
+                  {email}
+                </p>
+              )}
+            </div>
+          </div>
           <CardDescription>Manage your account settings</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
@@ -209,7 +225,7 @@ export const ProfilePage = () => {
               <div className="pt-2">
                 <Link
                   to={resolveRoute(authRoutes.routes.changePassword)}
-                  className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                  className="inline-flex items-center gap-2 rounded-md border border-border/70 bg-surface-inset/40 px-3 py-2 text-sm text-primary transition-colors hover:border-primary/40"
                 >
                   <Key className="h-4 w-4" />
                   Change Password
@@ -235,7 +251,7 @@ export const ProfilePage = () => {
             </button>
           </CardFooter>
         </form>
-      </Card>
+      </AuthLandingCard>
     </div>
   );
 };

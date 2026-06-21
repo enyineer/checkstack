@@ -14,10 +14,10 @@ const STATUS_DOT_COLOR: Record<
   NonNullable<NotificationSubject["status"]>,
   string
 > = {
-  healthy: "bg-emerald-500",
-  degraded: "bg-amber-500",
-  unhealthy: "bg-rose-500",
-  unknown: "bg-zinc-400",
+  healthy: "bg-status-ok",
+  degraded: "bg-status-warn",
+  unhealthy: "bg-status-down",
+  unknown: "bg-status-unknown",
 };
 
 interface NotificationSubjectsProps {

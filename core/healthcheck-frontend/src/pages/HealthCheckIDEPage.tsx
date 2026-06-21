@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
@@ -13,9 +13,20 @@ import {
   DEFAULT_STATE_THRESHOLDS,
 } from "@checkstack/healthcheck-common";
 import { CatalogApi } from "@checkstack/catalog-common";
-import { PageLayout, Button, useToast, IDELayout, useInitOnceForKey, type ValidationIssue } from "@checkstack/ui";
+import {
+  PageLayout,
+  Button,
+  useToast,
+  toastError,
+  toastSuccess,
+  IDELayout,
+  useInitOnceForKey,
+  useUnsavedChanges,
+  ConfirmationModal,
+  type ValidationIssue,
+} from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
-import { resolveRoute, extractErrorMessage} from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
 import { EditorPanel } from "../components/editor/EditorPanel";
@@ -25,6 +36,7 @@ import {
   findSelectedEnvironment,
 } from "@checkstack/catalog-frontend";
 import { buildTemplatePreviewContext } from "../components/editor/collector-preview-context.logic";
+import { SaveBlockersSummary } from "../components/editor/SaveBlockersSummary";
 import { teamCreateErrorMessage } from "@checkstack/auth-frontend";
 
 
@@ -173,15 +185,12 @@ const HealthCheckIDEPageContent = () => {
     });
   });
 
-  // Unsaved changes guard
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  // Unsaved-changes guard: native prompt on tab close / refresh (migrated from
+  // a hand-rolled `beforeunload` effect) plus an in-app navigation block, both
+  // from the shared hook so every editor behaves consistently.
+  const { isBlocked, confirmDiscard, cancelDiscard } = useUnsavedChanges({
+    isDirty,
+  });
 
   // --- Update Handlers ---
 
@@ -386,28 +395,26 @@ const HealthCheckIDEPageContent = () => {
             `Health check created, but ${failed} of ${selectedSystemIds.length} system assignment${selectedSystemIds.length === 1 ? "" : "s"} failed.`,
           );
         } else {
-          toast.success(
+          toastSuccess(
+            toast,
             `Health check created and assigned to ${selectedSystemIds.length} system${selectedSystemIds.length === 1 ? "" : "s"}`,
           );
         }
       } else {
-        toast.success("Health check created");
+        toastSuccess(toast, "Health check created");
       }
 
       // Where to land: prefer back to the originating system's assignment IDE
-      // when the user came from there, otherwise the config list.
-      if (
-        systemIdFromUrl &&
-        selectedSystemIds.includes(systemIdFromUrl)
-      ) {
-        navigate(
-          resolveRoute(healthcheckRoutes.routes.assignments, {
-            systemId: systemIdFromUrl,
-          }),
-        );
-      } else {
-        navigate(resolveRoute(healthcheckRoutes.routes.config));
-      }
+      // when the user came from there, otherwise the config list. Defer to the
+      // next tick so the cleared dirty flag has committed and the
+      // unsaved-changes guard doesn't block the post-save navigation.
+      const destination =
+        systemIdFromUrl && selectedSystemIds.includes(systemIdFromUrl)
+          ? resolveRoute(healthcheckRoutes.routes.assignments, {
+              systemId: systemIdFromUrl,
+            })
+          : resolveRoute(healthcheckRoutes.routes.config);
+      setTimeout(() => navigate(destination), 0);
     },
     onError: (error) => {
       const inline = teamCreateErrorMessage(error);
@@ -415,18 +422,20 @@ const HealthCheckIDEPageContent = () => {
         setOwnerTeamError(inline);
         return;
       }
-      toast.error(extractErrorMessage(error, "Failed to create"));
+      toastError(toast, "Failed to create", error);
     },
   });
 
   const updateMutation = healthCheckClient.updateConfiguration.useMutation({
     onSuccess: () => {
+      // Clear dirty first, then navigate next tick so the unsaved-changes guard
+      // (now a router blocker) doesn't intercept the post-save redirect.
       setIsDirty(false);
-      toast.success("Health check updated");
-      navigate(resolveRoute(healthcheckRoutes.routes.config));
+      toastSuccess(toast, "Health check updated");
+      setTimeout(() => navigate(resolveRoute(healthcheckRoutes.routes.config)), 0);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update"));
+      toastError(toast, "Failed to update", error);
     },
   });
 
@@ -489,13 +498,19 @@ const HealthCheckIDEPageContent = () => {
       icon={Settings}
       maxWidth="full"
       actions={
-        <Button
-          onClick={handleSave}
-      disabled={!isValid || isSaving || isLocked}
-        >
-          <Save className="mr-2 h-4 w-4" />
-          {isSaving ? "Saving..." : "Save"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <SaveBlockersSummary
+            issues={validationIssues}
+            onNavigate={(nodeId) => setSelectedNode(nodeId)}
+          />
+          <Button
+            onClick={handleSave}
+            disabled={!isValid || isSaving || isLocked}
+          >
+            <Save className="mr-2 h-4 w-4" />
+            {isSaving ? "Saving..." : "Save"}
+          </Button>
+        </div>
       }
     >
       {isLocked && provenance && (
@@ -577,6 +592,16 @@ const HealthCheckIDEPageContent = () => {
         }
         issues={validationIssues}
         onIssueClick={(nodeId) => setSelectedNode(nodeId as TreeNodeId)}
+      />
+      <ConfirmationModal
+        isOpen={isBlocked}
+        onClose={cancelDiscard}
+        onConfirm={confirmDiscard}
+        title="Discard unsaved changes?"
+        message="You have unsaved changes to this health check. Leaving now will discard them."
+        confirmText="Discard changes"
+        cancelText="Keep editing"
+        variant="warning"
       />
     </PageLayout>
   );

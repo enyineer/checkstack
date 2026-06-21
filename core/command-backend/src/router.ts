@@ -1,5 +1,11 @@
 import { implement } from "@orpc/server";
-import { autoAuthMiddleware, correlationMiddleware, type RpcContext } from "@checkstack/backend-api";
+import {
+  autoAuthMiddleware,
+  correlationMiddleware,
+  type RpcContext,
+  type Logger,
+} from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import {
   commandContract,
   filterByAccessRules,
@@ -33,7 +39,7 @@ function getUserAccessRules(context: RpcContext): string[] {
   return [];
 }
 
-export const createCommandRouter = () => {
+export const createCommandRouter = ({ logger }: { logger: Logger }) => {
   /**
    * Search across all registered search providers.
    * Results are aggregated from all providers, filtered by access rules,
@@ -56,7 +62,9 @@ export const createCommandRouter = () => {
           return results;
         } catch (error) {
           // Log but don't fail - one failing provider shouldn't break search
-          console.error(`Search provider ${provider.id} failed:`, error);
+          logger.error(
+            `Search provider ${provider.id} failed: ${extractErrorMessage(error)}`,
+          );
           return [];
         }
       })
@@ -88,7 +96,9 @@ export const createCommandRouter = () => {
             (r): r is SearchResult & { type: "command" } => r.type === "command"
           );
         } catch (error) {
-          console.error(`Search provider ${provider.id} failed:`, error);
+          logger.error(
+            `Search provider ${provider.id} failed: ${extractErrorMessage(error)}`,
+          );
           return [];
         }
       })

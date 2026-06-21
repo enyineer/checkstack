@@ -102,9 +102,9 @@ Templating is **opt-in per field**. A field is only rendered when the collector 
 
 The values you can reference are:
 
-- `{{ environment.<key> }}` — the resolved environment's custom fields for this run, for example `{{ environment.baseUrl }}` or `{{ environment.region }}`.
-- `{{ check.id }}`, `{{ check.name }}`, `{{ check.intervalSeconds }}` — the running check.
-- `{{ system.id }}`, `{{ system.name }}` — the system being checked.
+- `{{ environment.<key> }}` - the resolved environment's custom fields for this run, for example `{{ environment.baseUrl }}` or `{{ environment.region }}`.
+- `{{ check.id }}`, `{{ check.name }}`, `{{ check.intervalSeconds }}` - the running check.
+- `{{ system.id }}`, `{{ system.name }}` - the system being checked.
 
 For example, an HTTP check whose URL is:
 

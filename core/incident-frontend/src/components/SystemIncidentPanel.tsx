@@ -8,12 +8,46 @@ import {
   incidentRoutes,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
-import { Badge, LoadingSpinner, Button } from "@checkstack/ui";
+import { cn, LoadingSpinner, Button } from "@checkstack/ui";
 import { AlertTriangle, History } from "lucide-react";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
 const SEVERITY_WEIGHTS = { critical: 3, major: 2, minor: 1 } as const;
+
+/** Colorblind-safe status triad tone for each incident severity. */
+type StatusTone = "warn" | "down" | "unknown";
+
+function severityTone(severity: string): StatusTone {
+  if (severity === "critical") return "down";
+  if (severity === "major") return "warn";
+  return "unknown";
+}
+
+/** Per-tone class sets for the panel surface, leading icon, and severity pill. */
+const toneStyles: Record<
+  StatusTone,
+  { surface: string; icon: string; pill: string; dot: string }
+> = {
+  down: {
+    surface: "border-status-down/30 bg-status-down/5",
+    icon: "text-status-down",
+    pill: "bg-status-down/10 text-status-down",
+    dot: "bg-status-down",
+  },
+  warn: {
+    surface: "border-status-warn/30 bg-status-warn/5",
+    icon: "text-status-warn",
+    pill: "bg-status-warn/10 text-status-warn",
+    dot: "bg-status-warn",
+  },
+  unknown: {
+    surface: "border-status-unknown/30 bg-status-unknown/5",
+    icon: "text-status-unknown",
+    pill: "bg-status-unknown/10 text-status-unknown",
+    dot: "bg-status-unknown",
+  },
+};
 
 
 function findMostSevereIncident(
@@ -49,7 +83,7 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center rounded-md border border-border/50 bg-card px-3 py-2">
+      <div className="flex items-center justify-center rounded-md border border-border/50 bg-surface px-3 py-2">
         <LoadingSpinner />
       </div>
     );
@@ -57,7 +91,7 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
 
   if (incidents.length === 0) {
     return (
-      <div className="flex items-center justify-between rounded-md border border-border/50 bg-card px-3 py-2">
+      <div className="flex items-center justify-between rounded-md border border-border/50 bg-surface px-3 py-2">
         <div className="flex items-center gap-2 text-muted-foreground">
           <AlertTriangle className="h-3.5 w-3.5" />
           <span className="text-sm">No active incidents</span>
@@ -77,38 +111,41 @@ export const SystemIncidentPanel: React.FC<Props> = ({ system }) => {
   }
 
   const mostSevere = findMostSevereIncident(incidents);
-  const severityColor =
-    mostSevere.severity === "critical"
-      ? "border-destructive/30 bg-destructive/5"
-      : mostSevere.severity === "major"
-        ? "border-warning/30 bg-warning/5"
-        : "border-info/30 bg-info/5";
+  const panelStyles = toneStyles[severityTone(mostSevere.severity)];
 
   return (
     <div
-      className={`flex items-center justify-between rounded-md border px-3 py-2 ${severityColor}`}
+      className={cn(
+        "flex items-center justify-between rounded-md border px-3 py-2",
+        panelStyles.surface,
+      )}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+        <AlertTriangle
+          className={cn("h-3.5 w-3.5 shrink-0", panelStyles.icon)}
+        />
         <span className="text-sm font-medium truncate">
           {incidents.length} active incident{incidents.length > 1 ? "s" : ""}
         </span>
         <div className="flex items-center gap-1.5">
-          {incidents.map((i) => (
-            <Badge
-              key={i.id}
-              variant={
-                i.severity === "critical"
-                  ? "destructive"
-                  : i.severity === "major"
-                    ? "warning"
-                    : "secondary"
-              }
-              className="text-xs"
-            >
-              {i.severity}
-            </Badge>
-          ))}
+          {incidents.map((i) => {
+            const styles = toneStyles[severityTone(i.severity)];
+            return (
+              <span
+                key={i.id}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                  styles.pill,
+                )}
+              >
+                <span
+                  className={cn("size-1.5 rounded-full", styles.dot)}
+                  aria-hidden
+                />
+                {i.severity}
+              </span>
+            );
+          })}
         </div>
       </div>
       <Button variant="ghost" size="sm" className="h-7 text-xs shrink-0" asChild>

@@ -18,7 +18,7 @@ The GitOps system lets teams define Checkstack resources (systems, health checks
 
 Plugins can also **extend** existing kinds by adding namespaced spec fields (e.g., the healthcheck plugin extends `System` with health check assignments).
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     YAML Descriptor                         │
 │                                                             │
@@ -216,13 +216,13 @@ const mySchema = z.object({
 
 The reconciliation engine automatically detects entity refs in specs using `extractEntityRefs()`. This walks the entire spec tree and collects all objects matching `{ kind, name }`. These are used to build a dependency graph and reconcile entities in topological order (dependencies first).
 
-**You don't need to do anything special** — just use the `entityRefSchema` in your spec and the engine handles the rest.
+**You don't need to do anything special** - just use the `entityRefSchema` in your spec and the engine handles the rest.
 
 ## Reconciliation Lifecycle
 
 The GitOps sync engine follows a strict **Collect → Sort → Reconcile** lifecycle:
 
-```
+```text
   Git Repository
        │
        ▼
@@ -268,7 +268,7 @@ spec:
     connectionString: "postgres://user:${{ secrets.DB_PASS }}@host/db"
 ```
 
-Secret resolution is **schema-driven** — only fields marked with `configString({ "x-secret": true })` are resolved. This is the same annotation pattern used by DynamicForm for the admin UI:
+Secret resolution is **schema-driven** - only fields marked with `configString({ "x-secret": true })` are resolved. This is the same annotation pattern used by DynamicForm for the admin UI:
 
 ```typescript
 import { configString } from "@checkstack/backend-api";
@@ -285,7 +285,7 @@ Secrets are **not pre-resolved** in the spec. Instead:
 
 1. **Validation**: All referenced secrets are validated to exist at sync time. Missing secrets cause the entity to error immediately.
 2. **Metadata guard**: Templates in `metadata` fields (`name`, `title`, `description`) are **rejected** to prevent secrets from leaking into display fields.
-3. **Schema-driven resolution**: The plugin reconciler calls `context.resolveSecretsBySchema()` with the **typed schema** (e.g., the strategy config schema). Only fields annotated with `x-secret` are resolved — everything else is returned as-is.
+3. **Schema-driven resolution**: The plugin reconciler calls `context.resolveSecretsBySchema()` with the **typed schema** (e.g., the strategy config schema). Only fields annotated with `x-secret` are resolved - everything else is returned as-is.
 
 This prevents a malicious actor from exfiltrating secrets via display fields or non-secret config fields.
 

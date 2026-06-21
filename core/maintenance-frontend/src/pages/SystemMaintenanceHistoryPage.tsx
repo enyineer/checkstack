@@ -4,14 +4,12 @@ import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
 import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
 import { maintenanceRoutes } from "@checkstack/maintenance-common";
-import type { MaintenanceStatus } from "@checkstack/maintenance-common";
 import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardContent,
-  Badge,
   LoadingSpinner,
   EmptyState,
   Table,
@@ -20,11 +18,20 @@ import {
   TableHead,
   TableBody,
   TableCell,
+  ResponsiveTable,
+  MobileCardList,
   PageLayout,
   BackLink,
 } from "@checkstack/ui";
+import { cn } from "@checkstack/ui";
 import { Calendar, Clock, History } from "lucide-react";
 import { format } from "date-fns";
+import {
+  getMaintenanceStatusBadge,
+  getMaintenanceStatusTone,
+  getMaintenanceToneAccentClass,
+} from "../utils/badges";
+import { MaintenanceScheduleHero } from "../components/MaintenanceScheduleHero";
 
 const SystemMaintenanceHistoryPageContent: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
@@ -59,26 +66,6 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
   const system = systems.find((s) => s.id === systemId);
   const systemName = system?.name ?? "Unknown System";
   const loading = maintenancesLoading || systemsLoading;
-
-  const getStatusBadge = (status: MaintenanceStatus) => {
-    switch (status) {
-      case "in_progress": {
-        return <Badge variant="warning">In Progress</Badge>;
-      }
-      case "scheduled": {
-        return <Badge variant="info">Scheduled</Badge>;
-      }
-      case "completed": {
-        return <Badge variant="success">Completed</Badge>;
-      }
-      case "cancelled": {
-        return <Badge variant="secondary">Cancelled</Badge>;
-      }
-      default: {
-        return <Badge>{status}</Badge>;
-      }
-    }
-  };
 
   if (!systemId) {
     return (
@@ -126,20 +113,85 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
               description="This system has never had a planned maintenance window. When one is scheduled (or completes), it will appear here so you can see how often this system is taken offline and for how long."
             />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Start</TableHead>
-                  <TableHead>End</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Start</TableHead>
+                      <TableHead>End</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {maintenances.map((m) => (
+                      <TableRow
+                        key={m.id}
+                        className="cursor-pointer transition-colors hover:bg-surface-inset"
+                        onClick={() =>
+                          navigate(
+                            `${resolveRoute(maintenanceRoutes.routes.detail, {
+                              maintenanceId: m.id,
+                            })}?from=${systemId}`,
+                          )
+                        }
+                      >
+                        <TableCell>
+                          <div className="relative pl-3">
+                            <span
+                              className={cn(
+                                "absolute inset-y-0 left-0 w-1 rounded-full",
+                                getMaintenanceToneAccentClass(
+                                  getMaintenanceStatusTone(m.status),
+                                ),
+                              )}
+                              aria-hidden
+                            />
+                            <p className="font-medium text-foreground">
+                              {m.title}
+                            </p>
+                            {m.description && (
+                              <p className="text-sm text-muted-foreground truncate max-w-xs">
+                                {m.description}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {getMaintenanceStatusBadge(m.status)}
+                        </TableCell>
+                        <TableCell>
+                          <MaintenanceScheduleHero
+                            startAt={m.startAt}
+                            endAt={m.endAt}
+                          />
+                          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Calendar className="h-3 w-3" />
+                            <span>
+                              {format(new Date(m.startAt), "MMM d, yyyy HH:mm")}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            <span>
+                              {format(new Date(m.endAt), "MMM d, yyyy HH:mm")}
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+
+              <MobileCardList className="p-4">
                 {maintenances.map((m) => (
-                  <TableRow
+                  <div
                     key={m.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    className="group cursor-pointer"
                     onClick={() =>
                       navigate(
                         `${resolveRoute(maintenanceRoutes.routes.detail, {
@@ -148,35 +200,52 @@ const SystemMaintenanceHistoryPageContent: React.FC = () => {
                       )
                     }
                   >
-                    <TableCell>
-                      <p className="font-medium text-foreground">{m.title}</p>
+                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-1",
+                          getMaintenanceToneAccentClass(
+                            getMaintenanceStatusTone(m.status),
+                          ),
+                        )}
+                        aria-hidden
+                      />
+                      <div className="flex items-start justify-between gap-2 pl-2">
+                        <p className="min-w-0 truncate font-medium text-foreground">
+                          {m.title}
+                        </p>
+                        {getMaintenanceStatusBadge(m.status)}
+                      </div>
                       {m.description && (
-                        <p className="text-sm text-muted-foreground truncate max-w-xs">
+                        <p className="mt-1 truncate pl-2 text-xs text-muted-foreground">
                           {m.description}
                         </p>
                       )}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(m.status)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {format(new Date(m.startAt), "MMM d, yyyy HH:mm")}
-                        </span>
+                      <div className="mt-3 pl-2">
+                        <MaintenanceScheduleHero
+                          startAt={m.startAt}
+                          endAt={m.endAt}
+                        />
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>
-                          {format(new Date(m.endAt), "MMM d, yyyy HH:mm")}
-                        </span>
+                      <div className="mt-2 space-y-1 pl-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>
+                            {format(new Date(m.startAt), "MMM d, yyyy HH:mm")}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          <span>
+                            {format(new Date(m.endAt), "MMM d, yyyy HH:mm")}
+                          </span>
+                        </div>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </MobileCardList>
+            </>
           )}
         </CardContent>
       </Card>

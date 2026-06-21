@@ -21,6 +21,12 @@ export interface NavLike {
 export interface NavGroupOf<R> {
   group: string;
   items: R[];
+  /**
+   * True when the group has exactly one visible entry. The sidebar renders
+   * these as flat top-level items (no group header) to cut visual chrome for
+   * single-item sections (e.g. Automation).
+   */
+  flat: boolean;
 }
 
 /**
@@ -78,11 +84,11 @@ export function selectNavGroups<R extends { nav?: NavLike }>({
 
   return [...byGroup.entries()]
     .toSorted(([a], [b]) => orderOf(a) - orderOf(b) || a.localeCompare(b))
-    .map(([group, items]) => ({
-      group,
-      items: items.toSorted(
+    .map(([group, items]) => {
+      const sorted = items.toSorted(
         (a, b) =>
           a.nav.order - b.nav.order || a.nav.label.localeCompare(b.nav.label),
-      ),
-    }));
+      );
+      return { group, items: sorted, flat: sorted.length === 1 };
+    });
 }

@@ -49,7 +49,7 @@ export const notificationPlugin = createFrontendPlugin({
           default: m.NotificationSettingsPage,
         })),
       nav: {
-        group: "Configuration",
+        group: "Settings",
         icon: Bell,
         label: "Notification Settings",
         // Notifications are per-user (channels + subscriptions), so this page is

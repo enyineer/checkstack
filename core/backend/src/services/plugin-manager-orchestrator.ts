@@ -173,7 +173,10 @@ export async function installOriginator({
 
   try {
     for (const pkg of packages) {
-      await artifactStore.store({
+      // `store()` computes and returns the canonical SHA-256 of the tarball
+      // bytes. We pin that digest on the `plugins` row so a later reload can
+      // re-verify the artifact has not been tampered with (fail-closed).
+      const { contentHash: installedDigest } = await artifactStore.store({
         pluginName: pkg.packageJson.name,
         version: pkg.packageJson.version,
         bundleId,
@@ -202,6 +205,7 @@ export async function installOriginator({
           source,
           bundleId,
           isPrimary,
+          installedDigest,
         })
         .onConflictDoUpdate({
           target: [plugins.name],
@@ -215,6 +219,7 @@ export async function installOriginator({
             source,
             bundleId,
             isPrimary,
+            installedDigest,
           },
         });
     }

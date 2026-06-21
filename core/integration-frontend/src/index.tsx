@@ -24,7 +24,7 @@ export const integrationPlugin = createFrontendPlugin({
         })),
       accessRule: integrationAccess.manage,
       nav: {
-        group: "Configuration",
+        group: "Platform",
         icon: Webhook,
         label: "Integrations",
       },

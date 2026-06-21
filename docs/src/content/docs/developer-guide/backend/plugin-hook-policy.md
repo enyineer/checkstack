@@ -20,7 +20,7 @@ during boot, before the platform finishes coming online:
 There is no generic "halt on any hook failure" knob. The choice is made
 per hook based on whether the failure is structural or operational.
 
-## `pluginInitialized` — halt on subscriber failure
+## `pluginInitialized` - halt on subscriber failure
 
 `pluginInitialized` fires immediately after a plugin's Phase 2 `init()`
 resolves, so downstream consumers can wire themselves against the
@@ -29,7 +29,7 @@ materialise its service references, etc.).
 
 A throwing subscriber here means a downstream never got the chance to
 wire itself. Continuing past that would leave the platform running in
-a half-wired state — the kind of failure that surfaces as confusing
+a half-wired state - the kind of failure that surfaces as confusing
 `undefined is not a function` errors at request time, long after the
 boot logs scrolled off the screen.
 
@@ -41,14 +41,14 @@ inconsistent state.
 This matches the existing `afterPluginsReady` failure handling lower
 down in the same loader.
 
-## `accessRulesRegistered` — continue, escalate log
+## `accessRulesRegistered` - continue, escalate log
 
 `accessRulesRegistered` drives downstream consumers that mirror
 access-rule registrations into their own stores: think of a sync
 worker that hydrates a DB-backed access-rule cache, or a UI plugin
 that wants to display the current access matrix.
 
-A throwing subscriber here is operational, not structural — the
+A throwing subscriber here is operational, not structural - the
 platform itself is fully wired even if a subscriber failed. The cost
 of halting boot would be that **one** misbehaving plugin could DOS
 every other plugin on the same instance. The cost of continuing is
@@ -61,14 +61,14 @@ We pick the latter:
 - We track a counter and emit a final summary line if any subscriber
   failed, so the failure isn't lost in a noisy boot log.
 - Boot continues. Downstream consumers should implement their own
-  retry / re-sync — `accessRulesRegistered` is fired again on plugin
+  retry / re-sync - `accessRulesRegistered` is fired again on plugin
   re-registration, and consumers can also pull the current snapshot
   via the plugin manager's `getAllAccessRules()` if needed.
 
 ## What this is not
 
 - Not a hook-level retry mechanism. If the dispatch system itself
-  supports retries (e.g. work-queue mode), those still apply — this
+  supports retries (e.g. work-queue mode), those still apply - this
   policy is about what the loader does once the dispatch finally
   resolves or rejects from the emitter's point of view.
 - Not a generic toggle. Adding a third hook with a different policy
@@ -81,7 +81,7 @@ We pick the latter:
 
 - **Do not** silently swallow errors here without escalating them.
   Both branches in the loader log at `error` level deliberately.
-- **Do not** rethrow from `accessRulesRegistered` — that's the whole
+- **Do not** rethrow from `accessRulesRegistered` - that's the whole
   point of the per-hook policy. A boot-blocking access-rules hook
   re-introduces the DOS vector this policy exists to prevent.
 - **Do not** add new hooks emitted from inside `plugin-loader.ts`

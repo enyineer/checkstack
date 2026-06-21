@@ -51,12 +51,17 @@ describe("TlsHealthCheckStrategy", () => {
       config.error
         ? Promise.reject(config.error)
         : Promise.resolve({
-            authorized: config.authorized ?? true,
-            getPeerCertificate: () => config.cert ?? createCertInfo(),
-            getProtocol: () => config.protocol ?? "TLSv1.3",
-            getCipher: () => (config.cipher ? { name: config.cipher } : null),
-            end: mock(() => {}),
-          } as TlsConnection),
+            connection: {
+              authorized: config.authorized ?? true,
+              getPeerCertificate: () => config.cert ?? createCertInfo(),
+              getProtocol: () => config.protocol ?? "TLSv1.3",
+              getCipher: () =>
+                config.cipher ? { name: config.cipher } : null,
+              end: mock(() => {}),
+            } as TlsConnection,
+            connectMs: 3,
+            tlsMs: 12,
+          }),
     ),
   });
 
@@ -75,6 +80,22 @@ describe("TlsHealthCheckStrategy", () => {
       expect(connectedClient.client).toBeDefined();
       expect(connectedClient.client.exec).toBeDefined();
       expect(connectedClient.close).toBeDefined();
+
+      connectedClient.close();
+    });
+
+    it("surfaces measured connect + TLS handshake timings", async () => {
+      const strategy = new TlsHealthCheckStrategy(createMockClient());
+
+      const connectedClient = await strategy.createClient({
+        host: "example.com",
+        port: 443,
+        timeout: 5000,
+        minDaysUntilExpiry: 7,
+        rejectUnauthorized: true,
+      });
+
+      expect(connectedClient.timings).toEqual({ connectMs: 3, tlsMs: 12 });
 
       connectedClient.close();
     });

@@ -34,10 +34,10 @@ const sourcePlayersResultSchema = z.object({
   playerCount: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Player Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 2,
-    "x-anomaly-min-relative-delta": 0.25,
+    // Player population swings widely run to run (empty off peak, full at
+    // peak) with no stable baseline and no good or bad direction. Charting it
+    // is useful, but baseline anomaly detection here is pure alert fatigue.
+    "x-anomaly-enabled": false,
   }),
   playerNames: z.array(
     healthResultString({
@@ -55,14 +55,14 @@ const sourcePlayersAggregatedFields = {
   avgPlayerCount: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Player Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    // Same volatile population signal as the per-run player count. No stable
+    // baseline, no good or bad direction: chart only, do not alert.
+    "x-anomaly-enabled": false,
   }),
   maxPlayerCount: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Player Count",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    "x-anomaly-enabled": false,
   }),
 };
 

@@ -10,7 +10,7 @@ via the standard slot-extension mechanism in `@checkstack/frontend-api`.
 
 ## Architecture
 
-```
+```text
 core/infrastructure-common    → InfrastructureTabsSlot, routes, shared types
 core/infrastructure-frontend  → Shell page (IDE Editor pattern), user menu
 ```
@@ -19,14 +19,14 @@ Dependency direction is **inverse**: each contributing plugin depends on
 `@checkstack/infrastructure-common` to import the slot. The shell in
 `infrastructure-frontend` does **not** depend on the contributing plugins.
 
-## Design Pattern — IDE Editor Tabs with Stacked Sub-sections
+## Design Pattern - IDE Editor Tabs with Stacked Sub-sections
 
 The page uses a vertical tab bar on the left with a content area on the right,
 similar to an IDE editor's settings panel. Each tab body stacks two
 sub-sections: a **Runtime** card on top (live state, read-only) and a
 **Configuration** card below (settings, gated by manage access).
 
-```
+```text
 ┌────────────────┬──────────────────────────────┐
 │  ⚙ Queue       │   ┌──────────────────────┐   │
 │  💾 Cache      │   │  Queue Runtime       │   │
@@ -115,20 +115,20 @@ export const QueueInfrastructureTab = ({ canUpdate }: InfrastructureTabContext) 
 
 Both Queue and Cache expose a runtime endpoint:
 
-- **Queue** — `getStats` returns `{ pending, processing, completed, failed, scope }`.
+- **Queue** - `getStats` returns `{ pending, processing, completed, failed, scope }`.
   `listJobs({ state, offset, limit })` returns
   `{ items: JobSummary[], total, hasMore }` for the Active / Recent failed /
   Recent completed tables. Pagination is offset-based; `total` is `null`
   when the backend can't compute it cheaply, and the UI uses `hasMore` to
-  drive the next button. Payloads are deliberately omitted — they may
+  drive the next button. Payloads are deliberately omitted - they may
   carry secrets, so showing them needs a separate manage-access gate.
-- **Cache** — `getRuntimeStats` returns the active provider id plus
+- **Cache** - `getRuntimeStats` returns the active provider id plus
   `{ keyCount, sizeBytes, hits, misses, scope }`. Each numeric field is
   nullable; backends that can't report a metric cheaply (e.g. remote caches
   without a cheap stats command) return `null`. The UI renders `null` as `—`.
   `listEntries({ offset, limit, sortBy: "biggest" | "newest" })` returns
   `{ supported, items: CacheEntrySummary[], total, hasMore }`
-  (key, byteSize, expiresAt — no values). Backends without affordable
+  (key, byteSize, expiresAt - no values). Backends without affordable
   enumeration return `supported: false`.
 
 ### Aggregation across multiple queues
@@ -137,7 +137,7 @@ Both Queue and Cache expose a runtime endpoint:
 over-fetches `[0, offset+limit)` from each underlying queue, merge-sorts,
 then slices the requested window. This keeps the common single-queue case
 free of overhead while keeping multi-queue deployments correctly ordered.
-Deeply paginated requests (large `offset`) are wasteful by design — the UI
+Deeply paginated requests (large `offset`) are wasteful by design - the UI
 caps `limit` at 200 per request and most users never page beyond the first
 few pages.
 

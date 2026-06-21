@@ -11,9 +11,21 @@ import { toModelSchema } from "./model-schema";
  * mode (and for ALL destructive tools): it does NOT commit. It runs the propose
  * dry-run and returns a CONFIRM CARD the human must approve via `applyTool`. The
  * model can never silently mutate.
+ *
+ * This is a SUCCESS result (the proposal genuinely succeeded), so it is returned
+ * as a value, not thrown. The `status: "awaiting_operator"` field is the
+ * STRUCTURED signal the model keys on (instead of parsing the prose `note`): the
+ * proposal landed and is now blocked on a human decision, so the model must stop
+ * rather than re-propose. See {@link ToolFeedbackError} for the FAILURE channel.
  */
 export interface ConfirmCardResult {
   __confirm: true;
+  /**
+   * Structured "proposal succeeded, now blocked on the operator" marker. The
+   * model branches on this rather than reading the `note` prose, so a model that
+   * skims the result still learns it must stop and wait.
+   */
+  status: "awaiting_operator";
   toolName: string;
   effect: "mutate" | "destructive";
   summary: string;
@@ -30,6 +42,41 @@ export interface ConfirmCardResult {
    * dispatcher saw the model fire the same propose three times in a row.
    */
   note: string;
+}
+
+/**
+ * Structured payload carried on a {@link ToolFeedbackError} so the failure
+ * surfaces with a machine-readable shape (not just prose) when the AI SDK
+ * renders the thrown error as a tool-error result part. `kind` distinguishes the
+ * two self-correction cases; `issues` is present only for a validation failure.
+ */
+export interface ToolFeedbackPayload {
+  kind: "validation_failed" | "duplicate_call";
+  toolName: string;
+  issues?: ToolValidationIssue[];
+}
+
+/**
+ * Thrown from a tool's `execute` to signal a RECOVERABLE FAILURE the model must
+ * self-correct (a semantic-validation failure or a duplicate call in one turn).
+ *
+ * Why throw instead of returning a value: the platform reaches every model
+ * through an OpenAI-compatible gateway, where a returned object and a thrown
+ * error look identical UNLESS the error channel is used. The AI SDK renders a
+ * thrown `execute` error as a distinct `tool-error` result part (not a normal
+ * success `tool` message), so the model is told the call FAILED and must retry,
+ * instead of treating `{ __validationFailed: true, ... }` as "it worked". The
+ * structured {@link ToolFeedbackPayload} travels in `feedback` and the
+ * model-facing guidance is the error `message` (belt and suspenders: both the
+ * error signal AND the prose).
+ */
+export class ToolFeedbackError extends Error {
+  readonly feedback: ToolFeedbackPayload;
+  constructor(message: string, feedback: ToolFeedbackPayload) {
+    super(message);
+    this.name = "ToolFeedbackError";
+    this.feedback = feedback;
+  }
 }
 
 /**
@@ -164,39 +211,88 @@ export function buildAgentSdkTools({
     // conversion throw "Date cannot be represented...", crashing the turn.
     const inputSchema = toModelSchema(t.input);
 
-    // Disposition decides ONLY the description note + which callback runs; the
-    // tool is constructed in ONE place below so the schema/budget wiring can
-    // never drift between branches (the bug this consolidation removes).
-    const variant: { note: string; run: (input: unknown) => Promise<unknown> } =
+    // Disposition decides ONLY which callback runs; the tool is constructed in
+    // ONE place below so the schema/budget wiring can never drift between
+    // branches (the bug this consolidation removes).
+    //
+    // The description is left STABLE across permission modes on purpose: the
+    // conversation's mode is conveyed ONCE, by the system prompt's
+    // `permissionModeInstruction` line, not by mutating each tool's
+    // description. Appending a per-mode note (" (auto-applied...)" /
+    // " (requires human confirmation...)") would couple tool identity to
+    // conversation state and invalidate any tool-block prompt cache on a mode
+    // toggle, for a signal the prompt already carries.
+    const run: (input: unknown) => Promise<unknown> =
       disposition === "auto-run"
-        ? {
-            note: "",
-            run: (input) => callbacks.runRead({ principal, tool: t, input }),
-          }
+        ? (input) => callbacks.runRead({ principal, tool: t, input })
         : disposition === "auto-apply"
-          ? {
-              // AUTO mode + mutate: apply immediately server-side under the SAME
-              // propose/apply service (authz re-check + audit) as a human apply.
-              note: " (auto-applied immediately in this conversation's auto mode)",
-              run: (input) =>
-                callbacks.autoApply({ principal, tool: t, input }),
-            }
-          : {
-              // propose: mutate-in-APPROVE or ANY destructive tool. Returns a
-              // confirm card; nothing commits until the human applies.
-              note: " (requires human confirmation before it takes effect)",
-              run: (input) => callbacks.propose({ principal, tool: t, input }),
-            };
+          ? // AUTO mode + mutate: apply immediately server-side under the SAME
+            // propose/apply service (authz re-check + audit) as a human apply.
+            (input) => callbacks.autoApply({ principal, tool: t, input })
+          : // propose: mutate-in-APPROVE or ANY destructive tool. Returns a
+            // confirm card; nothing commits until the human applies.
+            (input) => callbacks.propose({ principal, tool: t, input });
 
     sdkTools[t.name] = aiTool({
-      description: `${t.description}${variant.note}`,
+      description: t.description,
       inputSchema,
       execute: async (input: unknown) => {
         await callbacks.enforceBudget(principal);
-        return variant.run(input);
+        const result = await run(input);
+        // SELF-CORRECTION CHANNEL: a validation failure or a duplicate call is a
+        // FAILED tool call, so surface it as a thrown error (which the AI SDK
+        // renders as a distinct `tool-error` result part) rather than a normal
+        // success value. Without this, success and failure are isomorphic JSON
+        // and the model frequently treats "validation failed" as "it worked".
+        // A confirm card / auto-applied result is a SUCCESS and passes through.
+        throwIfFeedbackFailure(result);
+        return result;
       },
     });
   }
 
   return sdkTools;
+}
+
+/** Type guard: a value is a {@link ValidationFeedbackResult}. */
+function isValidationFeedback(
+  value: unknown,
+): value is ValidationFeedbackResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "__validationFailed" in value &&
+    (value as { __validationFailed?: unknown }).__validationFailed === true
+  );
+}
+
+/** Type guard: a value is a {@link DuplicateToolCallResult}. */
+function isDuplicateCall(value: unknown): value is DuplicateToolCallResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "__duplicate" in value &&
+    (value as { __duplicate?: unknown }).__duplicate === true
+  );
+}
+
+/**
+ * If `result` is a self-correction FAILURE (validation or duplicate), throw a
+ * {@link ToolFeedbackError} so the AI SDK renders it as a `tool-error` part. A
+ * confirm card / auto-applied / read result is a success and returns silently.
+ */
+function throwIfFeedbackFailure(result: unknown): void {
+  if (isValidationFeedback(result)) {
+    throw new ToolFeedbackError(result.note, {
+      kind: "validation_failed",
+      toolName: result.toolName,
+      issues: result.issues,
+    });
+  }
+  if (isDuplicateCall(result)) {
+    throw new ToolFeedbackError(result.note, {
+      kind: "duplicate_call",
+      toolName: result.toolName,
+    });
+  }
 }

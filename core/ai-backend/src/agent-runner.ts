@@ -75,6 +75,21 @@ export function memorySaveAllowed(savesSoFar: number): boolean {
  */
 const MAX_OUTPUT_REPAIR_ATTEMPTS = 2;
 
+/**
+ * Thrown from a headless tool's `execute` to signal a recoverable FAILURE (a
+ * denied call, or the per-run memory-save cap). The AI SDK renders a thrown
+ * `execute` error as a distinct `tool-error` result part, so the unattended
+ * model is told the call failed and self-corrects — instead of receiving
+ * `{ error }` as a success value it can misread as the tool's data. A separate
+ * class lets the wrapper re-throw a cap error unchanged without re-wrapping.
+ */
+export class AgentToolFailureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentToolFailureError";
+  }
+}
+
 /** One tool invocation outcome, surfaced in the action's artifact for audit. */
 export interface AgentTaskToolCall {
   tool: string;
@@ -230,12 +245,15 @@ export function createAgentRunner({
         // Single model-boundary date handling, same as the chat tool path.
         inputSchema: toModelSchema(t.input as z.ZodType),
         execute: async (input: unknown) => {
-          // Enforce the per-run memory-save cap before invoking. Surface the
-          // limit to the model (not a throw) so it adapts gracefully.
+          // Enforce the per-run memory-save cap before invoking. The cap is a
+          // FAILURE the model must self-correct around, so surface it as a
+          // thrown tool error (a `tool-error` result part), NOT a success value
+          // the model can mistake for "saved" — the same error-vs-value
+          // distinction the chat path makes.
           if (t.name === MEMORY_SAVE_TOOL_NAME && !memorySaveAllowed(memorySaves)) {
             const message = `Memory save limit for this run reached (${MAX_MEMORY_SAVES_PER_RUN}); not saving again.`;
             toolCalls.push({ tool: t.name, ok: false });
-            return { error: message };
+            throw new AgentToolFailureError(message);
           }
           try {
             const result = await invoke(input);
@@ -252,8 +270,11 @@ export function createAgentRunner({
             }
             return result;
           } catch (error) {
-            // Surface the failure to the model (e.g. a missing-permission
-            // message) so it can adapt, rather than aborting the whole run.
+            // The tool FAILED (e.g. a missing-permission denial). Surface it as a
+            // thrown tool error so the AI SDK renders a distinct `tool-error`
+            // result part and the unattended model self-corrects, instead of
+            // returning `{ error }` as a success value it reads as data. An error
+            // we threw ourselves (the memory cap) is re-thrown unchanged.
             const message = extractErrorMessage(error);
             toolCalls.push({ tool: t.name, ok: false });
             if (recordToolCall) {
@@ -266,7 +287,9 @@ export function createAgentRunner({
                 error: message,
               }).catch(() => {});
             }
-            return { error: message };
+            throw error instanceof AgentToolFailureError
+              ? error
+              : new AgentToolFailureError(message);
           }
         },
       });

@@ -39,29 +39,25 @@ const serverInfoResultSchema = z.object({
     "x-chart-label": "Server Mode",
     "x-anomaly-enabled": false,
   }),
+  // Echo of provisioned capacity: near-constant, so a baseline is
+  // meaningless and only fires on the tiniest configuration jitter.
   numExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Executors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   usableWorkers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Usable Workers",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
+  // Grows monotonically as jobs are created and varies widely between
+  // servers; no stable baseline and no good/bad direction. High
+  // false-positive risk, so off by default.
   totalJobs: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Jobs",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
-    "x-anomaly-min-absolute-delta": 1,
-    "x-anomaly-min-relative-delta": 0.25,
+    "x-anomaly-enabled": false,
   }),
   uptime: healthResultNumber({
     "x-chart-type": "line",
@@ -75,17 +71,18 @@ export type ServerInfoResult = z.infer<typeof serverInfoResultSchema>;
 
 // Aggregated result fields definition
 const serverInfoAggregatedFields = {
+  // Echo of provisioned capacity; near-constant, no meaningful baseline.
   avgExecutors: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Executors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    "x-anomaly-enabled": false,
   }),
+  // Job count grows monotonically and varies widely between servers; no
+  // stable baseline and no good/bad direction.
   avgTotalJobs: aggregatedAverage({
     "x-chart-type": "line",
     "x-chart-label": "Avg Jobs",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "deviation",
+    "x-anomaly-enabled": false,
   }),
 };
 

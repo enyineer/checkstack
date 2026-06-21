@@ -59,6 +59,8 @@ describe("JenkinsHealthCheckStrategy", () => {
       expect(result.error).toBeUndefined();
       expect(result.jenkinsVersion).toBe("2.426.1");
       expect(result.data).toEqual({ mode: "NORMAL", numExecutors: 2 });
+      // The request round-trip is recorded as processingMs (last-request-wins).
+      expect(connectedClient.timings?.processingMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });

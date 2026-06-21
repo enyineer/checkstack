@@ -21,8 +21,34 @@ import React, { Suspense, type ComponentType } from "react";
 interface PluginErrorBoundaryProps {
   /** Human-readable contribution id, used in the console error + fallback. */
   label: string;
-  fallback: React.ReactNode;
+  fallback?: React.ReactNode;
   children: React.ReactNode;
+}
+
+/**
+ * Default fallback for a contribution that throws without a caller-supplied
+ * `errorFallback`. Kept framework-agnostic (plain markup + design-token classes)
+ * so `frontend-api` doesn't have to depend on `@checkstack/ui`; route pages pass
+ * a richer `QueryErrorState`-style card via `errorFallback`. Visible and
+ * actionable rather than the previous invisible `null`, so a broken slot
+ * extension degrades to a small notice instead of silently vanishing.
+ */
+function DefaultContributionFallback() {
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
+      <span>This section failed to load.</span>
+      <button
+        type="button"
+        onClick={() => globalThis.location.reload()}
+        className="font-medium underline underline-offset-2 hover:no-underline"
+      >
+        Reload
+      </button>
+    </div>
+  );
 }
 
 interface PluginErrorBoundaryState {
@@ -48,7 +74,7 @@ class PluginErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      return this.props.fallback;
+      return this.props.fallback ?? <DefaultContributionFallback />;
     }
     return this.props.children;
   }
@@ -65,7 +91,10 @@ interface GetLazyContributionArgs {
   load: LazyLoader;
   /** Shown while the chunk loads. Defaults to nothing (invisible). */
   suspenseFallback?: React.ReactNode;
-  /** Shown if the chunk fails to load/render. Defaults to nothing. */
+  /**
+   * Shown if the chunk fails to load/render. Defaults to a small, visible
+   * "this section failed to load" notice with a reload action.
+   */
   errorFallback?: React.ReactNode;
 }
 
@@ -82,7 +111,9 @@ export function getLazyContribution({
   id,
   load,
   suspenseFallback = null,
-  errorFallback = null,
+  // Left undefined when the caller passes nothing, so `PluginErrorBoundary`
+  // falls back to its visible default notice rather than rendering nothing.
+  errorFallback,
 }: GetLazyContributionArgs): ComponentType<ContributionProps> {
   const cached = lazyComponentCache.get(id);
   if (cached) {

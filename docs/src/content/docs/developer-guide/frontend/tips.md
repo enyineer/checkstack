@@ -37,7 +37,7 @@ Plugins **never write a fully-qualified tip ID by hand**. The `<Tip>`,
 `<TipBanner>`, and `useTipState` APIs all accept a `plugin` prop alongside a
 local `id`, and the calling plugin's `pluginId` is automatically prepended.
 This makes it impossible for one plugin to dismiss or forge a tip in
-another plugin's namespace — a leading or trailing `.` in the local id is
+another plugin's namespace - a leading or trailing `.` in the local id is
 rejected at runtime, so a local id of `".other-plugin.tip"` cannot escape
 the caller's prefix.
 
@@ -67,14 +67,14 @@ import { pluginMetadata } from "@checkstack/catalog-common";
 ```
 
 The wire-level (and stored) tip id is `catalog.systems.create`, derived from
-`pluginMetadata.pluginId` + the local `id`. The popover never auto-opens —
+`pluginMetadata.pluginId` + the local `id`. The popover never auto-opens - 
 the lightbulb is the trigger, so first-time users see a subtle "more
 info available" affordance rather than a popover that interrupts them
 the moment a page loads.
 
 ### Inline banner (preferred for empty pages)
 
-Use when there is no specific element to attach to — typically at the top of
+Use when there is no specific element to attach to - typically at the top of
 a page or alongside an empty state.
 
 ```tsx
@@ -112,10 +112,10 @@ of a blank view:
 ## Tip ID conventions
 
 Fully-qualified tip IDs (the wire format and DB storage form) have shape
-`<pluginId>.<localTipId>`. Plugins write only the local part — the platform
+`<pluginId>.<localTipId>`. Plugins write only the local part - the platform
 takes care of the namespace.
 
-```
+```text
 local id           plugin → fully-qualified id
 ─────────────      ──────────────────────────────────────
 systems.create     catalog → catalog.systems.create

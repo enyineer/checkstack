@@ -12,6 +12,7 @@ import {
   z,
   configString,
   type ConnectedClient,
+  type TransportTimings,
   type InferAggregatedResult,
   baseStrategyConfigSchema,
 } from "@checkstack/backend-api";
@@ -88,6 +89,9 @@ const jenkinsAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 10,
   }),
   avgResponseTimeMs: aggregatedAverage({
     "x-chart-type": "line",
@@ -95,12 +99,18 @@ const jenkinsAggregatedFields = {
     "x-chart-unit": "ms",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-sensitivity": 1.5,
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 50,
+    "x-anomaly-min-relative-delta": 0.5,
   }),
+  // Absolute count twin of successRate; it tracks the same connectivity
+  // signal but drifts with sampling cadence. Success rate (a bounded
+  // percentage) is the stable form, so the raw count is off by default.
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "lower-is-better",
+    "x-anomaly-enabled": false,
   }),
 };
 
@@ -152,6 +162,12 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
       `${validatedConfig.username}:${validatedConfig.apiToken}`,
     ).toString("base64")}`;
 
+    // Jenkins uses a plain fetch per request, so we can only observe the coarse
+    // request round-trip. Map that to processingMs and do not attempt to split
+    // out DNS/connect/TLS phases, which fetch does not expose here
+    // (last-request-wins).
+    const timings: TransportTimings = {};
+
     const client: JenkinsTransportClient = {
       async exec(request: JenkinsRequest): Promise<JenkinsResponse> {
         // Build URL with query params
@@ -166,6 +182,14 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
           () => controller.abort(),
           validatedConfig.timeout,
         );
+
+        const start = performance.now();
+        const recordProcessing = () => {
+          timings.processingMs = Math.max(
+            0,
+            Math.round(performance.now() - start),
+          );
+        };
 
         try {
           const response = await fetch(url, {
@@ -182,6 +206,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
 
           if (!response.ok) {
             clearTimeout(timeoutId);
+            recordProcessing();
             return {
               statusCode: response.status,
               data: undefined,
@@ -194,6 +219,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
           const data = await response.json();
 
           clearTimeout(timeoutId);
+          recordProcessing();
 
           return {
             statusCode: response.status,
@@ -202,6 +228,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
           };
         } catch (error) {
           clearTimeout(timeoutId);
+          recordProcessing();
 
           const errorMessage = extractErrorMessage(error);
           return {
@@ -215,6 +242,7 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
 
     return {
       client,
+      timings,
       close: () => {
         // HTTP is stateless, nothing to close
       },

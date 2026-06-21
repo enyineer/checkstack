@@ -16,7 +16,7 @@ Checkstack runs cleanly on Kubernetes as a single Deployment plus a Service. The
 
 ## The shape
 
-```
+```text
 Ingress -> Service (ClusterIP, port 80 -> 3000) -> Deployment (1 replica)
                                                        |
                                                        v

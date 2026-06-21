@@ -4,6 +4,8 @@ import {
   Input,
   Label,
   useToast,
+  toastSuccess,
+  toastError,
   LoadingSpinner,
   Select,
   SelectContent,
@@ -21,7 +23,6 @@ import {
 import { CatalogApi, type SystemContact } from "@checkstack/catalog-common";
 import { AuthApi, authAccess } from "@checkstack/auth-common";
 import { User, Mail, Trash2, Plus } from "lucide-react";
-import { extractErrorMessage } from "@checkstack/common";
 
 interface ContactsEditorProps {
   systemId: string;
@@ -72,29 +73,25 @@ export const ContactsEditor: React.FC<ContactsEditorProps> = ({ systemId }) => {
   // Add contact mutation
   const addContactMutation = catalogClient.addSystemContact.useMutation({
     onSuccess: () => {
-      toast.success("Contact added successfully");
+      toastSuccess(toast, "Contact added successfully");
       setSelectedUserId("");
       setMailboxEmail("");
       setLabel("");
       void refetchContacts();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to add contact"),
-      );
+      toastError(toast, "Failed to add contact", error);
     },
   });
 
   // Remove contact mutation
   const removeContactMutation = catalogClient.removeSystemContact.useMutation({
     onSuccess: () => {
-      toast.success("Contact removed");
+      toastSuccess(toast, "Contact removed");
       void refetchContacts();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to remove contact"),
-      );
+      toastError(toast, "Failed to remove contact", error);
     },
   });
 

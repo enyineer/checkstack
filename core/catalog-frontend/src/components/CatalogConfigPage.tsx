@@ -6,19 +6,45 @@ import {
   usePluginClient,
 } from "@checkstack/frontend-api";
 import { System, Environment, CatalogApi } from "../api";
-import { catalogAccess } from "@checkstack/catalog-common";
+import {
+  catalogAccess,
+  pluginMetadata as catalogPluginMetadata,
+} from "@checkstack/catalog-common";
 import type { CatalogHealthStatuses } from "@checkstack/catalog-common";
+import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
+import { TipBanner } from "@checkstack/tips-frontend";
 import {
   PageLayout,
   Tabs,
   ConfirmationModal,
   useToast,
+  toastSuccess,
+  toastError,
 } from "@checkstack/ui";
-import { Server, LayoutGrid, Boxes } from "lucide-react";
+import { Server, LayoutGrid, Boxes, ExternalLink } from "lucide-react";
+
+/**
+ * In-app deep-link to the Systems and groups concept page (same-origin Starlight
+ * build served at `/checkstack/*`). Slug is centralised in `APP_DOC_SLUGS` and
+ * guarded against renames by `docs-links.test.ts`.
+ */
+const DOCS_SYSTEMS_AND_GROUPS = docsPath(APP_DOC_SLUGS.systemsAndGroups);
+
+/** Inline "Learn more" link to the systems-and-groups concept docs. */
+const CatalogLearnMore = () => (
+  <a
+    href={DOCS_SYSTEMS_AND_GROUPS}
+    target="_blank"
+    rel="noreferrer"
+    className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+  >
+    Learn more
+    <ExternalLink className="h-3 w-3" />
+  </a>
+);
 import { SystemEditor } from "./SystemEditor";
 import { GroupEditor } from "./GroupEditor";
 import { EnvironmentEditor } from "./EnvironmentEditor";
-import { extractErrorMessage } from "@checkstack/common";
 import { useCatalogBrowseState } from "../hooks/useCatalogBrowseState";
 import { CatalogBrowseToolbar } from "./browse/CatalogBrowseToolbar";
 import { CatalogBrowseHealth } from "./browse/CatalogBrowseHealth";
@@ -177,7 +203,7 @@ export const CatalogConfigPage = () => {
   // Mutations
   const createSystemMutation = catalogClient.createSystem.useMutation({
     onSuccess: () => {
-      toast.success("System created successfully");
+      toastSuccess(toast, "System created successfully");
       setIsSystemEditorOpen(false);
       void refetchSystems();
     },
@@ -188,112 +214,110 @@ export const CatalogConfigPage = () => {
 
   const updateSystemMutation = catalogClient.updateSystem.useMutation({
     onSuccess: () => {
-      toast.success("System updated successfully");
+      toastSuccess(toast, "System updated successfully");
       setIsSystemEditorOpen(false);
       setEditingSystem(undefined);
       void refetchSystems();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update system"));
+      toastError(toast, "Failed to update system", error);
     },
   });
 
   const deleteSystemMutation = catalogClient.deleteSystem.useMutation({
     onSuccess: () => {
-      toast.success("System deleted successfully");
+      toastSuccess(toast, "System deleted successfully");
       setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       void refetchSystems();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete system"));
+      toastError(toast, "Failed to delete system", error);
     },
   });
 
   const createGroupMutation = catalogClient.createGroup.useMutation({
     onSuccess: () => {
-      toast.success("Group created successfully");
+      toastSuccess(toast, "Group created successfully");
       setIsGroupEditorOpen(false);
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create group"));
+      toastError(toast, "Failed to create group", error);
     },
   });
 
   const deleteGroupMutation = catalogClient.deleteGroup.useMutation({
     onSuccess: () => {
-      toast.success("Group deleted successfully");
+      toastSuccess(toast, "Group deleted successfully");
       setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete group"));
+      toastError(toast, "Failed to delete group", error);
     },
   });
 
   const updateGroupMutation = catalogClient.updateGroup.useMutation({
     onSuccess: () => {
-      toast.success("Group name updated successfully");
+      toastSuccess(toast, "Group name updated successfully");
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update group name"));
+      toastError(toast, "Failed to update group name", error);
       throw error;
     },
   });
 
   const addSystemToGroupMutation = catalogClient.addSystemToGroup.useMutation({
     onSuccess: () => {
-      toast.success("System added to group successfully");
+      toastSuccess(toast, "System added to group successfully");
       void refetchGroups();
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to add system to group"));
+      toastError(toast, "Failed to add system to group", error);
     },
   });
 
   const removeSystemFromGroupMutation =
     catalogClient.removeSystemFromGroup.useMutation({
       onSuccess: () => {
-        toast.success("System removed from group successfully");
+        toastSuccess(toast, "System removed from group successfully");
         void refetchGroups();
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to remove system from group"),
-        );
+        toastError(toast, "Failed to remove system from group", error);
       },
     });
 
   const createEnvironmentMutation = catalogClient.createEnvironment.useMutation({
     onSuccess: () => {
-      toast.success("Environment created successfully");
+      toastSuccess(toast, "Environment created successfully");
       setIsEnvironmentEditorOpen(false);
       setEditingEnvironment(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to create environment"));
+      toastError(toast, "Failed to create environment", error);
     },
   });
 
   const updateEnvironmentMutation = catalogClient.updateEnvironment.useMutation({
     onSuccess: () => {
-      toast.success("Environment updated successfully");
+      toastSuccess(toast, "Environment updated successfully");
       setIsEnvironmentEditorOpen(false);
       setEditingEnvironment(undefined);
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to update environment"));
+      toastError(toast, "Failed to update environment", error);
     },
   });
 
   const deleteEnvironmentMutation = catalogClient.deleteEnvironment.useMutation({
     onSuccess: () => {
-      toast.success("Environment deleted successfully");
+      toastSuccess(toast, "Environment deleted successfully");
       setConfirmModal((prev) => ({ ...prev, isOpen: false }));
     },
     onError: (error) => {
-      toast.error(extractErrorMessage(error, "Failed to delete environment"));
+      toastError(toast, "Failed to delete environment", error);
     },
   });
 
@@ -305,9 +329,7 @@ export const CatalogConfigPage = () => {
         void refetchEnvironments();
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to update system environments"),
-        );
+        toastError(toast, "Failed to update system environments", error);
       },
     });
 
@@ -436,6 +458,20 @@ export const CatalogConfigPage = () => {
       loading={loading || accessLoading}
       allowed={canManage}
     >
+      <TipBanner
+        plugin={catalogPluginMetadata}
+        id="config.intro"
+        title="Start here: the catalog is your inventory"
+        description={
+          <>
+            A system is a thing you monitor; groups bundle systems by team or
+            domain, and environments tag where they run. Everything else - health
+            checks, SLOs, incidents - attaches to the systems you add here, so
+            this is the usual first step. <CatalogLearnMore />
+          </>
+        }
+      />
+
       {hasContent && (
         <div className="mb-4">
           {/* Headless health boundary (slot unfilled → renders nothing). */}

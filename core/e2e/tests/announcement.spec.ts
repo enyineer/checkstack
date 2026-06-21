@@ -1,11 +1,22 @@
 import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * Authenticated E2E coverage for the Announcements area.
+ * Boot-once, data-isolated E2E coverage for the Announcements area.
  *
- * The whole file shares ONE freshly-reset, empty database (only the admin user
- * exists at start), so tests run serially and the empty-state assertions run
- * before anything is created.
+ * This variant runs under the boot-once harness: the backend + DB are booted
+ * and reset ONCE, then all `data-isolated specs` files run in PARALLEL
+ * (workers=4) against that single shared backend/DB. The DB is therefore
+ * SHARED and NON-EMPTY, so this file must be fully self-contained and data
+ * isolated:
+ *
+ * - Every created entity is namespaced with a unique-per-run suffix so parallel
+ *   specs sharing the DB never collide.
+ * - There are NO global-state assertions (no "No announcements yet" empty
+ *   state, no global table counts). Every assertion is scoped to this file's
+ *   own namespaced rows.
+ *
+ * Tests within this file still run serially on one worker; parallelism is
+ * ACROSS spec files.
  *
  * Routes: /announcement/manage (manage page). Active announcements with a
  * dashboard/both display mode also surface on the dashboard ("/").
@@ -14,16 +25,15 @@ test.describe.configure({ mode: "serial" });
 
 const MANAGE_ROUTE = "/announcement/manage";
 
-// Unique suffix so reruns / parallel files never collide on titles.
-const SUFFIX = Date.now();
-const TITLE = `Planned maintenance ${SUFFIX}`;
-const EDITED_TITLE = `Planned maintenance (updated) ${SUFFIX}`;
-const MESSAGE = `Scheduled downtime this weekend ${SUFFIX}.`;
+// Unique-per-run namespace so parallel boot-once spec files sharing one DB
+// never collide on persisted+asserted values (titles / messages).
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const TITLE = `Planned maintenance-${NS}`;
+const EDITED_TITLE = `Planned maintenance (updated)-${NS}`;
+const MESSAGE = `Scheduled downtime this weekend-${NS}.`;
 
-test.describe("announcements", () => {
-  test("shows the empty state when no announcements exist", async ({
-    page,
-  }) => {
+test.describe("announcements (boot-once)", () => {
+  test("validates that title and message are required", async ({ page }) => {
     await page.goto(MANAGE_ROUTE, { waitUntil: "domcontentloaded" });
 
     // Page chrome from PageLayout.
@@ -31,20 +41,10 @@ test.describe("announcements", () => {
       page.getByRole("heading", { name: "Announcement Management" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // Empty state copy from the manage page (EmptyState renders the title as a
-    // paragraph, not a heading).
-    await expect(page.getByText("No announcements yet")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create your first announcement" }),
-    ).toBeVisible();
-  });
-
-  test("validates that title and message are required", async ({ page }) => {
-    await page.goto(MANAGE_ROUTE, { waitUntil: "domcontentloaded" });
-
-    await page
-      .getByRole("button", { name: "Create your first announcement" })
-      .click();
+    // The DB is shared/non-empty, so the "Create your first announcement"
+    // empty-state button may not exist. Use the header "New Announcement"
+    // action, which is always present, to open the create dialog.
+    await page.getByRole("button", { name: "New Announcement" }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -65,9 +65,6 @@ test.describe("announcements", () => {
     // Close the dialog without creating anything.
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
-
-    // Still empty.
-    await expect(page.getByText("No announcements yet")).toBeVisible();
   });
 
   test("creates an announcement and it appears in the table", async ({
@@ -75,9 +72,7 @@ test.describe("announcements", () => {
   }) => {
     await page.goto(MANAGE_ROUTE, { waitUntil: "domcontentloaded" });
 
-    await page
-      .getByRole("button", { name: "Create your first announcement" })
-      .click();
+    await page.getByRole("button", { name: "New Announcement" }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -92,12 +87,11 @@ test.describe("announcements", () => {
     // Dialog closes on success.
     await expect(dialog).toBeHidden();
 
-    // Empty state is gone; the row is rendered with default Info severity and
-    // an Active status (default active=true, no schedule window).
-    await expect(page.getByText("No announcements yet")).toBeHidden();
+    // Our namespaced row is rendered with default Info severity and an Active
+    // status (default active=true, no schedule window).
     await expect(page.getByRole("cell", { name: TITLE })).toBeVisible();
 
-    const row = page.getByRole("row", { name: new RegExp(SUFFIX.toString()) });
+    const row = page.getByRole("row", { name: new RegExp(NS) });
     await expect(row.getByText("Info")).toBeVisible();
     await expect(row.getByText("Active")).toBeVisible();
   });
@@ -120,7 +114,7 @@ test.describe("announcements", () => {
   test("edits the announcement title", async ({ page }) => {
     await page.goto(MANAGE_ROUTE, { waitUntil: "domcontentloaded" });
 
-    const row = page.getByRole("row", { name: new RegExp(SUFFIX.toString()) });
+    const row = page.getByRole("row", { name: new RegExp(NS) });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
     // The first action button in the row is Edit (pencil), the second is Delete.
@@ -139,7 +133,9 @@ test.describe("announcements", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.getByRole("cell", { name: EDITED_TITLE })).toBeVisible();
-    await expect(page.getByRole("cell", { name: TITLE, exact: true })).toBeHidden();
+    await expect(
+      page.getByRole("cell", { name: TITLE, exact: true }),
+    ).toBeHidden();
   });
 
   test("requires confirmation before deleting and removes the announcement", async ({
@@ -147,7 +143,7 @@ test.describe("announcements", () => {
   }) => {
     await page.goto(MANAGE_ROUTE, { waitUntil: "domcontentloaded" });
 
-    const row = page.getByRole("row", { name: new RegExp(SUFFIX.toString()) });
+    const row = page.getByRole("row", { name: new RegExp(NS) });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
     // Open the delete confirmation (second action button = trash).
@@ -180,8 +176,9 @@ test.describe("announcements", () => {
       .getByRole("button", { name: "Delete" })
       .click();
 
-    // Row is gone and the empty state returns (this was the only announcement).
+    // Our specific namespaced row is gone. We do NOT assert a global empty
+    // state: the DB is shared and other rows may exist.
     await expect(page.getByRole("cell", { name: EDITED_TITLE })).toBeHidden();
-    await expect(page.getByText("No announcements yet")).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(NS) })).toHaveCount(0);
   });
 });

@@ -17,7 +17,10 @@ import {
   SelectContent,
   SelectItem,
   useToast,
+  toastSuccess,
+  toastError,
   QueryErrorState,
+  ConfirmationModal,
 } from "@checkstack/ui";
 import {
   ArrowUp,
@@ -34,7 +37,7 @@ import {
 } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { useInitOnceForKey } from "@checkstack/ui";
-import { resolveRoute, extractErrorMessage } from "@checkstack/common";
+import { resolveRoute } from "@checkstack/common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   StatusPageApi,
@@ -124,7 +127,7 @@ const SystemMultiSelect: React.FC<{
           {selected.length} selected
         </span>
       </div>
-      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-surface-inset p-2">
         {systems.length === 0 ? (
           <p className="text-xs text-muted-foreground">No systems available.</p>
         ) : filtered.length === 0 ? (
@@ -217,10 +220,14 @@ const EventFeedControls: React.FC<{
       </label>
       {showUpdates && (
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-xs text-muted-foreground">
+          <Label
+            htmlFor="event-feed-max-updates"
+            className="text-xs text-muted-foreground"
+          >
             Max updates per item
           </Label>
           <Input
+            id="event-feed-max-updates"
             type="number"
             className="h-8 w-20"
             value={Number(config.maxUpdates ?? 3)}
@@ -239,8 +246,14 @@ const EventFeedControls: React.FC<{
       </label>
       {includePast && (
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-xs text-muted-foreground">Max age (days)</Label>
+          <Label
+            htmlFor="event-feed-past-max-age"
+            className="text-xs text-muted-foreground"
+          >
+            Max age (days)
+          </Label>
           <Input
+            id="event-feed-past-max-age"
             type="number"
             className="h-8 w-20"
             value={Number(config.pastMaxAgeDays ?? 7)}
@@ -312,7 +325,7 @@ const BlockConfigEditor: React.FC<{
             value={(config.systemId as string) || ""}
             onValueChange={(v) => set({ systemId: v })}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Select a system">
               <SelectValue placeholder="Select a system" />
             </SelectTrigger>
             <SelectContent>
@@ -324,8 +337,11 @@ const BlockConfigEditor: React.FC<{
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2">
-            <Label className="text-xs">Days</Label>
+            <Label htmlFor="uptime-days" className="text-xs">
+              Days
+            </Label>
             <Input
+              id="uptime-days"
               type="number"
               className="w-24"
               value={Number(config.days ?? 90)}
@@ -359,7 +375,7 @@ const BlockConfigEditor: React.FC<{
             value={String(config.level ?? 2)}
             onValueChange={(v) => set({ level: Number(v) })}
           >
-            <SelectTrigger className="w-24">
+            <SelectTrigger className="w-24" aria-label="Heading level">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -393,7 +409,7 @@ const BlockConfigEditor: React.FC<{
           value={(config.groupId as string) || ""}
           onValueChange={(v) => set({ groupId: v })}
         >
-          <SelectTrigger>
+          <SelectTrigger aria-label="Select a group">
             <SelectValue placeholder="Select a group" />
           </SelectTrigger>
           <SelectContent>
@@ -451,14 +467,14 @@ const CopyableValue: React.FC<{ label: string; value: string }> = ({
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(`${label} copied`);
+      toastSuccess(toast, `${label} copied`);
     } catch {
       toast.error("Couldn't copy to clipboard");
     }
   };
   return (
     <div className="flex items-center gap-2">
-      <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1 text-foreground">
+      <code className="min-w-0 flex-1 break-all rounded bg-surface-inset px-2 py-1 text-foreground">
         {value}
       </code>
       <Button
@@ -482,6 +498,7 @@ const CustomDomainSection: React.FC<{
   const client = usePluginClient(StatusPageApi);
   const toast = useToast();
   const [input, setInput] = useState(customDomain?.domain ?? "");
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const setMutation = client.setCustomDomain.useMutation();
   const verifyMutation = client.verifyCustomDomain.useMutation();
   const removeMutation = client.removeCustomDomain.useMutation();
@@ -496,36 +513,37 @@ const CustomDomainSection: React.FC<{
   const onSet = async () => {
     try {
       await setMutation.mutateAsync({ id: pageId, domain: trimmed });
-      toast.success("Domain saved. Add the DNS TXT record, then verify.");
+      toastSuccess(toast, "Domain saved. Add the DNS TXT record, then verify.");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Couldn't save the domain"));
+      toastError(toast, "Couldn't save the domain", error);
     }
   };
   const onVerify = async () => {
     try {
       await verifyMutation.mutateAsync({ id: pageId });
-      toast.success("Domain verified.");
+      toastSuccess(toast, "Domain verified.");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Verification failed"));
+      toastError(toast, "Verification failed", error);
     }
   };
-  const onRemove = async () => {
-    // A verified domain may be serving real visitors; confirm before pulling it.
-    if (
-      customDomain?.verified &&
-      !globalThis.confirm(
-        `Remove ${customDomain.domain}? The page will stop serving on it.`,
-      )
-    ) {
-      return;
-    }
+  const performRemove = async () => {
     try {
       await removeMutation.mutateAsync({ id: pageId });
       setInput("");
-      toast.success("Custom domain removed.");
+      setConfirmRemoveOpen(false);
+      toastSuccess(toast, "Custom domain removed.");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Couldn't remove the domain"));
+      toastError(toast, "Couldn't remove the domain", error);
     }
+  };
+  const onRemove = () => {
+    // A verified domain may be serving real visitors; confirm before pulling
+    // it. An unverified domain serves nothing, so remove it without a prompt.
+    if (customDomain?.verified) {
+      setConfirmRemoveOpen(true);
+      return;
+    }
+    void performRemove();
   };
 
   return (
@@ -551,9 +569,21 @@ const CustomDomainSection: React.FC<{
           </div>
         </div>
         {customDomain && (
-          <Badge variant={customDomain.verified ? "success" : "warning"}>
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              customDomain.verified
+                ? "bg-status-ok/10 text-status-ok"
+                : "bg-status-warn/10 text-status-warn"
+            }`}
+          >
+            <span
+              aria-hidden
+              className={`size-1.5 rounded-full ${
+                customDomain.verified ? "bg-status-ok" : "bg-status-warn"
+              }`}
+            />
             {customDomain.verified ? "Verified" : "Pending verification"}
-          </Badge>
+          </span>
         )}
       </div>
 
@@ -577,7 +607,7 @@ const CustomDomainSection: React.FC<{
       {customDomain && (
         <div className="space-y-3">
           {!customDomain.verified && (
-            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs">
+            <div className="space-y-2 rounded-md border border-border bg-surface-inset p-3 text-xs">
               <p className="text-muted-foreground">
                 Add this DNS <strong>TXT</strong> record, then click Verify (DNS
                 can take a few minutes to propagate):
@@ -647,6 +677,20 @@ const CustomDomainSection: React.FC<{
           </div>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmRemoveOpen}
+        onClose={() => setConfirmRemoveOpen(false)}
+        onConfirm={() => void performRemove()}
+        title="Remove custom domain?"
+        message={
+          customDomain
+            ? `Remove ${customDomain.domain}? The page will stop serving on it.`
+            : "The page will stop serving on this domain."
+        }
+        confirmText="Remove"
+        variant="danger"
+        isLoading={removeMutation.isPending}
+      />
     </Card>
   );
 };
@@ -679,6 +723,7 @@ export const StatusPageBuilderPage: React.FC = () => {
   const [logoUrl, setLogoUrl] = useState("");
   const [blocks, setBlocks] = useState<StatusPageBlock[]>([]);
   const [addType, setAddType] = useState("");
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   useInitOnceForKey(page ?? undefined, page?.id, (p) => {
     setTitle(p.title);
@@ -737,9 +782,9 @@ export const StatusPageBuilderPage: React.FC = () => {
   const save = async () => {
     try {
       await updateMutation.mutateAsync(buildPatch());
-      toast.success("Saved");
+      toastSuccess(toast, "Saved");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Couldn't save"));
+      toastError(toast, "Couldn't save", error);
     }
   };
 
@@ -749,14 +794,14 @@ export const StatusPageBuilderPage: React.FC = () => {
     try {
       await updateMutation.mutateAsync(buildPatch());
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Couldn't save"));
+      toastError(toast, "Couldn't save", error);
       return;
     }
     try {
       await publishMutation.mutateAsync({ id });
-      toast.success("Published");
+      toastSuccess(toast, "Published");
     } catch (error) {
-      toast.error(extractErrorMessage(error, "Saved, but couldn't publish"));
+      toastError(toast, "Saved, but couldn't publish", error);
     }
   };
 
@@ -801,16 +846,18 @@ export const StatusPageBuilderPage: React.FC = () => {
     );
   }
 
+  const leave = () => navigate(resolveRoute(statusPageRoutes.routes.list));
   const goBack = () => {
-    if (
-      !dirty ||
-      globalThis.confirm("You have unsaved changes. Discard them and leave?")
-    ) {
-      navigate(resolveRoute(statusPageRoutes.routes.list));
+    // Guard against losing unsaved edits; clean state leaves immediately.
+    if (dirty) {
+      setConfirmDiscardOpen(true);
+      return;
     }
+    leave();
   };
 
   return (
+    <>
     <PageLayout
       title={title || "Status page"}
       icon={MonitorCheck}
@@ -862,12 +909,20 @@ export const StatusPageBuilderPage: React.FC = () => {
           <Card className="space-y-3 p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Title</Label>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+                <Label htmlFor="status-page-title">Title</Label>
+                <Input
+                  id="status-page-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Slug</Label>
-                <Input value={slug} onChange={(e) => setSlug(e.target.value)} />
+                <Label htmlFor="status-page-slug">Slug</Label>
+                <Input
+                  id="status-page-slug"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Visibility</Label>
@@ -875,7 +930,7 @@ export const StatusPageBuilderPage: React.FC = () => {
                   value={visibility}
                   onValueChange={(v) => setVisibility(v as StatusPageVisibility)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Visibility">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -887,16 +942,21 @@ export const StatusPageBuilderPage: React.FC = () => {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Brand color (HSL)</Label>
+                <Label htmlFor="status-page-brand-color">Brand color (HSL)</Label>
                 <Input
+                  id="status-page-brand-color"
                   value={brandColor}
                   onChange={(e) => setBrandColor(e.target.value)}
                   placeholder="262 83% 58%"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label>Logo URL</Label>
-                <Input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} />
+                <Label htmlFor="status-page-logo-url">Logo URL</Label>
+                <Input
+                  id="status-page-logo-url"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                />
               </div>
             </div>
           </Card>
@@ -916,15 +976,15 @@ export const StatusPageBuilderPage: React.FC = () => {
                     {descriptor?.displayName ?? block.type}
                   </span>
                   <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => move(i, -1)} aria-label="Move up">
+                    <Button variant="ghost" size="icon" onClick={() => move(i, -1)} aria-label="Move up">
                       <ArrowUp className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => move(i, 1)} aria-label="Move down">
+                    <Button variant="ghost" size="icon" onClick={() => move(i, 1)} aria-label="Move down">
                       <ArrowDown className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       onClick={() => setBlocks(blocks.filter((b) => b.id !== block.id))}
                       aria-label="Remove"
                     >
@@ -961,7 +1021,9 @@ export const StatusPageBuilderPage: React.FC = () => {
 
           <Card className="flex items-center gap-2 border-dashed p-3">
             <Select value={addType} onValueChange={setAddType}>
-              <SelectTrigger className="flex-1">
+              {/* A combobox derives its accessible name from aria-label, NOT
+                  its placeholder child text, so label it explicitly. */}
+              <SelectTrigger className="flex-1" aria-label="Add a block">
                 <SelectValue placeholder="Add a block…" />
               </SelectTrigger>
               <SelectContent>
@@ -1008,6 +1070,20 @@ export const StatusPageBuilderPage: React.FC = () => {
         </div>
       </div>
     </PageLayout>
+    <ConfirmationModal
+      isOpen={confirmDiscardOpen}
+      onClose={() => setConfirmDiscardOpen(false)}
+      onConfirm={() => {
+        setConfirmDiscardOpen(false);
+        leave();
+      }}
+      title="Discard unsaved changes?"
+      message="You have unsaved changes. Discard them and leave?"
+      confirmText="Discard"
+      cancelText="Keep editing"
+      variant="warning"
+    />
+    </>
   );
 };
 

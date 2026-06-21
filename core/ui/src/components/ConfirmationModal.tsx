@@ -1,21 +1,98 @@
-import React from "react";
+import React, { useEffect, useId, useState } from "react";
 import { cn } from "../utils";
 import { Button } from "./Button";
-import { usePerformance } from "./PerformanceProvider";
-import { AlertTriangle, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "./Dialog";
+import { Input } from "./Input";
+import { Label } from "./Label";
+import { AlertTriangle } from "lucide-react";
 
 export interface ConfirmationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   variant?: "danger" | "warning" | "info";
   isLoading?: boolean;
+  /**
+   * When set, gates the confirm button behind a typed-phrase challenge: an
+   * input is rendered and confirm stays disabled until the user types this
+   * exact phrase. Used for high-blast-radius actions (e.g. plugin
+   * install/uninstall). Omit for the standard confirm-on-click behavior.
+   */
+  confirmPhrase?: string;
+  /**
+   * Optional label rendered above the typed-phrase input. Defaults to a
+   * "Type `<phrase>` to confirm:" prompt. Only used when `confirmPhrase` is set.
+   */
+  confirmPhraseLabel?: React.ReactNode;
+  /** Placeholder for the typed-phrase input. Only used with `confirmPhrase`. */
+  confirmPhrasePlaceholder?: string;
 }
 
+/**
+ * Pure predicate for the typed-phrase gate: confirm is allowed only when no
+ * phrase is required, or the typed value matches the required phrase exactly.
+ * Extracted so the enable/disable logic is unit-testable without a DOM.
+ */
+export const isConfirmPhraseSatisfied = ({
+  confirmPhrase,
+  typedValue,
+}: {
+  confirmPhrase?: string;
+  typedValue: string;
+}): boolean => confirmPhrase === undefined || typedValue === confirmPhrase;
+
+type ConfirmationVariant = NonNullable<ConfirmationModalProps["variant"]>;
+
+export const confirmationVariantStyles: Record<
+  ConfirmationVariant,
+  { icon: string; iconBg: string; confirmClassName?: string }
+> = {
+  danger: {
+    icon: "text-destructive",
+    iconBg: "bg-destructive/10",
+  },
+  warning: {
+    icon: "text-warning",
+    iconBg: "bg-warning/10",
+    confirmClassName:
+      "bg-warning text-warning-foreground hover:bg-warning/90",
+  },
+  info: {
+    icon: "text-info",
+    iconBg: "bg-info/10",
+    confirmClassName: "bg-info text-info-foreground hover:bg-info/90",
+  },
+};
+
+/**
+ * The shared {@link Button} variant a confirmation's confirm button should use
+ * for a given semantic variant. Only `danger` maps to the dedicated
+ * `destructive` button variant; `warning`/`info` reuse `primary` plus a
+ * token-based `confirmClassName` override (no dedicated Button variants exist
+ * for them, and they do not recur often enough to warrant adding them).
+ */
+export const confirmButtonVariant = (
+  variant: ConfirmationVariant,
+): "destructive" | "primary" => (variant === "danger" ? "destructive" : "primary");
+
+/**
+ * Destructive/confirmation gate built on the accessible Radix {@link Dialog}
+ * primitive: focus trap, Escape-to-close, focus restoration to the trigger,
+ * and body scroll-lock come for free (and the `isLowPower` animation branch is
+ * inherited from `DialogContent`). The public prop API is unchanged from the
+ * legacy hand-rolled modal so existing call sites need no edits.
+ */
 export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   isOpen,
   onClose,
@@ -26,94 +103,72 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   cancelText = "Cancel",
   variant = "danger",
   isLoading = false,
+  confirmPhrase,
+  confirmPhraseLabel,
+  confirmPhrasePlaceholder,
 }) => {
-  const { isLowPower } = usePerformance();
+  const styles = confirmationVariantStyles[variant];
+  const inputId = useId();
+  const [typedValue, setTypedValue] = useState("");
 
-  if (!isOpen) return;
+  // Reset the typed challenge whenever the modal (re)opens so a previous
+  // attempt never carries over into a fresh confirmation.
+  useEffect(() => {
+    if (isOpen) setTypedValue("");
+  }, [isOpen]);
 
-  const handleConfirm = () => {
-    onConfirm();
-  };
-
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
-  const variantStyles = {
-    danger: {
-      icon: "text-destructive",
-      iconBg: "bg-destructive/10",
-      button:
-        "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-    },
-    warning: {
-      icon: "text-warning",
-      iconBg: "bg-warning/10",
-      button: "bg-warning text-warning-foreground hover:bg-warning/90",
-    },
-    info: {
-      icon: "text-info",
-      iconBg: "bg-info/10",
-      button: "bg-info text-info-foreground hover:bg-info/90",
-    },
-  };
-
-  const styles = variantStyles[variant];
+  const phraseSatisfied = isConfirmPhraseSatisfied({
+    confirmPhrase,
+    typedValue,
+  });
 
   return (
-    <div
-      className="fixed inset-0 z-[60] !m-0 flex items-center justify-center bg-black/50 transition-opacity pointer-events-auto"
-      onClick={handleBackdropClick}
+    <Dialog
+      open={isOpen}
+      onOpenChange={(next) => {
+        // Radix fires `onOpenChange(false)` for Escape, overlay click, and the
+        // close button. Map that single signal to the legacy `onClose`. Ignore
+        // close attempts while the confirm action is in flight.
+        if (!next && !isLoading) onClose();
+      }}
     >
-      <div
-        className={cn(
-          "bg-background rounded-lg shadow-xl max-w-md w-full mx-4 my-4 max-h-[calc(100dvh-2rem)] overflow-y-auto pointer-events-auto",
-          !isLowPower && "animate-in fade-in zoom-in duration-200",
-        )}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
-        aria-describedby="modal-description"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-start justify-between p-6 pb-4">
+      <DialogContent size="sm">
+        <DialogHeader>
           <div className="flex items-start gap-4">
-            <div className={cn("rounded-full p-2", styles.iconBg)}>
-              <AlertTriangle className={cn("w-6 h-6", styles.icon)} />
+            <div className={cn("rounded-full p-2 shrink-0", styles.iconBg)}>
+              <AlertTriangle className={cn("h-6 w-6", styles.icon)} />
             </div>
-            <div className="flex-1">
-              <h3
-                id="modal-title"
-                className="text-lg font-semibold text-foreground"
-              >
-                {title}
-              </h3>
+            <div className="flex-1 min-w-0">
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription className="mt-2">{message}</DialogDescription>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            disabled={isLoading}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 pb-6">
-          <p
-            id="modal-description"
-            className="text-sm text-muted-foreground pl-14"
-          >
-            {message}
-          </p>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 bg-muted/30 rounded-b-lg">
+        </DialogHeader>
+        {confirmPhrase === undefined ? undefined : (
+          <div className="space-y-2">
+            <Label htmlFor={inputId}>
+              {confirmPhraseLabel ?? (
+                <>
+                  Type{" "}
+                  <code className="px-1 py-0.5 rounded bg-muted text-xs">
+                    {confirmPhrase}
+                  </code>{" "}
+                  to confirm:
+                </>
+              )}
+            </Label>
+            <Input
+              id={inputId}
+              value={typedValue}
+              onChange={(e) => setTypedValue(e.target.value)}
+              disabled={isLoading}
+              autoFocus
+              autoComplete="off"
+              placeholder={confirmPhrasePlaceholder}
+            />
+          </div>
+        )}
+        <DialogFooter>
           <Button
             variant="ghost"
             onClick={onClose}
@@ -122,19 +177,17 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           >
             {cancelText}
           </Button>
-          <button
-            onClick={handleConfirm}
-            disabled={isLoading}
-            className={cn(
-              "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none h-10 px-4 py-2",
-              styles.button
-            )}
+          <Button
+            variant={confirmButtonVariant(variant)}
+            onClick={onConfirm}
+            disabled={isLoading || !phraseSatisfied}
             type="button"
+            className={styles.confirmClassName}
           >
             {isLoading ? "Processing..." : confirmText}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };

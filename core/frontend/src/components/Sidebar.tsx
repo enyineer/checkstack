@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { pluginRegistry } from "@checkstack/frontend-api";
 import { useAccessRules } from "@checkstack/auth-frontend";
+import { openSearchPalette } from "@checkstack/command-frontend";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import { selectNavGroups } from "./Sidebar.logic";
 import {
@@ -10,21 +11,33 @@ import {
   SheetHeader,
   SheetTitle,
   cn,
+  isNavRouteActive,
   usePerformance,
 } from "@checkstack/ui";
-import { LayoutDashboard, ChevronDown, BookOpen } from "lucide-react";
+import {
+  LayoutDashboard,
+  ChevronDown,
+  ChevronsDownUp,
+  BookOpen,
+  ExternalLink,
+  Search,
+} from "lucide-react";
 
 const DOCUMENTATION_GROUP = "Documentation";
 
 /**
  * Fixed display order for the known nav sections. Unknown groups (e.g. from a
- * third-party plugin) are appended after these, alphabetically.
+ * third-party plugin) are appended after these, alphabetically. The former
+ * single "Configuration" group is split into Settings / Platform / Developer
+ * so admin, platform, and dev-tooling entries are scannable separately.
  */
 const GROUP_ORDER = [
   "Workspace",
   "Reliability",
   "Automation",
-  "Configuration",
+  "Settings",
+  "Platform",
+  "Developer",
   "Documentation",
 ] as const;
 
@@ -36,6 +49,8 @@ type NavRoute = AppRoute & { nav: NonNullable<AppRoute["nav"]> };
 interface NavGroup {
   group: string;
   items: NavRoute[];
+  /** Single-entry group rendered flat (no header); see Sidebar.logic. */
+  flat: boolean;
 }
 
 /** Build the access-filtered, grouped, ordered nav model from the route registry. */
@@ -75,21 +90,47 @@ function navItemClass(isActive: boolean): string {
     "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
     isActive
       ? "bg-primary/10 text-primary font-medium"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+  );
+}
+
+interface NavLeafProps {
+  route: NavRoute;
+  pathname: string;
+  onNavigate?: () => void;
+}
+
+/** A single in-app nav link. Shared by flat groups and grouped sections. */
+function NavLeaf({ route, pathname, onNavigate }: NavLeafProps): React.ReactElement {
+  const Icon = route.nav.icon;
+  const active = isNavRouteActive({ pathname, to: route.path });
+  return (
+    <NavLink
+      to={route.path}
+      className={navItemClass(active)}
+      onClick={onNavigate}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{route.nav.label}</span>
+    </NavLink>
   );
 }
 
 interface NavListProps {
   /** Invoked after a nav link is clicked (used to close the mobile drawer). */
   onNavigate?: () => void;
+  /**
+   * Rendered inside the mobile drawer. Adds an in-drawer search entry and
+   * auto-expands the group containing the active route on open.
+   */
+  mobile?: boolean;
 }
 
 /** The shared nav content rendered in both the desktop rail and the mobile drawer. */
-function NavList({ onNavigate }: NavListProps): React.ReactElement {
+function NavList({ onNavigate, mobile = false }: NavListProps): React.ReactElement {
   const { isLowPower } = usePerformance();
   const groups = useNavGroups();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsedGroups);
 
   // The in-app user guide is a shell-owned external entry (the backend serves
   // the static Astro docs at /checkstack/* same-origin), so it lives under the
@@ -99,38 +140,122 @@ function NavList({ onNavigate }: NavListProps): React.ReactElement {
     () =>
       groups.some((g) => g.group === DOCUMENTATION_GROUP)
         ? groups
-        : [...groups, { group: DOCUMENTATION_GROUP, items: [] }],
+        : [...groups, { group: DOCUMENTATION_GROUP, items: [], flat: false }],
     [groups],
   );
+
+  // The group whose section root matches the current route, so the mobile
+  // drawer can reveal it on open even if the user collapsed it on desktop.
+  const activeGroup = useMemo(
+    () =>
+      groupsToRender.find((g) =>
+        g.items.some((route) =>
+          isNavRouteActive({ pathname: location.pathname, to: route.path }),
+        ),
+      )?.group,
+    [groupsToRender, location.pathname],
+  );
+
+  // The mobile drawer remounts on each open, so seeding the initial collapsed
+  // set with the active group removed auto-expands it on open (#01-11) without
+  // an effect and without persisting the change to desktop's localStorage.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const persisted = loadCollapsedGroups();
+    if (mobile && activeGroup) persisted.delete(activeGroup);
+    return persisted;
+  });
+
+  const persistCollapsed = (next: Set<string>): void => {
+    try {
+      globalThis.localStorage?.setItem(
+        COLLAPSED_GROUPS_KEY,
+        JSON.stringify([...next]),
+      );
+    } catch {
+      // localStorage unavailable (private mode) - in-memory state is enough.
+    }
+  };
 
   const toggleGroup = (group: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(group)) next.delete(group);
       else next.add(group);
-      try {
-        globalThis.localStorage?.setItem(
-          COLLAPSED_GROUPS_KEY,
-          JSON.stringify([...next]),
-        );
-      } catch {
-        // localStorage unavailable (private mode) - in-memory state is enough.
-      }
+      persistCollapsed(next);
       return next;
     });
   };
 
+  // Recovery affordance (#01-9): clear every collapsed group at once so a user
+  // who collapsed the whole rail is not stuck clicking each header.
+  const expandAll = (): void => {
+    const empty = new Set<string>();
+    persistCollapsed(empty);
+    setCollapsed(empty);
+  };
+
+  // Only headed (non-flat) groups can be collapsed, so only offer "expand all"
+  // when at least one such group is currently collapsed.
+  const hasCollapsedGroup = groupsToRender.some(
+    (g) => !g.flat && collapsed.has(g.group),
+  );
+
   return (
     <nav className="flex flex-col gap-1 p-3" aria-label="Primary">
+      {/* In-drawer search shortcut (#01-11): opens the same ⌘K palette. */}
+      {mobile && (
+        <button
+          type="button"
+          onClick={() => {
+            onNavigate?.();
+            openSearchPalette();
+          }}
+          className={cn(navItemClass(false), "mb-1")}
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="truncate">Search...</span>
+        </button>
+      )}
+
       {/* Dashboard / home is the one entry the shell owns (route "/"). */}
       <NavLink to="/" end className={({ isActive }) => navItemClass(isActive)} onClick={onNavigate}>
         <LayoutDashboard className="h-4 w-4 shrink-0" />
         <span className="truncate">Dashboard</span>
       </NavLink>
 
-      {groupsToRender.map(({ group, items }) => {
-        const isCollapsed = collapsed.has(group);
+      {hasCollapsedGroup && (
+        <button
+          type="button"
+          onClick={expandAll}
+          className="mt-1 flex items-center gap-2 self-start px-3 py-1 text-xs font-medium text-muted-foreground/70 hover:text-muted-foreground"
+        >
+          <ChevronsDownUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>Expand all</span>
+        </button>
+      )}
+
+      {groupsToRender.map(({ group, items, flat }) => {
         const isDocumentation = group === DOCUMENTATION_GROUP;
+
+        // Single-entry groups render flat (no header) to cut chrome (#01-12).
+        // The Documentation group keeps its header because it also hosts the
+        // external Docs link below its in-app routes.
+        if (flat && !isDocumentation) {
+          return (
+            <div key={group} className="mt-1 flex flex-col gap-0.5">
+              {items.map((route) => (
+                <NavLeaf
+                  key={route.path}
+                  route={route}
+                  pathname={location.pathname}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          );
+        }
+
+        const isCollapsed = collapsed.has(group);
         return (
           <div key={group} className="mt-2">
             <button
@@ -151,34 +276,31 @@ function NavList({ onNavigate }: NavListProps): React.ReactElement {
             </button>
             {!isCollapsed && (
               <div className="mt-1 flex flex-col gap-0.5">
-                {items.map((route) => {
-                  const Icon = route.nav.icon;
-                  const active =
-                    location.pathname === route.path ||
-                    location.pathname.startsWith(`${route.path}/`);
-                  return (
-                    <NavLink
-                      key={route.path}
-                      to={route.path}
-                      className={navItemClass(active)}
-                      onClick={onNavigate}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{route.nav.label}</span>
-                    </NavLink>
-                  );
-                })}
+                {items.map((route) => (
+                  <NavLeaf
+                    key={route.path}
+                    route={route}
+                    pathname={location.pathname}
+                    onNavigate={onNavigate}
+                  />
+                ))}
                 {isDocumentation && (
                   <a
                     href={docsPath(APP_DOC_SLUGS.userGuideHome)}
                     target="_blank"
                     rel="noreferrer"
-                    title="Open the user guide"
+                    title="Open the user guide (opens in a new tab)"
                     className={navItemClass(false)}
                     onClick={onNavigate}
                   >
                     <BookOpen className="h-4 w-4 shrink-0" />
                     <span className="truncate">Docs</span>
+                    {/* External-link marker (#01-8): signals this entry leaves
+                        the app, distinguishing it from in-app reference routes. */}
+                    <ExternalLink
+                      className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
+                      aria-hidden="true"
+                    />
                   </a>
                 )}
               </div>
@@ -210,7 +332,7 @@ export function Sidebar({
     <>
       {/* Fills the shell row (height comes from the flex parent); scrolls
           independently of the main content. */}
-      <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border overflow-y-auto">
+      <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border bg-surface overflow-y-auto">
         <NavList />
       </aside>
 
@@ -219,7 +341,7 @@ export function Sidebar({
           <SheetHeader className="px-4 py-3 border-b border-border">
             <SheetTitle className="text-base">Navigation</SheetTitle>
           </SheetHeader>
-          <NavList onNavigate={() => onMobileOpenChange(false)} />
+          <NavList mobile onNavigate={() => onMobileOpenChange(false)} />
         </SheetContent>
       </Sheet>
     </>

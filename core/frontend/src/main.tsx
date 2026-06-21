@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import { ThemeProvider } from "@checkstack/ui";
+import { ThemeProvider, DensityProvider } from "@checkstack/ui";
 
 /**
  * Boot.
@@ -42,7 +42,9 @@ if (publicHost) {
   root.render(
     <React.StrictMode>
       <ThemeProvider defaultTheme="system" storageKey="checkstack-ui-theme">
-        <PublicApp />
+        <DensityProvider className="contents">
+          <PublicApp />
+        </DensityProvider>
       </ThemeProvider>
     </React.StrictMode>,
   );
@@ -55,7 +57,9 @@ if (publicHost) {
   root.render(
     <React.StrictMode>
       <ThemeProvider defaultTheme="system" storageKey="checkstack-ui-theme">
-        <App />
+        <DensityProvider className="contents">
+          <App />
+        </DensityProvider>
       </ThemeProvider>
     </React.StrictMode>,
   );

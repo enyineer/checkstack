@@ -1,14 +1,37 @@
 import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * Satellites read UI. On a fresh, empty database no satellites exist
- * (registration is backend/agent-driven), so the list page must render its
- * page chrome plus the onboarding empty state and a working "create" affordance.
+ * Satellites read/create UI (route `/satellite/`).
  *
- * The file shares ONE fresh DB, so run serially and keep read-only / empty-state
- * assertions ahead of any UI that mutates state.
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * boot-once specs run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: every
+ * satellite it creates is namespaced with a unique-per-run suffix (`NS`) so
+ * parallel specs never collide, and no test asserts on global table state (no
+ * empty-state, no global counts). Tests within this file still run serially
+ * (the chrome -> dialog -> create chain).
  */
 test.describe.configure({ mode: "serial" });
+
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SATELLITE_NAME = `e2e-satellite-${NS}`;
+const SATELLITE_REGION = `eu-${NS}`;
+
+/**
+ * The list renders each satellite name inside the table (and, on mobile, a
+ * card). The namespaced name is unique per run, so matching the name text
+ * directly is enough to scope to our own entity without asserting global state.
+ */
+function satelliteName(
+  page: import("@playwright/test").Page,
+  name: string,
+) {
+  // Scope to the desktop table: the ResponsiveTable also renders a
+  // display:none MobileCardList with the same name, which would otherwise trip
+  // strict mode (two matches for the same namespaced satellite).
+  return page.getByRole("table").getByText(name, { exact: true });
+}
 
 test.describe("satellites", () => {
   test("renders the page chrome with title, subtitle and create action", async ({
@@ -40,40 +63,6 @@ test.describe("satellites", () => {
     await expect(page.locator("body")).not.toContainText("Route not found");
   });
 
-  test("shows the onboarding empty state when no satellites are registered", async ({
-    page,
-  }) => {
-    await page.goto("/satellite/", { waitUntil: "load", timeout: 30_000 });
-
-    await expect(page.getByText("No satellites yet")).toBeVisible();
-    await expect(
-      page.getByText(
-        /A satellite is a small Checkstack agent you run somewhere else/,
-      ),
-    ).toBeVisible();
-
-    // The numbered onboarding steps render as a list.
-    await expect(
-      page.getByText(
-        "Create a satellite here to mint a registration token.",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        /Deploy the satellite container or binary on the target machine/,
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/Once it's online, assign health checks to it/),
-    ).toBeVisible();
-
-    // The empty state offers its own "Create satellite" CTA (distinct casing
-    // from the header button) since the admin has manage access.
-    await expect(
-      page.getByRole("button", { name: "Create satellite", exact: true }),
-    ).toBeVisible();
-  });
-
   test("the create affordance opens the registration dialog", async ({
     page,
   }) => {
@@ -102,9 +91,44 @@ test.describe("satellites", () => {
     ).toBeVisible();
     await expect(dialog.getByPlaceholder("eu-west-1")).toBeVisible();
 
-    // Closing the dialog returns to the empty state without creating anything.
+    // Closing the dialog without creating anything dismisses the dialog. We
+    // scope to the dialog only - the shared DB may already hold satellites
+    // from other parallel specs, so we never assert a global empty state.
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText("No satellites yet")).toBeVisible();
+  });
+
+  test("creates a namespaced satellite and lists it", async ({ page }) => {
+    await page.goto("/satellite/", { waitUntil: "load", timeout: 30_000 });
+
+    await page
+      .getByRole("button", { name: "Create Satellite", exact: true })
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Name").fill(SATELLITE_NAME);
+    await dialog.getByLabel("Region").fill(SATELLITE_REGION);
+
+    // The dialog's submit button shares the "Create Satellite" label with the
+    // header action, so scope the click to the dialog.
+    await dialog
+      .getByRole("button", { name: "Create Satellite", exact: true })
+      .click();
+
+    // On success the dialog switches to the credentials view (it does not
+    // auto-close); the one-time token must be acknowledged via "Done".
+    await expect(
+      dialog.getByRole("heading", { name: "Satellite Created" }),
+    ).toBeVisible({ timeout: 30_000 });
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // Our namespaced satellite now appears in the list. Scoped to our own
+    // entity only - we never assert a global count on the shared DB.
+    await expect(satelliteName(page, SATELLITE_NAME)).toBeVisible({
+      timeout: 30_000,
+    });
   });
 });

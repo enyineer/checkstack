@@ -13,13 +13,36 @@ Three gates enforce this end to end:
 
 - **Edit-time (RLAC).** You can only bind a resource to a widget if you can access it. You cannot expose what you cannot see.
 - **Publish-time (audit).** `publishStatusPage` re-checks, via a USER-scoped loopback client, that the editor can read every bound resource, then snapshots the draft into the published layout and emits a `statuspage.page.published` hook recording exactly which resources were exposed, by whom.
-- **Render-time (allow-list).** Each widget type's `resolvePublic` runs as the trusted service principal (so it can read the bound resources regardless of the anonymous caller's grants) but emits only its DTO shape. The service re-validates the returned value against the widget's `dtoSchema`, so a resolver that accidentally returns extra fields fails closed. Internal fields — config, ids, `createdBy` on incident/maintenance updates — are never copied into a DTO.
+- **Render-time (allow-list).** Each widget type's `resolvePublic` runs as the trusted service principal (so it can read the bound resources regardless of the anonymous caller's grants) but emits only its DTO shape. The service re-validates the returned value against the widget's `dtoSchema`, so a resolver that accidentally returns extra fields fails closed. Internal fields - config, ids, `createdBy` on incident/maintenance updates - are never copied into a DTO.
 
-The overall-status banner rolls up only the systems bound to the page, so a private system can never bleed into the public indicator. Each binding carries an optional public `label` so internal names need not be exposed.
+Each binding carries an optional public `label` so internal names need not be exposed.
+
+## The overall-status summary
+
+`getPublishedStatusPage` also returns an `overallStatus` summary - a page-wide rollup the public header renders as a banner:
+
+```ts
+type OverallStatusSummary = {
+  status:
+    | "operational"
+    | "degraded"
+    | "partial_outage"
+    | "major_outage"
+    | "maintenance"
+    | "unknown";
+  label: string; // default banner copy, e.g. "All systems operational"
+};
+```
+
+It is derived by the **pure** `deriveOverallStatus({ blocks })` function in `@checkstack/status-page-common` from the page's **already-resolved blocks** - the same field-allow-listed `data` DTOs the public surface receives. It never reads from any domain plugin (healthcheck, incident, maintenance), so it cannot widen the exposure surface: a private system that is not on the page contributes nothing.
+
+The rollup is **worst-status-wins** over every status a block contributes (the banner widget's status, each `systemHealth` / `groupStatus` item, and the most recent `uptime` bar). Precedence, most severe first: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`. `maintenance` is surfaced above `operational` but ranks below any degradation or outage (an active outage during a maintenance window is still an outage to a visitor). `unknown` is the fallback only when no widget contributed any status at all - an empty page, or a page of purely content widgets. Because it is pure, the rule is unit-tested directly (`overall-status.test.ts`).
+
+A widget type contributes to the rollup automatically if its DTO carries the public `status` enum in one of the shapes above; content-only widgets (text, heading, links, image, divider) are ignored.
 
 ## Publishing is a deliberate, audited exposure
 
-Publishing is a one-time, deliberate decision to expose the bound resources' public-safe status, recorded by the `statuspage.page.published` audit hook (which lists exactly which resources were exposed, by whom). It is NOT re-gated on every public request: the data a widget shows was published because the operator chose to expose it, so tying a public page's availability to one editor's later, mutable role would be both a reliability risk on an anonymous surface and arguably less correct than the explicit-publish model. The revocation path is **unpublish** (or removing the widget and re-publishing — which re-emits the audit hook with the new exposed set). Bindings resolve live by id, so deleting a bound resource degrades the widget to nothing; recreating a resource under the same id would re-expose it (ids are UUIDs, so reuse does not happen in practice).
+Publishing is a one-time, deliberate decision to expose the bound resources' public-safe status, recorded by the `statuspage.page.published` audit hook (which lists exactly which resources were exposed, by whom). It is NOT re-gated on every public request: the data a widget shows was published because the operator chose to expose it, so tying a public page's availability to one editor's later, mutable role would be both a reliability risk on an anonymous surface and arguably less correct than the explicit-publish model. The revocation path is **unpublish** (or removing the widget and re-publishing - which re-emits the audit hook with the new exposed set). Bindings resolve live by id, so deleting a bound resource degrades the widget to nothing; recreating a resource under the same id would re-expose it (ids are UUIDs, so reuse does not happen in practice).
 
 ## Team scoping (RLAC)
 
@@ -53,7 +76,7 @@ On a custom domain, `/api/config` returns THAT domain as `baseUrl` (never the ad
 
 ### A separate public bundle
 
-The custom-domain host loads a minimal public bundle that ships NONE of the admin app - no sidebar, auth, signals, command palette, or general plugin loader. The frontend entry fetches `/api/config` first and, when it sees a `publicHost`, dynamically imports only the public bundle; the admin app chunk is never fetched. So a public host downloads a few KB of public code plus shared vendor, and admin code never reaches the visitor's browser.
+The custom-domain host loads a minimal public bundle that ships NONE of the admin app - no sidebar, auth, signals, command palette, or general plugin loader. The bundle is `core/frontend`'s public-app (`@checkstack/frontend`'s `public-app.tsx`), which renders the page WITHOUT the admin router, driving the slug from `/api/config` instead of the URL; `@checkstack/status-page-frontend` re-exports the `PublicStatusPageView` and the `RendererRemotesProvider` it mounts. The frontend entry fetches `/api/config` first and, when it sees a `publicHost`, dynamically imports only this public bundle; the admin app chunk is never fetched. So a public host downloads a few KB of public code plus shared vendor, and admin code never reaches the visitor's browser.
 
 Built-in widget renderers are bundled in. For a THIRD-PARTY widget type, the published-page response lists exactly the renderer remotes that page needs (each widget type can declare a `rendererRemote` - its frontend npm package); the bundle then loads only those, on demand, via Module Federation. The set of remotes comes entirely from the page's widget types (operator-controlled, never visitor input), the loaded code is the operator's own installed plugin (trusted, as in the admin app), and its renderers are pure - and even if one tried an RPC, the only data endpoint reachable on this origin is the public read. So third-party widgets render on custom domains without widening the data surface.
 

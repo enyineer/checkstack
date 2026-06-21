@@ -175,7 +175,7 @@ export const authPlugin = createFrontendPlugin({
       route: authRoutes.routes.settings,
       element: <AuthSettingsPage />,
       nav: {
-        group: "Configuration",
+        group: "Settings",
         icon: Settings2,
         label: "Auth Settings",
         accessRule: authAccess.strategies,
@@ -188,7 +188,7 @@ export const authPlugin = createFrontendPlugin({
       element: <TeamsPage />,
       accessRule: authAccess.teams.read,
       nav: {
-        group: "Configuration",
+        group: "Settings",
         icon: Users2,
         label: "Teams",
         accessRule: authAccess.teams.read,

@@ -28,19 +28,30 @@ import {
   type IncidentEntityState,
 } from "./incident-entity";
 
-export function createRouter(
-  service: IncidentService,
-  signalService: SignalService,
-  catalogClient: InferClient<typeof CatalogApi>,
+export interface IncidentRouterDeps {
+  service: IncidentService;
+  signalService: SignalService;
+  catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<
     typeof import("@checkstack/notification-common").NotificationApi
-  >,
-  authClient: InferClient<typeof AuthApi>,
-  logger: Logger,
-  cache: IncidentCache,
+  >;
+  authClient: InferClient<typeof AuthApi>;
+  logger: Logger;
+  cache: IncidentCache;
   /** Resolver for the reactive `incident` entity (§10.1). Undefined in tests. */
-  getIncidentEntity?: () => EntityHandle<IncidentEntityState> | undefined,
-) {
+  getIncidentEntity?: () => EntityHandle<IncidentEntityState> | undefined;
+}
+
+export function createRouter({
+  service,
+  signalService,
+  catalogClient,
+  notificationClient,
+  authClient,
+  logger,
+  cache,
+  getIncidentEntity,
+}: IncidentRouterDeps) {
   /**
    * Resolve user IDs to profile names for a list of updates.
    * Falls back to "Unknown User" if the user cannot be found.

@@ -211,7 +211,7 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
                 <p className="text-xs text-muted-foreground">
                   Optional. Left empty, each secret is injected as a{" "}
                   <code className="font-mono">__SECRET_NAME__</code> placeholder.
-                  Any value you type is a test override only — masked from the
+                  Any value you type is a test override only - masked from the
                   output and never your real secret.
                 </p>
               </div>
@@ -256,7 +256,7 @@ export const ScriptTestPanel: React.FC<ScriptTestPanelProps> = ({
                   {failed ? (
                     <XCircle className="h-4 w-4 text-destructive" />
                   ) : (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    <CheckCircle2 className="h-4 w-4 text-success" />
                   )}
                   {failed ? "Failed" : "Success"}
                   <Badge variant="secondary" className="font-normal">

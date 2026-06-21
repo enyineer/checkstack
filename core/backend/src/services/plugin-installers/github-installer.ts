@@ -13,17 +13,14 @@ import { installFromArtifact } from "./install-from-tarball";
 import { rootLogger } from "../../logger";
 import { extractErrorMessage } from "@checkstack/common";
 import { PluginInstallError } from "./plugin-install-error";
+import {
+  githubReleaseSchema,
+  verifyGithubTarballIntegrity,
+  type githubReleaseAssetSchema,
+} from "./integrity";
+import type { z } from "zod";
 
-interface GithubReleaseAsset {
-  name: string;
-  browser_download_url: string;
-  size: number;
-}
-
-interface GithubRelease {
-  tag_name: string;
-  assets: GithubReleaseAsset[];
-}
+type GithubReleaseAsset = z.infer<typeof githubReleaseAssetSchema>;
 
 /**
  * Install a plugin from a GitHub release.
@@ -108,7 +105,14 @@ export class GithubPluginInstaller implements PluginInstaller {
         `GitHub release lookup returned HTTP ${meta.status} for ${repoLabel}.`,
       );
     }
-    const release = (await meta.json()) as GithubRelease;
+    const releaseResult = githubReleaseSchema.safeParse(await meta.json());
+    if (!releaseResult.success) {
+      throw new PluginInstallError(
+        "BAD_GATEWAY",
+        `GitHub release metadata for '${repoLabel}' had an unexpected shape: ${releaseResult.error.message}`,
+      );
+    }
+    const release = releaseResult.data;
 
     const tgzAssets = release.assets.filter((a) => a.name.endsWith(".tgz"));
     let asset: GithubReleaseAsset | undefined;
@@ -170,6 +174,25 @@ export class GithubPluginInstaller implements PluginInstaller {
       );
     }
     const buf = new Uint8Array(await tarResp.arrayBuffer());
+
+    // Integrity pinning: always RECORD the SHA-256 of the downloaded bytes,
+    // and when GitHub exposes an asset `digest` (`sha256:<hex>`), verify
+    // against it and fail CLOSED on mismatch.
+    const { sha256, verified } = verifyGithubTarballIntegrity({
+      tarball: buf,
+      digest: asset.digest,
+      assetName: asset.name,
+    });
+    if (verified) {
+      rootLogger.info(
+        `🔐 Integrity verified for release asset '${asset.name}' (sha256:${sha256}).`,
+      );
+    } else {
+      rootLogger.info(
+        `🔐 Recorded sha256:${sha256} for release asset '${asset.name}' ` +
+          `(GitHub did not expose an asset digest to verify against).`,
+      );
+    }
 
     const bundle = await tryExtractBundle(buf);
     if (bundle) {

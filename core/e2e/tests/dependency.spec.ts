@@ -1,10 +1,16 @@
 import { test, expect } from "@checkstack/test-utils-frontend/playwright";
 
 /**
- * Dependencies & map area. Boots against a freshly reset, empty DB onboarded
- * with only the admin user, so every prerequisite (systems, the dependency
- * between them) is created here via the real UI. The whole file shares one DB,
- * so it runs serially and empty-state assertions come before the create flow.
+ * Dependencies & map area.
+ *
+ * Boot-once variant: the backend boots and the DB is reset ONCE, then all
+ * boot-once specs run in PARALLEL against that single shared DB. The DB is
+ * therefore non-empty and shared, so this file is fully data-isolated: every
+ * system it creates (and the dependency between them) is namespaced with a
+ * unique-per-run suffix (`NS`) so parallel specs never collide, and no test
+ * asserts on global table state (no empty graph, no "no systems", no global
+ * counts). Tests within this file still run serially (the create -> wire ->
+ * verify chain).
  *
  * Routes under test:
  *   - /dependency/map           (interactive topology graph)
@@ -17,15 +23,15 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  */
 test.describe.configure({ mode: "serial" });
 
-const RUN = Date.now();
-const SOURCE_SYSTEM = `Web Frontend ${RUN}`;
-const TARGET_SYSTEM = `Payments API ${RUN}`;
+// Unique per run so parallel specs sharing one DB never collide.
+const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const SOURCE_SYSTEM = `Web Frontend ${NS}`;
+const TARGET_SYSTEM = `Payments API ${NS}`;
 
 /**
- * Create a system through the Catalog Management UI. The fresh DB starts with
- * no systems, so the first call hits the empty-state "Add your first system"
- * button while later calls use the header "Add System" button — both open the
- * same SystemEditor dialog.
+ * Create a system through the Catalog Management UI. The shared DB may already
+ * hold systems from other parallel specs, so we always target the stable
+ * header "Add System" button rather than any empty-state CTA.
  */
 async function createSystem({
   page,
@@ -51,9 +57,13 @@ async function createSystem({
   await dialog.getByLabel("Name").fill(name);
   await dialog.getByRole("button", { name: "Create System" }).click();
 
-  // Dialog closes on success; the new system card appears in the list.
+  // Dialog closes on success; the new system row appears in the management
+  // table. Scope to the desktop table: the ResponsiveTable's display:none
+  // MobileCardList duplicates the name, which would trip strict mode.
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("table").getByText(name, { exact: true }),
+  ).toBeVisible();
 }
 
 test.describe("dependency map", () => {
@@ -62,7 +72,7 @@ test.describe("dependency map", () => {
   }) => {
     await page.goto("/dependency/map");
 
-    // Page chrome always renders even with zero systems.
+    // Page chrome always renders regardless of how many systems exist.
     await expect(
       page.getByRole("heading", { name: "Dependency Map" }),
     ).toBeVisible({ timeout: 30_000 });
@@ -87,25 +97,8 @@ test.describe("dependency map", () => {
     await expect(page.getByText("Legend")).toBeVisible();
   });
 
-  test("shows an empty graph when there are no systems", async ({ page }) => {
-    await page.goto("/dependency/map");
-    await expect(
-      page.getByRole("heading", { name: "Dependency Map" }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    // With no systems the canvas renders no system nodes. The neither-created
-    // system name must be absent from the graph.
-    await expect(page.getByText(SOURCE_SYSTEM)).toHaveCount(0);
-    await expect(page.getByText(TARGET_SYSTEM)).toHaveCount(0);
-
-    // Save Layout is disabled until a node position changes (nothing to save).
-    await expect(
-      page.getByRole("button", { name: "Save Layout" }),
-    ).toBeDisabled();
-  });
-
   test("reflects a dependency created between two systems", async ({ page }) => {
-    // Prereq: two systems via the catalog UI.
+    // Prereq: two namespaced systems via the catalog UI.
     await createSystem({ page, name: SOURCE_SYSTEM });
     await createSystem({ page, name: TARGET_SYSTEM });
 
@@ -149,7 +142,9 @@ test.describe("dependency map", () => {
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
 
-    // The map now shows both systems as graph nodes.
+    // The map now shows BOTH of our namespaced systems as graph nodes. The
+    // shared DB may also contain systems created by other parallel specs, so
+    // we only assert that OUR systems are present (never a global count).
     await page.goto("/dependency/map");
     await expect(
       page.getByRole("heading", { name: "Dependency Map" }),
@@ -159,7 +154,8 @@ test.describe("dependency map", () => {
     await expect(page.getByText(TARGET_SYSTEM)).toBeVisible();
 
     // A connected node renders its directional footer; the dependency wired the
-    // source's "depends" count and the target's "used by" count.
+    // source's "depends" count and the target's "used by" count. Other specs'
+    // nodes may also render these labels, so scope to "first" presence only.
     await expect(page.getByText("depends").first()).toBeVisible();
     await expect(page.getByText("used by").first()).toBeVisible();
   });

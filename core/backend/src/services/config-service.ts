@@ -8,20 +8,36 @@ import {
   Versioned,
   encrypt,
   decrypt,
+  DecryptionError,
   isEncrypted,
   isSecretSchema,
+  type Logger,
 } from "@checkstack/backend-api";
+import { extractErrorMessage } from "@checkstack/common";
 import { pluginConfigs } from "../schema";
+import { rootLogger } from "../logger";
 
 /**
  * Implementation of ConfigService.
  * Provides plugin-scoped configuration management with automatic secret handling.
  */
 export class ConfigServiceImpl implements ConfigService {
+  private readonly logger: Logger;
+
   constructor(
     private readonly pluginId: string,
-    private readonly db: SafeDatabase<Record<string, unknown>>
-  ) {}
+    private readonly db: SafeDatabase<Record<string, unknown>>,
+    logger?: Logger
+  ) {
+    // Use the injected structured logger when provided; otherwise derive a
+    // plugin-scoped child from the backend root logger. The rest of the
+    // backend logs through this `Logger`, never `console.*`.
+    this.logger =
+      logger ??
+      (rootLogger.child
+        ? rootLogger.child({ plugin: pluginId })
+        : rootLogger);
+  }
 
   /**
    * Recursively encrypt secret fields in a config object.
@@ -90,13 +106,32 @@ export class ConfigServiceImpl implements ConfigService {
       const value = data[key];
 
       if (isSecretSchema(fieldSchema as z.ZodTypeAny)) {
-        // Decrypt secret field
+        // Decrypt secret field.
         if (typeof value === "string" && isEncrypted(value)) {
           try {
             result[key] = decrypt(value);
           } catch (error) {
-            console.error(`Failed to decrypt secret for key ${key}:`, error);
-            result[key] = value; // Preserve encrypted value if decryption fails
+            // FAIL LOUD + FAIL CLOSED. The previous behaviour silently
+            // substituted the raw ciphertext as if it were the plaintext
+            // secret, so a downstream consumer would use ciphertext as the
+            // real secret and the operator never learned decryption broke.
+            //
+            // Instead we surface the failure via the structured logger (never
+            // the secret value or ciphertext - only the key and plugin) and
+            // re-throw a typed DecryptionError. We fail the WHOLE config read
+            // (not just this field): a config object is consumed as a unit, and
+            // returning a partial object with a silently-missing secret is more
+            // surprising than a clear hard error that the config-read caller
+            // surfaces to the operator.
+            this.logger.error("Failed to decrypt secret config field", {
+              pluginId: this.pluginId,
+              configKey: key,
+              error: extractErrorMessage(error),
+            });
+            throw new DecryptionError(
+              `Failed to decrypt secret config field "${key}" for plugin "${this.pluginId}"`,
+              { cause: error }
+            );
           }
         }
       } else if (

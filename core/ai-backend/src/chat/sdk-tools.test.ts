@@ -5,8 +5,12 @@ import type { AiPermissionMode } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "../tool-registry";
 import {
   buildAgentSdkTools,
+  ToolFeedbackError,
+  type AgentToolCallbacks,
   type AutoAppliedResult,
   type ConfirmCardResult,
+  type DuplicateToolCallResult,
+  type ValidationFeedbackResult,
 } from "./sdk-tools";
 
 function tool(
@@ -43,6 +47,7 @@ function callbacks() {
       calls.push("propose");
       return {
         __confirm: true,
+        status: "awaiting_operator",
         toolName: t.name,
         effect: t.effect as "mutate" | "destructive",
         summary: "would do it",
@@ -113,6 +118,9 @@ describe("buildAgentSdkTools — 3-tier gating", () => {
       { toolCallId: "t1", messages: [] },
     )) as ConfirmCardResult;
     expect(result.__confirm).toBe(true);
+    // A confirm card is a SUCCESS (the proposal landed); it carries the
+    // structured `status` so the model keys on state, not the `note` prose.
+    expect(result.status).toBe("awaiting_operator");
     expect(result.token).toBe("propose:abc.def");
     expect(cb.calls).toEqual(["budget", "propose"]);
   });
@@ -164,5 +172,149 @@ describe("buildAgentSdkTools — 3-tier gating", () => {
       callbacks: callbacks(),
     });
     expect(Object.keys(sdk)).toEqual(["incident.list"]);
+  });
+});
+
+describe("buildAgentSdkTools — tool descriptions are STABLE across permission modes (Finding 10)", () => {
+  // The mode is conveyed ONCE via the system prompt's permission-mode line; the
+  // wire-time tool descriptions must NOT be mutated per mode (no
+  // " (auto-applied...)" / " (requires human confirmation...)" suffixes), so
+  // tool identity stays decoupled from conversation state and any future
+  // tool-block prompt cache survives a mode toggle.
+  function descriptionFor({
+    effect,
+    mode,
+  }: {
+    effect: RegisteredAiTool["effect"];
+    mode: AiPermissionMode;
+  }): string | undefined {
+    const name = `t.${effect}`;
+    const sdk = buildAgentSdkTools({
+      tools: [tool(name, effect)],
+      principal,
+      mode,
+      callbacks: callbacks(),
+    });
+    return sdk[name]?.description;
+  }
+
+  test("the description is the raw tool description, with NO per-mode note appended", () => {
+    for (const effect of ["read", "mutate", "destructive"] as const) {
+      for (const mode of ["approve", "auto"] as const) {
+        const description = descriptionFor({ effect, mode });
+        expect(description).toBe(`t.${effect}`);
+        expect(description).not.toContain("auto-applied");
+        expect(description).not.toContain("requires human confirmation");
+      }
+    }
+  });
+
+  test("a mutate tool's description is IDENTICAL in approve and auto mode", () => {
+    expect(descriptionFor({ effect: "mutate", mode: "approve" })).toBe(
+      descriptionFor({ effect: "mutate", mode: "auto" }),
+    );
+  });
+
+  test("a destructive tool's description is IDENTICAL in approve and auto mode", () => {
+    expect(descriptionFor({ effect: "destructive", mode: "approve" })).toBe(
+      descriptionFor({ effect: "destructive", mode: "auto" }),
+    );
+  });
+});
+
+describe("buildAgentSdkTools — self-correction error channel (Phase 1)", () => {
+  /** Build a single mutate tool's `execute` against a propose-spy callback set. */
+  function buildMutateExecute(
+    propose: AgentToolCallbacks["propose"],
+  ): ((input: unknown, opts: unknown) => Promise<unknown>) | undefined {
+    const cb: AgentToolCallbacks = {
+      enforceBudget: async () => {},
+      runRead: async () => ({}),
+      propose,
+      autoApply: async () => {
+        throw new Error("autoApply should not run in APPROVE mode");
+      },
+    };
+    const sdk = buildAgentSdkTools({
+      tools: [tool("t.mutate", "mutate")],
+      principal,
+      mode: "approve",
+      callbacks: cb,
+    });
+    return sdk["t.mutate"]?.execute as
+      | ((input: unknown, opts: unknown) => Promise<unknown>)
+      | undefined;
+  }
+
+  const opts = { toolCallId: "t1", messages: [] };
+
+  test("a validation failure is THROWN as a ToolFeedbackError (not returned as success)", async () => {
+    const issues = [{ path: ["runAs"], message: "no such account" }];
+    const execute = buildMutateExecute(async ({ tool: t }) => {
+      const feedback: ValidationFeedbackResult = {
+        __validationFailed: true,
+        toolName: t.name,
+        issues,
+        note: "Fix the issues and call again; nothing has been applied.",
+      };
+      return feedback;
+    });
+
+    let caught: unknown;
+    try {
+      await execute?.({ value: "x" }, opts);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ToolFeedbackError);
+    const err = caught as ToolFeedbackError;
+    // The structured payload travels on the error for the model to key on...
+    expect(err.feedback.kind).toBe("validation_failed");
+    expect(err.feedback.toolName).toBe("t.mutate");
+    expect(err.feedback.issues).toEqual(issues);
+    // ...and the prose guidance is the error message (belt and suspenders).
+    expect(err.message).toMatch(/Fix the issues/);
+  });
+
+  test("a duplicate call is THROWN as a ToolFeedbackError", async () => {
+    const execute = buildMutateExecute(async ({ tool: t }) => {
+      const duplicate: DuplicateToolCallResult = {
+        __duplicate: true,
+        toolName: t.name,
+        note: "You already proposed this; stop and tell the operator.",
+      };
+      return duplicate;
+    });
+
+    let caught: unknown;
+    try {
+      await execute?.({ value: "x" }, opts);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ToolFeedbackError);
+    expect((caught as ToolFeedbackError).feedback.kind).toBe("duplicate_call");
+    expect((caught as ToolFeedbackError).feedback.issues).toBeUndefined();
+  });
+
+  test("a confirm card is a SUCCESS value with status: awaiting_operator (NOT thrown)", async () => {
+    const execute = buildMutateExecute(async ({ tool: t }) => {
+      const card: ConfirmCardResult = {
+        __confirm: true,
+        status: "awaiting_operator",
+        toolName: t.name,
+        effect: "mutate",
+        summary: "would do it",
+        token: "propose:abc.def",
+        payload: {},
+        expiresAt: new Date().toISOString(),
+        note: "awaiting approval",
+      };
+      return card;
+    });
+
+    const result = (await execute?.({ value: "x" }, opts)) as ConfirmCardResult;
+    expect(result.__confirm).toBe(true);
+    expect(result.status).toBe("awaiting_operator");
   });
 });

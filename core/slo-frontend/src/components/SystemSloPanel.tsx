@@ -6,6 +6,7 @@ import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
+import { formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -62,7 +63,12 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
               />
             </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
-              {item.status.currentAvailability?.toFixed(3) ?? "—"}%
+              {item.status.currentAvailability === null
+                ? "—"
+                : formatPercent(item.status.currentAvailability, {
+                    alreadyPercent: true,
+                    fractionDigits: 3,
+                  })}
             </span>
           </Link>
         ))}

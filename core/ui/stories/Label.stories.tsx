@@ -19,3 +19,16 @@ export const Default: Story = {
     </div>
   ),
 };
+
+// `required` renders a token-colored `*` (hidden from AT) plus an sr-only
+// "(required)" so the requirement is not conveyed by color alone.
+export const Required: Story = {
+  render: () => (
+    <div className="space-y-2 max-w-sm">
+      <Label htmlFor="email-required" required>
+        Email
+      </Label>
+      <Input id="email-required" type="email" placeholder="you@example.com" />
+    </div>
+  ),
+};

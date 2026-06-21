@@ -2,6 +2,7 @@ import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { QueueApi, type JobStateDto } from "@checkstack/queue-common";
 import {
+  cn,
   Card,
   CardContent,
   CardDescription,
@@ -17,7 +18,15 @@ import {
   TableRow,
   Tabs,
   TabPanel,
+  ResponsiveTable,
+  MobileCardList,
+  EmptyState,
+  QueryErrorState,
+  formatRelativeTime,
 } from "@checkstack/ui";
+import { CountTile } from "./CountTile";
+import { JobStatePill } from "./JobStatePill";
+import { hasRetried } from "./jobDisplay.logic";
 import {
   Activity,
   AlertTriangle,
@@ -31,20 +40,8 @@ import {
 const REFRESH_INTERVAL_MS = 5000;
 const PAGE_SIZE = 25;
 
-const formatNumber = (n: number) =>
-  n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-const formatRelative = (date?: Date) => {
-  if (!date) return "—";
-  const ms = Date.now() - date.getTime();
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.round(hr / 24)}d ago`;
-};
+const formatRelative = (date?: Date) =>
+  date ? formatRelativeTime(date) : "—";
 
 const formatDuration = (start?: Date, end?: Date) => {
   if (!start) return "—";
@@ -73,32 +70,6 @@ const formatCountdown = (target?: Date) => {
   return `in ${Math.round(hr / 24)}d`;
 };
 
-interface CountTileProps {
-  label: string;
-  value: number | undefined;
-  icon: React.ComponentType<{ className?: string }>;
-  tone: "default" | "warning" | "danger" | "success";
-}
-
-const toneClasses: Record<CountTileProps["tone"], string> = {
-  default: "text-muted-foreground",
-  warning: "text-amber-600 dark:text-amber-400",
-  danger: "text-destructive",
-  success: "text-emerald-600 dark:text-emerald-400",
-};
-
-const CountTile = ({ label, value, icon: Icon, tone }: CountTileProps) => (
-  <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
-    <Icon className={`h-5 w-5 shrink-0 ${toneClasses[tone]}`} />
-    <div className="min-w-0">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold tabular-nums">
-        {value === undefined ? "—" : formatNumber(value)}
-      </div>
-    </div>
-  </div>
-);
-
 interface JobsTableProps {
   state: JobStateDto;
 }
@@ -108,19 +79,27 @@ const JobsTable = ({ state }: JobsTableProps) => {
   const [page, setPage] = useState(1);
   const offset = (page - 1) * PAGE_SIZE;
 
-  const { data, isLoading, error } = queueClient.listJobs.useQuery(
+  const { data, isLoading, error, refetch } = queueClient.listJobs.useQuery(
     { state, offset, limit: PAGE_SIZE },
     { refetchInterval: REFRESH_INTERVAL_MS },
   );
 
   if (error) {
-    return <p className="text-sm text-destructive">Failed to load jobs.</p>;
+    return (
+      <QueryErrorState
+        error={error}
+        onRetry={() => {
+          void refetch();
+        }}
+        resource="jobs"
+      />
+    );
   }
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
   if (!data || data.items.length === 0) {
-    return <p className="text-sm text-muted-foreground">No {state} jobs.</p>;
+    return <EmptyState title={`No ${state} jobs.`} />;
   }
 
   const showFinished = state === "completed" || state === "failed";
@@ -140,72 +119,174 @@ const JobsTable = ({ state }: JobsTableProps) => {
 
   return (
     <div className="space-y-3">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[140px]">Job ID</TableHead>
-            <TableHead>Queue</TableHead>
-            {showState && <TableHead>State</TableHead>}
-            <TableHead>Enqueued</TableHead>
-            {showNextRun && <TableHead>Next run</TableHead>}
-            {state === "active" && <TableHead>Running for</TableHead>}
-            {showFinished && <TableHead>Finished</TableHead>}
-            {showFinished && <TableHead>Duration</TableHead>}
-            <TableHead className="text-right">Attempts</TableHead>
-            {showError && <TableHead>Error</TableHead>}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.items.map((job) => (
-            <TableRow key={job.id}>
-              <TableCell
-                className="font-mono text-xs whitespace-nowrap"
-                title={job.id}
+      <ResponsiveTable>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[140px]">Job ID</TableHead>
+              <TableHead>Queue</TableHead>
+              {showState && <TableHead>State</TableHead>}
+              <TableHead>Enqueued</TableHead>
+              {showNextRun && <TableHead>Next run</TableHead>}
+              {state === "active" && <TableHead>Running for</TableHead>}
+              {showFinished && <TableHead>Finished</TableHead>}
+              {showFinished && <TableHead>Duration</TableHead>}
+              <TableHead className="text-right">Attempts</TableHead>
+              {showError && <TableHead>Error</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.items.map((job) => (
+              <TableRow
+                key={job.id}
+                className="transition-colors hover:bg-surface-inset"
               >
-                {truncateMiddle(job.id)}
-              </TableCell>
-              <TableCell>{job.name ?? "—"}</TableCell>
-              {showState && (
-                <TableCell className="capitalize">
-                  {job.recurring ? "Recurring" : job.state}
-                </TableCell>
-              )}
-              <TableCell title={job.enqueuedAt.toString()}>
-                {formatRelative(job.enqueuedAt)}
-              </TableCell>
-              {showNextRun && (
-                <TableCell title={job.nextRunAt?.toString()}>
-                  {formatCountdown(job.nextRunAt)}
-                </TableCell>
-              )}
-              {state === "active" && (
-                <TableCell>{formatDuration(job.startedAt)}</TableCell>
-              )}
-              {showFinished && (
-                <TableCell title={job.finishedAt?.toString()}>
-                  {formatRelative(job.finishedAt)}
-                </TableCell>
-              )}
-              {showFinished && (
-                <TableCell>
-                  {formatDuration(job.startedAt, job.finishedAt)}
-                </TableCell>
-              )}
-              <TableCell className="text-right tabular-nums">
-                {job.attempts}
-              </TableCell>
-              {showError && (
                 <TableCell
-                  className="max-w-[280px] truncate text-destructive"
+                  className="font-mono text-xs whitespace-nowrap"
+                  title={job.id}
+                >
+                  {truncateMiddle(job.id)}
+                </TableCell>
+                <TableCell>{job.name ?? "—"}</TableCell>
+                {showState && (
+                  <TableCell>
+                    <JobStatePill
+                      label={job.recurring ? "Recurring" : job.state}
+                    />
+                  </TableCell>
+                )}
+                <TableCell title={job.enqueuedAt.toString()}>
+                  {formatRelative(job.enqueuedAt)}
+                </TableCell>
+                {showNextRun && (
+                  <TableCell title={job.nextRunAt?.toString()}>
+                    {formatCountdown(job.nextRunAt)}
+                  </TableCell>
+                )}
+                {state === "active" && (
+                  <TableCell>{formatDuration(job.startedAt)}</TableCell>
+                )}
+                {showFinished && (
+                  <TableCell title={job.finishedAt?.toString()}>
+                    {formatRelative(job.finishedAt)}
+                  </TableCell>
+                )}
+                {showFinished && (
+                  <TableCell>
+                    {formatDuration(job.startedAt, job.finishedAt)}
+                  </TableCell>
+                )}
+                <TableCell
+                  className={cn(
+                    "text-right tabular-nums",
+                    hasRetried(job.attempts) && "font-medium text-status-warn",
+                  )}
+                >
+                  {job.attempts}
+                </TableCell>
+                {showError && (
+                  <TableCell
+                    className="max-w-[280px] text-status-down"
+                    title={job.failedReason}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 shrink-0 text-status-down"
+                        aria-hidden
+                      />
+                      <span className="truncate">
+                        {job.failedReason ?? "—"}
+                      </span>
+                    </span>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </ResponsiveTable>
+
+      <MobileCardList>
+        {data.items.map((job) => (
+          <div
+            key={job.id}
+            className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+          >
+            {/* Accent stripe only on the down signal; color reserved for it. */}
+            {showError && (
+              <span
+                className="absolute inset-y-0 left-0 w-1 bg-status-down"
+                aria-hidden
+              />
+            )}
+            <div className={cn(showError && "pl-2")}>
+              <div className="flex items-start justify-between gap-2">
+                <span
+                  className="font-mono text-xs whitespace-nowrap"
+                  title={job.id}
+                >
+                  {truncateMiddle(job.id)}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {showState && (
+                    <JobStatePill
+                      label={job.recurring ? "Recurring" : job.state}
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      hasRetried(job.attempts)
+                        ? "font-medium text-status-warn"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {job.attempts} attempt{job.attempts === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {job.name ?? "—"}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                <span title={job.enqueuedAt.toString()}>
+                  Enqueued {formatRelative(job.enqueuedAt)}
+                </span>
+                {showNextRun && (
+                  <span title={job.nextRunAt?.toString()}>
+                    Next {formatCountdown(job.nextRunAt)}
+                  </span>
+                )}
+                {state === "active" && (
+                  <span>Running {formatDuration(job.startedAt)}</span>
+                )}
+                {showFinished && (
+                  <span title={job.finishedAt?.toString()}>
+                    Finished {formatRelative(job.finishedAt)}
+                  </span>
+                )}
+                {showFinished && (
+                  <span>
+                    Took {formatDuration(job.startedAt, job.finishedAt)}
+                  </span>
+                )}
+              </div>
+              {showError && job.failedReason && (
+                <div
+                  className="mt-1 flex items-start gap-1.5 text-xs text-status-down"
                   title={job.failedReason}
                 >
-                  {job.failedReason ?? "—"}
-                </TableCell>
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-down"
+                    aria-hidden
+                  />
+                  <span className="break-words">{job.failedReason}</span>
+                </div>
               )}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+            </div>
+          </div>
+        ))}
+      </MobileCardList>
       <Pagination
         page={page}
         totalPages={totalPages}
@@ -239,10 +320,14 @@ const SUB_TABS = [
  */
 export const QueueRuntimePanel = () => {
   const queueClient = usePluginClient(QueueApi);
-  const { data: stats, isLoading, error } = queueClient.getStats.useQuery(
-    undefined,
-    { refetchInterval: REFRESH_INTERVAL_MS },
-  );
+  const {
+    data: stats,
+    isLoading,
+    error,
+    refetch,
+  } = queueClient.getStats.useQuery(undefined, {
+    refetchInterval: REFRESH_INTERVAL_MS,
+  });
   const [activeSubTab, setActiveSubTab] = useState<JobStateDto>("pending");
 
   return (
@@ -266,9 +351,13 @@ export const QueueRuntimePanel = () => {
         </CardHeader>
         <CardContent className="space-y-6">
           {error ? (
-            <div className="text-sm text-destructive">
-              Failed to load queue stats.
-            </div>
+            <QueryErrorState
+              error={error}
+              onRetry={() => {
+                void refetch();
+              }}
+              resource="queue stats"
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CountTile

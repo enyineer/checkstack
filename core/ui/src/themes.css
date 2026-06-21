@@ -70,6 +70,88 @@
 
     /* Radius for rounded corners */
     --radius: 0.5rem;
+
+    /* ---------------------------------------------------------------------
+       Surface elevation ramp (UI rework foundation)
+       bg < surface < surface-2 < surface-inset, so elevation order never
+       inverts between light and dark. `surface` is the resting card face,
+       `surface-2` a raised/top-gradient face, `surface-inset` a recessed
+       well (payload blocks, code, inset stats).
+       --------------------------------------------------------------------- */
+    --surface: 0 0% 100%;
+    --surface-foreground: 240 12% 10%;
+    --surface-2: 240 20% 98%;
+    --surface-inset: 240 14% 96%;
+
+    /* ---------------------------------------------------------------------
+       Aurora signature gradient stops (teal -> violet -> magenta).
+       Reserved for the hero confidence gauge + the primary chart series
+       ONLY (see SYNTHESIS-SPEC). The middle stop is the existing brand
+       primary so the gradient stays on-brand.
+       --------------------------------------------------------------------- */
+    --aurora-1: 199 89% 52%; /* cyan/teal - gradient start */
+    --aurora-2: 262 83% 58%; /* brand violet - gradient mid (== --primary) */
+    --aurora-3: 288 80% 62%; /* magenta - gradient tail / p95 band */
+
+    /* ---------------------------------------------------------------------
+       Colorblind-safe status triad. Separated by HUE *and* LUMINANCE so the
+       ramp survives deuteranopia/protanopia where a pure red/green pair
+       collapses. `status-ok` leans green-teal (L 38), `status-warn` a
+       saturated amber (L 50), `status-down` vermilion (L 53): a strictly
+       increasing lightness ladder. Always pair with a glyph + label (never
+       hue alone). Distinct from the legacy --success/--warning tokens, which
+       stay for existing badges.
+       --------------------------------------------------------------------- */
+    --status-ok: 158 74% 38%;
+    --status-ok-foreground: 0 0% 100%;
+    --status-warn: 35 95% 50%;
+    --status-warn-foreground: 0 0% 0%;
+    --status-down: 2 80% 53%;
+    --status-down-foreground: 0 0% 100%;
+    --status-unknown: 240 5% 58%;
+    --status-unknown-foreground: 0 0% 100%;
+
+    /* Low-contrast chart gridline (data-ink discipline). */
+    --grid-line: 240 14% 88%;
+
+    /* ---------------------------------------------------------------------
+       Density model (--d-* vars). Defaults are the `comfortable` values;
+       a `.density-compact` wrapper overrides only these tokens, so a single
+       class swap re-flows the whole tree with zero per-component
+       conditionals. Driven by DensityProvider / useDensity().
+       --------------------------------------------------------------------- */
+    --d-pad: 20px; /* card / panel padding */
+    --d-gap: 16px; /* grid + stack gap */
+    --d-row: 54px; /* list/table row height */
+    --d-num: 34px; /* hero number size */
+    --d-title: 16px; /* card title size */
+    --d-chip: 12px; /* status chip / badge size */
+    --d-spark-h: 34px; /* sparkline height */
+    --d-card-r: 14px; /* card corner radius */
+  }
+
+  /* Density: comfortable (explicit, equals :root defaults) */
+  .density-comfortable {
+    --d-pad: 20px;
+    --d-gap: 16px;
+    --d-row: 54px;
+    --d-num: 34px;
+    --d-title: 16px;
+    --d-chip: 12px;
+    --d-spark-h: 34px;
+    --d-card-r: 14px;
+  }
+
+  /* Density: compact - tighter rhythm, ~30% more rows per screen */
+  .density-compact {
+    --d-pad: 12px;
+    --d-gap: 8px;
+    --d-row: 38px;
+    --d-num: 24px;
+    --d-title: 13px;
+    --d-chip: 11px;
+    --d-spark-h: 24px;
+    --d-card-r: 10px;
   }
 
   .dark {
@@ -135,6 +217,37 @@
     /* blue-400 - brighter */
     --info-foreground: 214 100% 97%;
     /* blue-50 */
+
+    /* ---------------------------------------------------------------------
+       Surface elevation ramp - dark. Surfaces step UP in lightness
+       (bg < surface < surface-2 < surface-inset) just like light, so
+       elevation order is preserved across themes by construction.
+       --------------------------------------------------------------------- */
+    --surface: 240 12% 9.5%;
+    --surface-foreground: 0 0% 97%;
+    --surface-2: 240 11% 12%;
+    --surface-inset: 240 10% 14%;
+
+    /* Aurora stops - dark. Lifted in lightness so the glow reads on the
+       near-black canvas; mid stop matches the dark --primary. */
+    --aurora-1: 193 92% 60%;
+    --aurora-2: 263 70% 65%;
+    --aurora-3: 289 88% 72%;
+
+    /* Status triad - dark. Lifted in lightness + slightly desaturated so a
+       "degraded" amber carries the same semantic weight on dark as on light.
+       The increasing-lightness ladder (ok < warn < down) is preserved. */
+    --status-ok: 156 70% 46%;
+    --status-ok-foreground: 0 0% 100%;
+    --status-warn: 40 96% 56%;
+    --status-warn-foreground: 0 0% 0%;
+    --status-down: 4 86% 64%;
+    --status-down-foreground: 0 0% 100%;
+    --status-unknown: 240 6% 50%;
+    --status-unknown-foreground: 0 0% 100%;
+
+    /* Low-contrast chart gridline - dark. */
+    --grid-line: 240 14% 22%;
   }
 }
 
@@ -212,4 +325,14 @@
   opacity: 0.6;
   pointer-events: none;
   will-change: transform;
+}
+/*
+ * Aurora icon strokes: paint a page-header icon's paths with the
+ * teal -> violet -> magenta gradient defined by `#checkstack-aurora-icon`
+ * (rendered by PageHeader). Targets the icon's drawing descendants so the
+ * `url(#id)` stroke beats Lucide's `stroke="currentColor"` presentation
+ * attribute. No background, no fill change - just the strokes.
+ */
+.aurora-icon-stroke * {
+  stroke: url(#checkstack-aurora-icon);
 }

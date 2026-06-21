@@ -6,6 +6,8 @@ import {
   Card,
   Button,
   useToast,
+  toastError,
+  toastSuccess,
   SectionHeader,
   DynamicForm,
 } from "@checkstack/ui";
@@ -31,7 +33,6 @@ import {
   UserChannelCard,
   type UserDeliveryChannel,
 } from "../components/UserChannelCard";
-import { extractErrorMessage } from "@checkstack/common";
 
 export const NotificationSettingsPage = () => {
   const notificationClient = usePluginClient(NotificationApi);
@@ -99,38 +100,32 @@ export const NotificationSettingsPage = () => {
   const setRetentionMutation =
     notificationClient.setRetentionSettings.useMutation({
       onSuccess: () => {
-        toast.success("Retention settings saved");
+        toastSuccess(toast, "Retention settings saved");
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to save settings"),
-        );
+        toastError(toast, "Failed to save settings", error);
       },
     });
 
   const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
     onSuccess: () => {
-      toast.success("Unsubscribed successfully");
+      toastSuccess(toast, "Unsubscribed successfully");
       void refetchSubscriptions();
     },
     onError: (error) => {
-      toast.error(
-        extractErrorMessage(error, "Failed to unsubscribe"),
-      );
+      toastError(toast, "Failed to unsubscribe", error);
     },
   });
 
   const updateStrategyMutation =
     notificationClient.updateDeliveryStrategy.useMutation({
       onSuccess: () => {
-        toast.success("Updated delivery channel");
+        toastSuccess(toast, "Updated delivery channel");
         void refetchStrategies();
         setStrategySaving(undefined);
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to update channel"),
-        );
+        toastError(toast, "Failed to update channel", error);
         setStrategySaving(undefined);
       },
     });
@@ -138,14 +133,12 @@ export const NotificationSettingsPage = () => {
   const setUserPreferenceMutation =
     notificationClient.setUserDeliveryPreference.useMutation({
       onSuccess: () => {
-        toast.success("Updated notification channel");
+        toastSuccess(toast, "Updated notification channel");
         void refetchChannels();
         setChannelSaving(undefined);
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to update preference"),
-        );
+        toastError(toast, "Failed to update preference", error);
         setChannelSaving(undefined);
       },
     });
@@ -153,14 +146,12 @@ export const NotificationSettingsPage = () => {
   const unlinkChannelMutation =
     notificationClient.unlinkDeliveryChannel.useMutation({
       onSuccess: () => {
-        toast.success("Disconnected notification channel");
+        toastSuccess(toast, "Disconnected notification channel");
         void refetchChannels();
         setChannelSaving(undefined);
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to disconnect"),
-        );
+        toastError(toast, "Failed to disconnect", error);
         setChannelSaving(undefined);
       },
     });
@@ -171,9 +162,7 @@ export const NotificationSettingsPage = () => {
         globalThis.location.href = data.authUrl;
       },
       onError: (error) => {
-        toast.error(
-          extractErrorMessage(error, "Failed to start OAuth flow"),
-        );
+        toastError(toast, "Failed to start OAuth flow", error);
         setChannelConnecting(undefined);
       },
     });
@@ -305,40 +294,43 @@ export const NotificationSettingsPage = () => {
             description="Manage your notification subscriptions. Subscriptions are created by plugins and services."
             icon={<Bell className="h-5 w-5" />}
           />
-          <Card className="p-4">
-            {(subscriptions as EnrichedSubscription[]).length === 0 ? (
+          {(subscriptions as EnrichedSubscription[]).length === 0 ? (
+            <Card className="p-4">
               <div className="text-center py-4 text-muted-foreground">
                 No active subscriptions
               </div>
-            ) : (
-              <div className="space-y-3">
-                {(subscriptions as EnrichedSubscription[]).map((sub) => (
-                  <div
-                    key={sub.groupId}
-                    className="flex items-center justify-between py-2 border-b last:border-0"
-                  >
-                    <div>
-                      <div className="font-medium">{sub.groupName}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {sub.groupDescription}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        From: {sub.ownerPlugin}
-                      </div>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {(subscriptions as EnrichedSubscription[]).map((sub) => (
+                <div
+                  key={sub.groupId}
+                  className="group relative flex items-center justify-between gap-4 overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-foreground">
+                      {sub.groupName}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUnsubscribe(sub.groupId)}
-                      disabled={unsubscribeMutation.isPending}
-                    >
-                      Unsubscribe
-                    </Button>
+                    <div className="text-sm text-muted-foreground">
+                      {sub.groupDescription}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      From: {sub.ownerPlugin}
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </Card>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleUnsubscribe(sub.groupId)}
+                    disabled={unsubscribeMutation.isPending}
+                    className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+                  >
+                    Unsubscribe
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Admin Section Divider */}
@@ -348,7 +340,7 @@ export const NotificationSettingsPage = () => {
               <div className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-background px-4 text-sm text-muted-foreground flex items-center gap-2">
+              <span className="bg-surface px-4 text-sm text-muted-foreground flex items-center gap-2">
                 <Zap className="h-4 w-4" />
                 Admin Settings
               </span>

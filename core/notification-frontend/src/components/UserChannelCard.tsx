@@ -56,6 +56,34 @@ export interface UserChannelCardProps {
 }
 
 /**
+ * Status pill for a channel's connection state, built on the colorblind-safe
+ * status triad and multi-encoded with a dot + text label (never color alone).
+ */
+function ChannelStatusPill({
+  tone,
+  label,
+}: {
+  tone: "ok" | "warn";
+  label: string;
+}) {
+  const styles =
+    tone === "ok"
+      ? { pill: "bg-status-ok/10 text-status-ok", dot: "bg-status-ok" }
+      : { pill: "bg-status-warn/10 text-status-warn", dot: "bg-status-warn" };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        styles.pill
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", styles.dot)} aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+/**
  * User card for managing their notification channel preferences.
  * Shows enable/disable, OAuth connect/disconnect, and user config form.
  */
@@ -114,49 +142,51 @@ export function UserChannelCard({
     await onSaveConfig(channel.strategyId, userConfig);
   };
 
-  // Get status badge
+  // Get status badge. Connection state is a status signal, so it uses the
+  // colorblind-safe status triad and is multi-encoded with a dot + label.
   const getStatusBadge = () => {
     if (requiresOAuth && !isLinked) {
-      return (
-        <Badge variant="outline" className="text-amber-600 border-amber-600">
-          Not Connected
-        </Badge>
-      );
+      return <ChannelStatusPill tone="warn" label="Not Connected" />;
     }
     if (requiresUserConfig && !channel.isConfigured) {
-      return (
-        <Badge variant="outline" className="text-amber-600 border-amber-600">
-          Setup Required
-        </Badge>
-      );
+      return <ChannelStatusPill tone="warn" label="Setup Required" />;
     }
     if (localEnabled) {
-      return (
-        <Badge variant="secondary" className="text-green-600 border-green-600">
-          Active
-        </Badge>
-      );
+      return <ChannelStatusPill tone="ok" label="Active" />;
     }
     return <Badge variant="outline">Disabled</Badge>;
   };
 
+  // Left accent-stripe tone, agreeing with the status pill above: ok when
+  // active + configured, warn when a connection / setup step is required,
+  // and a neutral border otherwise (merely disabled).
+  const accentStripe =
+    (requiresOAuth && !isLinked) ||
+    (requiresUserConfig && !channel.isConfigured)
+      ? "bg-status-warn"
+      : localEnabled && channel.isConfigured
+        ? "bg-status-ok"
+        : "bg-border";
+
   return (
-    <Card
-      className={cn(
-        "overflow-hidden transition-all",
-        localEnabled && channel.isConfigured ? "border-green-500/30" : ""
-      )}
-    >
+    <Card className="group relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+      {/* Status accent stripe: connection state by position + hue. */}
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accentStripe)}
+        aria-hidden
+      />
       {/* Header */}
-      <div className="flex items-center justify-between p-4">
+      <div className="flex items-center justify-between p-4 pl-5">
         <div className="flex items-center gap-3">
-          <DynamicIcon
-            name={channel.icon}
-            className="h-5 w-5 text-muted-foreground"
-          />
+          <div className="rounded-lg bg-surface-inset p-2">
+            <DynamicIcon
+              name={channel.icon}
+              className="h-5 w-5 text-muted-foreground"
+            />
+          </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{channel.displayName}</span>
+              <span className="font-semibold">{channel.displayName}</span>
               {getStatusBadge()}
             </div>
             {channel.description && (
@@ -171,8 +201,8 @@ export function UserChannelCard({
             )}
             {/* Warning for OAuth strategies about shared targets */}
             {requiresOAuth && isLinked && (
-              <p className="text-xs text-amber-600 mt-1">
-                ⚠️ Avoid shared targets (group chats) — transactional messages
+              <p className="text-xs text-warning mt-1">
+                ⚠️ Avoid shared targets (group chats) - transactional messages
                 (e.g., password resets) may also be sent here.
               </p>
             )}
@@ -272,10 +302,10 @@ export function UserChannelCard({
 
       {/* User config form */}
       {expanded && hasUserConfigSchema && channel.userConfigSchema && (
-        <div className="border-t p-4 bg-muted/30 space-y-4">
+        <div className="border-t p-4 bg-surface-inset space-y-4">
           {/* User instructions block */}
           {channel.userInstructions && (
-            <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+            <div className="p-4 bg-surface-2 rounded-lg border border-border/50">
               <MarkdownBlock size="sm">
                 {channel.userInstructions}
               </MarkdownBlock>
@@ -302,7 +332,7 @@ export function UserChannelCard({
 
       {/* User instructions when not connected (for oauth-link channels) */}
       {!isLinked && channel.userInstructions && requiresOAuth && (
-        <div className="border-t p-4 bg-muted/30">
+        <div className="border-t p-4 bg-surface-inset">
           <MarkdownBlock size="sm">{channel.userInstructions}</MarkdownBlock>
         </div>
       )}

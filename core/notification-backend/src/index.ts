@@ -9,14 +9,17 @@ import {
 } from "@checkstack/backend-api";
 import {
   notificationAccessRules,
+  notificationRoutes,
   pluginMetadata,
   notificationContract,
 } from "@checkstack/notification-common";
 import {
   access,
+  resolveRoute,
   type PluginMetadata,
   type AccessRule,
 } from "@checkstack/common";
+import { registerSearchProvider } from "@checkstack/command-backend";
 import { eq } from "drizzle-orm";
 
 import * as schema from "./schema";
@@ -24,7 +27,7 @@ import { createNotificationRouter } from "./router";
 import { createNotificationCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { createOAuthCallbackHandler } from "./oauth-callback-handler";
-import { createStrategyService } from "./strategy-service";
+import { createStrategyService, type StrategyService } from "./strategy-service";
 import {
   automationActionExtensionPoint,
   automationArtifactTypeExtensionPoint,
@@ -63,6 +66,17 @@ export const notificationStrategyExtensionPoint =
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export { SUBJECT_STATUS_EMOJI, IMPORTANCE_EMOJI } from "./render";
+// Shared subject-render helpers (single-sourced in notification-common).
+// Re-exported here so strategy plugins import them alongside
+// `SUBJECT_STATUS_EMOJI` from `@checkstack/notification-backend` without
+// taking a direct dependency on notification-common.
+export {
+  renderSubjectsAsPlainText,
+  renderSubjectsAsMarkdown,
+  renderSubjectsAsHtml,
+  renderSubjectLabel,
+  type SubjectLinkStyle,
+} from "@checkstack/notification-common";
 export { postJson } from "./post-json";
 export type { PostJsonOptions, PostJsonResult } from "./post-json";
 
@@ -154,6 +168,11 @@ function createNotificationStrategyRegistry(): NotificationStrategyRegistry & {
 // Plugin Definition
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// Set in `init`, read by `afterPluginsReady`'s user-cleanup hook. Module-scoped
+// holder bridges init() -> afterPluginsReady() (mirrors healthcheck-backend's
+// `storedEmitHook`). Pod-local service handle, not queryable current state.
+let storedStrategyService: StrategyService | undefined;
+
 export default createBackendPlugin({
   metadata: pluginMetadata,
 
@@ -221,23 +240,21 @@ export default createBackendPlugin({
         });
 
         // Store for afterPluginsReady access
-        (
-          env as unknown as { strategyService: typeof strategyService }
-        ).strategyService = strategyService;
+        storedStrategyService = strategyService;
 
         const cache = createNotificationCache({ cacheManager, logger });
 
         // Create and register the notification router with strategy registry
-        const router = createNotificationRouter(
-          db,
-          config,
+        const router = createNotificationRouter({
+          database: db,
+          configService: config,
           signalService,
           strategyRegistry,
-          rpcClient,
+          rpcApi: rpcClient,
           logger,
           cache,
-          () => dispatchHookSinkRef.current,
-        );
+          getDispatchHookSink: () => dispatchHookSinkRef.current,
+        });
         rpc.registerRouter(router, notificationContract);
 
         // Register OAuth callback handler for strategy OAuth flows
@@ -246,8 +263,26 @@ export default createBackendPlugin({
           configService: config,
           strategyRegistry,
           baseUrl,
+          logger,
         });
         rpc.registerHttpHandler(oauthHandler, "/oauth");
+
+        // Register the "Notification Settings" navigation command in the command
+        // palette so the sidebar destination is reachable from Cmd+K. The nav
+        // entry is gated only on being authenticated (no access rule), so the
+        // command carries no `requiredAccessRules` to match.
+        registerSearchProvider({
+          pluginMetadata,
+          commands: [
+            {
+              id: "settings",
+              title: "Notification Settings",
+              subtitle: "Manage notification channels and subscriptions",
+              iconName: "Bell",
+              route: resolveRoute(notificationRoutes.routes.settings),
+            },
+          ],
+        });
 
         logger.debug("✅ Notification Backend initialized.");
       },
@@ -321,13 +356,8 @@ export default createBackendPlugin({
               `Cleaning up notifications for deleted user: ${userId}`
             );
             // Delete user notification preferences via ConfigService
-            const strategyService = (
-              env as unknown as {
-                strategyService: ReturnType<typeof createStrategyService>;
-              }
-            ).strategyService;
-            if (strategyService) {
-              await strategyService.deleteUserPreferences(userId);
+            if (storedStrategyService) {
+              await storedStrategyService.deleteUserPreferences(userId);
             }
             // Delete subscriptions (has userId reference)
             await db

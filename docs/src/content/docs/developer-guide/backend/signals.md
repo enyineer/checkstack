@@ -214,9 +214,9 @@ Rules:
 - **Do not list your own signals.** They are auto-invalidated; listing them here would no-op (still gets invalidated once) but adds noise.
 - **Use only when needed.** If your plugin's queries don't embed another plugin's data, you don't need `foreignSignals`.
 
-`foreignSignals` declarations are picked up immediately when a plugin is registered — including dynamically-loaded plugins via `PLUGIN_INSTALLED`.
+`foreignSignals` declarations are picked up immediately when a plugin is registered - including dynamically-loaded plugins via `PLUGIN_INSTALLED`.
 
-### `useSignal` — for genuine UI state, not for refetching
+### `useSignal` - for genuine UI state, not for refetching
 
 `useSignal` still exists, but use it only when you need to do **something other than invalidate a query**. Concretely:
 - Append to an in-memory event log (e.g. dashboard activity terminal).
@@ -238,7 +238,7 @@ useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemName, status, latencyMs }) => {
 
 > **If your handler body is just `refetch()` or `queryClient.invalidateQueries(...)`, delete the handler.** The auto-invalidator already does it.
 
-### `useSubscribeAllSignals` — for advanced wildcard subscriptions
+### `useSubscribeAllSignals` - for advanced wildcard subscriptions
 
 `useSubscribeAllSignals` fires for every incoming signal with `{ signalId, pluginId, payload }`. It's used by `SignalAutoInvalidator` itself and is exported for niche cases (e.g. an admin debug page that prints every signal). Avoid it in normal plugin code.
 
@@ -265,14 +265,14 @@ function ConnectionIndicator() {
 
 ### Endpoint
 
-```
+```text
 ws://{backend-url}/api/signals/ws
 ```
 
 ### Authentication
 
-- **Anonymous connections allowed** — receive broadcast signals
-- **Authenticated connections** — receive broadcasts + private user channel
+- **Anonymous connections allowed** - receive broadcast signals
+- **Authenticated connections** - receive broadcasts + private user channel
 - Authentication uses the session cookie (same as HTTP requests)
 
 ### Message Types
@@ -282,7 +282,7 @@ ws://{backend-url}/api/signals/ws
 | Type | Description |
 |------|-------------|
 | `connected` | Connection confirmed, includes `userId` if authenticated |
-| `signal` | Signal payload — `signalId`, `pluginId`, `payload`, `timestamp` |
+| `signal` | Signal payload - `signalId`, `pluginId`, `payload`, `timestamp` |
 | `pong` | Response to client ping |
 | `error` | Error message |
 
@@ -357,7 +357,7 @@ Bun's native pub/sub is used for efficient routing:
 
 Keep signal definitions in the `-common` package so both backend and frontend can import them:
 
-```
+```text
 core/notification-common/src/signals.ts   # Define here
 core/notification-backend/src/service.ts  # Emit here
 core/notification-frontend/src/...        # Consume only if you need UI side-effects
@@ -365,7 +365,7 @@ core/notification-frontend/src/...        # Consume only if you need UI side-eff
 
 ### 2. Trust the auto-invalidator
 
-For "data should refresh when X changes" cases, just keep the relevant signals firing on the backend and write normal queries on the frontend. Do not add `useSignal` handlers that only call `refetch()` or `queryClient.invalidateQueries(...)` — they are noise that the auto-invalidator covers automatically.
+For "data should refresh when X changes" cases, just keep the relevant signals firing on the backend and write normal queries on the frontend. Do not add `useSignal` handlers that only call `refetch()` or `queryClient.invalidateQueries(...)` - they are noise that the auto-invalidator covers automatically.
 
 ### 3. Use Specific Signal Types
 
@@ -386,7 +386,7 @@ const NOTIFICATION_EVENT = createSignal({
 
 ### 4. Use `foreignSignals` sparingly
 
-If your plugin's `[[pluginId]]` queries truly embed data owned by another plugin (e.g. dependency map embedding system health), declare a `foreignSignals` entry. Don't use it as a hammer — most of the time, each plugin's data is independent.
+If your plugin's `[[pluginId]]` queries truly embed data owned by another plugin (e.g. dependency map embedding system health), declare a `foreignSignals` entry. Don't use it as a hammer - most of the time, each plugin's data is independent.
 
 ### 5. Emit Signals Asynchronously
 
@@ -422,7 +422,7 @@ VITE_API_BASE_URL=http://localhost:3000
 
 Set log level to `debug` to see signal emissions:
 
-```
+```text
 DEBUG Sending signal notification.received to user user-123
 DEBUG Relayed signal notification.received to user user-123
 ```

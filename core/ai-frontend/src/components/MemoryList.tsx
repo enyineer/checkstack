@@ -69,7 +69,7 @@ export function MemoryList({
         {memories.map((m) => (
           <li
             key={m.id}
-            className="space-y-1 rounded-md border bg-card p-3"
+            className="space-y-1 rounded-[var(--d-card-r)] border border-border/70 bg-surface-inset p-[var(--d-pad)]"
           >
             {/* Title row spans the full width so the trash icon sits flush right. */}
             <div className="flex items-center gap-2">
@@ -80,7 +80,7 @@ export function MemoryList({
                 {m.recallHint}
               </span>
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
                 aria-label="Delete memory"
                 title="Delete memory"
@@ -89,7 +89,7 @@ export function MemoryList({
                   setPending({ id: m.id, recallHint: m.recallHint })
                 }
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-4 w-4" />
               </Button>
             </div>
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">

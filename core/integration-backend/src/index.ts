@@ -66,10 +66,11 @@ export const integrationProviderExtensionPoint =
 // Plugin Definition
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-interface EnvStash {
-  /** Set in `init`, used by `afterPluginsReady` for the credential migration. */
-  runCredentialMigration?: () => Promise<void>;
-}
+// Set in `init`, called by `afterPluginsReady` for the credential migration.
+// Module-scoped holder bridges init() -> afterPluginsReady() (mirrors
+// healthcheck-backend's `storedEmitHook`). Pod-local setup closure, not
+// queryable current state, so it is scale-safe.
+let runCredentialMigration: (() => Promise<void>) | undefined;
 
 export default createBackendPlugin({
   metadata: pluginMetadata,
@@ -117,7 +118,7 @@ export default createBackendPlugin({
         env.registerService(connectionStoreRef, connectionStore);
         // Stash the migration for afterPluginsReady (all providers + their
         // connectionSchemas are registered only by then).
-        (env as unknown as EnvStash).runCredentialMigration = () =>
+        runCredentialMigration = () =>
           connectionStore.runCredentialMigration();
 
         const router = createIntegrationRouter({
@@ -153,7 +154,7 @@ export default createBackendPlugin({
       // registered. Idempotent + parity-verified + reversible (backup).
       afterPluginsReady: async ({ logger }) => {
         try {
-          await (env as unknown as EnvStash).runCredentialMigration?.();
+          await runCredentialMigration?.();
         } catch (error) {
           logger.error(
             `Connection credential migration failed: ${String(error)}`,

@@ -55,19 +55,27 @@ const certificateResultSchema = healthResultSchema({
     "x-chart-label": "Valid To",
     "x-anomaly-enabled": false,
   }),
+  // Certificate days-remaining decreases by exactly one per day - a
+  // deterministic, monotonic value. A learned baseline (mu +/- N sigma) is the
+  // wrong tool for it: the "anomaly" is simply "below ~30 days", which is a
+  // static health threshold (config: minDaysUntilExpiry), not a statistical
+  // outlier. Leave it chartable but off by default so it never produces
+  // baseline-driven noise; expiry is enforced by the static threshold instead.
   daysRemaining: healthResultNumber({
     "x-chart-type": "gauge",
     "x-chart-label": "Days Remaining",
     "x-chart-unit": "days",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
-    "x-anomaly-min-absolute-delta": 1,
+    "x-anomaly-enabled": false,
   }),
+  // Certificate validity is an availability-style signal: a flip from valid to
+  // invalid is a genuine, impactful problem. Debounce so a single transient
+  // probe failure does not alert on its own.
   valid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-anomaly-confirmation-window": 3,
   }),
 });
 
@@ -75,19 +83,26 @@ export type CertificateResult = z.infer<typeof certificateResultSchema>;
 
 // Aggregated result fields definition
 const certificateAggregatedFields = {
+  // Average days-remaining inherits the same deterministic, monotonic decay as
+  // the per-run value, so a learned baseline is meaningless here. Off by
+  // default; expiry is governed by the static minDaysUntilExpiry threshold.
   avgDaysRemaining: aggregatedAverage({
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Days Remaining",
     "x-chart-unit": "days",
-    "x-anomaly-enabled": true,
-    "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-enabled": false,
   }),
+  // Fraction of probes returning a valid certificate. A drop is a real
+  // availability/validity problem. Debounce and require a meaningful drop
+  // (a few percent) before alerting so small sampling jitter stays quiet.
   validRate: aggregatedRate({
     "x-chart-type": "gauge",
     "x-chart-label": "Valid Rate",
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
+    "x-anomaly-confirmation-window": 3,
+    "x-anomaly-min-absolute-delta": 5,
   }),
 };
 
