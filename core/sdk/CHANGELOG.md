@@ -1,5 +1,38 @@
 # @checkstack/sdk
 
+## 0.112.1
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/anomaly-common@1.5.2
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/dependency-common@1.4.2
+  - @checkstack/incident-common@1.6.2
+  - @checkstack/maintenance-common@1.7.2
+  - @checkstack/satellite-common@0.8.10
+  - @checkstack/announcement-common@0.5.5
+  - @checkstack/automation-common@0.7.1
+  - @checkstack/cache-common@0.5.5
+  - @checkstack/command-common@0.3.5
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/integration-common@0.9.2
+  - @checkstack/pluginmanager-common@0.2.10
+  - @checkstack/queue-common@0.6.5
+  - @checkstack/script-packages-common@0.3.5
+  - @checkstack/secrets-common@0.2.5
+  - @checkstack/slo-common@0.7.2
+  - @checkstack/theme-common@0.2.5
+  - @checkstack/tips-common@0.3.5
+
 ## 0.109.1
 
 ### Patch Changes

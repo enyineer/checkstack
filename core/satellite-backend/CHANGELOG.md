@@ -1,5 +1,111 @@
 # @checkstack/satellite-backend
 
+## 0.7.0
+
+### Minor Changes
+
+- 8cad340: fix(satellite-backend): authorize satellite result messages per assignment
+
+  A satellite's `result` message is now authorized against the satellite's actual
+  assignment set, not just authenticated. The core accepts a result only when its
+  `(configId, systemId)` pair is in the satellite's current assignments; an
+  out-of-scope result is logged and dropped without closing the connection.
+
+  Previously the WebSocket handshake authenticated WHICH satellite was connected
+  but never authorized WHAT it could report for, so a compromised or malicious
+  satellite could forge health data for any system (suppress a real outage, raise
+  false alarms, or inject payloads into charts and aggregates). The authorization
+  set is seeded on connect and refreshed on every assignment push, so a
+  reassignment takes effect immediately.
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- 8cad340: fix(security): crypto + auth depth hardening (at-rest encryption, brute-force scale, token timing)
+
+  Three concrete defects found and fixed during the deferred crypto + auth depth audit:
+
+  - **At-rest encryption (`@checkstack/backend-api`)**: AES-256-GCM decrypt now
+    rejects values whose IV is not exactly 12 bytes or whose auth tag is not the
+    full 16 bytes (128-bit). GCM accepts truncated tags, which weaken forgery
+    resistance; the encryptor only ever emits full tags, so short tags now hard-
+    error instead of being silently accepted. `isEncrypted` is also tightened to
+    require the exact decoded IV/tag lengths, not just a loose
+    `base64:base64:base64` shape, so a plaintext secret that merely resembles the
+    shape can no longer be misclassified as "already encrypted" and stored in
+    plaintext. The unique-nonce and tamper-rejection guarantees are now covered by
+    regression tests.
+
+  - **Brute-force protection scale bug (`@checkstack/auth-backend`)**: better-auth's
+    built-in rate limiter (sign-in, password reset) defaulted to per-pod in-memory
+    storage. With N replicas behind one database that multiplied the effective
+    limit by N (state-and-scale §14.5). The limiter is now backed by a shared
+    `better_auth_rate_limit` Postgres table via a `customStorage` adapter, so the
+    counter is global across all pods. Adds a new append-only migration for the
+    table. No behaviour change in local dev (limiter stays off when not in
+    production); no configuration required.
+
+  - **Satellite token timing oracle (`@checkstack/satellite-backend`)**:
+    `validateToken` previously skipped the bcrypt verify when the `clientId` did
+    not exist, leaking client-ID existence via response timing. It now always
+    verifies the supplied token (against a decoy hash when the row is missing) so
+    the missing-clientId path costs the same as the wrong-token path.
+
+  Audited and found clean (no change needed): the better-auth cookie/session/CSRF
+  posture (`httpOnly`, `sameSite=lax`, `Secure` derived from the https `BASE_URL`,
+  single trusted origin, fresh session on internal trusted-login), and
+  token/secret logging hygiene across the auth, satellite, and secrets paths (no
+  secret material is logged).
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/automation-backend@0.9.3
+  - @checkstack/gitops-backend@0.5.12
+  - @checkstack/secrets-backend@0.2.12
+  - @checkstack/script-packages-backend@0.3.15
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/healthcheck-backend@1.10.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/satellite-common@0.8.10
+  - @checkstack/automation-common@0.7.1
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/script-packages-common@0.3.5
+  - @checkstack/secrets-common@0.2.5
+  - @checkstack/signal-common@0.2.11
+
 ## 0.6.15
 
 ### Patch Changes

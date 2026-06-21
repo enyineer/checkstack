@@ -1,5 +1,66 @@
 # @checkstack/dependency-backend
 
+## 1.5.8
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-backend@0.8.0
+  - @checkstack/automation-backend@0.9.3
+  - @checkstack/gitops-backend@0.5.12
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/healthcheck-backend@1.10.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/catalog-backend@1.5.3
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/dependency-common@1.4.2
+  - @checkstack/incident-common@1.6.2
+  - @checkstack/maintenance-common@1.7.2
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/signal-common@0.2.11
+
 ## 1.5.7
 
 ### Patch Changes

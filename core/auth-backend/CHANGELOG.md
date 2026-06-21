@@ -1,5 +1,77 @@
 # @checkstack/auth-backend
 
+## 0.8.0
+
+### Minor Changes
+
+- 8cad340: Periodically prune expired `better_auth_rate_limit` rows.
+
+  better-auth's shared-Postgres brute-force limiter only ever upserts counters, so the `better_auth_rate_limit` table grew one row per distinct `(ip, path)` key forever and nothing ever removed dead rows. auth-backend now schedules an hourly recurring queue job (cron `0 * * * *`, work-queue consumer group) that runs an idempotent `DELETE` of rows whose `lastRequest` is older than a conservative 24h TTL - far past any active limiter window, so a live counter is never removed. The sweep is exposed as `pruneExpiredBetterAuthRateLimits` for reuse and testing. No schema change (pruning is a DELETE). Pod-safe: a single consumer per fire runs the sweep, and the DELETE is shared-DB so duplicate fires are harmless.
+
+- 8cad340: fix(security): crypto + auth depth hardening (at-rest encryption, brute-force scale, token timing)
+
+  Three concrete defects found and fixed during the deferred crypto + auth depth audit:
+
+  - **At-rest encryption (`@checkstack/backend-api`)**: AES-256-GCM decrypt now
+    rejects values whose IV is not exactly 12 bytes or whose auth tag is not the
+    full 16 bytes (128-bit). GCM accepts truncated tags, which weaken forgery
+    resistance; the encryptor only ever emits full tags, so short tags now hard-
+    error instead of being silently accepted. `isEncrypted` is also tightened to
+    require the exact decoded IV/tag lengths, not just a loose
+    `base64:base64:base64` shape, so a plaintext secret that merely resembles the
+    shape can no longer be misclassified as "already encrypted" and stored in
+    plaintext. The unique-nonce and tamper-rejection guarantees are now covered by
+    regression tests.
+
+  - **Brute-force protection scale bug (`@checkstack/auth-backend`)**: better-auth's
+    built-in rate limiter (sign-in, password reset) defaulted to per-pod in-memory
+    storage. With N replicas behind one database that multiplied the effective
+    limit by N (state-and-scale §14.5). The limiter is now backed by a shared
+    `better_auth_rate_limit` Postgres table via a `customStorage` adapter, so the
+    counter is global across all pods. Adds a new append-only migration for the
+    table. No behaviour change in local dev (limiter stays off when not in
+    production); no configuration required.
+
+  - **Satellite token timing oracle (`@checkstack/satellite-backend`)**:
+    `validateToken` previously skipped the bcrypt verify when the `clientId` did
+    not exist, leaking client-ID existence via response timing. It now always
+    verifies the supplied token (against a decoy hash when the row is missing) so
+    the missing-clientId path costs the same as the wrong-token path.
+
+  Audited and found clean (no change needed): the better-auth cookie/session/CSRF
+  posture (`httpOnly`, `sameSite=lax`, `Secure` derived from the https `BASE_URL`,
+  single trusted origin, fresh session on internal trusted-login), and
+  token/secret logging hygiene across the auth, satellite, and secrets paths (no
+  secret material is logged).
+
+### Patch Changes
+
+- 8cad340: fix(auth-backend): close first-run onboarding TOCTOU race
+
+  `completeOnboarding` (the anonymous first-run mutation that creates the first
+  admin) now takes a transaction-scoped advisory lock and re-checks "no users
+  exist" INSIDE the transaction. Previously the existence check ran in a separate
+  statement before the insert transaction, so two concurrent first-run calls with
+  different emails could both pass the guard and both create an admin user during
+  the brief unbootstrapped window. The lock serializes onboarding attempts so the
+  second caller observes the first caller's committed admin and is rejected.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/command-backend@0.2.12
+
 ## 0.7.2
 
 ### Patch Changes

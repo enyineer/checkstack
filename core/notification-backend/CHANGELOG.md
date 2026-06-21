@@ -1,5 +1,123 @@
 # @checkstack/notification-backend
 
+## 1.5.16
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- 8cad340: feat(notification-common): shared subject-render helpers
+
+  Add `renderSubjectsAsPlainText` and `renderSubjectsAsMarkdown` to
+  `@checkstack/notification-common` (re-exported from
+  `@checkstack/notification-backend`) to single-source the affected-subjects list
+  that text/markdown notification channels previously each hand-rolled. Both take
+  the typed `NotificationSubject[]`, honor a subject's `status` (emoji prefix via
+  `SUBJECT_STATUS_EMOJI`) and `url`, and return an empty string for an empty list.
+  `renderSubjectsAsMarkdown` supports `linkStyle: "markdown" | "slack"`, a custom
+  `bullet`, and an optional `heading`.
+
+  `SUBJECT_STATUS_EMOJI` now lives in `notification-common` (single source);
+  `@checkstack/notification-backend` re-exports it unchanged, so its public
+  surface is stable.
+
+  The Gotify, Webex, Backstage, Telegram, Discord, and Slack strategy plugins now
+  route their subject rendering through these helpers (a behavior-preserving
+  change pinned by unit tests), which also gives Gotify/Webex/Backstage the
+  consistent status-emoji prefix they previously dropped. Teams (FactSet) and
+  Pushover (HTML) keep their structured channel-specific framing.
+
+- 8cad340: feat(notification-common): HTML and label subject-render helpers
+
+  Add `renderSubjectsAsHtml` and `renderSubjectLabel` to
+  `@checkstack/notification-common` (re-exported from
+  `@checkstack/notification-backend`) so the last two notification channels that
+  still hand-rolled their affected-subjects markup are single-sourced.
+
+  - `renderSubjectsAsHtml` renders the subjects as an HTML `<ul>` (the canonical
+    `<b>Affected:</b><ul><li>...</li></ul>` Pushover fallback). It now
+    HTML-escapes subject names and URLs (previously interpolated raw) and prefixes
+    the status emoji when a subject carries a status hint.
+  - `renderSubjectLabel` returns just `<marker> <name>` for rich-card channels
+    (Teams) that lay out the URL in their own structure but want the consistent
+    status-emoji-or-bullet prefix.
+
+  The Pushover (HTML list) and Teams (FactSet title) strategy plugins now route
+  their subject rendering through these helpers. Output is unchanged for ordinary
+  subject names; the Teams FactSet title now carries the shared bullet prefix and
+  the Pushover HTML is now escaped, both behavior-preserving for non-markup data
+  and pinned by unit tests.
+
+- 8cad340: refactor: replace `env as unknown as EnvStash` double casts with module-scoped holders
+
+  The `init()` -> `afterPluginsReady()` bridging that stashed setup closures and
+  service handles as ad-hoc mutable properties on the framework `env` object via a
+  double cast (`env as unknown as EnvStash`) is replaced with typed module- or
+  register-scoped `let` holders, mirroring the existing pattern in
+  `healthcheck-backend` (`storedEmitHook`). No behavior or DB change; the holders
+  are pod-local setup state (never queryable current state), so they remain
+  scale-correct. This removes an unsafe, copy-paste-prone idiom from five core
+  plugins.
+
+- 8cad340: refactor: typed router-factory args and structured logging
+
+  Internal router factories that took long positional argument lists
+  (`incident-backend`, `maintenance-backend`, and `notification-backend`'s
+  `createNotificationRouter`) now take a single typed `deps` object, matching the
+  `RouterDeps` convention already used by sibling routers and removing a class of
+  easy-to-transpose call sites.
+
+  Backend code paths that wrote to `console.*` now use the injected structured
+  `Logger` so they respect log levels and correlation: the catalog router's
+  notification-resource lifecycle warnings, the notification OAuth callback
+  handler's errors, and the command router's search-provider failures. The
+  command router factory now takes a typed `{ logger }` object.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-backend@0.8.0
+  - @checkstack/automation-backend@0.9.3
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/signal-common@0.2.11
+  - @checkstack/cache-utils@0.2.19
+
 ## 1.5.15
 
 ### Patch Changes

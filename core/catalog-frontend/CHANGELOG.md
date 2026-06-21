@@ -1,5 +1,140 @@
 # @checkstack/catalog-frontend
 
+## 0.13.0
+
+### Minor Changes
+
+- 8cad340: Add point-of-use coaching across the feature config pages and onboarding.
+
+  - The deep-link registry (`@checkstack/common`'s `APP_DOC_SLUGS`) now exposes
+    the core-concept docs pages (systems and groups, health checks, SLOs,
+    incidents). Each is verified against the real docs content by the existing
+    `docs-links.test.ts` rename guard.
+  - The catalog, health-check, SLO and incident config pages now carry a
+    one-time, dismissable `TipBanner` with a concise orientation sentence and an
+    inline "Learn more" deep-link to the matching concept page, so first-time
+    visitors get oriented and returning users keep a persistent header
+    subtitle plus a replayable banner. The same "Learn more" link is also added
+    inside each page's existing concept `<Tip>` popover (catalog has no `<Tip>`,
+    so it gains only the banner).
+  - The first-run onboarding form now shows a LIVE per-criterion password
+    checklist that ticks green as you type, replacing the static rules text and
+    the submit-only destructive error list. The criteria live in
+    `@checkstack/auth-common` (`PASSWORD_CRITERIA` / `evaluatePasswordCriteria`),
+    kept in lock-step with `passwordSchema` and covered by a unit test.
+  - The AI chat empty state now leads with orientation-style example prompts
+    ("Explain SLOs and how they relate to health checks", "How do I add a system
+    to the catalog?") alongside the existing task prompts; clicking one seeds the
+    composer for editing. The prompts only appear when an AI integration is
+    configured.
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+- 8cad340: Improve list-page feedback, loading, and formatting consistency.
+
+  The dashboard, catalog browse, and status-pages list pages now render an
+  explicit query-error state (`QueryErrorState` with a Retry button) when their
+  list query fails, instead of silently falling through to the empty state. The
+  error branch is additive: it only appears on a failed query, so the existing
+  empty-state copy and behavior are unchanged.
+
+  The dashboard system-health overview and the catalog browse list now show
+  layout-mimicking `Skeleton` placeholders while loading (instead of a centered
+  spinner), so the page no longer jumps when data resolves.
+
+  Toast call sites in catalog and status-page now route error and success
+  toasts through the shared `toastError` / `toastSuccess` helpers, giving error
+  toasts the canonical "{action}: {message}" voice with length truncation. The
+  public status-page uptime percentages now format through the shared
+  `formatPercent` helper (output-equivalent). The dashboard tip-banner lightbulb
+  accent uses the `text-warning` token instead of a hardcoded amber color.
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/gitops-frontend@0.6.0
+  - @checkstack/notification-frontend@0.6.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/catalog-common@2.4.2
+
 ## 0.12.1
 
 ### Patch Changes

@@ -1,5 +1,288 @@
 # @checkstack/ui
 
+## 1.17.0
+
+### Minor Changes
+
+- 8cad340: Fold the typed-phrase confirmation gate into the shared `ConfirmationModal`.
+
+  `ConfirmationModal` now accepts an optional `confirmPhrase` (plus
+  `confirmPhraseLabel` and `confirmPhrasePlaceholder`): when set, it renders an
+  input and keeps the confirm button disabled until the typed value matches the
+  phrase exactly. The typed value resets whenever the modal reopens. The `message`
+  prop is widened from `string` to `React.ReactNode` so callers can pass rich
+  descriptions; existing string call sites are unaffected. A pure
+  `isConfirmPhraseSatisfied` predicate backs the enable/disable logic and is unit
+  tested.
+
+  The pluginmanager install and uninstall flows now use `ConfirmationModal` with
+  `confirmPhrase`, and the parallel hand-rolled `TypedConfirmModal` (which lacked
+  focus trap, Escape-to-close, scroll-lock, and focus restoration) is removed.
+  Behavior and UX (phrase gate, danger/warning styling, confirm action) are
+  preserved, now on the accessible Radix Dialog base.
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Add a finer per-run transport timing breakdown to health checks.
+
+  Each run now records an optional structured `metadata.timings` (DNS, connect,
+  TLS, wait/time-to-first-byte, transfer, and a `processing` catch-all for
+  non-HTTP operation time). The run-detail view renders the phases it has, in
+  transport order, and falls back to the previous Connection + Processing split
+  for older runs that lack the finer data.
+
+  For HTTP the request is issued verbatim through `fetch` (original URL, headers,
+  and body), so request behavior is identical to a plain `fetch`. The timing is
+  measured around it: `fetch` resolves at the response headers, so wait
+  (time-to-first-byte) and transfer (body) are measured exactly on the request,
+  DNS is timed at the resolve step, and connect/TLS come from a short-lived,
+  best-effort raw `net`/`tls` probe to the same already-validated IP (the request
+  socket exposes no connect/handshake events on the Bun runtime). The probe is
+  timing-only and never fails the check. The probe validates the TLS certificate
+  (against the original hostname via SNI) like the real request does - it does not
+  disable certificate validation; an unverifiable cert simply yields no TLS-phase
+  timing rather than aborting. Other transports surface the connect and operation
+  times they already measure.
+
+  The SSRF guard now validates the resolved host (rejecting cloud-metadata /
+  link-local and operator-denied ranges) as a pre-flight check and no longer pins
+  the request to the resolved IP. Pinning rewrote the URL to the IP literal and
+  moved the host to the `Host` header, which breaks HTTP/2 origins (their
+  authority comes from the URL's `:authority`, not `Host`) - that is why real
+  hosts such as `google.com` started answering 404/429 instead of 200. The
+  pre-flight validation keeps blocking static metadata/link-local targets and
+  direct denied IP literals; the only thing dropped is DNS-rebind TOCTOU
+  protection (a narrow window that pinning closed at the cost of breaking
+  legitimate HTTP/2 requests).
+
+  The run-detail "slowest" badge no longer collides with the timing bar, and a
+  genuinely sub-millisecond phase reads as "<1 ms" instead of a bare "0 ms".
+
+- 8cad340: Improve sidebar navigation and information architecture:
+
+  - Split the overloaded "Configuration" group into focused sections: "Settings"
+    (Auth Settings, Teams, Secrets, Notification Settings), "Platform" (Plugins,
+    GitOps, Integrations, Infrastructure), and "Developer" (Script Packages,
+    Script Sandbox).
+  - Unify nav active-state on a single shared `isNavRouteActive` helper so the
+    sidebar rail and the shared `NavItem` both prefix-match section roots
+    (child/detail routes now highlight the parent entry consistently).
+  - Mark the external Docs entry with an external-link icon so it is clear which
+    entries leave the app.
+  - Add an "Expand all" affordance to recover from a fully-collapsed sidebar.
+  - Flatten single-entry groups (e.g. Automation) into top-level items, skipping
+    the redundant group header.
+  - Add an in-drawer search entry to the mobile navigation (opens the Cmd+K
+    palette) and auto-expand the group containing the active route when the
+    drawer opens.
+
+- 8cad340: Accessibility: rebuild overlays on accessible primitives and add form error/required affordances.
+
+  - `ConfirmationModal` is now built on the accessible `Dialog` primitive: focus
+    trap, Escape-to-close, focus restoration to the trigger, and body scroll-lock.
+    Its confirm button now goes through the shared `Button` variant system
+    (`destructive` for `danger`) instead of a re-implemented class string. Public
+    prop API is unchanged.
+  - `Tooltip` is rebuilt on `@radix-ui/react-tooltip`: the trigger is a focusable
+    button (keyboard- and screen-reader-reachable), Radix supplies `role="tooltip"`
+    and collision-aware placement, and content portals into the nearest
+    Dialog/Sheet when nested. The `{ content, className }` API is unchanged; a new
+    optional `children` prop allows a custom trigger.
+  - Form primitives gain additive accessibility props: `Input` accepts `invalid`
+    (destructive styling + `aria-invalid`), `Label` accepts `required` (token-
+    colored `*` plus an `sr-only` "(required)" so the requirement is not color-
+    only), and a new `FormError` component renders `role="alert"` inline errors.
+    `DynamicForm`/`FormField` wire these (`aria-invalid` + `aria-describedby`) for
+    fields with inline validation errors. No existing call site changes.
+
+- 8cad340: Add a shared formatting module (`@checkstack/ui` `src/formatting/`) of pure,
+  framework-agnostic, locale-aware helpers, re-exported from the package root:
+
+  - `formatDate(date)` / `formatDateTime(date)` - short locale-aware date / date-
+    time strings. They pass an `undefined` locale (runtime locale) rather than a
+    hardcoded one, accept `Date | string | number`, and return `""` for absent or
+    invalid input.
+  - `formatRelativeTime(date)` - "5 minutes ago" / "in 2 hours" via `date-fns`'
+    `formatDistanceToNow` (the single chosen relative-time engine).
+  - `formatNumber(n, opts?)` - locale-aware thousands separators via
+    `Intl.NumberFormat` (integer display by default).
+  - `formatBytes(bytes, opts?)` - defaults to BINARY units (1024-based,
+    KiB/MiB/GiB) to match the cache runtime panel; pass `{ binary: false }` for
+    decimal (1000-based) units.
+  - `formatPercent(value, opts?)` - input is a 0-1 ratio by default (`0.42` ->
+    "42%"); pass `{ alreadyPercent: true }` for a 0-100 input, plus a
+    `fractionDigits` option.
+  - `formatDuration(ms)` - compact "2h 5m" / "30s" / "500ms" durations.
+
+  This is purely additive; existing inline call sites are not yet migrated.
+
+- 8cad340: Add four shared UX primitives to `@checkstack/ui`.
+
+  - `Breadcrumb`: an accessible breadcrumb trail (`<nav aria-label="Breadcrumb">`
+    - ordered list, current page marked `aria-current="page"`). `PageHeader` and
+      `PageLayout` gain optional `breadcrumbs` (and `onBreadcrumbNavigate`) props
+      that render it above the title; existing pages are unaffected (opt-in).
+  - `CopyableValue`: a value plus copy button with toast feedback, an optional
+    `shownOnce` warning style, and auto-select-on-mount for keyboard copy.
+    Generalises the duplicated secret/DNS-record copy patterns.
+  - `useUnsavedChanges`: a dirty-form guard that installs a `beforeunload`
+    listener and intercepts in-app navigations via react-router's `useBlocker`,
+    exposing `isBlocked` / `confirmDiscard()` / `cancelDiscard()`.
+  - `useKeptPrevious`: keeps the previously-rendered list during a refetch to
+    avoid layout jump and reports `isStale` for dimming.
+
+### Patch Changes
+
+- 8cad340: Consolidate the two search-trigger affordances onto a single source of truth.
+
+  The hero `CommandPalette` (in `@checkstack/ui`) and the wired navbar trigger
+  (`NavbarSearch` in command-frontend) had drifted in copy and shortcut-hint
+  rendering. Both now draw their wording and keyboard hint from one shared place:
+
+  - New `SEARCH_TRIGGER_LABEL` / `SEARCH_TRIGGER_PLACEHOLDER` constants and a
+    platform-aware `SearchShortcutHint` component (⌘K on Mac, Ctrl+K elsewhere) in
+    `@checkstack/ui`, consumed by both triggers so the copy and shortcut can no
+    longer diverge.
+  - The hero placeholder was corrected from the over-promising "Search systems,
+    incidents, or run commands..." to the accurate "Search and commands...", and
+    it now renders the same Mac/non-Mac shortcut hint the navbar uses.
+
+  No behavioral change to the global Cmd/Ctrl+K listener.
+
+- 8cad340: DynamicForm: clearing a number/integer field now maps to `undefined` instead of `NaN`, so empty values flow through the normal required-field path and partially-typed input (e.g. `-`, `1.`) no longer thrashes form state. Removing a non-trivial array item (a row with any user-entered value) is now gated behind the shared accessible `ConfirmationModal`; empty / just-added rows are still removed immediately.
+- 8cad340: Fix an orphaned modal scrim that could block clicks after a Sheet/Dialog closes.
+
+  The shared `Dialog` and `Sheet` overlays previously carried a
+  `data-[state=closed]` exit animation. Because the overlay is a full-screen,
+  `pointer-events: auto` scrim, that exit animation made its removal depend on
+  an `animationend` event reaching Radix's `Presence` state machine. When a
+  second dialog/sheet opened while the first was still mid-close (for example,
+  closing an automation trigger Sheet and immediately opening the "Add step"
+  Dialog), the closing overlay's animation could be interrupted and its
+  `animationend` never landed. `Presence` then stayed in `unmountSuspended` and
+  the dim scrim was orphaned in the DOM, intercepting every subsequent click
+  (the Save button appeared visible and enabled but clicks never landed).
+
+  The overlay now animates in only. With no exit animation,
+  `getComputedStyle(overlay).animationName` is `"none"` on close, so Radix
+  unmounts the overlay synchronously - no event dependency, no orphan. The
+  dialog/sheet Content still animates out, so the visible motion is unchanged.
+  Scroll-lock, focus return, and the nested-sheet portal-into-content behavior
+  are untouched.
+
+- 8cad340: Improve small-viewport layout and touch targets across several admin surfaces.
+
+  The announcement editor's two `grid grid-cols-3` form rows (Severity / Visibility
+  / Display Mode and Status / Starts / Expires) now stack with
+  `grid-cols-1 sm:grid-cols-3`, so the three `Select` controls are no longer
+  crushed into ~100px columns inside the dialog on a phone. The GitOps provenance
+  summary cards switch from a fixed `grid-cols-4` to `grid-cols-2 sm:grid-cols-4`
+  so the counts and labels do not overflow at narrow widths.
+
+  The shared `IDELayout` now becomes two-pane at `md` instead of only `lg`, giving
+  tablets a side-by-side tree + editor, and the `IDEStatusBar` issue list now wraps
+  (`flex-wrap`) instead of hiding issues behind a horizontal scroll.
+
+  Inline icon-only action buttons that previously used `size="sm"` (36px tall) now
+  use `size="icon"` (40px square) to meet touch-target guidance: the announcement
+  table/card edit and delete actions, and the status-page builder block
+  move-up/move-down/remove actions. These are styling-only changes with no behavior
+  or layout-structure changes beyond the responsive breakpoints noted above.
+
+- 8cad340: Add recovery actions to the 404 page and make infrastructure tabs deep-linkable.
+
+  The `NotFound` page now offers two secondary recovery actions alongside "Back
+  to Dashboard": a "Search" button that opens the global command palette (⌘K /
+  Ctrl+K) and a "Browse docs" link to the user guide. The playful falling-"4"
+  design is unchanged.
+
+  The Infrastructure Settings page now drives its active tab from a `?tab=<id>`
+  URL search param instead of local component state, so the selected tab
+  (Queue/Cache/…) is linkable, bookmarkable, and restored on reload. It falls
+  back to the first visible tab when the param is absent or invalid.
+
+- 8cad340: Make toast placement responsive and cap the visible toast stack.
+
+  The toast container was hard-pinned to `top-4 right-4` with a `max-w-md` width
+  on every viewport and no limit on how many toasts stacked at once. On narrow
+  screens that produced a cramped, off-to-the-side column that could grow without
+  bound.
+
+  Toasts now render full-width inset at the bottom (`inset-x-4 bottom-4`) below
+  `sm`, and revert to the familiar top-right card stack (`sm:top-4 sm:right-4`,
+  `sm:max-w-md`) from `sm` upward. At most three toasts render at once; any older
+  queued toasts surface a subtle "+N more" indicator and become visible as the
+  most-recent ones auto-dismiss or are dismissed. Per-toast auto-dismiss,
+  hover-to-pause, and the public `toast.success/error/warning/info/show` API are
+  unchanged.
+
+- 8cad340: Align a few components with semantic design tokens and the library's
+  focus-visible convention. `StatusCard`'s gradient variant now derives from
+  `--primary` (`from-primary to-primary/80 text-primary-foreground`) instead of
+  hardcoded indigo/purple and literal `text-white`, so it tracks the theme.
+  `LoadingSpinner`'s track uses `border-muted border-t-primary` instead of
+  `border-indigo-200 border-t-indigo-500`. The `Dialog` and `Sheet` close ("X")
+  buttons now use `focus-visible:ring-*` to match `Button`/`Checkbox`, so the
+  ring only shows on keyboard focus. No behavioral or visual changes beyond the
+  token/theme alignment.
+- 8cad340: UX consistency sweep in the shared UI library:
+
+  - `TerminalFeed` now formats its entry timestamps with the shared, locale-aware
+    `formatTime` helper instead of a hardcoded `en-US` `toLocaleTimeString`, so
+    the terminal clock follows the runtime locale. Added `formatTime` to
+    `@checkstack/ui`'s formatting module (24-hour time-of-day with seconds).
+  - Swapped raw success palette literals for the semantic `--success` token so
+    success states render consistently and respect dark mode: `ScriptTestPanel`
+    (`text-emerald-500` -> `text-success`), `IDELayout` status bar
+    (`text-green-500` -> `text-success`), and `EditableText`'s save button
+    (`text-green-*`/`dark:` variants -> `text-success hover:text-success/80
+hover:bg-success/10`).
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/template-engine@0.4.6
+
 ## 1.16.2
 
 ### Patch Changes

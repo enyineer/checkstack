@@ -1,6 +1,6 @@
 {
   "name": "create-checkstack-plugin",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Scaffold a standalone Checkstack plugin workspace (common + backend + frontend) with concrete published versions, ready to `bun install && bun run dev`.",
   "license": "Elastic-2.0",
   "type": "module",

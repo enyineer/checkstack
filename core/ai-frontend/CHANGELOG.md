@@ -1,5 +1,112 @@
 # @checkstack/ai-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 8cad340: Add point-of-use coaching across the feature config pages and onboarding.
+
+  - The deep-link registry (`@checkstack/common`'s `APP_DOC_SLUGS`) now exposes
+    the core-concept docs pages (systems and groups, health checks, SLOs,
+    incidents). Each is verified against the real docs content by the existing
+    `docs-links.test.ts` rename guard.
+  - The catalog, health-check, SLO and incident config pages now carry a
+    one-time, dismissable `TipBanner` with a concise orientation sentence and an
+    inline "Learn more" deep-link to the matching concept page, so first-time
+    visitors get oriented and returning users keep a persistent header
+    subtitle plus a replayable banner. The same "Learn more" link is also added
+    inside each page's existing concept `<Tip>` popover (catalog has no `<Tip>`,
+    so it gains only the banner).
+  - The first-run onboarding form now shows a LIVE per-criterion password
+    checklist that ticks green as you type, replacing the static rules text and
+    the submit-only destructive error list. The criteria live in
+    `@checkstack/auth-common` (`PASSWORD_CRITERIA` / `evaluatePasswordCriteria`),
+    kept in lock-step with `passwordSchema` and covered by a unit test.
+  - The AI chat empty state now leads with orientation-style example prompts
+    ("Explain SLOs and how they relate to health checks", "How do I add a system
+    to the catalog?") alongside the existing task prompts; clicking one seeds the
+    composer for editing. The prompts only appear when an AI integration is
+    configured.
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Enlarge the memory delete icon button to a 40px touch target (`size="icon"`) so
+  it is reliably tappable on touch devices.
+- 8cad340: Adopt the canonical `toastError` helper from `@checkstack/ui` for error toasts.
+
+  Error toasts that previously called `toast.error(extractErrorMessage(error, "Failed to X"))`
+  (or interpolated `Failed to X: ${extractErrorMessage(error)}` strings) now use
+  `toastError(toast, "Failed to X", error)`. This centralizes the
+  "Failed to <action>: <message>" voice and applies the shared 100-character
+  truncation. Error toasts that did not previously prefix the action now gain the
+  canonical prefix; success toasts and terse validation one-liners are unchanged.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/integration-common@0.9.2
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,5 +1,217 @@
 # @checkstack/status-page-frontend
 
+## 0.3.0
+
+### Minor Changes
+
+- 8cad340: feat: live run polling, optimistic automation toggle, and relative public-status freshness
+
+  Implements three loading/feedback UX findings from the read-only review.
+
+  - **Automation run detail goes live.** `RunDetailPage` now polls
+    `getRun` every 2s while the run is `running`/`waiting` and stops the
+    moment it reaches a terminal status, so a watched execution updates
+    its status badge and step timeline without a manual reload. A subtle
+    "Live" indicator shows in the header while polling.
+  - **Optimistic automation enable/disable.** The per-row toggle on
+    `AutomationListPage` now applies the documented optimistic pattern:
+    `onMutate` cancels in-flight refetches, snapshots, and flips the row
+    in the cache so the switch flips on click; `onError` rolls back from
+    the snapshot and surfaces an error toast; `onSettled` invalidates to
+    reconcile with server truth. The success toast is suppressed (the
+    switch flip is the feedback), per `optimistic-updates.md`.
+  - **Relative, visibly-live public-status freshness.** The public status
+    page renders "Updated x ago" as relative time (was a static absolute
+    timestamp) and ticks periodically so the wording stays honest. A small
+    refresh dot pulses on each successful 60s refetch (gated behind
+    `usePerformance().isLowPower`, falling back to a static dot on
+    low-power devices). The "auto-updates every minute" copy is unchanged.
+
+  BREAKING CHANGE: the automation enable/disable toggle no longer raises a
+  "<name> enabled/disabled" success toast; the optimistic switch flip is now
+  the sole success feedback (error toast retained on failure).
+
+- 8cad340: feat(status-pages): page-wide overall-status summary banner
+
+  The public status page now shows a page-wide status banner at the top,
+  summarising the whole page in one line (for example "All systems
+  operational" or "Major outage").
+
+  - `status-page-common` gains a pure, fully unit-tested
+    `deriveOverallStatus({ blocks })` plus an `OverallStatusSummary`
+    (`{ status, label }`) zod schema/type. The summary reuses the existing
+    public status vocabulary (`operational` / `degraded` / `partial_outage`
+    / `major_outage` / `maintenance` / `unknown`).
+  - The published-page DTO (`PublishedStatusPageSchema`) now carries a
+    required `overallStatus` field. The backend resolver derives it from the
+    blocks it already resolves - worst-status-wins over each block's public
+    DTO - so it adds no new data exposure and no domain-plugin dependency
+    (it reads only the field-allow-listed widget output the resolver already
+    produces).
+  - `status-page-frontend` renders the banner at the top of the public page
+    (shared by the in-app and custom-domain surfaces) using the existing
+    semantic status tokens, so the banner always matches the widgets below.
+
+  BREAKING: `PublishedStatusPageSchema` now requires `overallStatus`.
+  Consumers that build a `PublishedStatusPage` by hand must include it; the
+  status-page resolver populates it automatically.
+
+- 8cad340: Public status page polish and accessible builder confirmations.
+
+  - The public status page now re-fetches its published snapshot every 60s
+    (bounded `refetchInterval`) so the "Updated" timestamp stays honest while a
+    visitor watches during an incident, with an "auto-updates every minute"
+    affordance. The not-found and empty states now use the shared `EmptyState`
+    for visual consistency.
+  - The status page builder replaces the native `globalThis.confirm` prompts
+    (remove verified custom domain, discard unsaved changes) with the accessible
+    `ConfirmationModal`, so those high-stakes flows are themed, keyboard-/screen-
+    reader-accessible, and show a busy state.
+
+- 8cad340: Improve list-page feedback, loading, and formatting consistency.
+
+  The dashboard, catalog browse, and status-pages list pages now render an
+  explicit query-error state (`QueryErrorState` with a Retry button) when their
+  list query fails, instead of silently falling through to the empty state. The
+  error branch is additive: it only appears on a failed query, so the existing
+  empty-state copy and behavior are unchanged.
+
+  The dashboard system-health overview and the catalog browse list now show
+  layout-mimicking `Skeleton` placeholders while loading (instead of a centered
+  spinner), so the page no longer jumps when data resolves.
+
+  Toast call sites in catalog and status-page now route error and success
+  toasts through the shared `toastError` / `toastSuccess` helpers, giving error
+  toasts the canonical "{action}: {message}" voice with length truncation. The
+  public status-page uptime percentages now format through the shared
+  `formatPercent` helper (output-equivalent). The dashboard tip-banner lightbulb
+  accent uses the `text-warning` token instead of a hardcoded amber color.
+
+### Patch Changes
+
+- 8cad340: Fix accessibility labeling defects on status-page and auth forms.
+
+  Radix `SelectTrigger` renders a `combobox` whose accessible name comes from
+  `aria-label`/`aria-labelledby`, not from its `SelectValue` placeholder child, so
+  screen readers previously announced several comboboxes as unnamed. Every such
+  trigger in the status-page builder (system, heading level, group, visibility) and
+  in the auth team/scope/ownership/resource-grant pickers now carries an
+  `aria-label` matching its visible intent.
+
+  Form labels that were rendered as detached `<label>`/`<Label>` elements (no
+  `htmlFor`/`id` pairing) are now associated with their inputs, so clicking a label
+  focuses its field and assistive tech announces the field name. This covers the
+  "Create Application" dialog (Name, Description) in auth, and the status-page
+  builder fields (Title, Slug, Brand color, Logo URL, uptime Days, event-feed max
+  updates / max age). No visual or behavioral change beyond the added accessible
+  names and label associations.
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Improve small-viewport layout and touch targets across several admin surfaces.
+
+  The announcement editor's two `grid grid-cols-3` form rows (Severity / Visibility
+  / Display Mode and Status / Starts / Expires) now stack with
+  `grid-cols-1 sm:grid-cols-3`, so the three `Select` controls are no longer
+  crushed into ~100px columns inside the dialog on a phone. The GitOps provenance
+  summary cards switch from a fixed `grid-cols-4` to `grid-cols-2 sm:grid-cols-4`
+  so the counts and labels do not overflow at narrow widths.
+
+  The shared `IDELayout` now becomes two-pane at `md` instead of only `lg`, giving
+  tablets a side-by-side tree + editor, and the `IDEStatusBar` issue list now wraps
+  (`flex-wrap`) instead of hiding issues behind a horizontal scroll.
+
+  Inline icon-only action buttons that previously used `size="sm"` (36px tall) now
+  use `size="icon"` (40px square) to meet touch-target guidance: the announcement
+  table/card edit and delete actions, and the status-page builder block
+  move-up/move-down/remove actions. These are styling-only changes with no behavior
+  or layout-structure changes beyond the responsive breakpoints noted above.
+
+- 8cad340: Give the status-page builder's "Add a block" widget-type select an explicit
+  `aria-label`. A `combobox` derives its accessible name from `aria-label` /
+  `aria-labelledby`, not from its placeholder child text, so the control was
+  previously announced as an unlabeled combobox to screen-reader users. Labeling
+  it also makes the control reliably targetable by assistive tech and tests.
+- 8cad340: Extract the status-page create-dialog `slugify` helper into a tested module.
+
+  The "New status page" dialog already auto-fills the slug from the title until the
+  operator edits the slug themselves. That derivation logic lived inline in
+  `StatusPagesListPage.tsx` with no test coverage. It now lives in
+  `src/utils/slugify.ts` with unit tests (`slugify.test.ts`) covering lowercasing,
+  hyphenation, invalid-character stripping, leading/trailing-hyphen trimming, and
+  empty input. No behavioral change: the title-to-slug prefill and the
+  edit-the-slug-to-stop-overriding flow are unchanged.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/status-page-common@0.3.0
+  - @checkstack/catalog-common@2.4.2
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,5 +1,218 @@
 # @checkstack/healthcheck-frontend
 
+## 0.25.0
+
+### Minor Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Add a finer per-run transport timing breakdown to health checks.
+
+  Each run now records an optional structured `metadata.timings` (DNS, connect,
+  TLS, wait/time-to-first-byte, transfer, and a `processing` catch-all for
+  non-HTTP operation time). The run-detail view renders the phases it has, in
+  transport order, and falls back to the previous Connection + Processing split
+  for older runs that lack the finer data.
+
+  For HTTP the request is issued verbatim through `fetch` (original URL, headers,
+  and body), so request behavior is identical to a plain `fetch`. The timing is
+  measured around it: `fetch` resolves at the response headers, so wait
+  (time-to-first-byte) and transfer (body) are measured exactly on the request,
+  DNS is timed at the resolve step, and connect/TLS come from a short-lived,
+  best-effort raw `net`/`tls` probe to the same already-validated IP (the request
+  socket exposes no connect/handshake events on the Bun runtime). The probe is
+  timing-only and never fails the check. The probe validates the TLS certificate
+  (against the original hostname via SNI) like the real request does - it does not
+  disable certificate validation; an unverifiable cert simply yields no TLS-phase
+  timing rather than aborting. Other transports surface the connect and operation
+  times they already measure.
+
+  The SSRF guard now validates the resolved host (rejecting cloud-metadata /
+  link-local and operator-denied ranges) as a pre-flight check and no longer pins
+  the request to the resolved IP. Pinning rewrote the URL to the IP literal and
+  moved the host to the `Host` header, which breaks HTTP/2 origins (their
+  authority comes from the URL's `:authority`, not `Host`) - that is why real
+  hosts such as `google.com` started answering 404/429 instead of 200. The
+  pre-flight validation keeps blocking static metadata/link-local targets and
+  direct denied IP literals; the only thing dropped is DNS-rebind TOCTOU
+  protection (a narrow window that pinning closed at the cost of breaking
+  legitimate HTTP/2 requests).
+
+  The run-detail "slowest" badge no longer collides with the timing bar, and a
+  genuinely sub-millisecond phase reads as "<1 ms" instead of a bare "0 ms".
+
+- 8cad340: Add point-of-use coaching across the feature config pages and onboarding.
+
+  - The deep-link registry (`@checkstack/common`'s `APP_DOC_SLUGS`) now exposes
+    the core-concept docs pages (systems and groups, health checks, SLOs,
+    incidents). Each is verified against the real docs content by the existing
+    `docs-links.test.ts` rename guard.
+  - The catalog, health-check, SLO and incident config pages now carry a
+    one-time, dismissable `TipBanner` with a concise orientation sentence and an
+    inline "Learn more" deep-link to the matching concept page, so first-time
+    visitors get oriented and returning users keep a persistent header
+    subtitle plus a replayable banner. The same "Learn more" link is also added
+    inside each page's existing concept `<Tip>` popover (catalog has no `<Tip>`,
+    so it gains only the banner).
+  - The first-run onboarding form now shows a LIVE per-criterion password
+    checklist that ticks green as you type, replacing the static rules text and
+    the submit-only destructive error list. The criteria live in
+    `@checkstack/auth-common` (`PASSWORD_CRITERIA` / `evaluatePasswordCriteria`),
+    kept in lock-step with `passwordSchema` and covered by a unit test.
+  - The AI chat empty state now leads with orientation-style example prompts
+    ("Explain SLOs and how they relate to health checks", "How do I add a system
+    to the catalog?") alongside the existing task prompts; clicking one seeds the
+    composer for editing. The prompts only appear when an AI integration is
+    configured.
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+- 8cad340: Explain why Save is disabled and guard against losing unsaved edits in the
+  automation and health-check editors.
+
+  - A greyed-out Save is no longer a dead end: both editors now render a
+    "N issue(s) blocking" affordance next to the Save button. Opening it
+    lists every blocker, and clicking one jumps to the offending field/section
+    (the automation Name / Run-as fields or the visual definition editor; the
+    health-check tree node that owns the issue). The existing validation logic is
+    unchanged - the blockers are just surfaced and made actionable.
+  - The first field of a fresh automation (Name) now auto-focuses so keyboard-first
+    users can type immediately.
+  - Both editors now use the shared `useUnsavedChanges` hook for unsaved-changes
+    protection: a native prompt on tab close / refresh plus an in-app
+    "Discard unsaved changes?" confirmation when navigating away mid-edit. The
+    health-check editor's previous hand-rolled `beforeunload` listener is migrated
+    to the shared hook; the automation editor gains dirty tracking and the same
+    guard.
+
+- 8cad340: Apply cross-cutting UX consistency sweeps to the SLO and health-check
+  frontends.
+
+  Formatting: inline date and percentage formatting now routes through the
+  shared `@checkstack/ui` helpers (`formatDate`, `formatPercent`). The SLO trend
+  chart and achievement badge no longer hardcode the `en-US` locale, and
+  availability / error-budget percentages render with a consistent,
+  locale-aware precision policy.
+
+  Success colors: success-semantic palette literals (`text-emerald-*` /
+  `bg-emerald-*`) in the SLO dependency-exclusion selector and attribution chart
+  now use the `--success` token so they follow theme and dark-mode adjustments.
+
+  Source pill: the health-check runs table's `RunSourceChip` previously
+  hand-rolled a pill with a hardcoded `orange` palette; it now renders the
+  shared `Badge` (`warning` for remote, `secondary` for local) so it themes and
+  matches the surrounding badge row. The displayed "Remote" / "Local" text is
+  unchanged.
+
+  Error state: the SLO overview page now renders a `QueryErrorState` (with a
+  Retry button) when its list query fails, instead of silently falling through
+  to the "No SLOs configured" empty state. The branch is additive, so the
+  existing empty-state copy is unchanged.
+
+  Toasts: error-bearing toast call sites now route through the shared
+  `toastError` / `toastSuccess` helpers for consistent voice and truncation.
+  Error toasts that previously showed only the raw backend message now read
+  `"<action>: <message>"` (e.g. `Failed to create: <message>`). Success-toast
+  text is unchanged.
+
+### Patch Changes
+
+- 8cad340: Refactor `HealthCheckRunsTable` to consume the shared `useKeptPrevious` hook
+  from `@checkstack/ui` for its keep-previous-rows-during-refetch behaviour.
+  Behaviour is unchanged: previous rows are held to avoid a layout jump and dimmed
+  while stale.
+- 8cad340: Improve health check readability on narrow viewports. The health check history
+  table and the drawer's recent-runs table now render a stacked `MobileCardList`
+  below the `sm` breakpoint (the desktop `<table>` is unchanged), and the latency
+  and auto-generated line charts reduce x-axis tick density on phones so labels
+  stay legible. No change to chart data or the desktop layout.
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/catalog-frontend@0.13.0
+  - @checkstack/dashboard-frontend@0.9.0
+  - @checkstack/gitops-frontend@0.6.0
+  - @checkstack/script-packages-frontend@0.4.0
+  - @checkstack/secrets-frontend@0.3.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/anomaly-common@1.5.2
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/satellite-common@0.8.10
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.24.1
 
 ### Patch Changes

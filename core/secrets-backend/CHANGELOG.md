@@ -1,5 +1,54 @@
 # @checkstack/secrets-backend
 
+## 0.2.12
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- 8cad340: refactor: replace `env as unknown as EnvStash` double casts with module-scoped holders
+
+  The `init()` -> `afterPluginsReady()` bridging that stashed setup closures and
+  service handles as ad-hoc mutable properties on the framework `env` object via a
+  double cast (`env as unknown as EnvStash`) is replaced with typed module- or
+  register-scoped `let` holders, mirroring the existing pattern in
+  `healthcheck-backend` (`storedEmitHook`). No behavior or DB change; the holders
+  are pod-local setup state (never queryable current state), so they remain
+  scale-correct. This removes an unsafe, copy-paste-prone idiom from five core
+  plugins.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/secrets-common@0.2.5
+
 ## 0.2.11
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @checkstack/secrets-backend-local
 
+## 0.1.14
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/secrets-backend@0.2.12
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/secrets-common@0.2.5
+
 ## 0.1.13
 
 ### Patch Changes

@@ -1,5 +1,132 @@
 # @checkstack/notification-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+- 8cad340: Improve sidebar navigation and information architecture:
+
+  - Split the overloaded "Configuration" group into focused sections: "Settings"
+    (Auth Settings, Teams, Secrets, Notification Settings), "Platform" (Plugins,
+    GitOps, Integrations, Infrastructure), and "Developer" (Script Packages,
+    Script Sandbox).
+  - Unify nav active-state on a single shared `isNavRouteActive` helper so the
+    sidebar rail and the shared `NavItem` both prefix-match section roots
+    (child/detail routes now highlight the parent entry consistently).
+  - Mark the external Docs entry with an external-link icon so it is clear which
+    entries leave the app.
+  - Add an "Expand all" affordance to recover from a fully-collapsed sidebar.
+  - Flatten single-entry groups (e.g. Automation) into top-level items, skipping
+    the redundant group header.
+  - Add an in-drawer search entry to the mobile navigation (opens the Cmd+K
+    palette) and auto-expand the group containing the active route when the
+    drawer opens.
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Cross-cutting UX consistency sweep for GitOps, Secrets, and Notification frontends.
+
+  Formatting: inline date and relative-time formatting now routes through the
+  shared `@checkstack/ui` helpers so timestamps agree across the app. GitOps
+  secret and provider lists use `formatDateTime`; the notification collapsed-group
+  timeline and notifications page use `formatRelativeTime` (replacing a bespoke
+  `Intl.RelativeTimeFormat` engine and hand-rolled "5m ago" math).
+
+  Semantic colors: success-semantic palette literals now use design tokens. The
+  secrets backend test-connection result uses `text-success` (was
+  `text-emerald-600`) and the notification user-channel card active border uses
+  `border-success/30` (was `border-green-500/30`). The decorative kind-registry
+  icon uses `text-info` (was `text-blue-500`).
+
+  Toasts: error- and success-bearing mutation toasts now use the canonical
+  `toastError(toast, action, error)` / `toastSuccess(toast, action)` helpers for
+  consistent voice and 100-char truncation across GitOps provenance actions and
+  the notification subscription, settings, and notifications surfaces.
+
+  No behavior change beyond formatting/voice and theme-token correctness.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.5.9
 
 ### Patch Changes

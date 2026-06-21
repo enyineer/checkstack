@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dev-server",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Local Checkstack dev server for plugin authors. Spawns the platform backend with the cwd plugin loaded, runs Vite for the frontend, and reloads on save. Used as a devDependency in plugin repos (run via `bun run dev` → `checkstack-dev`).",
   "license": "Elastic-2.0",
   "type": "module",

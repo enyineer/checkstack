@@ -1,5 +1,28 @@
 # @checkstack/announcement-backend
 
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-backend@0.8.0
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/announcement-common@0.5.5
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/signal-common@0.2.11
+  - @checkstack/cache-utils@0.2.19
+
 ## 0.4.11
 
 ### Patch Changes
