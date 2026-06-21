@@ -1,5 +1,97 @@
 # @checkstack/satellite-frontend
 
+## 0.5.0
+
+### Minor Changes
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Adopt the canonical `toastError` helper from `@checkstack/ui` for error toasts.
+
+  Error toasts that previously called `toast.error(extractErrorMessage(error, "Failed to X"))`
+  (or interpolated `Failed to X: ${extractErrorMessage(error)}` strings) now use
+  `toastError(toast, "Failed to X", error)`. This centralizes the
+  "Failed to <action>: <message>" voice and applies the shared 100-character
+  truncation. Error toasts that did not previously prefix the action now gain the
+  canonical prefix; success toasts and terse validation one-liners are unchanged.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ui@1.17.0
+  - @checkstack/gitops-frontend@0.6.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/satellite-common@0.8.10
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.4.10
 
 ### Patch Changes

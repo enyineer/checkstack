@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-backend",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",

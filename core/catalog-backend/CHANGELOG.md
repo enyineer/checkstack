@@ -1,5 +1,70 @@
 # @checkstack/catalog-backend
 
+## 1.5.3
+
+### Patch Changes
+
+- 8cad340: refactor: typed router-factory args and structured logging
+
+  Internal router factories that took long positional argument lists
+  (`incident-backend`, `maintenance-backend`, and `notification-backend`'s
+  `createNotificationRouter`) now take a single typed `deps` object, matching the
+  `RouterDeps` convention already used by sibling routers and removing a class of
+  easy-to-transpose call sites.
+
+  Backend code paths that wrote to `console.*` now use the injected structured
+  `Logger` so they respect log levels and correlation: the catalog router's
+  notification-resource lifecycle warnings, the notification OAuth callback
+  handler's errors, and the command router's search-provider failures. The
+  command router factory now takes a typed `{ logger }` object.
+
+- 8cad340: refactor: type Drizzle JSON columns at the schema to remove boundary casts
+
+  The catalog `metadata` (systems/groups/environments) and `configuration`
+  (views) JSON columns now carry their concrete shape via `.$type<>()`
+  (`Record<string, unknown>` and `string[]` respectively), so the column type
+  flows naturally into the RPC contract output and the ~14 `as unknown as
+Array<... & { metadata: ... }>` and `as Record<string, unknown> | null` reader
+  casts in the catalog router are gone. The plugin-system `source` column in
+  `@checkstack/backend` is typed as `PluginSource`, removing its read-site cast.
+
+  This is a type-only change: `.$type<>()` does not alter SQL, so no new
+  migration is generated and existing migrations are untouched.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-backend@0.8.0
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/auth-backend@0.8.0
+  - @checkstack/automation-backend@0.9.3
+  - @checkstack/gitops-backend@0.5.12
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/cache-utils@0.2.19
+
 ## 1.5.2
 
 ### Patch Changes

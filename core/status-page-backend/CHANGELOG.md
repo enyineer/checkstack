@@ -1,5 +1,71 @@
 # @checkstack/status-page-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 8cad340: feat(status-pages): page-wide overall-status summary banner
+
+  The public status page now shows a page-wide status banner at the top,
+  summarising the whole page in one line (for example "All systems
+  operational" or "Major outage").
+
+  - `status-page-common` gains a pure, fully unit-tested
+    `deriveOverallStatus({ blocks })` plus an `OverallStatusSummary`
+    (`{ status, label }`) zod schema/type. The summary reuses the existing
+    public status vocabulary (`operational` / `degraded` / `partial_outage`
+    / `major_outage` / `maintenance` / `unknown`).
+  - The published-page DTO (`PublishedStatusPageSchema`) now carries a
+    required `overallStatus` field. The backend resolver derives it from the
+    blocks it already resolves - worst-status-wins over each block's public
+    DTO - so it adds no new data exposure and no domain-plugin dependency
+    (it reads only the field-allow-listed widget output the resolver already
+    produces).
+  - `status-page-frontend` renders the banner at the top of the public page
+    (shared by the in-app and custom-domain surfaces) using the existing
+    semantic status tokens, so the banner always matches the widgets below.
+
+  BREAKING: `PublishedStatusPageSchema` now requires `overallStatus`.
+  Consumers that build a `PublishedStatusPage` by hand must include it; the
+  status-page resolver populates it automatically.
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/status-page-common@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,58 @@
 # @checkstack/notification-common
 
+## 1.4.0
+
+### Minor Changes
+
+- 8cad340: feat(notification-common): shared subject-render helpers
+
+  Add `renderSubjectsAsPlainText` and `renderSubjectsAsMarkdown` to
+  `@checkstack/notification-common` (re-exported from
+  `@checkstack/notification-backend`) to single-source the affected-subjects list
+  that text/markdown notification channels previously each hand-rolled. Both take
+  the typed `NotificationSubject[]`, honor a subject's `status` (emoji prefix via
+  `SUBJECT_STATUS_EMOJI`) and `url`, and return an empty string for an empty list.
+  `renderSubjectsAsMarkdown` supports `linkStyle: "markdown" | "slack"`, a custom
+  `bullet`, and an optional `heading`.
+
+  `SUBJECT_STATUS_EMOJI` now lives in `notification-common` (single source);
+  `@checkstack/notification-backend` re-exports it unchanged, so its public
+  surface is stable.
+
+  The Gotify, Webex, Backstage, Telegram, Discord, and Slack strategy plugins now
+  route their subject rendering through these helpers (a behavior-preserving
+  change pinned by unit tests), which also gives Gotify/Webex/Backstage the
+  consistent status-emoji prefix they previously dropped. Teams (FactSet) and
+  Pushover (HTML) keep their structured channel-specific framing.
+
+- 8cad340: feat(notification-common): HTML and label subject-render helpers
+
+  Add `renderSubjectsAsHtml` and `renderSubjectLabel` to
+  `@checkstack/notification-common` (re-exported from
+  `@checkstack/notification-backend`) so the last two notification channels that
+  still hand-rolled their affected-subjects markup are single-sourced.
+
+  - `renderSubjectsAsHtml` renders the subjects as an HTML `<ul>` (the canonical
+    `<b>Affected:</b><ul><li>...</li></ul>` Pushover fallback). It now
+    HTML-escapes subject names and URLs (previously interpolated raw) and prefixes
+    the status emoji when a subject carries a status hint.
+  - `renderSubjectLabel` returns just `<marker> <name>` for rich-card channels
+    (Teams) that lay out the URL in their own structure but want the consistent
+    status-emoji-or-bullet prefix.
+
+  The Pushover (HTML list) and Teams (FactSet title) strategy plugins now route
+  their subject rendering through these helpers. Output is unchanged for ordinary
+  subject names; the Teams FactSet title now carries the shared bullet prefix and
+  the Pushover HTML is now escaped, both behavior-preserving for non-markup data
+  and pinned by unit tests.
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/common@0.17.0
+  - @checkstack/signal-common@0.2.11
+
 ## 1.3.4
 
 ### Patch Changes

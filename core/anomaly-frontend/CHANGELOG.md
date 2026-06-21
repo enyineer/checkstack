@@ -1,5 +1,97 @@
 # @checkstack/anomaly-frontend
 
+## 0.5.14
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Enlarge the per-field mute/unmute icon button in the anomaly field mute list to a
+  40px touch target (`h-10 w-10`) so it is reliably tappable on touch devices.
+- 8cad340: Adopt the canonical `toastError` helper from `@checkstack/ui` for error toasts.
+
+  Error toasts that previously called `toast.error(extractErrorMessage(error, "Failed to X"))`
+  (or interpolated `Failed to X: ${extractErrorMessage(error)}` strings) now use
+  `toastError(toast, "Failed to X", error)`. This centralizes the
+  "Failed to <action>: <message>" voice and applies the shared 100-character
+  truncation. Error toasts that did not previously prefix the action now gain the
+  canonical prefix; success toasts and terse validation one-liners are unchanged.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ui@1.17.0
+  - @checkstack/healthcheck-frontend@0.25.0
+  - @checkstack/notification-frontend@0.6.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/anomaly-common@1.5.2
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.5.13
 
 ### Patch Changes

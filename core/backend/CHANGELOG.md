@@ -1,5 +1,116 @@
 # @checkstack/backend
 
+## 0.21.0
+
+### Minor Changes
+
+- 8cad340: Encryption key rotation support plus fail-loud secret decryption.
+
+  Non-breaking: existing single-key (`ENCRYPTION_MASTER_KEY` only) setups keep
+  working unchanged. The ciphertext format (`iv:authTag:ciphertext`, AES-256-GCM)
+  is unchanged - no key-id prefix - so old values stay decodable.
+
+  - **Multi-key decryption for rotation.** `decrypt()` now trial-decrypts with the
+    primary `ENCRYPTION_MASTER_KEY` first, then each key in the optional
+    comma-separated `ENCRYPTION_MASTER_KEY_PREVIOUS` list, in order. Only when ALL
+    configured keys fail the GCM tag does it raise the hard error. New encryption
+    always uses the primary key. Every key is validated (32-byte hex) with zod;
+    key material is never logged.
+  - **Fail-loud, fail-closed decrypt in `ConfigService`.** Previously a failed
+    decrypt silently substituted the raw CIPHERTEXT in place of the plaintext
+    secret, so downstream consumers used ciphertext as the secret and operators
+    never learned decryption broke. Now the failure is surfaced via the structured
+    `Logger` at error level (with the config key and plugin, never the secret or
+    ciphertext) and a typed `DecryptionError` is thrown, failing the whole config
+    read so the operator sees it. A new exported `DecryptionError` type lets
+    callers detect this.
+  - **Re-encryption tooling.** New `bun run --filter @checkstack/backend
+reencrypt-secrets` command (and reusable `reencryptAllSecrets` helper) walks
+    the local secret backend `secrets` table and config-service `x-secret` fields
+    in `plugin_configs`, decrypts each value with whichever configured key
+    authenticates, and re-encrypts it onto the current primary key. After running
+    it with zero failures, the operator can safely drop the demoted key from
+    `ENCRYPTION_MASTER_KEY_PREVIOUS`. External backends (e.g. Vault) are out of
+    scope - rotate those through their own mechanism.
+
+  No schema change. State note: all encrypted state lives in shared Postgres
+  (`secrets`, `plugin_configs`); reads return the same answer on every pod because
+  key resolution and trial-decryption are pure functions of the env-configured
+  keys and the stored ciphertext.
+
+- 8cad340: Fail-closed plugin supply-chain integrity pinning.
+
+  Plugin installers now verify downloaded artifacts and pin them so later reloads
+  can detect tampering. This closes a gap where tarballs were installed with no
+  integrity verification at all.
+
+  - **npm**: the downloaded tarball is verified against the registry's
+    `dist.integrity` (SHA-512 SRI) and refused on mismatch. When only the legacy
+    `dist.shasum` (SHA-1) is available it is used with a logged warning; when no
+    integrity material is present at all the install is refused (fail-closed). The
+    registry metadata is now parsed with a zod schema rather than trusted blindly.
+  - **GitHub release**: when the asset exposes a `digest` (`sha256:<hex>`) the
+    bytes are verified against it (fail-closed on mismatch); the computed SHA-256
+    is always recorded. Release metadata is parsed with zod.
+  - **All sources**: the canonical SHA-256 of the installed tarball is persisted
+    to a new nullable `plugins.installed_digest` column and re-verified whenever a
+    pod re-hydrates the plugin from `plugin_artifacts`. A mismatch refuses to load
+    that plugin without crashing boot; a missing digest (legacy install) is
+    backfilled and the plugin loads.
+
+  This is non-breaking: the `installed_digest` column is nullable, so existing
+  installed plugins without a recorded digest keep working and get pinned on their
+  next reload. The digest lives in shared Postgres, so it reads the same on every
+  pod.
+
+  Note: this is integrity pinning, not author trust. Cryptographic signature
+  verification against a trust store is deliberately deferred to a future layer.
+
+### Patch Changes
+
+- 8cad340: fix(backend): quote and validate plugin schema identifiers in SQL
+
+  Plugin schema identifiers are no longer interpolated raw into SQL. `pluginId` is
+  now constrained to a safe charset (`pluginIdSchema` in `@checkstack/common`),
+  `getPluginSchemaName` asserts that charset before producing a schema name, and
+  the `SET LOCAL search_path` and `DROP SCHEMA` statements use `sql.identifier`
+  (properly quoted and escaped) instead of string interpolation.
+
+  This is defense in depth within an already-trusted boundary (installing a plugin
+  is arbitrary code execution): no behavior changes for valid ids, but a
+  malformed or hostile `pluginId` can no longer break out of a quoted identifier.
+
+- 8cad340: refactor: type Drizzle JSON columns at the schema to remove boundary casts
+
+  The catalog `metadata` (systems/groups/environments) and `configuration`
+  (views) JSON columns now carry their concrete shape via `.$type<>()`
+  (`Record<string, unknown>` and `string[]` respectively), so the column type
+  flows naturally into the RPC contract output and the ~14 `as unknown as
+Array<... & { metadata: ... }>` and `as Record<string, unknown> | null` reader
+  casts in the catalog router are gone. The plugin-system `source` column in
+  `@checkstack/backend` is typed as `PluginSource`, removing its read-site cast.
+
+  This is a type-only change: `.$type<>()` does not alter SQL, so no new
+  migration is generated and existing migrations are untouched.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/drizzle-helper@0.0.6
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/signal-backend@0.3.12
+  - @checkstack/api-docs-common@0.1.21
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/pluginmanager-common@0.2.10
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/signal-common@0.2.11
+
 ## 0.20.1
 
 ### Patch Changes

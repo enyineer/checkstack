@@ -1,5 +1,80 @@
 # @checkstack/ai-backend
 
+## 0.8.0
+
+### Minor Changes
+
+- 8cad340: Stop the assistant from exposing its internal tools as a user how-to.
+
+  Asked "how do I add a system to the catalog?", the chat assistant answered with
+  the internal tool name (`catalog.createSystem`) and its input JSON schema - but
+  the operator cannot call tools and never sees them; that is the assistant's own
+  mechanism, not a workflow. The chat system prompt now instructs the model that
+  tools are its own (not a public API), and that a how-to must be answered in
+  product terms (the UI, grounded in docs) and/or by offering to do it for the
+  operator - never by presenting tool names, tool input JSON, or parameter schemas
+  as steps to follow. Chat-only; the headless runner is unchanged.
+
+- 8cad340: Tell the assistant to re-fetch when resuming an idle conversation.
+
+  The chat loop replays earlier tool results verbatim with no age annotation, and
+  the system prompt injects "current time" but never how long the thread has been
+  idle. So resuming an old chat, the model answered from stale captured data (a
+  check's old name, a "failing" status) instead of the current state.
+
+  The turn now measures the idle gap before the message (the conversation's
+  last-activity timestamp, captured before the new message is appended) and, once
+  it exceeds 10 minutes, folds a "Data freshness" directive into the system prompt
+  instructing the model to re-call the relevant read tools for current state
+  rather than trust results from earlier in the thread. The directive sits at the
+  volatile end of the prompt (next to the time line), so the cache-friendly stable
+  prefix is unaffected; an active back-and-forth never sees it.
+
+- 8cad340: Improve AI chat/agent steering, MCP conformance, doc grounding, and provider seams.
+
+  - Tool feedback self-correction: a validation failure or duplicate tool call now surfaces as a thrown tool error (a distinct AI-SDK `tool-error` result part) instead of an ordinary success value, so the model is told the call failed and retries. Confirm cards remain success results and carry a structured `status: "awaiting_operator"`. The headless agent runner surfaces tool failures the same way instead of returning `{ error }` as data.
+  - System prompts are now sectioned (clear `##` headings, blank-line separation) with the safety-critical access-scope and investigation rules near the top. The ~600-token automation-building playbook is no longer always-on: it loads only when an automation tool is in scope (or via the `automation-author` skill). Headless author overrides are wrapped in an `<author_instructions>` delimiter.
+  - Model-family seam: connections may declare `modelFamily` (`anthropic` | `openai` | `generic`, default `generic`). The transport stays `@ai-sdk/openai-compatible` for every value; capable families get a lighter-touch prompt-calibration note. Per-turn volatile preambles (memory/skill/summary) now follow the stable base prompt for prompt-cache friendliness on caching-capable gateways.
+  - MCP Streamable-HTTP conformance (spec `2025-06-18`): `tools/list` advertises `outputSchema` and `tools/call` returns `structuredContent` for tools that declare an output; `Mcp-Session-Id` is required and validated on post-initialize requests; the negotiated `protocolVersion` is echoed; cross-site `Origin` requests are refused.
+  - Doc grounding relevance is now a corpus-size-stable relative signal (top-hit gap to the runner-up) instead of an absolute BM25 threshold. The per-read result clamp budget derives from the connection's `contextWindowTokens` instead of a hardcoded constant.
+  - The topical pre-classifier round-trip can be disabled per connection (`disableTopicalClassifier`); the in-prompt off-topic decline then carries it.
+  - Steering de-duplication: the "when to call this / pass a UUID, not a name" trigger guidance now lives only in the tool `description` (where it travels with the tool), and the chat system prompt's investigation section keeps only cross-tool strategy and the universal id-discipline rule, so the two can no longer drift.
+  - Tool descriptions are now stable across permission modes: the per-mode note ("(auto-applied...)", "(requires human confirmation...)") is no longer appended to a tool's `description` at wire time. The conversation's mode is conveyed once by the system prompt's permission-mode line, keeping tool identity decoupled from conversation state.
+
+- 8cad340: Keep an active chat Skill's voice in force through the final answer.
+
+  A user Skill (e.g. "write like a redneck") held during tool-calling steps but
+  normalized back to professional tone in the synthesized reply. Cause: the
+  multi-step loop's forced final-answer step (`prepareFinalAnswerStep`) REPLACES
+  the whole system prompt with a tool-less "write your final answer now, be
+  concise" instruction - dropping the skill preamble on the exact step that writes
+  the user-visible answer.
+
+  The final-answer step now carries the active skill guidance through (appended
+  after the base final-answer instruction, so the style is the last thing the model
+  reads), so the skill's voice governs the synthesized reply too instead of being
+  silently dropped after tool calls.
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/drizzle-helper@0.0.6
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/integration-backend@0.6.5
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/sdk@0.112.1
+
 ## 0.7.2
 
 ### Patch Changes

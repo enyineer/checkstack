@@ -1,5 +1,47 @@
 # @checkstack/gitops-backend
 
+## 0.5.12
+
+### Patch Changes
+
+- 8cad340: Widen Cmd+K command-palette coverage to every top-level sidebar destination.
+
+  The command palette previously only surfaced commands from a handful of plugins,
+  so large feature areas were silently unreachable from search. Each of these
+  plugins now registers a "navigate to <feature>" command per top-level route via
+  `registerSearchProvider`, so every sidebar destination they own is reachable
+  from Cmd+K (entity search can come later):
+
+  - dependency: "Dependency Map"
+  - status-page: "Status pages"
+  - satellite: "Satellites"
+  - gitops: "GitOps", "Kind Registry"
+  - secrets: "Secrets"
+  - notification: "Notification Settings"
+  - script-packages: "Script Packages", "Script Sandbox"
+
+  Each command reuses the plugin's own route helper (`resolveRoute`) for its href
+  and carries the same access rule that gates its sidebar nav entry, so palette
+  visibility matches sidebar visibility. The notification command carries no
+  access rule, matching its authenticated-only nav entry.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/secrets-backend@0.2.12
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/queue-api@0.3.14
+
 ## 0.5.11
 
 ### Patch Changes

@@ -1,5 +1,19 @@
 # @checkstack/catalog-common
 
+## 2.4.2
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/frontend-api@0.11.1
+
 ## 2.4.1
 
 ### Patch Changes

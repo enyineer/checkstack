@@ -1,5 +1,129 @@
 # @checkstack/dashboard-frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Add persistent in-app help and a fresh-install getting-started checklist.
+
+  - A persistent help affordance now lives in the navbar: a "?" icon button
+    (accessible name "Help and documentation") opens a popover (sheet on mobile)
+    containing a Documentation link to the user guide, a "Show tips again" action,
+    and a one-line legend explaining the lightbulb (concept tip) vs tooltip
+    (affordance hint) convention. Help is now reachable from every page rather
+    than only via the sidebar's Docs link.
+  - The documented "replay onboarding" capability is now wired: a new
+    `useResetAllTips` hook in `@checkstack/tips-frontend` calls `TipsApi.reset`
+    with no ids (clearing every dismissed tip for the user, server + localStorage),
+    surfaced as the help menu's "Show tips again" action with a confirmation toast.
+  - The dashboard now shows a dismissable "Getting started" checklist on fresh
+    installs (zero catalog systems, derived from the existing entities query - no
+    new queries). It links the next three steps: add a system, attach a health
+    check, connect a notification channel. Dismissal persists per-user via the
+    tips dismissal mechanism and is restorable from the help menu. The existing
+    "Nothing to show on the dashboard yet" empty state is unchanged.
+
+- 8cad340: Improve list-page feedback, loading, and formatting consistency.
+
+  The dashboard, catalog browse, and status-pages list pages now render an
+  explicit query-error state (`QueryErrorState` with a Retry button) when their
+  list query fails, instead of silently falling through to the empty state. The
+  error branch is additive: it only appears on a failed query, so the existing
+  empty-state copy and behavior are unchanged.
+
+  The dashboard system-health overview and the catalog browse list now show
+  layout-mimicking `Skeleton` placeholders while loading (instead of a centered
+  spinner), so the page no longer jumps when data resolves.
+
+  Toast call sites in catalog and status-page now route error and success
+  toasts through the shared `toastError` / `toastSuccess` helpers, giving error
+  toasts the canonical "{action}: {message}" voice with length truncation. The
+  public status-page uptime percentages now format through the shared
+  `formatPercent` helper (output-equivalent). The dashboard tip-banner lightbulb
+  accent uses the `text-warning` token instead of a hardcoded amber color.
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ui@1.17.0
+  - @checkstack/command-frontend@0.4.0
+  - @checkstack/catalog-frontend@0.13.0
+  - @checkstack/queue-frontend@0.6.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/incident-common@1.6.2
+  - @checkstack/maintenance-common@1.7.2
+  - @checkstack/command-common@0.3.5
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.8.11
 
 ### Patch Changes

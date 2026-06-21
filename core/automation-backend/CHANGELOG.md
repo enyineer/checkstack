@@ -1,5 +1,63 @@
 # @checkstack/automation-backend
 
+## 0.9.3
+
+### Patch Changes
+
+- 8cad340: refactor: use `extractErrorMessage` instead of `(error as Error).message`
+
+  All 24 `(error as Error).message` casts in `automation-backend`'s dispatch and
+  entity modules are replaced with the project-wide `extractErrorMessage(error)`
+  helper from `@checkstack/common`. This removes the unsafe `error as Error`
+  assumption (the same one the lint-banned `instanceof Error` would make) and
+  correctly handles non-Error throwables (strings, plain objects) in log output.
+
+- 8cad340: refactor: replace `env as unknown as EnvStash` double casts with module-scoped holders
+
+  The `init()` -> `afterPluginsReady()` bridging that stashed setup closures and
+  service handles as ad-hoc mutable properties on the framework `env` object via a
+  double cast (`env as unknown as EnvStash`) is replaced with typed module- or
+  register-scoped `let` holders, mirroring the existing pattern in
+  `healthcheck-backend` (`storedEmitHook`). No behavior or DB change; the holders
+  are pod-local setup state (never queryable current state), so they remain
+  scale-correct. This removes an unsafe, copy-paste-prone idiom from five core
+  plugins.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-backend@0.8.0
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/gitops-backend@0.5.12
+  - @checkstack/script-packages-backend@0.3.15
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/sdk@0.112.1
+  - @checkstack/automation-common@0.7.1
+  - @checkstack/gitops-common@0.6.5
+  - @checkstack/integration-common@0.9.2
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/secrets-common@0.2.5
+  - @checkstack/signal-common@0.2.11
+  - @checkstack/template-engine@0.4.6
+
 ## 0.9.2
 
 ### Patch Changes

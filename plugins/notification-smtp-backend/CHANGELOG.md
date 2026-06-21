@@ -1,5 +1,25 @@
 # @checkstack/notification-smtp-backend
 
+## 0.0.60
+
+### Patch Changes
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/notification-backend@1.5.16
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+
 ## 0.0.59
 
 ### Patch Changes

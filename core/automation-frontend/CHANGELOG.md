@@ -1,5 +1,165 @@
 # @checkstack/automation-frontend
 
+## 0.8.0
+
+### Minor Changes
+
+- 8cad340: feat: live run polling, optimistic automation toggle, and relative public-status freshness
+
+  Implements three loading/feedback UX findings from the read-only review.
+
+  - **Automation run detail goes live.** `RunDetailPage` now polls
+    `getRun` every 2s while the run is `running`/`waiting` and stops the
+    moment it reaches a terminal status, so a watched execution updates
+    its status badge and step timeline without a manual reload. A subtle
+    "Live" indicator shows in the header while polling.
+  - **Optimistic automation enable/disable.** The per-row toggle on
+    `AutomationListPage` now applies the documented optimistic pattern:
+    `onMutate` cancels in-flight refetches, snapshots, and flips the row
+    in the cache so the switch flips on click; `onError` rolls back from
+    the snapshot and surfaces an error toast; `onSettled` invalidates to
+    reconcile with server truth. The success toast is suppressed (the
+    switch flip is the feedback), per `optimistic-updates.md`.
+  - **Relative, visibly-live public-status freshness.** The public status
+    page renders "Updated x ago" as relative time (was a static absolute
+    timestamp) and ticks periodically so the wording stays honest. A small
+    refresh dot pulses on each successful 60s refetch (gated behind
+    `usePerformance().isLowPower`, falling back to a static dot on
+    low-power devices). The "auto-updates every minute" copy is unchanged.
+
+  BREAKING CHANGE: the automation enable/disable toggle no longer raises a
+  "<name> enabled/disabled" success toast; the optimistic switch flip is now
+  the sole success feedback (error toast retained on failure).
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+- 8cad340: Explain why Save is disabled and guard against losing unsaved edits in the
+  automation and health-check editors.
+
+  - A greyed-out Save is no longer a dead end: both editors now render a
+    "N issue(s) blocking" affordance next to the Save button. Opening it
+    lists every blocker, and clicking one jumps to the offending field/section
+    (the automation Name / Run-as fields or the visual definition editor; the
+    health-check tree node that owns the issue). The existing validation logic is
+    unchanged - the blockers are just surfaced and made actionable.
+  - The first field of a fresh automation (Name) now auto-focuses so keyboard-first
+    users can type immediately.
+  - Both editors now use the shared `useUnsavedChanges` hook for unsaved-changes
+    protection: a native prompt on tab close / refresh plus an in-app
+    "Discard unsaved changes?" confirmation when navigating away mid-edit. The
+    health-check editor's previous hand-rolled `beforeunload` listener is migrated
+    to the shared hook; the automation editor gains dirty tracking and the same
+    guard.
+
+### Patch Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: fix: make data tables responsive on narrow viewports
+
+  The users, teams, and roles management tables (auth-frontend), the automation
+  run-history table (automation-frontend), and the integration provider
+  connections table (integration-frontend) previously overflowed horizontally on
+  phone-width (~375px) viewports. Each now uses the `ResponsiveTable` +
+  `MobileCardList` dual-layout primitive from `@checkstack/ui`: the existing table
+  renders unchanged on `sm` and up, with a stacked per-row card surfacing the key
+  fields and action buttons below `sm`. Shared per-row rendering (role checkboxes,
+  team/role/connection action buttons, connection status) was lifted into small
+  local components so both layouts stay in sync.
+
+- 8cad340: Adopt the canonical `toastError` helper from `@checkstack/ui` for error toasts.
+
+  Error toasts that previously called `toast.error(extractErrorMessage(error, "Failed to X"))`
+  (or interpolated `Failed to X: ${extractErrorMessage(error)}` strings) now use
+  `toastError(toast, "Failed to X", error)`. This centralizes the
+  "Failed to <action>: <message>" voice and applies the shared 100-character
+  truncation. Error toasts that did not previously prefix the action now gain the
+  canonical prefix; success toasts and terse validation one-liners are unchanged.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/gitops-frontend@0.6.0
+  - @checkstack/script-packages-frontend@0.4.0
+  - @checkstack/secrets-frontend@0.3.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/automation-common@0.7.1
+  - @checkstack/integration-common@0.9.2
+  - @checkstack/template-engine@0.4.6
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.7.1
 
 ### Patch Changes

@@ -1,5 +1,82 @@
 # @checkstack/healthcheck-redis-backend
 
+## 0.3.0
+
+### Minor Changes
+
+- 8cad340: Add a finer per-run transport timing breakdown to health checks.
+
+  Each run now records an optional structured `metadata.timings` (DNS, connect,
+  TLS, wait/time-to-first-byte, transfer, and a `processing` catch-all for
+  non-HTTP operation time). The run-detail view renders the phases it has, in
+  transport order, and falls back to the previous Connection + Processing split
+  for older runs that lack the finer data.
+
+  For HTTP the request is issued verbatim through `fetch` (original URL, headers,
+  and body), so request behavior is identical to a plain `fetch`. The timing is
+  measured around it: `fetch` resolves at the response headers, so wait
+  (time-to-first-byte) and transfer (body) are measured exactly on the request,
+  DNS is timed at the resolve step, and connect/TLS come from a short-lived,
+  best-effort raw `net`/`tls` probe to the same already-validated IP (the request
+  socket exposes no connect/handshake events on the Bun runtime). The probe is
+  timing-only and never fails the check. The probe validates the TLS certificate
+  (against the original hostname via SNI) like the real request does - it does not
+  disable certificate validation; an unverifiable cert simply yields no TLS-phase
+  timing rather than aborting. Other transports surface the connect and operation
+  times they already measure.
+
+  The SSRF guard now validates the resolved host (rejecting cloud-metadata /
+  link-local and operator-denied ranges) as a pre-flight check and no longer pins
+  the request to the resolved IP. Pinning rewrote the URL to the IP literal and
+  moved the host to the `Host` header, which breaks HTTP/2 origins (their
+  authority comes from the URL's `:authority`, not `Host`) - that is why real
+  hosts such as `google.com` started answering 404/429 instead of 200. The
+  pre-flight validation keeps blocking static metadata/link-local targets and
+  direct denied IP literals; the only thing dropped is DNS-rebind TOCTOU
+  protection (a narrow window that pinning closed at the cost of breaking
+  legitimate HTTP/2 requests).
+
+  The run-detail "slowest" badge no longer collides with the timing bar, and a
+  genuinely sub-millisecond phase reads as "<1 ms" instead of a bare "0 ms".
+
+### Patch Changes
+
+- 8cad340: Retune anomaly-detection defaults across every health-check strategy and the
+  hardware collector for a low-noise, problem-focused out-of-the-box experience.
+
+  The detection engine already learns a per-metric baseline, debounces with a
+  confirmation window, and applies practical-significance floors. This pass tunes
+  the per-metric **defaults** so a fresh install alerts only on genuine,
+  statistically-significant, problem-mapping deviations instead of flooding on
+  every metric that wiggles. 264 metrics were reviewed:
+
+  - **Default-disabled** the high-noise and un-baselineable classes that were
+    alerting for no good reason: raw identifiers and counts (status codes, error
+    and row counts, build counts, player and executor counts), config echoes and
+    near-constants (probe packet counts, CPU core count, total/swap memory),
+    payload-size and other run-to-run-volatile values, and deterministic values
+    like certificate days-remaining (governed by the check's own static-threshold
+    health logic, not statistics). These stay chartable and can be re-enabled per
+    field.
+  - **Hardened** the signals that should alert - latency/response/execution time
+    and availability/success/saturation percentages - with confirmation windows
+    and absolute + relative floors so brief spikes and sub-threshold jitter no
+    longer flap, and prefer percentage metrics over their absolute twins.
+
+  No detection-engine or schema changes; only per-metric `x-anomaly-*` defaults.
+  Users who had opted into any now-disabled metric keep their explicit override.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+
 ## 0.2.35
 
 ### Patch Changes

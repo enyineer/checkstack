@@ -1,5 +1,34 @@
 # @checkstack/command-backend
 
+## 0.2.12
+
+### Patch Changes
+
+- 8cad340: refactor: typed router-factory args and structured logging
+
+  Internal router factories that took long positional argument lists
+  (`incident-backend`, `maintenance-backend`, and `notification-backend`'s
+  `createNotificationRouter`) now take a single typed `deps` object, matching the
+  `RouterDeps` convention already used by sibling routers and removing a class of
+  easy-to-transpose call sites.
+
+  Backend code paths that wrote to `console.*` now use the injected structured
+  `Logger` so they respect log levels and correlation: the catalog router's
+  notification-resource lifecycle warnings, the notification OAuth callback
+  handler's errors, and the command router's search-provider failures. The
+  command router factory now takes a typed `{ logger }` object.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-common@0.3.5
+
 ## 0.2.11
 
 ### Patch Changes

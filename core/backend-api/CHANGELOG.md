@@ -1,5 +1,157 @@
 # @checkstack/backend-api
 
+## 0.25.0
+
+### Minor Changes
+
+- 8cad340: fix(security): crypto + auth depth hardening (at-rest encryption, brute-force scale, token timing)
+
+  Three concrete defects found and fixed during the deferred crypto + auth depth audit:
+
+  - **At-rest encryption (`@checkstack/backend-api`)**: AES-256-GCM decrypt now
+    rejects values whose IV is not exactly 12 bytes or whose auth tag is not the
+    full 16 bytes (128-bit). GCM accepts truncated tags, which weaken forgery
+    resistance; the encryptor only ever emits full tags, so short tags now hard-
+    error instead of being silently accepted. `isEncrypted` is also tightened to
+    require the exact decoded IV/tag lengths, not just a loose
+    `base64:base64:base64` shape, so a plaintext secret that merely resembles the
+    shape can no longer be misclassified as "already encrypted" and stored in
+    plaintext. The unique-nonce and tamper-rejection guarantees are now covered by
+    regression tests.
+
+  - **Brute-force protection scale bug (`@checkstack/auth-backend`)**: better-auth's
+    built-in rate limiter (sign-in, password reset) defaulted to per-pod in-memory
+    storage. With N replicas behind one database that multiplied the effective
+    limit by N (state-and-scale §14.5). The limiter is now backed by a shared
+    `better_auth_rate_limit` Postgres table via a `customStorage` adapter, so the
+    counter is global across all pods. Adds a new append-only migration for the
+    table. No behaviour change in local dev (limiter stays off when not in
+    production); no configuration required.
+
+  - **Satellite token timing oracle (`@checkstack/satellite-backend`)**:
+    `validateToken` previously skipped the bcrypt verify when the `clientId` did
+    not exist, leaking client-ID existence via response timing. It now always
+    verifies the supplied token (against a decoy hash when the row is missing) so
+    the missing-clientId path costs the same as the wrong-token path.
+
+  Audited and found clean (no change needed): the better-auth cookie/session/CSRF
+  posture (`httpOnly`, `sameSite=lax`, `Secure` derived from the https `BASE_URL`,
+  single trusted origin, fresh session on internal trusted-login), and
+  token/secret logging hygiene across the auth, satellite, and secrets paths (no
+  secret material is logged).
+
+- 8cad340: Encryption key rotation support plus fail-loud secret decryption.
+
+  Non-breaking: existing single-key (`ENCRYPTION_MASTER_KEY` only) setups keep
+  working unchanged. The ciphertext format (`iv:authTag:ciphertext`, AES-256-GCM)
+  is unchanged - no key-id prefix - so old values stay decodable.
+
+  - **Multi-key decryption for rotation.** `decrypt()` now trial-decrypts with the
+    primary `ENCRYPTION_MASTER_KEY` first, then each key in the optional
+    comma-separated `ENCRYPTION_MASTER_KEY_PREVIOUS` list, in order. Only when ALL
+    configured keys fail the GCM tag does it raise the hard error. New encryption
+    always uses the primary key. Every key is validated (32-byte hex) with zod;
+    key material is never logged.
+  - **Fail-loud, fail-closed decrypt in `ConfigService`.** Previously a failed
+    decrypt silently substituted the raw CIPHERTEXT in place of the plaintext
+    secret, so downstream consumers used ciphertext as the secret and operators
+    never learned decryption broke. Now the failure is surfaced via the structured
+    `Logger` at error level (with the config key and plugin, never the secret or
+    ciphertext) and a typed `DecryptionError` is thrown, failing the whole config
+    read so the operator sees it. A new exported `DecryptionError` type lets
+    callers detect this.
+  - **Re-encryption tooling.** New `bun run --filter @checkstack/backend
+reencrypt-secrets` command (and reusable `reencryptAllSecrets` helper) walks
+    the local secret backend `secrets` table and config-service `x-secret` fields
+    in `plugin_configs`, decrypts each value with whichever configured key
+    authenticates, and re-encrypts it onto the current primary key. After running
+    it with zero failures, the operator can safely drop the demoted key from
+    `ENCRYPTION_MASTER_KEY_PREVIOUS`. External backends (e.g. Vault) are out of
+    scope - rotate those through their own mechanism.
+
+  No schema change. State note: all encrypted state lives in shared Postgres
+  (`secrets`, `plugin_configs`); reads return the same answer on every pod because
+  key resolution and trial-decryption are pure functions of the env-configured
+  keys and the stored ciphertext.
+
+- 8cad340: feat(healthcheck-http): SSRF egress guard for the in-process HTTP collector
+
+  The HTTP healthcheck strategy runs in-process on the trusted core (whenever a
+  check is local or not satellite-only), so it now applies a secure-by-default
+  egress guard before connecting:
+
+  - Denies the cloud-metadata + link-local ranges by default (the same
+    `ALWAYS_BLOCKED_CIDRS` the script sandbox enforces), so a check can no longer
+    be pointed at `http://169.254.169.254/...` to read instance credentials.
+  - Keeps RFC1918 / internal probing ALLOWED by default (a monitoring tool's job).
+  - Resolves the target host to IP(s) and checks the CONNECTED IP, pinning the
+    request to the validated IP to resist DNS-rebind.
+  - Operator-extensible: the new optional `egressDenyCidrs` field on the HTTP
+    strategy config adds further CIDRs on top of the always-on block.
+
+  `@checkstack/backend-api` exports a reusable `resolveAndValidateHost` /
+  `pinUrlToIp` SSRF guard plus `DEFAULT_EGRESS_DENY_CIDRS`.
+
+- 8cad340: Add a finer per-run transport timing breakdown to health checks.
+
+  Each run now records an optional structured `metadata.timings` (DNS, connect,
+  TLS, wait/time-to-first-byte, transfer, and a `processing` catch-all for
+  non-HTTP operation time). The run-detail view renders the phases it has, in
+  transport order, and falls back to the previous Connection + Processing split
+  for older runs that lack the finer data.
+
+  For HTTP the request is issued verbatim through `fetch` (original URL, headers,
+  and body), so request behavior is identical to a plain `fetch`. The timing is
+  measured around it: `fetch` resolves at the response headers, so wait
+  (time-to-first-byte) and transfer (body) are measured exactly on the request,
+  DNS is timed at the resolve step, and connect/TLS come from a short-lived,
+  best-effort raw `net`/`tls` probe to the same already-validated IP (the request
+  socket exposes no connect/handshake events on the Bun runtime). The probe is
+  timing-only and never fails the check. The probe validates the TLS certificate
+  (against the original hostname via SNI) like the real request does - it does not
+  disable certificate validation; an unverifiable cert simply yields no TLS-phase
+  timing rather than aborting. Other transports surface the connect and operation
+  times they already measure.
+
+  The SSRF guard now validates the resolved host (rejecting cloud-metadata /
+  link-local and operator-denied ranges) as a pre-flight check and no longer pins
+  the request to the resolved IP. Pinning rewrote the URL to the IP literal and
+  moved the host to the `Host` header, which breaks HTTP/2 origins (their
+  authority comes from the URL's `:authority`, not `Host`) - that is why real
+  hosts such as `google.com` started answering 404/429 instead of 200. The
+  pre-flight validation keeps blocking static metadata/link-local targets and
+  direct denied IP literals; the only thing dropped is DNS-rebind TOCTOU
+  protection (a narrow window that pinning closed at the cost of breaking
+  legitimate HTTP/2 requests).
+
+  The run-detail "slowest" badge no longer collides with the timing bar, and a
+  genuinely sub-millisecond phase reads as "<1 ms" instead of a bare "0 ms".
+
+### Patch Changes
+
+- 8cad340: fix(backend-api): sanitize notification email HTML
+
+  `markdownToHtml()` now sanitizes its output with an email-safe allow-list before
+  returning. Notification bodies can be influenced by operator- or user-controlled
+  content (incident titles/descriptions, integration payloads), and `marked` does
+  not sanitize, so the rendered HTML could previously carry `<script>`, `on*`
+  event-handler attributes, or `javascript:`/`data:` URLs into an email body.
+
+  The sanitizer keeps ordinary formatting (emphasis, lists, tables, code,
+  headings, and `http`/`https`/`mailto` links) and removes anything executable,
+  matching the intent the frontend already enforces with `rehype-sanitize`. A new
+  `sanitizeEmailHtml()` helper is exported for reuse.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/signal-common@0.2.11
+  - @checkstack/template-engine@0.4.6
+
 ## 0.24.1
 
 ### Patch Changes

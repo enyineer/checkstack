@@ -1,5 +1,183 @@
 # @checkstack/slo-frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- 8cad340: Design-system rework: a premium, consistent UI language across the platform.
+
+  Foundation (`@checkstack/ui` + the shared Tailwind preset):
+
+  - A token system wired into the shared preset so it generates app-wide: a
+    surface elevation ramp (`surface` / `surface-2` / `surface-inset`), the
+    aurora gradient stops, a colorblind-safe `status` triad, and `grid-line`.
+  - A density model (`comfortable` / `compact`) via `--d-*` vars + `DensityProvider`
+    / `useDensity`, with a user-menu density toggle, plus the polished
+    skeleton / empty / error state set.
+  - Honest, token-driven chart primitives (`TimeSeriesChart`, `Sparkline`,
+    `RadialGauge` / aurora hero, `RequestWaterfall`, `UptimeRibbon`).
+  - A signature aurora moment per page: `PageHeader` paints its icon strokes with
+    the aurora gradient and adds a hairline; `Card` gains soft layered depth.
+
+  Shell + surfaces:
+
+  - The app shell adopts the elevation ramp (header `surface-2`, sidebar
+    `surface`, content on the ambient base).
+  - The system-health dashboard, health-check latency / single-run views, and the
+    SLO dashboard are reskinned onto the primitives (aurora confidence gauge,
+    honest p50/p95 latency, request waterfall, number-led status cards).
+
+  App-wide adoption + premium rework:
+
+  - Every plugin frontend adopts the tokens, status triad, density, and elevation.
+  - The highest-impact surfaces in each plugin are then redesigned to a premium
+    bar: real depth, number-led hierarchy, multi-encoded status (pill + dot +
+    accent stripe), and refined list/table density. Several plugins extract pure
+    tone/label/format logic into unit-tested modules.
+
+  Alerts:
+
+  - Every alert/callout is unified onto a single premium `Alert` (depth surface +
+    status-accent stripe + toned icon chip, variant-driven).
+
+  BREAKING CHANGE: the duplicate `InfoBanner` component (and its sub-components)
+  is removed; use `Alert` instead - it is a drop-in replacement with the same
+  variants and composable parts.
+
+- 8cad340: Add point-of-use coaching across the feature config pages and onboarding.
+
+  - The deep-link registry (`@checkstack/common`'s `APP_DOC_SLUGS`) now exposes
+    the core-concept docs pages (systems and groups, health checks, SLOs,
+    incidents). Each is verified against the real docs content by the existing
+    `docs-links.test.ts` rename guard.
+  - The catalog, health-check, SLO and incident config pages now carry a
+    one-time, dismissable `TipBanner` with a concise orientation sentence and an
+    inline "Learn more" deep-link to the matching concept page, so first-time
+    visitors get oriented and returning users keep a persistent header
+    subtitle plus a replayable banner. The same "Learn more" link is also added
+    inside each page's existing concept `<Tip>` popover (catalog has no `<Tip>`,
+    so it gains only the banner).
+  - The first-run onboarding form now shows a LIVE per-criterion password
+    checklist that ticks green as you type, replacing the static rules text and
+    the submit-only destructive error list. The criteria live in
+    `@checkstack/auth-common` (`PASSWORD_CRITERIA` / `evaluatePasswordCriteria`),
+    kept in lock-step with `passwordSchema` and covered by a unit test.
+  - The AI chat empty state now leads with orientation-style example prompts
+    ("Explain SLOs and how they relate to health checks", "How do I add a system
+    to the catalog?") alongside the existing task prompts; clicking one seeds the
+    composer for editing. The prompts only appear when an AI integration is
+    configured.
+
+- 8cad340: Make data-dense tables mobile-friendly and align status colors with semantic tokens.
+
+  - Migrated the remaining data-dense tables to the `ResponsiveTable` + `MobileCardList` dual-layout: catalog (Systems/Groups/Environments), incident config, maintenance config + system history, announcement management, notification delivery attempts, plugin manager (installed plugins + events), satellite list, automation list, healthcheck runs, OAuth applications, and the queue runtime panel. On viewports below `sm` these now render stacked cards surfacing the high-priority fields instead of an overflowing table. Genuinely narrow or runtime-diagnostic panels (cache runtime, healthcheck history, anomaly mute list) were intentionally left as plain tables.
+  - Swapped hardcoded semantic status colors for design tokens (`text-warning`, `text-success`, `text-destructive`, `text-muted-foreground`) in GitOps provenance status, healthcheck editor warnings, dependency canvas node status, automation run-step status, queue runtime tone map, and script-packages settings. Chart-series literals, syntax/terminal palettes, and intentional brand accents (tips lightbulb, SLO streak flame ramp) were left untouched.
+  - Extracted pure display/validation logic into sibling `.logic.ts` modules (SLO display + editor, maintenance editor + config summary, dependency display, incident sort + validation, gitops kind-registry YAML) so it can be unit-tested in isolation. These extractions are behavior-preserving.
+
+- 8cad340: Upgrade the SLO editor's form quality to match the catalog `SystemEditor` and
+  `DynamicForm` patterns.
+
+  - Inline, per-field validation. A single per-field error map is the source of
+    truth for both the inline `FormError` messages and the submit button's
+    validity (Create/Update is disabled while any field is invalid). Errors only
+    reveal once a field is touched (on blur) or after a submit attempt, so the
+    form does not nag while it is first being filled in. Burn-rate warning and
+    critical thresholds are now range-checked to `[0, 100]` rather than relying on
+    advisory input `min`/`max`. The previous single generic `validation.error`
+    toast is gone.
+  - The dialog body is wrapped in `<form onSubmit>` with the primary button as
+    `type="submit"`, so pressing Enter submits.
+  - Mandatory labels (System, Availability Target, Rolling Window) render the
+    `required` affordance.
+  - Every `Select` is associated with its label via `htmlFor`/`id`, and the Health
+    Check Scope and Dependency Exclusion triggers also carry an `aria-label`.
+    Invalid fields set `aria-invalid` and `aria-describedby` to their error.
+  - The first field is auto-focused on open (System when creating, Availability
+    Target when editing).
+  - Unsaved-changes guard via `useUnsavedChanges` from `@checkstack/ui`: a
+    `beforeunload` / in-app navigation guard while the open editor has edits, plus
+    a "Discard changes?" confirmation when closing the dialog with unsaved edits.
+
+- 8cad340: Apply cross-cutting UX consistency sweeps to the SLO and health-check
+  frontends.
+
+  Formatting: inline date and percentage formatting now routes through the
+  shared `@checkstack/ui` helpers (`formatDate`, `formatPercent`). The SLO trend
+  chart and achievement badge no longer hardcode the `en-US` locale, and
+  availability / error-budget percentages render with a consistent,
+  locale-aware precision policy.
+
+  Success colors: success-semantic palette literals (`text-emerald-*` /
+  `bg-emerald-*`) in the SLO dependency-exclusion selector and attribution chart
+  now use the `--success` token so they follow theme and dark-mode adjustments.
+
+  Source pill: the health-check runs table's `RunSourceChip` previously
+  hand-rolled a pill with a hardcoded `orange` palette; it now renders the
+  shared `Badge` (`warning` for remote, `secondary` for local) so it themes and
+  matches the surrounding badge row. The displayed "Remote" / "Local" text is
+  unchanged.
+
+  Error state: the SLO overview page now renders a `QueryErrorState` (with a
+  Retry button) when its list query fails, instead of silently falling through
+  to the "No SLOs configured" empty state. The branch is additive, so the
+  existing empty-state copy is unchanged.
+
+  Toasts: error-bearing toast call sites now route through the shared
+  `toastError` / `toastSuccess` helpers for consistent voice and truncation.
+  Error toasts that previously showed only the raw backend message now read
+  `"<action>: <message>"` (e.g. `Failed to create: <message>`). Success-toast
+  text is unchanged.
+
+### Patch Changes
+
+- 8cad340: Gate three feature-module animations behind the low-power performance tier so
+  they respect `.claude/rules/performance.md`. The SLO streak flame
+  (`StreakCounter`) and ongoing-downtime dot (`DowntimeTimeline`) no longer
+  `animate-pulse`, and the auth "Reload Authentication" refresh icon
+  (`StrategiesTab`) no longer `animate-spin`, when `usePerformance().isLowPower`
+  is true. The icons render statically in that case; high-power devices are
+  unchanged.
+- 8cad340: Reduce x-axis tick density of the SLO trend chart on narrow viewports so date
+  labels stay legible on phones. No change to chart data or the desktop layout.
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/auth-frontend@0.9.0
+  - @checkstack/ui@1.17.0
+  - @checkstack/dashboard-frontend@0.9.0
+  - @checkstack/tips-frontend@0.4.0
+  - @checkstack/healthcheck-common@1.8.0
+  - @checkstack/common@0.17.0
+  - @checkstack/frontend-api@0.11.1
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/dependency-common@1.4.2
+  - @checkstack/slo-common@0.7.2
+  - @checkstack/signal-frontend@0.2.6
+
 ## 0.6.1
 
 ### Patch Changes

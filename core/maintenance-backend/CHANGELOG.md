@@ -1,5 +1,60 @@
 # @checkstack/maintenance-backend
 
+## 1.7.3
+
+### Patch Changes
+
+- 8cad340: refactor: typed router-factory args and structured logging
+
+  Internal router factories that took long positional argument lists
+  (`incident-backend`, `maintenance-backend`, and `notification-backend`'s
+  `createNotificationRouter`) now take a single typed `deps` object, matching the
+  `RouterDeps` convention already used by sibling routers and removing a class of
+  easy-to-transpose call sites.
+
+  Backend code paths that wrote to `console.*` now use the injected structured
+  `Logger` so they respect log levels and correlation: the catalog router's
+  notification-resource lifecycle warnings, the notification OAuth callback
+  handler's errors, and the command router's search-provider failures. The
+  command router factory now takes a typed `{ logger }` object.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/ai-backend@0.8.0
+  - @checkstack/ai-common@0.6.0
+  - @checkstack/automation-backend@0.9.3
+  - @checkstack/status-page-backend@0.3.0
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/notification-common@1.4.0
+  - @checkstack/common@0.17.0
+  - @checkstack/auth-common@0.11.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/catalog-backend@1.5.3
+  - @checkstack/status-page-common@0.3.0
+  - @checkstack/catalog-common@2.4.2
+  - @checkstack/maintenance-common@1.7.2
+  - @checkstack/automation-common@0.7.1
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/signal-common@0.2.11
+  - @checkstack/cache-utils@0.2.19
+
 ## 1.7.2
 
 ### Patch Changes

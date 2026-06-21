@@ -1,5 +1,39 @@
 # @checkstack/integration-backend
 
+## 0.6.5
+
+### Patch Changes
+
+- 8cad340: refactor: replace `env as unknown as EnvStash` double casts with module-scoped holders
+
+  The `init()` -> `afterPluginsReady()` bridging that stashed setup closures and
+  service handles as ad-hoc mutable properties on the framework `env` object via a
+  double cast (`env as unknown as EnvStash`) is replaced with typed module- or
+  register-scoped `let` holders, mirroring the existing pattern in
+  `healthcheck-backend` (`storedEmitHook`). No behavior or DB change; the holders
+  are pod-local setup state (never queryable current state), so they remain
+  scale-correct. This removes an unsafe, copy-paste-prone idiom from five core
+  plugins.
+
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+- Updated dependencies [8cad340]
+  - @checkstack/secrets-backend@0.2.12
+  - @checkstack/backend-api@0.25.0
+  - @checkstack/common@0.17.0
+  - @checkstack/command-backend@0.2.12
+  - @checkstack/integration-common@0.9.2
+  - @checkstack/queue-api@0.3.14
+  - @checkstack/secrets-common@0.2.5
+  - @checkstack/signal-common@0.2.11
+
 ## 0.6.4
 
 ### Patch Changes
