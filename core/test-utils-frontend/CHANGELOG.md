@@ -1,5 +1,17 @@
 # @checkstack/test-utils-frontend
 
+## 0.1.2
+
+### Patch Changes
+
+- 2e20792: Declare `sideEffects` (CSS-only) so bundlers can tree-shake these packages' barrel exports
+
+  These packages now declare `"sideEffects": ["**/*.css"]` in their
+  `package.json`. This lets a consuming bundle drop unused barrel re-exports
+  instead of pulling a whole package's component graph when only one
+  provider/hook is imported (e.g. importing `SessionProvider` no longer dragged an
+  admin form). It is build metadata only - no runtime behavior change.
+
 ## 0.1.1
 
 ### Patch Changes

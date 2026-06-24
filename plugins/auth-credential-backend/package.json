@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/auth-credential-backend",
-  "version": "0.0.55",
+  "version": "0.0.56",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

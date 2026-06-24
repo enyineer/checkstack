@@ -1,5 +1,16 @@
 # @checkstack/test-utils-backend
 
+## 0.1.47
+
+### Patch Changes
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/backend-api@0.26.0
+  - @checkstack/signal-common@0.2.12
+  - @checkstack/common@0.17.0
+  - @checkstack/queue-api@0.3.14
+
 ## 0.1.46
 
 ### Patch Changes

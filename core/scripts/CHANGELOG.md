@@ -1,5 +1,18 @@
 # @checkstack/scripts
 
+## 0.6.4
+
+### Patch Changes
+
+- 2e20792: Add a `preview` mode to the dev TUI
+
+  `bun run preview` starts the dev TUI with the frontend serving its production
+  build (`vite preview`) instead of the dev server, so you can trace real
+  first-paint behavior on a throttled network. Backend and docker deps run as in
+  `dev`.
+
+  - @checkstack/common@0.17.0
+
 ## 0.6.3
 
 ### Patch Changes

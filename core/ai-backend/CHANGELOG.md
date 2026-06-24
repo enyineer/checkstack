@@ -1,5 +1,25 @@
 # @checkstack/ai-backend
 
+## 0.9.1
+
+### Patch Changes
+
+- 2e20792: Regenerate the in-app docs search index for the new "App boot" frontend guide
+
+  The bundled docs index (`generated/docs-index.ts`) is regenerated so the new
+  `developer-guide/frontend/app-boot` page is searchable by the in-app AI
+  assistant. Generated content only; no code behavior change.
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/backend-api@0.26.0
+  - @checkstack/ai-common@0.6.1
+  - @checkstack/auth-common@0.11.1
+  - @checkstack/catalog-common@2.4.3
+  - @checkstack/common@0.17.0
+  - @checkstack/integration-backend@0.6.6
+  - @checkstack/sdk@0.115.1
+
 ## 0.9.0
 
 ### Minor Changes

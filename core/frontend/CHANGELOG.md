@@ -1,5 +1,89 @@
 # @checkstack/frontend
 
+## 0.12.0
+
+### Minor Changes
+
+- 2e20792: Speed up app loading: inline boot config, load plugins non-blocking, stream the shell
+
+  The SPA used to hold a full-page spinner through a serial boot waterfall before
+  first paint: it fetched `/api/config` (twice) and `/api/plugins`, then awaited
+  every plugin's registration before rendering anything.
+
+  - **Inlined bootstrap (backend).** The backend now injects a small
+    non-user-specific blob (`config` + `enabledPlugins`) into the served HTML, and
+    the frontend reads it synchronously via `readBootstrap()`. This removes the
+    boot-time `/api/config` and `/api/plugins` round-trips entirely. The per-user
+    session is not inlined (it stays a better-auth fetch); the HTML is served
+    `no-cache`. The Vite dev server has no blob, so it falls back to the original
+    fetches.
+  - **Non-blocking plugin load (frontend).** Local (bundled) plugins register
+    synchronously and the shell renders immediately; remote (installed) plugins
+    load in the background and register reactively, so first paint no longer waits
+    on the plugin network phase.
+  - **Skeleton-streamed first paint (frontend).** Route pages and the
+    pre-providers window now show content/shell skeletons instead of full-page
+    spinners, so the chrome stays put and only content streams in.
+
+  `RuntimeConfigProvider` seeds from the inlined config and skips the reachability
+  probe for a same-origin `baseUrl`; a misconfigured cross-origin `BASE_URL` still
+  surfaces the same loud error.
+
+- 2e20792: Serve public status pages from the lean bundle, and stop the SPA entry pulling the whole UI kit
+
+  Public status pages used to render inside the full admin app on same-origin
+  paths, so opening one booted every plugin (and its eager slot components) and the
+  entire `@checkstack/ui` barrel.
+
+  - **Lean public bundle for public paths.** New platform extension point
+    `publicPathExtensionPoint` lets a plugin declare same-origin public path
+    prefixes; the backend advertises them via `/api/config` and the inlined boot
+    blob. The SPA entry now loads the minimal public bundle (no admin app, no
+    plugin loader, no eager plugin components) for those paths, driving the slug
+    from the URL. A status page no longer loads any admin frontend code.
+  - **Entry no longer imports the `@checkstack/ui` barrel.** `ThemeProvider` /
+    `DensityProvider` moved from `main.tsx` into each bundle's root (`App` and
+    `public-app`), cutting the critical-path preload from ~280 KB to ~0.5 KB gz on
+    both bundles (the barrel now loads only inside the bundle that needs it).
+  - **public-app provider fix.** Added the missing `ToastProvider` (required by
+    `PerformanceProvider`) so the public bundle renders standalone.
+  - **Local plugins load as parallel chunks.** The bundled plugins moved from one
+    eager `import.meta.glob` chunk to per-plugin lazy chunks downloaded in
+    parallel. They are still registered before first render (the shell chrome
+    depends on plugin-contributed APIs such as the auth plugin's `auth.api`), and
+    remote plugins continue to load after first paint and register reactively.
+  - **Tree-shakeable barrels.** `@checkstack/ui`, `auth-frontend`,
+    `command-frontend`, `signal-frontend`, and `announcement-frontend` now declare
+    `sideEffects` (CSS only), so importing one provider/hook no longer drags a
+    whole package's components into the shell. `AnnouncementBanner` also lazy-loads
+    its Markdown renderer, keeping ~98 KB of react-markdown out of first paint.
+
+  BREAKING CHANGE: status-page route ids now match the `statuspage` plugin id (the
+  frontend route registry requires this). URLs change: the admin builder moves from
+  `/status-pages` to `/statuspage` (and `/status-pages/:id` to `/statuspage/:id`),
+  and the public page moves from `/status/:slug` to `/statuspage/view/:slug`. Update
+  any bookmarks or external links to published status pages.
+
+### Patch Changes
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/frontend-api@0.12.0
+  - @checkstack/ui@1.19.0
+  - @checkstack/auth-frontend@0.10.0
+  - @checkstack/command-frontend@0.5.0
+  - @checkstack/signal-frontend@0.3.0
+  - @checkstack/announcement-frontend@0.6.0
+  - @checkstack/status-page-common@0.4.0
+  - @checkstack/status-page-frontend@0.4.0
+  - @checkstack/about-frontend@0.3.11
+  - @checkstack/catalog-frontend@0.13.2
+  - @checkstack/dependency-frontend@0.6.2
+  - @checkstack/signal-common@0.2.12
+  - @checkstack/tips-frontend@0.4.2
+  - @checkstack/common@0.17.0
+
 ## 0.11.1
 
 ### Patch Changes
