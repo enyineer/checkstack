@@ -518,6 +518,126 @@ describe("createJiraClient", () => {
       expect(body.body).toBe("Hello");
     });
   });
+
+  describe("getFields (createmeta endpoint differs by deployment)", () => {
+    it("uses the granular createmeta endpoint and field array on cloud", async () => {
+      fetchFixture = setupFetchMock({
+        startAt: 0,
+        maxResults: 50,
+        total: 2,
+        fields: [
+          {
+            fieldId: "labels",
+            name: "Labels",
+            required: false,
+            schema: { type: "array", items: "string", system: "labels" },
+          },
+          {
+            fieldId: "customfield_10010",
+            name: "Story Points",
+            required: true,
+            schema: { type: "number", customId: 10010 },
+          },
+        ],
+      });
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "u@e.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      const fields = await client.getFields("PROJ", "10001");
+      expect(fetchFixture.calls[0].url).toBe(
+        "https://mycompany.atlassian.net/rest/api/3/issue/createmeta/PROJ/issuetypes/10001",
+      );
+      expect(fields.map((f) => f.key)).toEqual(["labels", "customfield_10010"]);
+      expect(fields[0]?.name).toBe("Labels");
+    });
+
+    it("tolerates the paginated `values` key on the granular endpoint", async () => {
+      fetchFixture = setupFetchMock({
+        maxResults: 50,
+        startAt: 0,
+        total: 1,
+        isLast: true,
+        values: [
+          {
+            fieldId: "labels",
+            name: "Labels",
+            required: false,
+            schema: { type: "array", items: "string", system: "labels" },
+          },
+        ],
+      });
+      const client = createJiraClient({
+        authMode: "cloud",
+        baseUrl: "https://mycompany.atlassian.net",
+        email: "u@e.com",
+        apiToken: "token",
+        logger: testLogger,
+      });
+      const fields = await client.getFields("PROJ", "10001");
+      expect(fields.map((f) => f.key)).toEqual(["labels"]);
+    });
+
+    it("uses the granular endpoint and the `values` key on datacenter (api v2)", async () => {
+      // Verified shape on Jira DC 9.12: the granular endpoint returns the field
+      // list under `values` (not `fields`), each entry keyed by `fieldId` with
+      // no `key`. The legacy bulk endpoint was removed in Jira 9.0.
+      fetchFixture = setupFetchMock({
+        maxResults: 50,
+        startAt: 0,
+        total: 2,
+        isLast: true,
+        values: [
+          {
+            required: false,
+            name: "Labels",
+            fieldId: "labels",
+            schema: { type: "array", items: "string", system: "labels" },
+          },
+          {
+            required: true,
+            name: "Story Points",
+            fieldId: "customfield_10010",
+            schema: { type: "number", customId: 10010 },
+            allowedValues: [{ id: "1", value: "1" }],
+          },
+        ],
+      });
+      const client = createJiraClient({
+        authMode: "datacenter",
+        baseUrl: "https://jira.mycompany.com",
+        apiToken: "pat",
+        logger: testLogger,
+      });
+      const fields = await client.getFields("PROJ", "10001");
+      expect(fetchFixture.calls[0].url).toBe(
+        "https://jira.mycompany.com/rest/api/2/issue/createmeta/PROJ/issuetypes/10001",
+      );
+      // Entries surface via `fieldId` (no `key` on DC), preserving schema.
+      expect(fields.map((f) => f.key)).toEqual(["labels", "customfield_10010"]);
+      expect(fields.find((f) => f.key === "labels")?.schema?.items).toBe("string");
+      expect(fields.find((f) => f.key === "customfield_10010")?.allowedValues).toEqual([
+        { id: "1", value: "1" },
+      ]);
+    });
+
+    it("returns [] and warns when the response has neither fields nor values", async () => {
+      const warnings: string[] = [];
+      fetchFixture = setupFetchMock({ maxResults: 50, startAt: 0, total: 0 });
+      const client = createJiraClient({
+        authMode: "datacenter",
+        baseUrl: "https://jira.mycompany.com",
+        apiToken: "pat",
+        logger: { ...testLogger, warn: (m: string) => warnings.push(m) },
+      });
+      const fields = await client.getFields("PROJ", "10001");
+      expect(fields).toEqual([]);
+      expect(warnings.some((m) => m.includes("neither a \"fields\" nor \"values\""))).toBe(true);
+    });
+  });
 });
 
 describe("buildSearchJql", () => {

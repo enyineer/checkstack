@@ -329,58 +329,85 @@ export function createJiraClient(options: JiraClientOptions) {
 
     /**
      * Get fields available for creating issues with a specific type.
-     * Uses the /issue/createmeta/{projectIdOrKey}/issuetypes/{issueTypeId} endpoint.
+     *
+     * Uses the granular per-issue-type createmeta endpoint
+     * `/issue/createmeta/{projectIdOrKey}/issuetypes/{issueTypeId}` — the
+     * replacement for the bulk `/issue/createmeta` that Jira REMOVED in 9.0
+     * (it 404s on modern Server/Data Center). The granular endpoint exists on
+     * Cloud and on Server/DC >= 8.4.
+     *
+     * The field array key DIFFERS by deployment, which is why reading only one
+     * left the field-mapping dropdown empty ("No options available"):
+     *   - Jira Cloud (`PageOfCreateMetaIssueTypeWithField`) returns it under
+     *     `fields`.
+     *   - Jira Server / Data Center returns it under the standard paginated
+     *     `values` key (verified on 9.12).
+     * We accept either. Each entry carries the field id under `fieldId` (Cloud
+     * may also send `key`); DC entries have no `key`.
      */
     async getFields(
       projectKey: string,
       issueTypeId: string,
     ): Promise<JiraField[]> {
-      interface FieldsResponse {
-        startAt: number;
-        maxResults: number;
-        total: number;
-        fields: Array<{
-          key: string;
-          fieldId: string;
-          name: string;
-          required: boolean;
-          schema?: {
-            type: string;
-            items?: string;
-            system?: string;
-            custom?: string;
-            customId?: number;
-          };
-          allowedValues?: Array<{
-            id: string;
-            name?: string;
-            value?: string;
-          }>;
-        }>;
+      interface FieldMeta {
+        key?: string;
+        fieldId?: string;
+        name: string;
+        required: boolean;
+        schema?: {
+          type: string;
+          items?: string;
+          system?: string;
+          custom?: string;
+          customId?: number;
+        };
+        allowedValues?: Array<{ id: string; name?: string; value?: string }>;
+      }
+      // Paginated bean: Cloud puts the field list under `fields`, Server/DC
+      // under `values`.
+      interface CreateMetaFields {
+        startAt?: number;
+        maxResults?: number;
+        total?: number;
+        isLast?: boolean;
+        fields?: FieldMeta[];
+        values?: FieldMeta[];
       }
 
       logger.debug(
         `Fetching fields for project: ${projectKey}, issueType: ${issueTypeId}`,
       );
 
-      const result = await request<FieldsResponse>(
+      const result = await request<CreateMetaFields>(
         `/issue/createmeta/${encodeURIComponent(
           projectKey,
         )}/issuetypes/${encodeURIComponent(issueTypeId)}`,
       );
 
+      const fieldList = result.fields ?? result.values;
+      // Neither field-list key present => an unexpected response shape (a Jira
+      // version that changed the contract, or an error body). Surface it loudly
+      // instead of leaving an operator guessing at an empty dropdown.
+      if (fieldList === undefined) {
+        logger.warn(
+          `Jira createmeta response for project "${projectKey}", issueType "${issueTypeId}" had neither a "fields" nor "values" array (response keys: ${
+            Object.keys(result).join(", ") || "none"
+          }). The field-mapping dropdown will be empty.`,
+        );
+        return [];
+      }
+
       logger.debug(
-        `Found ${
-          result.fields?.length ?? 0
-        } fields for project ${projectKey}, issueType ${issueTypeId}`,
+        `Found ${fieldList.length} fields for project ${projectKey}, issueType ${issueTypeId}`,
       );
 
-      return (result.fields || []).map((field) => ({
-        key: field.key || field.fieldId,
-        name: field.name,
-        required: field.required,
-        schema: field.schema,
-        allowedValues: field.allowedValues,
+      return fieldList.map((meta) => ({
+        // DC entries carry only `fieldId`; Cloud may also send `key`.
+        key: meta.key || meta.fieldId || "",
+        name: meta.name,
+        required: meta.required,
+        schema: meta.schema,
+        allowedValues: meta.allowedValues,
       }));
     },
 
