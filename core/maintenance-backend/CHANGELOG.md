@@ -1,5 +1,15 @@
 # @checkstack/maintenance-backend
 
+## 1.7.4
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/automation-common@0.8.0
+  - @checkstack/automation-backend@0.10.0
+  - @checkstack/ai-backend@0.9.0
+  - @checkstack/catalog-backend@1.5.4
+
 ## 1.7.3
 
 ### Patch Changes
