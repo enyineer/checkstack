@@ -2,6 +2,9 @@
   "name": "@checkstack/healthcheck-ssh-common",
   "version": "0.1.23",
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "main": "src/index.ts",
   "checkstack": {
     "type": "common",

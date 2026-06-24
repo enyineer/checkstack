@@ -6,6 +6,9 @@
     "type": "tooling"
   },
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": {
       "import": "./src/index.ts"

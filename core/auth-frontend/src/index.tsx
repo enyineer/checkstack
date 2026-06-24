@@ -146,6 +146,11 @@ export { SessionProvider } from "./lib/SessionProvider";
 // nav visibility from the granted rules in one place.
 export { useAccessRules } from "./hooks/useAccessRules";
 
+// Re-export the auth API ref + its safe default so the host can register the
+// default in the core registry (the shell reads `authApiRef` before the auth
+// plugin loads). The plugin's own factory overrides the default on register.
+export { authApiRef, defaultAuthApi, type AuthApi } from "./api";
+
 export const authPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
   apis: [

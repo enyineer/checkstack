@@ -20,7 +20,11 @@ function main(): void {
   const cwd = process.cwd();
   const isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
 
-  const supervisor = createSupervisor({ cwd });
+  // `preview` (e.g. `bun run preview`) serves the frontend production build via
+  // `vite preview` instead of the dev server; everything else runs as `dev`.
+  const mode = process.argv.slice(2).includes("preview") ? "preview" : "dev";
+
+  const supervisor = createSupervisor({ cwd, mode });
 
   if (!isInteractive) {
     runPlainStreaming({

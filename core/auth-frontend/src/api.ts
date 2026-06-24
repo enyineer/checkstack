@@ -98,3 +98,20 @@ export interface AuthApi {
 }
 
 export const authApiRef = createApiRef<AuthApi>("auth.api");
+
+/**
+ * A safe, inert default implementation registered by the host BEFORE the auth
+ * plugin loads, so shell chrome that reads `authApiRef` (e.g. the sidebar's
+ * `useAccessRules`) renders in a logged-out / pending state instead of throwing
+ * "No implementation found". The real auth plugin OVERRIDES this when it
+ * registers (last-write-wins in the API registry), so the shell can paint before
+ * plugins finish loading. `useSession` reports `isPending` so access-gated UI
+ * stays hidden until the real session resolves.
+ */
+export const defaultAuthApi: AuthApi = {
+  signIn: async () => ({ error: new Error("Auth not initialized") }),
+  signInWithSocial: async () => {},
+  signOut: async () => {},
+  getSession: async () => ({ data: undefined }),
+  useSession: () => ({ data: undefined, isPending: true, error: undefined }),
+};

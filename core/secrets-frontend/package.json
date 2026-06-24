@@ -5,6 +5,9 @@
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

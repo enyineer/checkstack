@@ -226,7 +226,7 @@ export const StatusPagesListPage: React.FC = () => {
                 placeholder="acme"
               />
               <p className="text-xs text-muted-foreground">
-                Public URL: /status/{slug || "your-slug"}
+                Public URL: /statuspage/view/{slug || "your-slug"}
               </p>
             </div>
             <TeamOwnershipPicker

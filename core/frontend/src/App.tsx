@@ -1,4 +1,9 @@
-import React, { useMemo, useState, useSyncExternalStore } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   BrowserRouter,
   Routes,
@@ -29,6 +34,7 @@ import {
   useRuntimeConfig,
   useRuntimeConfigContext,
   OrpcQueryProvider,
+  readBootstrap,
 } from "@checkstack/frontend-api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -38,11 +44,12 @@ import { CoreRpcApi } from "./apis/rpc-api";
 import {
   AccessDenied,
   NotFound,
-  LoadingSpinner,
   ToastProvider,
   AmbientBackground,
   PerformanceProvider,
   usePerformance,
+  ThemeProvider,
+  DensityProvider,
   cn,
   Alert,
   AlertContent,
@@ -53,10 +60,16 @@ import {
 } from "@checkstack/ui";
 import { SignalProvider } from "@checkstack/signal-frontend";
 import { SignalAutoInvalidator } from "./components/SignalAutoInvalidator";
-import { SessionProvider } from "@checkstack/auth-frontend";
+import {
+  SessionProvider,
+  authApiRef,
+  defaultAuthApi,
+} from "@checkstack/auth-frontend";
 import { Sidebar } from "./components/Sidebar";
 import { HelpMenu } from "./components/HelpMenu";
+import { PageSkeleton, ShellSkeleton } from "./components/AppSkeletons";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
+import { loadLocalPlugins, loadRemotePlugins } from "./plugin-loader";
 import { useCommands, useGlobalShortcuts } from "@checkstack/command-frontend";
 import { AnnouncementBanner } from "@checkstack/announcement-frontend";
 
@@ -99,14 +112,11 @@ const subscribePluginRegistry = (onChange: () => void) =>
   pluginRegistry.subscribe(onChange);
 const getRegisteredPlugins = () => pluginRegistry.getPlugins();
 
-// Shared fallbacks for lazily-loaded plugin route pages. The loading state
-// mirrors RouteGuard's access-loading look (usePerformance-aware spinner); the
-// error state contains a failed page load instead of white-screening the shell.
-const ROUTE_SUSPENSE_FALLBACK = (
-  <div className="h-full flex items-center justify-center p-8">
-    <LoadingSpinner />
-  </div>
-);
+// Shared fallbacks for lazily-loaded plugin route pages. The loading state is a
+// content-area skeleton (the shell chrome stays rendered around it, so only the
+// page content streams in); the error state contains a failed page load instead
+// of white-screening the shell.
+const ROUTE_SUSPENSE_FALLBACK = <PageSkeleton />;
 
 /**
  * Friendly, actionable fallback for a hard failure (a route page that throws /
@@ -149,6 +159,12 @@ const ROUTE_ERROR_FALLBACK = (
     description="Something went wrong while loading this page. Reloading usually fixes it."
   />
 );
+
+// Standalone (public, no-chrome) routes - e.g. a status page reached via
+// in-admin navigation - must NOT flash the admin content skeleton. Direct loads
+// of these paths are served by the lean public bundle (see main.tsx); this
+// neutral themed screen only covers the brief lazy-chunk load during SPA nav.
+const STANDALONE_SUSPENSE_FALLBACK = <div className="min-h-screen bg-background" />;
 
 /**
  * Top-level error boundary for the app shell. A render error OUTSIDE a plugin
@@ -213,11 +229,7 @@ const RouteGuard: React.FC<{
     : { allowed: true, loading: false };
 
   if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center p-8">
-        <LoadingSpinner />
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   if (!allowed) {
@@ -232,16 +244,21 @@ const RouteGuard: React.FC<{
  * Must be inside SignalProvider to receive plugin signals.
  */
 /** Build the element for a plugin route (lazy `load` thunk or eager `element`). */
-function routeElement(route: {
-  path: string;
-  load?: () => Promise<{ default: React.ComponentType }>;
-  element?: React.ReactNode;
-}): React.ReactNode {
+function routeElement(
+  route: {
+    path: string;
+    load?: () => Promise<{ default: React.ComponentType }>;
+    element?: React.ReactNode;
+  },
+  options?: { standalone?: boolean },
+): React.ReactNode {
   if (route.load) {
     const PageElement = getLazyContribution({
       id: route.path,
       load: route.load,
-      suspenseFallback: ROUTE_SUSPENSE_FALLBACK,
+      suspenseFallback: options?.standalone
+        ? STANDALONE_SUSPENSE_FALLBACK
+        : ROUTE_SUSPENSE_FALLBACK,
       errorFallback: ROUTE_ERROR_FALLBACK,
     });
     return <PageElement />;
@@ -322,6 +339,28 @@ function AppContent() {
   // Enable dynamic plugin loading/unloading via signals
   usePluginLifecycle();
 
+  // Load plugins AFTER first paint. The shell chrome above renders immediately
+  // (the auth API has a safe default in the core registry), and plugins register
+  // reactively, so nav entries and routes stream in. `pluginsInitializing` keeps
+  // an unmatched path on a skeleton instead of flashing "Not found" until the
+  // registry has filled.
+  const [pluginsInitializing, setPluginsInitializing] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const boot = readBootstrap();
+      try {
+        await loadLocalPlugins();
+        await loadRemotePlugins({ enabledPlugins: boot?.enabledPlugins });
+      } finally {
+        if (!cancelled) setPluginsInitializing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const allRoutes = pluginRegistry.getAllRoutes();
   const standaloneRoutes = allRoutes.filter((r) => r.standalone);
   const shellRoutes = allRoutes.filter((r) => !r.standalone);
@@ -336,7 +375,7 @@ function AppContent() {
             path={route.path}
             element={
               <RouteGuard accessRule={route.accessRule}>
-                {routeElement(route)}
+                {routeElement(route, { standalone: true })}
               </RouteGuard>
             }
           />
@@ -363,8 +402,13 @@ function AppContent() {
               }
             />
           ))}
-          {/* Catch-all: show Not Found for unmatched routes */}
-          <Route path="*" element={<NotFound />} />
+          {/* Catch-all: while plugins are still registering, an unmatched path
+              may simply belong to a not-yet-loaded plugin - show a skeleton
+              rather than flashing "Not found". */}
+          <Route
+            path="*"
+            element={pluginsInitializing ? <PageSkeleton /> : <NotFound />}
+          />
         </Route>
       </Routes>
     </BrowserRouter>
@@ -398,6 +442,9 @@ function AppWithApis() {
         useAccess: () => ({ loading: false, allowed: true }),
         useIsAuthenticated: () => ({ loading: false, isAuthenticated: true }),
       })
+      // Safe default so the shell (sidebar's useAccessRules) can render BEFORE
+      // the auth plugin loads; the plugin's factory overrides it on register.
+      .register(authApiRef, defaultAuthApi)
       .registerFactory(fetchApiRef, (_registry) => {
         return new CoreFetchApi(baseUrl);
       })
@@ -423,13 +470,11 @@ function AppWithApis() {
     return registryBuilder.build();
   }, [baseUrl, plugins]);
 
-  // Show spinner while fetching runtime config and probing baseUrl.
+  // Show a shell skeleton while fetching runtime config and probing baseUrl.
+  // With the inlined bootstrap this is rarely hit on the admin origin (config
+  // is seeded synchronously); it covers the dev server / a cross-origin baseUrl.
   if (isConfigLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-surface">
-        <LoadingSpinner />
-      </div>
-    );
+    return <ShellSkeleton />;
   }
 
   // Config probe failed — baseUrl is not reachable (misconfigured BASE_URL).
@@ -505,11 +550,15 @@ function AppWithApis() {
 
 function App() {
   return (
-    <ShellErrorBoundary>
-      <RuntimeConfigProvider>
-        <AppWithApis />
-      </RuntimeConfigProvider>
-    </ShellErrorBoundary>
+    <ThemeProvider defaultTheme="system" storageKey="checkstack-ui-theme">
+      <DensityProvider className="contents">
+        <ShellErrorBoundary>
+          <RuntimeConfigProvider>
+            <AppWithApis />
+          </RuntimeConfigProvider>
+        </ShellErrorBoundary>
+      </DensityProvider>
+    </ThemeProvider>
   );
 }
 

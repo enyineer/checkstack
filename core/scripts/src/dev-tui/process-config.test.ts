@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { PROCESS_DEFS } from "./process-config.ts";
+import { PROCESS_DEFS, getProcessDefs } from "./process-config.ts";
 
 describe("PROCESS_DEFS", () => {
   it("never spawns a long-running task via bun --filter", () => {
@@ -24,6 +24,24 @@ describe("PROCESS_DEFS", () => {
     expect(byId.frontend?.args).toEqual(["run", "dev"]);
     expect(byId.frontend?.cwd).toBe("core/frontend");
     expect(byId.frontend?.oneShot).toBe(false);
+  });
+
+  it("getProcessDefs('dev') returns the default defs", () => {
+    expect(getProcessDefs("dev")).toEqual(PROCESS_DEFS);
+    expect(getProcessDefs()).toEqual(PROCESS_DEFS);
+  });
+
+  it("getProcessDefs('preview') serves the frontend production build", () => {
+    const byId = Object.fromEntries(
+      getProcessDefs("preview").map((def) => [def.id, def]),
+    );
+    // Frontend switches to the production-build preview script.
+    expect(byId.frontend?.args).toEqual(["run", "preview:prod"]);
+    expect(byId.frontend?.cwd).toBe("core/frontend");
+    expect(byId.frontend?.args).not.toContain("--filter");
+    // Backend and deps are unchanged from dev.
+    expect(byId.backend?.args).toEqual(["run", "dev"]);
+    expect(byId.deps?.command).toBe("docker");
   });
 
   it("runs deps as a one-shot docker task at the repo root", () => {

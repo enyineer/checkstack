@@ -13,7 +13,14 @@ import {
   useRuntimeConfigContext,
   OrpcQueryProvider,
 } from "@checkstack/frontend-api";
-import { LoadingSpinner, PerformanceProvider } from "@checkstack/ui";
+import { publicSlugFromPath } from "./public-path";
+import {
+  LoadingSpinner,
+  PerformanceProvider,
+  ThemeProvider,
+  DensityProvider,
+  ToastProvider,
+} from "@checkstack/ui";
 import {
   PublicStatusPageView,
   RendererRemotesProvider,
@@ -81,7 +88,14 @@ function PublicRoot() {
     );
   }
 
-  const slug = config?.publicHost?.slug;
+  // The slug comes from the custom-domain bootstrap hint, or - for a same-origin
+  // public path like `/statuspage/view/:slug` - from the URL itself.
+  const slug =
+    config?.publicHost?.slug ??
+    publicSlugFromPath(
+      globalThis.location?.pathname ?? "",
+      config?.publicPathPrefixes,
+    );
   if (!slug) {
     // Reached this bundle on a host with no published page bound (or the
     // bootstrap hint was lost). Show a neutral message, never the admin app.
@@ -101,13 +115,17 @@ function PublicRoot() {
     <QueryClientProvider client={queryClient}>
       <ApiProvider registry={registry}>
         <OrpcQueryProvider>
-          <PerformanceProvider>
-            {/* Lets the page load third-party widget renderer remotes on demand
-                (built-in widgets need none). */}
-            <RendererRemotesProvider value={loadRendererRemotes}>
-              <PublicStatusPageView slug={slug} />
-            </RendererRemotesProvider>
-          </PerformanceProvider>
+          {/* PerformanceProvider depends on useToast, so ToastProvider must
+              wrap it (mirrors the admin app's provider order). */}
+          <ToastProvider>
+            <PerformanceProvider>
+              {/* Lets the page load third-party widget renderer remotes on
+                  demand (built-in widgets need none). */}
+              <RendererRemotesProvider value={loadRendererRemotes}>
+                <PublicStatusPageView slug={slug} />
+              </RendererRemotesProvider>
+            </PerformanceProvider>
+          </ToastProvider>
         </OrpcQueryProvider>
       </ApiProvider>
     </QueryClientProvider>
@@ -116,8 +134,12 @@ function PublicRoot() {
 
 export function PublicApp() {
   return (
-    <RuntimeConfigProvider>
-      <PublicRoot />
-    </RuntimeConfigProvider>
+    <ThemeProvider defaultTheme="system" storageKey="checkstack-ui-theme">
+      <DensityProvider className="contents">
+        <RuntimeConfigProvider>
+          <PublicRoot />
+        </RuntimeConfigProvider>
+      </DensityProvider>
+    </ThemeProvider>
   );
 }

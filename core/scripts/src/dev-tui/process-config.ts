@@ -59,3 +59,26 @@ export const PROCESS_DEFS: readonly ProcessDef[] = [
     oneShot: false,
   },
 ];
+
+/** Runner mode: `dev` serves the unbundled Vite dev server; `preview` serves the
+ *  production build via `vite preview`. */
+export type DevMode = "dev" | "preview";
+
+/**
+ * Process definitions for a given mode. Only the frontend differs: in `preview`
+ * it builds the production bundle and serves it with `vite preview` (the
+ * `preview:prod` script) instead of running the dev server. It serves on the
+ * same port the dev server uses so `BASE_URL` (which points at that origin)
+ * stays same-origin and the SPA's credentialed `/api` calls are not CORS-blocked
+ * - exactly the prod serving path, minus a separate backend deployment.
+ */
+export function getProcessDefs(mode: DevMode = "dev"): readonly ProcessDef[] {
+  if (mode !== "preview") {
+    return PROCESS_DEFS;
+  }
+  return PROCESS_DEFS.map((def) =>
+    def.id === "frontend"
+      ? { ...def, label: "frontend (preview)", args: ["run", "preview:prod"] }
+      : def,
+  );
+}

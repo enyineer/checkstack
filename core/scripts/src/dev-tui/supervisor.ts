@@ -4,7 +4,11 @@ import { detectLogLevel, type LogLevel } from "./log-level.ts";
 import { createLineSplitter } from "./text.ts";
 import { matchesReady } from "./readiness.ts";
 import { planKill } from "./kill-tree.ts";
-import { PROCESS_DEFS, type ProcessDef } from "./process-config.ts";
+import {
+  getProcessDefs,
+  type DevMode,
+  type ProcessDef,
+} from "./process-config.ts";
 import type { ProcessId, ProcessStatus } from "./types.ts";
 
 /** A single captured output line with its detected level and a sequence id. */
@@ -49,6 +53,8 @@ interface RunningProcess {
 export interface CreateSupervisorInput {
   /** Working directory to spawn children in (the repo root). */
   cwd: string;
+  /** Runner mode; `preview` serves the frontend production build. Default `dev`. */
+  mode?: DevMode;
 }
 
 /**
@@ -58,9 +64,13 @@ export interface CreateSupervisorInput {
  * status transitions are emitted via `status` events. All UI state derives from
  * these events, keeping the ink components thin.
  */
-export function createSupervisor({ cwd }: CreateSupervisorInput): Supervisor {
+export function createSupervisor({
+  cwd,
+  mode = "dev",
+}: CreateSupervisorInput): Supervisor {
+  const defs = getProcessDefs(mode);
   const processes = new Map<ProcessId, RunningProcess>();
-  for (const def of PROCESS_DEFS) {
+  for (const def of defs) {
     processes.set(def.id, { def, status: "stopped" });
   }
 
@@ -171,7 +181,7 @@ export function createSupervisor({ cwd }: CreateSupervisorInput): Supervisor {
 
   return {
     start(): void {
-      for (const def of PROCESS_DEFS) {
+      for (const def of defs) {
         spawnProcess(def.id);
       }
     },
@@ -196,7 +206,7 @@ export function createSupervisor({ cwd }: CreateSupervisorInput): Supervisor {
 
     async shutdown(): Promise<void> {
       // Only tear down the long-running children; leave docker deps (-d) up.
-      const longRunning = PROCESS_DEFS.filter((def) => !def.oneShot);
+      const longRunning = defs.filter((def) => !def.oneShot);
       for (const def of longRunning) {
         killProcess(def.id);
       }

@@ -904,7 +904,7 @@ export const StatusPageBuilderPage: React.FC = () => {
           <p className="text-xs text-muted-foreground">
             <strong>Save draft</strong> stores your changes privately.{" "}
             <strong>Publish</strong> makes the current draft public at{" "}
-            <code>/status/{slug || "your-slug"}</code>.
+            <code>/statuspage/view/{slug || "your-slug"}</code>.
           </p>
           <Card className="space-y-3 p-4">
             <div className="grid gap-3 sm:grid-cols-2">

@@ -4,6 +4,9 @@
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./code-editor": "./src/components/CodeEditor/index.ts",
