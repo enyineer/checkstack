@@ -341,7 +341,7 @@ test.describe("Auth admin (empty state)", () => {
 
 test.describe("Status pages (empty state)", () => {
   test("list renders its empty state when no pages exist", async ({ page }) => {
-    await page.goto("/status-pages", { waitUntil: "domcontentloaded" });
+    await page.goto("/statuspage", { waitUntil: "domcontentloaded" });
 
     await expect(
       page.getByRole("heading", { name: "Status pages" }),

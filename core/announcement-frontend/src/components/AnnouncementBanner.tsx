@@ -1,10 +1,17 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, Suspense } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   AnnouncementApi,
   type Announcement,
 } from "@checkstack/announcement-common";
-import { MarkdownBlock, cn, usePerformance } from "@checkstack/ui";
+import { cn, usePerformance } from "@checkstack/ui";
+
+// The banner lives in the app shell (rendered on every page), but its Markdown
+// body only renders when an announcement is expanded. Lazy-load MarkdownBlock so
+// the ~98 KB react-markdown chunk stays OUT of the shell's first-paint graph.
+const MarkdownBlock = React.lazy(() =>
+  import("@checkstack/ui").then((m) => ({ default: m.MarkdownBlock })),
+);
 import {
   Info,
   AlertTriangle,
@@ -157,7 +164,9 @@ function BannerItem({
       {expanded && hasExpandableContent && (
         <div className="max-w-7xl mx-auto mt-2 pl-7 pb-1">
           <div className="text-sm opacity-90">
-            <MarkdownBlock size="sm">{announcement.message}</MarkdownBlock>
+            <Suspense fallback={null}>
+              <MarkdownBlock size="sm">{announcement.message}</MarkdownBlock>
+            </Suspense>
           </div>
         </div>
       )}

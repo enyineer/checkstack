@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { federation } from "@module-federation/vite";
+import { visualizer } from "rollup-plugin-visualizer";
 // Relative (not the bare `@checkstack/ui/...` specifier): Vite's config loader
 // externalizes bare node_modules imports, which would leave this `.ts` file
 // un-transpiled at config-load time (ERR_UNKNOWN_FILE_EXTENSION). A relative
@@ -39,6 +40,29 @@ const monaco = monacoViteConfig({
 export default defineConfig(({ command }) => {
   // Backend URL for proxy - always targets local backend in dev
   const backendUrl = "http://localhost:3000";
+
+  // Proxy table shared by `server` (dev) and `preview` (prod-bundle preview).
+  const proxy = {
+    // Proxy API requests and WebSocket connections to backend.
+    // Use regex to ensure /api-docs doesn't match (starts with /api but isn't an API call).
+    "^/api/": {
+      target: backendUrl,
+      ws: true, // Enable WebSocket proxy
+    },
+    // REST mount served by oRPC's OpenAPIHandler on the backend (see
+    // core/backend/src/plugin-manager/api-router.ts).
+    "^/rest/": backendUrl,
+    // ONLY runtime-plugin assets are proxied. The host's own hashed chunks live
+    // at /assets/*.js and must be served locally (by the dev server from src, or
+    // by `vite preview` from dist) - proxying all of /assets sends those to the
+    // backend, which returns them as text/plain and breaks module loading.
+    "/assets/plugins": backendUrl,
+    // Platform endpoints (probes etc.) under /.checkstack/*.
+    "/.checkstack": backendUrl,
+    // In-app user guide served by the backend at /checkstack/* (distinct from
+    // /.checkstack above). Requires `bun run --filter @checkstack/docs build`.
+    "/checkstack": backendUrl,
+  };
 
   // The shared editor singleton is ONLY wired up for production builds. In dev
   // (`vite serve`) runtime plugins are compiled straight into the host by
@@ -126,34 +150,37 @@ export default defineConfig(({ command }) => {
         // Cast bridges the plugin's outdated `shared` type (see HostShare).
         shared: shared as FederationSharedOption,
       }),
+      // Bundle analysis, opt-in via `VITE_VISUALIZE=true bun run build`. Emits a
+      // gzip/brotli-sized treemap to dist/stats.html so chunk composition can be
+      // inspected reliably (instead of guessing from chunk names). Off by
+      // default so normal builds are unaffected.
+      ...(process.env.VITE_VISUALIZE
+        ? [
+            visualizer({
+              filename:
+                process.env.VITE_VISUALIZE === "json"
+                  ? "dist/stats.json"
+                  : "dist/stats.html",
+              // `VITE_VISUALIZE=json` emits machine-readable raw data for
+              // scripted analysis; anything else emits the interactive treemap.
+              template:
+                process.env.VITE_VISUALIZE === "json" ? "raw-data" : "treemap",
+              gzipSize: true,
+              brotliSize: true,
+              title: "Checkstack frontend bundle",
+            }),
+          ]
+        : []),
     ],
     // The @typefox/monaco-editor-react + @codingame/monaco-vscode-* stack
     // loads its language services in ES module workers.
     worker: monaco.worker,
-    server: {
-      proxy: {
-        // Proxy API requests and WebSocket connections to backend
-        // Use regex to ensure /api-docs doesn't match (it starts with /api but isn't an API call)
-        "^/api/": {
-          target: backendUrl,
-          ws: true, // Enable WebSocket proxy
-        },
-        // REST mount served by oRPC's OpenAPIHandler on the backend (see
-        // core/backend/src/plugin-manager/api-router.ts). Proxied so external
-        // REST clients pointing at the Vite dev port still resolve.
-        "^/rest/": backendUrl,
-        "/assets": backendUrl,
-        // Platform endpoints (probes etc.) under /.checkstack/* — proxied
-        // here for dev convenience so e.g.
-        // `curl http://localhost:5173/.checkstack/ready` works.
-        "/.checkstack": backendUrl,
-        // In-app user guide: the backend serves the Astro docs build at
-        // /checkstack/* (distinct from /.checkstack above). Proxy it so the
-        // dev SPA shows the same docs. Requires the docs to be built once:
-        // `bun run --filter @checkstack/docs build`.
-        "/checkstack": backendUrl,
-      },
-    },
+    // Shared by the dev server AND `vite preview`, so a production-bundle
+    // preview (`bun run --filter @checkstack/frontend preview`) talks to the
+    // same local backend - useful for tracing real first-paint behavior on a
+    // throttled network, which the unbundled dev server cannot represent.
+    server: { proxy },
+    preview: { proxy },
     // ============================================================
     // React instance sharing
     // ============================================================

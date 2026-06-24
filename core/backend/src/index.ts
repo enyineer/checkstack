@@ -11,6 +11,7 @@ import {
   coreServices,
   coreHooks,
   publicHostResolverExtensionPoint,
+  publicPathExtensionPoint,
   type PublicHostMatch,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
@@ -19,6 +20,7 @@ import {
   normalizeHost,
 } from "./public-host/registry";
 import { createHostRoutingMiddleware } from "./public-host/middleware";
+import { injectBootstrap } from "./bootstrap-html";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { QueuePluginRegistryImpl } from "./services/queue-plugin-registry";
@@ -96,6 +98,19 @@ pluginManager.registerExtensionPoint(
   publicHostResolverExtensionPoint,
   publicHostRegistry.extensionPoint,
 );
+
+// Same-origin public path prefixes (e.g. `/statuspage/view`) contributed by
+// owning plugins. Surfaced to the frontend via `/api/config` + the inlined boot
+// blob so the SPA entry loads the LEAN public bundle for these paths instead of
+// booting the admin app. The platform never interprets the prefixes.
+const publicPathPrefixes: string[] = [];
+pluginManager.registerExtensionPoint(publicPathExtensionPoint, {
+  registerPublicPath: ({ pathPrefix }) => {
+    if (!publicPathPrefixes.includes(pathPrefix)) {
+      publicPathPrefixes.push(pathPrefix);
+    }
+  },
+});
 
 /** The app's own host (from BASE_URL); requests on it skip host resolution. */
 const primaryHost = normalizeHost(
@@ -317,13 +332,20 @@ app.get("/api/config", async (c) => {
     return c.json({ baseUrl: requestOrigin(c), publicHost: match.bootstrap });
   }
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-  return c.json({ baseUrl });
+  // On the primary (admin) origin, advertise the public path prefixes so the
+  // SPA entry can load the lean public bundle for e.g. `/statuspage/view/:slug`.
+  return c.json({ baseUrl, publicPathPrefixes });
 });
 
-app.get("/api/plugins", async (c) => {
-  // Only return remote plugins that need to be loaded via HTTP
-  // Local plugins are bundled and loaded via Vite's glob import
-  const enabledPlugins = await db
+/**
+ * The remote (installed) frontend plugins the host must load over HTTP as
+ * Module Federation remotes. Local plugins are bundled and loaded via Vite's
+ * glob import, so they are excluded here. Shared by the `/api/plugins` endpoint
+ * and the inlined HTML bootstrap (see the SPA fallback below) so both return
+ * the exact same list.
+ */
+const getEnabledRemoteFrontendPlugins = () =>
+  db
     .select({
       name: plugins.name,
       path: plugins.path,
@@ -337,7 +359,8 @@ app.get("/api/plugins", async (c) => {
       )
     );
 
-  return c.json(enabledPlugins);
+app.get("/api/plugins", async (c) => {
+  return c.json(await getEnabledRemoteFrontendPlugins());
 });
 
 // About endpoint - returns core version and loaded plugin versions
@@ -462,6 +485,38 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     return c.body(content);
   };
 
+  /**
+   * Serve a bundle's HTML entry with the frontend bootstrap blob inlined.
+   *
+   * Inlining `config` + `enabledPlugins` (the SAME values `/api/config` and
+   * `/api/plugins` return) lets the SPA read them synchronously at boot instead
+   * of fetching them serially before first paint. The session is intentionally
+   * left out (it stays a better-auth fetch), so this HTML carries no per-user
+   * data. It IS per-deployment (the plugin list changes when an operator
+   * installs a plugin) and tiny, so it is served `no-cache`: the browser
+   * revalidates each load and never shows a stale plugin list, while the hashed
+   * `/assets/*` chunks stay immutably cacheable.
+   */
+  const serveBootstrappedHtml = async (
+    c: Context,
+    filePath: string,
+    publicMatch: PublicHostMatch | null,
+  ) => {
+    const html = await Bun.file(filePath).text();
+    const config = publicMatch
+      ? { baseUrl: requestOrigin(c), publicHost: publicMatch.bootstrap }
+      : {
+          baseUrl: process.env.BASE_URL || "http://localhost:3000",
+          publicPathPrefixes,
+        };
+    // The public bundle loads no host plugins, so it never needs the list.
+    const enabledPlugins = publicMatch
+      ? []
+      : await getEnabledRemoteFrontendPlugins();
+    c.header("Cache-Control", "no-cache");
+    return c.html(injectBootstrap({ html, bootstrap: { config, enabledPlugins } }));
+  };
+
   // Serve static assets (JS, CSS, images, etc.)
   // Fall through to next() on miss so plugin-asset routes (registered later
   // during init at /assets/plugins/:pluginName/*) get a chance to match.
@@ -529,7 +584,7 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
     // older dist), fail safe with 404 rather than leaking the admin shell.
     const indexPath = path.join(frontendDistPath, indexFile);
     if (fs.existsSync(indexPath)) {
-      return serveFile(c, indexPath);
+      return serveBootstrappedHtml(c, indexPath, publicMatch);
     }
     return c.notFound();
   });

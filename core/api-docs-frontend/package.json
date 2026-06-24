@@ -3,6 +3,9 @@
   "version": "0.4.1",
   "license": "Elastic-2.0",
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "main": "src/index.tsx",
   "checkstack": {
     "type": "frontend"

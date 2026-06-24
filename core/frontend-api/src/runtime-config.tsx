@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { readBootstrap } from "./bootstrap";
 
 // =============================================================================
 // RUNTIME CONFIG TYPES
@@ -16,6 +17,14 @@ export interface RuntimeConfig {
     kind: string;
     slug: string;
   };
+  /**
+   * Same-origin URL path prefixes (e.g. `/statuspage/view`) whose pages are
+   * public surfaces and must render via the LEAN public bundle rather than the
+   * admin app. Contributed by plugins through the backend's
+   * `publicPathExtensionPoint` and read by the SPA entry (`main.tsx`). Present
+   * only on the primary/admin origin.
+   */
+  publicPathPrefixes?: string[];
 }
 
 interface RuntimeConfigContextValue {
@@ -33,6 +42,23 @@ let cachedConfig: RuntimeConfig | undefined;
  * Use this for class-based APIs that can't use hooks.
  */
 export function getCachedRuntimeConfig(): RuntimeConfig | undefined {
+  return cachedConfig;
+}
+
+/**
+ * Seed the module cache from the server-inlined bootstrap blob, if present.
+ *
+ * When the backend inlines the config into the served HTML (the production
+ * path), this lets the very first synchronous read - and class APIs via
+ * `getCachedRuntimeConfig` - see the config with ZERO network round-trips.
+ * Returns the seeded config, or undefined when no blob was inlined (e.g. the
+ * Vite dev server serves a static index.html), in which case the provider falls
+ * back to fetching `/api/config`.
+ */
+function getSeededConfig(): RuntimeConfig | undefined {
+  if (cachedConfig) return cachedConfig;
+  const boot = readBootstrap();
+  if (boot) cachedConfig = boot.config;
   return cachedConfig;
 }
 
@@ -83,11 +109,35 @@ function getCurrentOrigin(): string | undefined {
 export const RuntimeConfigProvider: React.FC<RuntimeConfigProviderProps> = ({
   children,
 }) => {
-  const [config, setConfig] = useState<RuntimeConfig | undefined>();
-  const [isLoading, setIsLoading] = useState(true);
+  // A seeded config (inlined by the backend) whose baseUrl is the current
+  // origin is trivially reachable: render IMMEDIATELY with zero round-trips and
+  // skip the probe entirely. A seeded cross-origin baseUrl (the rare misconfig
+  // case) still goes through the fetch + probe path below so issue #79's loud
+  // error is preserved; a missing seed (dev server) falls back to fetching.
+  const seeded = getSeededConfig();
+  const seededReady =
+    seeded !== undefined &&
+    (() => {
+      const origin = getCurrentOrigin();
+      return origin === undefined || seeded.baseUrl === origin;
+    })();
+
+  const [config, setConfig] = useState<RuntimeConfig | undefined>(
+    seededReady ? seeded : undefined,
+  );
+  const [isLoading, setIsLoading] = useState(!seededReady);
   const [error, setError] = useState<Error | undefined>();
 
   useEffect(() => {
+    // Recompute readiness inside the effect (deterministic, no render-scope
+    // capture) so this boot-once effect keeps an empty dependency list. A
+    // same-origin seeded config is already in state — nothing to fetch.
+    const s = getSeededConfig();
+    if (s) {
+      const origin = getCurrentOrigin();
+      if (origin === undefined || s.baseUrl === origin) return;
+    }
+
     const fetchConfig = async () => {
       try {
         // Step 1: Fetch config from same-origin backend (always succeeds).

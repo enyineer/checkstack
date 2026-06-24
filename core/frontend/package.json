@@ -17,6 +17,8 @@
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
     "preview": "vite preview",
+    "preview:prod": "vite build && vite preview --port 5173 --strictPort",
+    "build:analyze": "VITE_VISUALIZE=true vite build",
     "lint:code": "eslint . --max-warnings 0"
   },
   "dependencies": {
@@ -58,6 +60,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.2",
     "postcss": "^8.5.15",
+    "rollup-plugin-visualizer": "^7.0.1",
     "vite": "^8.0.16"
   }
 }

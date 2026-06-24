@@ -31,88 +31,126 @@ function registerFromModule(mod: unknown, label: string): boolean {
   return true;
 }
 
-export async function loadPlugins(overrideModules?: Record<string, unknown>) {
-  console.log("🔌 discovering plugins...");
-
-  // 1. Fetch enabled plugins from backend
-  try {
-    const response = await fetch("/api/plugins");
-    if (!response.ok) {
-      console.error("Failed to fetch enabled plugins:", response.statusText);
-      return;
+/**
+ * Register the eager-bundled LOCAL plugins (`core/*-frontend` and
+ * `plugins/*-frontend`).
+ *
+ * This is SYNCHRONOUS and does NO network: the modules are already in the host
+ * bundle via `import.meta.glob({ eager: true })`, so registering them is just
+ * iterating an in-memory map. `main.tsx` runs this BEFORE the first render so
+ * the shell, nav, and local routes paint immediately — the remote plugins load
+ * afterwards (see {@link loadRemotePlugins}).
+ *
+ * @param overrideModules - Stand-in module map for tests / the dev server
+ *   (which mounts a single plugin under a synthetic path).
+ */
+/**
+ * Register already-resolved local plugin modules synchronously. Used by the dev
+ * server (a single mounted plugin) and tests, which pass a resolved module map.
+ */
+export function registerLocalPlugins(
+  modules: Record<string, unknown>,
+): void {
+  for (const [path, mod] of Object.entries(modules)) {
+    try {
+      registerFromModule(mod, `local plugin ${path}`);
+    } catch (error) {
+      console.error(`❌ Failed to load local plugin from ${path}`, error);
     }
-    const enabledPlugins: { name: string; path: string }[] =
-      await response.json();
+  }
+}
 
-    // 2. Get all available local plugins using eager loading
-    // This avoids dynamic import issues in production builds
-    // Load from both core/ (essential) and plugins/ (providers)
-    let modules: Record<string, unknown>;
-    if (overrideModules) {
-      modules = overrideModules;
-    } else {
-      const coreModules = import.meta.glob(
-        "../../*-frontend/src/index.tsx",
-        { eager: true },
-      );
+/**
+ * Lazily import and register the bundled local plugins AFTER first paint.
+ *
+ * The glob is NON-eager: each plugin's `index.tsx` is its own dynamic chunk, so
+ * rendering the app shell does NOT wait on downloading every plugin (and their
+ * eager slot components). They register reactively against the plugin registry
+ * (a `useSyncExternalStore` source in `App.tsx`), so nav entries and routes
+ * appear as each plugin's chunk arrives - the shell paints first.
+ */
+export async function loadLocalPlugins(): Promise<void> {
+  const loaders = {
+    ...import.meta.glob("../../*-frontend/src/index.tsx"),
+    ...import.meta.glob("../../../plugins/*-frontend/src/index.tsx"),
+  } as Record<string, () => Promise<unknown>>;
 
-      const pluginModules = import.meta.glob(
-        "../../../plugins/*-frontend/src/index.tsx",
-        { eager: true },
-      );
+  console.log(
+    `🔌 Loading ${Object.keys(loaders).length} local frontend plugins...`,
+  );
 
-      modules = { ...coreModules, ...pluginModules };
-    }
-
-    console.log(
-      `🔌 Found ${
-        Object.keys(modules).length
-      } locally available frontend plugins.`
-    );
-
-    // 3. Load and register enabled plugins
-    const registeredNames = new Set<string>();
-
-    // Phase 1: Local plugins (bundled into the host via eager glob — already
-    // loaded). These share React/etc. with the host by virtue of being in the
-    // same build.
-    for (const [path, mod] of Object.entries(modules)) {
+  await Promise.all(
+    Object.entries(loaders).map(async ([path, load]) => {
       try {
-        if (typeof mod !== "object" || mod === null) continue;
-        const pluginExport = Object.values(
-          mod as Record<string, unknown>,
-        ).find((exp): exp is FrontendPlugin => isFrontendPlugin(exp));
-        if (pluginExport) {
-          pluginRegistry.register(pluginExport);
-          registeredNames.add(pluginExport.metadata.pluginId);
-          console.log(
-            `🔌 Registered local plugin: ${pluginExport.metadata.pluginId}`,
-          );
-        } else {
-          console.warn(`⚠️  No valid FrontendPlugin export found in ${path}`);
-        }
+        registerFromModule(await load(), `local plugin ${path}`);
       } catch (error) {
         console.error(`❌ Failed to load local plugin from ${path}`, error);
       }
-    }
+    }),
+  );
+}
 
-    // Phase 2: Runtime (installed) plugins — loaded as Module Federation
-    // remotes so they share the host's singletons.
-    for (const plugin of enabledPlugins) {
-      if (registeredNames.has(plugin.name)) continue;
-      console.log(`🔌 Loading remote plugin: ${plugin.name}`);
-      try {
-        const mod = await loadRemotePluginModule(plugin.name);
-        if (registerFromModule(mod, `remote plugin ${plugin.name}`)) {
-          registeredNames.add(plugin.name);
-        }
-      } catch (error) {
-        console.error(`❌ Failed to load remote plugin ${plugin.name}:`, error);
+/**
+ * Load the runtime (installed) plugins as Module Federation remotes so they
+ * share the host's singletons.
+ *
+ * The enabled list comes from the server-inlined bootstrap when available
+ * (`main.tsx` passes `boot.enabledPlugins`), avoiding a `/api/plugins` round
+ * trip; when omitted (the dev server / no inlined blob) it is fetched. Runs
+ * AFTER the first render — remotes register reactively against the plugin
+ * registry (a `useSyncExternalStore` source in `App.tsx`), so their routes and
+ * nav entries appear without blocking first paint.
+ */
+export async function loadRemotePlugins({
+  enabledPlugins,
+}: { enabledPlugins?: { name: string; path: string }[] } = {}): Promise<void> {
+  let list = enabledPlugins;
+  if (!list) {
+    try {
+      const response = await fetch("/api/plugins");
+      if (!response.ok) {
+        console.error("Failed to fetch enabled plugins:", response.statusText);
+        return;
       }
+      list = (await response.json()) as { name: string; path: string }[];
+    } catch (error) {
+      console.error("❌ Failed to fetch enabled plugins:", error);
+      return;
     }
-  } catch (error) {
-    console.error("❌ Critical error loading plugins:", error);
   }
+
+  const loaded = new Set<string>();
+  for (const plugin of list) {
+    if (loaded.has(plugin.name)) continue;
+    console.log(`🔌 Loading remote plugin: ${plugin.name}`);
+    try {
+      const mod = await loadRemotePluginModule(plugin.name);
+      if (registerFromModule(mod, `remote plugin ${plugin.name}`)) {
+        loaded.add(plugin.name);
+      }
+    } catch (error) {
+      console.error(`❌ Failed to load remote plugin ${plugin.name}:`, error);
+    }
+  }
+}
+
+/**
+ * Backwards-compatible combined loader: register locals, then load remotes.
+ *
+ * Used by the dev server (`dev-main.tsx`) and tests. Production `main.tsx`
+ * calls {@link registerLocalPlugins} and {@link loadRemotePlugins} separately
+ * so it can render the shell BETWEEN the two phases.
+ */
+export async function loadPlugins(
+  overrideModules?: Record<string, unknown>,
+): Promise<void> {
+  console.log("🔌 discovering plugins...");
+  if (overrideModules) {
+    registerLocalPlugins(overrideModules);
+  } else {
+    await loadLocalPlugins();
+  }
+  await loadRemotePlugins();
 }
 
 function isFrontendPlugin(candidate: unknown): candidate is FrontendPlugin {

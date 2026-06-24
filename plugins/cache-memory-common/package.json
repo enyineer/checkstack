@@ -2,6 +2,9 @@
   "name": "@checkstack/cache-memory-common",
   "version": "0.2.11",
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "main": "src/index.ts",
   "checkstack": {
     "type": "common"

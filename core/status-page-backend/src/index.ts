@@ -2,6 +2,7 @@ import {
   createBackendPlugin,
   coreServices,
   publicHostResolverExtensionPoint,
+  publicPathExtensionPoint,
 } from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { inArray, ilike } from "drizzle-orm";
@@ -94,6 +95,18 @@ export default createBackendPlugin({
                 };
               },
             },
+            pluginMetadata,
+          );
+
+        // Declare the same-origin public path prefix so the SPA serves
+        // `/statuspage/view/:slug` via the lean public bundle (never booting the
+        // admin app). Mirrors `statusPublicRoutes` ("/view/:slug" under the
+        // "statuspage" pluginId). The data-isolation guarantee is enforced
+        // server-side by `getPublishedStatusPage` regardless.
+        env
+          .getExtensionPoint(publicPathExtensionPoint)
+          .registerPublicPath(
+            { pathPrefix: `/${pluginMetadata.pluginId}/view` },
             pluginMetadata,
           );
 

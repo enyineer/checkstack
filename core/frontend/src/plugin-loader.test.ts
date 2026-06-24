@@ -91,4 +91,43 @@ describe("frontend loadPlugins", () => {
 
     pluginRegistry.reset();
   });
+
+  it("registerLocalPlugins registers bundled plugins synchronously with no fetch", async () => {
+    const { pluginRegistry } = await import("@checkstack/frontend-api");
+    const { registerLocalPlugins } = await import("./plugin-loader");
+
+    pluginRegistry.reset();
+    registerLocalPlugins({
+      "../../../plugins/local-frontend/src/index.tsx": {
+        default: { metadata: { pluginId: "local" }, extensions: [] },
+      },
+    });
+
+    expect(
+      pluginRegistry.getPlugins().map((p) => p.metadata.pluginId),
+    ).toContain("local");
+    // First-paint critical path must not touch the network.
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    pluginRegistry.reset();
+  });
+
+  it("loadRemotePlugins uses the inlined enabledPlugins list without fetching /api/plugins", async () => {
+    const { pluginRegistry } = await import("@checkstack/frontend-api");
+    const { loadRemotePlugins } = await import("./plugin-loader");
+
+    pluginRegistry.reset();
+    await loadRemotePlugins({
+      enabledPlugins: [{ name: "remote-plugin", path: "/dist" }],
+    });
+
+    // The inlined list is used directly — the /api/plugins round trip is gone.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(loadRemote).toHaveBeenCalledWith("remote_plugin/plugin");
+    expect(
+      pluginRegistry.getPlugins().map((p) => p.metadata.pluginId),
+    ).toContain("remote-plugin");
+
+    pluginRegistry.reset();
+  });
 });
