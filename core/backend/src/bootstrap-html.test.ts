@@ -66,10 +66,14 @@ describe("injectBootstrap", () => {
       },
     });
 
-    // No raw closing tag injected inside our script — only the escaped form.
-    const scriptOpenCount = (out.match(/<script>/g) ?? []).length;
-    expect(scriptOpenCount).toBe(1);
-    expect(out).toContain("\\u003c/script>");
+    // The hostile value's tags must be escaped (every `<` is replaced with its
+    // JSON unicode escape), never injected as raw markup that could break out of
+    // our script element. Asserted directly (no tag-matching regex) so the check
+    // itself can't be a half-built HTML filter.
+    const esc = `${String.fromCodePoint(92)}u003c`; // the 6 chars: \ u 0 0 3 c
+    expect(out).not.toContain("<script>alert(1)");
+    expect(out).toContain(`${esc}/script>`);
+    expect(out).toContain(`${esc}script>alert(1)${esc}/script>`);
     // Still valid once unescaped.
     const match = out.match(
       new RegExp(`window\\.${BOOTSTRAP_GLOBAL} = (.*?);</script>`),

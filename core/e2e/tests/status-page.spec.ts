@@ -4,9 +4,9 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * Authenticated E2E coverage for operator-built status pages (plan §3.1).
  *
  * Routes under test:
- *   - `/status-pages`        the admin list (create + manage)
- *   - `/status-pages/:id`    the builder (add a content widget, publish)
- *   - `/status/:slug`        the PUBLIC, same-origin render path
+ *   - `/statuspage`        the admin list (create + manage)
+ *   - `/statuspage/:id`    the builder (add a content widget, publish)
+ *   - `/statuspage/view/:slug`        the PUBLIC, same-origin render path
  *
  * The journey proves the security invariant end to end (the unit layer covers it
  * in `service.test.ts`): the public surface serves ONLY a published page, and
@@ -39,7 +39,7 @@ test.describe("Status pages", () => {
     page,
   }) => {
     // Create a page but never publish it.
-    await page.goto("/status-pages", { waitUntil: "domcontentloaded" });
+    await page.goto("/statuspage", { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { name: "Status pages" }),
     ).toBeVisible({ timeout: 30_000 });
@@ -53,11 +53,11 @@ test.describe("Status pages", () => {
     await dialog.getByRole("button", { name: "Create" }).click();
 
     // Lands on the builder for the new page.
-    await expect(page).toHaveURL(/\/status-pages\/[^/]+$/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/statuspage\/[^/]+$/, { timeout: 30_000 });
 
     // The public route must NOT serve an unpublished page. This assertion is
     // specific to our namespaced slug, so it stays correct on a shared DB.
-    await page.goto(`/status/${UNPUBLISHED_SLUG}`, {
+    await page.goto(`/statuspage/view/${UNPUBLISHED_SLUG}`, {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByText("Status page not found")).toBeVisible({
@@ -69,7 +69,7 @@ test.describe("Status pages", () => {
     page,
   }) => {
     // 1. Create the page.
-    await page.goto("/status-pages", { waitUntil: "domcontentloaded" });
+    await page.goto("/statuspage", { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: "New status page" }).click();
 
     const dialog = page.getByRole("dialog");
@@ -78,7 +78,7 @@ test.describe("Status pages", () => {
     await dialog.getByRole("button", { name: "Create" }).click();
 
     // 2. In the builder, add a Heading content widget and fill its text.
-    await expect(page).toHaveURL(/\/status-pages\/[^/]+$/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/statuspage\/[^/]+$/, { timeout: 30_000 });
 
     // The "Add a block…" select lists the registered widget types.
     await page.getByRole("combobox", { name: /Add a block/i }).click();
@@ -97,7 +97,7 @@ test.describe("Status pages", () => {
 
     // 4. The PUBLIC route serves the published content same-origin. Scoped to
     // our namespaced slug + title so a shared DB doesn't affect the assertion.
-    await page.goto(`/status/${PAGE_SLUG}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/statuspage/view/${PAGE_SLUG}`, { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { name: PAGE_TITLE }),
     ).toBeVisible({ timeout: 30_000 });
