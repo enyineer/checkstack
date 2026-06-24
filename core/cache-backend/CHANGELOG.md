@@ -1,5 +1,16 @@
 # @checkstack/cache-backend
 
+## 0.4.13
+
+### Patch Changes
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/backend-api@0.26.0
+  - @checkstack/cache-common@0.5.6
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/common@0.17.0
+
 ## 0.4.12
 
 ### Patch Changes

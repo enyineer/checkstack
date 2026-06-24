@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/healthcheck-rcon-common",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "type": "module",
   "sideEffects": [
     "**/*.css"

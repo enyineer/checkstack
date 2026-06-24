@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/gitops-backend",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",

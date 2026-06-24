@@ -1,5 +1,28 @@
 # @checkstack/anomaly-backend
 
+## 1.3.10
+
+### Patch Changes
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/ai-backend@0.9.1
+  - @checkstack/backend-api@0.26.0
+  - @checkstack/anomaly-common@1.5.3
+  - @checkstack/catalog-common@2.4.3
+  - @checkstack/gitops-common@0.6.6
+  - @checkstack/healthcheck-common@1.8.1
+  - @checkstack/notification-common@1.4.1
+  - @checkstack/signal-common@0.2.12
+  - @checkstack/cache-api@0.3.14
+  - @checkstack/cache-utils@0.2.19
+  - @checkstack/catalog-backend@1.5.5
+  - @checkstack/common@0.17.0
+  - @checkstack/gitops-backend@0.5.13
+  - @checkstack/healthcheck-backend@1.10.2
+  - @checkstack/queue-api@0.3.14
+
 ## 1.3.9
 
 ### Patch Changes

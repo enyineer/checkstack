@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/scripts",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Checkstack tooling: plugin scaffolding, codegen, and the plugin-pack CLI used by external plugin authors.",
   "license": "Elastic-2.0",
   "type": "module",

@@ -1,5 +1,15 @@
 # @checkstack/integration-webex-backend
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [2e20792]
+  - @checkstack/backend-api@0.26.0
+  - @checkstack/automation-backend@0.10.1
+  - @checkstack/common@0.17.0
+  - @checkstack/integration-backend@0.6.6
+
 ## 0.2.7
 
 ### Patch Changes

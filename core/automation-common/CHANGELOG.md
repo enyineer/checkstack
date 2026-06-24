@@ -1,5 +1,22 @@
 # @checkstack/automation-common
 
+## 0.8.1
+
+### Patch Changes
+
+- 2e20792: Declare `sideEffects` (CSS-only) so bundlers can tree-shake these packages' barrel exports
+
+  These packages now declare `"sideEffects": ["**/*.css"]` in their
+  `package.json`. This lets a consuming bundle drop unused barrel re-exports
+  instead of pulling a whole package's component graph when only one
+  provider/hook is imported (e.g. importing `SessionProvider` no longer dragged an
+  admin form). It is build metadata only - no runtime behavior change.
+
+- Updated dependencies [2e20792]
+  - @checkstack/signal-common@0.2.12
+  - @checkstack/common@0.17.0
+  - @checkstack/template-engine@0.4.6
+
 ## 0.8.0
 
 ### Minor Changes

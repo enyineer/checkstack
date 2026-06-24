@@ -1,5 +1,31 @@
 # @checkstack/dependency-frontend
 
+## 0.6.2
+
+### Patch Changes
+
+- 2e20792: Declare `sideEffects` (CSS-only) so bundlers can tree-shake these packages' barrel exports
+
+  These packages now declare `"sideEffects": ["**/*.css"]` in their
+  `package.json`. This lets a consuming bundle drop unused barrel re-exports
+  instead of pulling a whole package's component graph when only one
+  provider/hook is imported (e.g. importing `SessionProvider` no longer dragged an
+  admin form). It is build metadata only - no runtime behavior change.
+
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+- Updated dependencies [2e20792]
+  - @checkstack/frontend-api@0.12.0
+  - @checkstack/ui@1.19.0
+  - @checkstack/signal-frontend@0.3.0
+  - @checkstack/catalog-common@2.4.3
+  - @checkstack/dashboard-frontend@0.9.2
+  - @checkstack/dependency-common@1.4.3
+  - @checkstack/gitops-common@0.6.6
+  - @checkstack/gitops-frontend@0.6.2
+  - @checkstack/healthcheck-common@1.8.1
+  - @checkstack/common@0.17.0
+
 ## 0.6.1
 
 ### Patch Changes
