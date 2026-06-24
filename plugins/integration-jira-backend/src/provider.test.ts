@@ -65,15 +65,13 @@ describe("jiraProvider.getConnectionOptions — loud failures", () => {
   });
 
   it("warns when deps are present but no selectable fields come back", async () => {
-    // Legacy createmeta with an issue type that only exposes excluded fields.
+    // Granular createmeta (DC `values` shape) exposing only excluded fields.
     restoreFetch = stubFetch({
-      projects: [
-        {
-          issuetypes: [
-            { id: "10001", fields: { summary: { required: true, name: "Summary" } } },
-          ],
-        },
-      ],
+      maxResults: 50,
+      startAt: 0,
+      total: 1,
+      isLast: true,
+      values: [{ required: true, name: "Summary", fieldId: "summary" }],
     });
     const { logger, logs } = recordingLogger();
     const provider = createJiraProvider();

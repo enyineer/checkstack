@@ -330,25 +330,25 @@ export function createJiraClient(options: JiraClientOptions) {
     /**
      * Get fields available for creating issues with a specific type.
      *
-     * Two endpoints depending on auth mode. On Jira Cloud the granular
-     * `/issue/createmeta/{projectIdOrKey}/issuetypes/{issueTypeId}` endpoint
-     * returns a flat field list. On Jira Server / Data Center (verified on
-     * 9.12) that same endpoint does NOT yield usable field metadata for this
-     * client — the option resolver swallowed the mismatch into an empty
-     * field-mapping dropdown ("No options available"). The LEGACY
-     * `/issue/createmeta?projectKeys=...&issuetypeIds=...&expand=projects.issuetypes.fields`
-     * endpoint returns a stable `projects[].issuetypes[].fields` OBJECT map
-     * (keyed by field id) across all DC versions, so datacenter mode uses it
-     * (mirrors the cloud-vs-DC endpoint split already used by `searchIssues`).
+     * Uses the granular per-issue-type createmeta endpoint
+     * `/issue/createmeta/{projectIdOrKey}/issuetypes/{issueTypeId}` — the
+     * replacement for the bulk `/issue/createmeta` that Jira REMOVED in 9.0
+     * (it 404s on modern Server/Data Center). The granular endpoint exists on
+     * Cloud and on Server/DC >= 8.4.
      *
-     * The granular (cloud) response is tolerant of both `fields` and the
-     * paginated `values` key Jira has used for this resource.
+     * The field array key DIFFERS by deployment, which is why reading only one
+     * left the field-mapping dropdown empty ("No options available"):
+     *   - Jira Cloud (`PageOfCreateMetaIssueTypeWithField`) returns it under
+     *     `fields`.
+     *   - Jira Server / Data Center returns it under the standard paginated
+     *     `values` key (verified on 9.12).
+     * We accept either. Each entry carries the field id under `fieldId` (Cloud
+     * may also send `key`); DC entries have no `key`.
      */
     async getFields(
       projectKey: string,
       issueTypeId: string,
     ): Promise<JiraField[]> {
-      // Field metadata carries the same shape from both endpoints.
       interface FieldMeta {
         key?: string;
         fieldId?: string;
@@ -363,91 +363,52 @@ export function createJiraClient(options: JiraClientOptions) {
         };
         allowedValues?: Array<{ id: string; name?: string; value?: string }>;
       }
-      const toJiraField = (meta: FieldMeta, mapKey?: string): JiraField => ({
-        // The legacy endpoint's map key IS the field id; the granular endpoint
-        // carries `key` / `fieldId` on the entry.
-        key: meta.key || meta.fieldId || mapKey || "",
-        name: meta.name,
-        required: meta.required,
-        schema: meta.schema,
-        allowedValues: meta.allowedValues,
-      });
+      // Paginated bean: Cloud puts the field list under `fields`, Server/DC
+      // under `values`.
+      interface CreateMetaFields {
+        startAt?: number;
+        maxResults?: number;
+        total?: number;
+        isLast?: boolean;
+        fields?: FieldMeta[];
+        values?: FieldMeta[];
+      }
 
       logger.debug(
         `Fetching fields for project: ${projectKey}, issueType: ${issueTypeId}`,
       );
 
-      if (authMode === "datacenter") {
-        interface LegacyCreateMeta {
-          projects?: Array<{
-            issuetypes?: Array<{
-              id: string;
-              fields?: Record<string, FieldMeta>;
-            }>;
-          }>;
-        }
-        const result = await request<LegacyCreateMeta>(
-          `/issue/createmeta?projectKeys=${encodeURIComponent(
-            projectKey,
-          )}&issuetypeIds=${encodeURIComponent(
-            issueTypeId,
-          )}&expand=projects.issuetypes.fields`,
-        );
-        const issuetypes = result.projects?.[0]?.issuetypes ?? [];
-        // A populated response with no matching project/issue type points at a
-        // wrong projectKey/issueTypeId or a permission scope - surface it.
-        if (issuetypes.length === 0) {
-          logger.warn(
-            `Jira legacy createmeta returned no project/issue-type metadata for project "${projectKey}", issueType "${issueTypeId}" (response keys: ${Object.keys(
-              result,
-            ).join(", ") || "none"}). Check the project key and the connection's project permissions.`,
-          );
-        }
-        const issuetype =
-          issuetypes.find((t) => t.id === issueTypeId) ?? issuetypes[0];
-        const fieldsMap = issuetype?.fields ?? {};
-        const fields = Object.entries(fieldsMap).map(([mapKey, meta]) =>
-          toJiraField(meta, mapKey),
-        );
-        logger.debug(
-          `Found ${fields.length} fields (legacy createmeta) for project ${projectKey}, issueType ${issueTypeId}`,
-        );
-        return fields;
-      }
-
-      // Cloud `PageOfCreateMetaIssueTypeWithField` documents the field list
-      // under `fields`; `values` is a defensive fallback for the paginated
-      // shape some Jira variants have used for this resource.
-      interface FieldsResponse {
-        startAt?: number;
-        maxResults?: number;
-        total?: number;
-        fields?: FieldMeta[];
-        values?: FieldMeta[];
-      }
-      const result = await request<FieldsResponse>(
+      const result = await request<CreateMetaFields>(
         `/issue/createmeta/${encodeURIComponent(
           projectKey,
         )}/issuetypes/${encodeURIComponent(issueTypeId)}`,
       );
-      // Neither known field-list key present => the response shape isn't what
-      // this endpoint is expected to return (e.g. a datacenter instance, or a
-      // Jira version that changed the contract). Surface it loudly so an
-      // operator isn't left guessing at an empty dropdown.
-      if (result.fields === undefined && result.values === undefined) {
+
+      const fieldList = result.fields ?? result.values;
+      // Neither field-list key present => an unexpected response shape (a Jira
+      // version that changed the contract, or an error body). Surface it loudly
+      // instead of leaving an operator guessing at an empty dropdown.
+      if (fieldList === undefined) {
         logger.warn(
-          `Jira createmeta response for project "${projectKey}", issueType "${issueTypeId}" had no "fields"/"values" array (response keys: ${Object.keys(
-            result,
-          ).join(", ") || "none"}). The field-mapping dropdown will be empty.`,
+          `Jira createmeta response for project "${projectKey}", issueType "${issueTypeId}" had neither a "fields" nor "values" array (response keys: ${
+            Object.keys(result).join(", ") || "none"
+          }). The field-mapping dropdown will be empty.`,
         );
+        return [];
       }
-      const fieldList = result.fields ?? result.values ?? [];
 
       logger.debug(
         `Found ${fieldList.length} fields for project ${projectKey}, issueType ${issueTypeId}`,
       );
 
-      return fieldList.map((field) => toJiraField(field));
+      return fieldList.map((meta) => ({
+        // DC entries carry only `fieldId`; Cloud may also send `key`.
+        key: meta.key || meta.fieldId || "",
+        name: meta.name,
+        required: meta.required,
+        schema: meta.schema,
+        allowedValues: meta.allowedValues,
+      }));
     },
 
     /**

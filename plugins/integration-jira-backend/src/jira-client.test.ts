@@ -581,34 +581,28 @@ describe("createJiraClient", () => {
       expect(fields.map((f) => f.key)).toEqual(["labels"]);
     });
 
-    it("uses the LEGACY createmeta endpoint and object-map fields on datacenter", async () => {
-      // Older on-prem Jira lacks the granular endpoint and returns fields as an
-      // object keyed by field id under projects[].issuetypes[].fields.
+    it("uses the granular endpoint and the `values` key on datacenter (api v2)", async () => {
+      // Verified shape on Jira DC 9.12: the granular endpoint returns the field
+      // list under `values` (not `fields`), each entry keyed by `fieldId` with
+      // no `key`. The legacy bulk endpoint was removed in Jira 9.0.
       fetchFixture = setupFetchMock({
-        projects: [
+        maxResults: 50,
+        startAt: 0,
+        total: 2,
+        isLast: true,
+        values: [
           {
-            id: "1",
-            key: "PROJ",
-            issuetypes: [
-              {
-                id: "10001",
-                name: "Bug",
-                fields: {
-                  labels: {
-                    required: false,
-                    name: "Labels",
-                    fieldId: "labels",
-                    schema: { type: "array", items: "string", system: "labels" },
-                  },
-                  // No `fieldId` on this entry — the map key is the field id.
-                  customfield_10010: {
-                    required: true,
-                    name: "Story Points",
-                    schema: { type: "number", customId: 10010 },
-                  },
-                },
-              },
-            ],
+            required: false,
+            name: "Labels",
+            fieldId: "labels",
+            schema: { type: "array", items: "string", system: "labels" },
+          },
+          {
+            required: true,
+            name: "Story Points",
+            fieldId: "customfield_10010",
+            schema: { type: "number", customId: 10010 },
+            allowedValues: [{ id: "1", value: "1" }],
           },
         ],
       });
@@ -620,33 +614,28 @@ describe("createJiraClient", () => {
       });
       const fields = await client.getFields("PROJ", "10001");
       expect(fetchFixture.calls[0].url).toBe(
-        "https://jira.mycompany.com/rest/api/2/issue/createmeta?projectKeys=PROJ&issuetypeIds=10001&expand=projects.issuetypes.fields",
+        "https://jira.mycompany.com/rest/api/2/issue/createmeta/PROJ/issuetypes/10001",
       );
-      // Both fields surface, with the map key used as the field key fallback.
+      // Entries surface via `fieldId` (no `key` on DC), preserving schema.
       expect(fields.map((f) => f.key)).toEqual(["labels", "customfield_10010"]);
-      const labels = fields.find((f) => f.key === "labels");
-      expect(labels?.schema?.items).toBe("string");
+      expect(fields.find((f) => f.key === "labels")?.schema?.items).toBe("string");
+      expect(fields.find((f) => f.key === "customfield_10010")?.allowedValues).toEqual([
+        { id: "1", value: "1" },
+      ]);
     });
 
-    it("matches the requested issue type when several are returned (datacenter)", async () => {
-      fetchFixture = setupFetchMock({
-        projects: [
-          {
-            issuetypes: [
-              { id: "10001", fields: { summary: { required: true, name: "Summary" } } },
-              { id: "10002", fields: { labels: { required: false, name: "Labels" } } },
-            ],
-          },
-        ],
-      });
+    it("returns [] and warns when the response has neither fields nor values", async () => {
+      const warnings: string[] = [];
+      fetchFixture = setupFetchMock({ maxResults: 50, startAt: 0, total: 0 });
       const client = createJiraClient({
         authMode: "datacenter",
         baseUrl: "https://jira.mycompany.com",
         apiToken: "pat",
-        logger: testLogger,
+        logger: { ...testLogger, warn: (m: string) => warnings.push(m) },
       });
-      const fields = await client.getFields("PROJ", "10002");
-      expect(fields.map((f) => f.key)).toEqual(["labels"]);
+      const fields = await client.getFields("PROJ", "10001");
+      expect(fields).toEqual([]);
+      expect(warnings.some((m) => m.includes("neither a \"fields\" nor \"values\""))).toBe(true);
     });
   });
 });
