@@ -1,5 +1,14 @@
 # @checkstack/dependency-frontend
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/ui@1.18.0
+  - @checkstack/dashboard-frontend@0.9.1
+  - @checkstack/gitops-frontend@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

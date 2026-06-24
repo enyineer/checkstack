@@ -1,5 +1,14 @@
 # @checkstack/integration-script-backend
 
+## 0.6.17
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/automation-common@0.8.0
+  - @checkstack/automation-backend@0.10.0
+  - @checkstack/script-packages-backend@0.3.16
+
 ## 0.6.16
 
 ### Patch Changes

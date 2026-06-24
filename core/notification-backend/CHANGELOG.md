@@ -1,5 +1,12 @@
 # @checkstack/notification-backend
 
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/automation-backend@0.10.0
+
 ## 1.5.16
 
 ### Patch Changes

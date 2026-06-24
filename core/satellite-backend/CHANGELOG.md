@@ -1,5 +1,15 @@
 # @checkstack/satellite-backend
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/automation-common@0.8.0
+  - @checkstack/automation-backend@0.10.0
+  - @checkstack/healthcheck-backend@1.10.1
+  - @checkstack/script-packages-backend@0.3.16
+
 ## 0.7.0
 
 ### Minor Changes

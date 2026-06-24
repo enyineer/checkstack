@@ -1,5 +1,12 @@
 # @checkstack/sdk
 
+## 0.113.1
+
+### Patch Changes
+
+- Updated dependencies [748dc50]
+  - @checkstack/automation-common@0.8.0
+
 ## 0.112.1
 
 ### Patch Changes
