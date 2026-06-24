@@ -170,6 +170,35 @@ function buildSimpleProvider(
   };
 }
 
+/**
+ * Whether this field holds a `{{ }}`-rendered TEMPLATE (the default — action
+ * config, durations, variables) or a bare EXPRESSION (a condition / `when` /
+ * trigger filter). The distinction is invisible from the value alone, so the
+ * input surfaces it: an expression must NOT contain `{{ }}` (those are template
+ * delimiters and fail to parse at run time), and the input flags that mistake
+ * inline instead of waiting for a save-time / run-time error.
+ */
+export type TemplateValueInputMode = "template" | "expression";
+
+/** Matches either template delimiter — neither belongs in a bare expression. */
+const TEMPLATE_DELIMITER_RE = /\{\{|\}\}/;
+
+/**
+ * True when the value contains a `{{` or `}}` template delimiter. In an
+ * expression field that is always a mistake. Exported so the rule is unit
+ * testable and reusable.
+ */
+export function containsTemplateDelimiters(value: string): boolean {
+  return TEMPLATE_DELIMITER_RE.test(value);
+}
+
+/** Inline error shown when an expression field wrongly contains `{{ }}`. */
+export const EXPRESSION_DELIMITER_ERROR =
+  "Expressions reference fields directly. Remove the {{ }} template delimiters (e.g. artifacts.find.issue_search.found != true).";
+
+/** Muted hint shown on focus so authors know an expression takes no `{{ }}`. */
+const EXPRESSION_HINT = "Reference fields directly, without {{ }}.";
+
 export interface TemplateValueInputProps {
   /** DOM id forwarded to the underlying input. */
   id?: string;
@@ -179,6 +208,11 @@ export interface TemplateValueInputProps {
   onChange: (value: string) => void;
   /** Placeholder text. */
   placeholder?: string;
+  /**
+   * Template (default) vs bare expression. In `expression` mode the input
+   * shows a focus hint and flags `{{ }}` delimiters as an inline error.
+   */
+  mode?: TemplateValueInputMode;
   /**
    * Legacy flat completion: properties offered when the user types `{{`.
    * Each pick inserts `{{ path }}`. Ignored when `completionProvider`
@@ -218,12 +252,14 @@ export const TemplateValueInput: React.FC<TemplateValueInputProps> = ({
   value,
   onChange,
   placeholder,
+  mode = "template",
   templateProperties,
   completionProvider,
   className,
   disabled,
   autoFocus,
 }) => {
+  const [focused, setFocused] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const popupRef = React.useRef<HTMLDivElement>(null);
   const itemRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
@@ -392,10 +428,27 @@ export const TemplateValueInput: React.FC<TemplateValueInputProps> = ({
     }
   };
 
+  const handleFocus = () => {
+    setFocused(true);
+    handleCaretMove();
+  };
+
   const handleBlur = () => {
+    setFocused(false);
     // Delay so a click on a popup row registers before unmounting.
     setTimeout(() => setShowPopup(false), 150);
   };
+
+  // Expression fields must not contain `{{ }}` template delimiters. Flag it
+  // inline so the author sees it while typing, not only at save / run time.
+  const syntaxError =
+    mode === "expression" && containsTemplateDelimiters(value)
+      ? EXPRESSION_DELIMITER_ERROR
+      : undefined;
+  const captionId = id ? `${id}-caption` : undefined;
+  // Show the muted hint while focused (so it guides without permanently
+  // cluttering a form of many fields); the error always shows when present.
+  const showHint = mode === "expression" && focused && !syntaxError;
 
   return (
     <div className={`relative flex-1 ${className ?? ""}`.trim()}>
@@ -407,11 +460,13 @@ export const TemplateValueInput: React.FC<TemplateValueInputProps> = ({
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         onClick={handleCaretMove}
-        onFocus={handleCaretMove}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
+        invalid={Boolean(syntaxError)}
+        aria-describedby={syntaxError || showHint ? captionId : undefined}
         className="font-mono text-sm"
       />
       {showPopup && items.length > 0 && (
@@ -464,6 +519,17 @@ export const TemplateValueInput: React.FC<TemplateValueInputProps> = ({
             ))}
           </div>
         </div>
+      )}
+      {syntaxError ? (
+        <p id={captionId} role="alert" className="mt-1 text-xs text-destructive">
+          {syntaxError}
+        </p>
+      ) : (
+        showHint && (
+          <p id={captionId} className="mt-1 text-xs text-muted-foreground">
+            {EXPRESSION_HINT}
+          </p>
+        )
       )}
     </div>
   );

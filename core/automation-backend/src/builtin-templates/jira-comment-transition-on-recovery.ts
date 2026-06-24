@@ -26,14 +26,18 @@ export const jiraCommentTransitionOnRecovery: AutomationTemplateInput = {
           connectionId: "REPLACE_JIRA_CONNECTION",
           projectKey: "REPLACE_PROJECT",
           statusCategory: "indeterminate",
-          summaryContains: "{{ trigger.payload.systemName }}",
+          // Correlate to THIS system by the stable label the "file Jira bug"
+          // automation tags issues with on create. `systemId` is always present
+          // on the trigger payload, so the label never renders empty.
+          labels: "checkstack-sys-{{ trigger.payload.systemId }}",
         },
       },
       {
         id: "close_if_found",
         choose: [
           {
-            when: "{{ artifacts.find_ticket.issue_search.found }}",
+            // `when` is a BARE expression (no {{ }}).
+            when: "artifacts.find_ticket.issue_search.found == true",
             sequence: [
               {
                 id: "post_comment",

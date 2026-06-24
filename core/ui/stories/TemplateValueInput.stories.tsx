@@ -56,10 +56,39 @@ const NoPropertiesDemo = () => {
   );
 };
 
+const ExpressionModeDemo = () => {
+  const [value, setValue] = useState(
+    "artifacts.find.issue_search.found != true",
+  );
+  return (
+    <div className="w-96 space-y-4 p-4">
+      <TemplateValueInput
+        value={value}
+        onChange={setValue}
+        mode="expression"
+        placeholder="trigger.payload.severity == &quot;high&quot;"
+      />
+      <p className="text-muted-foreground text-xs">
+        Focus the field for the expression hint. Type a <code>{"{{"}</code> to
+        see the inline error - expressions reference fields directly, with no
+        template delimiters.
+      </p>
+    </div>
+  );
+};
+
 export const WithProperties: Story = {
   render: () => <WithPropertiesDemo />,
 };
 
 export const NoProperties: Story = {
   render: () => <NoPropertiesDemo />,
+};
+
+/**
+ * Expression mode: a focus hint plus an inline error when the value wrongly
+ * contains `{{ }}` template delimiters (e.g. a condition / trigger filter).
+ */
+export const ExpressionMode: Story = {
+  render: () => <ExpressionModeDemo />,
 };

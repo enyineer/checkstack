@@ -413,7 +413,7 @@ describe("collectDefinitionIssues", () => {
         {
           choose: [
             {
-              when: "{{ artifacts.ghost.key }} == 'x'",
+              when: "artifacts.ghost.key == 'x'",
               sequence: [
                 {
                   action: "test.log",
@@ -471,7 +471,7 @@ describe("collectDefinitionIssues", () => {
               // `test.create` produces "thing"; the model dropped that segment
               // and gated on `.ok` directly, which resolves to undefined at run
               // time and makes the gate misfire.
-              when: "{{ not artifacts.make_thing.ok }}",
+              when: "not artifacts.make_thing.ok",
               sequence: [
                 {
                   action: "test.log",

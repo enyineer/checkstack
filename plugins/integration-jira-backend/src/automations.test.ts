@@ -376,6 +376,29 @@ describe("jira automation actions", () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/connection not found/i);
     });
+
+    it("refuses to run when a configured filter rendered empty (no broadening)", async () => {
+      fetchFixture = setupFetchSequence([{ body: { total: 99, issues: [] } }]);
+      const actions = createJiraActions();
+      const search = actions[3];
+      // `labels` was configured but its template rendered to "" (e.g. a missing
+      // trigger field). The guard must fail rather than drop the clause and
+      // match every in-progress ticket.
+      const result = await search.execute({
+        ...ctxBase,
+        consumedArtifacts: {},
+        config: {
+          connectionId: "conn-1",
+          projectKey: "PROJ",
+          statusCategory: "indeterminate",
+          labels: "   ",
+        } as never,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/labels.*rendered to an empty value/i);
+      // It must NOT have hit the Jira search endpoint.
+      expect(fetchFixture.calls).toHaveLength(0);
+    });
   });
 });
 

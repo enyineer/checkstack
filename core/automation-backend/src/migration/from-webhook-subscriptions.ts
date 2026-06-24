@@ -207,8 +207,10 @@ function buildSystemFilterCondition(
   systemFilter: string[] | undefined,
 ): ConditionInput[] {
   if (!systemFilter || systemFilter.length === 0) return [];
+  // Conditions are BARE expressions (no {{ }} — that is template syntax and
+  // fails to parse at dispatch time).
   const branches = systemFilter.map(
-    (systemId) => `{{ trigger.payload.systemId == "${systemId}" }}`,
+    (systemId) => `trigger.payload.systemId == "${systemId}"`,
   );
   if (branches.length === 1) return [branches[0]!];
   return [{ or: branches }];

@@ -202,15 +202,18 @@ describe("buildDefinitionFor", () => {
     expect(cond.or[0]).toContain("sys-1");
   });
 
-  it("emits a single template condition for a single-id systemFilter", () => {
+  it("emits a single bare-expression condition for a single-id systemFilter", () => {
     const result = buildDefinitionFor(
       sub({ systemFilter: ["sys-only"] }),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.definition.conditions).toHaveLength(1);
-    expect(typeof result.definition.conditions[0]).toBe("string");
-    expect(result.definition.conditions[0]).toContain("sys-only");
+    const cond = result.definition.conditions[0];
+    expect(typeof cond).toBe("string");
+    expect(cond).toContain("sys-only");
+    // Conditions are bare expressions — never wrapped in {{ }} template syntax.
+    expect(cond).not.toContain("{{");
   });
 
   it("emits no conditions when systemFilter is empty", () => {

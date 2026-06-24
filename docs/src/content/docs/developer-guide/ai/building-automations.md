@@ -79,12 +79,15 @@ The model validates any script with `automation.testScript` (which fans the draf
 
 ## Gate with a side-effect-free condition
 
-A decision or gate is modelled as a `choose` action or a `condition_guard` over a template, never as an action that also performs I/O. Conditions are side-effect-free and cannot do network or store access. To gate on the state of an external system, the automation runs a read action first, then gates on its artifact.
+A decision or gate is modelled as a `choose` action or a `condition_guard` over an EXPRESSION, never as an action that also performs I/O. Conditions are side-effect-free and cannot do network or store access. To gate on the state of an external system, the automation runs a read action first, then gates on its artifact.
 
-For example, to avoid filing a duplicate ticket, run `integration-jira.search_issues` (a read-only action that produces an `issue_search` artifact), then gate creation on the result:
+> [!IMPORTANT]
+> A condition (`when` / `condition` / `wait_until.condition` / a trigger or `wait_for_trigger` `filter` / `repeat.while|until|for_each`) is a BARE expression that references fields directly. Do NOT wrap it in `{{ }}` - those are template delimiters and a condition wrapped in them fails to parse at run time (and is now rejected at save time). `{{ }}` belongs only in action `config` values, which ARE templates. Use `!= true` / `== true` for an explicit boolean check.
+
+For example, to avoid filing a duplicate ticket, run `integration-jira.search_issues` (a read-only action that produces an `issue_search` artifact), then gate creation on the result with a bare expression:
 
 ```text
-{{ not artifacts.check-existing.issue_search.found }}
+artifacts.check-existing.issue_search.found != true
 ```
 
 ## Wire outputs with artifact references
@@ -109,6 +112,6 @@ When the assistant calls `automation.propose`, the dry run catches these failure
 - A `runAs` that is bindable but lacks the access rules an action requires (each action declares `requiredAccessRules`, e.g. `integration-jira.create_issue.manage`) is flagged per action, so the author learns on the review card that the chosen service account cannot run that action - rather than the automation failing on first run. The dispatch engine enforces the same rules at execute time.
 - A `connectionId` that does not reference a real connection for the action's provider is rejected with guidance to call `automation.listConnections`. Templated connection ids are skipped, and a lookup failure degrades to a soft note.
 - A literal dynamic-option value the connection does not offer (e.g. a `projectKey` or `issueTypeId` that is not a real Jira project / issue type) is rejected with guidance to call `automation.resolveActionOptions`. This reuses the same per-field resolvers, sourcing each field's dependency values from the same literal config so a cascade (issueTypeId needs projectKey) resolves. Templated values, and fields whose dependencies are templated/absent, are skipped; a resolver lookup failure is skipped rather than blocking (the connection itself is already validated), so transient provider flakiness never gates a proposal - only a definitively-invalid value is flagged.
-- An unwired `{{ artifacts.<id>... }}` reference (the producer id does not exist or does not produce an artifact), or a reference whose `<artifactType>` segment does not match what the producing action actually produces (e.g. `artifacts.check-existing.found` when the action produces `issue_search`), is flagged by the definition validator, which walks configs, variables blocks, `choose` `when` clauses, and conditions. A bare whole-object `artifacts.<id>` reference, built-in roots, and literal prose are left untouched.
+- An unwired `artifacts.<id>...` reference (the producer id does not exist or does not produce an artifact), or a reference whose `<artifactType>` segment does not match what the producing action actually produces (e.g. `artifacts.check-existing.found` when the action produces `issue_search`), is flagged by the definition validator. It walks `{{ }}` spans in configs and variables blocks AND the bare expressions in `choose` `when` clauses and conditions. A bare whole-object `artifacts.<id>` reference, built-in roots, and literal prose are left untouched. A condition wrongly wrapped in `{{ }}` is rejected separately as an expression-syntax error.
 
 All of these merge into the dry-run errors and are raised before apply, so an operator reviewing the confirm card sees them up front. Existing valid automations still pass unchanged.

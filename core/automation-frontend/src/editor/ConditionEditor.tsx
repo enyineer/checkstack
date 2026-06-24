@@ -152,6 +152,7 @@ export const ConditionEditor: React.FC<ConditionEditorProps> = ({
           value={typeof value === "string" ? value : ""}
           onChange={(next) => onChange(next)}
           placeholder="trigger.payload.severity == &quot;high&quot;"
+          mode="expression"
           completionProvider={completionProvider}
         />
       )}
@@ -246,6 +247,7 @@ const NumericStateBody: React.FC<{
               value={typeof ns.value === "string" ? ns.value : String(ns.value)}
               onChange={(next) => patch({ value: next })}
               placeholder="health.system.p95_latency_ms"
+              mode="expression"
               completionProvider={completionProvider}
             />
           </div>

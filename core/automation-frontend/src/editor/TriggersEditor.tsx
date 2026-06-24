@@ -271,13 +271,14 @@ const TriggerCard: React.FC<{
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Filter template</Label>
+              <Label className="text-xs">Filter (expression)</Label>
               <TemplateValueInput
                 value={value.filter ?? ""}
                 onChange={(next) =>
                   onChange({ ...value, filter: next || undefined })
                 }
-                placeholder="{{ trigger.payload.severity == &quot;high&quot; }}"
+                placeholder="trigger.payload.severity == &quot;high&quot;"
+                mode="expression"
                 completionProvider={templateCompletion}
                 disabled={disabled}
               />
@@ -464,6 +465,7 @@ const WindowInput: React.FC<{
             })
           }
           placeholder={`Leave blank to count ${defaultPartition}`}
+          mode="expression"
           completionProvider={completionProvider}
           disabled={disabled}
         />

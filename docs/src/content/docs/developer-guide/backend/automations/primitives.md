@@ -194,7 +194,7 @@ actions:
   - wait_for_trigger:
       event: incident.resolved
       timeout_seconds: 86400
-      filter: "{{ trigger.payload.id == artifacts.incident.id }}"
+      filter: "trigger.payload.id == artifacts.incident.id"
   - action: notification.send
     config: { title: "Resolved within SLA" }
 ```
@@ -220,7 +220,7 @@ actions:
 
 ## Triggers
 
-A trigger is the entry point. Every trigger has an `event`; built-in triggers also take `config`. Optional per-trigger fields: an `id` (a discriminator for `trigger.id` in `choose` clauses), a gating `filter` template, a `for:` dwell, and a `window:` rate gate.
+A trigger is the entry point. Every trigger has an `event`; built-in triggers also take `config`. Optional per-trigger fields: an `id` (a discriminator for `trigger.id` in `choose` clauses), a gating `filter` expression (a bare expression, no `{{ }}`), a `for:` dwell, and a `window:` rate gate.
 
 ### Event trigger with filter
 
@@ -228,7 +228,7 @@ A trigger is the entry point. Every trigger has an `event`; built-in triggers al
 triggers:
   - event: healthcheck.system_degraded
     id: payments_degraded
-    filter: "{{ trigger.payload.systemId == 'payments-api' }}"
+    filter: "trigger.payload.systemId == 'payments-api'"
 ```
 
 > [!NOTE]

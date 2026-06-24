@@ -521,14 +521,14 @@ describe("createJiraClient", () => {
 });
 
 describe("buildSearchJql", () => {
-  it("ANDs the structured clauses", () => {
+  it("ANDs the structured clauses (and appends a deterministic order)", () => {
     const jql = buildSearchJql({
       projectKey: "PROJ",
       status: "Open",
       summaryContains: "database",
     });
     expect(jql).toBe(
-      'project = "PROJ" AND status = "Open" AND summary ~ "database"',
+      'project = "PROJ" AND status = "Open" AND summary ~ "database" ORDER BY created DESC',
     );
   });
 
@@ -537,15 +537,47 @@ describe("buildSearchJql", () => {
       projectKey: "PROJ",
       jql: "labels = incident",
     });
-    expect(jql).toBe('project = "PROJ" AND (labels = incident)');
+    expect(jql).toBe(
+      'project = "PROJ" AND (labels = incident) ORDER BY created DESC',
+    );
   });
 
   it("escapes quotes and backslashes inside values", () => {
     const jql = buildSearchJql({ summaryContains: 'say "hi" \\o/' });
-    expect(jql).toBe('summary ~ "say \\"hi\\" \\\\o/"');
+    expect(jql).toBe('summary ~ "say \\"hi\\" \\\\o/" ORDER BY created DESC');
   });
 
-  it("returns an empty string when nothing is supplied", () => {
+  it("returns an empty string when nothing is supplied (no ORDER BY)", () => {
     expect(buildSearchJql({})).toBe("");
+  });
+
+  it("emits one ANDed equality clause per label so all labels must match", () => {
+    const jql = buildSearchJql({
+      projectKey: "PROJ",
+      labels: "checkstack-sys-abc, urgent",
+    });
+    expect(jql).toBe(
+      'project = "PROJ" AND labels = "checkstack-sys-abc" AND labels = "urgent" ORDER BY created DESC',
+    );
+  });
+
+  it("splits labels on whitespace as well as commas", () => {
+    expect(buildSearchJql({ labels: "a  b\tc" })).toBe(
+      'labels = "a" AND labels = "b" AND labels = "c" ORDER BY created DESC',
+    );
+  });
+
+  it("compiles a statusCategory clause", () => {
+    expect(buildSearchJql({ statusCategory: "indeterminate" })).toBe(
+      'statusCategory = "indeterminate" ORDER BY created DESC',
+    );
+  });
+
+  it("does not append a second ORDER BY when the raw JQL already has one", () => {
+    const jql = buildSearchJql({
+      projectKey: "PROJ",
+      jql: "status = Open ORDER BY updated ASC",
+    });
+    expect(jql).toBe('project = "PROJ" AND (status = Open ORDER BY updated ASC)');
   });
 });

@@ -404,8 +404,12 @@ function scanValueForArtifactRefs(
 }
 
 /**
- * A condition is either a template string or a structured node. Only the
- * string leaves carry templates, so recurse into the structured forms.
+ * A condition is either a bare-expression string or a structured node.
+ * Unlike a template field, a condition string is the WHOLE expression (no
+ * `{{ }}` wrapper — that is rejected by the schema), so its artifact refs are
+ * scanned over the entire string. The combinator nodes (`and` / `or` / `not`)
+ * nest further conditions; `numeric_state.value` is itself a bare expression;
+ * `time` / `state` carry no artifact refs.
  */
 function scanConditionForArtifactRefs(
   condition: unknown,
@@ -414,49 +418,111 @@ function scanConditionForArtifactRefs(
   issues: DefinitionIssue[],
 ): void {
   if (typeof condition === "string") {
-    scanStringForArtifactRefs(condition, path, producers, issues);
+    scanExpressionForArtifactRefs(condition, path, producers, issues);
     return;
   }
-  // and/or/not nodes nest further conditions; numeric_state/time/state nodes
-  // carry no free-form templates we need to wire-check. scanValue handles both
-  // by recursing into any string leaves it finds.
-  scanValueForArtifactRefs(condition, path, producers, issues);
+  if (condition === null || typeof condition !== "object") return;
+  if ("and" in condition && Array.isArray(condition.and)) {
+    for (const [i, c] of condition.and.entries()) {
+      scanConditionForArtifactRefs(c, [...path, "and", i], producers, issues);
+    }
+    return;
+  }
+  if ("or" in condition && Array.isArray(condition.or)) {
+    for (const [i, c] of condition.or.entries()) {
+      scanConditionForArtifactRefs(c, [...path, "or", i], producers, issues);
+    }
+    return;
+  }
+  if ("not" in condition) {
+    scanConditionForArtifactRefs(
+      condition.not,
+      [...path, "not"],
+      producers,
+      issues,
+    );
+    return;
+  }
+  if ("numeric_state" in condition) {
+    const node = condition.numeric_state;
+    if (node !== null && typeof node === "object" && "value" in node) {
+      const { value } = node;
+      if (typeof value === "string") {
+        scanExpressionForArtifactRefs(
+          value,
+          [...path, "numeric_state", "value"],
+          producers,
+          issues,
+        );
+      }
+    }
+  }
+  // `time` / `state` carry no artifact refs.
 }
 
+/**
+ * Scan a TEMPLATE field's string: only inside `{{ ... }}` spans, so a literal
+ * mention of the word "artifacts" in prose never triggers a false positive.
+ */
 function scanStringForArtifactRefs(
   text: string,
   path: Array<string | number>,
   producers: Map<string, string>,
   issues: DefinitionIssue[],
 ): void {
-  // Only inspect inside `{{ ... }}` spans so a literal mention of the word
-  // "artifacts" in prose never triggers a false positive.
   for (const span of extractTemplateSpans(text)) {
-    ARTIFACT_REF_RE.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = ARTIFACT_REF_RE.exec(span)) !== null) {
-      const id = match[1] ?? match[2];
-      if (!id) continue;
-      if (!producers.has(id)) {
-        issues.push({
-          path,
-          message: `Template references artifacts.${id} but no earlier action with id "${id}" produces an artifact. Give the producing action that id, or fix the reference.`,
-        });
-        continue;
-      }
-      // The producer exists. Its output is exposed as
-      // `artifacts.<id>.<localName>.<field>`, so the segment right after <id>
-      // MUST be the producer's local artifact name. A bare `artifacts.<id>`
-      // (no second segment) is the whole-object ref and is fine; a present-but-
-      // wrong segment silently resolves to undefined at run time.
-      const artifactType = match[3] ?? match[4];
-      const localName = producers.get(id);
-      if (artifactType !== undefined && artifactType !== localName) {
-        issues.push({
-          path,
-          message: `Template references artifacts.${id}.${artifactType} but action "${id}" produces "${localName}". Reference it as artifacts.${id}.${localName}.<field>.`,
-        });
-      }
+    checkArtifactRefsInText(span, path, producers, issues);
+  }
+}
+
+/**
+ * Scan an EXPRESSION field's string (a bare expression). The whole string is
+ * the expression, so artifact refs are matched directly without a `{{ }}`
+ * wrapper.
+ */
+function scanExpressionForArtifactRefs(
+  text: string,
+  path: Array<string | number>,
+  producers: Map<string, string>,
+  issues: DefinitionIssue[],
+): void {
+  checkArtifactRefsInText(text, path, producers, issues);
+}
+
+/**
+ * Run the `artifacts.<id>.<artifactType>` ref check over a single chunk of
+ * source (a template span body, or a whole bare expression).
+ */
+function checkArtifactRefsInText(
+  source: string,
+  path: Array<string | number>,
+  producers: Map<string, string>,
+  issues: DefinitionIssue[],
+): void {
+  ARTIFACT_REF_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = ARTIFACT_REF_RE.exec(source)) !== null) {
+    const id = match[1] ?? match[2];
+    if (!id) continue;
+    if (!producers.has(id)) {
+      issues.push({
+        path,
+        message: `Reference to artifacts.${id} but no earlier action with id "${id}" produces an artifact. Give the producing action that id, or fix the reference.`,
+      });
+      continue;
+    }
+    // The producer exists. Its output is exposed as
+    // `artifacts.<id>.<localName>.<field>`, so the segment right after <id>
+    // MUST be the producer's local artifact name. A bare `artifacts.<id>`
+    // (no second segment) is the whole-object ref and is fine; a present-but-
+    // wrong segment silently resolves to undefined at run time.
+    const artifactType = match[3] ?? match[4];
+    const localName = producers.get(id);
+    if (artifactType !== undefined && artifactType !== localName) {
+      issues.push({
+        path,
+        message: `Reference to artifacts.${id}.${artifactType} but action "${id}" produces "${localName}". Reference it as artifacts.${id}.${localName}.<field>.`,
+      });
     }
   }
 }

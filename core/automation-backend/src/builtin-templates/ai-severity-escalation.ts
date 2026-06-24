@@ -44,7 +44,7 @@ export const aiSeverityEscalation: AutomationTemplateInput = {
       {
         choose: [
           {
-            when: "{{ artifacts.classify.analysis.data.fatal }}",
+            when: "artifacts.classify.analysis.data.fatal == true",
             sequence: [
               {
                 id: "page",
