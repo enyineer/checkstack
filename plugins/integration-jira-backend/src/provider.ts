@@ -10,6 +10,7 @@ import type {
   ConnectionOption,
   GetConnectionOptionsParams,
 } from "@checkstack/integration-backend";
+import { extractErrorMessage } from "@checkstack/common";
 import { pluginMetadata } from "@checkstack/integration-jira-common";
 import type { JiraField } from "@checkstack/integration-jira-common";
 import { createJiraClientFromConfig } from "./jira-client";
@@ -224,6 +225,9 @@ If a property is missing, the placeholder will be preserved in the output for de
       // Fetch the connection with credentials
       const connection = await getConnectionWithCredentials(connectionId);
       if (!connection) {
+        logger.warn(
+          `Jira options resolver "${resolverName}" found no connection for id "${connectionId}" - returning no options.`,
+        );
         return [];
       }
 
@@ -245,6 +249,9 @@ If a property is missing, the placeholder will be preserved in the output for de
           case JIRA_RESOLVERS.ISSUE_TYPE_OPTIONS: {
             const projectKey = context?.projectKey as string | undefined;
             if (!projectKey) {
+              logger.debug(
+                "Jira issueType options skipped: no projectKey selected yet.",
+              );
               return [];
             }
             const issueTypes = await client.getIssueTypes(projectKey);
@@ -268,6 +275,9 @@ If a property is missing, the placeholder will be preserved in the output for de
               // Without an issue key we can't fetch instance-specific
               // transitions. Return empty so the dropdown stays blank
               // until the operator fills in the upstream field.
+              logger.debug(
+                "Jira transition options skipped: no issueKey resolved yet.",
+              );
               return [];
             }
             const transitions = await client.getTransitions(issueKey);
@@ -281,6 +291,11 @@ If a property is missing, the placeholder will be preserved in the output for de
             const projectKey = context?.projectKey as string | undefined;
             const issueTypeId = context?.issueTypeId as string | undefined;
             if (!projectKey || !issueTypeId) {
+              logger.debug(
+                `Jira field options skipped: ${
+                  projectKey ? "issueTypeId" : "projectKey"
+                } not selected yet.`,
+              );
               return [];
             }
             const fields = await client.getFields(projectKey, issueTypeId);
@@ -294,7 +309,7 @@ If a property is missing, the placeholder will be preserved in the output for de
               "reporter",
               "assignee",
             ]);
-            return fields
+            const options = fields
               .filter((f) => !excludedFields.has(f.key))
               .map((f) => ({
                 value: f.key,
@@ -303,16 +318,31 @@ If a property is missing, the placeholder will be preserved in the output for de
                 // correctly (e.g. labels = "array of string", not a bare string).
                 description: describeFieldType(f),
               }));
+            // Deps were present but nothing came back: almost always a Jira API
+            // shape/permission issue rather than a genuinely field-less issue
+            // type. Make it visible instead of a silent empty dropdown.
+            if (options.length === 0) {
+              logger.warn(
+                `Jira field options resolved to 0 selectable fields for project "${projectKey}", issueType "${issueTypeId}" (createmeta returned ${fields.length} field(s)). Check the connection's permissions and Jira deployment (cloud vs datacenter).`,
+              );
+            }
+            return options;
           }
 
           default: {
-            logger.error(`Unknown resolver name: ${resolverName}`);
-            return [];
+            throw new Error(`Unknown Jira options resolver: "${resolverName}"`);
           }
         }
       } catch (error) {
-        logger.error("Failed to get connection options", error);
-        return [];
+        // Do NOT swallow into an empty dropdown - log with context and rethrow
+        // so the integration layer surfaces a clear error to the operator
+        // (otherwise a failing resolver is indistinguishable from "no options").
+        logger.error(
+          `Jira options resolver "${resolverName}" failed (connection "${connectionId}", context keys: ${
+            context ? Object.keys(context).join(", ") || "none" : "none"
+          }): ${extractErrorMessage(error, "Unknown error")}`,
+        );
+        throw error;
       }
     },
 
