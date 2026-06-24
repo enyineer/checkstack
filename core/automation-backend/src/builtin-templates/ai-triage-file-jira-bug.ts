@@ -49,13 +49,19 @@ export const aiTriageFileJiraBug: AutomationTemplateInput = {
           connectionId: "REPLACE_JIRA_CONNECTION",
           projectKey: "REPLACE_PROJECT",
           statusCategory: "indeterminate",
-          summaryContains: "{{ trigger.payload.systemName }}",
+          // Correlate to THIS system by a stable label rather than fuzzy summary
+          // text. `file_bug` below tags the issue with the same label on create.
+          // `systemId` is always present on the trigger payload (unlike the
+          // optional `systemName`), so the label never renders empty.
+          labels: "checkstack-sys-{{ trigger.payload.systemId }}",
         },
       },
       {
         choose: [
           {
-            when: "{{ not artifacts.find_existing.issue_search.found }}",
+            // `when` is a BARE expression (no {{ }}): file the bug only when no
+            // open ticket already exists for this system.
+            when: "artifacts.find_existing.issue_search.found != true",
             sequence: [
               {
                 id: "file_bug",
@@ -66,6 +72,14 @@ export const aiTriageFileJiraBug: AutomationTemplateInput = {
                   issueTypeId: "REPLACE_ISSUE_TYPE",
                   summary: "{{ artifacts.triage.analysis.data.title }}",
                   description: "{{ artifacts.triage.analysis.data.description }}",
+                  // Tag with the stable per-system label so the recovery
+                  // automation (and future runs) can find this exact ticket.
+                  fieldMappings: [
+                    {
+                      fieldKey: "labels",
+                      value: "checkstack-sys-{{ trigger.payload.systemId }}",
+                    },
+                  ],
                 },
               },
             ],

@@ -1,5 +1,28 @@
 import { describe, expect, it } from "bun:test";
-import { computePopupPlacement } from "./TemplateValueInput";
+import {
+  computePopupPlacement,
+  containsTemplateDelimiters,
+} from "./TemplateValueInput";
+
+/**
+ * Expression fields (conditions / filters) must not contain `{{ }}` template
+ * delimiters; the input flags this inline. Guard the detection rule.
+ */
+describe("containsTemplateDelimiters", () => {
+  it("flags an opening or closing template delimiter", () => {
+    expect(containsTemplateDelimiters("{{ artifacts.find.found }}")).toBe(true);
+    expect(containsTemplateDelimiters("foo {{ x")).toBe(true);
+    expect(containsTemplateDelimiters("x }} bar")).toBe(true);
+  });
+
+  it("passes a clean bare expression", () => {
+    expect(
+      containsTemplateDelimiters("artifacts.find.issue_search.found != true"),
+    ).toBe(false);
+    expect(containsTemplateDelimiters("")).toBe(false);
+    expect(containsTemplateDelimiters("a == 'x' and b > 1")).toBe(false);
+  });
+});
 
 /**
  * Edge-aware placement for the template autocomplete popup. The popup is

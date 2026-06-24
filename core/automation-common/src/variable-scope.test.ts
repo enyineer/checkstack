@@ -420,7 +420,40 @@ describe("resolveVariableScope", () => {
     expect(flat).toContain("artifact.make_issue.jira.issue.url");
   });
 
+  it("exposes artifacts produced BEFORE a choose inside a when-branch", () => {
+    const definition = basicDefinition({
+      triggers: [{ event: "incident.created" }],
+      actions: [
+        provider("integration-jira.create_issue", "make_issue"),
+        {
+          choose: [
+            {
+              when: "true",
+              sequence: [provider("automation.notify_user", "notify")],
+            },
+          ],
+        },
+      ],
+    });
+    // Target: the notify_user inside the first when-branch; make_issue runs
+    // before the choose in the parent sequence, so it must be in scope.
+    const path: ActionPath = [
+      { slot: "root", index: 1 },
+      { slot: "choose-when", whenIndex: 0, index: 0 },
+    ];
+    const scope = resolveVariableScope({
+      definition,
+      triggers: [triggerInfo],
+      actions: [createJiraAction, notifyAction],
+      artifactTypes: [jiraIssueArtifact],
+      path,
+    });
+    const flat = flattenScope(scope).map((e) => e.path);
+    expect(flat).toContain("artifact.make_issue");
+  });
+
   it("does not expose artifacts from sibling branches inside a choose", () => {
+    // (kept) regression guard for branch isolation.
     const definition = basicDefinition({
       triggers: [{ event: "incident.created" }],
       actions: [

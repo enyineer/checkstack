@@ -121,7 +121,7 @@ The health triggers (`healthcheck.system_degraded`, `healthcheck.system_health_r
 
 ```yaml
 trigger: healthcheck.system_degraded
-filter: "{{ trigger.payload.environmentId == 'production' }}"
+filter: "trigger.payload.environmentId == 'production'"
 actions:
   - openIncident:
       title: "Production degraded: {{ trigger.payload.systemId }}"

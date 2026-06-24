@@ -71,8 +71,9 @@ const jiraIssueSearchDataSchema = z.object({
 
 /**
  * Result of a read-only `search_issues` lookup. A downstream `choose` /
- * `condition_guard` can gate creation on
- * `{{ not artifacts.<actionId>.issue_search.found }}` so an automation
+ * `condition_guard` can gate creation on the BARE expression
+ * `artifacts.<actionId>.issue_search.found != true` (a `when` / `condition` is
+ * an expression — reference the field directly, no `{{ }}`) so an automation
  * does not file a duplicate ticket.
  */
 export const jiraIssueSearchArtifactType: ArtifactTypeDefinition<
@@ -193,26 +194,41 @@ const jiraSearchIssuesConfigSchema = z
     status: configString({ "x-editor-types": ["raw"] })
       .optional()
       .describe('Match an exact status name (e.g. "Open")'),
-    statusCategory: configString({ "x-editor-types": ["raw"] })
+    statusCategory: z
+      .enum(["new", "indeterminate", "done"])
       .optional()
-      .describe('Match a status category (e.g. "indeterminate" for in-progress)'),
+      .describe(
+        "Match a status category: new = To Do, indeterminate = In Progress, done = Done",
+      ),
+    labels: configString({ "x-editor-types": ["raw"] })
+      .optional()
+      .describe(
+        "Match issues carrying ALL of these labels. Space- or comma-separated; the most reliable way to find the ticket for a specific system (tag it with a stable label on create, e.g. checkstack-sys-<systemId>).",
+      ),
     summaryContains: configString({ "x-editor-types": ["raw"] })
       .optional()
-      .describe("Match issues whose summary contains this text"),
+      .describe(
+        "Match issues whose summary contains this text. Jira's text match is fuzzy/word-stemmed, so this OVER-matches unrelated tickets — prefer `labels` to correlate to a specific entity.",
+      ),
     jql: configString({ "x-editor-types": ["raw"] })
       .optional()
       .describe("Raw JQL, ANDed with the structured filters above"),
   })
   .superRefine((data, ctx) => {
     const hasStructured =
-      [data.projectKey, data.status, data.statusCategory, data.summaryContains]
-        .some((v) => typeof v === "string" && v.trim().length > 0);
+      [
+        data.projectKey,
+        data.status,
+        data.statusCategory,
+        data.labels,
+        data.summaryContains,
+      ].some((v) => typeof v === "string" && v.trim().length > 0);
     const hasJql = typeof data.jql === "string" && data.jql.trim().length > 0;
     if (!hasStructured && !hasJql) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Provide at least one filter (project, status, summary, or raw JQL)",
+          "Provide at least one filter (project, status, labels, summary, or raw JQL)",
         path: ["jql"],
       });
     }
@@ -509,12 +525,36 @@ export function createJiraActions(): ActionDefinition<unknown, unknown>[] {
         return { success: false, error: loaded.error };
       }
       const { client } = loaded;
+      // Empty-filter guard: a filter the operator CONFIGURED but whose template
+      // rendered to an empty string (e.g. `{{ trigger.payload.systemName }}`
+      // when `systemName` is absent) would otherwise be silently dropped,
+      // collapsing the search to "every ticket in the project" and acting on an
+      // arbitrary unrelated issue. Fail loudly instead of broadening the search.
+      const emptyFilter = (
+        [
+          ["projectKey", config.projectKey],
+          ["status", config.status],
+          ["statusCategory", config.statusCategory],
+          ["labels", config.labels],
+          ["summaryContains", config.summaryContains],
+          ["jql", config.jql],
+        ] as const
+      ).find(
+        ([, value]) => typeof value === "string" && value.trim().length === 0,
+      );
+      if (emptyFilter) {
+        return {
+          success: false,
+          error: `Search filter "${emptyFilter[0]}" rendered to an empty value. Refusing to run a broadened search that could match unrelated issues. Check the template (e.g. the referenced trigger field may be missing).`,
+        };
+      }
       try {
         const result = await client.searchIssues({
           jql: config.jql,
           projectKey: config.projectKey,
           status: config.status,
           statusCategory: config.statusCategory,
+          labels: config.labels,
           summaryContains: config.summaryContains,
         });
         logger.info(

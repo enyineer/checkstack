@@ -117,9 +117,23 @@ export interface SearchIssuesPayload {
   projectKey?: string;
   status?: string;
   statusCategory?: string;
+  /**
+   * Match issues carrying ALL of these labels (`labels in (...)`). Accepts a
+   * space- or comma-separated list. The reliable way to correlate to a specific
+   * entity (tag the issue with a stable label on create).
+   */
+  labels?: string;
   summaryContains?: string;
   /** Cap on returned issues; defaults to 25, hard-capped at 100. */
   maxResults?: number;
+}
+
+/** Split a space-/comma-separated label list into individual, trimmed labels. */
+function parseLabels(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0);
 }
 
 /**
@@ -135,7 +149,8 @@ function quoteJqlValue(value: string): string {
  * string. Clauses are ANDed; an empty query yields an empty string.
  */
 export function buildSearchJql(payload: SearchIssuesPayload): string {
-  const { jql, projectKey, status, statusCategory, summaryContains } = payload;
+  const { jql, projectKey, status, statusCategory, labels, summaryContains } =
+    payload;
   const clauses: string[] = [];
   if (projectKey && projectKey.trim().length > 0) {
     clauses.push(`project = ${quoteJqlValue(projectKey.trim())}`);
@@ -146,13 +161,26 @@ export function buildSearchJql(payload: SearchIssuesPayload): string {
   if (statusCategory && statusCategory.trim().length > 0) {
     clauses.push(`statusCategory = ${quoteJqlValue(statusCategory.trim())}`);
   }
+  if (labels && labels.trim().length > 0) {
+    // Require ALL labels (AND of equality clauses) so multi-label correlation
+    // narrows rather than broadens.
+    for (const label of parseLabels(labels)) {
+      clauses.push(`labels = ${quoteJqlValue(label)}`);
+    }
+  }
   if (summaryContains && summaryContains.trim().length > 0) {
     clauses.push(`summary ~ ${quoteJqlValue(summaryContains.trim())}`);
   }
   if (jql && jql.trim().length > 0) {
     clauses.push(`(${jql.trim()})`);
   }
-  return clauses.join(" AND ");
+  const compiled = clauses.join(" AND ");
+  if (compiled.length === 0) return compiled;
+  // Deterministic ordering so `firstIssueKey` is stable across runs (the
+  // recovery flow comments on / transitions the first match). Skip when the
+  // operator's raw JQL already supplies its own ORDER BY — JQL allows only one.
+  if (/\border\s+by\b/i.test(compiled)) return compiled;
+  return `${compiled} ORDER BY created DESC`;
 }
 
 /**

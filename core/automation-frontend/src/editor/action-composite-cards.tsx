@@ -280,10 +280,11 @@ export const RepeatActionBody: React.FC<{
         <div className="space-y-1">
           <Label className="text-xs">
             {kind === "for_each"
-              ? "Iterable (renders to JSON array)"
-              : "Condition template"}
+              ? "Iterable expression (renders to JSON array)"
+              : "Condition (expression)"}
           </Label>
           <TemplateValueInput
+            mode="expression"
             value={
               kind === "for_each"
                 ? (value.repeat as { for_each: string }).for_each

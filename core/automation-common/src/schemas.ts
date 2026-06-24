@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ActorSchema } from "@checkstack/common";
+import { collectExpressionDelimiterIssues } from "./expression-validation";
 
 /**
  * Schemas for the Automation platform.
@@ -145,7 +146,7 @@ export const TriggerSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Optional template returning truthy/falsy. Gates the trigger before the run starts.",
+      "Optional bare expression (no {{ }}) returning truthy/falsy. Gates the trigger before the run starts.",
     ),
   config: z
     .record(z.string(), z.unknown())
@@ -284,7 +285,9 @@ export const ConditionSchema: z.ZodType<ConditionInput> = z.lazy(() =>
     z
       .string()
       .min(1)
-      .describe("Template returning truthy/falsy."),
+      .describe(
+        "Bare expression returning truthy/falsy. Reference fields directly, e.g. `artifacts.find.issue_search.found != true` — do NOT wrap in {{ }} (that is template syntax and fails at run time).",
+      ),
     z.object({
       and: z.array(ConditionSchema).min(1),
     }),
@@ -599,7 +602,12 @@ export const WaitForTriggerActionSchema = z.object({
   ...ActionBase,
   wait_for_trigger: z.object({
     event: z.string().min(1),
-    filter: z.string().optional(),
+    filter: z
+      .string()
+      .optional()
+      .describe(
+        "Optional bare expression (no {{ }}) returning truthy/falsy. Gates which incoming events resume the run.",
+      ),
     timeout_seconds: z
       .number()
       .int()
@@ -751,7 +759,22 @@ export const AutomationDefinitionSchema = z.object({
     .describe(
       "Window (minutes) for health.*.transitions_in_window. Default 60.",
     ),
-});
+})
+  // Expression fields (`when`, `conditions`, a `condition` guard,
+  // `wait_until.condition`, a trigger / `wait_for_trigger` `filter`,
+  // `window.partitionBy`, `repeat.for_each|while|until`, `numeric_state.value`)
+  // are parsed as BARE expressions — they must not contain `{{ }}` template
+  // delimiters. Catching it here blocks the save (create / update / GitOps /
+  // editor) instead of letting it throw a parse error at dispatch time.
+  .superRefine((definition, ctx) => {
+    for (const issue of collectExpressionDelimiterIssues(definition)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+  });
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
 

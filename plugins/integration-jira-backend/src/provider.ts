@@ -181,23 +181,24 @@ This integration supports both **Jira Cloud** and **Jira Data Center** (on-premi
 ### Template Syntax
 
 Use double curly braces to reference event payload properties:
-- \`{{payload.title}}\` - Direct property access
-- \`{{payload.system.name}}\` - Nested property access
+- \`{{payload.systemName}}\` - the affected system's name
+- \`{{payload.systemId}}\` - its stable id (use this to correlate, e.g. a Jira label)
+
+Platform events expose flat fields like \`systemId\` / \`systemName\` (there is no nested \`system\` object). Dot notation still drills into any genuinely nested object a payload provides.
 
 If a property is missing, the placeholder will be preserved in the output for debugging.
       `.trim(),
       examplePayload: JSON.stringify(
         {
-          eventType: "incident.created",
+          eventType: "healthcheck.system_degraded",
           timestamp: "2024-01-15T10:30:00Z",
           payload: {
-            title: "Database Connectivity Issue",
-            description: "Unable to connect to production database",
-            severity: "high",
-            system: {
-              id: "sys-123",
-              name: "Production Database",
-            },
+            systemId: "sys-123",
+            systemName: "Production Database",
+            previousStatus: "healthy",
+            newStatus: "unhealthy",
+            healthyChecks: 2,
+            totalChecks: 5,
           },
         },
         undefined,

@@ -18,6 +18,11 @@ import {
 } from "../Select";
 import { KeyValueEditor } from "./KeyValueEditor";
 import {
+  detectRawTemplateContext,
+  filterTemplatePropertiesByQuery,
+  splitTemplateLabel,
+} from "./templateAutocomplete";
+import {
   type EditorType,
   detectEditorType,
   serializeFormData,
@@ -461,20 +466,6 @@ export const MultiTypeEditorField: React.FC<MultiTypeEditorFieldProps> = ({
 /**
  * Detect if cursor is inside an unclosed {{ template context.
  */
-function detectRawTemplateContext(text: string, cursorPos: number) {
-  const textBefore = text.slice(0, cursorPos);
-  const lastOpenBrace = textBefore.lastIndexOf("{{");
-  const lastCloseBrace = textBefore.lastIndexOf("}}");
-
-  if (lastOpenBrace !== -1 && lastOpenBrace > lastCloseBrace) {
-    const query = textBefore.slice(lastOpenBrace + 2);
-    if (!query.includes("\n")) {
-      return { isInTemplate: true, query, startPos: lastOpenBrace };
-    }
-  }
-  return { isInTemplate: false, query: "", startPos: -1 };
-}
-
 /**
  * Raw text editor with optional template autocomplete.
  * Uses a simple textarea with popup autocomplete (similar to original TemplateEditor).
@@ -495,17 +486,12 @@ const RawEditor: React.FC<{
     startPos: number;
   }>({ query: "", startPos: -1 });
 
-  // Filter properties based on query
-  const filteredProperties = React.useMemo(() => {
-    if (!templateProperties) return [];
-    if (!templateContext.query.trim()) return templateProperties;
-    const lowerQuery = templateContext.query.toLowerCase();
-    return templateProperties.filter(
-      (prop) =>
-        prop.path.toLowerCase().includes(lowerQuery) ||
-        (prop.templateRef?.toLowerCase().includes(lowerQuery) ?? false),
-    );
-  }, [templateProperties, templateContext.query]);
+  // Filter properties based on query (query carries the leading space after
+  // `{{`, so the helper trims before matching — see its doc comment).
+  const filteredProperties = React.useMemo(
+    () => filterTemplatePropertiesByQuery(templateProperties ?? [], templateContext.query),
+    [templateProperties, templateContext.query],
+  );
 
   const calculatePopupPosition = React.useCallback(() => {
     const textarea = textareaRef.current;
@@ -650,29 +636,42 @@ const RawEditor: React.FC<{
       />
       {showPopup && filteredProperties.length > 0 && (
         <div
-          className="absolute z-50 w-72 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
+          className="absolute z-50 w-max min-w-[20rem] max-w-[min(40rem,calc(100vw-2rem))] max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
           style={{ top: popupPosition.top, left: popupPosition.left }}
         >
           <div className="p-1">
-            {filteredProperties.map((prop, index) => (
-              <button
-                key={prop.path}
-                type="button"
-                onClick={() => insertProperty(prop)}
-                className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-xs rounded-sm text-left hover:bg-accent hover:text-accent-foreground ${
-                  index === selectedIndex
-                    ? "bg-accent text-accent-foreground"
-                    : ""
-                }`}
-              >
-                <code className="font-mono truncate">
-                  {prop.templateRef ?? prop.path}
-                </code>
-                <span className="text-muted-foreground shrink-0">
-                  {prop.type}
-                </span>
-              </button>
-            ))}
+            {filteredProperties.map((prop, index) => {
+              const fullLabel = prop.templateRef ?? prop.path;
+              const { prefix, leaf } = splitTemplateLabel(fullLabel);
+              return (
+                <button
+                  key={prop.path}
+                  type="button"
+                  title={fullLabel}
+                  onClick={() => insertProperty(prop)}
+                  className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-xs rounded-sm text-left hover:bg-accent hover:text-accent-foreground ${
+                    index === selectedIndex
+                      ? "bg-accent text-accent-foreground"
+                      : ""
+                  }`}
+                >
+                  {/* The shared prefix absorbs the ellipsis; the leaf — the
+                      only distinguishing part of a deep path — is never
+                      truncated. */}
+                  <code className="font-mono flex min-w-0 flex-1 items-baseline">
+                    {prefix && (
+                      <span className="truncate text-muted-foreground">
+                        {prefix}
+                      </span>
+                    )}
+                    <span className="shrink-0">{leaf}</span>
+                  </code>
+                  <span className="text-muted-foreground shrink-0">
+                    {prop.type}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

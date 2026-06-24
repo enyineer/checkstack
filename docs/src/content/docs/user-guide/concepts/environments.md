@@ -89,7 +89,7 @@ The health triggers (`System Health Degraded`, `System Health Restored`, `System
 
 ```yaml
 trigger: healthcheck.system_degraded
-filter: "{{ trigger.payload.environmentId == 'production' }}"
+filter: "trigger.payload.environmentId == 'production'"
 ```
 
 An automation that does not reference `environmentId` is unaffected by the new per-environment events because the rollup change still fires for it.

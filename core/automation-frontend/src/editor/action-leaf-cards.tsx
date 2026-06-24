@@ -386,7 +386,7 @@ export const WaitForTriggerActionBody: React.FC<{
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label className="text-xs">Filter template</Label>
+          <Label className="text-xs">Filter (expression)</Label>
           <TemplateValueInput
             value={value.wait_for_trigger.filter ?? ""}
             onChange={(next) =>
@@ -398,7 +398,8 @@ export const WaitForTriggerActionBody: React.FC<{
                 },
               })
             }
-            placeholder="{{ trigger.payload.id == var.targetId }}"
+            placeholder="trigger.payload.id == var.targetId"
+            mode="expression"
             completionProvider={completionProvider}
             disabled={disabled}
           />
