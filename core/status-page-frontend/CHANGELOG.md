@@ -1,5 +1,20 @@
 # @checkstack/status-page-frontend
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/auth-frontend@0.10.1
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/status-page-common@0.4.1
+
 ## 0.4.0
 
 ### Minor Changes

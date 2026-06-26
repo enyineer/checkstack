@@ -1,5 +1,12 @@
 # @checkstack/dev-server
 
+## 2.2.4
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+
 ## 2.2.3
 
 ### Patch Changes

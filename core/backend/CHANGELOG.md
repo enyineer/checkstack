@@ -1,5 +1,20 @@
 # @checkstack/backend
 
+## 0.22.1
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/api-docs-common@0.1.23
+  - @checkstack/auth-common@0.11.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/pluginmanager-common@0.2.12
+  - @checkstack/queue-api@0.3.15
+  - @checkstack/signal-backend@0.3.14
+  - @checkstack/signal-common@0.2.13
+
 ## 0.22.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @checkstack/healthcheck-dns-backend
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/healthcheck-common@1.9.0
+  - @checkstack/backend-api@0.26.1
+
 ## 0.4.1
 
 ### Patch Changes

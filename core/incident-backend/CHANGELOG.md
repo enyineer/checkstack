@@ -1,5 +1,34 @@
 # @checkstack/incident-backend
 
+## 1.8.6
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/ai-backend@0.10.0
+  - @checkstack/catalog-backend@1.6.0
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/automation-backend@0.10.2
+  - @checkstack/incident-common@1.6.4
+  - @checkstack/ai-common@0.6.2
+  - @checkstack/auth-common@0.11.2
+  - @checkstack/automation-common@0.8.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/command-backend@0.2.14
+  - @checkstack/integration-backend@0.6.7
+  - @checkstack/integration-common@0.9.4
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/status-page-backend@0.4.1
+  - @checkstack/status-page-common@0.4.1
+  - @checkstack/cache-utils@0.2.20
+
 ## 1.8.5
 
 ### Patch Changes

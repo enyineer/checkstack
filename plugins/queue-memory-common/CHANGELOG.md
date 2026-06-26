@@ -1,5 +1,12 @@
 # @checkstack/queue-memory-common
 
+## 0.1.23
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+
 ## 0.1.22
 
 ### Patch Changes

@@ -1,5 +1,47 @@
 # @checkstack/healthcheck-common
 
+## 1.9.0
+
+### Minor Changes
+
+- defb97b: fix(healthcheck): emit a realtime signal on config/assignment changes
+
+  The health-check executor broadcasts run/status signals, but config and
+  assignment CRUD (create/update/delete/pause/resume, associate/disassociate,
+  create-and-assign) emitted nothing - so a check created or edited out-of-band
+  (the AI assistant, GitOps, another pod/user) did not appear in an open Health
+  Checks list until the first run fired a status signal, up to an interval later.
+
+  Add a `HEALTHCHECK_CONFIG_CHANGED` (`healthcheck.config.changed`) signal,
+  broadcast from every config/assignment mutation, so the frontend signal
+  auto-invalidator refreshes the `[[healthcheck]]` cache on every connected client
+  immediately.
+
+- defb97b: feat(healthcheck): atomically create and assign a health check in one step
+
+  Add a `createAndAssign` RPC that creates a health-check configuration and
+  assigns it to a system in a single transaction, so the common "one system, one
+  check" case can never leave a dormant, unassigned check that runs nothing. When
+  the assignment is enabled it is scheduled immediately, exactly like
+  `associateSystem`.
+
+  The AI `healthcheck.propose` tool now prefers the HTTP strategy for a URL
+  (instead of authoring a script health check) and, when given `assignToSystemId`,
+  creates, assigns, and starts the check in the same approval.
+
+  Also fixes a latent bug where the `associateSystem` handler silently dropped the
+  per-assignment `notificationPolicy` before it reached the database.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/signal-common@0.2.13
+
 ## 1.8.1
 
 ### Patch Changes

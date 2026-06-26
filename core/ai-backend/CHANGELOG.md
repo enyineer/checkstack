@@ -1,5 +1,43 @@
 # @checkstack/ai-backend
 
+## 0.10.0
+
+### Minor Changes
+
+- defb97b: feat(ai): clickable answer options in chat (askOperator)
+
+  Add an `askOperator` tool the assistant calls to ask a question with clickable
+  answer chips (plus an optional free-text box) instead of a plaintext list.
+  Clicking a chip sends that answer as the operator's next message. The chat
+  renders the chips from a `__question` tool-output card, mirroring the existing
+  confirm-card pattern, and calling the tool ends the turn (the operator's choice
+  arrives as their next message).
+
+  The system prompt now steers the model to use `askOperator` for discrete-choice
+  clarifications (which system, which protocol, how often, which environment),
+  reserving prose questions for free-form values like a URL.
+
+- defb97b: feat(ai): add an onboarding playbook to the chat assistant
+
+  When a monitoring-setup tool is in scope this turn (creating a system, proposing
+  a health check, or managing environments), the chat system prompt now injects an
+  onboarding section that steers the model to prefer the HTTP strategy for a URL,
+  ask before guessing, create-and-assign a check in one step, and use environments
+  instead of cloning a system per deployment stage. Like the automation playbook,
+  it stays out of the always-on prompt on pure read turns.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/sdk@0.116.1
+  - @checkstack/ai-common@0.6.2
+  - @checkstack/auth-common@0.11.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/integration-backend@0.6.7
+
 ## 0.9.1
 
 ### Patch Changes

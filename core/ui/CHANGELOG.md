@@ -1,5 +1,36 @@
 # @checkstack/ui
 
+## 1.20.0
+
+### Minor Changes
+
+- defb97b: fix(mobile): make the nav drawer fully scrollable and de-clutter the navbar
+
+  The mobile navigation drawer (`Sheet`) spanned the layout viewport
+  (`inset-y-0 ... h-full`), so on a phone its bottom - and the last menu items -
+  sat behind the browser URL bar and could not be reached. The sheet is now bound
+  to the dynamic viewport (`h-[100dvh]`, top-anchored), so it ends at the visible
+  bottom and scrolls to the last item.
+
+  The "Checkstack" wordmark in the navbar is now hidden below the `sm` breakpoint
+  (the logo still anchors the home link), freeing space on the cramped mobile
+  navbar.
+
+- defb97b: feat(ui): add a Stepper primitive
+
+  Add a presentational `Stepper` step-indicator component and a `useStepper` state
+  hook for building guided multi-step flows (used by the new "create your first
+  check" onboarding wizard). Completed steps are navigable; the active step is
+  highlighted; future steps are muted. Animations are disabled on low-power
+  devices via `usePerformance`.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/template-engine@0.4.7
+
 ## 1.19.0
 
 ### Minor Changes

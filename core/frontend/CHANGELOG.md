@@ -1,5 +1,42 @@
 # @checkstack/frontend
 
+## 0.13.0
+
+### Minor Changes
+
+- defb97b: fix(mobile): make the nav drawer fully scrollable and de-clutter the navbar
+
+  The mobile navigation drawer (`Sheet`) spanned the layout viewport
+  (`inset-y-0 ... h-full`), so on a phone its bottom - and the last menu items -
+  sat behind the browser URL bar and could not be reached. The sheet is now bound
+  to the dynamic viewport (`h-[100dvh]`, top-anchored), so it ends at the visible
+  bottom and scrolls to the last item.
+
+  The "Checkstack" wordmark in the navbar is now hidden below the `sm` breakpoint
+  (the logo still anchors the home link), freeing space on the cramped mobile
+  navbar.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/catalog-frontend@0.14.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/auth-frontend@0.10.1
+  - @checkstack/dependency-frontend@0.6.3
+  - @checkstack/status-page-frontend@0.4.1
+  - @checkstack/about-frontend@0.3.12
+  - @checkstack/announcement-frontend@0.6.1
+  - @checkstack/command-frontend@0.5.1
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/status-page-common@0.4.1
+  - @checkstack/tips-frontend@0.4.3
+  - @checkstack/signal-frontend@0.3.1
+
 ## 0.12.0
 
 ### Minor Changes

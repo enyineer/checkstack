@@ -1,5 +1,16 @@
 # @checkstack/anomaly-common
 
+## 1.5.4
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/signal-common@0.2.13
+
 ## 1.5.3
 
 ### Patch Changes

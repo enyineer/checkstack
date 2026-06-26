@@ -1,5 +1,19 @@
 # @checkstack/integration-frontend
 
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/integration-common@0.9.4
+  - @checkstack/tips-frontend@0.4.3
+  - @checkstack/signal-frontend@0.3.1
+
 ## 0.7.2
 
 ### Patch Changes

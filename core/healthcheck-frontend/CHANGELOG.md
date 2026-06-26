@@ -1,5 +1,48 @@
 # @checkstack/healthcheck-frontend
 
+## 0.26.0
+
+### Minor Changes
+
+- defb97b: feat(frontend): guided "create your first check" wizard and onboarding nudges
+
+  Add a `FirstCheckWizard`, reachable both from the Health Checks empty state and
+  an always-available "Quick start" header button: the user picks a system (a new
+  one or an existing one), pastes a URL, and the wizard creates the HTTP health
+  check and the assignment (started immediately) in one guided flow, built on the
+  new `@checkstack/ui` Stepper. This makes guided setup usable when onboarding into
+  an instance that already has systems and checks, not only on first run.
+
+  Also add two in-product nudges: an inline "one system, many environments" hint
+  on the Create System form (so new users stop cloning a system per stage), and a
+  clear "what an assignment is and why a check needs one" explainer on the
+  assignment screen's empty state.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/catalog-frontend@0.14.0
+  - @checkstack/healthcheck-common@1.9.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/anomaly-common@1.5.4
+  - @checkstack/auth-frontend@0.10.1
+  - @checkstack/dashboard-frontend@0.9.3
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/gitops-frontend@0.6.3
+  - @checkstack/satellite-common@0.8.12
+  - @checkstack/script-packages-frontend@0.4.3
+  - @checkstack/secrets-frontend@0.3.3
+  - @checkstack/tips-frontend@0.4.3
+  - @checkstack/signal-frontend@0.3.1
+
 ## 0.25.2
 
 ### Patch Changes
