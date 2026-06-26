@@ -1,5 +1,20 @@
 # @checkstack/announcement-frontend
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/auth-frontend@0.10.1
+  - @checkstack/announcement-common@0.5.7
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/tips-frontend@0.4.3
+  - @checkstack/signal-frontend@0.3.1
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,54 @@
 # @checkstack/catalog-backend
 
+## 1.6.0
+
+### Minor Changes
+
+- defb97b: feat(catalog): AI tools for environments
+
+  Add `catalog.createEnvironment` and `catalog.setSystemEnvironments` AI tools plus
+  a `catalog.listEnvironments` read projection, so the assistant can model
+  one-system-many-environments instead of suggesting a separate system per
+  environment. The `catalog.createSystem` tool description now teaches the 1-1
+  system/check pairing and points to environments for modelling dev/staging/prod.
+
+- defb97b: fix(catalog): emit a realtime signal on catalog mutations so clients refresh
+
+  Catalog was the only domain plugin that never broadcast a realtime signal, so
+  any out-of-band write - the AI assistant (which mutates on the backend, with no
+  frontend mutation to invalidate), GitOps reconcile, or another pod/user - left
+  every other client's catalog cache stale until a hard reload. Most visibly, a
+  system created via the assistant 404'd on the catalog detail page (which
+  resolves a system by finding it in the cached `getSystems` list) until reload.
+
+  Add a `CATALOG_CHANGED` signal (`catalog.changed`) and broadcast it from every
+  catalog mutation (system, group, environment CRUD and membership changes). The
+  frontend signal auto-invalidator refreshes the `[[catalog]]` react-query cache
+  on every connected client, so out-of-band catalog changes now appear without a
+  reload.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/ai-backend@0.10.0
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/automation-backend@0.10.2
+  - @checkstack/ai-common@0.6.2
+  - @checkstack/auth-backend@0.8.2
+  - @checkstack/auth-common@0.11.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/command-backend@0.2.14
+  - @checkstack/gitops-backend@0.5.14
+  - @checkstack/gitops-common@0.6.7
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/cache-utils@0.2.20
+
 ## 1.5.5
 
 ### Patch Changes

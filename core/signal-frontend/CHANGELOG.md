@@ -1,5 +1,11 @@
 # @checkstack/signal-frontend
 
+## 0.3.1
+
+### Patch Changes
+
+- @checkstack/signal-common@0.2.13
+
 ## 0.3.0
 
 ### Minor Changes

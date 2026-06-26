@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dependency-common",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

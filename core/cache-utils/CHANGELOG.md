@@ -1,5 +1,11 @@
 # @checkstack/cache-utils
 
+## 0.2.20
+
+### Patch Changes
+
+- @checkstack/cache-api@0.3.15
+
 ## 0.2.19
 
 ### Patch Changes

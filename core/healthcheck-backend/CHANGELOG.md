@@ -1,5 +1,73 @@
 # @checkstack/healthcheck-backend
 
+## 1.11.0
+
+### Minor Changes
+
+- defb97b: fix(healthcheck): emit a realtime signal on config/assignment changes
+
+  The health-check executor broadcasts run/status signals, but config and
+  assignment CRUD (create/update/delete/pause/resume, associate/disassociate,
+  create-and-assign) emitted nothing - so a check created or edited out-of-band
+  (the AI assistant, GitOps, another pod/user) did not appear in an open Health
+  Checks list until the first run fired a status signal, up to an interval later.
+
+  Add a `HEALTHCHECK_CONFIG_CHANGED` (`healthcheck.config.changed`) signal,
+  broadcast from every config/assignment mutation, so the frontend signal
+  auto-invalidator refreshes the `[[healthcheck]]` cache on every connected client
+  immediately.
+
+- defb97b: feat(healthcheck): atomically create and assign a health check in one step
+
+  Add a `createAndAssign` RPC that creates a health-check configuration and
+  assigns it to a system in a single transaction, so the common "one system, one
+  check" case can never leave a dormant, unassigned check that runs nothing. When
+  the assignment is enabled it is scheduled immediately, exactly like
+  `associateSystem`.
+
+  The AI `healthcheck.propose` tool now prefers the HTTP strategy for a URL
+  (instead of authoring a script health check) and, when given `assignToSystemId`,
+  creates, assigns, and starts the check in the same approval.
+
+  Also fixes a latent bug where the `associateSystem` handler silently dropped the
+  per-assignment `notificationPolicy` before it reached the database.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/ai-backend@0.10.0
+  - @checkstack/catalog-backend@1.6.0
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/healthcheck-common@1.9.0
+  - @checkstack/automation-backend@0.10.2
+  - @checkstack/incident-backend@1.8.6
+  - @checkstack/incident-common@1.6.4
+  - @checkstack/maintenance-common@1.7.4
+  - @checkstack/sdk@0.116.1
+  - @checkstack/ai-common@0.6.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/command-backend@0.2.14
+  - @checkstack/gitops-backend@0.5.14
+  - @checkstack/gitops-common@0.6.7
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/queue-api@0.3.15
+  - @checkstack/satellite-backend@0.7.3
+  - @checkstack/script-packages-backend@0.3.18
+  - @checkstack/secrets-backend@0.2.14
+  - @checkstack/secrets-common@0.2.7
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/status-page-backend@0.4.1
+  - @checkstack/status-page-common@0.4.1
+  - @checkstack/cache-utils@0.2.20
+
 ## 1.10.2
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @checkstack/secrets-common
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+
 ## 0.2.6
 
 ### Patch Changes

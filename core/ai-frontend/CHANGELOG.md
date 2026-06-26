@@ -1,5 +1,35 @@
 # @checkstack/ai-frontend
 
+## 0.4.0
+
+### Minor Changes
+
+- defb97b: feat(ai): clickable answer options in chat (askOperator)
+
+  Add an `askOperator` tool the assistant calls to ask a question with clickable
+  answer chips (plus an optional free-text box) instead of a plaintext list.
+  Clicking a chip sends that answer as the operator's next message. The chat
+  renders the chips from a `__question` tool-output card, mirroring the existing
+  confirm-card pattern, and calling the tool ends the turn (the operator's choice
+  arrives as their next message).
+
+  The system prompt now steers the model to use `askOperator` for discrete-choice
+  clarifications (which system, which protocol, how often, which environment),
+  reserving prose questions for free-form values like a URL.
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/catalog-common@2.5.0
+  - @checkstack/common@0.18.0
+  - @checkstack/ui@1.20.0
+  - @checkstack/ai-common@0.6.2
+  - @checkstack/frontend-api@0.12.1
+  - @checkstack/integration-common@0.9.4
+
 ## 0.3.2
 
 ### Patch Changes

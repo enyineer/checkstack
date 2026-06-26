@@ -1,5 +1,22 @@
 # @checkstack/notification-backend
 
+## 1.5.19
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/automation-backend@0.10.2
+  - @checkstack/auth-backend@0.8.2
+  - @checkstack/auth-common@0.11.2
+  - @checkstack/backend-api@0.26.1
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/command-backend@0.2.14
+  - @checkstack/notification-common@1.4.2
+  - @checkstack/queue-api@0.3.15
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/cache-utils@0.2.20
+
 ## 1.5.18
 
 ### Patch Changes

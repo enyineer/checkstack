@@ -1,5 +1,12 @@
 # @checkstack/pluginmanager-common
 
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+
 ## 0.2.11
 
 ### Patch Changes

@@ -1,5 +1,19 @@
 # @checkstack/backend-api
 
+## 0.26.1
+
+### Patch Changes
+
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+- Updated dependencies [defb97b]
+  - @checkstack/common@0.18.0
+  - @checkstack/healthcheck-common@1.9.0
+  - @checkstack/cache-api@0.3.15
+  - @checkstack/queue-api@0.3.15
+  - @checkstack/signal-common@0.2.13
+  - @checkstack/template-engine@0.4.7
+
 ## 0.26.0
 
 ### Minor Changes
