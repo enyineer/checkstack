@@ -304,7 +304,7 @@ const HealthCheckConfigPageContent = () => {
       ) : configurations.length === 0 ? (
         <ListEmptyState
           resource="health checks"
-          description="No health checks yet. The quickest way to start is the guided setup: name a system, paste a URL, and we create and start monitoring it for you."
+          description="The quickest way to start is the guided setup: name a system, paste a URL, and we create and start monitoring it for you."
           actions={
             canManage ? (
               <Button onClick={() => setIsWizardOpen(true)}>

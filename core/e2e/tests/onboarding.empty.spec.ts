@@ -199,16 +199,22 @@ test.describe("Health checks (empty state)", () => {
       page.getByRole("button", { name: "Create Check" }),
     ).toBeVisible();
     await expect(
+      page.getByRole("button", { name: "Quick start" }),
+    ).toBeVisible();
+    await expect(
       page.getByRole("link", { name: "View History" }),
     ).toBeVisible();
 
     // ListEmptyState renders "No {resource} yet" (a styled <p>, not a heading)
-    // plus the descriptive copy.
+    // plus the descriptive copy and a guided-setup CTA.
     await expect(page.getByText("No health checks yet")).toBeVisible();
     await expect(
       page.getByText(
-        "No health checks have been configured yet. Create one to start monitoring a system.",
+        "The quickest way to start is the guided setup: name a system, paste a URL, and we create and start monitoring it for you.",
       ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create your first check" }),
     ).toBeVisible();
   });
 
