@@ -24,6 +24,12 @@ A system is the unit of organisation in Checkstack: it groups one or more health
 
 The new system appears in the catalog with status `unknown`. It stays in `unknown` until the first health check returns a result.
 
+> [!TIP]
+> Need prod **and** staging? Do not clone the system. Attach
+> [Environments](/checkstack/user-guide/concepts/environments/) to the one
+> system instead, and a single assignment runs the check once per environment.
+> One system, many environments - never one system per environment.
+
 ## 3. Start the health check wizard
 
 1. Open the **Health Checks** page from the sidebar.
@@ -66,6 +72,27 @@ The HTTP strategy ships with a built-in **Request collector**. Add it from the *
 ## 6. Attach the check to your system
 
 Below the configuration tree, the editor shows an **Assignments** section listing the systems this check applies to.
+
+> [!NOTE]
+> **What is an assignment, and why does a check need one?**
+>
+> An assignment is the link row between this check configuration and a system.
+> The check does **not** run until it is assigned - creating the assignment is
+> what schedules it. The assignment also carries this system's overrides: its
+> state thresholds, its retention, and the **per-environment fan-out** (one run
+> per environment the system belongs to). See
+> [Assignments](/checkstack/user-guide/concepts/health-checks/#assignments) for
+> the full model.
+
+```mermaid
+flowchart LR
+    C["Check configuration<br/>(strategy + collectors)"]
+    C -->|"assign to a system"| A{{"Assignment"}}
+    A -->|"schedules runs"| S["System · Payments API"]
+    S -->|"one run per environment"| R1["Run · production"]
+    S --> R2["Run · staging"]
+    S --> R3["Run · no environment"]
+```
 
 1. Click **Add assignment**.
 2. Select the `Payments API` system you created in step 2.

@@ -115,6 +115,62 @@ These rules are **automatically enforced** by the dependency linter:
 
 See [dependency-linter.md](/checkstack/developer-guide/tooling/dependency-linter/) for details.
 
+## Dependency Direction and Extension Points
+
+The package-type rule above (backend / frontend / common) is one axis. The other
+axis is **how general a package is**, and dependencies flow **one way only:
+from the specific to the general**. A more-general package must never import a
+more-specific one. There are three generality layers, most general at the
+bottom:
+
+1. **Foundation** (most general): `@checkstack/common`, `backend-api`,
+   `frontend-api`, `@checkstack/ui`, and the shared `*-api` / `*-utils` helpers.
+2. **Platform / host plugins**: the cross-cutting mechanisms other plugins plug
+   into - `auth-*`, `automation-backend`, `status-page-backend`,
+   `integration-backend`, and so on. These **own** the extension points.
+3. **Domain / capability plugins** (most specific): the concrete features -
+   `catalog-*`, `healthcheck-*`, `incident-*`, `slo-*`, and everything under
+   `plugins/`.
+
+A package may depend on its own layer and any layer **below** it, never a layer
+**above** it. The thin host loads every plugin at runtime; the arrows show what
+each layer is allowed to depend on.
+
+```mermaid
+flowchart TD
+    Host(["Thin host · core<br/>loads every plugin at runtime"])
+
+    subgraph domain ["Domain / capability plugins (most specific)"]
+      Dom["catalog-* · healthcheck-* · incident-* · slo-* ..."]
+    end
+    subgraph platform ["Platform / host plugins"]
+      Plat["auth-* · automation-backend · status-page-backend<br/>(own the extension points)"]
+    end
+    subgraph foundation ["Foundation (most general)"]
+      Found["common · backend-api · frontend-api · ui"]
+    end
+
+    Host -. loads .-> domain
+    Host -. loads .-> platform
+
+    Dom -->|"depends on"| Plat
+    Plat -->|"depends on"| Found
+    Dom -->|"depends on"| Found
+
+    Plat -->|"1 · DEFINES extension point"| EP[["e.g. statusWidgetTypeExtensionPoint"]]
+    Dom -->|"2 · CONTRIBUTES implementation"| EP
+```
+
+So when a platform package needs domain data or behaviour, it must **not** reach
+up into the domain plugin. Instead the platform **DEFINES an extension point**
+and the owning domain plugin **CONTRIBUTES** the implementation by registering
+against it. The domain plugin imports the platform; the platform stays ignorant
+of the domain. Registration is buffered behind the extension point, so plugin
+load order does not matter. `statusWidgetTypeExtensionPoint` is a worked
+example: healthcheck, incident, and maintenance contribute their status-page
+widgets, so `status-page-backend` depends only on `backend-api`, `common`, and
+its own `status-page-common`.
+
 ## Plugin Lifecycle
 
 ### Backend Plugin Lifecycle

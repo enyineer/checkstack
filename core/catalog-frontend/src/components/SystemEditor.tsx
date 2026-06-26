@@ -9,9 +9,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
   useToast,
   toastError,
 } from "@checkstack/ui";
+import { Layers } from "lucide-react";
 import {
   TeamAccessEditor,
   TeamOwnershipPicker,
@@ -123,6 +129,26 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
                 rows={3}
               />
             </div>
+
+            {/* Modelling hint - only when creating a new system. Steers new
+                users away from "one system per environment", which is the most
+                common onboarding mistake. */}
+            {!initialData?.id && (
+              <Alert variant="info">
+                <AlertIcon>
+                  <Layers className="h-4 w-4" />
+                </AlertIcon>
+                <AlertContent>
+                  <AlertTitle>One system, many environments</AlertTitle>
+                  <AlertDescription>
+                    A system usually pairs with a single health check. To monitor
+                    it across dev, staging, and prod, do not create a system per
+                    stage - create it once, then attach Environments after saving
+                    and one check runs once per environment.
+                  </AlertDescription>
+                </AlertContent>
+              </Alert>
+            )}
 
             {/* Owning team picker - only shown when creating a new system */}
             {!initialData?.id && (

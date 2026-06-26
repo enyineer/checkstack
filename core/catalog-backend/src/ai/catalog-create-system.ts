@@ -62,7 +62,7 @@ export function createCatalogCreateSystemTool(): RegisteredAiTool<
   return {
     name: "catalog.createSystem",
     description:
-      "Create a new system (a service or resource) in the catalog with a name and optional description and metadata. Never creates directly; a person must approve unless the conversation is in auto mode.",
+      "Create a new system (a service or resource) in the catalog with a name and optional description and metadata. A system usually pairs 1-1 with a single health check (create and assign it with healthcheck.propose + assignToSystemId). To monitor the same system across deployment stages, attach ENVIRONMENTS (catalog.createEnvironment + catalog.setSystemEnvironments) - do NOT create a separate system per environment. Never creates directly; a person must approve unless the conversation is in auto mode.",
     effect: "mutate",
     input: CatalogCreateSystemInputSchema,
     requiredAccessRules: [

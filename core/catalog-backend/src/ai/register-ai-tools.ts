@@ -7,6 +7,8 @@ import { createCatalogUpdateGroupTool } from "./catalog-update-group";
 import { createCatalogDeleteGroupTool } from "./catalog-delete-group";
 import { createCatalogAddSystemToGroupTool } from "./catalog-add-system-to-group";
 import { createCatalogRemoveSystemFromGroupTool } from "./catalog-remove-system-from-group";
+import { createCatalogCreateEnvironmentTool } from "./catalog-create-environment";
+import { createCatalogSetSystemEnvironmentsTool } from "./catalog-set-system-environments";
 
 /**
  * The catalog plugin's AI tools, registered into the AI registry via
@@ -31,5 +33,7 @@ export function buildCatalogAiTools(): RegisteredAiTool[] {
     createCatalogDeleteGroupTool(),
     createCatalogAddSystemToGroupTool(),
     createCatalogRemoveSystemFromGroupTool(),
+    createCatalogCreateEnvironmentTool(),
+    createCatalogSetSystemEnvironmentsTool(),
   ];
 }

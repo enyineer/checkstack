@@ -1,4 +1,9 @@
-import type { ChatStreamEvent, ConfirmCard, AppliedCard } from "./stream-parser";
+import type {
+  ChatStreamEvent,
+  ConfirmCard,
+  AppliedCard,
+  QuestionCard,
+} from "./stream-parser";
 
 /**
  * One ordered piece of an assistant turn. The model interleaves prose and tool
@@ -19,7 +24,8 @@ export type AssistantPart =
       errorText?: string;
     }
   | { kind: "confirm"; toolCallId: string; card: ConfirmCard }
-  | { kind: "applied"; toolCallId: string; card: AppliedCard };
+  | { kind: "applied"; toolCallId: string; card: AppliedCard }
+  | { kind: "question"; toolCallId: string; card: QuestionCard };
 
 /** A rendered chat message in the UI. */
 export interface ChatMessage {
@@ -211,6 +217,14 @@ export function applyStreamEvent({
     case "applied-card": {
       parts = toCard(parts, event.toolCallId, {
         kind: "applied",
+        toolCallId: event.toolCallId,
+        card: event.card,
+      });
+      break;
+    }
+    case "question-card": {
+      parts = toCard(parts, event.toolCallId, {
+        kind: "question",
         toolCallId: event.toolCallId,
         card: event.card,
       });

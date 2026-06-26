@@ -139,6 +139,38 @@ export const AUTOMATION_BUILDING_INSTRUCTION =
   "automation.propose.";
 
 /**
+ * Onboarding playbook, injected ONLY when a setup tool (a health-check or
+ * catalog create/propose tool) is in this turn's resolved tool set. It steers
+ * the model through the common "first system + first check" flow: prefer HTTP,
+ * ask before guessing, create AND assign in one step, and teach environments
+ * instead of cloning systems. Kept out of the always-on prompt so pure read
+ * turns stay lean (mirrors the automation-playbook gating above).
+ */
+export const ONBOARDING_INSTRUCTION =
+  "When the operator wants to monitor something or set up a health check, guide " +
+  "them through it instead of guessing. PREFER THE HTTP STRATEGY for anything " +
+  'reachable over HTTP(S): for a URL, draft a check with strategyId "http" and ' +
+  'the "healthcheck-http.request" collector (config { url }) asserting on ' +
+  "statusCode. Do NOT author a SCRIPT health check for a URL - only use a script " +
+  "when the operator explicitly asks for one or no built-in strategy fits. If " +
+  "you do not know what the endpoint returns, call probeUrl first, then assert " +
+  "on the real response. " +
+  "A health check does NOT run until it is assigned to a system, so close the " +
+  "loop in the SAME flow: resolve the target system's id with " +
+  "catalog.listSystems (create it with catalog.createSystem if it does not " +
+  "exist), then pass assignToSystemId to healthcheck.propose so the check is " +
+  "created, assigned, and started in one approval. Most systems have exactly " +
+  "one check. " +
+  "Do NOT create a separate system per environment. A system belongs to many " +
+  "ENVIRONMENTS (e.g. dev/staging/prod) and one assignment runs the check once " +
+  "per environment - use catalog.createEnvironment and " +
+  "catalog.setSystemEnvironments to model prod/staging, never clone the system. " +
+  "If a critical detail is missing, ASK before drafting - and when the answer " +
+  "is a discrete choice (which system, how often, which environment), use the " +
+  "askOperator tool to present clickable options; ask in prose only for a " +
+  "free-form value like the URL.";
+
+/**
  * Ground concepts in the docs and never fabricate. Shared by chat and headless.
  *
  * The model otherwise answers conceptual/how-to questions from (possibly stale)
@@ -341,7 +373,11 @@ const CHAT_CLARIFY_INSTRUCTION =
   "If you are missing a value a tool needs and cannot obtain it from a " +
   "discovery/list tool or the docs, ASK the operator a specific clarifying " +
   "question instead of inventing one - a clarifying question is always better " +
-  "than a guess, especially when building an automation or proposing a change.";
+  "than a guess, especially when building an automation or proposing a change. " +
+  "When the answer is a discrete choice (one of a known set of systems, " +
+  "protocols, intervals, environments, ...), use the askOperator tool to offer " +
+  "clickable options instead of asking in prose; reserve prose questions for " +
+  "free-form answers like a URL.";
 
 /**
  * How long a conversation may sit idle before the model is told its remembered
@@ -418,6 +454,7 @@ export function buildChatSystemPrompt({
   now,
   mode,
   automationTools = false,
+  onboardingTools = false,
   modelFamily = "generic",
   staleSinceMs,
 }: {
@@ -426,6 +463,8 @@ export function buildChatSystemPrompt({
   mode: AiPermissionMode;
   /** Inject the automation-building playbook this turn (an automation tool is in scope). */
   automationTools?: boolean;
+  /** Inject the onboarding playbook this turn (a health-check / catalog setup tool is in scope). */
+  onboardingTools?: boolean;
   /** Declared model family; capable families get the lighter-touch calibration note. */
   modelFamily?: AiModelFamily;
   /**
@@ -448,6 +487,9 @@ export function buildChatSystemPrompt({
   ];
   if (automationTools) {
     sections.push(section("Building automations", AUTOMATION_BUILDING_INSTRUCTION));
+  }
+  if (onboardingTools) {
+    sections.push(section("Setting up monitoring", ONBOARDING_INSTRUCTION));
   }
   if (isCapableFamily(modelFamily)) {
     // Single calibration note for capable families (no per-string fork).

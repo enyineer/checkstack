@@ -19,6 +19,7 @@ import {
   HealthCheckList,
   HealthCheckListSkeleton,
 } from "../components/HealthCheckList";
+import { FirstCheckWizard } from "../components/FirstCheckWizard";
 import {
   Button,
   ConfirmationModal,
@@ -28,7 +29,7 @@ import {
   useToast,
   toastError,
 } from "@checkstack/ui";
-import { Plus, History, Activity, ExternalLink } from "lucide-react";
+import { Plus, History, Activity, ExternalLink, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { resolveRoute, APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 
@@ -228,6 +229,10 @@ const HealthCheckConfigPageContent = () => {
     deleteMutation.mutate({ id: idToDelete });
   };
 
+  // Guided "create your first check" flow (new system + HTTP check + assignment
+  // in one go), surfaced from the empty state for new operators.
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+
   return (
     <PageLayout
       title="Health Checks"
@@ -242,6 +247,11 @@ const HealthCheckConfigPageContent = () => {
               <Link to={resolveRoute(healthcheckRoutes.routes.history)}>
                 <History className="mr-2 h-4 w-4" /> View History
               </Link>
+            </Button>
+          )}
+          {canManage && (
+            <Button variant="outline" onClick={() => setIsWizardOpen(true)}>
+              <Sparkles className="mr-2 h-4 w-4" /> Quick start
             </Button>
           )}
           <Tip
@@ -294,7 +304,14 @@ const HealthCheckConfigPageContent = () => {
       ) : configurations.length === 0 ? (
         <ListEmptyState
           resource="health checks"
-          description="No health checks have been configured yet. Create one to start monitoring a system."
+          description="No health checks yet. The quickest way to start is the guided setup: name a system, paste a URL, and we create and start monitoring it for you."
+          actions={
+            canManage ? (
+              <Button onClick={() => setIsWizardOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Create your first check
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <HealthCheckList
@@ -317,6 +334,12 @@ const HealthCheckConfigPageContent = () => {
         confirmText="Delete"
         variant="danger"
         isLoading={deleteMutation.isPending}
+      />
+
+      <FirstCheckWizard
+        open={isWizardOpen}
+        onOpenChange={setIsWizardOpen}
+        onCreated={() => void configurationsQuery.refetch()}
       />
     </PageLayout>
   );

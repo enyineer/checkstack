@@ -9,8 +9,12 @@ import {
   type CollectorRegistry,
   type ConfigService,
 } from "@checkstack/backend-api";
-import { healthCheckContract } from "@checkstack/healthcheck-common";
+import {
+  healthCheckContract,
+  HEALTHCHECK_CONFIG_CHANGED,
+} from "@checkstack/healthcheck-common";
 import type { StrategyCategory } from "@checkstack/healthcheck-common";
+import { type SignalService } from "@checkstack/signal-common";
 import {
   resolveResolutionRootFromStore,
   resolveScriptPackagesDir,
@@ -21,7 +25,7 @@ import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
 import * as schema from "./schema";
 import { toJsonSchemaWithChartMeta } from "./schema-utils";
-import type { InferClient } from "@checkstack/common";
+import { extractErrorMessage, type InferClient } from "@checkstack/common";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
@@ -45,6 +49,14 @@ export const createHealthCheckRouter = (opts: {
   catalogClient: InferClient<typeof CatalogApi>;
   maintenanceClient: InferClient<typeof MaintenanceApi>;
   logger: Logger;
+  /**
+   * Broadcasts `healthcheck.config.changed` so every client's `[[healthcheck]]`
+   * cache refreshes after a config/assignment mutation - the only way an
+   * out-of-band write (AI assistant, GitOps, another pod/user) reaches an
+   * already-open Health Checks list before the first run fires a status signal.
+   * Optional so existing tests can omit it.
+   */
+  signalService?: SignalService;
 }) => {
   const {
     database,
@@ -56,6 +68,7 @@ export const createHealthCheckRouter = (opts: {
     catalogClient,
     maintenanceClient,
     logger,
+    signalService,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -82,6 +95,77 @@ export const createHealthCheckRouter = (opts: {
         message: `${kind} is managed by GitOps and cannot be modified manually.`,
       });
     }
+  };
+
+  /**
+   * Fire the `healthcheck.config.changed` signal so every client's
+   * `[[healthcheck]]` cache refreshes after a config/assignment write (the
+   * executor's run/status signals only fire once a check actually runs).
+   * Best-effort: a signal failure must never fail the mutation.
+   */
+  const broadcastConfigChanged = async (payload: {
+    entity: "configuration" | "assignment";
+    action: "created" | "updated" | "deleted";
+    configurationId?: string;
+    systemId?: string;
+  }) => {
+    try {
+      await signalService?.broadcast(HEALTHCHECK_CONFIG_CHANGED, payload);
+    } catch (error) {
+      logger.warn(
+        `Failed to broadcast healthcheck.config.changed signal: ${extractErrorMessage(error, "unknown")}`,
+      );
+    }
+  };
+
+  /**
+   * Post-assignment side effects shared by `associateSystem` and
+   * `createAndAssign`: invalidate the system cache, schedule the first run when
+   * the assignment is enabled, and emit the `assignmentChanged` hook. Kept in
+   * one place so both entry points stay in lock-step and an enabled assignment
+   * always starts running immediately.
+   */
+  const scheduleAndNotifyAssignment = async (args: {
+    systemId: string;
+    configurationId: string;
+    enabled: boolean;
+    queueManager: RpcContext["queueManager"];
+  }) => {
+    await cache.invalidateSystem(args.systemId);
+
+    // If enabling the health check, schedule it immediately so it starts
+    // probing right away.
+    if (args.enabled) {
+      const config = await service.getConfiguration(args.configurationId);
+      if (config) {
+        const { scheduleHealthCheck } = await import("./queue-executor");
+        await scheduleHealthCheck({
+          queueManager: args.queueManager,
+          payload: {
+            configId: config.id,
+            systemId: args.systemId,
+          },
+          intervalSeconds: config.intervalSeconds,
+        });
+      }
+    }
+
+    // Notify subscribers (e.g., satellite-backend) that assignments changed.
+    const emitHook = getEmitHook();
+    if (emitHook) {
+      await emitHook(healthCheckHooks.assignmentChanged, {
+        systemId: args.systemId,
+        configurationId: args.configurationId,
+      });
+    }
+
+    // Refresh every client's Health Checks / assignment views.
+    await broadcastConfigChanged({
+      entity: "assignment",
+      action: "updated",
+      configurationId: args.configurationId,
+      systemId: args.systemId,
+    });
   };
 
   return os.router({
@@ -164,6 +248,11 @@ export const createHealthCheckRouter = (opts: {
       // safe move is to drop every per-system status cache so the next read
       // recomputes from fresh DB state.
       await cache.invalidateAllSystems();
+      await broadcastConfigChanged({
+        entity: "configuration",
+        action: "created",
+        configurationId: created.id,
+      });
       return created;
     }),
 
@@ -195,6 +284,11 @@ export const createHealthCheckRouter = (opts: {
       }
       // Configuration update affects every system that has it associated.
       await cache.invalidateAllSystems();
+      await broadcastConfigChanged({
+        entity: "configuration",
+        action: "updated",
+        configurationId: config.id,
+      });
       return config;
     }),
 
@@ -202,18 +296,33 @@ export const createHealthCheckRouter = (opts: {
       await enforceNotGitOpsLocked("Healthcheck", input.id);
       await service.deleteConfiguration(input.id);
       await cache.invalidateAllSystems();
+      await broadcastConfigChanged({
+        entity: "configuration",
+        action: "deleted",
+        configurationId: input.id,
+      });
     }),
 
     pauseConfiguration: os.pauseConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input.id);
       await service.pauseConfiguration(input.id);
       await cache.invalidateAllSystems();
+      await broadcastConfigChanged({
+        entity: "configuration",
+        action: "updated",
+        configurationId: input.id,
+      });
     }),
 
     resumeConfiguration: os.resumeConfiguration.handler(async ({ input }) => {
       await enforceNotGitOpsLocked("Healthcheck", input.id);
       await service.resumeConfiguration(input.id);
       await cache.invalidateAllSystems();
+      await broadcastConfigChanged({
+        entity: "configuration",
+        action: "updated",
+        configurationId: input.id,
+      });
     }),
 
     getSystemConfigurations: os.getSystemConfigurations.handler(
@@ -238,35 +347,37 @@ export const createHealthCheckRouter = (opts: {
         satelliteIds: input.body.satelliteIds,
         environmentIds: input.body.environmentIds,
         includeLocal: input.body.includeLocal,
+        notificationPolicy: input.body.notificationPolicy,
       });
-      await cache.invalidateSystem(input.systemId);
+      await scheduleAndNotifyAssignment({
+        systemId: input.systemId,
+        configurationId: input.body.configurationId,
+        enabled: input.body.enabled,
+        queueManager: context.queueManager,
+      });
+    }),
 
-      // If enabling the health check, schedule it immediately
-      if (input.body.enabled) {
-        const config = await service.getConfiguration(
-          input.body.configurationId,
-        );
-        if (config) {
-          const { scheduleHealthCheck } = await import("./queue-executor");
-          await scheduleHealthCheck({
-            queueManager: context.queueManager,
-            payload: {
-              configId: config.id,
-              systemId: input.systemId,
-            },
-            intervalSeconds: config.intervalSeconds,
-          });
-        }
-      }
-
-      // Notify subscribers (e.g., satellite-backend) that assignments changed
-      const emitHook = getEmitHook();
-      if (emitHook) {
-        await emitHook(healthCheckHooks.assignmentChanged, {
-          systemId: input.systemId,
-          configurationId: input.body.configurationId,
-        });
-      }
+    createAndAssign: os.createAndAssign.handler(async ({ input, context }) => {
+      await enforceNotGitOpsLocked("System", input.systemId);
+      // Atomic create + assign in one transaction so the common 1-1 case can
+      // never leave a dormant, unassigned check.
+      const configuration = await service.createAndAssign({
+        configuration: input.configuration,
+        systemId: input.systemId,
+        enabled: input.enabled,
+        stateThresholds: input.stateThresholds,
+        satelliteIds: input.satelliteIds,
+        environmentIds: input.environmentIds,
+        includeLocal: input.includeLocal,
+        notificationPolicy: input.notificationPolicy,
+      });
+      await scheduleAndNotifyAssignment({
+        systemId: input.systemId,
+        configurationId: configuration.id,
+        enabled: input.enabled,
+        queueManager: context.queueManager,
+      });
+      return configuration;
     }),
 
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {
@@ -282,6 +393,13 @@ export const createHealthCheckRouter = (opts: {
           configurationId: input.configId,
         });
       }
+
+      await broadcastConfigChanged({
+        entity: "assignment",
+        action: "deleted",
+        configurationId: input.configId,
+        systemId: input.systemId,
+      });
     }),
 
     getPlatformNotificationDefaults:

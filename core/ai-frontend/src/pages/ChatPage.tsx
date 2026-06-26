@@ -50,6 +50,7 @@ import {
 import { useChatTurn } from "../lib/use-chat-turn";
 import { ConfirmCardView } from "../components/ConfirmCardView";
 import { AppliedCardView } from "../components/AppliedCardView";
+import { QuestionCardView } from "../components/QuestionCardView";
 import { buildModelOptions } from "../lib/model-options.logic";
 import { decideNewChatAction } from "../lib/new-chat.logic";
 import {
@@ -130,12 +131,18 @@ function ToolStatusLine({
 function MessageRow({
   message,
   onDecision,
+  onAnswer,
+  busy,
 }: {
   message: ChatMessage;
   onDecision: (decision: {
     token: string;
     decision: "apply" | "decline";
   }) => void;
+  /** Send the operator's answer to an `askOperator` question card. */
+  onAnswer: (value: string) => void;
+  /** A turn is streaming, so question-card chips are disabled. */
+  busy: boolean;
 }) {
   const { isLowPower } = usePerformance();
   if (message.role === "user") {
@@ -206,6 +213,16 @@ function MessageRow({
               <AppliedCardView
                 key={part.toolCallId || index}
                 card={part.card}
+              />
+            );
+          }
+          if (part.kind === "question") {
+            return (
+              <QuestionCardView
+                key={part.toolCallId || index}
+                card={part.card}
+                onAnswer={onAnswer}
+                disabled={busy}
               />
             );
           }
@@ -459,6 +476,21 @@ export function ChatPage() {
     });
   };
 
+  // The operator clicked a chip (or typed) on an `askOperator` question card.
+  // Send that answer as their next user message - the same path as typing it
+  // and hitting send. A question card only appears inside an existing
+  // conversation, so `conversationId` is set; guard on `streaming` so a click
+  // cannot race an in-flight turn.
+  const onAnswer = (answer: string) => {
+    const text = answer.trim();
+    if (!text || !connectionId || !conversationId || streaming) return;
+    void send({ conversationId, connectionId, model, text, skillId }).then(() =>
+      queryClient.invalidateQueries({
+        queryKey: [[pluginMetadata.pluginId]],
+      }),
+    );
+  };
+
   // After the operator applies/declines a confirm card, stream the model's
   // acknowledgment so the conversation continues instead of dead-ending on
   // "waiting for your confirmation". The apply itself already ran via applyTool
@@ -671,6 +703,8 @@ export function ChatPage() {
                   key={m.id}
                   message={m}
                   onDecision={handleDecision}
+                  onAnswer={onAnswer}
+                  busy={streaming}
                 />
               ))
             )}

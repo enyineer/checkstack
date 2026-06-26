@@ -362,6 +362,44 @@ export const AssociateHealthCheckSchema = z.object({
 
 export type AssociateHealthCheck = z.infer<typeof AssociateHealthCheckSchema>;
 
+/**
+ * Input for the atomic `createAndAssign` RPC. Creates a health-check
+ * configuration AND immediately assigns it to a system in ONE transaction, so
+ * the common 1-1 "this system gets one check" onboarding case can never leave a
+ * dormant, unassigned check that runs nothing. Mirrors
+ * {@link AssociateHealthCheckSchema}'s per-assignment options but omits
+ * `configurationId` (the config is created by the same call). When `enabled`
+ * (the default) the assignment is scheduled immediately, exactly like
+ * `associateSystem`.
+ */
+export const CreateAndAssignHealthCheckSchema = z.object({
+  /** The health-check configuration to create. */
+  configuration: CreateHealthCheckConfigurationSchema,
+  /** The system the new check is assigned to. */
+  systemId: z.string(),
+  /** Whether the assignment is enabled (and scheduled) immediately. */
+  enabled: z.boolean().default(true),
+  stateThresholds: StateThresholdsSchema.optional(),
+  /** IDs of satellites assigned to execute this health check. */
+  satelliteIds: z.array(z.string()).optional(),
+  /**
+   * Per-assignment environment selector for per-environment fan-out.
+   * `null`/omitted = all environments the system currently belongs to (the
+   * default fan-out); non-empty array = exactly those; empty array `[]` = opt
+   * out (run once with no environment). `null` and `[]` are semantically
+   * distinct.
+   */
+  environmentIds: z.array(z.string()).nullable().optional(),
+  /** Whether to also run this check locally on the core instance (default: true). */
+  includeLocal: z.boolean().default(true),
+  /** Per-association notification policy. Defaults applied when omitted. */
+  notificationPolicy: NotificationPolicySchema.optional(),
+});
+
+export type CreateAndAssignHealthCheck = z.infer<
+  typeof CreateAndAssignHealthCheckSchema
+>;
+
 export const GetHealthCheckHistoryQuerySchema = z.object({
   systemId: z.string().uuid().optional(),
   configurationId: z.string().uuid().optional(),

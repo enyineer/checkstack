@@ -13,6 +13,7 @@ export const APP_DOC_SLUGS = {
   teamsAndAccess: "user-guide/concepts/teams-and-access",
   apiKeys: "user-guide/reference/api-keys",
   systemsAndGroups: "user-guide/concepts/systems-and-groups",
+  environments: "user-guide/concepts/environments",
   healthChecks: "user-guide/concepts/health-checks",
   slo: "user-guide/concepts/slo",
   incidents: "user-guide/concepts/incidents",

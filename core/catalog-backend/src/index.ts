@@ -407,6 +407,7 @@ export default createBackendPlugin({
         logger: coreServices.logger,
         cacheManager: coreServices.cacheManager,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
+        signalService: coreServices.signalService,
       },
       // Phase 2: Register router only - no RPC calls to other plugins
       init: async ({
@@ -416,6 +417,7 @@ export default createBackendPlugin({
         logger,
         cacheManager,
         resourceResolverRegistry,
+        signalService,
       }) => {
         logger.debug("Initializing Catalog Backend...");
 
@@ -468,6 +470,7 @@ export default createBackendPlugin({
           pluginId: pluginMetadata.pluginId,
           cache,
           logger,
+          signalService,
           getSystemEntity: () => systemEntity,
           getGroupEntity: () => groupEntity,
         });
@@ -509,6 +512,16 @@ export default createBackendPlugin({
           name: "catalog.listGroups",
           description:
             "List all system groups with ids and names. Read-only.",
+          effect: "read",
+          execute: deferredProjectionExecute,
+        });
+        aiProjectionExt.expose({
+          procedure: catalogContract.listEnvironments,
+          sourcePluginMetadata: pluginMetadata,
+          procedureKey: "listEnvironments",
+          name: "catalog.listEnvironments",
+          description:
+            "List all environments (e.g. production, staging) with their ids and names. Read-only. Use this to resolve an environment name to its id before calling catalog.setSystemEnvironments.",
           effect: "read",
           execute: deferredProjectionExecute,
         });

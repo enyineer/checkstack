@@ -11,6 +11,7 @@ import {
   ValidateConfigurationInputSchema,
   ValidateConfigurationResultSchema,
   AssociateHealthCheckSchema,
+  CreateAndAssignHealthCheckSchema,
   HealthCheckRunSchema,
   HealthCheckRunPublicSchema,
   HealthCheckStatusSchema,
@@ -327,6 +328,36 @@ export const healthCheckContract = {
       }),
     )
     .output(z.void()),
+
+  /**
+   * Atomically create a health-check configuration AND assign it to a system
+   * (the common 1-1 onboarding case where a system gets exactly one check).
+   * Closes the "dormant unassigned check" gap: a check that is created but
+   * never assigned runs nothing. Both writes happen in one transaction, and
+   * when `enabled` (the default) the check is scheduled immediately, exactly
+   * like `associateSystem`.
+   *
+   * Authorization is scoped on the TARGET SYSTEM (`catalog.system` manage),
+   * since that is the resource the assignment attaches to; the feature-level
+   * `configuration.manage` gate also applies. The created config carries no
+   * team-ownership grant (matching the GitOps create path); reach for
+   * `createConfiguration` + `associateSystem` when the new config must be owned
+   * by a specific team.
+   */
+  createAndAssign: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.manage],
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "manage",
+        idParam: "systemId",
+      },
+    },
+  })
+    .input(CreateAndAssignHealthCheckSchema)
+    .output(HealthCheckConfigurationSchema),
 
   /**
    * Read the platform-wide notification policy defaults. Per-assignment

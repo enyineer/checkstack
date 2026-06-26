@@ -4,8 +4,10 @@ import {
   catalogContract,
   catalogSystemTarget,
   catalogGroupTarget,
+  CATALOG_CHANGED,
   type SystemContact,
 } from "@checkstack/catalog-common";
+import { type SignalService } from "@checkstack/signal-common";
 import { EntityService } from "./services/entity-service";
 import { diffSystemEnvironments } from "./services/environment-membership";
 import { isUniqueViolation } from "./services/pg-errors";
@@ -47,6 +49,13 @@ export interface CatalogRouterDeps {
   pluginId: string;
   cache: CatalogCache;
   logger: Logger;
+  /**
+   * Broadcasts the `catalog.changed` realtime signal so EVERY client's
+   * `[[catalog]]` react-query cache auto-invalidates after a mutation - the only
+   * way an out-of-band write (AI assistant, GitOps, another pod/user) reaches an
+   * already-open catalog/system page. Optional so existing tests can omit it.
+   */
+  signalService?: SignalService;
   /** Resolvers for the reactive catalog entities (§10.4). Undefined in tests. */
   getSystemEntity?: () => EntityHandle<CatalogSystemState> | undefined;
   getGroupEntity?: () => EntityHandle<CatalogGroupState> | undefined;
@@ -60,10 +69,30 @@ export const createCatalogRouter = ({
   pluginId: _pluginId,
   cache,
   logger,
+  signalService,
   getSystemEntity,
   getGroupEntity,
 }: CatalogRouterDeps) => {
   const entityService = new EntityService(database);
+
+  /**
+   * Fire the `catalog.changed` signal so every client's `[[catalog]]` cache
+   * refreshes after this write. Best-effort: a signal failure must never fail
+   * the mutation (the data is already committed), so swallow + log.
+   */
+  const broadcastChanged = async (payload: {
+    entity: "system" | "group" | "environment" | "membership";
+    action: "created" | "updated" | "deleted";
+    id?: string;
+  }) => {
+    try {
+      await signalService?.broadcast(CATALOG_CHANGED, payload);
+    } catch (error) {
+      logger.warn(
+        `Failed to broadcast catalog.changed signal: ${extractErrorMessage(error, "unknown")}`,
+      );
+    }
+  };
 
   const enforceNotGitOpsLocked = async (kind: string, entityId: string) => {
     const provenance = await gitOpsClient.getProvenance({
@@ -265,6 +294,11 @@ export const createCatalogRouter = ({
     await refreshSystemParents(result.id);
 
     await cache.invalidateTopology();
+    await broadcastChanged({
+      entity: "system",
+      action: "created",
+      id: result.id,
+    });
 
     return result;
   });
@@ -351,6 +385,11 @@ export const createCatalogRouter = ({
     if (input.data.name !== undefined) {
       await upsertSystemResource({ id: result.id, name: result.name });
     }
+    await broadcastChanged({
+      entity: "system",
+      action: "updated",
+      id: result.id,
+    });
 
     return result;
   });
@@ -381,6 +420,11 @@ export const createCatalogRouter = ({
       cache.invalidateTopology(),
       cache.invalidateContacts(systemId),
     ]);
+    await broadcastChanged({
+      entity: "system",
+      action: "deleted",
+      id: systemId,
+    });
 
     return { success: true };
   });
@@ -411,6 +455,11 @@ export const createCatalogRouter = ({
     await upsertGroupResource({ id: result.id, name: result.name });
 
     await cache.invalidateTopology();
+    await broadcastChanged({
+      entity: "group",
+      action: "created",
+      id: result.id,
+    });
 
     // New groups have no systems yet
     return {
@@ -472,6 +521,11 @@ export const createCatalogRouter = ({
     if (input.data.name !== undefined) {
       await upsertGroupResource({ id: fullGroup.id, name: fullGroup.name });
     }
+    await broadcastChanged({
+      entity: "group",
+      action: "updated",
+      id: fullGroup.id,
+    });
 
     return fullGroup;
   });
@@ -493,6 +547,7 @@ export const createCatalogRouter = ({
     await removeGroupResource(input);
 
     await cache.invalidateTopology();
+    await broadcastChanged({ entity: "group", action: "deleted", id: input });
 
     return { success: true };
   });
@@ -504,6 +559,11 @@ export const createCatalogRouter = ({
     // Push refreshed parent edges so notification-backend's dispatcher
     // walks the new membership when computing inherited subscribers.
     await refreshSystemParents(input.systemId);
+    await broadcastChanged({
+      entity: "membership",
+      action: "updated",
+      id: input.systemId,
+    });
     return { success: true };
   });
 
@@ -513,6 +573,11 @@ export const createCatalogRouter = ({
       await entityService.removeSystemFromGroup(input);
       await cache.invalidateTopology();
       await refreshSystemParents(input.systemId);
+      await broadcastChanged({
+        entity: "membership",
+        action: "updated",
+        id: input.systemId,
+      });
       return { success: true };
     },
   );
@@ -702,6 +767,11 @@ export const createCatalogRouter = ({
 
   const createEnvironment = os.createEnvironment.handler(async ({ input }) => {
     const created = await entityService.createEnvironment(input);
+    await broadcastChanged({
+      entity: "environment",
+      action: "created",
+      id: created.id,
+    });
     // New environments have no systems yet.
     return { ...created, systemIds: [] };
   });
@@ -731,12 +801,22 @@ export const createCatalogRouter = ({
         message: "Environment not found after update",
       });
     }
+    await broadcastChanged({
+      entity: "environment",
+      action: "updated",
+      id: input.environmentId,
+    });
     return updated;
   });
 
   const deleteEnvironment = os.deleteEnvironment.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("Environment", input.environmentId);
     await entityService.deleteEnvironment(input.environmentId);
+    await broadcastChanged({
+      entity: "environment",
+      action: "deleted",
+      id: input.environmentId,
+    });
     return { success: true };
   });
 
@@ -762,6 +842,11 @@ export const createCatalogRouter = ({
           systemId: input.systemId,
         });
       }
+      await broadcastChanged({
+        entity: "membership",
+        action: "updated",
+        id: input.systemId,
+      });
       return { success: true };
     },
   );

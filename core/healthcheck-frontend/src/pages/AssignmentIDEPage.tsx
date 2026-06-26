@@ -579,11 +579,28 @@ const AssignmentIDEPageContent = () => {
 
   const renderPanel = () => {
     if (!selectedNode) {
+      if (associations.length === 0) {
+        return (
+          <div className="flex h-full items-center justify-center p-12">
+            <div className="max-w-md space-y-2 text-center text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">
+                Assign this check to a system to start it
+              </p>
+              <p>
+                An assignment links a health check to a system. A check does not
+                run until it is assigned - assigning is what schedules it. The
+                assignment also carries per-system settings (failure thresholds,
+                notifications) and runs the check once per environment the system
+                belongs to.
+              </p>
+              <p>Add a system from the left panel to get started.</p>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-12">
-          {associations.length === 0
-            ? "Add a health check from the left panel to get started."
-            : "Select an item from the left panel to configure it."}
+          Select an item from the left panel to configure it.
         </div>
       );
     }

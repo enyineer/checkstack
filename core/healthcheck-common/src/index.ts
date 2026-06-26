@@ -108,3 +108,28 @@ export const ENVIRONMENT_RESOLUTION_FAILED = createSignal({
     error: z.string(),
   }),
 });
+
+/**
+ * Broadcast whenever a health-check CONFIGURATION or its system ASSIGNMENTS
+ * change (create/update/delete/pause/resume, associate/disassociate,
+ * create-and-assign) - by ANY path: the UI, the AI assistant (which mutates on
+ * the backend, so no frontend mutation runs), GitOps reconcile, or another
+ * pod/user. The run-time executor already broadcasts run/status signals, but a
+ * freshly created or edited check produces no run for up to an interval, so
+ * without this an out-of-band config/assignment change would not reach an open
+ * Health Checks list until the first run. The frontend signal auto-invalidator
+ * refreshes the `[[healthcheck]]` react-query cache from it.
+ */
+export const HEALTHCHECK_CONFIG_CHANGED = createSignal({
+  pluginMetadata,
+  event: "config.changed",
+  payloadSchema: z.object({
+    /** What changed: a check configuration or a system assignment. */
+    entity: z.enum(["configuration", "assignment"]),
+    action: z.enum(["created", "updated", "deleted"]),
+    /** The affected configuration id, when applicable. */
+    configurationId: z.string().optional(),
+    /** The affected system id, for assignment changes. */
+    systemId: z.string().optional(),
+  }),
+});

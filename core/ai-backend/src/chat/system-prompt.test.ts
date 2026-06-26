@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ACCESS_SCOPE_INSTRUCTION,
   AUTOMATION_BUILDING_INSTRUCTION,
+  ONBOARDING_INSTRUCTION,
   CHAT_SYSTEM_PROMPT,
   DATE_FORMAT_INSTRUCTION,
   DOCS_GROUNDING_INSTRUCTION,
@@ -117,6 +118,32 @@ describe("buildChatSystemPrompt", () => {
     );
     expect(prompt).toContain("The <artifactType> segment is REQUIRED");
     expect(prompt).toContain("script_result.result");
+  });
+
+  test("injects the onboarding playbook only when a setup tool is in scope", () => {
+    const withTools = buildChatSystemPrompt({
+      timeZone: "Europe/Berlin",
+      mode: "approve",
+      onboardingTools: true,
+    });
+    expect(withTools).toContain("## Setting up monitoring");
+    expect(withTools).toContain(ONBOARDING_INSTRUCTION);
+    // Steer to HTTP, not script, for a URL.
+    expect(withTools).toContain("PREFER THE HTTP STRATEGY");
+    expect(withTools).toContain("healthcheck-http.request");
+    // Close the loop: create + assign in one step.
+    expect(withTools).toContain("assignToSystemId");
+    // Teach environments instead of cloning systems.
+    expect(withTools).toContain("catalog.setSystemEnvironments");
+    expect(withTools).toContain("never clone the system");
+
+    // Absent on a turn with no setup tool in scope (kept out of the always-on
+    // prompt, like the automation playbook).
+    const withoutTools = buildChatSystemPrompt({
+      timeZone: "Europe/Berlin",
+      mode: "approve",
+    });
+    expect(withoutTools).not.toContain("## Setting up monitoring");
   });
 
   test("a capable model family gets a calibration note; generic does not", () => {

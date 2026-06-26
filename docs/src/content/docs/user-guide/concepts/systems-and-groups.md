@@ -17,11 +17,11 @@ Every system carries:
 - Membership in zero or more **Groups**.
 
 > [!TIP]
-> Be ruthless about what counts as a System. One System per service is the right granularity. If you find yourself making a "Foo - production" and "Foo - staging" pair, that is fine; if you start making "Foo - login flow" and "Foo - checkout flow", you have probably blurred the line between a System and a health check.
+> Be ruthless about what counts as a System. One System per service is the right granularity. Do **not** clone a service per environment: a "Foo - production" / "Foo - staging" pair is the wrong model. Keep a single `Foo` System and attach [Environments](/checkstack/user-guide/concepts/environments/) to it - one health-check assignment then runs once per environment. If you start making "Foo - login flow" and "Foo - checkout flow", you have probably blurred the line between a System and a health check.
 
 ### What a System is not
 
-A System is not the same as a host, an environment, or a Kubernetes pod. It is the *logical* thing you care about. The health check is what decides "this URL on this host is the way I observe it".
+A System is not the same as a host, an environment, or a Kubernetes pod. It is the *logical* thing you care about. The health check is what decides "this URL on this host is the way I observe it". Where a System runs - production, staging, a region - is modelled with [Environments](/checkstack/user-guide/concepts/environments/), which attach to one System many-to-many so a single check fans out across all of them.
 
 ## Groups
 
@@ -29,7 +29,7 @@ A **Group** is a flat label that bundles related systems together. Use groups to
 
 - **Teams.** "Payments", "Identity", "Platform".
 - **Tiers.** "Tier 1", "Customer-facing", "Internal-only".
-- **Domains.** "Production", "Staging" (though you can also model environments as separate systems).
+- **Domains.** "Production", "Staging" as flat labels. For real deployment context - per-environment health, custom fields, or one check that fans out per environment - use [Environments](/checkstack/user-guide/concepts/environments/) instead of cloning a system or relying on a group.
 
 Groups are flat. Checkstack does not nest groups inside other groups today. A system can belong to multiple groups, so you can cross-cut by team and by tier at the same time.
 

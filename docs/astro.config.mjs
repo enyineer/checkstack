@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import mermaid from "astro-mermaid";
 import remarkGithubAdmonitions from "remark-github-admonitions-to-directives";
 
 export default defineConfig({
@@ -13,6 +14,13 @@ export default defineConfig({
     remarkPlugins: [remarkGithubAdmonitions],
   },
   integrations: [
+    // Render ```mermaid fenced code blocks as diagrams. 100% client-side
+    // (no headless browser), so the GitHub Pages `deploy-docs` build is
+    // unaffected. MUST come before starlight() so the markdown transform
+    // runs first. `autoTheme` follows Starlight's light/dark `data-theme`.
+    mermaid({
+      autoTheme: true,
+    }),
     starlight({
       title: "Checkstack",
       description: "Plugin-based application platform with extensible architecture.",

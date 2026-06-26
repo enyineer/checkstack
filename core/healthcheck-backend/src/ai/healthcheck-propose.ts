@@ -27,7 +27,22 @@ import { validateCollectorAssertions } from "./assertion-validation";
  * create skeleton (name, strategyId, config, intervalSeconds, collectors).
  */
 export const HealthcheckProposeInputSchema =
-  CreateHealthCheckConfigurationSchema;
+  CreateHealthCheckConfigurationSchema.extend({
+    /**
+     * Optional: the id of a system to atomically assign + start the check on in
+     * the SAME step (resolve a system name to its id with `catalog.listSystems`
+     * first). When set, the check is created, assigned, and starts running
+     * immediately. When omitted, the check is created but stays dormant until
+     * the operator assigns it to a system.
+     */
+    assignToSystemId: z.string().optional(),
+    /**
+     * Optional per-assignment environment selector, only meaningful with
+     * `assignToSystemId`. Omit (or null) to run once per environment the system
+     * belongs to (the default fan-out) - this is almost always what you want.
+     */
+    environmentIds: z.array(z.string()).nullable().optional(),
+  });
 
 export type HealthcheckProposeInput = z.infer<
   typeof HealthcheckProposeInputSchema
@@ -67,12 +82,13 @@ function formatIssues(
 }
 
 /**
- * Appended to every health-check propose summary + the tool description: a newly
- * created health check does NOT execute until it is assigned to a system, which
- * the model must tell the operator (it cannot assign automatically yet).
+ * Appended to a health-check propose summary (and echoed in the tool
+ * description) when the draft is NOT being assigned: a health check only runs
+ * once it is assigned to a system. The model should prefer to assign in the
+ * same step by passing `assignToSystemId`.
  */
-const SYSTEM_ASSIGNMENT_HINT =
-  "A new health check does not run until it is assigned to a system - after it is applied, tell the operator they must assign it to a system (Health Checks -> the check -> assign to a system) for it to start running.";
+const UNASSIGNED_GUIDANCE =
+  "This check is NOT assigned to a system yet, so it will not run. Prefer to assign it in the same step: resolve the target system's id with catalog.listSystems and pass it as assignToSystemId so the check is created, assigned, and started immediately. Otherwise, tell the operator to assign it to a system (Health Checks -> the check -> assign to a system) for it to start running.";
 
 /**
  * Validate a drafted health-check configuration via the health-check plugin's
@@ -248,7 +264,10 @@ export function createHealthcheckProposeTool(): RegisteredAiTool<
       scriptCollectors.length > 0
         ? ` (includes ${scriptCollectors.length} script collector${scriptCollectors.length === 1 ? "" : "s"})`
         : "";
-    const summary = `Create health check "${input.name}" using strategy "${strategy.displayName}" with ${collectorCount} collector(s), running every ${input.intervalSeconds}s${scriptNote}. ${SYSTEM_ASSIGNMENT_HINT}`;
+    const assignmentNote = input.assignToSystemId
+      ? " Then assign it to the selected system and start it immediately - it runs once per environment the system belongs to."
+      : ` ${UNASSIGNED_GUIDANCE}`;
+    const summary = `Create health check "${input.name}" using strategy "${strategy.displayName}" with ${collectorCount} collector(s), running every ${input.intervalSeconds}s${scriptNote}.${assignmentNote}`;
 
     return {
       summary,
@@ -261,7 +280,7 @@ export function createHealthcheckProposeTool(): RegisteredAiTool<
   return {
     name: "healthcheck.propose",
     description:
-      "Validate a drafted health check (strategy, collectors, interval, and any inline script source) and return it for a human to review and apply. Never creates a health check directly - a person must approve the proposal. Use this to turn a natural-language health-check request (including a script health check) into a concrete, validated draft after testing the script with testScript. If you do not know what an endpoint returns, call probeUrl first to inspect its status code and body, then assert on the real response. Use getCapabilitySchema to get exact collector config fields AND the assertable result fields + valid operators before drafting assertions (assertion field must be a result-schema field like statusCode, operator must be a full word like equals/greaterThan, never an abbreviation). Note: a newly created health check does not run until the operator assigns it to a system.",
+      'Validate a drafted health check (strategy, collectors, interval, and any inline script source) and return it for a human to review and apply. Never creates a health check directly - a person must approve the proposal. PREFER THE HTTP STRATEGY for anything reachable over HTTP(S): for a plain URL, use strategyId "http" with the "healthcheck-http.request" collector (config { url }) and assert on statusCode - do NOT author a SCRIPT health check unless the user explicitly asks for a script or no built-in strategy fits the target. To make the check actually run, pass assignToSystemId so it is created AND assigned in one step (resolve the system\'s id with catalog.listSystems first; create the system with catalog.createSystem if it does not exist). Most systems have exactly one check. If you do not know what an endpoint returns, call probeUrl first to inspect its status code and body, then assert on the real response. For a script health check, test it with testScript first. Use getCapabilitySchema to get exact collector config fields AND the assertable result fields + valid operators before drafting assertions (assertion field must be a result-schema field like statusCode, operator must be a full word like equals/greaterThan, never an abbreviation).',
     effect: "mutate",
     input: HealthcheckProposeInputSchema,
     requiredAccessRules: [
@@ -273,17 +292,32 @@ export function createHealthcheckProposeTool(): RegisteredAiTool<
     dryRun,
     async execute({ input, rpcClient }) {
       // Only reached via `apply` (the propose/apply token gate). The create
-      // handler runs its own zod + registry validation; this re-validates the
+      // handler runs its own zod + registry validation; re-validating the
       // server-stored payload against the input schema is already done by the
       // propose/apply service before we get here.
       const healthcheckClient = rpcClient.forPlugin(HealthCheckApi);
-      const configuration = await healthcheckClient.createConfiguration({
+      const configurationInput = {
         name: input.name,
         strategyId: input.strategyId,
         config: input.config,
         intervalSeconds: input.intervalSeconds,
         collectors: input.collectors,
-      });
+      };
+
+      // When a target system is named, atomically create AND assign so the
+      // check starts running immediately - no dormant, unassigned check. The
+      // user-scoped client enforces `catalog.system` manage on that system.
+      if (input.assignToSystemId) {
+        const configuration = await healthcheckClient.createAndAssign({
+          configuration: configurationInput,
+          systemId: input.assignToSystemId,
+          environmentIds: input.environmentIds,
+        });
+        return { configuration };
+      }
+
+      const configuration =
+        await healthcheckClient.createConfiguration(configurationInput);
       return { configuration };
     },
   };
