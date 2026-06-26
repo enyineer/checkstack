@@ -18,8 +18,7 @@
     "astro": "^6.4.6",
     "remark-github-admonitions-to-directives": "^2.1.0",
     "sharp": "^0.33.5",
-    "typescript": "^5.0.0",
-    "vite": "^7.3.5"
+    "typescript": "^5.0.0"
   },
   "checkstack": {
     "type": "tooling"
