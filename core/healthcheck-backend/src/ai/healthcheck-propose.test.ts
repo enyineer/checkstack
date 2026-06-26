@@ -43,11 +43,13 @@ function fakeRpcClient({
   getStrategies,
   getCollectors,
   createConfiguration,
+  createAndAssign,
   validateConfiguration,
 }: {
   getStrategies: ReturnType<typeof mock>;
   getCollectors: ReturnType<typeof mock>;
   createConfiguration: ReturnType<typeof mock>;
+  createAndAssign?: ReturnType<typeof mock>;
   validateConfiguration?: ReturnType<typeof mock>;
 }): RpcClient {
   return {
@@ -55,6 +57,7 @@ function fakeRpcClient({
       getStrategies,
       getCollectors,
       createConfiguration,
+      createAndAssign: createAndAssign ?? mock(() => Promise.resolve({})),
       validateConfiguration: validateConfiguration ?? okValidate(),
     }),
   } as unknown as RpcClient;
@@ -264,5 +267,91 @@ describe("healthcheck.propose composite tool", () => {
     const result = await tool.execute({ input: validInput, principal, rpcClient });
     expect(createConfiguration).toHaveBeenCalledTimes(1);
     expect(result.configuration.id).toBe("hc1");
+  });
+
+  test("description steers the model to HTTP, not script", () => {
+    const tool = createHealthcheckProposeTool();
+    // The model picked a script for a plain URL; the description must now make
+    // HTTP the default and call out the assign-in-one-step flow.
+    expect(tool.description).toContain("PREFER THE HTTP STRATEGY");
+    expect(tool.description).toContain("healthcheck-http.request");
+    expect(tool.description).toContain("assignToSystemId");
+  });
+
+  test("dryRun without a target system warns the check will not run yet", async () => {
+    const rpcClient = fakeRpcClient({
+      getStrategies: mock(() => Promise.resolve([httpStrategy])),
+      getCollectors: mock(() => Promise.resolve([])),
+      createConfiguration: mock(),
+    });
+    const tool = createHealthcheckProposeTool();
+
+    const preview = await tool.dryRun!({ input: validInput, principal, rpcClient });
+    expect(preview.summary).toContain("NOT assigned");
+  });
+
+  test("dryRun with a target system says it will assign + start the check", async () => {
+    const rpcClient = fakeRpcClient({
+      getStrategies: mock(() => Promise.resolve([httpStrategy])),
+      getCollectors: mock(() => Promise.resolve([])),
+      createConfiguration: mock(),
+    });
+    const tool = createHealthcheckProposeTool();
+
+    const preview = await tool.dryRun!({
+      input: { ...validInput, assignToSystemId: "sys1" },
+      principal,
+      rpcClient,
+    });
+    expect(preview.summary).toMatch(/assign/i);
+    expect(preview.summary).not.toContain("NOT assigned");
+  });
+
+  test("execute (apply) with assignToSystemId atomically creates AND assigns", async () => {
+    const created = {
+      id: "hc2",
+      name: "Probe foo status",
+      strategyId: "healthcheck-http.http",
+      config: { url: "https://foo.bar/status" },
+      intervalSeconds: 60,
+      paused: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    let captured: {
+      systemId?: string;
+      configuration?: { name?: string; strategyId?: string };
+    } = {};
+    const createAndAssign = mock(
+      (arg: {
+        systemId: string;
+        configuration: { name: string; strategyId: string };
+      }) => {
+        captured = arg;
+        return Promise.resolve(created);
+      },
+    );
+    const createConfiguration = mock(() => Promise.resolve(created));
+    const rpcClient = fakeRpcClient({
+      getStrategies: mock(() => Promise.resolve([httpStrategy])),
+      getCollectors: mock(() => Promise.resolve([])),
+      createConfiguration,
+      createAndAssign,
+    });
+    const tool = createHealthcheckProposeTool();
+
+    const result = await tool.execute({
+      input: { ...validInput, assignToSystemId: "sys1" },
+      principal,
+      rpcClient,
+    });
+
+    // The atomic create+assign path is used; the create-only path is NOT.
+    expect(createAndAssign).toHaveBeenCalledTimes(1);
+    expect(createConfiguration).not.toHaveBeenCalled();
+    expect(captured.systemId).toBe("sys1");
+    expect(captured.configuration?.name).toBe("Probe foo status");
+    expect(captured.configuration?.strategyId).toBe("healthcheck-http.http");
+    expect(result.configuration.id).toBe("hc2");
   });
 });

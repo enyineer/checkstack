@@ -201,6 +201,32 @@ function isAutomationToolName(name: string): boolean {
   return name.startsWith("automation.") || name.startsWith("automation_");
 }
 
+/**
+ * Monitoring-setup tools whose presence injects the onboarding playbook this
+ * turn: creating a system, proposing a health check, or managing environments.
+ * Deliberately NOT the catalog read tools (e.g. `catalog.listSystems`), so the
+ * onboarding prose stays off pure read turns.
+ */
+const ONBOARDING_TOOL_NAMES = [
+  "healthcheck.propose",
+  "catalog.createSystem",
+  "catalog.createEnvironment",
+  "catalog.setSystemEnvironments",
+];
+
+/**
+ * Whether a resolved tool is a monitoring-setup tool, so the onboarding
+ * playbook is injected into the prompt this turn. Registered names keep dots
+ * (`catalog.createSystem`); the provider-safe form uses underscores
+ * (`catalog_createSystem`) — match either so the check is robust to where it is
+ * read.
+ */
+function isOnboardingToolName(name: string): boolean {
+  return ONBOARDING_TOOL_NAMES.some(
+    (toolName) => name === toolName || name === toolName.replaceAll(".", "_"),
+  );
+}
+
 /** Per-turn dedupe key for a mutating tool call: `<tool>:<argsHash>`. */
 function turnKey({
   tool,
@@ -869,6 +895,9 @@ export function createChatService({
     // turns — see buildChatSystemPrompt). Tool names are provider-safe ids, so an
     // `automation.*` tool surfaces as `automation_*`.
     const automationTools = allowed.some((t) => isAutomationToolName(t.name));
+    // Inject the onboarding playbook only when a monitoring-setup tool is in
+    // scope this turn (same gating rationale as the automation playbook).
+    const onboardingTools = allowed.some((t) => isOnboardingToolName(t.name));
     const sdkTools = buildAgentSdkTools({
       tools: allowed,
       principal,
@@ -904,6 +933,7 @@ export function createChatService({
           timeZone,
           mode: conversation.permissionMode,
           automationTools,
+          onboardingTools,
           modelFamily,
           staleSinceMs,
         }),

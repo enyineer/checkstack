@@ -42,6 +42,25 @@ export interface AppliedCard {
   result: unknown;
 }
 
+/** One clickable answer to a {@link QuestionCard}. */
+export interface QuestionOption {
+  label: string;
+  /** Sent back as the operator's reply when this option is clicked. */
+  value: string;
+}
+
+/**
+ * A question card emitted when the model asked the operator a discrete-choice
+ * question via the `askOperator` tool. The UI renders the options as clickable
+ * chips; clicking one sends its `value` as the operator's next message.
+ */
+export interface QuestionCard {
+  question: string;
+  options: QuestionOption[];
+  /** Whether the operator may also type a free-text answer. */
+  allowFreeText: boolean;
+}
+
 /**
  * Incremental events surfaced to the chat UI. Tool events carry the SDK's
  * `toolCallId` so the reducer can correlate a tool call with its later result /
@@ -54,6 +73,7 @@ export type ChatStreamEvent =
   | { type: "tool-error"; toolCallId: string; toolName?: string; message: string }
   | { type: "confirm-card"; toolCallId: string; card: ConfirmCard }
   | { type: "applied-card"; toolCallId: string; card: AppliedCard }
+  | { type: "question-card"; toolCallId: string; card: QuestionCard }
   // A new agent step (model round) began. The SDK emits one `start-step` per
   // round; we surface it so the UI can show a live, server-driven progress
   // heartbeat ("Working... step N") in the gaps between tool calls, which is how
@@ -113,6 +133,30 @@ export function asAppliedCard(value: unknown): AppliedCard | undefined {
     return undefined;
   }
   return { toolName, summary, result, diff: asFieldDiff(value.diff) };
+}
+
+/** Narrow a parsed JSON object into a QuestionCard (askOperator output). */
+export function asQuestionCard(value: unknown): QuestionCard | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.__question !== true) return undefined;
+  if (typeof value.question !== "string") return undefined;
+  if (!Array.isArray(value.options)) return undefined;
+  const options: QuestionOption[] = [];
+  for (const entry of value.options) {
+    if (
+      isRecord(entry) &&
+      typeof entry.label === "string" &&
+      typeof entry.value === "string"
+    ) {
+      options.push({ label: entry.label, value: entry.value });
+    }
+  }
+  if (options.length === 0) return undefined;
+  return {
+    question: value.question,
+    options,
+    allowFreeText: value.allowFreeText === true,
+  };
 }
 
 /** Read a chunk's `toolCallId` (empty string when absent — defensive). */
@@ -197,6 +241,14 @@ export function chunkToEvent(chunk: unknown): ChatStreamEvent | undefined {
     const applied = asAppliedCard(output);
     if (applied) {
       return { type: "applied-card", toolCallId: asToolCallId(chunk), card: applied };
+    }
+    const question = asQuestionCard(output);
+    if (question) {
+      return {
+        type: "question-card",
+        toolCallId: asToolCallId(chunk),
+        card: question,
+      };
     }
     return { type: "tool-result", toolCallId: asToolCallId(chunk) };
   }

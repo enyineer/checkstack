@@ -43,6 +43,7 @@ describe("ai-backend's own platform tool set", () => {
       "ai_searchDocs",
       "ai_getDoc",
       "ai_probeUrl",
+      "ai_askOperator",
     ]) {
       expect(names).toContain(expected);
     }

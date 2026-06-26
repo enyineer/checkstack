@@ -78,7 +78,11 @@ const SheetContent = React.forwardRef<
         ref={setRefs}
         className={cn(
           sheetContentVariants({ size }),
-          "inset-y-0 right-0 h-full",
+          // Bound the height to the DYNAMIC viewport (not the layout viewport),
+          // so on mobile the drawer ends at the visible bottom instead of behind
+          // the browser URL bar - otherwise its trailing content (e.g. the last
+          // nav items) is unreachable. Top-anchored; `dvh` tracks the chrome.
+          "top-0 right-0 h-[100dvh] max-h-[100dvh]",
           !isLowPower &&
             "duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
           className,

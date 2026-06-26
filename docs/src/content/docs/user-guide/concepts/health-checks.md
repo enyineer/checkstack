@@ -17,6 +17,36 @@ A health check is made of:
 > [!TIP]
 > When a connection field is sensitive (password, private key, token), the strategy marks it as a secret. Checkstack encrypts it at rest using your `ENCRYPTION_MASTER_KEY` and masks it in the UI. See [Secret encryption](/checkstack/user-guide/reference/secret-encryption/).
 
+## Assignments
+
+A check configuration on its own does nothing. It starts running only once you
+**assign** it to a system. An **assignment** is the link row between one check
+configuration and one system, and creating it is what schedules the check:
+until a check is assigned, the scheduler has nothing to fire.
+
+The assignment is also where per-system behaviour lives. Two systems can share
+the same check configuration while each tunes its own copy. An assignment
+carries:
+
+- **State thresholds** for this system: how many failures flip it to degraded
+  or unhealthy (see [Results, states, and thresholds](#results-states-and-thresholds)).
+- **Retention** overrides for how long this system's runs are kept.
+- **Anomaly detection** toggles for this system's metrics.
+- The **per-environment fan-out** (the **Execution** panel): which environments
+  the check runs against on this system.
+
+> [!IMPORTANT]
+> You do **not** clone a system per environment to monitor staging and
+> production. One system attaches to many [Environments](/checkstack/user-guide/concepts/environments/),
+> and a single assignment fans out into one run per environment. See
+> [Per-environment fan-out](/checkstack/user-guide/concepts/environments/#per-environment-fan-out).
+
+You manage assignments from the **System detail page** (attach a check to this
+system) or from a check's editor (the **Assignments** section lists every
+system it runs against). The hands-on
+[Set up your first health check](/checkstack/user-guide/guides/first-health-check/)
+walks through creating one.
+
 ## Strategies vs collectors
 
 You may see two related terms in the UI: strategies and collectors.
@@ -93,6 +123,39 @@ The retention pipeline runs in the background and is configurable per health-che
 If none of the bundled strategies fit, the **script health check** lets you write the probe as a small piece of code. You provide the script, Checkstack runs it on the schedule you set, and the script returns a result the platform can grade. This is the escape hatch for one-off checks that do not warrant a full plugin.
 
 See [Script health checks](/checkstack/user-guide/reference/script-health-checks/) for the runtime contract and security model.
+
+## From collection to status
+
+This is the pipeline a single check goes through, from the assignment down to a
+per-environment status. The two decision points are the important part: a
+**transport failure** short-circuits straight to `unhealthy` before any
+assertion runs, while a **completed** collection is graded by its assertions.
+
+```mermaid
+flowchart TD
+    HC["Health check assigned to a system"]
+    HC --> FO["Fan out: one run per environment<br/>(production, staging, ...)"]
+    FO --> RUN["Each environment runs independently"]
+
+    subgraph perrun ["Per run"]
+      direction TB
+      RUN --> C["Collectors probe the target<br/>over the strategy's transport"]
+      C --> T{"Did the transport complete?"}
+      T -->|"No: timeout, refused, DNS, TLS"| U["unhealthy<br/>(short-circuits before assertions)"]
+      T -->|"Yes: a result came back"| A{"Assertions on the result<br/>(status code, row count, exit code, ...)"}
+      A -->|"Pass, or no assertions"| H["healthy / degraded"]
+      A -->|"Fail"| U
+    end
+
+    H --> ROLL["Per-environment health + system rollup"]
+    U --> ROLL
+```
+
+A result merely looking abnormal (an HTTP 404, a non-zero exit code, zero rows)
+is a **completed** collection, not a transport failure. The collector records it
+as a metric and the assertions decide whether that counts as healthy. Only the
+probe failing to complete at all short-circuits to `unhealthy`. Each
+environment's runs roll up into its own [per-environment health](/checkstack/user-guide/concepts/environments/#per-environment-health) plus the system-wide status.
 
 ## How a check moves through the system
 

@@ -50,6 +50,9 @@
       "path": "../notification-common"
     },
     {
+      "path": "../signal-common"
+    },
+    {
       "path": "../test-utils-backend"
     }
   ]

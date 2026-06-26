@@ -147,6 +147,33 @@ describe("chat-state reducer (DOM-free)", () => {
     }
   });
 
+  test("a question card replaces its askOperator tool part in place", () => {
+    let msgs = startAssistantMessage({ messages: [], id: "a1" });
+    msgs = applyStreamEvent({
+      messages: msgs,
+      event: { type: "tool-call", toolCallId: "q1", toolName: "ai.askOperator" },
+    });
+    msgs = applyStreamEvent({
+      messages: msgs,
+      event: {
+        type: "question-card",
+        toolCallId: "q1",
+        card: {
+          question: "Which system?",
+          options: [{ label: "Payments API", value: "Payments API" }],
+          allowFreeText: true,
+        },
+      },
+    });
+    expect(partsOf(msgs)).toHaveLength(1);
+    const part = partsOf(msgs)[0];
+    expect(part.kind).toBe("question");
+    if (part.kind === "question") {
+      expect(part.card.question).toBe("Which system?");
+      expect(part.card.options).toHaveLength(1);
+    }
+  });
+
   test("an auto-applied result replaces its tool part with an applied card", () => {
     let msgs = startAssistantMessage({ messages: [], id: "a1" });
     msgs = applyStreamEvent({

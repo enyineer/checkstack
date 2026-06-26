@@ -299,8 +299,12 @@ function AppShellLayout() {
                   <Menu className="h-5 w-5" />
                 </button>
                 <Link to="/" className="flex items-center gap-2">
-                  <img src="/favicon.svg" alt="" className="w-7 h-7" />
-                  <h1 className="text-xl font-bold text-primary">Checkstack</h1>
+                  <img src="/favicon.svg" alt="Checkstack" className="w-7 h-7" />
+                  {/* The wordmark is dropped on small screens to de-clutter the
+                      navbar; the logo still anchors the home link. */}
+                  <h1 className="hidden text-xl font-bold text-primary sm:block">
+                    Checkstack
+                  </h1>
                 </Link>
                 <nav className="hidden md:flex gap-1">
                   <ExtensionSlot slot={NavbarLeftSlot} />

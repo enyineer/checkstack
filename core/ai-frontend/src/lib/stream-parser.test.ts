@@ -2,11 +2,68 @@ import { describe, expect, test } from "bun:test";
 import {
   asAppliedCard,
   asConfirmCard,
+  asQuestionCard,
   chunkToEvent,
   parseSseBuffer,
   readChatStream,
   type ChatStreamEvent,
 } from "./stream-parser";
+
+describe("asQuestionCard", () => {
+  test("narrows an askOperator card and keeps option label/value", () => {
+    const card = asQuestionCard({
+      __question: true,
+      question: "Which system?",
+      options: [
+        { label: "Payments API", value: "Payments API" },
+        { label: "New system", value: "new" },
+      ],
+      allowFreeText: true,
+      note: "stop and wait",
+    });
+    expect(card).toEqual({
+      question: "Which system?",
+      options: [
+        { label: "Payments API", value: "Payments API" },
+        { label: "New system", value: "new" },
+      ],
+      allowFreeText: true,
+    });
+  });
+
+  test("rejects non-question / malformed values", () => {
+    expect(asQuestionCard({ question: "x", options: [] })).toBeUndefined();
+    expect(
+      asQuestionCard({ __question: true, question: "x", options: [] }),
+    ).toBeUndefined();
+    expect(
+      asQuestionCard({ __question: true, question: 1, options: [] }),
+    ).toBeUndefined();
+    expect(asQuestionCard(null)).toBeUndefined();
+  });
+
+  test("chunkToEvent maps an askOperator output to a question-card event", () => {
+    const event = chunkToEvent({
+      type: "tool-output-available",
+      toolCallId: "t1",
+      output: {
+        __question: true,
+        question: "How often?",
+        options: [{ label: "60s", value: "60s" }],
+        allowFreeText: false,
+      },
+    });
+    expect(event).toEqual({
+      type: "question-card",
+      toolCallId: "t1",
+      card: {
+        question: "How often?",
+        options: [{ label: "60s", value: "60s" }],
+        allowFreeText: false,
+      },
+    });
+  });
+});
 
 describe("asConfirmCard", () => {
   test("recognises a well-formed confirm card", () => {

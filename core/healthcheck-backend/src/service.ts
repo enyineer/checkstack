@@ -292,6 +292,74 @@ export class HealthCheckService {
   }
 
   /**
+   * Atomically create a health-check configuration AND assign it to a system in
+   * a single transaction. Backs the `createAndAssign` RPC: the common 1-1
+   * onboarding case ("this system gets one check") can never leave a dormant,
+   * unassigned check because the config row and its `systemHealthChecks`
+   * assignment row commit together or not at all. Scheduling of the first run
+   * is the caller's (router's) responsibility, mirroring `associateSystem`.
+   */
+  async createAndAssign(props: {
+    configuration: CreateHealthCheckConfiguration;
+    systemId: string;
+    enabled?: boolean;
+    stateThresholds?: StateThresholds;
+    satelliteIds?: string[];
+    /**
+     * Per-assignment environment selector. `null` (or `undefined`) = all
+     * current environments; `[]` = opt out (env-less); non-empty = those ids.
+     */
+    environmentIds?: string[] | null;
+    includeLocal?: boolean;
+    notificationPolicy?: NotificationPolicy;
+  }): Promise<HealthCheckConfiguration> {
+    const {
+      configuration,
+      systemId,
+      enabled = true,
+      stateThresholds: stateThresholds_,
+      satelliteIds,
+      environmentIds,
+      includeLocal = true,
+      notificationPolicy,
+    } = props;
+
+    // Preserve the null/[]/list distinction faithfully (see associateSystem).
+    const environmentIdsValue: string[] | null = environmentIds ?? null;
+    const versionedThresholds: VersionedStateThresholds | undefined =
+      stateThresholds_ ? stateThresholds.create(stateThresholds_) : undefined;
+
+    const created = await this.db.transaction(async (tx) => {
+      const [config] = await tx
+        .insert(healthCheckConfigurations)
+        .values({
+          name: configuration.name,
+          strategyId: configuration.strategyId,
+          config: configuration.config,
+          collectors: configuration.collectors ?? undefined,
+          intervalSeconds: configuration.intervalSeconds,
+          isTemplate: false,
+        })
+        .returning();
+
+      await tx.insert(systemHealthChecks).values({
+        systemId,
+        configurationId: config.id,
+        enabled,
+        stateThresholds: versionedThresholds,
+        satelliteIds: satelliteIds ?? undefined,
+        environmentIds: environmentIdsValue,
+        includeLocal,
+        notificationPolicy: notificationPolicy ?? undefined,
+      });
+
+      return config;
+    });
+
+    return this.mapConfig(created);
+  }
+
+  /**
    * Flip the `enabled` flag on an existing `systemHealthChecks` row
    * without touching any of the other configuration (thresholds,
    * satellite assignment, notification policy). Returns `true` when a

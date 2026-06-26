@@ -34,14 +34,20 @@ Optional pieces you might add later:
 
 Everything you do in Checkstack maps onto four concepts that build on each other:
 
-```text
-Systems -> Health checks -> Incidents -> Notifications
-   |             |              |              |
-   |             |              |              +-- in-app + Slack/Jira/...
-   |             |              +-- manual, with a timeline
-   |             +-- scheduled probes that produce results
-   +-- the catalog of what you monitor
+```mermaid
+flowchart LR
+    S["Systems<br/>the catalog of what you monitor"]
+    H["Health checks<br/>scheduled probes that produce results"]
+    I["Incidents<br/>opened by hand, with a timeline"]
+    N["Notifications<br/>in-app + Slack / Jira / ..."]
+
+    S --> H --> I --> N
+    H -. "state change" .-> N
 ```
+
+The chain is linear, but notice the dotted edge: a health check that flips
+state notifies subscribers **directly**. It does not open an incident on its
+own. Incidents are the separate, human-driven record described below.
 
 - A **System** is the unit of "thing you monitor". It has a name, optional description, contacts, groups, and links.
 - A **Health check** is a scheduled probe attached to one or more Systems. Each run produces a result (healthy, degraded, or unhealthy) plus strategy-specific metrics.

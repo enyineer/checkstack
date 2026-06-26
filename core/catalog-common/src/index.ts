@@ -4,5 +4,6 @@ export * from "./types";
 export * from "./slots";
 export * from "./plugin-metadata";
 export * from "./notifications";
+export * from "./signals";
 export { catalogRoutes } from "./routes";
 export { assertCatalogResourcesReadable } from "./access-check";

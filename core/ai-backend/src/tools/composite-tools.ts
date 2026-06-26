@@ -1,6 +1,7 @@
 import type { RegisteredAiTool } from "../tool-registry";
 import { createDocsTools } from "./docs-tools";
 import { createProbeUrlTool } from "./probe-url";
+import { createAskOperatorTool } from "./ask-operator";
 
 /**
  * ai-backend's OWN platform AI tools, registered through `aiToolExtensionPoint`.
@@ -20,5 +21,9 @@ export function buildCompositeTools(): RegisteredAiTool[] {
     // URL introspection (effect: "read"): probe a public URL to see what it
     // returns before drafting check assertions. SSRF-guarded (no internal hosts).
     createProbeUrlTool(),
+    // Operator elicitation (effect: "read"): ask a question with clickable
+    // answer chips instead of a plaintext list. Ends the turn; the operator's
+    // choice arrives as their next message.
+    createAskOperatorTool(),
   ];
 }
