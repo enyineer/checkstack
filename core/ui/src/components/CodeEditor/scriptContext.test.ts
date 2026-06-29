@@ -65,6 +65,17 @@ describe("healthcheckScriptContext", () => {
     expect(ctx.typeDefinitions).toContain("readonly intervalSeconds: number");
   });
 
+  it("exposes the optional `context.environment` (id, name, free-form fields)", () => {
+    // The runner injects the resolved environment alongside check/system,
+    // so the editor must type it or `context.environment?.fields.baseUrl`
+    // would error. It's optional (env-less runs) and `fields` is
+    // `Record<string, unknown>` — the API/GitOps write path allows
+    // arbitrary JSON values, so the user must narrow before use.
+    const ctx = healthcheckScriptContext({});
+    expect(ctx.typeDefinitions).toContain("readonly environment?: {");
+    expect(ctx.typeDefinitions).toContain("readonly fields: Record<string, unknown>");
+  });
+
   it("types the `defineHealthCheck` callback parameter from the schema (not `unknown`)", () => {
     // Regression guard: the previous version had `(ctx: unknown) => …`,
     // so `ctx.config.host` produced "'ctx' is of type 'unknown'". The
@@ -112,6 +123,9 @@ describe("healthcheckScriptContext", () => {
     expect(names).toContain("CHECKSTACK_CHECK_NAME");
     expect(names).toContain("CHECKSTACK_SYSTEM_NAME");
     expect(names).toContain("CHECKSTACK_CHECK_INTERVAL_SECONDS");
+    // Environment run-context vars (present when the run resolved an env).
+    expect(names).toContain("CHECKSTACK_ENV_ID");
+    expect(names).toContain("CHECKSTACK_ENV_NAME");
     // Integration-only vars must NOT leak into the healthcheck context.
     expect(names).not.toContain("EVENT_ID");
     expect(names).not.toContain("PAYLOAD_TITLE");
