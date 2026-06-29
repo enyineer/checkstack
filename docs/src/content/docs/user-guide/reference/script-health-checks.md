@@ -89,6 +89,12 @@ These are merged on top of the whitelist for that one invocation. A
 user-supplied `env` value with the same name overrides the injected
 one (including any `CHECKSTACK_ENV_*` variable).
 
+The shell editor suggests `CHECKSTACK_ENV_ID` and `CHECKSTACK_ENV_NAME`
+in its `$` completion. The per-field `CHECKSTACK_ENV_<FIELD>` names are not
+listed, because a check is authored independently of the systems (and their
+environments) it targets, so the concrete field keys are not known at edit
+time.
+
 ```sh
 echo "checking ${CHECKSTACK_CHECK_NAME} for system \"$CHECKSTACK_SYSTEM_NAME\""
 echo "next run in ${CHECKSTACK_CHECK_INTERVAL_SECONDS}s"

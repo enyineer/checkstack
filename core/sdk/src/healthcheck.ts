@@ -36,6 +36,24 @@ interface HealthCheckScriptContext {
     /** The system's display name (falls back to the id). */
     readonly name: string;
   };
+  /**
+   * The environment this run resolved to, when the check fanned out into
+   * one. `undefined` when the assignment opts out or the system has no
+   * environments — always guard with `context.environment?.…`.
+   */
+  readonly environment?: {
+    /** The environment id. */
+    readonly id: string;
+    /** The environment's display name (falls back to the id). */
+    readonly name: string;
+    /**
+     * The environment's free-form custom metadata, with the original
+     * (non-normalized) keys — so you read `fields.baseUrl` directly.
+     * Values are arbitrary JSON (metadata only, never secrets); narrow
+     * each before use, e.g. `typeof fields.baseUrl === "string"`.
+     */
+    readonly fields: Record<string, unknown>;
+  };
 }
 
 export type { HealthCheckScriptResult, HealthCheckScriptContext };

@@ -12,10 +12,15 @@ import { jsonSchemaToTypeScript } from "./generateTypeDefinitions";
  *    @checkstack/sdk editor bundle) exposes the required return shape so
  *    users get a type _error_ when the shape is wrong.
  *
- *  - `healthcheckShellContext` — shell health checks. No platform-injected
- *    env vars today (the user supplies `env` themselves), so we surface
- *    the safe-vars whitelist (`PATH`, `HOME`, ...) and any user-defined
- *    env vars passed in the call.
+ *  - `healthcheckShellContext` — shell health checks. The satellite injects
+ *    run-context vars (`CHECKSTACK_CHECK_*`, `CHECKSTACK_SYSTEM_*`) and, when
+ *    the run resolved an environment, `CHECKSTACK_ENV_ID` / `CHECKSTACK_ENV_NAME`
+ *    plus one `CHECKSTACK_ENV_<FIELD>` per custom field. We surface those, the
+ *    safe-vars whitelist (`PATH`, `HOME`, ...) and any user-defined `env` vars
+ *    passed in the call. The per-field `CHECKSTACK_ENV_<FIELD>` names are NOT
+ *    enumerated here: a check is authored independently of the 0..n systems it
+ *    targets, so the concrete environments (and their field keys) aren't known
+ *    at edit time.
  *
  *  - `integrationInlineContext` — TS/JS integration scripts.
  *    `context.event.payload` is typed from the event's payload schema.
@@ -106,6 +111,24 @@ interface HealthCheckScriptContext {
     readonly id: string;
     /** The system's display name (falls back to the id). */
     readonly name: string;
+  };
+  /**
+   * The environment this run resolved to, when the check fanned out into
+   * one. \`undefined\` when the assignment opts out or the system has no
+   * environments — always guard with \`context.environment?.…\`.
+   */
+  readonly environment?: {
+    /** The environment id. */
+    readonly id: string;
+    /** The environment's display name (falls back to the id). */
+    readonly name: string;
+    /**
+     * The environment's free-form custom metadata, with the original
+     * (non-normalized) keys — so you read \`fields.baseUrl\` directly.
+     * Values are arbitrary JSON (metadata only, never secrets); narrow
+     * each before use, e.g. \`typeof fields.baseUrl === "string"\`.
+     */
+    readonly fields: Record<string, unknown>;
   };
 }
 
@@ -343,6 +366,12 @@ const SAFE_SHELL_VARS: ShellEnvVar[] = [
  * run, describing the check + system it's for. Mirrors the reserved
  * `CHECKSTACK_*` keys set by `healthcheck-script-backend`'s shell
  * collector. User-supplied `env` values override these.
+ *
+ * The `CHECKSTACK_ENV_*` vars are present only when the run resolved an
+ * environment (the assignment opts in and the system has at least one). The
+ * per-field `CHECKSTACK_ENV_<FIELD>` vars (one per custom field, e.g.
+ * `CHECKSTACK_ENV_BASE_URL`) are NOT listed here because the concrete
+ * environments aren't known when authoring a check; see the file header.
  */
 const HEALTHCHECK_RUN_CONTEXT_VARS: ShellEnvVar[] = [
   { name: "CHECKSTACK_CHECK_ID", description: "This health check's configuration id." },
@@ -358,6 +387,16 @@ const HEALTHCHECK_RUN_CONTEXT_VARS: ShellEnvVar[] = [
   {
     name: "CHECKSTACK_SYSTEM_NAME",
     description: "The system's display name (falls back to the id).",
+  },
+  {
+    name: "CHECKSTACK_ENV_ID",
+    description:
+      "The resolved environment's id. Set only when the run resolved an environment.",
+  },
+  {
+    name: "CHECKSTACK_ENV_NAME",
+    description:
+      "The resolved environment's display name. Set only when the run resolved an environment. Each custom field is also exposed as CHECKSTACK_ENV_<FIELD> (e.g. CHECKSTACK_ENV_BASE_URL).",
   },
 ];
 
