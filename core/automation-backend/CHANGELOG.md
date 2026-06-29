@@ -1,5 +1,12 @@
 # @checkstack/automation-backend
 
+## 0.10.3
+
+### Patch Changes
+
+- Updated dependencies [baf9b6e]
+  - @checkstack/ai-backend@0.10.1
+
 ## 0.10.2
 
 ### Patch Changes

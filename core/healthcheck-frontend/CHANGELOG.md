@@ -1,5 +1,19 @@
 # @checkstack/healthcheck-frontend
 
+## 0.26.1
+
+### Patch Changes
+
+- Updated dependencies [baf9b6e]
+  - @checkstack/ui@1.21.0
+  - @checkstack/auth-frontend@0.10.2
+  - @checkstack/catalog-frontend@0.14.1
+  - @checkstack/dashboard-frontend@0.9.4
+  - @checkstack/gitops-frontend@0.6.4
+  - @checkstack/script-packages-frontend@0.4.4
+  - @checkstack/secrets-frontend@0.3.4
+  - @checkstack/tips-frontend@0.4.4
+
 ## 0.26.0
 
 ### Minor Changes

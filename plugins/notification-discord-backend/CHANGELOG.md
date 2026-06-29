@@ -1,5 +1,11 @@
 # @checkstack/notification-discord-backend
 
+## 0.1.55
+
+### Patch Changes
+
+- @checkstack/notification-backend@1.5.20
+
 ## 0.1.54
 
 ### Patch Changes

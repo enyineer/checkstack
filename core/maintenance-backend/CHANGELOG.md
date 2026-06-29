@@ -1,5 +1,14 @@
 # @checkstack/maintenance-backend
 
+## 1.7.7
+
+### Patch Changes
+
+- Updated dependencies [baf9b6e]
+  - @checkstack/ai-backend@0.10.1
+  - @checkstack/automation-backend@0.10.3
+  - @checkstack/catalog-backend@1.6.1
+
 ## 1.7.6
 
 ### Patch Changes

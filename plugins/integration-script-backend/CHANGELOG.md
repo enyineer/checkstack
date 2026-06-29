@@ -1,5 +1,11 @@
 # @checkstack/integration-script-backend
 
+## 0.6.20
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.10.3
+
 ## 0.6.19
 
 ### Patch Changes
