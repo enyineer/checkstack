@@ -1,5 +1,12 @@
 # @checkstack/satellite-backend
 
+## 0.7.4
+
+### Patch Changes
+
+- @checkstack/automation-backend@0.10.3
+- @checkstack/healthcheck-backend@1.11.1
+
 ## 0.7.3
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @checkstack/slo-frontend
 
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [baf9b6e]
+  - @checkstack/ui@1.21.0
+  - @checkstack/auth-frontend@0.10.2
+  - @checkstack/dashboard-frontend@0.9.4
+  - @checkstack/tips-frontend@0.4.4
+
 ## 0.7.3
 
 ### Patch Changes

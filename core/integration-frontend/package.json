@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/integration-frontend",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [
