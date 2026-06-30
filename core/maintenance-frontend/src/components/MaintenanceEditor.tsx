@@ -27,6 +27,7 @@ import {
   Spinner,
   FormError,
   ConfirmationModal,
+  SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
@@ -269,17 +270,9 @@ export const MaintenanceEditor: React.FC<Props> = ({
     if (isBlocked) cancelDiscard();
   };
 
-  const handleSystemToggle = (systemId: string) => {
+  const handleSystemChange = (ids: string[]) => {
     markTouched("systems");
-    setSelectedSystemIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(systemId)) {
-        next.delete(systemId);
-      } else {
-        next.add(systemId);
-      }
-      return next;
-    });
+    setSelectedSystemIds(new Set(ids));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -437,35 +430,12 @@ export const MaintenanceEditor: React.FC<Props> = ({
                   <Label id={systemsLabelId} required>
                     Affected Systems
                   </Label>
-                  <div className="max-h-36 overflow-y-auto border rounded-md p-3 space-y-2">
-                    {systems.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No systems available
-                      </p>
-                    ) : (
-                      systems.map((system) => (
-                        <div
-                          key={system.id}
-                          className="flex items-center space-x-2 p-2 rounded hover:bg-accent cursor-pointer"
-                          onClick={() => handleSystemToggle(system.id)}
-                        >
-                          <Checkbox
-                            id={`system-${system.id}`}
-                            checked={selectedSystemIds.has(system.id)}
-                          />
-                          <Label
-                            htmlFor={`system-${system.id}`}
-                            className="cursor-pointer flex-1"
-                          >
-                            {system.name}
-                          </Label>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedSystemIds.size} system(s) selected
-                  </p>
+                  <SystemMultiSelect
+                    systems={systems}
+                    selectedIds={[...selectedSystemIds]}
+                    onChange={handleSystemChange}
+                    labelledBy={systemsLabelId}
+                  />
                   <FormError>{systemsError}</FormError>
                 </div>
 
