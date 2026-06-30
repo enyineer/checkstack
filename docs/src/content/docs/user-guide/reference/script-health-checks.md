@@ -189,20 +189,47 @@ export default defineHealthCheck({
 You can also `export default async (context) => ...` if you want a
 function form - the runner awaits the call with the context object.
 
-### Backwards compatibility - legacy `return X;`
+### Script styles: legacy `return` vs ESM `export default`
 
-Scripts written for the older inline-script collector that used
-`return { success: ... }` at the top level still work. If your source
-has no `import` or `export` at the top, the runner wraps it in an
-async IIFE that becomes the default export:
+The runner accepts two script shapes, picked automatically from your
+source:
 
-```ts
-// Legacy - still valid
-return { success: true, message: "All good" };
-```
+- **Legacy IIFE style** - no `import` or `export` at the top level. The
+  runner wraps your source in an async IIFE whose return value becomes
+  the default export, so a bare top-level `return { success: ... }`
+  works. Top-level `await` is legal here too (the wrapper is async).
 
-You only need `export default` once you start mixing in real ESM
-features (`import ...`, top-level `await`).
+  ```ts
+  // Legacy - still valid
+  const load = (await import("node:os")).loadavg()[0];
+  return { success: load < 0.60, message: `load ${load.toFixed(2)}` };
+  ```
+
+- **ESM style** - your source has any `import` or `export` at the top
+  level. The runner uses it verbatim as a real ES module, so you signal
+  the result with `export default` instead of `return`. Top-level
+  `await` is legal here as well.
+
+  ```ts
+  import { loadavg } from "node:os";
+  const load = loadavg()[0];
+  export default { success: load < 0.60, message: `load ${load.toFixed(2)}` };
+  ```
+
+> [!WARNING]
+> You **cannot mix** the two styles. Once your script contains any
+> `import` or `export` statement, the runner treats it as an ES module
+> and a top-level `return` throws
+> `Top-level return cannot be used inside an ECMAScript module`. If you
+> `import { defineHealthCheck } from "@checkstack/sdk/healthcheck"`,
+> finish with `export default defineHealthCheck({ ... })`, not
+> `return defineHealthCheck({ ... })`.
+
+The ESM style is recommended for new scripts - it is what the editor
+starter seeds, what `defineHealthCheck` is designed for, and what lets
+the editor type-check the return shape. The legacy style is kept only
+for backwards compatibility with scripts written for the older
+inline-script collector.
 
 ### Editor support
 
