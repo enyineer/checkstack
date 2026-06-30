@@ -81,9 +81,18 @@ export function ExtensionSlot<TSlot extends SlotDefinition<unknown, unknown>>({
     return <></>;
   }
 
+  // Sort by priority (ascending, lower first) when the extension declares one.
+  // Extensions without a priority default to 0. Uses a stable sort so
+  // equal-priority extensions keep their registration order.
+  const sorted = extensions.toSorted(
+    (a, b) =>
+      ((a.metadata as { priority?: number } | undefined)?.priority ?? 0) -
+      ((b.metadata as { priority?: number } | undefined)?.priority ?? 0),
+  );
+
   return (
     <>
-      {extensions.map((ext) => (
+      {sorted.map((ext) => (
         <ExtensionComponent key={ext.id} extension={ext} context={context} />
       ))}
     </>
