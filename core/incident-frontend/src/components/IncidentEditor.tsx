@@ -32,6 +32,7 @@ import {
   Spinner,
   FormError,
   ConfirmationModal,
+  SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
@@ -251,16 +252,9 @@ export const IncidentEditor: React.FC<Props> = ({
     if (isBlocked) cancelDiscard();
   };
 
-  const handleSystemToggle = (systemId: string) => {
-    setSelectedSystemIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(systemId)) {
-        next.delete(systemId);
-      } else {
-        next.add(systemId);
-      }
-      return next;
-    });
+  const handleSystemChange = (ids: string[]) => {
+    setTouched((prev) => ({ ...prev, systems: true }));
+    setSelectedSystemIds(new Set(ids));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -385,46 +379,12 @@ export const IncidentEditor: React.FC<Props> = ({
               <Label id="systems-label" required>
                 Affected Systems
               </Label>
-              <div
-                role="group"
-                aria-labelledby="systems-label"
-                aria-invalid={Boolean(showError("systems"))}
-                aria-describedby={
-                  showError("systems") ? "systems-error" : undefined
-                }
-                className="max-h-36 overflow-y-auto border rounded-md bg-surface-inset p-3 space-y-2"
-              >
-                {systems.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No systems available
-                  </p>
-                ) : (
-                  systems.map((system) => (
-                    <div
-                      key={system.id}
-                      className="flex items-center space-x-2 p-2 rounded hover:bg-accent cursor-pointer"
-                      onClick={() => {
-                        setTouched((prev) => ({ ...prev, systems: true }));
-                        handleSystemToggle(system.id);
-                      }}
-                    >
-                      <Checkbox
-                        id={`system-${system.id}`}
-                        checked={selectedSystemIds.has(system.id)}
-                      />
-                      <Label
-                        htmlFor={`system-${system.id}`}
-                        className="cursor-pointer flex-1"
-                      >
-                        {system.name}
-                      </Label>
-                    </div>
-                  ))
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {selectedSystemIds.size} system(s) selected
-              </p>
+              <SystemMultiSelect
+                systems={systems}
+                selectedIds={[...selectedSystemIds]}
+                onChange={handleSystemChange}
+                labelledBy="systems-label"
+              />
               <FormError id="systems-error" className="text-xs">
                 {showError("systems")}
               </FormError>

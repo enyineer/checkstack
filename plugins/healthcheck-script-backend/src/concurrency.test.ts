@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { readdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InlineScriptCollector } from "./inline-script-collector";
 import { ScriptHealthCheckStrategy } from "./strategy";
 import type { ScriptTransportClient } from "./transport-client";
@@ -18,9 +19,31 @@ import type { ScriptTransportClient } from "./transport-client";
 const PARALLELISM = 20;
 const TMP_PREFIX = "checkstack-script-";
 
-async function countLeakedTmpDirs(): Promise<number> {
-  const entries = await readdir(tmpdir());
-  return entries.filter((name) => name.startsWith(TMP_PREFIX)).length;
+/**
+ * Create a throwaway base dir and a collector whose per-run scratch dirs are
+ * created *inside* it (via `resolutionRoot`). This isolates the leak check
+ * from every other test file that also spawns scripts into the shared
+ * `os.tmpdir()` — the main source of cross-file flakes. Returns the base dir
+ * (caller removes it) plus a `countLeaked()` that only counts dirs under it.
+ */
+async function isolatedScope(): Promise<{
+  collector: InlineScriptCollector;
+  countLeaked: () => Promise<number>;
+  cleanup: () => Promise<void>;
+}> {
+  const base = await mkdtemp(join(tmpdir(), "cs-concurrency-test-"));
+  const collector = new InlineScriptCollector(
+    undefined,
+    () => Promise.resolve({ mode: "ready" as const, root: base }),
+  );
+  return {
+    collector,
+    countLeaked: async () =>
+      (await readdir(base)).filter((n) => n.startsWith(TMP_PREFIX)).length,
+    cleanup: async () => {
+      await rm(base, { recursive: true, force: true });
+    },
+  };
 }
 
 const mockClient: ScriptTransportClient = {
@@ -68,8 +91,8 @@ describe("inline-script concurrency", () => {
   }, 60_000);
 
   it("cleans up temp dirs even when scripts throw", async () => {
-    const collector = new InlineScriptCollector();
-    const before = await countLeakedTmpDirs();
+    const { collector, countLeaked, cleanup } = await isolatedScope();
+    const before = await countLeaked();
 
     await Promise.all(
       Array.from({ length: PARALLELISM }, () =>
@@ -88,13 +111,14 @@ describe("inline-script concurrency", () => {
       ),
     );
 
-    const after = await countLeakedTmpDirs();
+    const after = await countLeaked();
     expect(after).toBe(before);
+    await cleanup();
   }, 60_000);
 
   it("cleans up temp dirs when scripts time out", async () => {
-    const collector = new InlineScriptCollector();
-    const before = await countLeakedTmpDirs();
+    const { collector, countLeaked, cleanup } = await isolatedScope();
+    const before = await countLeaked();
 
     await Promise.all(
       Array.from({ length: 5 }, () =>
@@ -114,8 +138,9 @@ describe("inline-script concurrency", () => {
     // the kernel can be slow to drop fds on macOS.
     await new Promise((r) => setTimeout(r, 100));
 
-    const after = await countLeakedTmpDirs();
+    const after = await countLeaked();
     expect(after).toBe(before);
+    await cleanup();
   }, 30_000);
 });
 

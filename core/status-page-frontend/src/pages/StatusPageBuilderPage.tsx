@@ -8,7 +8,6 @@ import {
   Label,
   Textarea,
   Toggle,
-  Checkbox,
   Badge,
   LoadingSpinner,
   Select,
@@ -21,6 +20,7 @@ import {
   toastError,
   QueryErrorState,
   ConfirmationModal,
+  SystemMultiSelect,
 } from "@checkstack/ui";
 import {
   ArrowUp,
@@ -96,60 +96,6 @@ function defaultConfig(type: string): unknown {
 
 type SystemOption = { id: string; name: string };
 type GroupOption = { id: string; name: string };
-
-/** Searchable, counted multi-select of systems. */
-const SystemMultiSelect: React.FC<{
-  systems: SystemOption[];
-  selected: string[];
-  onChange: (ids: string[]) => void;
-}> = ({ systems, selected, onChange }) => {
-  const [query, setQuery] = useState("");
-  const set = new Set(selected);
-  const filtered = query
-    ? systems.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
-    : systems;
-  const toggle = (id: string, on: boolean) => {
-    const next = new Set(selected);
-    if (on) next.add(id);
-    else next.delete(id);
-    onChange([...next]);
-  };
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search systems…"
-          className="h-8"
-        />
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {selected.length} selected
-        </span>
-      </div>
-      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-surface-inset p-2">
-        {systems.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No systems available.</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No matches.</p>
-        ) : (
-          filtered.map((s) => (
-            <label
-              key={s.id}
-              className="flex cursor-pointer items-center gap-2 text-sm"
-            >
-              <Checkbox
-                checked={set.has(s.id)}
-                onCheckedChange={(c) => toggle(s.id, Boolean(c))}
-              />
-              {s.name}
-            </label>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
 
 /** Inline editor for a list of labelled links (the links widget config). */
 const LinksConfigEditor: React.FC<{
@@ -281,7 +227,7 @@ const BlockConfigEditor: React.FC<{
       return (
         <SystemMultiSelect
           systems={systems}
-          selected={(config.systemIds as string[]) ?? []}
+          selectedIds={(config.systemIds as string[]) ?? []}
           onChange={(ids) => set({ systemIds: ids })}
         />
       );
@@ -292,7 +238,7 @@ const BlockConfigEditor: React.FC<{
         <div className="space-y-3">
           <SystemMultiSelect
             systems={systems}
-            selected={(config.systemIds as string[]) ?? []}
+            selectedIds={(config.systemIds as string[]) ?? []}
             onChange={(ids) => set({ systemIds: ids })}
           />
           <EventFeedControls config={config} set={set} />
@@ -305,7 +251,7 @@ const BlockConfigEditor: React.FC<{
         <div className="space-y-2">
           <SystemMultiSelect
             systems={systems}
-            selected={items.map((i) => i.systemId)}
+            selectedIds={items.map((i) => i.systemId)}
             onChange={(ids) => set({ items: ids.map((systemId) => ({ systemId })) })}
           />
           <label className="flex items-center gap-2 text-sm">
