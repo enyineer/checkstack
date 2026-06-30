@@ -68,10 +68,19 @@ console.log("📦 Bundling Monaco stdlib types...");
 // `unicorn/no-immediate-mutation` flags `Object.assign(literal, ...)`.
 const nodeFiles = await bundle("@types/node", "node_modules/@types/node");
 const bunFiles = await bundle("bun-types", "node_modules/bun-types");
+// `undici-types` is referenced by BOTH `@types/node` (web-globals/fetch.d.ts)
+// and `bun-types` (fetch.d.ts) for the concrete members of `Response`,
+// `Request`, `Headers`, `fetch`, etc. Without it in the virtual FS, those
+// `import("undici-types").X` types resolve to `any`/`{}`, so the editor's
+// global `Response` ends up with only the `headers` override bun-types adds
+// — `ok`, `status`, `body`, ... all vanish. Bundling it here makes the
+// fallback branch resolve to the real undici declarations.
+const undiciFiles = await bundle("undici-types", "node_modules/undici-types");
 
 const files: Record<string, string> = {
   ...nodeFiles,
   ...bunFiles,
+  ...undiciFiles,
   // `@types/bun` is just a one-line wrapper that triple-slash-references
   // bun-types. Inline it so consumers can `import "bun"` and have Monaco
   // resolve it without needing the wrapper package.
