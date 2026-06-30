@@ -532,6 +532,33 @@ export class HealthCheckService {
   }
 
   /**
+   * List the IDs of every system an ENABLED assignment of `configurationId`
+   * targets. Used by the pause/resume RPC handlers to know which systems'
+   * rollup `health` entity must be recomputed when a configuration's `paused`
+   * flag flips (because `getSystemHealthStatus` excludes paused configs, the
+   * recomputed rollup may transition healthy → degraded or vice-versa, and
+   * that transition drives downstream SLO downtime open/close).
+   *
+   * Only ENABLED assignments are returned: a disabled assignment never
+   * contributed to system health, so flipping `paused` on its config has no
+   * effect on that system's aggregate.
+   */
+  async getSystemIdsForConfiguration(
+    configurationId: string,
+  ): Promise<string[]> {
+    const rows = await this.db
+      .select({ systemId: systemHealthChecks.systemId })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.configurationId, configurationId),
+          eq(systemHealthChecks.enabled, true),
+        ),
+      );
+    return rows.map((r) => r.systemId);
+  }
+
+  /**
    * Resolve the fully-defaulted notification policy for a single
    * (system, configuration) association. Resolution order:
    *
@@ -614,6 +641,13 @@ export class HealthCheckService {
         and(
           eq(systemHealthChecks.systemId, systemId),
           eq(systemHealthChecks.enabled, true),
+          // A paused configuration contributes no signal to the system's
+          // health: its execution is skipped (see queue-executor pause gate)
+          // and its historical runs MUST NOT keep the aggregate degraded
+          // while it is paused. Excluding it here makes the rollup reflect
+          // only the actively-running checks, so pausing the sole failing
+          // check clears the system's status and downstream SLO downtime.
+          eq(healthCheckConfigurations.paused, false),
         ),
       );
 
@@ -846,6 +880,7 @@ export class HealthCheckService {
         strategyId: healthCheckConfigurations.strategyId,
         intervalSeconds: healthCheckConfigurations.intervalSeconds,
         enabled: systemHealthChecks.enabled,
+        paused: healthCheckConfigurations.paused,
         stateThresholds: systemHealthChecks.stateThresholds,
       })
       .from(systemHealthChecks)
@@ -885,7 +920,13 @@ export class HealthCheckService {
         thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
-      // Evaluate current status (runs are in DESC order - newest first - as evaluateHealthStatus expects)
+      // Evaluate current status (runs are in DESC order - newest first - as evaluateHealthStatus expects).
+      // For a paused configuration the runs are stale (execution is skipped),
+      // so the evaluated `status` is NOT a meaningful current verdict — the
+      // frontend renders a "Paused" pill from the `paused` flag instead.
+      // We still compute it so the historical/sparkline path stays uniform,
+      // and so a non-paused consumer that ignores `paused` sees a best-
+      // effort status rather than a hard null.
       const status = evaluateHealthStatus({
         runs,
         thresholds,
@@ -897,6 +938,7 @@ export class HealthCheckService {
         strategyId: assoc.strategyId,
         intervalSeconds: assoc.intervalSeconds,
         enabled: assoc.enabled,
+        paused: assoc.paused,
         status,
         stateThresholds: thresholds,
         recentRuns: chronologicalRuns.map((r) => ({

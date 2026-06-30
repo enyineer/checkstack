@@ -3,6 +3,7 @@ import {
   setupHealthCheckWorker,
   scheduleHealthCheck,
   bootstrapHealthChecks,
+  recomputeSystemRollupHealth,
   type HealthCheckJobPayload,
 } from "./queue-executor";
 import type { HealthCheckCache } from "./cache";
@@ -1365,5 +1366,56 @@ describe("Queue-Based Health Check Executor", () => {
         (resolutionFailed[0]?.payload as { systemId?: string }).systemId,
       ).toBe("system-1");
     });
+  });
+});
+
+describe("recomputeSystemRollupHealth", () => {
+  /**
+   * Verifies the pause/resume-driven rollup recompute:
+   *  - With no `getHealthEntity` bound, `writeHealthEntity` runs `apply`
+   *    directly, so the helper MUST call `service.getSystemHealthStatus` for
+   *    the bare `<systemId>` rollup id (no env qualifier).
+   *  - A `getSystemHealthStatus` failure must NOT propagate (the RPC must
+   *    survive a transient recompute error).
+   */
+  it("calls service.getSystemHealthStatus(systemId) for the rollup when no entity handle is bound", async () => {
+    const getSystemHealthStatus = mock(async () => ({
+      status: "healthy" as const,
+      evaluatedAt: new Date(),
+      checkStatuses: [],
+    }));
+    const service = { getSystemHealthStatus } as never;
+
+    await recomputeSystemRollupHealth({
+      systemId: "sys-1",
+      service,
+      getHealthEntity: () => undefined,
+      advisoryLock: mockAdvisoryLock,
+      logger: createMockLogger(),
+    });
+
+    expect(getSystemHealthStatus).toHaveBeenCalledTimes(1);
+    expect(getSystemHealthStatus).toHaveBeenCalledWith("sys-1");
+  });
+
+  it("swallows a recompute failure so the pause/resume RPC never throws", async () => {
+    const getSystemHealthStatus = mock(async () => {
+      throw new Error("db down");
+    });
+    const service = { getSystemHealthStatus } as never;
+    const logger = createMockLogger();
+
+    await expect(
+      recomputeSystemRollupHealth({
+        systemId: "sys-1",
+        service,
+        getHealthEntity: () => undefined,
+        advisoryLock: mockAdvisoryLock,
+        logger,
+      }),
+    ).resolves.toBeUndefined();
+
+    // The error is logged for observability.
+    expect(logger.error).toHaveBeenCalledTimes(1);
   });
 });

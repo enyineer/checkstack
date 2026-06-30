@@ -1,6 +1,7 @@
 import {
   setupHealthCheckWorker,
   bootstrapHealthChecks,
+  recomputeSystemRollupHealth,
 } from "./queue-executor";
 import { setupRetentionJob } from "./retention-job";
 import * as schema from "./schema";
@@ -480,6 +481,17 @@ export default createBackendPlugin({
           maintenanceClient,
           logger,
           signalService,
+          recomputeSystemRollupHealth: (systemId) =>
+            recomputeSystemRollupHealth({
+              systemId,
+              // Reuse the COMPUTE-ON-READ service instance bound to the
+              // `health` entity read accessor — it's the same db/registry
+              // the rollup write inside `executeHealthCheckJob` uses.
+              service,
+              getHealthEntity: () => healthEntity,
+              advisoryLock,
+              logger,
+            }),
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
