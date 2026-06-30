@@ -90,6 +90,24 @@ const checkFailedPayloadSchema = z.object({
 
 // ─── Triggers ──────────────────────────────────────────────────────────
 
+// Per-(system, environment) partition key for all entity-driven system-health
+// triggers. Carrying `environmentId` here — NOT just on the payload — makes
+// the automation engine's dwell / flapping / dedup windows partition per-env:
+// one environment flapping doesn't get drowned out by the steady sibling,
+// and N failing envs fire N distinct `system_health_changed` events with
+// independent partitions (see the changeset "Make healthcheck triggers
+// env-scoped"). `payload.systemId` stays the bare systemId, so existing
+// recipes that read only `systemId` keep working. A bare rollup change
+// (per `environmentId = null`) partitions on the bare systemId alone —
+// the historical system-scoped window. The three trigger payloads all
+// expose `{ systemId, environmentId? }`, so the partition function is shared
+// via an inline closure that's structural-compatible with each.
+function systemHealthPartitionKey<
+  P extends { systemId: string; environmentId?: string },
+>(p: P): string {
+  return p.environmentId ? `${p.systemId}::${p.environmentId}` : p.systemId;
+}
+
 export const systemDegradedTrigger: TriggerDefinition<
   z.infer<typeof systemDegradedPayloadSchema>
 > = {
@@ -105,7 +123,8 @@ export const systemDegradedTrigger: TriggerDefinition<
   setup: makeEntityDrivenTriggerSetup<
     z.infer<typeof systemDegradedPayloadSchema>
   >(),
-  contextKey: (p) => p.systemId,
+  // Per-(system, env); bare systemId for the rollup change (env-less).
+  contextKey: (p) => systemHealthPartitionKey(p),
   contextKeyLabel: "system",
 };
 
@@ -122,7 +141,7 @@ export const systemHealthyTrigger: TriggerDefinition<
   setup: makeEntityDrivenTriggerSetup<
     z.infer<typeof systemHealthyPayloadSchema>
   >(),
-  contextKey: (p) => p.systemId,
+  contextKey: (p) => systemHealthPartitionKey(p),
   contextKeyLabel: "system",
 };
 
@@ -140,7 +159,7 @@ export const systemHealthChangedTrigger: TriggerDefinition<
   setup: makeEntityDrivenTriggerSetup<
     z.infer<typeof systemHealthChangedPayloadSchema>
   >(),
-  contextKey: (p) => p.systemId,
+  contextKey: (p) => systemHealthPartitionKey(p),
   contextKeyLabel: "system",
 };
 

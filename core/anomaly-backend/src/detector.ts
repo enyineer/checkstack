@@ -1,7 +1,7 @@
 import type { SafeDatabase } from "@checkstack/backend-api";
 import type { CacheProvider } from "@checkstack/cache-api";
 import * as schema from "./schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import {
   computeThresholds,
   isAnomalous,
@@ -38,6 +38,7 @@ export async function processCheckCompleted({
   latencyMs: _latencyMs,
   result,
   timestamp: _timestamp,
+  environmentId = null,
   db,
   cache,
   routerCache,
@@ -53,6 +54,15 @@ export async function processCheckCompleted({
   latencyMs: number | undefined;
   result: Record<string, unknown> | undefined;
   timestamp: string;
+  /**
+   * Environment the run was executed for. null = the env-less slice (no
+   * environment membership). Threads through from the `checkCompleted` hook so
+   * the baseline lookup resolves the per-env baseline instead of a cross-env
+   * one — mirroring the analyzer's per-env upsert key. Optional only so legacy
+   * callers/tests that omit it resolve the env-less slice rather than failing —
+   * production always threads the hook payload.
+   */
+  environmentId?: string | null;
   db: SafeDatabase<typeof schema>;
   cache: CacheProvider;
   routerCache?: {
@@ -127,10 +137,21 @@ export async function processCheckCompleted({
 
   // Check each field
   for (const { path, value, collectorId, fieldName } of fieldsToCheck) {
-    const cacheKey = `baseline:${configurationId}:${systemId}:${path}`;
+    // Cache key mirrors the analyzer's, including the env slice, so a per-env
+    // baseline never shadows another env's cached entry. The env-less slice
+    // uses "<none>" (matches the analyzer's cache key).
+    const envSegment = environmentId ?? "<none>";
+    const cacheKey = `baseline:${configurationId}:${systemId}:${envSegment}:${path}`;
     let baseline = await cache.get<FieldBaseline>(cacheKey);
 
     if (!baseline) {
+      // Resolve the per-env baseline: match environmentId when present, or the
+      // env-less (NULL) slice otherwise. `nullsNotDistinct()` on the unique
+      // constraint guarantees exactly one env-less row per path.
+      const envPredicate =
+        environmentId === null
+          ? isNull(schema.anomalyBaselines.environmentId)
+          : eq(schema.anomalyBaselines.environmentId, environmentId);
       const [dbBaseline] = await db
         .select()
         .from(schema.anomalyBaselines)
@@ -138,6 +159,7 @@ export async function processCheckCompleted({
           and(
             eq(schema.anomalyBaselines.systemId, systemId),
             eq(schema.anomalyBaselines.configurationId, configurationId),
+            envPredicate,
             eq(schema.anomalyBaselines.fieldPath, path),
           ),
         )

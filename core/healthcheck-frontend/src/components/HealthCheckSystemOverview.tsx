@@ -4,7 +4,7 @@ import {
   usePluginClient,
   type SlotContext,
 } from "@checkstack/frontend-api";
-import { SystemDetailsSlot } from "@checkstack/catalog-common";
+import { SystemDetailsSlot, CatalogApi } from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   LoadingSpinner,
@@ -14,7 +14,7 @@ import {
   Button,
   cn,
 } from "@checkstack/ui";
-import { Heart } from "lucide-react";
+import { Heart, Layers } from "lucide-react";
 import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
@@ -93,11 +93,31 @@ interface HealthCheckOverviewItem {
   lastRunAt?: Date;
   stateThresholds?: StateThresholds;
   recentStatusHistory: HealthCheckStatus[];
+  /**
+   * The environment this row is scoped to. `null` for an env-less run; a
+   * concrete string for a per-env row. `undefined` (absent) for the
+   * rollup-only shape the overview used prior to per-env flattening —
+   * signals the row is not env-scoped and should render without an env
+   * pill.
+   */
+  environmentId?: string | null;
+  /**
+   * Human-readable env name for an env-scoped row. The overview fetches the
+   * system's `getSystemEnvironments` and resolves the env id → name here so
+   * each row carries a stable operator-facing label.
+   */
+  environmentName?: string;
+  /**
+   * Stable per-row key: the check id for env-less / single-env rows, or
+   * `${configurationId}::${environmentId}` for a per-(check, env) row.
+   */
+  rowKey: string;
 }
 
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const [searchParams, setSearchParams] = useSearchParams();
   const filter = parseFilter(searchParams.get("filter"));
 
@@ -111,23 +131,90 @@ export function HealthCheckSystemOverview(props: SlotProps) {
       systemId,
     });
 
-  // Transform API response to component format
+  // Resolve env names for env-qualified rows. Same query the drawer already
+  // issues, so the resulting cache entry is shared when both surfaces mount.
+  // Disabled when there is no systemId (can't happen here, but defensively
+  // typed so React Query doesn't fetch in a unit test).
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId },
+      { enabled: !!systemId },
+    );
+  const envNameById = React.useMemo(
+    () => new Map(systemEnvironments.map((e) => [e.id, e.name])),
+    [systemEnvironments],
+  );
+
+  // Transform API response to component format. Flatten into one row per
+  // (check, environment) when an assignment fans out to multiple envs —
+  // surfacing per-env outages the rollup intentionally hides in the aggregate
+  // view. Single-env / env-less assignments stay one row (the pre-flattening
+  // shape). Each row opens the same check-level drawer; the env context is
+  // just a label so the operator sees which environment this row's status
+  // is scoped to.
   const overview: HealthCheckOverviewItem[] = React.useMemo(() => {
     if (!overviewData) return [];
-    return overviewData.checks.map((check) => ({
-      configurationId: check.configurationId,
-      strategyId: check.strategyId,
-      name: check.configurationName,
-      state: check.status,
-      paused: check.paused,
-      intervalSeconds: check.intervalSeconds,
-      lastRunAt: check.recentRuns.at(-1)?.timestamp
+    const rows: HealthCheckOverviewItem[] = [];
+    for (const check of overviewData.checks) {
+      const stateThresholds = check.stateThresholds;
+      const checkLastRunAt = check.recentRuns.at(-1)?.timestamp
         ? new Date(check.recentRuns.at(-1)!.timestamp)
-        : undefined,
-      stateThresholds: check.stateThresholds,
-      recentStatusHistory: check.recentRuns.map((r) => r.status),
-    }));
-  }, [overviewData]);
+        : undefined;
+      const checkRecentStatusHistory = check.recentRuns.map((r) => r.status);
+
+      const perEnv = check.perEnvironment;
+      if (!perEnv || perEnv.length <= 1) {
+        // Single-env / env-less: keep the historical single-row shape. The
+        // row is the rollup for this check (worst-wins across envs, which
+        // equals the per-env status when there's only one env).
+        rows.push({
+          rowKey: check.configurationId,
+          configurationId: check.configurationId,
+          strategyId: check.strategyId,
+          name: check.configurationName,
+          state: check.status,
+          paused: check.paused,
+          intervalSeconds: check.intervalSeconds,
+          lastRunAt: checkLastRunAt,
+          stateThresholds,
+          recentStatusHistory: checkRecentStatusHistory,
+        });
+        continue;
+      }
+      // Multi-env: one row per environment. Each row carries the env id +
+      // the resolved env name (rendered as a pill next to the check name),
+      // the per-env status, the per-env sparkline, and the per-env last
+      // run. `state` here is the per-env rollup, so the failing/healthy
+      // filter applies per env — one failing env shows up under "failing"
+      // while its healthy sibling doesn't. Clicking any env row opens the
+      // drawer for the whole check (the drawer still aggregates envs in
+      // its history table; this UI is the disambiguation surface).
+      for (const pe of perEnv) {
+        const environmentId = pe.environmentId;
+        const envName =
+          environmentId === null
+            ? undefined
+            : (envNameById.get(environmentId) ?? environmentId);
+        rows.push({
+          rowKey: `${check.configurationId}::${environmentId ?? "<none>"}`,
+          configurationId: check.configurationId,
+          strategyId: check.strategyId,
+          name: check.configurationName,
+          state: pe.status,
+          paused: check.paused,
+          intervalSeconds: check.intervalSeconds,
+          lastRunAt: pe.recentRuns.at(-1)?.timestamp
+            ? new Date(pe.recentRuns.at(-1)!.timestamp)
+            : undefined,
+          stateThresholds,
+          recentStatusHistory: pe.recentRuns.map((r) => r.status),
+          environmentId,
+          environmentName: envName,
+        });
+      }
+    }
+    return rows;
+  }, [overviewData, envNameById]);
 
   const visible = React.useMemo(
     () =>
@@ -215,9 +302,18 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                 const displayLabel = item.paused
                   ? "Paused"
                   : statusToLabel({ status: item.state });
+                // An env-scoped row carries the env name as a pill next to
+                // the check name. `null` is the env-less slice; `undefined`
+                // is the single-row rollup (no pill).
+                const envScoped =
+                  item.environmentId !== undefined && item.environmentId !== null;
+                const envLabel =
+                  item.environmentId === null
+                    ? "No environment"
+                    : (item.environmentName ?? item.environmentId ?? "");
                 return (
                   <button
-                    key={item.configurationId}
+                    key={item.rowKey}
                     className="group relative flex w-full items-center gap-3 py-3 pl-5 pr-4 text-left transition-colors hover:bg-surface-inset"
                     onClick={() => setSelectedCheck(item)}
                   >
@@ -230,11 +326,19 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                       aria-hidden
                     />
 
-                    {/* Status pill + check name */}
+                    {/* Status pill + check name (with env pill when scoped) */}
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {item.name}
-                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {item.name}
+                        </span>
+                        {envScoped && (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            <Layers className="h-2.5 w-2.5" />
+                            {envLabel}
+                          </span>
+                        )}
+                      </div>
                       <HealthStatusPill
                         tone={displayTone}
                         label={displayLabel}

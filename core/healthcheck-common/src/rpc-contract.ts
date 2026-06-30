@@ -465,6 +465,15 @@ export const healthCheckContract = {
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
         statusFilter: z.array(HealthCheckStatusSchema).optional(),
+        /**
+         * Restrict to runs of a single environment. `null` filters to the
+         * env-less slice (the opt-out / no-membership case); omitted means
+         * no environment filter (all runs of the (system, configuration)).
+         * Applied server-side at the DB so the drawer's per-env view gets
+         * clean, paginated data — not a client-side filter on top of a
+         * mixed-env pool.
+         */
+        environmentId: z.string().nullish(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -495,6 +504,12 @@ export const healthCheckContract = {
         sourceFilter: z.string().optional(),
         /** Restrict the runs counted to the listed statuses. Omitted/empty = all. */
         statusFilter: z.array(HealthCheckStatusSchema).optional(),
+        /**
+         * Restrict to runs of a single environment (server-side DB filter).
+         * `null` → env-less slice; omitted → no env filter (all runs of
+         * the (system, configuration)). Same semantics as `getHistory`.
+         */
+        environmentId: z.string().nullish(),
         /** Max time-series buckets to return (default 24, max 100). */
         maxBuckets: z.number().min(1).max(100).optional().default(24),
       }),
@@ -516,6 +531,12 @@ export const healthCheckContract = {
         sourceFilter: z.string().optional(),
         /** Restrict runs to the listed statuses. Omitted/empty = no filter. */
         statusFilter: z.array(HealthCheckStatusSchema).optional(),
+        /**
+         * Restrict to runs of a single environment (server-side DB filter).
+         * `null` → env-less slice; omitted → no env filter (all runs of
+         * the (system, configuration)). Same semantics as `getHistory`.
+         */
+        environmentId: z.string().nullish(),
         limit: z.number().optional().default(10),
         offset: z.number().optional().default(0),
         sortOrder: z.enum(["asc", "desc"]),
@@ -555,6 +576,14 @@ export const healthCheckContract = {
         endDate: z.coerce.date(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
+        /**
+         * Restrict to runs / aggregate buckets of a single environment
+         * (server-side DB filter across the raw, hourly, and daily tiers
+         * the cross-tier aggregation engine reads). `null` → env-less
+         * slice; omitted → no env filter (all envs of the (system,
+         * configuration)).
+         */
+        environmentId: z.string().nullish(),
       }),
     )
     .output(
@@ -580,6 +609,12 @@ export const healthCheckContract = {
         sourceFilter: z.string().optional(),
         /** Target number of data points (default: 500). Bucket interval is calculated as (endDate - startDate) / targetPoints */
         targetPoints: z.number().min(10).max(2000).default(500),
+        /**
+         * Restrict to runs / aggregate buckets of a single environment
+         * (server-side DB filter; same semantics as
+         * `getAggregatedHistory`).
+         */
+        environmentId: z.string().nullish(),
       }),
     )
     .output(
@@ -641,13 +676,54 @@ export const healthCheckContract = {
              * `getSystemHealthStatus`).
              */
             paused: z.boolean(),
+            /**
+             * Worst-wins across environments within this assignment (mirrors
+             * `getSystemHealthStatus`'s rollup derivation). For an
+             * assignment with a single env (or only env-less runs) this
+             * equals the per-env status. Frontends that want per-env rows
+             * render `perEnvironment` instead.
+             */
             status: HealthCheckStatusSchema,
             stateThresholds: StateThresholdsSchema.optional(),
+            /**
+             * Recent runs across all environments of this assignment, newest
+             * first then chronologically reversed for sparkline display
+             * (preserves the pre-multi-env contract;_safe_ for single-env
+             * checks). Carry `environmentId` so a per-env UI can split later.
+             */
             recentRuns: z.array(
               z.object({
                 id: z.string(),
                 status: HealthCheckStatusSchema,
                 timestamp: z.date(),
+                /**
+                 * The environment this run targeted, or `null` for the
+                 * env-less slice (opt-out / no-membership). The granularity
+                 * the UI can group on if it wants per-(check, env) rows.
+                 */
+                environmentId: z.string().nullable(),
+              }),
+            ),
+            /**
+             * Per-environment breakdown of this assignment, one entry per
+             * environment the assignment fans out to (plus a `null` entry if
+             * env-less runs exist). Each carries its own rollup `status` and
+             * the env-scoped recent runs. A frontend can use this to render
+             * a row per (check, environment) pair — surfacing per-env outages
+             * that `status` (the worst-wins rollup) intentionally hides in
+             * the aggregate view.
+             */
+            perEnvironment: z.array(
+              z.object({
+                environmentId: z.string().nullable(),
+                status: HealthCheckStatusSchema,
+                recentRuns: z.array(
+                  z.object({
+                    id: z.string(),
+                    status: HealthCheckStatusSchema,
+                    timestamp: z.date(),
+                  }),
+                ),
               }),
             ),
           }),
@@ -777,6 +853,13 @@ export const healthCheckContract = {
           runs: z.array(
             z.object({
               result: z.record(z.string(), z.unknown()).nullable().optional(),
+              /**
+               * Environment the run was executed for. null = env-less slice
+               * (no environment membership), mirrored from
+               * `health_check_runs.environment_id`. Consumed by the anomaly
+               * baseline analyzer to fan out per-env stats.
+               */
+              environmentId: z.string().nullable(),
             }),
           ),
         }),

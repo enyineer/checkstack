@@ -607,10 +607,14 @@ export class HealthCheckService {
    *
    * Environment dimension (Phase 3b, §7.4.2):
    *  - `environmentId` OMITTED (or `undefined`) ⇒ the **system rollup**: all
-   *    runs for the system regardless of environment. "Any env unhealthy ⇒ at
-   *    least one unhealthy run in the window" already yields worst-status
-   *    semantics for the window-based evaluator, and it exactly matches the
-   *    pre-3b behavior when no environments exist (no extra catalog read).
+   *    runs for the system, grouped by `environment_id` per association and
+   *    evaluated per-env, then worst-wins ACROSS environments within each
+   *    association (unhealthy > degraded > healthy). This is stable regardless
+   *    of env insertion order or multi-pod racing; flattening envs into one
+   *    list feeds interleaved statuses to the consecutive evaluator and breaks
+   *    the streak on the first interleaving env (masking / flapping). For an
+   *    assignment with a single env (or env-less only) this reduces to the
+   *    pre-existing flat-window behavior.
    *  - `environmentId` a STRING ⇒ the per-environment slice: only runs whose
    *    `environment_id` equals that id.
    *  - `environmentId` `null` ⇒ the ENV-LESS slice: only runs with
@@ -668,6 +672,9 @@ export class HealthCheckService {
     // adds no predicate; `null` filters to the env-less slice; a string
     // filters to that environment. The lookup index leads with
     // (system_id, environment_id, …) so the env-scoped query is index-efficient.
+    //
+    // For the rollup, we deliberately do NOT apply a single envFilter to one
+    // flat run list — see the per-association branch below for why.
     const envFilter =
       environmentId === undefined
         ? undefined
@@ -676,36 +683,102 @@ export class HealthCheckService {
           : eq(healthCheckRuns.environmentId, environmentId);
 
     for (const assoc of associations) {
-      const runs = await this.db
-        .select({
-          status: healthCheckRuns.status,
-          timestamp: healthCheckRuns.timestamp,
-        })
-        .from(healthCheckRuns)
-        .where(
-          and(
-            eq(healthCheckRuns.systemId, systemId),
-            eq(healthCheckRuns.configurationId, assoc.configurationId),
-            ...(envFilter ? [envFilter] : []),
-          ),
-        )
-        .orderBy(desc(healthCheckRuns.timestamp))
-        .limit(maxWindowSize);
-
       // Extract and migrate thresholds from versioned config
       let thresholds: StateThresholds | undefined;
       if (assoc.stateThresholds) {
         thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
-      const status = evaluateHealthStatus({ runs, thresholds });
+      let status: HealthCheckStatus;
+      let runsConsidered: number;
+      let lastRunAt: Date | undefined;
+
+      if (environmentId === undefined) {
+        // System rollup: evaluate the threshold window PER ENVIRONMENT within
+        // the association, then take worst-wins ACROSS envs. Flattening every
+        // env's runs into one list feeds interleaved statuses to
+        // `evaluateConsecutive` (the default mode): the streak breaks on the
+        // first interleaving env, so the evaluator collapses to whatever
+        // single env's status the most recent run landed on. That masks any
+        // permanently-failing sibling env in the default mode ("the healthy
+        // env wins"), and flaps healthy↔degraded whenever env insertion
+        // order drifts across ticks (see the regression test
+        // `rollup — worst-wins across environments within an association`).
+        // Per-env evaluation makes the rollup worst-wins stable regardless of
+        // insertion order or multi-pod racing.
+        const runs = await this.db
+          .select({
+            status: healthCheckRuns.status,
+            timestamp: healthCheckRuns.timestamp,
+            environmentId: healthCheckRuns.environmentId,
+          })
+          .from(healthCheckRuns)
+          .where(
+            and(
+              eq(healthCheckRuns.systemId, systemId),
+              eq(healthCheckRuns.configurationId, assoc.configurationId),
+            ),
+          )
+          .orderBy(desc(healthCheckRuns.timestamp))
+          .limit(maxWindowSize);
+
+        // Group by environmentId. `null` is its own group (the env-less slice
+        // of an assignment that has opted out, plus any pre-3b env-less runs).
+        const byEnv = new Map<string | null, { status: HealthCheckStatus; timestamp: Date }[]>();
+        for (const r of runs) {
+          const key = r.environmentId ?? null;
+          const bucket = byEnv.get(key);
+          if (bucket) {
+            bucket.push(r);
+          } else {
+            byEnv.set(key, [r]);
+          }
+        }
+
+        status = "healthy";
+        runsConsidered = runs.length;
+        lastRunAt = runs[0]?.timestamp;
+        for (const envRuns of byEnv.values()) {
+          const envStatus = evaluateHealthStatus({ runs: envRuns, thresholds });
+          if (envStatus === "unhealthy") {
+            status = "unhealthy";
+            break; // worst: stop
+          }
+          if (envStatus === "degraded" && status === "healthy") {
+            status = "degraded";
+          }
+        }
+      } else {
+        // Per-env (string) or env-less (null) slice: that slice's flat run
+        // window is monotonic per-env, so the threshold evaluator sees no
+        // interleaving — the consecutive streak is well-defined.
+        const runs = await this.db
+          .select({
+            status: healthCheckRuns.status,
+            timestamp: healthCheckRuns.timestamp,
+          })
+          .from(healthCheckRuns)
+          .where(
+            and(
+              eq(healthCheckRuns.systemId, systemId),
+              eq(healthCheckRuns.configurationId, assoc.configurationId),
+              ...(envFilter ? [envFilter] : []),
+            ),
+          )
+          .orderBy(desc(healthCheckRuns.timestamp))
+          .limit(maxWindowSize);
+
+        status = evaluateHealthStatus({ runs, thresholds });
+        runsConsidered = runs.length;
+        lastRunAt = runs[0]?.timestamp;
+      }
 
       checkStatuses.push({
         configurationId: assoc.configurationId,
         configurationName: assoc.configName,
         status,
-        runsConsidered: runs.length,
-        lastRunAt: runs[0]?.timestamp,
+        runsConsidered,
+        lastRunAt,
       });
     }
 
@@ -900,6 +973,7 @@ export class HealthCheckService {
           id: healthCheckRuns.id,
           status: healthCheckRuns.status,
           timestamp: healthCheckRuns.timestamp,
+          environmentId: healthCheckRuns.environmentId,
         })
         .from(healthCheckRuns)
         .where(
@@ -920,17 +994,89 @@ export class HealthCheckService {
         thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
+      // Group the fetched runs by environmentId (null = env-less slice). We
+      // query each env's slice separately below to evaluate it on its own
+      // monotonic run window and worst-wins across envs — this is the same
+      // derivation `getSystemHealthStatus(systemId)` uses for the rollup; see
+      // that method for the rationale (flattening envs feeds interleaved
+      // statuses to the consecutive evaluator and masks sibling outages).
+      const perEnvironment: {
+        environmentId: string | null;
+        status: HealthCheckStatus;
+        recentRuns: { id: string; status: HealthCheckStatus; timestamp: Date }[];
+      }[] = [];
+
+      // Stable ordering of env keys: env-less (`null`) first, then env ids in
+      // the order they were first encountered in the mixed pool (membership
+      // order is otherwise unobservable here without a catalog read; recent
+      // runs surface stable, recent order).
+      const envKeys: (string | null)[] = [];
+      const seenEnv = new Set<string | null>();
+      for (const r of runs) {
+        const key = r.environmentId ?? null;
+        if (!seenEnv.has(key)) {
+          seenEnv.add(key);
+          envKeys.push(key);
+        }
+      }
+      // If no runs at all, surface a single env-less entry so UI can render
+      // an empty row rather than nothing.
+      if (envKeys.length === 0) envKeys.push(null);
+
+      let aggregateStatus: HealthCheckStatus = "healthy";
+      for (const envId of envKeys) {
+        const envRuns = await this.db
+          .select({
+            id: healthCheckRuns.id,
+            status: healthCheckRuns.status,
+            timestamp: healthCheckRuns.timestamp,
+          })
+          .from(healthCheckRuns)
+          .where(
+            and(
+              eq(healthCheckRuns.systemId, systemId),
+              eq(healthCheckRuns.configurationId, assoc.configurationId),
+              envId === null
+                ? isNull(healthCheckRuns.environmentId)
+                : eq(healthCheckRuns.environmentId, envId),
+            ),
+          )
+          .orderBy(desc(healthCheckRuns.timestamp))
+          .limit(sparklineLimit);
+
+        const envStatus = evaluateHealthStatus({
+          runs: envRuns,
+          thresholds,
+        });
+        // Worst-wins across envs (unhealthy > degraded > healthy).
+        if (envStatus === "unhealthy") {
+          aggregateStatus = "unhealthy";
+        } else if (envStatus === "degraded" && aggregateStatus === "healthy") {
+          aggregateStatus = "degraded";
+        }
+
+        perEnvironment.push({
+          environmentId: envId,
+          status: envStatus,
+          recentRuns: envRuns.toReversed().map((r) => ({
+            id: r.id,
+            status: r.status,
+            timestamp: r.timestamp,
+          })),
+        });
+      }
+
       // Evaluate current status (runs are in DESC order - newest first - as evaluateHealthStatus expects).
       // For a paused configuration the runs are stale (execution is skipped),
       // so the evaluated `status` is NOT a meaningful current verdict — the
       // frontend renders a "Paused" pill from the `paused` flag instead.
       // We still compute it so the historical/sparkline path stays uniform,
       // and so a non-paused consumer that ignores `paused` sees a best-
-      // effort status rather than a hard null.
-      const status = evaluateHealthStatus({
-        runs,
-        thresholds,
-      });
+      // effort status rather than a hard null. `aggregateStatus` is the
+      // worst-wins-across-envs rollup derived above (it equals what
+      // evaluateHealthStatus would return on the flat pool if only ONE env is
+      // present, preserving per-check single-env behavior).
+      const status = aggregateStatus;
 
       checks.push({
         configurationId: assoc.configurationId,
@@ -945,7 +1091,9 @@ export class HealthCheckService {
           id: r.id,
           status: r.status,
           timestamp: r.timestamp,
+          environmentId: r.environmentId,
         })),
+        perEnvironment,
       });
     }
 
@@ -963,6 +1111,7 @@ export class HealthCheckService {
     endDate?: Date;
     sourceFilter?: string;
     statusFilter?: HealthCheckStatus[];
+    environmentId?: string | null;
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -974,6 +1123,7 @@ export class HealthCheckService {
       endDate,
       sourceFilter,
       statusFilter,
+      environmentId,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -996,6 +1146,17 @@ export class HealthCheckService {
     // Status filtering (e.g. only failing runs)
     if (statusFilter && statusFilter.length > 0) {
       conditions.push(inArray(healthCheckRuns.status, statusFilter));
+    }
+
+    // Environment filtering (server-side). `null` selects the env-less slice;
+    // a string selects that env; `undefined` leaves all envs in the window.
+    // The drawer relies on this to scope its Recent Runs table to the env the
+    // operator clicked, so the total + the paginated rows reflect only the
+    // (check, environment) pair — not the mixed-env pool.
+    if (environmentId === null) {
+      conditions.push(isNull(healthCheckRuns.environmentId));
+    } else if (environmentId !== undefined) {
+      conditions.push(eq(healthCheckRuns.environmentId, environmentId));
     }
 
     // Build where clause
@@ -1048,6 +1209,7 @@ export class HealthCheckService {
     endDate: Date;
     sourceFilter?: string;
     statusFilter?: HealthCheckStatus[];
+    environmentId?: string | null;
     maxBuckets?: number;
   }): Promise<RunStats> {
     const {
@@ -1057,6 +1219,7 @@ export class HealthCheckService {
       endDate,
       sourceFilter,
       statusFilter,
+      environmentId,
       maxBuckets = 24,
     } = props;
 
@@ -1074,6 +1237,12 @@ export class HealthCheckService {
     }
     if (statusFilter && statusFilter.length > 0) {
       conditions.push(inArray(healthCheckRuns.status, statusFilter));
+    }
+    // Server-side env filter; same semantics as `getHistory`.
+    if (environmentId === null) {
+      conditions.push(isNull(healthCheckRuns.environmentId));
+    } else if (environmentId !== undefined) {
+      conditions.push(eq(healthCheckRuns.environmentId, environmentId));
     }
 
     const rows = await this.db
@@ -1106,6 +1275,7 @@ export class HealthCheckService {
     endDate?: Date;
     sourceFilter?: string;
     statusFilter?: HealthCheckStatus[];
+    environmentId?: string | null;
     limit?: number;
     offset?: number;
     sortOrder: "asc" | "desc";
@@ -1117,6 +1287,7 @@ export class HealthCheckService {
       endDate,
       sourceFilter,
       statusFilter,
+      environmentId,
       limit = 10,
       offset = 0,
       sortOrder,
@@ -1139,6 +1310,13 @@ export class HealthCheckService {
     // Status filtering (e.g. only failing runs)
     if (statusFilter && statusFilter.length > 0) {
       conditions.push(inArray(healthCheckRuns.status, statusFilter));
+    }
+
+    // Server-side env filter; same semantics as `getHistory`.
+    if (environmentId === null) {
+      conditions.push(isNull(healthCheckRuns.environmentId));
+    } else if (environmentId !== undefined) {
+      conditions.push(eq(healthCheckRuns.environmentId, environmentId));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -1215,6 +1393,7 @@ export class HealthCheckService {
       endDate: Date;
       sourceFilter?: string;
       targetPoints?: number;
+      environmentId?: string | null;
     },
     options: { includeAggregatedResult: boolean },
   ) {
@@ -1225,6 +1404,7 @@ export class HealthCheckService {
       endDate,
       sourceFilter,
       targetPoints = 500,
+      environmentId,
     } = props;
 
     // Calculate dynamic bucket interval
@@ -1246,6 +1426,25 @@ export class HealthCheckService {
         ? this.registry.getStrategy(config.strategyId)
         : undefined;
 
+    // Server-side env filter applied to ALL three tiers (raw runs, hourly
+    // and daily aggregates), since `health_check_runs.environment_id` and
+    // `health_check_aggregates.environment_id` are the same env-id domain.
+    // The bucket uniqueness on `health_check_aggregates` includes `environmentId`
+    // (with NULLS NOT DISTINCT), so `isNull(...)` selects the env-less buckets
+    // and `eq(...)` selects that env's buckets.
+    const envRunCondition =
+      environmentId === undefined
+        ? undefined
+        : environmentId === null
+          ? isNull(healthCheckRuns.environmentId)
+          : eq(healthCheckRuns.environmentId, environmentId);
+    const envAggCondition =
+      environmentId === undefined
+        ? undefined
+        : environmentId === null
+          ? isNull(healthCheckAggregates.environmentId)
+          : eq(healthCheckAggregates.environmentId, environmentId);
+
     // Build source condition for raw runs
     const rawConditions = [
       eq(healthCheckRuns.systemId, systemId),
@@ -1257,6 +1456,7 @@ export class HealthCheckService {
         : sourceFilter
           ? [eq(healthCheckRuns.sourceId, sourceFilter)]
           : []),
+      ...(envRunCondition ? [envRunCondition] : []),
     ];
 
     // Build source condition for hourly aggregates
@@ -1271,6 +1471,7 @@ export class HealthCheckService {
         : sourceFilter
           ? [eq(healthCheckAggregates.sourceId, sourceFilter)]
           : []),
+      ...(envAggCondition ? [envAggCondition] : []),
     ];
 
     // Build source condition for daily aggregates
@@ -1285,6 +1486,7 @@ export class HealthCheckService {
         : sourceFilter
           ? [eq(healthCheckAggregates.sourceId, sourceFilter)]
           : []),
+      ...(envAggCondition ? [envAggCondition] : []),
     ];
 
     // Query all three tiers in parallel
@@ -1747,6 +1949,7 @@ export class HealthCheckService {
       const runs = await this.db
         .select({
           result: healthCheckRuns.result,
+          environmentId: healthCheckRuns.environmentId,
         })
         .from(healthCheckRuns)
         .where(
@@ -1764,6 +1967,7 @@ export class HealthCheckService {
         configurationId: assignment.configurationId,
         runs: runs.map((r) => ({
           result: r.result,
+          environmentId: r.environmentId,
         })),
       });
     }

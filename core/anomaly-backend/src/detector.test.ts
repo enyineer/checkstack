@@ -216,7 +216,7 @@ const createMockCollectorRegistry = (): CollectorRegistry => {
 const systemId = "sys-1";
 const configurationId = "config-1";
 const timestamp = new Date().toISOString();
-const cacheKeyPrefix = `baseline:${configurationId}:${systemId}:collectors.http.request.responseTimeMs`;
+const cacheKeyPrefix = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.responseTimeMs`;
 
 const anomalousResult = {
   "uuid-1": {
@@ -298,7 +298,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("creates suspicious anomaly for dominance drift", async () => {
     const baseline = createBaseline({ dominantValue: "OK", dominantRatio: 0.95 });
-    const cacheKey = `baseline:${configurationId}:${systemId}:collectors.http.request.statusText`;
+    const cacheKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.statusText`;
     const cache = createMockCache(new Map([[cacheKey, baseline]]));
     const db = createMockDb();
     
@@ -538,8 +538,8 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("correctly builds field paths from collector results", async () => {
     const baseline = createBaseline();
-    const path1 = `baseline:${configurationId}:${systemId}:collectors.http.request.responseTimeMs`;
-    const path2 = `baseline:${configurationId}:${systemId}:collectors.http.request.statusCode`;
+    const path1 = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.responseTimeMs`;
+    const path2 = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.statusCode`;
     const cache = createMockCache(new Map([[path1, baseline], [path2, baseline]]));
 
     await processCheckCompleted({
@@ -603,7 +603,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("resolves higher-is-better direction from schema (value below mean is anomalous)", async () => {
     const baseline = createBaseline({ mean: 99, stdDev: 1 });
-    const cacheKey = `baseline:${configurationId}:${systemId}:collectors.http.request.availability`;
+    const cacheKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.availability`;
     const cache = createMockCache(new Map([[cacheKey, baseline]]));
     const db = createMockDb();
 
@@ -629,7 +629,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("higher-is-better ignores values above the mean", async () => {
     const baseline = createBaseline({ mean: 95, stdDev: 1 });
-    const cacheKey = `baseline:${configurationId}:${systemId}:collectors.http.request.availability`;
+    const cacheKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.availability`;
     const cache = createMockCache(new Map([[cacheKey, baseline]]));
     const db = createMockDb();
 
@@ -651,7 +651,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("resolves deviation direction (value far from mean in either direction is anomalous)", async () => {
     const baseline = createBaseline({ mean: 200, stdDev: 5 });
-    const cacheKey = `baseline:${configurationId}:${systemId}:collectors.http.request.statusCode`;
+    const cacheKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.statusCode`;
     const cache = createMockCache(new Map([[cacheKey, baseline]]));
     const db = createMockDb();
 
@@ -674,7 +674,7 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
   test("skips fields where schema has anomaly-enabled: false and config has no direction", async () => {
     const baseline = createBaseline({ mean: 100, stdDev: 10 });
-    const cacheKey = `baseline:${configurationId}:${systemId}:collectors.http.request.bodyText`;
+    const cacheKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.bodyText`;
     const cache = createMockCache(new Map([[cacheKey, baseline]]));
     const db = createMockDb();
 
@@ -1087,5 +1087,78 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     expect(db._updateCalls[0]).toMatchObject({ state: "anomaly" });
     // The failure was logged at warn level
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  // ─── Environment scoping ──────────────────────────────────────────────
+  //
+  // Regression guard: when a run carries `environmentId`, the detector must
+  // resolve the per-env baseline — the cache key gains an env segment and the
+  // env-less (`<none>`) key is NOT consulted. This locks the analyzer↔detector
+  // cache-key contract: a per-env baseline never shadows (or is shadowed by)
+  // the env-less slice.
+
+  test("uses env-scoped cache key when environmentId is provided", async () => {
+    const baseline = createBaseline();
+    const envBaselineFromDb = {
+      mean: baseline.mean,
+      stdDev: baseline.stdDev,
+      trendSlope: baseline.trendSlope,
+      sampleCount: baseline.sampleCount,
+      computedAt: new Date(baseline.computedAt),
+      dominantValue: null,
+      dominantRatio: null,
+      environmentId: "env-prod",
+    };
+    const db = createMockDb({ baselineFromDb: envBaselineFromDb });
+    const cache = createMockCache(new Map()); // empty → forces DB lookup
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: "env-prod",
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    // The cache lookup must carry the env segment, NOT the env-less `<none>`.
+    const expectedKey = `baseline:${configurationId}:${systemId}:env-prod:collectors.http.request.responseTimeMs`;
+    const envLessKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.responseTimeMs`;
+    expect(cache.get).toHaveBeenCalledWith(expectedKey);
+    expect(cache.get).not.toHaveBeenCalledWith(envLessKey);
+    // After the DB hit, the env-scoped baseline is written back under the
+    // same env-scoped key.
+    expect(cache.set).toHaveBeenCalledWith(
+      expectedKey,
+      expect.objectContaining({ mean: baseline.mean }),
+      expect.any(Number),
+    );
+  });
+
+  test("falls back to env-less (<none>) cache key when environmentId is null", async () => {
+    const baseline = createBaseline();
+    const envKey = `baseline:${configurationId}:${systemId}:env-prod:collectors.http.request.responseTimeMs`;
+    const envLessKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.responseTimeMs`;
+    // Seed ONLY the env-less slice; the per-env key is absent. A null env run
+    // must read the env-less baseline, never the per-env one.
+    const cache = createMockCache(new Map([[envLessKey, baseline]]));
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: null,
+      result: anomalousResult,
+      db: createMockDb() as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(cache.get).toHaveBeenCalledWith(envLessKey);
+    expect(cache.get).not.toHaveBeenCalledWith(envKey);
   });
 });

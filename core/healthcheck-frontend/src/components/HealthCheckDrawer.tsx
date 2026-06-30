@@ -89,6 +89,15 @@ interface HealthCheckOverviewItem {
   lastRunAt?: Date;
   stateThresholds?: StateThresholds;
   recentStatusHistory: HealthCheckStatus[];
+  /**
+   * The environment this drawer is scoped to. `null` for an env-less row; a
+   * concrete string for a per-env row; `undefined` when the overview row was
+   * the single-env rollup (no env scoping — query without an env filter).
+   * Threaded straight through to every backend query the drawer issues so the
+   * history table, the charts, and the stats see only the (check, environment)
+   * pair the operator clicked — server-side, no client-side filtering.
+   */
+  environmentId?: string | null;
 }
 
 interface HealthCheckDrawerProps {
@@ -213,6 +222,7 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     strategyId: item.strategyId,
     dateRange,
     sourceFilter,
+    environmentId: item.environmentId,
     isRollingPreset,
     onDateRangeRefresh: (newEndDate) => {
       setDateRange((prev) => ({ ...prev, endDate: newEndDate }));
@@ -221,7 +231,11 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 
   const anomalyClient = usePluginClient(AnomalyApi);
   const { data: baselines = [] } = anomalyClient.getAnomalyBaselines.useQuery(
-    { systemId, configurationId: item.configurationId },
+    // Server-side env scoping: thread the drawer's `item.environmentId`
+    // through so baselines resolve to the clicked env only. `undefined`
+    // (single-env rollup row) returns all envs; `null` → env-less slice; a
+    // string → that env. Mirrors `getHistory`'s env filter above.
+    { systemId, configurationId: item.configurationId, environmentId: item.environmentId },
     { enabled: !!systemId && !!item.configurationId }
   );
 
@@ -237,6 +251,10 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
     startDate: dateRange.startDate,
     sourceFilter,
     statusFilter: STATUS_FILTER_TO_STATUSES[runsStatusFilter],
+    // Server-side env filter: when the clicked overview row was env-scoped,
+    // the run-history table shows only that env's runs; `null` selects the
+    // env-less slice; `undefined` (single-env rollup row) queries all runs.
+    environmentId: item.environmentId,
     sortOrder: "desc",
   });
 

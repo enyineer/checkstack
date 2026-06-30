@@ -74,6 +74,14 @@ export const anomalyBaselines = pgTable("anomaly_baselines", {
   id: uuid("id").primaryKey().defaultRandom(),
   systemId: text("system_id").notNull(),
   configurationId: uuid("configuration_id").notNull(),
+  /**
+   * Environment this baseline was computed for (per-environment fan-out).
+   * null = the env-less slice (the pre-feature cross-env baseline), mirroring
+   * `health_check_runs.environmentId`. `nullsNotDistinct()` on the unique
+   * constraint below means "one baseline per (system, config, null env, path)"
+   * — so the env-less slice stays a single row.
+   */
+  environmentId: text("environment_id"),
   fieldPath: text("field_path").notNull(),
   mean: doublePrecision("mean").notNull(),
   stdDev: doublePrecision("std_dev").notNull(),
@@ -83,11 +91,9 @@ export const anomalyBaselines = pgTable("anomaly_baselines", {
   dominantValue: text("dominant_value"),
   dominantRatio: doublePrecision("dominant_ratio"),
 }, (t) => ({
-  uniquePath: unique("anomaly_baselines_unique_path").on(
-    t.systemId,
-    t.configurationId,
-    t.fieldPath
-  )
+  uniquePath: unique("anomaly_baselines_unique_path")
+    .on(t.systemId, t.configurationId, t.environmentId, t.fieldPath)
+    .nullsNotDistinct(),
 }));
 
 export const anomalyConfigurations = pgTable("anomaly_configurations", {

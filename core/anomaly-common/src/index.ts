@@ -31,6 +31,13 @@ export const ANOMALY_BASELINE_UPDATED = createSignal({
   payloadSchema: z.object({
     systemId: z.string(),
     configurationId: z.string(),
+    /**
+     * Environment the recomputed baseline belongs to. null = the env-less
+     * slice (no environment membership). Subscribers that only key on
+     * (system, config, fieldPath) keep working; env-aware subscribers can
+     * now scope their refetch.
+     */
+    environmentId: z.string().nullable(),
     fieldPath: z.string(),
     mean: z.number(),
     stdDev: z.number(),

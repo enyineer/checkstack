@@ -33,6 +33,12 @@ export const AnomalyBaselineDtoSchema = z.object({
   id: z.string(),
   systemId: z.string(),
   configurationId: z.string(),
+  /**
+   * Environment this baseline was computed for. null = the env-less slice (no
+   * environment membership). Surfaced so the frontend can keep the env-scoped
+   * drawer's chart on the clicked env's baseline only.
+   */
+  environmentId: z.string().nullable(),
   fieldPath: z.string(),
   mean: z.number(),
   stdDev: z.number(),
@@ -107,6 +113,15 @@ export const anomalyContract = {
     .input(z.object({
       systemId: z.string(),
       configurationId: z.string(),
+      /**
+       * Optional environment filter, mirroring the HealthCheckDrawer's
+       * `item.environmentId` semantics:
+       * - `undefined` (omitted) → return baselines for ALL environments
+       *   (the single-env rollup row, or any caller that isn't env-scoped).
+       * - `null` → only the env-less slice (environment_id IS NULL).
+       * - a string → only that environment's baselines.
+       */
+      environmentId: z.string().nullish(),
     }))
     .output(z.array(AnomalyBaselineDtoSchema)),
 

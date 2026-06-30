@@ -212,19 +212,37 @@ export class AnomalyService {
   async getAnomalyBaselines(params: {
     systemId: string;
     configurationId: string;
+    /**
+     * Optional environment filter. Mirrors the proc input tristate:
+     * - `undefined` → no env predicate (return every env for this
+     *   system+config, e.g. the single-env rollup drawer or non-scoped
+     *   callers).
+     * - `null` → only the env-less slice (environment_id IS NULL).
+     * - a string → only that environment's baselines.
+     */
+    environmentId?: string | null;
   }) {
+    const conditions = [
+      eq(schema.anomalyBaselines.systemId, params.systemId),
+      eq(schema.anomalyBaselines.configurationId, params.configurationId),
+    ];
+
+    if (params.environmentId !== undefined) {
+      conditions.push(
+        params.environmentId === null
+          ? isNull(schema.anomalyBaselines.environmentId)
+          : eq(schema.anomalyBaselines.environmentId, params.environmentId),
+      );
+    }
+
     const results = await this.db
       .select()
       .from(schema.anomalyBaselines)
-      .where(
-        and(
-          eq(schema.anomalyBaselines.systemId, params.systemId),
-          eq(schema.anomalyBaselines.configurationId, params.configurationId),
-        ),
-      );
+      .where(and(...conditions));
 
     return results.map((r) => ({
       ...r,
+      environmentId: r.environmentId,
       computedAt: r.computedAt.toISOString(),
     }));
   }

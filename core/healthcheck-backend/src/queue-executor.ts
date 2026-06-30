@@ -142,6 +142,7 @@ async function emitCheckCompletedHook({
   status,
   latencyMs,
   result,
+  environmentId,
 }: {
   getEmitHook: () => EmitHookFn | undefined;
   systemId: string;
@@ -149,6 +150,7 @@ async function emitCheckCompletedHook({
   status: string;
   latencyMs: number | undefined;
   result: Record<string, unknown> | undefined;
+  environmentId: string | null;
 }): Promise<void> {
   const emitHook = getEmitHook();
   if (!emitHook) return;
@@ -160,6 +162,7 @@ async function emitCheckCompletedHook({
     latencyMs,
     result,
     timestamp,
+    environmentId,
   });
   // Narrow follow-up — informational for automation triggers; the
   // auto-incident pipeline still runs on its own thresholds.
@@ -171,6 +174,7 @@ async function emitCheckCompletedHook({
       latencyMs,
       result,
       timestamp,
+      environmentId,
     });
   }
 }
@@ -321,6 +325,21 @@ async function notifyStateChange(props: {
   configurationId: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
+  /**
+   * The environment this transition is scoped to. `null` (or `undefined`)
+   * means the rollout transition (the system rollup). A concrete string means
+   * the per-env slice — the body and collapse key are env-qualified so two
+   * failing envs don't merge into one card (see the changeset "Make
+   * healthcheck triggers env-scoped").
+   */
+  environmentId?: string | null;
+  /**
+   * Human-readable env name, included in the title/body. Best-effort: when
+   * absent (e.g. catastrophic job failure before env resolution) the message
+   * falls back to the bare system name. Resolution happens before the call
+   * site, so no extra catalog RPC here.
+   */
+  environmentName?: string;
   service: HealthCheckService;
   catalogClient: CatalogClient;
   notificationClient: NotificationClient;
@@ -334,6 +353,8 @@ async function notifyStateChange(props: {
     configurationId,
     previousStatus,
     newStatus,
+    environmentId,
+    environmentName,
     service,
     catalogClient,
     notificationClient,
@@ -341,6 +362,9 @@ async function notifyStateChange(props: {
     incidentClient,
     logger,
   } = props;
+
+  const envScoped = typeof environmentId === "string";
+  const envSuffix = envScoped && environmentName ? ` (${environmentName})` : "";
 
   const transition = classifyTransition(previousStatus, newStatus);
   if (transition === "none") {
@@ -411,19 +435,23 @@ async function notifyStateChange(props: {
   let importance: "info" | "warning" | "critical";
 
   if (transition === "recovery") {
-    title = `System health restored: ${systemName}`;
-    body =
-      `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
+    title = `System health restored${envSuffix}: ${systemName}`;
+    body = envScoped
+      ? `Health checks for **${systemName}** in environment **${environmentName ?? environmentId}** are now passing. The system has returned to normal operation in that environment.`
+      : `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
     importance = "info";
   } else if (newStatus === "unhealthy") {
-    title = `System health critical: ${systemName}`;
-    body = `Health checks indicate **${systemName}** is unhealthy and may be down.`;
+    title = `System health critical${envSuffix}: ${systemName}`;
+    body = envScoped
+      ? `Health checks indicate **${systemName}** is unhealthy in environment **${environmentName ?? environmentId}** and may be down in that environment.`
+      : `Health checks indicate **${systemName}** is unhealthy and may be down.`;
     importance = "critical";
   } else {
     // degraded — either an escalation from healthy or a partial recovery
-    title = `System health degraded: ${systemName}`;
-    body =
-      `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
+    title = `System health degraded${envSuffix}: ${systemName}`;
+    body = envScoped
+      ? `Some health checks for **${systemName}** in environment **${environmentName ?? environmentId}** are failing. That environment may be experiencing issues.`
+      : `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
     importance = "warning";
   }
 
@@ -449,7 +477,14 @@ async function notifyStateChange(props: {
       body,
       importance,
       action: { label: actionLabel, url: actionUrl },
-      collapseKey: systemHealthCollapseKey(systemId),
+      // Env-qualified collapse key so two failing envs of one system generate
+      // two independent notification cards (one per env) instead of merging
+      // -> operators see all env outages. The system-rollup transition
+      // (`environmentId === null`/undefined) keys on the bare systemId and
+      // therefore reuses the pre-existing single-card identity.
+      collapseKey: envScoped
+        ? systemHealthCollapseKey(systemId, environmentId)
+        : systemHealthCollapseKey(systemId),
       subjects: [
         createSystemSubject({
           id: systemId,
@@ -1071,6 +1106,8 @@ async function executeHealthCheckJob(props: {
           configurationId: configId,
           previousStatus,
           newStatus: newState.status,
+          environmentId,
+          environmentName: environment?.name,
           service,
           catalogClient,
           maintenanceClient,
@@ -1189,6 +1226,7 @@ async function executeHealthCheckJob(props: {
       status: result.status,
       latencyMs: result.latencyMs,
       result: (result.metadata?.collectors as Record<string, unknown>) ?? undefined,
+      environmentId,
     });
 
     if (newState.status !== previousStatus) {
@@ -1210,6 +1248,8 @@ async function executeHealthCheckJob(props: {
         configurationId: configId,
         previousStatus,
         newStatus: newState.status,
+        environmentId,
+        environmentName: environment?.name,
         service,
         catalogClient,
         maintenanceClient,
@@ -1415,6 +1455,7 @@ async function executeHealthCheckJob(props: {
       status: "unhealthy",
       latencyMs: undefined,
       result: undefined,
+      environmentId: null,
     });
 
     if (newState.status !== previousStatus) {
