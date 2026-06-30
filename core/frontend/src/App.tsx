@@ -389,7 +389,7 @@ function AppContent() {
           <Route
             path="/"
             element={
-              <div className="space-y-6">
+              <div className="space-y-8 animate-in fade-in duration-500">
                 <ExtensionSlot slot={DashboardSlot} />
               </div>
             }

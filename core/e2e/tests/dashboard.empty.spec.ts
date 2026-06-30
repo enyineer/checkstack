@@ -4,8 +4,8 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * Dashboard (overview landing + tips banner).
  *
  * The dashboard is the landing route ("/"): `core/frontend/src/App.tsx` mounts
- * the `DashboardSlot` there and `core/dashboard-frontend/src/Dashboard.tsx`
- * fills it. This spec goes DEEPER than `smoke.spec.ts` (which only proves the
+ * the `DashboardSlot` there and the dashboard-frontend plugin fills it with
+ * three section extensions (welcome, system-health, recent-activity). This spec goes DEEPER than `smoke.spec.ts` (which only proves the
  * app shell boots): it asserts the dashboard's own overview section, its
  * fresh-install empty state, and the tips/help affordance (`TipBanner` from
  * `core/tips-frontend/src/components/TipBanner.tsx`) including dismissal.

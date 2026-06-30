@@ -87,6 +87,14 @@ Attach the catalog systems the maintenance affects. This drives:
 - Discoverability from the system detail page (anyone looking at a system sees upcoming and active maintenances).
 - The scope of notification suppression while the maintenance is `in_progress`.
 
+## Where maintenances surface
+
+A maintenance is visible from several places depending on its status:
+
+- **The dashboard** shows a "Planned maintenances" section listing the soonest scheduled (not-yet-started) maintenance windows (up to a small cap, soonest first). Each row deep-links into the maintenance's detail page. The section renders nothing when there is no upcoming work, so the dashboard stays calm. In-progress windows are surfaced separately as per-system signals in the "System health" overview; this section is the forward-looking companion.
+- **The system detail page** shows upcoming and active maintenances for that system.
+- **The Maintenances list** (main nav) shows every window, past and future, with status filtering.
+
 ## Hotlinks
 
 Standard hotlink slots, identical to incidents: free-form URL labels for change tickets, runbooks, chat threads, or anything else worth attaching.
@@ -99,6 +107,7 @@ The lifecycle events (created, status changed, completed, cancelled) flow throug
 
 | Where to go | What you do there |
 |-------------|-------------------|
+| **Dashboard** | See the soonest upcoming (scheduled) maintenances at a glance. |
 | **Maintenances** (list) | See scheduled, in-progress, and past maintenances. Filter by status. |
 | **Schedule Maintenance** | Create one. Pick the time window, attach systems, decide on suppression. |
 | **Maintenance detail** | Edit, cancel, post updates, manage hotlinks. |

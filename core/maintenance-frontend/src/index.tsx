@@ -1,6 +1,7 @@
 import {
   createFrontendPlugin,
   createSlotExtension,
+  DashboardSlot,
 } from "@checkstack/frontend-api";
 import { Wrench } from "lucide-react";
 import {
@@ -66,5 +67,20 @@ export default createFrontendPlugin({
           default: m.MaintenanceSignalsFiller,
         })),
     }),
+    {
+      // Forward-looking companion to the in-progress signals: surfaces upcoming
+      // (scheduled) maintenance windows on the dashboard so operators can see
+      // planned work at a glance. Priority 20 places it between System health
+      // (10) and Recent activity (30). Lazy so it stays out of the initial
+      // bundle; renders nothing when there is nothing upcoming.
+      id: "maintenance.dashboard.upcoming",
+      slot: DashboardSlot,
+      metadata: { priority: 20 },
+      load: () =>
+        import("./components/DashboardUpcomingMaintenances").then((m) => ({
+          default:
+            m.DashboardUpcomingMaintenances as React.ComponentType<unknown>,
+        })),
+    },
   ],
 });

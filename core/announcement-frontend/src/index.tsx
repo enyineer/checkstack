@@ -29,6 +29,7 @@ export default createFrontendPlugin({
     {
       id: "announcement.dashboard.cards",
       slot: DashboardSlot,
+      metadata: { priority: 5 },
       component:
         DashboardAnnouncements as React.ComponentType<unknown>,
     },

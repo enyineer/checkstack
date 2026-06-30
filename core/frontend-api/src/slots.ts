@@ -47,8 +47,17 @@ export function createSlot<TContext = undefined, TMetadata = undefined>(
 
 /**
  * Core layout slots - no context required
+ *
+ * `DashboardSlot` extensions declare a `priority` in their metadata; the slot
+ * renders them sorted ascending (lower = first). Unspecified priority
+ * defaults to 0. This lets plugins position their dashboard contributions
+ * relative to the platform-owned sections without a fixed slot per position.
  */
-export const DashboardSlot = createSlot("dashboard");
+export const DashboardSlot = createSlot<
+  undefined,
+  { priority?: number }
+>("dashboard");
+
 export const NavbarLeftSlot = createSlot("core.layout.navbar.left");
 export const NavbarCenterSlot = createSlot("core.layout.navbar.center");
 export const NavbarRightSlot = createSlot("core.layout.navbar.right");

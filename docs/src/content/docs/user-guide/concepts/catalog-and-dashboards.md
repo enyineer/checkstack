@@ -46,6 +46,10 @@ Because the catalog records dependencies, a problem can surface on a system that
 
 When you ask the chat assistant "what is wrong?" or "what needs attention?", it reads the same per-system signals the dashboard renders, aggregated across every source in one place, so its answer matches what you see on screen.
 
+## Planned maintenances on the dashboard
+
+Per-system signals are about what needs attention *now*, so a scheduled (future) maintenance is not a signal - the system isn't broken yet. But you still need to see that planned work is coming, so the dashboard also renders a "Planned maintenances" section: the soonest scheduled [maintenance](/checkstack/user-guide/concepts/maintenances/) windows (not yet started), each linking into its detail page. It renders nothing when there is nothing upcoming, so the dashboard stays calm. In-progress windows are surfaced separately as per-system signals; this section is the forward-looking companion. See [Maintenances](/checkstack/user-guide/concepts/maintenances/) for the full lifecycle.
+
 ## Where to go next
 
 - **Catalog structure.** Read [Systems and groups](/checkstack/user-guide/concepts/systems-and-groups/) for systems, groups, and dependencies in depth.
