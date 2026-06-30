@@ -1811,7 +1811,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.117.0",
+      "version": "0.118.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -2375,6 +2375,7 @@
         "tailwindcss": "^3.4.1",
         "tailwindcss-animate": "^1.0.7",
         "typescript": "^5.0.0",
+        "undici-types": "~6.21.0",
         "vite": "^8.0.16",
       },
     },
