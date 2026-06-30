@@ -147,6 +147,14 @@ export default defineHealthCheck(async (context) => {
 });
 ```
 
+> [!NOTE]
+> Once a script contains any `import` or `export`, the runner treats it as a
+> real ES module and a top-level `return` is illegal (it throws
+> `Top-level return cannot be used inside an ECMAScript module`). Finish with
+> `export default`, not `return`. See
+> [Script health checks - script styles](/checkstack/user-guide/reference/script-health-checks/#script-styles-legacy-return-vs-esm-export-default)
+> for the full rule.
+
 ### Integration scripts
 
 ```ts
