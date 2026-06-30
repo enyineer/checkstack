@@ -14,11 +14,18 @@ import {
   healthCheckAccess,
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import {
   HealthCheckList,
   HealthCheckListSkeleton,
 } from "../components/HealthCheckList";
+import { HealthCheckListToolbar } from "../components/HealthCheckListToolbar";
+import {
+  filterAndSortHealthChecks,
+  hasActiveHealthCheckFilter,
+} from "../components/healthCheckListState.logic";
+import { useHealthCheckListState } from "../hooks/useHealthCheckListState";
 import { FirstCheckWizard } from "../components/FirstCheckWizard";
 import {
   Button,
@@ -65,11 +72,21 @@ type ConfigurationsQueryData = {
 
 const HealthCheckConfigPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const queryClient = useQueryClient();
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    state: listState,
+    debouncedQuery,
+    setQuery,
+    setStrategy,
+    setStatus,
+    setSystem,
+    clearFilters,
+  } = useHealthCheckListState();
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.read,
   );
@@ -107,7 +124,57 @@ const HealthCheckConfigPageContent = () => {
     {},
   );
 
-  const configurations = configurationsData?.configurations ?? [];
+  const configurations = useMemo(
+    () => configurationsData?.configurations ?? [],
+    [configurationsData],
+  );
+
+  // Systems list for the "assigned to system X" filter. Lazily loaded: the
+  // query is only enabled once the user has read access AND there are
+  // configurations to filter, so a fresh install with no checks doesn't ping
+  // the catalog backend.
+  const systemsQuery = catalogClient.getSystems.useQuery(
+    {},
+    { enabled: canRead && configurations.length > 0 },
+  );
+  const systems = systemsQuery.data?.systems ?? [];
+
+  // When a system filter is active, resolve the set of config ids assigned to
+  // that system via `getSystemConfigurations`. A configuration carries no
+  // system field of its own — the assignment is a separate entity — so the
+  // filter intersects this id set with the loaded configurations. `undefined`
+  // while loading (the filter logic shows nothing until the set resolves, to
+  // avoid a flash of the unfiltered superset).
+  const systemFilterActive = listState.systemId !== null;
+  const systemConfigsQuery =
+    healthCheckClient.getSystemConfigurations.useQuery(
+      { systemId: listState.systemId ?? "" },
+      { enabled: systemFilterActive },
+    );
+  const assignedConfigIds = useMemo((): Set<string> | null | undefined => {
+    if (!systemFilterActive) return null;
+    if (systemConfigsQuery.isLoading) return;
+    return new Set((systemConfigsQuery.data ?? []).map((c) => c.id));
+  }, [
+    systemFilterActive,
+    systemConfigsQuery.isLoading,
+    systemConfigsQuery.data,
+  ]);
+
+  const filteredConfigurations = useMemo(
+    () =>
+      filterAndSortHealthChecks({
+        configurations,
+        state: { ...listState, query: debouncedQuery },
+        assignedConfigIds,
+      }),
+    [configurations, listState, debouncedQuery, assignedConfigIds],
+  );
+
+  const hasActiveFilter = hasActiveHealthCheckFilter({
+    ...listState,
+    query: debouncedQuery,
+  });
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -314,15 +381,48 @@ const HealthCheckConfigPageContent = () => {
           }
         />
       ) : (
-        <HealthCheckList
-          configurations={configurations}
-          strategies={strategies}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          onPause={(id) => pauseMutation.mutate({ id })}
-          onResume={(id) => resumeMutation.mutate({ id })}
-          canManage={canManage}
-        />
+        <div className="flex flex-col gap-4">
+          <HealthCheckListToolbar
+            state={listState}
+            onQueryChange={setQuery}
+            onStrategyChange={setStrategy}
+            onStatusChange={setStatus}
+            onSystemChange={setSystem}
+            onClearFilters={clearFilters}
+            strategies={strategies}
+            systems={systems}
+            systemAssignmentsLoading={
+              systemFilterActive && systemConfigsQuery.isLoading
+            }
+            hasActiveFilter={hasActiveFilter}
+          />
+
+          {systemFilterActive && systemConfigsQuery.isLoading ? (
+            <HealthCheckListSkeleton />
+          ) : filteredConfigurations.length === 0 ? (
+            <ListEmptyState
+              resource="health checks"
+              description="No health checks match the current search or filters."
+              actions={
+                hasActiveFilter ? (
+                  <Button variant="outline" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <HealthCheckList
+              configurations={filteredConfigurations}
+              strategies={strategies}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onPause={(id) => pauseMutation.mutate({ id })}
+              onResume={(id) => resumeMutation.mutate({ id })}
+              canManage={canManage}
+            />
+          )}
+        </div>
       )}
 
       <ConfirmationModal
