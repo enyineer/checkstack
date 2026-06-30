@@ -19,9 +19,11 @@ import { HealthCheckSparkline } from "./HealthCheckSparkline";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
   countHealthy,
+  pausedToTone,
   statusToLabel,
   statusToTone,
   toneStyles,
+  type StatusTone,
 } from "./healthcheckDisplay.logic";
 // Lazy-loaded: the drawer pulls in the recharts-based latency/timeline charts
 // (~300 KB). This component is an eagerly-registered slot extension, so a static
@@ -48,7 +50,16 @@ function parseFilter(raw: string | null): HealthFilter {
   return raw === "failing" || raw === "healthy" ? raw : "all";
 }
 
-function matchesFilter(state: HealthCheckStatus, filter: HealthFilter) {
+function matchesFilter(
+  state: HealthCheckStatus,
+  filter: HealthFilter,
+  paused: boolean,
+) {
+  // A paused check is neither actively failing nor actively healthy — it's
+  // dormant. Only show it under "all"; the "failing"/"healthy" tabs hide it
+  // so a paused check can't masquerade as a current failure (its stale runs
+  // may still evaluate to unhealthy even though it's not running).
+  if (paused) return filter === "all";
   if (filter === "all") return true;
   if (filter === "healthy") return state === "healthy";
   return state !== "healthy";
@@ -77,6 +88,7 @@ interface HealthCheckOverviewItem {
   strategyId: string;
   name: string;
   state: HealthCheckStatus;
+  paused: boolean;
   intervalSeconds: number;
   lastRunAt?: Date;
   stateThresholds?: StateThresholds;
@@ -107,6 +119,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
       strategyId: check.strategyId,
       name: check.configurationName,
       state: check.status,
+      paused: check.paused,
       intervalSeconds: check.intervalSeconds,
       lastRunAt: check.recentRuns.at(-1)?.timestamp
         ? new Date(check.recentRuns.at(-1)!.timestamp)
@@ -117,7 +130,10 @@ export function HealthCheckSystemOverview(props: SlotProps) {
   }, [overviewData]);
 
   const visible = React.useMemo(
-    () => overview.filter((item) => matchesFilter(item.state, filter)),
+    () =>
+      overview.filter((item) =>
+        matchesFilter(item.state, filter, item.paused),
+      ),
     [overview, filter],
   );
 
@@ -188,6 +204,17 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                 const healthyCount = countHealthy({
                   history: item.recentStatusHistory,
                 });
+                // A paused check is dormant — render a "Paused" pill (unknown
+                // tone) instead of the run-evaluated status, since its stale
+                // runs are not a meaningful current verdict. The accent stripe
+                // and the healthy/total figure + sparkline still reflect the
+                // pre-pause history for context.
+                const displayTone = item.paused
+                  ? (pausedToTone({ paused: true }) as StatusTone)
+                  : tone;
+                const displayLabel = item.paused
+                  ? "Paused"
+                  : statusToLabel({ status: item.state });
                 return (
                   <button
                     key={item.configurationId}
@@ -198,7 +225,7 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                     <span
                       className={cn(
                         "absolute inset-y-0 left-0 w-1",
-                        toneStyles[tone].accent,
+                        toneStyles[displayTone].accent,
                       )}
                       aria-hidden
                     />
@@ -209,8 +236,8 @@ export function HealthCheckSystemOverview(props: SlotProps) {
                         {item.name}
                       </span>
                       <HealthStatusPill
-                        tone={tone}
-                        label={statusToLabel({ status: item.state })}
+                        tone={displayTone}
+                        label={displayLabel}
                         className="self-start"
                       />
                     </div>

@@ -632,6 +632,15 @@ export const healthCheckContract = {
             strategyId: z.string(),
             intervalSeconds: z.number(),
             enabled: z.boolean(),
+            /**
+             * Whether the configuration is paused (execution skipped). The
+             * frontend renders a "Paused" pill for paused checks instead of
+             * the run-evaluated `status`, since a paused check's stale runs
+             * are not a meaningful current verdict. Paused checks also do
+             * not contribute to the system's rollup health (see
+             * `getSystemHealthStatus`).
+             */
+            paused: z.boolean(),
             status: HealthCheckStatusSchema,
             stateThresholds: StateThresholdsSchema.optional(),
             recentRuns: z.array(

@@ -57,6 +57,16 @@ export const createHealthCheckRouter = (opts: {
    * Optional so existing tests can omit it.
    */
   signalService?: SignalService;
+  /**
+   * Recompute and persist the system rollup `health` entity for a single
+   * system, used by `pauseConfiguration` to drive the SLO engine when the
+   * recomputed aggregate transitions (e.g. degraded → healthy when the
+   * sole failing check is paused, which closes the open SLO downtime
+   * event via the `HEALTH_ENTITY_KIND` "recovered" transition). Optional so
+   * tests can omit it; when absent, pause just flips the flag and the next
+   * run / the SLO self-heal converge the rollup lazily.
+   */
+  recomputeSystemRollupHealth?: (systemId: string) => Promise<void>;
 }) => {
   const {
     database,
@@ -69,6 +79,7 @@ export const createHealthCheckRouter = (opts: {
     maintenanceClient,
     logger,
     signalService,
+    recomputeSystemRollupHealth,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -312,6 +323,31 @@ export const createHealthCheckRouter = (opts: {
         action: "updated",
         configurationId: input.id,
       });
+
+      // Recompute the rollup `health` entity for every system this config
+      // is assigned to (enabled assignments only). Because
+      // `getSystemHealthStatus` now excludes paused configs, the recomputed
+      // rollup may transition degraded → healthy, which emits the
+      // `HEALTH_ENTITY_KIND` "recovered" edge the SLO engine consumes to
+      // close any open downtime event attributed to this check. If the
+      // system stays degraded (other failing checks), no edge fires and
+      // the open event correctly persists. Best-effort: a recompute
+      // failure is logged inside the helper and never breaks the RPC.
+      if (recomputeSystemRollupHealth) {
+        try {
+          const systemIds =
+            await service.getSystemIdsForConfiguration(input.id);
+          await Promise.all(
+            systemIds.map((systemId) =>
+              recomputeSystemRollupHealth(systemId),
+            ),
+          );
+        } catch (error) {
+          logger.warn(
+            `Failed to recompute rollup health after pausing config ${input.id}: ${extractErrorMessage(error, "unknown")}`,
+          );
+        }
+      }
     }),
 
     resumeConfiguration: os.resumeConfiguration.handler(async ({ input }) => {
@@ -323,6 +359,17 @@ export const createHealthCheckRouter = (opts: {
         action: "updated",
         configurationId: input.id,
       });
+      // Intentionally NO rollup recompute on resume. The check's last
+      // in-window run may have been failing, but we don't know whether the
+      // underlying condition is still present — only a fresh run can tell.
+      // Recomputing now would open a new SLO downtime event based on stale
+      // data and then potentially close it on the next successful run,
+      // fabricating a brief false-positive downtime. Instead, let the
+      // recurring job's next tick drive any degraded transition: if the
+      // check still fails, the new unhealthy run recomputes the rollup and
+      // the SLO engine opens a fresh downtime event (the previous event was
+      // closed on pause, so the idempotent guard in `handleSystemDown`
+      // doesn't suppress it). If the check now passes, no event opens.
     }),
 
     getSystemConfigurations: os.getSystemConfigurations.handler(

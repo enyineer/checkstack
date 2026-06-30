@@ -235,6 +235,64 @@ export async function scheduleHealthCheck(props: {
   });
 }
 
+/**
+ * Recompute and persist the SYSTEM ROLLUP `health` entity for `systemId`
+ * WITHOUT inserting a new run row.
+ *
+ * Used by configuration mutations that change which checks contribute to a
+ * system's aggregate WITHOUT producing a new run — today, `pause`/
+ * `resume`. Because `getSystemHealthStatus` excludes paused configs, the
+ * recomputed rollup may transition (e.g. `degraded → healthy` when the sole
+ * failing check is paused, or `healthy → degraded` when a check is resumed
+ * whose last in-window run was failing and the system had no other degraded
+ * checks). The framework diffs prev → next inside `handle.mutate` and emits a
+ * single `ENTITY_CHANGED` on a real transition, which the SLO engine's
+ * `onEntityChanged` handlers consume to close/open downtime events — so
+ * pausing a failing check closes its open SLO downtime, and resuming a
+ * still-failing check re-opens one on the next run.
+ *
+ * Mirrors the rollup write inside `executeHealthCheckJob` (no durable
+ * insert; just recompute + emit), serialized on the same per-entity
+ * `health:<systemId>` advisory lock so it can't race a concurrent run's
+ * rollup write. Best-effort: a reactivity failure is routed to `onError`
+ * and swallowed (the durable tables already hold the source-of-truth runs).
+ */
+export async function recomputeSystemRollupHealth(args: {
+  systemId: string;
+  service: HealthCheckService;
+  getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
+  advisoryLock: AdvisoryLockService;
+  logger: Logger;
+}): Promise<void> {
+  const { systemId, service, getHealthEntity, advisoryLock, logger } = args;
+  const rollupEntityId = encodeHealthEntityId({ systemId });
+  const makeHealthSerializer = createHealthEntitySerializer({ advisoryLock });
+  try {
+    await writeHealthEntity({
+      handle: getHealthEntity?.(),
+      entityId: rollupEntityId,
+      apply: async () => {
+        const rollupState = await service.getSystemHealthStatus(systemId);
+        return toHealthEntityView(rollupState);
+      },
+      serialize: makeHealthSerializer(rollupEntityId),
+      onError: (error) =>
+        logger.warn(
+          `Failed to mirror rollup health entity for ${systemId} (recompute)`,
+          error,
+        ),
+    });
+  } catch (error) {
+    // A recompute failure must never break the pause/resume RPC. The
+    // durable tables still hold the authoritative runs; the next run tick
+    // or the SLO self-heal (`reconcileOrphanedDowntime`) will converge.
+    logger.error(
+      `Failed to recompute system rollup health for ${systemId}`,
+      error,
+    );
+  }
+}
+
 // Flapping detection no longer lives here. It moved into the automation
 // engine as a windowed-count gate on the `healthcheck.system_health_changed`
 // trigger (raw aggregated-health change + `filter` +
