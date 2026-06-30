@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import {
   Settings,
   Gauge,
@@ -7,8 +7,9 @@ import {
   Plus,
   Check,
   Bell,
+  Search,
 } from "lucide-react";
-import { IDETreeNode, IDETreeSection } from "@checkstack/ui";
+import { IDETreeNode, IDETreeSection, Input } from "@checkstack/ui";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { AssignmentIDENodeSlot } from "../../slots";
 
@@ -48,6 +49,18 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
   onToggleAssignment,
   isLocked,
 }) => {
+  const [availableQuery, setAvailableQuery] = useState("");
+  const filteredAvailable = useMemo(() => {
+    const q = availableQuery.trim().toLowerCase();
+    if (!q) return available;
+    return available.filter((c) => {
+      const strategyTail = c.strategyId.split(".").pop() ?? "";
+      return (
+        c.name.toLowerCase().includes(q) || strategyTail.toLowerCase().includes(q)
+      );
+    });
+  }, [available, availableQuery]);
+
   return (
     <div className="py-2">
       <IDETreeSection label="Assigned Health Checks" />
@@ -134,20 +147,39 @@ export const AssignmentTree: React.FC<AssignmentTreeProps> = ({
       {!isLocked && available.length > 0 && (
         <>
           <IDETreeSection label="Available" />
-          {available.map((config) => (
-            <button
-              key={config.id}
-              type="button"
-              onClick={() => onToggleAssignment(config.id, false)}
-              className="flex items-center gap-2 w-full px-3 py-2 pl-7 text-sm text-left transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/50 border-l-2 border-transparent"
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              <span className="truncate flex-1">{config.name}</span>
-              <span className="text-[10px] text-muted-foreground shrink-0">
-                {config.strategyId.split(".").pop()}
-              </span>
-            </button>
-          ))}
+          <div className="px-3 pb-1">
+            <div className="flex items-center gap-2 rounded-md border border-input bg-surface-inset px-2 focus-within:ring-1 focus-within:ring-ring">
+              <Search className="pointer-events-none h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Input
+                value={availableQuery}
+                onChange={(e) => setAvailableQuery(e.target.value)}
+                placeholder="Filter health checks…"
+                autoComplete="off"
+                aria-label="Filter available health checks"
+                className="h-7 border-0 bg-transparent px-0 text-xs focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+            </div>
+          </div>
+          {filteredAvailable.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground italic">
+              No matching health checks
+            </p>
+          ) : (
+            filteredAvailable.map((config) => (
+              <button
+                key={config.id}
+                type="button"
+                onClick={() => onToggleAssignment(config.id, false)}
+                className="flex items-center gap-2 w-full px-3 py-2 pl-7 text-sm text-left transition-colors text-muted-foreground hover:text-foreground hover:bg-muted/50 border-l-2 border-transparent"
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="truncate flex-1">{config.name}</span>
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {config.strategyId.split(".").pop()}
+                </span>
+              </button>
+            ))
+          )}
         </>
       )}
     </div>
