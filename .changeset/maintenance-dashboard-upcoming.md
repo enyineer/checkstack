@@ -4,6 +4,7 @@
 "@checkstack/frontend-api": minor
 "@checkstack/ui": minor
 "@checkstack/announcement-frontend": minor
+"@checkstack/frontend": patch
 ---
 
 Surface scheduled (upcoming) maintenances on the dashboard.
