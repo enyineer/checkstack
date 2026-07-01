@@ -22,6 +22,9 @@ describe("buildPreviewProcessDefs", () => {
     );
     // BASE_URL is the preview vite origin so the SPA is same-origin.
     expect(byId.backend?.env?.BASE_URL).toBe("http://localhost:45678");
+    // INTERNAL_URL targets the preview backend's own port so intra-instance
+    // server-to-server RPC never hits the primary dev backend on :3000.
+    expect(byId.backend?.env?.INTERNAL_URL).toBe("http://localhost:41234");
     expect(byId.backend?.cwd).toBe("core/backend");
   });
 
