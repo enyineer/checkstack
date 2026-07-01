@@ -1085,6 +1085,10 @@ async function executeHealthCheckJob(props: {
         configurationName: configRow.configName,
         status: result.status,
         latencyMs: result.latencyMs,
+        // Env-scoped fan-out: `environment` is null for the env-less run, so
+        // `?.` yields undefined and those runs broadcast exactly as before.
+        environmentId: environment?.id,
+        environmentName: environment?.name,
       });
 
       if (newState.status !== previousStatus) {
@@ -1217,6 +1221,10 @@ async function executeHealthCheckJob(props: {
       configurationName: configRow.configName,
       status: result.status,
       latencyMs: result.latencyMs,
+      // Env-scoped fan-out: `environment` is null for the env-less run, so
+      // `?.` yields undefined and those runs broadcast exactly as before.
+      environmentId: environment?.id,
+      environmentName: environment?.name,
     });
 
     await emitCheckCompletedHook({
