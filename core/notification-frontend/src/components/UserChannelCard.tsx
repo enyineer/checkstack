@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Send,
+  AlertCircle,
 } from "lucide-react";
 import {
   Card,
@@ -17,8 +18,18 @@ import {
   DynamicIcon,
   MarkdownBlock,
   Spinner,
+  Alert,
+  AlertIcon,
+  AlertContent,
+  AlertTitle,
+  AlertDescription,
+  CopyableValue,
   type LucideIconName,
 } from "@checkstack/ui";
+import {
+  deriveTestErrorMessage,
+  deriveTestRejectionMessage,
+} from "./userChannelCard.logic";
 
 /**
  * User channel data from getUserDeliveryChannels endpoint
@@ -104,6 +115,10 @@ export function UserChannelCard({
   );
   const [localEnabled, setLocalEnabled] = useState(channel.enabled);
   const [configValid, setConfigValid] = useState(true); // Start true since existing config is valid
+  // Holds the full error message from the last failed test so it can be shown
+  // (and copied) inline. Toasts truncate to ~100 chars, which hid the actual
+  // transport error; the operator needs the whole thing to diagnose.
+  const [testError, setTestError] = useState<string | null>(null);
 
   const requiresOAuth = channel.contactResolution.type === "oauth-link";
   const requiresUserConfig = channel.contactResolution.type === "user-config";
@@ -140,6 +155,22 @@ export function UserChannelCard({
 
   const handleSaveConfig = async () => {
     await onSaveConfig(channel.strategyId, userConfig);
+  };
+
+  const handleTest = async () => {
+    // Clear any stale error so a retry starts from a clean slate. A passing
+    // test is toasted by the page's mutation; the card only owns the failure.
+    setTestError(null);
+    try {
+      const message = deriveTestErrorMessage(await onTest(channel.strategyId));
+      if (message !== null) {
+        setTestError(message);
+      }
+    } catch (error) {
+      // A rejected mutation (transport / auth failure) never reaches the
+      // success/error contract above - surface its message here too.
+      setTestError(deriveTestRejectionMessage(error));
+    }
   };
 
   // Get status badge. Connection state is a status signal, so it uses the
@@ -271,7 +302,7 @@ export function UserChannelCard({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => void onTest(channel.strategyId)}
+              onClick={() => void handleTest()}
               disabled={testing || saving}
               title="Send test notification"
             >
@@ -299,6 +330,41 @@ export function UserChannelCard({
           )}
         </div>
       </div>
+
+      {/* Test-notification failure: full, copyable error so operators can
+          diagnose a misconfigured channel without opening the network console. */}
+      {testError && (
+        <div className="border-t p-4 pl-5">
+          <Alert variant="error">
+            <AlertIcon>
+              <AlertCircle className="h-4 w-4" />
+            </AlertIcon>
+            <AlertContent>
+              <div className="flex items-start justify-between gap-2">
+                <AlertTitle>Test notification failed</AlertTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTestError(null)}
+                  aria-label="Dismiss error"
+                  className="-mr-1 -mt-1 h-6 w-6 shrink-0 p-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <AlertDescription>
+                The channel could not deliver the test notification. Copy the
+                error below when reporting the problem.
+              </AlertDescription>
+              <CopyableValue
+                value={testError}
+                label="Error message"
+                className="pt-1"
+              />
+            </AlertContent>
+          </Alert>
+        </div>
+      )}
 
       {/* User config form */}
       {expanded && hasUserConfigSchema && channel.userConfigSchema && (
