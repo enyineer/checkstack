@@ -1,8 +1,8 @@
 import React from "react";
-import { Checkbox, Label, Tooltip } from "@checkstack/ui";
+import { Checkbox, EmptyState, Label, Tooltip } from "@checkstack/ui";
 import { Satellite, Layers } from "lucide-react";
 import {
-  modeFromEnvironmentIds,
+  environmentSectionView,
   type EnvironmentSelectorMode,
 } from "./environment-selector.logic";
 
@@ -56,7 +56,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
 }) => {
   const hasSatellites = satelliteIds.length > 0;
   const willRunAnywhere = includeLocal || hasSatellites;
-  const envMode = modeFromEnvironmentIds(environmentIds);
+  const envView = environmentSectionView({ environments, environmentIds });
   const selectedEnvIds = new Set<string>(
     environmentIds === null ? [] : environmentIds,
   );
@@ -160,51 +160,56 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           Choose how this check fans out across the system's environments.
         </p>
 
-        <div className="space-y-1.5">
-          {envModes.map((m) => (
-            <label
-              key={m.value}
-              className="flex items-start gap-3 p-2.5 rounded-md border hover:bg-muted/30 transition-colors cursor-pointer"
-            >
-              <input
-                type="radio"
-                name="environment-mode"
-                className="mt-1"
-                checked={envMode === m.value}
-                disabled={saving || isLocked}
-                onChange={() => onSetEnvironmentMode(m.value)}
-              />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium">{m.label}</span>
-                <p className="text-xs text-muted-foreground mt-0.5">{m.hint}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-
-        {envMode === "specific" && (
-          <div className="space-y-1.5 pl-6">
-            {environments.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic py-2">
-                This system has no environments. Attach environments to the
-                system in the catalog first.
-              </p>
-            ) : (
-              environments.map((env) => (
-                <div
-                  key={env.id}
-                  className="flex items-center gap-3 p-2 rounded-md border hover:bg-muted/30 transition-colors"
+        {envView.kind === "empty" ? (
+          <EmptyState
+            icon={<Layers className="h-10 w-10" />}
+            title="No environment configured"
+            description="This system doesn't belong to any environment yet. Attach environments to the system in the catalog to fan this check out per environment."
+          />
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {envModes.map((m) => (
+                <label
+                  key={m.value}
+                  className="flex items-start gap-3 p-2.5 rounded-md border hover:bg-muted/30 transition-colors cursor-pointer"
                 >
-                  <Checkbox
-                    checked={selectedEnvIds.has(env.id)}
-                    onCheckedChange={() => onToggleEnvironment(env.id)}
+                  <input
+                    type="radio"
+                    name="environment-mode"
+                    className="mt-1"
+                    checked={envView.mode === m.value}
                     disabled={saving || isLocked}
+                    onChange={() => onSetEnvironmentMode(m.value)}
                   />
-                  <span className="text-sm truncate">{env.name}</span>
-                </div>
-              ))
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{m.label}</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {m.hint}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {envView.mode === "specific" && (
+              <div className="space-y-1.5 pl-6">
+                {environments.map((env) => (
+                  <div
+                    key={env.id}
+                    className="flex items-center gap-3 p-2 rounded-md border hover:bg-muted/30 transition-colors"
+                  >
+                    <Checkbox
+                      checked={selectedEnvIds.has(env.id)}
+                      onCheckedChange={() => onToggleEnvironment(env.id)}
+                      disabled={saving || isLocked}
+                    />
+                    <span className="text-sm truncate">{env.name}</span>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

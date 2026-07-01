@@ -52,6 +52,36 @@ export function environmentIdsForMode({
 }
 
 /**
+ * What the Environments subsection of the execution panel should render.
+ * - "empty"    : the system belongs to no environment; show an empty-state
+ *                instead of the (meaningless) mode selector.
+ * - "selector" : show the All/Specific/None mode selector, pre-derived to the
+ *                `mode` matching the stored `environmentIds` wire value.
+ */
+export type EnvironmentSectionView =
+  | { kind: "empty" }
+  | { kind: "selector"; mode: EnvironmentSelectorMode };
+
+/**
+ * Decide how the Environments subsection renders for the current system.
+ *
+ * When the system has zero environments the All/Specific/None modes are
+ * meaningless (only "run once with no environment" applies), so the selector
+ * collapses to an empty-state. Otherwise the stored `environmentIds` wire value
+ * drives the active mode.
+ */
+export function environmentSectionView({
+  environments,
+  environmentIds,
+}: {
+  environments: { id: string }[];
+  environmentIds: string[] | null | undefined;
+}): EnvironmentSectionView {
+  if (environments.length === 0) return { kind: "empty" };
+  return { kind: "selector", mode: modeFromEnvironmentIds(environmentIds) };
+}
+
+/**
  * Toggle one environment id in a "specific" selection, returning the new
  * sorted-stable list (membership order is the caller's concern; this just
  * adds/removes preserving existing order).

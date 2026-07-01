@@ -3,6 +3,7 @@ import {
   modeFromEnvironmentIds,
   environmentIdsForMode,
   toggleEnvironmentId,
+  environmentSectionView,
 } from "./environment-selector.logic";
 
 describe("modeFromEnvironmentIds", () => {
@@ -51,6 +52,45 @@ describe("environmentIdsForMode", () => {
         environmentIdsForMode({ mode: "specific", selectedIds: ["e1"] }),
       ),
     ).toBe("specific");
+  });
+});
+
+describe("environmentSectionView", () => {
+  it("no environments => empty, regardless of environmentIds", () => {
+    expect(environmentSectionView({ environments: [], environmentIds: null }))
+      .toEqual({ kind: "empty" });
+    expect(environmentSectionView({ environments: [], environmentIds: [] }))
+      .toEqual({ kind: "empty" });
+    expect(
+      environmentSectionView({ environments: [], environmentIds: ["x"] }),
+    ).toEqual({ kind: "empty" });
+  });
+
+  it("has environments, environmentIds=null => selector in 'all' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: null,
+      }),
+    ).toEqual({ kind: "selector", mode: "all" });
+  });
+
+  it("has environments, environmentIds=[] => selector in 'none' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: [],
+      }),
+    ).toEqual({ kind: "selector", mode: "none" });
+  });
+
+  it("has environments, non-empty environmentIds => selector in 'specific' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: ["e1"],
+      }),
+    ).toEqual({ kind: "selector", mode: "specific" });
   });
 });
 
