@@ -168,6 +168,14 @@ export const NotificationSettingsPage = () => {
     });
 
   const sendTestMutation = notificationClient.sendTestNotification.useMutation({
+    onSuccess: (data) => {
+      // The procedure resolves for both outcomes (a failed test returns
+      // `{ success: false, error }` rather than throwing), so only toast on a
+      // genuine pass - the card surfaces the copyable error for a failure.
+      if (data.success) {
+        toastSuccess(toast, "Test notification sent");
+      }
+    },
     onSettled: () => {
       setChannelTesting(undefined);
     },
