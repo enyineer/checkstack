@@ -33,7 +33,7 @@ interface ExecutionPanelProps {
   environments: EnvironmentDto[];
   /**
    * Whether the environments query has successfully resolved. The
-   * "No environments configured" empty-state only shows once this is true, so a
+   * "No environment configured" empty-state only shows once this is true, so a
    * still-loading or errored fetch keeps the mode selector visible instead of
    * masquerading as a genuinely env-less system.
    */
@@ -190,7 +190,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
         ) : envView.kind === "empty" ? (
           <EmptyState
             icon={<Layers className="h-10 w-10" />}
-            title="No environments configured"
+            title="No environment configured"
             description="This system doesn't belong to any environment yet. Attach environments to the system in the catalog to fan this check out per environment."
           />
         ) : (
