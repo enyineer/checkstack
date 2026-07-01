@@ -32,6 +32,32 @@ describe("buildRunActivityContent", () => {
     expect(content).toBe("Checkout (HTTP ping) → degraded");
   });
 
+  it("clips an over-long environment name with an ellipsis to keep one line", () => {
+    const content = buildRunActivityContent({
+      systemName: "Checkout",
+      configurationName: "HTTP ping",
+      status: "healthy",
+      environmentName: "us-east-1-production-blue-green-cluster",
+    });
+    expect(content).toBe(
+      "Checkout (HTTP ping) @ us-east-1-production-bl… → healthy",
+    );
+  });
+
+  it("leaves an environment name at the length limit untouched", () => {
+    const environmentName = "production-cluster-eu-01"; // exactly 24 chars
+    expect(environmentName.length).toBe(24);
+    const content = buildRunActivityContent({
+      systemName: "Checkout",
+      configurationName: "HTTP ping",
+      status: "healthy",
+      environmentName,
+    });
+    expect(content).toBe(
+      "Checkout (HTTP ping) @ production-cluster-eu-01 → healthy",
+    );
+  });
+
   it("renders each status the same way regardless of environment presence", () => {
     for (const status of ["healthy", "degraded", "unhealthy"] as const) {
       expect(
