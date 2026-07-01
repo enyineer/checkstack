@@ -7,7 +7,6 @@ import { createProcessStore, type ProcessStore } from "../process-store.ts";
 import { useCockpitSession } from "../session.ts";
 import { listOpenPrs, resolvePrSelection, type PrInfo } from "../pr-preview/gh-prs.ts";
 import { preparePreview } from "../pr-preview/prepare.ts";
-import { buildPreviewProcessDefs } from "../pr-preview/process-defs.ts";
 import { PrMultiSelect } from "../components/PrMultiSelect.tsx";
 import { InstancePanel } from "../components/InstancePanel.tsx";
 import { ACCENT } from "../theme.ts";
@@ -47,6 +46,7 @@ export function PrPreviewView({
     store: ProcessStore;
     info: PreviewInfo;
     defs: readonly ProcessDef[];
+    unregister: () => void;
   }) => void;
 }) {
   const session = useCockpitSession();
@@ -78,22 +78,18 @@ export function PrPreviewView({
         return;
       }
       pushStep("Starting preview backend + frontend...");
-      const defs = buildPreviewProcessDefs({
-        backendPort: result.backendPort,
-        vitePort: result.vitePort,
-        previewDatabaseUrl: result.previewDatabaseUrl,
-        namespace: session.args.namespace,
-      });
+      const { defs } = result;
       const supervisor = createSupervisor({
         cwd: result.worktreePath,
         defs,
       });
       const previewStore = createProcessStore(supervisor);
-      session.registerShutdown(() => supervisor.shutdown());
+      const unregister = session.registerShutdown(() => supervisor.shutdown());
       previewStore.start();
       onReady({
         store: previewStore,
         defs,
+        unregister,
         info: {
           backendPort: result.backendPort,
           vitePort: result.vitePort,

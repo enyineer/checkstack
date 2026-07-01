@@ -32,7 +32,9 @@ gh pr list --state open --json number,title,headRefName
   behalf - you cannot drive it.
 - If the user wants a preview but does not specify which PRs, tell them to run
   `bun run dev` and pick PRs in the cockpit's PR-preview view (they drive the
-  interactive selection themselves).
+  interactive selection themselves). The cockpit opens on a home screen and
+  auto-starts NOTHING: `1` starts/opens dev, `2` opens PR preview, `s` stops the
+  current instance without quitting, `q` quits.
 
 ## Driving the preview from the CLI (non-interactive)
 
@@ -55,9 +57,9 @@ bun run preview:prs --wipe
 - The preview backend/frontend serve on random free ports; the runner prints the
   frontend URL (`http://localhost:<port>`).
 - The db copy (`checkstack_<namespace>`, default `checkstack_preview`) is
-  EPHEMERAL and REUSED across runs. It is KEPT on exit in non-interactive mode;
-  wipe it explicitly with `--wipe`, or re-snapshot with `--fresh`. In the
-  interactive TUI the user is asked whether to wipe on quit.
+  EPHEMERAL and REUSED across runs. It is KEPT across runs; wipe it explicitly
+  with `--wipe`, or re-snapshot with `--fresh` (both apply interactively and
+  non-interactively).
 - Requires the dev deps running (`docker compose -f docker-compose-dev.yml up -d`
   or a running `bun run dev`) since the copy is made inside the compose postgres.
 

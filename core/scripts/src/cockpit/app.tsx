@@ -1,76 +1,183 @@
 /** @jsxImportSource @opentui/react */
-import { useState } from "react";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { ProcessDef } from "../dev-tui/process-config.ts";
-import type { ProcessStore } from "./process-store.ts";
+import { useRef, useState } from "react";
+import {
+  useKeyboard,
+  useSelectionHandler,
+  useTerminalDimensions,
+} from "@opentui/react";
+import { createSupervisor } from "../dev-tui/supervisor.ts";
+import { getProcessDefs, type ProcessDef } from "../dev-tui/process-config.ts";
+import { createProcessStore, type ProcessStore } from "./process-store.ts";
 import { CockpitSessionProvider, type CockpitSession } from "./session.ts";
 import { DevRunView } from "./views/DevRunView.tsx";
 import { PrPreviewView, type PreviewInfo } from "./views/PrPreviewView.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
-import { ShutdownScreen } from "./components/ShutdownScreen.tsx";
+import {
+  ShutdownScreen,
+  type TeardownInstance,
+} from "./components/ShutdownScreen.tsx";
+import { copyToClipboard } from "./clipboard.ts";
 import { ACCENT } from "./theme.ts";
 
-type View = "dev" | "pr-preview";
+type View = "home" | "dev" | "pr-preview";
 
-interface PreviewState {
+interface DevInstance {
+  store: ProcessStore;
+  defs: readonly ProcessDef[];
+  unregister: () => void;
+}
+
+interface PreviewInstance {
   store: ProcessStore;
   info: PreviewInfo;
   defs: readonly ProcessDef[];
+  unregister: () => void;
 }
 
 /**
- * The cockpit shell: a header with view tabs, the active view, and a footer of
- * key hints. It owns the view selection and the (lifted) preview store so both
- * the dev and preview instances keep running as the user switches tabs.
+ * The cockpit shell. NOTHING starts automatically: it opens on a home screen and
+ * only boots the dev instance (or the PR-preview flow) when the user asks. Each
+ * instance can be stopped independently (`s`) without quitting the cockpit, and
+ * both keep running as the user switches views.
  *
- * Global keys handled here: `1`/`2` switch views, `q` / Ctrl-C quit. Per-instance
- * keys (Tab/Arrows to switch process, scroll, `r` restart) are handled inside the
- * mounted view's InstancePanel - the key sets are disjoint so both handlers can
- * be live at once.
+ * Global keys: `1` dev, `2` PR preview, `Esc` home, `s` stop the current
+ * instance, `q`/Ctrl-C quit. Per-instance keys (Tab/Arrows/scroll/`r`) are
+ * handled inside the mounted InstancePanel; the key sets are disjoint.
  */
 export function App({
   session,
-  devStore,
-  devDefs,
   onQuit,
 }: {
   session: CockpitSession;
-  devStore: ProcessStore;
-  devDefs: readonly ProcessDef[];
   onQuit: () => void;
 }) {
-  const [view, setView] = useState<View>(session.args.view);
-  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const initialView: View =
+    session.args.view === "pr-preview" ? "pr-preview" : "home";
+  const [view, setViewState] = useState<View>(initialView);
+  const [dev, setDevState] = useState<DevInstance | null>(null);
+  const [preview, setPreviewState] = useState<PreviewInstance | null>(null);
   const [quitting, setQuitting] = useState(false);
   const { width, height } = useTerminalDimensions();
 
+  // Refs mirror state so the keyboard handler always reads current values and
+  // start/stop are guarded against duplicate invocation.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const quittingRef = useRef(quitting);
+  quittingRef.current = quitting;
+  const devRef = useRef<DevInstance | null>(dev);
+  const previewRef = useRef<PreviewInstance | null>(preview);
+
+  const setView = (v: View) => {
+    viewRef.current = v;
+    setViewState(v);
+  };
+  const setDev = (v: DevInstance | null) => {
+    devRef.current = v;
+    setDevState(v);
+  };
+  const setPreview = (v: PreviewInstance | null) => {
+    previewRef.current = v;
+    setPreviewState(v);
+  };
+
+  const startDev = () => {
+    if (!devRef.current) {
+      const defs = getProcessDefs(session.args.devMode);
+      const supervisor = createSupervisor({
+        cwd: session.repoRoot,
+        mode: session.args.devMode,
+      });
+      const store = createProcessStore(supervisor);
+      const unregister = session.registerShutdown(() => supervisor.shutdown());
+      store.start();
+      setDev({ store, defs, unregister });
+    }
+    setView("dev");
+  };
+
+  const stopDev = () => {
+    const current = devRef.current;
+    if (current) {
+      void current.store.supervisor.shutdown();
+      current.unregister();
+      setDev(null);
+    }
+    setView("home");
+  };
+
+  const stopPreview = () => {
+    const current = previewRef.current;
+    if (current) {
+      void current.store.supervisor.shutdown();
+      current.unregister();
+      setPreview(null);
+    }
+    setView("home");
+  };
+
+  const quit = () => {
+    setQuitting(true);
+    onQuit();
+  };
+
   useKeyboard((key) => {
-    if (quitting) return;
-    if (key.name === "q" || (key.ctrl && key.name === "c")) {
-      setQuitting(true);
-      onQuit();
-    } else if (key.name === "1") {
-      setView("dev");
-    } else if (key.name === "2") {
-      setView("pr-preview");
+    if (quittingRef.current) return;
+    if (key.ctrl && key.name === "c") {
+      quit();
+      return;
+    }
+    switch (key.name) {
+      case "q": {
+        quit();
+        break;
+      }
+      case "1": {
+        startDev();
+        break;
+      }
+      case "2": {
+        setView("pr-preview");
+        break;
+      }
+      case "escape": {
+        setView("home");
+        break;
+      }
+      case "s": {
+        if (viewRef.current === "dev") stopDev();
+        else if (viewRef.current === "pr-preview") stopPreview();
+        break;
+      }
+      default: {
+        break;
+      }
     }
   });
 
+  // Auto-copy any selected text (opentui captures the mouse, so the terminal's
+  // own drag-to-copy is unavailable).
+  useSelectionHandler((selection) => {
+    copyToClipboard(selection.getSelectedText());
+  });
+
   if (quitting) {
-    return (
-      <ShutdownScreen
-        width={width}
-        height={height}
-        devStore={devStore}
-        devDefs={devDefs}
-        preview={preview}
-      />
-    );
+    const instances: TeardownInstance[] = [];
+    if (dev) instances.push({ label: "dev", store: dev.store, defs: dev.defs });
+    if (preview) {
+      instances.push({
+        label: "preview",
+        store: preview.store,
+        defs: preview.defs,
+      });
+    }
+    return <ShutdownScreen width={width} height={height} instances={instances} />;
   }
 
-  const tab = (id: View, label: string) => (
+  const tab = (id: View, label: string, running: boolean) => (
     <span fg={view === id ? ACCENT : "gray"}>
       {view === id ? `[${label}]` : ` ${label} `}
+      {running ? <span fg="green">●</span> : ""}
     </span>
   );
 
@@ -80,34 +187,73 @@ export function App({
         <box borderStyle="single" border paddingLeft={1} paddingRight={1}>
           <text>
             <span fg={ACCENT}>Checkstack Cockpit</span> {"  "}
-            {tab("dev", "1 Dev")} {tab("pr-preview", "2 PR Preview")}
+            {tab("home", "Home", false)} {tab("dev", "1 Dev", dev !== null)}{" "}
+            {tab("pr-preview", "2 PR Preview", preview !== null)}
           </text>
         </box>
 
         <box flexGrow={1}>
-          {view === "dev" ? (
-            <DevRunView store={devStore} defs={devDefs} active={view === "dev"} />
-          ) : (
+          {view === "home" ? (
+            <HomeView dev={dev !== null} preview={preview !== null} />
+          ) : view === "dev" && dev ? (
+            <DevRunView store={dev.store} defs={dev.defs} active />
+          ) : view === "pr-preview" ? (
             <PrPreviewView
               store={preview?.store ?? null}
               info={preview?.info ?? null}
               defs={preview?.defs ?? null}
-              active={view === "pr-preview"}
+              active
               onReady={setPreview}
             />
+          ) : (
+            <HomeView dev={dev !== null} preview={preview !== null} />
           )}
         </box>
 
-        <StatusBar
-          hints={[
-            "1/2 view",
-            view === "pr-preview" && !preview
-              ? "Space select · Enter start"
-              : "Tab/←→ process · ↑↓/PgUp/PgDn scroll · r restart",
-            "q quit",
-          ].filter((h) => h.length > 0)}
-        />
+        <StatusBar hints={hintsFor(view, preview !== null)} />
       </box>
     </CockpitSessionProvider>
+  );
+}
+
+function hintsFor(view: View, previewRunning: boolean): string[] {
+  if (view === "home") {
+    return ["1 start/open Dev", "2 PR Preview", "q quit"];
+  }
+  if (view === "pr-preview" && !previewRunning) {
+    return ["Space select · Enter start", "Esc home", "q quit"];
+  }
+  return [
+    "1/2 view",
+    "Tab/←→ process · ↑↓/PgUp/PgDn scroll · r restart",
+    "s stop · Esc home · q quit",
+  ];
+}
+
+function HomeView({ dev, preview }: { dev: boolean; preview: boolean }) {
+  const dot = (on: boolean) =>
+    on ? <span fg="green">● running</span> : <span fg="gray">○ stopped</span>;
+  return (
+    <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingTop={1}>
+      <text fg={ACCENT}>Welcome to the Checkstack developer cockpit</text>
+      <box paddingTop={1} flexDirection="column">
+        <text>
+          {"  "}
+          <span fg={ACCENT}>[1]</span> Dev instance {"    "}
+          {dot(dev)}
+        </text>
+        <text>
+          {"  "}
+          <span fg={ACCENT}>[2]</span> PR preview {"     "}
+          {dot(preview)}
+        </text>
+      </box>
+      <box paddingTop={1}>
+        <text fg="gray">
+          Nothing starts automatically. Press 1 or 2 to begin. Each instance can
+          be stopped with `s` without quitting the cockpit.
+        </text>
+      </box>
+    </box>
   );
 }

@@ -9,6 +9,12 @@ export interface BuildPreviewProcessDefsInput {
   readonly previewDatabaseUrl: string;
   /** Instance namespace for shared-infra isolation (e.g. "preview"). */
   readonly namespace: string;
+  /**
+   * Isolated CHECKSTACK_DATA_DIR for the preview's script-package store, seeded
+   * from the dev instance so its package trees are already built (no cold
+   * `bun install --offline` reconcile). See {@link previewDataDir}.
+   */
+  readonly dataDir: string;
 }
 
 /**
@@ -33,6 +39,7 @@ export function buildPreviewProcessDefs({
   vitePort,
   previewDatabaseUrl,
   namespace,
+  dataDir,
 }: BuildPreviewProcessDefsInput): ProcessDef[] {
   return [
     {
@@ -47,6 +54,7 @@ export function buildPreviewProcessDefs({
         BASE_URL: `http://localhost:${vitePort}`,
         DATABASE_URL: previewDatabaseUrl,
         CHECKSTACK_INSTANCE_NAMESPACE: namespace,
+        CHECKSTACK_DATA_DIR: dataDir,
       },
     },
     {

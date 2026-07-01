@@ -12,7 +12,8 @@ export interface CockpitSession {
   readonly repoRoot: string;
   readonly exec: ExecRunner;
   readonly args: CockpitArgs;
-  registerShutdown(fn: () => Promise<void>): void;
+  /** Register a teardown handler; returns a function that unregisters it. */
+  registerShutdown(fn: () => Promise<void>): () => void;
   shutdownAll(): Promise<void>;
 }
 
@@ -32,6 +33,7 @@ export function createCockpitSession({
     args,
     registerShutdown(fn) {
       handlers.add(fn);
+      return () => handlers.delete(fn);
     },
     async shutdownAll() {
       await Promise.all(

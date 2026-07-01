@@ -12,10 +12,15 @@ running alongside the normal dev instance without colliding on ports, database,
 or shared redis. Nothing user-visible is suppressed - notifications,
 integrations, AI and probes all run in the preview.
 
-- Interactive: `bun run dev`, PR-preview view, multi-select PRs; on quit you
-  choose whether to wipe the db copy.
+- Interactive: `bun run dev` opens on a home screen and auto-starts NOTHING;
+  `1` starts/opens dev, `2` opens the PR-preview view (multi-select PRs), `s`
+  stops the current instance without quitting the cockpit, `q` quits. Selecting
+  text auto-copies it to the system clipboard.
 - Non-interactive (agent-facing): `bun run preview:prs --prs 380,381`
   (`--fresh` to re-snapshot, `--wipe` to drop the copy).
+- The preview instance boots against an isolated `CHECKSTACK_DATA_DIR` seeded
+  from the dev instance's script-package store, so its startup reconcile reuses
+  the already-built trees instead of a cold offline install.
 - Generated-file merge conflicts (docs-index, sdk, lockfile) auto-resolve by
   regeneration; hand-authored conflicts stop and are reported.
 - Each instance (dev and preview) has a full supervision panel: a process

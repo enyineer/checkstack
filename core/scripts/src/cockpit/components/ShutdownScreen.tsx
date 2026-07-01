@@ -6,27 +6,26 @@ import { ACCENT } from "../theme.ts";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+export interface TeardownInstance {
+  readonly label: string;
+  readonly store: ProcessStore;
+  readonly defs: readonly ProcessDef[];
+}
+
 /**
  * Centered "shutting down" overlay shown while the runner tears down every
- * supervised instance. Each long-running process shows a spinner until its child
+ * running instance. Each long-running process shows a spinner until its child
  * has exited (stopped OR errored - a killed dev server commonly exits non-zero,
  * which is expected teardown), then a green check.
  */
 export function ShutdownScreen({
   width,
   height,
-  devStore,
-  devDefs,
-  preview,
+  instances,
 }: {
   width: number;
   height: number;
-  devStore: ProcessStore;
-  devDefs: readonly ProcessDef[];
-  preview: {
-    store: ProcessStore;
-    defs: readonly ProcessDef[];
-  } | null;
+  instances: readonly TeardownInstance[];
 }) {
   const frame = useSpinnerFrame();
   return (
@@ -42,15 +41,19 @@ export function ShutdownScreen({
         <span fg={ACCENT}> Shutting down checkstack cockpit</span>
       </text>
       <box flexDirection="column" paddingTop={1}>
-        <TeardownList label="dev" store={devStore} defs={devDefs} frame={frame} />
-        {preview ? (
-          <TeardownList
-            label="preview"
-            store={preview.store}
-            defs={preview.defs}
-            frame={frame}
-          />
-        ) : null}
+        {instances.length === 0 ? (
+          <text fg="gray">No running instances.</text>
+        ) : (
+          instances.map((instance) => (
+            <TeardownList
+              key={instance.label}
+              label={instance.label}
+              store={instance.store}
+              defs={instance.defs}
+              frame={frame}
+            />
+          ))
+        )}
       </box>
     </box>
   );

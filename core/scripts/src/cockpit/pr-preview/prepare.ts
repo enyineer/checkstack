@@ -13,7 +13,7 @@ import {
   type MergedBranchResult,
 } from "./merge-plan.ts";
 import { buildPreviewProcessDefs } from "./process-defs.ts";
-import { worktreePath } from "./paths.ts";
+import { previewDataDir, worktreePath } from "./paths.ts";
 import { writePreviewState } from "./state.ts";
 import type { ProcessDef } from "../../dev-tui/process-config.ts";
 
@@ -134,11 +134,18 @@ export async function preparePreview({
     };
   }
 
+  // Seed an isolated script-package store from the dev instance so the preview
+  // reuses already-built package trees instead of a cold `bun install --offline`
+  // reconcile (which fails against a fresh store).
+  const dataDir = previewDataDir(repoRoot);
+  await seedPreviewDataDir({ exec, repoRoot, dataDir, fresh, onStep });
+
   const defs = buildPreviewProcessDefs({
     backendPort,
     vitePort,
     previewDatabaseUrl,
     namespace,
+    dataDir,
   });
 
   writePreviewState({
@@ -160,4 +167,56 @@ export async function preparePreview({
     mergeResults: merge.results,
     dbCreated: created,
   };
+}
+
+/**
+ * Seed the preview's isolated script-package store from the dev instance's
+ * `.data/script-packages`, so the preview backend's startup reconcile finds the
+ * trees already built (a no-op) instead of running a cold `bun install
+ * --offline` against an empty store. Best-effort: if there is nothing to copy or
+ * the copy fails, the preview backend simply reconciles from the copied blobs.
+ * Reuses an existing seed unless `fresh`.
+ */
+async function seedPreviewDataDir({
+  exec,
+  repoRoot,
+  dataDir,
+  fresh,
+  onStep,
+}: {
+  exec: ExecRunner;
+  repoRoot: string;
+  dataDir: string;
+  fresh: boolean;
+  onStep?: (message: string) => void;
+}): Promise<void> {
+  const devStore = path.join(repoRoot, ".data", "script-packages");
+  if (!fs.existsSync(devStore)) return; // script-packages unused; nothing to seed
+  const destStore = path.join(dataDir, "script-packages");
+  if (fs.existsSync(destStore) && !fresh) {
+    onStep?.("Reusing preview package store.");
+    return;
+  }
+  onStep?.("Seeding preview package store from dev...");
+  fs.rmSync(destStore, { recursive: true, force: true });
+  fs.mkdirSync(dataDir, { recursive: true });
+  // Reflink copy on macOS (APFS clone is near-instant); plain recursive copy
+  // elsewhere. `cp -R <src> <dest>` (dest absent) copies src AS dest, preserving
+  // the relative `current` symlink.
+  const cloneArgs = process.platform === "darwin" ? ["-Rc"] : ["-R"];
+  const copied = await exec.run({
+    command: "cp",
+    args: [...cloneArgs, devStore, destStore],
+  });
+  if (copied.code !== 0) {
+    const fallback = await exec.run({
+      command: "cp",
+      args: ["-R", devStore, destStore],
+    });
+    if (fallback.code !== 0) {
+      onStep?.(
+        `Could not seed package store (${fallback.stderr.trim()}); preview will rebuild it.`,
+      );
+    }
+  }
 }

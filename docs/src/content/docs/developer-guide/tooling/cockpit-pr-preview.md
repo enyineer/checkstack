@@ -3,14 +3,17 @@ title: "Developer cockpit and PR preview"
 description: "Run the local dev instance and preview one or more open PRs together as an isolated secondary instance from a single terminal UI."
 ---
 
-The developer cockpit is the local dev entry point (`bun run dev`). It is a terminal UI, built on [opentui](https://opentui.com/), that hosts two views: the dev-run instance you already know, and a PR-preview flow that boots one or more merged PRs as an isolated secondary instance next to it. It lives in `core/scripts/src/cockpit/` and reuses the dev runner's headless supervision core.
+The developer cockpit is the local dev entry point (`bun run dev`). It is a terminal UI, built on [opentui](https://opentui.com/), that hosts a home screen plus two instance views: the dev-run instance you already know, and a PR-preview flow that boots one or more merged PRs as an isolated secondary instance next to it. It lives in `core/scripts/src/cockpit/` and reuses the dev runner's headless supervision core.
 
 ## Views
 
-- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with a process sidebar (status dots + unread-alert badges), a scrollable per-process log, and a pinned alerts panel.
+- **Home**: the landing screen. Nothing starts automatically - the cockpit opens here and shows which instances are running. Press `1` or `2` to begin.
+- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with a process sidebar (status dots + unread-alert badges), a scrollable per-process log, and a pinned alerts panel. Starts the dev servers on first open.
 - **PR preview** (`2`): pick open PRs, merge them into a throwaway worktree, snapshot the dev database, and boot the merged app on random ports as a namespaced secondary instance - shown with the same full instance panel once running.
 
-Switch views with `1` / `2`; quit with `q` (or `Ctrl-C`). Within a running instance, `Tab` / `←` `→` switch the focused process, `↑` `↓` / `PgUp` `PgDn` scroll its log (the title shows `(tail)` vs `(scrolled)`), and `r` restarts the focused process. Both instances keep running as you switch views, and quitting shows a teardown overlay while every child is stopped.
+Switch views with `1` / `2`; return to Home with `Esc`. Stop the current instance (dev or preview) with `s` without leaving the cockpit - the other instance keeps running. Quit the whole cockpit with `q` (or `Ctrl-C`). Within a running instance, `Tab` / `←` `→` switch the focused process, `↑` `↓` / `PgUp` `PgDn` scroll its log (the title shows `(tail)` vs `(scrolled)`), and `r` restarts the focused process. Both instances keep running as you switch views, and quitting shows a teardown overlay while every child is stopped.
+
+Because opentui captures the mouse for its own selection, the cockpit auto-copies any text you select to the system clipboard (via `pbcopy` / `wl-copy` / `xclip` / `clip`), so drag-to-select works as copy.
 
 ## How a preview is isolated
 
@@ -28,7 +31,7 @@ Nothing user-visible is suppressed - notifications, integrations, AI, and probes
 bun run dev
 ```
 
-Open the PR-preview view (`2`), select PRs (`Up`/`Down` to move, `Space` to toggle, `Enter` to start). On quit you are asked whether to wipe the database copy; if you wipe it, the next run takes a fresh snapshot.
+From the home screen press `1` to start the dev instance or `2` to open the PR-preview view; select PRs (`Up`/`Down` to move, `Space` to toggle, `Enter` to start). Stop either instance with `s` (or leave both running) and quit with `q`. To reset the database copy, wipe it with `--wipe` or force a fresh snapshot with `--fresh`; otherwise the copy is reused across runs.
 
 ## Non-interactive use (agents / scripts)
 

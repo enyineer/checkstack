@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 /** @jsxImportSource @opentui/react */
+import fs from "node:fs";
 import process from "node:process";
 import { extractErrorMessage } from "@checkstack/common";
 import { parseCockpitArgs } from "./args.ts";
 import { createBunExec } from "./pr-preview/exec.ts";
 import { resolveDbCopyConfig, wipeSnapshot } from "./pr-preview/db-copy.ts";
-import { createSupervisor } from "../dev-tui/supervisor.ts";
-import { getProcessDefs } from "../dev-tui/process-config.ts";
-import { createProcessStore } from "./process-store.ts";
+import { previewDataDir } from "./pr-preview/paths.ts";
 import { createCockpitSession } from "./session.ts";
 import { createGracefulShutdown } from "../dev-tui/graceful-shutdown.ts";
 import { runPlainDev, runPlainPreview } from "./plain.ts";
@@ -31,6 +30,8 @@ async function main(): Promise<void> {
       previewDbName: `checkstack_${args.namespace}`,
     });
     await wipeSnapshot({ exec, config });
+    // Also drop the seeded script-package store so the next run reseeds fresh.
+    fs.rmSync(previewDataDir(repoRoot), { recursive: true, force: true });
     process.stdout.write(`Wiped preview database ${config.previewDb}.\n`);
     process.exit(0);
   }
@@ -57,11 +58,10 @@ async function main(): Promise<void> {
   const { createRoot } = await import("@opentui/react");
   const { App } = await import("./app.tsx");
 
+  // The App owns instance lifecycles - nothing is supervised until the user
+  // starts an instance from the home screen, so the cockpit opens instantly and
+  // never auto-starts the dev servers.
   const session = createCockpitSession({ repoRoot, exec, args });
-  const devDefs = getProcessDefs(args.devMode);
-  const devSupervisor = createSupervisor({ cwd: repoRoot, mode: args.devMode });
-  const devStore = createProcessStore(devSupervisor);
-  session.registerShutdown(() => devSupervisor.shutdown());
 
   const renderer = await createCliRenderer({ exitOnCtrlC: false });
 
@@ -86,14 +86,7 @@ async function main(): Promise<void> {
   process.once("uncaughtException", onUncaught);
   process.once("unhandledRejection", onUncaught);
 
-  createRoot(renderer).render(
-    <App
-      session={session}
-      devStore={devStore}
-      devDefs={devDefs}
-      onQuit={quit}
-    />,
-  );
+  createRoot(renderer).render(<App session={session} onQuit={quit} />);
 }
 
 await main();
