@@ -199,16 +199,74 @@ export async function teardownGroupsForResource(opts: {
 }
 
 /**
- * For dispatch: given a child (target, resourceKey), find every parent
- * resource via `notification_resource_parents`, then map each parent to
- * the same plugin's spec(s) whose `targetTypeId` equals the parent's
- * target type. Inherited group ids are derived from those parent specs.
+ * One inherited notification group for a child resource, carrying enough
+ * provenance for callers (dispatch and the inheritance read proc) to also
+ * look up the parent resource's display label.
  */
-export async function resolveInheritedGroupIds(opts: {
+export interface InheritedGroup {
+  /** Derived parent group id (`<ownerPlugin>.<localId>.<parentKey>`). */
+  groupId: string;
+  /** The parent resource's target type. */
+  parentTargetTypeId: string;
+  /** The parent resource's key. */
+  parentResourceKey: string;
+}
+
+/**
+ * Pure join step: cross parent edges with the parent specs of the SAME
+ * owner plugin whose `targetTypeId` matches the parent's target type, and
+ * derive one inherited group per matching (parent x parentSpec) pair.
+ *
+ * Extracted so the group-vs-system inheritance rule has a single,
+ * DB-free, unit-testable derivation shared by dispatch and the read proc -
+ * they can never diverge on "which groups are inherited".
+ */
+export function mapInheritedGroups(opts: {
+  ownerPlugin: string;
+  parents: ReadonlyArray<{
+    parentTargetTypeId: string;
+    parentResourceKey: string;
+  }>;
+  parentSpecs: ReadonlyArray<{
+    ownerPlugin: string;
+    localId: string;
+    targetTypeId: string;
+  }>;
+}): InheritedGroup[] {
+  const { ownerPlugin, parents, parentSpecs } = opts;
+  const out: InheritedGroup[] = [];
+  for (const parent of parents) {
+    for (const parentSpec of parentSpecs) {
+      // Only the child spec's OWN plugin inherits (an incident subscription
+      // inherits from the incident group spec, not an anomaly one).
+      if (parentSpec.ownerPlugin !== ownerPlugin) continue;
+      if (parentSpec.targetTypeId !== parent.parentTargetTypeId) continue;
+      out.push({
+        groupId: deriveGroupId({
+          ownerPlugin: parentSpec.ownerPlugin,
+          localId: parentSpec.localId,
+          resourceKey: parent.parentResourceKey,
+        }),
+        parentTargetTypeId: parent.parentTargetTypeId,
+        parentResourceKey: parent.parentResourceKey,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * For dispatch and the inheritance read proc: given a child (target,
+ * resourceKey), find every parent resource via
+ * `notification_resource_parents`, then map each parent to the same
+ * plugin's spec(s) whose `targetTypeId` equals the parent's target type.
+ * Inherited groups (id + parent provenance) are derived from those specs.
+ */
+export async function resolveInheritedGroups(opts: {
   db: Db;
   spec: typeof schema.subscriptionSpecs.$inferSelect;
   resourceKey: string;
-}): Promise<string[]> {
+}): Promise<InheritedGroup[]> {
   const { db, spec, resourceKey } = opts;
 
   const parents = await db
@@ -240,18 +298,22 @@ export async function resolveInheritedGroupIds(opts: {
       ),
     );
 
-  const out: string[] = [];
-  for (const parent of parents) {
-    for (const parentSpec of parentSpecs) {
-      if (parentSpec.targetTypeId !== parent.parentTargetTypeId) continue;
-      out.push(
-        deriveGroupId({
-          ownerPlugin: parentSpec.ownerPlugin,
-          localId: parentSpec.localId,
-          resourceKey: parent.parentResourceKey,
-        }),
-      );
-    }
-  }
-  return out;
+  return mapInheritedGroups({
+    ownerPlugin: spec.ownerPlugin,
+    parents,
+    parentSpecs,
+  });
+}
+
+/**
+ * Dispatch-facing convenience: the inherited group ids only. Delegates to
+ * `resolveInheritedGroups` so there is a single derivation path.
+ */
+export async function resolveInheritedGroupIds(opts: {
+  db: Db;
+  spec: typeof schema.subscriptionSpecs.$inferSelect;
+  resourceKey: string;
+}): Promise<string[]> {
+  const groups = await resolveInheritedGroups(opts);
+  return groups.map((g) => g.groupId);
 }

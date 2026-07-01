@@ -22,6 +22,10 @@ import {
 } from "@checkstack/notification-common";
 import { Tip } from "@checkstack/tips-frontend";
 import { SubscriptionRow } from "./SubscriptionRow";
+import {
+  collectStatusGroupIds,
+  buildRowInheritance,
+} from "./subscriptionInheritance.logic";
 
 export interface NotificationSubscriptionsManagerProps<TResource> {
   /**
@@ -72,9 +76,26 @@ export function NotificationSubscriptionsManager<TResource>({
     [allSpecs, target.targetTypeId],
   );
 
-  const groupIds = React.useMemo(
+  const primaryGroupIds = React.useMemo(
     () => specs.map((s) => subscriptionGroupId(s, resourceKey)),
     [specs, resourceKey],
+  );
+
+  // Structural parent-group inheritance for this resource (e.g. a system's
+  // parent catalog groups). Same answer for every user; the per-user
+  // subscribed flags come from the status batch below.
+  const { data: inheritance = [] } =
+    notificationClient.resolveSubscriptionInheritance.useQuery(
+      { targetTypeId: target.targetTypeId, resourceKey },
+      { staleTime: 60_000 },
+    );
+
+  // Fetch subscription status for BOTH the primary groups and every
+  // inherited parent group in one batch, so each row can show whether the
+  // user is reachable directly or via a parent group.
+  const groupIds = React.useMemo(
+    () => collectStatusGroupIds({ primaryGroupIds, inheritance }),
+    [primaryGroupIds, inheritance],
   );
 
   const { data: statusMap = {}, refetch: refetchStatus } =
@@ -83,8 +104,11 @@ export function NotificationSubscriptionsManager<TResource>({
       { enabled: groupIds.length > 0, staleTime: 30_000 },
     );
 
-  const subscribedCount = groupIds.filter((id) => statusMap[id]).length;
-  const totalCount = groupIds.length;
+  // The header summary and "subscribe/unsubscribe to all" act on the
+  // PRIMARY (resource-level) groups only - inherited parent subscriptions
+  // are managed at the parent resource's own bell.
+  const subscribedCount = primaryGroupIds.filter((id) => statusMap[id]).length;
+  const totalCount = primaryGroupIds.length;
   const allSubscribed = totalCount > 0 && subscribedCount === totalCount;
   const anySubscribed = subscribedCount > 0;
 
@@ -96,7 +120,7 @@ export function NotificationSubscriptionsManager<TResource>({
   const handleSubscribeAll = async () => {
     try {
       await Promise.all(
-        groupIds
+        primaryGroupIds
           .filter((id) => !statusMap[id])
           .map((groupId) => subscribeMutation.mutateAsync({ groupId })),
       );
@@ -110,7 +134,7 @@ export function NotificationSubscriptionsManager<TResource>({
   const handleUnsubscribeAll = async () => {
     try {
       await Promise.all(
-        groupIds
+        primaryGroupIds
           .filter((id) => statusMap[id])
           .map((groupId) => unsubscribeMutation.mutateAsync({ groupId })),
       );
@@ -235,6 +259,11 @@ export function NotificationSubscriptionsManager<TResource>({
                 <div className="overflow-hidden border rounded-md border-border">
                   {specs.map((spec) => {
                     const groupId = subscriptionGroupId(spec, resourceKey);
+                    const rowInheritance = buildRowInheritance({
+                      specId: spec.specId,
+                      inheritance,
+                      statusMap,
+                    });
                     return (
                       <SubscriptionRow
                         key={spec.specId}
@@ -245,6 +274,8 @@ export function NotificationSubscriptionsManager<TResource>({
                         groupId={groupId}
                         resource={resource}
                         isDirectlySubscribed={statusMap[groupId] ?? false}
+                        inheritance={rowInheritance.inheritance}
+                        inheritanceStatus={rowInheritance.inheritanceStatus}
                         onToggled={() => void refetchStatus()}
                       />
                     );

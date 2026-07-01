@@ -15,6 +15,7 @@ import {
   NotificationSubjectSchema,
   DeliveryAttemptSchema,
   ListDeliveryAttemptsInputSchema,
+  SubscriptionInheritanceSchema,
 } from "./schemas";
 
 // Shared input fragments for the notify* procedures.
@@ -438,6 +439,28 @@ export const notificationContract = {
     userType: "authenticated",
     access: [],
   }).output(z.array(SubscriptionSpecRecordSchema)),
+
+  /**
+   * Resolve the STRUCTURAL subscription-inheritance map for a single
+   * resource of a target type. For every registered spec of the target,
+   * returns the spec's primary group id plus the parent groups that a
+   * subscription would be inherited from (e.g. a system's parent catalog
+   * groups, via `notification_resource_parents`).
+   *
+   * Purely structural (target-graph shape + display labels), so the answer
+   * is the same for every caller; per-user "am I subscribed?" flags stay in
+   * `getMySubscriptionStatus`. The bell component folds the returned parent
+   * group ids into that batch and renders an "Inherited from: <label>" hint
+   * at the resource's row while still allowing a direct, resource-only
+   * subscription.
+   */
+  resolveSubscriptionInheritance: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(z.object({ targetTypeId: z.string(), resourceKey: z.string() }))
+    .output(SubscriptionInheritanceSchema),
 
   /**
    * The sanctioned dispatch path. Caller supplies a registered specId
