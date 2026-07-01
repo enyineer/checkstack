@@ -485,8 +485,9 @@ const IncidentConfigPageContent: React.FC = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => setBulkDeleteOpen(true)}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
                       >
-                        <Trash2 className="h-4 w-4 mr-2 text-destructive" />
+                        <Trash2 className="h-4 w-4 mr-2" />
                         Mass delete
                       </Button>
                       <Button
@@ -516,7 +517,13 @@ const IncidentConfigPageContent: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {incidents.map((i) => (
-                      <TableRow key={i.id} className="hover:bg-surface-inset">
+                      <TableRow
+                        key={i.id}
+                        data-state={
+                          selectedIds.has(i.id) ? "selected" : undefined
+                        }
+                        className="hover:bg-surface-inset"
+                      >
                         <TableCell className="pr-0">
                           {canAccess(i.id) && (
                             <Checkbox
@@ -608,7 +615,8 @@ const IncidentConfigPageContent: React.FC = () => {
                 {incidents.map((i) => (
                   <div
                     key={i.id}
-                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+                    data-state={selectedIds.has(i.id) ? "selected" : undefined}
+                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
                   >
                     {/* Severity accent: multi-encoded by hue + position. */}
                     <span

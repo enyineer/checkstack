@@ -437,8 +437,9 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => setBulkDeleteOpen(true)}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
                       >
-                        <Trash2 className="h-4 w-4 mr-2 text-destructive" />
+                        <Trash2 className="h-4 w-4 mr-2" />
                         Mass delete
                       </Button>
                       <Button
@@ -468,7 +469,10 @@ const MaintenanceConfigPageContent: React.FC = () => {
                     {maintenances.map((m) => (
                       <TableRow
                         key={m.id}
-                        className="transition-colors hover:bg-surface-inset"
+                        data-state={
+                          selectedIds.has(m.id) ? "selected" : undefined
+                        }
+                        className="hover:bg-surface-inset"
                       >
                         <TableCell className="pr-0">
                           {canAccess(m.id) && (
@@ -563,9 +567,12 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
               <MobileCardList className="p-4">
                 {maintenances.map((m) => (
-                  <div key={m.id} className="group">
-                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                      <span
+                  <div
+                    key={m.id}
+                    data-state={selectedIds.has(m.id) ? "selected" : undefined}
+                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
+                  >
+                    <span
                         className={cn(
                           "absolute inset-y-0 left-0 w-1",
                           getMaintenanceToneAccentClass(
@@ -652,7 +659,6 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  </div>
                 ))}
               </MobileCardList>
             </>
