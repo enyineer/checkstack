@@ -19,6 +19,7 @@ import {
   SystemStateBadgesSlot,
   CatalogBrowseHealthSlot,
   SystemSignalsSlot,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import {
   healthcheckRoutes,
@@ -73,6 +74,13 @@ export default createFrontendPlugin({
         })),
       title: "Create Health Check",
       accessRule: healthCheckAccess.configuration.manage,
+      // Team-scoped: a health-check creator, or anyone who manages the target
+      // system (the backend authorizes create/assign via a `catalog.system`
+      // parent gate), can reach the create flow without the global manage rule.
+      manageCapability: {
+        objectType: healthCheckResourceTypes.configuration,
+        parentType: catalogResourceTypes.system,
+      },
     },
     {
       route: healthcheckRoutes.routes.edit,
@@ -82,6 +90,9 @@ export default createFrontendPlugin({
         })),
       title: "Edit Health Check",
       accessRule: healthCheckAccess.configuration.manage,
+      // Team-scoped: managing an existing health check via a team grant unlocks
+      // its edit route without the global manage rule.
+      manageCapability: { objectType: healthCheckResourceTypes.configuration },
     },
     {
       route: healthcheckRoutes.routes.assignments,
@@ -91,6 +102,13 @@ export default createFrontendPlugin({
         })),
       title: "Health Check Assignments",
       accessRule: healthCheckAccess.configuration.manage,
+      // Team-scoped: assignment is reached per-system and the backend authorizes
+      // it via a `catalog.system` parent gate, so a system manager (or a
+      // health-check manager) can reach it without the global manage rule.
+      manageCapability: {
+        objectType: healthCheckResourceTypes.configuration,
+        parentType: catalogResourceTypes.system,
+      },
     },
     {
       route: healthcheckRoutes.routes.history,

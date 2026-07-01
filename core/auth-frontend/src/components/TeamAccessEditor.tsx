@@ -51,7 +51,7 @@ interface Team {
 }
 
 export interface TeamAccessEditorProps {
-  /** Resource type identifier (e.g., "catalog.system", "healthcheck.configuration") */
+  /** Resource type identifier (e.g., "catalog.system", "healthcheck.healthcheck") */
   resourceType: string;
   /** Resource ID */
   resourceId: string;

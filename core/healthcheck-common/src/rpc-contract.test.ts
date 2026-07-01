@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ZodType } from "zod";
+import { qualifyResourceType } from "@checkstack/common";
 import { healthCheckContract } from "./rpc-contract";
+import { healthCheckAccess, healthCheckResourceTypes } from "./access";
+import { pluginMetadata } from "./plugin-metadata";
 
 /**
  * Guards the REST-compatibility fix: history date params were `z.date()`, which
@@ -66,15 +69,40 @@ describe("history endpoints coerce string date params (REST compatibility)", () 
 
 /**
  * Team-scoping regression guards. Grants for health-check configurations are
- * keyed by `resourceType="healthcheck.configuration"`, `resourceId={configId}`
- * (see the frontend `TeamAccessEditor` usage in editor/EditorPanel.tsx). The
- * autoAuthMiddleware reads each proc's `instanceAccess` (a per-proc
- * `meta.instanceAccess` override wins over the access rule's). For per-config
- * enforcement to fire, `idParam`/`listKey`(item.id) MUST resolve to the
- * configuration id used in grants. These tests pin the keying so the
- * "mutating a config skips the per-config check" class of bug cannot regress.
+ * keyed by `resourceType="healthcheck.healthcheck"` (NOT
+ * `"healthcheck.configuration"`), `resourceId={configId}`. The keying is derived
+ * by the RPC middleware from the configuration access rule's `resource`
+ * (`accessPair("healthcheck", ...)` => `qualifyResourceType(pluginId,
+ * "healthcheck")` => `healthcheck.healthcheck`), and MUST equal
+ * `healthCheckResourceTypes.configuration` so the frontend capability gate and
+ * the Teams grant-name resolver look up the same rows the middleware writes (see
+ * the pinned assertion below). The autoAuthMiddleware reads each proc's
+ * `instanceAccess` (a per-proc `meta.instanceAccess` override wins over the
+ * access rule's). For per-config enforcement to fire, `idParam`/`listKey`(item.id)
+ * MUST resolve to the configuration id used in grants. These tests pin both the
+ * keying and the resource type so the "mutating a config skips the per-config
+ * check" and "frontend gate checks a type the backend never writes" classes of
+ * bug cannot regress.
  */
 describe("healthcheck configuration-scoped procs carry the right instanceAccess", () => {
+  test("the configuration capability type matches the middleware's grant key", () => {
+    // The RPC middleware keys per-config team grants on
+    // `qualifyResourceType(pluginId, rule.resource)` for the configuration
+    // MANAGE rule. `healthCheckResourceTypes.configuration` (used by the frontend
+    // capability gate, the route `manageCapability`, and the Teams resolver) MUST
+    // equal that exact key, or a team-scoped health-check manager silently sees
+    // no management surface and grant names never resolve. This pins the two
+    // sides together so the divergence fixed here cannot regress.
+    const middlewareGrantKey = qualifyResourceType(
+      pluginMetadata.pluginId,
+      healthCheckAccess.configuration.manage.resource,
+    );
+    expect(middlewareGrantKey).toBe(healthCheckResourceTypes.configuration);
+    // Pin the literal too (the constant is a branded ResourceType; compare via
+    // the plain-string middleware key so the brand doesn't reject the literal).
+    expect(middlewareGrantKey).toBe("healthcheck.healthcheck");
+  });
+
   test("getConfigurations filters its `configurations` list by item id", () => {
     expect(metaFor("getConfigurations").instanceAccess).toEqual({
       listKey: "configurations",

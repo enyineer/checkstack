@@ -8,6 +8,7 @@ import * as schema from "./schema";
 import {
   healthCheckAccessRules,
   healthCheckAccess,
+  healthCheckResourceTypes,
   pluginMetadata,
   healthCheckContract,
   healthcheckRoutes,
@@ -243,10 +244,14 @@ export default createBackendPlugin({
         const typedDb = database as SafeDatabase<typeof schema>;
 
         // Resolve/search health-check configurations by name for the Teams admin
-        // UI (team grants are stored as opaque healthcheck.configuration:<id>
-        // rows). Lets the auth backend render grants by name and power the grant
-        // picker without depending on healthcheck internals.
-        resourceResolverRegistry.register("healthcheck.configuration", {
+        // UI (team grants are stored as opaque `<type>:<configId>` rows, where
+        // <type> is `healthCheckResourceTypes.configuration` — i.e.
+        // `healthcheck.healthcheck`, the key the RPC middleware derives from the
+        // configuration access rule's resource). This MUST match that grant key,
+        // or grant names never resolve. Lets the auth backend render grants by
+        // name and power the grant picker without depending on healthcheck
+        // internals.
+        resourceResolverRegistry.register(healthCheckResourceTypes.configuration, {
           resolveNames: async (ids) => {
             if (ids.length === 0) return new Map();
             const rows = await typedDb
