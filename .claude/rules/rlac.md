@@ -82,16 +82,19 @@ Use the `AccessApi` primitives (`@checkstack/frontend-api`), never a bare
   the options to `canAccess(id)` (or all when the user holds the global rule), so
   the picker only offers what the backend will accept.
 
-Prefer the safe-by-default primitives from `@checkstack/auth-frontend` over
-re-deriving the hook boilerplate, so a new surface is gated by construction:
+For pickers, use `useManageableResources` from `@checkstack/auth-frontend`
+instead of re-deriving the filter in every editor:
+`useManageableResources({ items, getId, accessRule, objectType, keepIds?,
+allowAllOverride? })` returns `{ manageable, ... }` - the exact list to offer.
+`keepIds` keeps an existing selection visible; `allowAllOverride` is for a HIGHER
+rule that authorizes any instance (a global incident manager may reference any
+system). Used by the incident/maintenance/SLO pickers.
 
-- `<CreateGate objectType accessRule parentType?>` / `<ManageTypeGate ...>` -
-  render children only when the caller can create / reach the surface.
-- `useManageableResources({ items, getId, accessRule, objectType, keepIds?,
-  allowAllOverride? })` returns `{ manageable, ... }` - the exact list a picker
-  should offer. `keepIds` keeps an existing selection visible; `allowAllOverride`
-  is for a HIGHER rule that authorizes any instance (a global incident manager
-  may reference any system). Used by the incident/maintenance/SLO pickers.
+Capability GATING of buttons/pages stays on the `accessApi` hooks
+(`useCanCreate` / `useCanAccessType`) and `PageLayout`'s `allowed` prop: pages
+consume the verdict compoundly (a `useEffect` dependency, a ternary between two
+empty states, a per-row predicate), which a wrapper component cannot express -
+so there is deliberately no gate-component sugar.
 
 ## Adding a new team-scoped resource - checklist
 

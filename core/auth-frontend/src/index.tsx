@@ -139,11 +139,12 @@ export { teamCreateErrorMessage } from "./lib/teamCreateError";
 export { ResourceManagedBy } from "./components/ResourceManagedBy";
 export type { ResourceManagedByProps } from "./components/ResourceManagedBy";
 
-// Safe-by-default RLAC primitives (see .claude/rules/rlac.md): gate a create
-// action / management surface by capability, and filter a resource picker to
-// exactly what the backend will accept - so team-scoped users see the right
-// surfaces and pickers never offer a resource the submit would reject.
-export { CreateGate, ManageTypeGate, resolveGate } from "./components/AccessGates";
+// Safe-by-default RLAC picker primitive (see .claude/rules/rlac.md): filter a
+// resource picker to exactly what the backend will accept, so a team-scoped user
+// is never offered a resource the submit would reject. (Capability GATING of
+// buttons/pages stays on the `accessApi` hooks + PageLayout, which the pages use
+// compoundly - a wrapper component can't sit in a useEffect dep or a per-row
+// predicate, so there is deliberately no gate component here.)
 export { useManageableResources } from "./hooks/useManageableResources";
 export type {
   UseManageableResourcesParams,
