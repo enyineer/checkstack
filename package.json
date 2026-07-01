@@ -20,6 +20,7 @@
     "generate:sdk:check": "bun run scripts/generate-sdk.ts --check",
     "generate:docs-index": "bun run scripts/generate-docs-index.ts",
     "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
+    "check:manage-capabilities": "bun run scripts/check-manage-capabilities.ts",
     "lint": "bun run lint:code",
     "lint:code": "eslint .",
     "test": "bun run scripts/run-tests.ts",

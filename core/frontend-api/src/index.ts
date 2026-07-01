@@ -3,6 +3,7 @@ export * from "./api-context";
 export * from "./core-apis";
 export * from "./plugin";
 export * from "./plugin-registry";
+export * from "./manage-capability-audit";
 export * from "./components/ExtensionSlot";
 export * from "./components/LazyContribution";
 export * from "./use-slot-extensions";
