@@ -1,5 +1,5 @@
 import React from "react";
-import { Checkbox, EmptyState, Label, Tooltip } from "@checkstack/ui";
+import { Checkbox, EmptyState, Label, Skeleton, Tooltip } from "@checkstack/ui";
 import { Satellite, Layers } from "lucide-react";
 import {
   environmentSectionView,
@@ -33,11 +33,19 @@ interface ExecutionPanelProps {
   environments: EnvironmentDto[];
   /**
    * Whether the environments query has successfully resolved. The
-   * "No environment configured" empty-state only shows once this is true, so a
+   * "No environments configured" empty-state only shows once this is true, so a
    * still-loading or errored fetch keeps the mode selector visible instead of
    * masquerading as a genuinely env-less system.
    */
   environmentsSettled: boolean;
+  /**
+   * Whether the environments query is still in its first fetch (no data yet).
+   * While true the subsection shows a skeleton instead of the selector, so a
+   * genuinely env-less system does not flash the mode selector before
+   * collapsing to the empty-state. An errored fetch is not "loading", so it
+   * still falls through to the (deliberately preserved) selector.
+   */
+  environmentsLoading: boolean;
   onSetEnvironmentMode: (mode: EnvironmentSelectorMode) => void;
   onToggleEnvironment: (environmentId: string) => void;
   saving: boolean;
@@ -57,6 +65,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   environmentIds,
   environments,
   environmentsSettled,
+  environmentsLoading,
   onSetEnvironmentMode,
   onToggleEnvironment,
   saving,
@@ -172,10 +181,16 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           Choose how this check fans out across the system's environments.
         </p>
 
-        {envView.kind === "empty" ? (
+        {environmentsLoading ? (
+          <div className="space-y-1.5" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <Skeleton key={row} className="h-14 w-full rounded-md" />
+            ))}
+          </div>
+        ) : envView.kind === "empty" ? (
           <EmptyState
             icon={<Layers className="h-10 w-10" />}
-            title="No environment configured"
+            title="No environments configured"
             description="This system doesn't belong to any environment yet. Attach environments to the system in the catalog to fan this check out per environment."
           />
         ) : (
