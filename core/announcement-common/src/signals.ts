@@ -11,6 +11,6 @@ export const ANNOUNCEMENT_UPDATED = createSignal({
   event: "updated",
   payloadSchema: z.object({
     announcementId: z.string(),
-    action: z.enum(["created", "updated", "deleted"]),
+    action: z.enum(["created", "updated", "deleted", "reordered"]),
   }),
 });

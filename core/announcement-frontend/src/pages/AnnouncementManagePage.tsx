@@ -70,6 +70,8 @@ import {
   Monitor,
   LayoutDashboard,
   Columns,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 
@@ -430,6 +432,45 @@ function VisibilityIcon({
   }
 }
 
+/**
+ * Up/down controls for manually reordering an announcement. Ends of the list
+ * and an in-flight reorder disable the relevant buttons.
+ */
+function ReorderControls({
+  index,
+  count,
+  disabled,
+  onMove,
+}: {
+  index: number;
+  count: number;
+  disabled: boolean;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Move up"
+        disabled={disabled || index === 0}
+        onClick={() => onMove(-1)}
+      >
+        <ArrowUp className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Move down"
+        disabled={disabled || index === count - 1}
+        onClick={() => onMove(1)}
+      >
+        <ArrowDown className="h-4 w-4" />
+      </Button>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
@@ -463,7 +504,40 @@ const AnnouncementManageContent: React.FC = () => {
     },
   });
 
+  const reorderMutation = announcementClient.reorderAnnouncements.useMutation({
+    onError: (error) => {
+      toastError(toast, "Failed to reorder announcements", error);
+      // Revert the optimistic order back to the server's source of truth.
+      void refetch();
+    },
+  });
+
   const announcements = announcementsData?.announcements ?? [];
+
+  // Local, optimistically-ordered copy so the up/down arrows feel instant. It
+  // re-syncs whenever the server data changes (create/delete/edit or another
+  // operator reordering), so the server stays the source of truth.
+  const [orderedAnnouncements, setOrderedAnnouncements] = useState<
+    Announcement[]
+  >([]);
+  React.useEffect(() => {
+    setOrderedAnnouncements(announcementsData?.announcements ?? []);
+  }, [announcementsData]);
+
+  const handleMove = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= orderedAnnouncements.length) return;
+    const next = [...orderedAnnouncements];
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrderedAnnouncements(next);
+    reorderMutation.mutate({ orderedIds: next.map((a) => a.id) });
+  };
+
+  // Fall back to the server list for the first paint before the sync effect
+  // runs, so the table never flashes empty.
+  const listedAnnouncements =
+    orderedAnnouncements.length > 0 ? orderedAnnouncements : announcements;
+  const reorderDisabled = reorderMutation.isPending;
 
   const handleCreate = () => {
     setEditingAnnouncement(undefined);
@@ -562,11 +636,11 @@ const AnnouncementManageContent: React.FC = () => {
                       <TableHead>Display</TableHead>
                       <TableHead>Visibility</TableHead>
                       <TableHead>Created</TableHead>
-                      <TableHead className="w-24">Actions</TableHead>
+                      <TableHead className="w-40">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {announcements.map((a) => (
+                    {listedAnnouncements.map((a, index) => (
                       <TableRow
                         key={a.id}
                         className="transition-colors hover:bg-surface-inset"
@@ -611,6 +685,12 @@ const AnnouncementManageContent: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
+                            <ReorderControls
+                              index={index}
+                              count={listedAnnouncements.length}
+                              disabled={reorderDisabled}
+                              onMove={(direction) => handleMove(index, direction)}
+                            />
                             <Button
                               variant="ghost"
                               size="icon"
@@ -634,7 +714,7 @@ const AnnouncementManageContent: React.FC = () => {
               </ResponsiveTable>
 
               <MobileCardList className="p-4">
-                {announcements.map((a) => (
+                {listedAnnouncements.map((a, index) => (
                   <div
                     key={a.id}
                     className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
@@ -665,6 +745,12 @@ const AnnouncementManageContent: React.FC = () => {
                       </span>
                     </div>
                     <div className="mt-3 flex justify-end gap-1 pl-2">
+                      <ReorderControls
+                        index={index}
+                        count={listedAnnouncements.length}
+                        disabled={reorderDisabled}
+                        onMove={(direction) => handleMove(index, direction)}
+                      />
                       <Button
                         variant="ghost"
                         size="icon"

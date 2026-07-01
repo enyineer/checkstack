@@ -88,6 +88,19 @@ export const announcementContract = {
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Persist a new operator-defined display order.
+   * `orderedIds` is the complete list of announcement ids in the desired order;
+   * each announcement's position becomes its index in the array.
+   */
+  reorderAnnouncements: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [announcementAccess.manage],
+  })
+    .input(z.object({ orderedIds: z.array(z.string()).min(1) }))
+    .output(z.object({ success: z.boolean() })),
 };
 
 // Export contract type

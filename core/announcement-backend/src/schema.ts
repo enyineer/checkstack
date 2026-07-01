@@ -3,6 +3,7 @@ import {
   text,
   timestamp,
   boolean,
+  integer,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
@@ -18,6 +19,13 @@ export const announcements = pgTable("announcements", {
   visibility: text("visibility").notNull().default("all"),
   displayMode: text("display_mode").notNull().default("both"),
   active: boolean("active").notNull().default(true),
+  /**
+   * Operator-controlled display order (ascending). Lower values appear first
+   * across the admin list, dashboard cards, and public banner. New rows append
+   * at the end; it is only ever changed via the explicit reorder procedure, so
+   * a plain edit never moves an announcement.
+   */
+  sortOrder: integer("sort_order").notNull().default(0),
   startsAt: timestamp("starts_at"),
   expiresAt: timestamp("expires_at"),
   createdBy: text("created_by").notNull(),
