@@ -3,6 +3,7 @@ import type { ImpactType } from "@checkstack/dependency-common";
 import {
   edgeImpactStyle,
   impactHexColors,
+  impactStrokeOpacities,
   impactStrokeWidths,
   selectedEdgeStroke,
 } from "./dependencyEdge.logic";
@@ -53,10 +54,29 @@ describe("edgeImpactStyle (unselected)", () => {
     expect(degraded).toBeLessThan(critical);
   });
 
-  test("opacity is 0.8", () => {
+  test("uses the per-impact opacity graduated to match the legend swatches", () => {
     for (const impactType of impactTypes) {
-      expect(edgeImpactStyle({ impactType, selected: false }).opacity).toBe(0.8);
+      expect(edgeImpactStyle({ impactType, selected: false }).opacity).toBe(
+        impactStrokeOpacities[impactType],
+      );
     }
+  });
+
+  test("opacity increases with impact severity (informational is faintest)", () => {
+    const informational = edgeImpactStyle({
+      impactType: "informational",
+      selected: false,
+    }).opacity;
+    const degraded = edgeImpactStyle({
+      impactType: "degraded",
+      selected: false,
+    }).opacity;
+    const critical = edgeImpactStyle({
+      impactType: "critical",
+      selected: false,
+    }).opacity;
+    expect(informational).toBeLessThan(degraded);
+    expect(degraded).toBeLessThan(critical);
   });
 });
 

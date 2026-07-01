@@ -29,6 +29,18 @@ export const impactStrokeWidths: Record<ImpactType, number> = {
   critical: 2.5,
 };
 
+/**
+ * Base stroke opacities per impact type. Kept in lock-step with the Impact
+ * legend swatch opacities in `DependencyMapPage.tsx` (sky-400/60, amber-400/70,
+ * red-400/80) so a faint informational edge keeps its lower visual weight and
+ * the edges read as the legend, not just its hues.
+ */
+export const impactStrokeOpacities: Record<ImpactType, number> = {
+  informational: 0.6, // sky-400/60
+  degraded: 0.7, // amber-400/70
+  critical: 0.8, // red-400/80
+};
+
 /** Color used to highlight a selected edge, regardless of impact. */
 export const selectedEdgeStroke = "hsl(var(--primary))";
 
@@ -47,7 +59,8 @@ export interface EdgeImpactStyle {
  * Tailwind `!important` override.
  *
  * A selected edge switches to the primary color and gets +1 width and full
- * opacity to stand out.
+ * opacity to stand out; otherwise the opacity is graduated per impact to match
+ * the legend swatches.
  */
 export function edgeImpactStyle({
   impactType,
@@ -60,6 +73,6 @@ export function edgeImpactStyle({
   return {
     stroke: selected ? selectedEdgeStroke : impactHexColors[impactType],
     strokeWidth: selected ? baseWidth + 1 : baseWidth,
-    opacity: selected ? 1 : 0.8,
+    opacity: selected ? 1 : impactStrokeOpacities[impactType],
   };
 }
