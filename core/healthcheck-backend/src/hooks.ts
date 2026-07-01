@@ -46,6 +46,12 @@ export const healthCheckHooks = {
     latencyMs: number | undefined;
     result: Record<string, unknown> | undefined;
     timestamp: string;
+    /**
+     * Environment the run was executed for. null = the env-less slice (no
+     * environment membership). Forwarded by the anomaly plugin so its inline
+     * detector resolves the per-env baseline rather than a cross-env one.
+     */
+    environmentId: string | null;
   }>("healthcheck.check.completed"),
 
   /**
@@ -64,5 +70,6 @@ export const healthCheckHooks = {
     latencyMs: number | undefined;
     result: Record<string, unknown> | undefined;
     timestamp: string;
+    environmentId: string | null;
   }>("healthcheck.check.failed"),
 } as const;

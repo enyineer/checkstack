@@ -62,7 +62,8 @@ export async function setupBaselineAnalyzerJob({
       });
 
       for (const assignment of activeAssignments) {
-        // Per-assignment configuration is fetched once and reused per field.
+        // Per-assignment configuration is fetched once and reused across
+        // every per-environment fan-out within this assignment.
         let templateConfig;
         let assignmentConfig;
         try {
@@ -83,159 +84,174 @@ export async function setupBaselineAnalyzerJob({
           );
         }
 
-        const fieldValues: Record<string, (string | boolean | number)[]> = {};
-        const fieldCollectorIds: Record<string, string> = {};
-        const fieldNames: Record<string, string> = {};
+        // Fan out per environment so each env gets its own baseline. `null`
+        // is the env-less slice (no environment membership) — preserved as a
+        // distinct group so the pre-feature cross-env baseline survives as the
+        // env-less row. Maps preserve insertion order, and getRunsForAnalysis
+        // returns runs DESC by timestamp, so the first env we encounter leads
+        // the iteration; ordering across envs is not significant.
+        const runsByEnv = groupRunsByEnvironment(assignment.runs);
 
-        // `getRunsForAnalysis` returns runs in DESCENDING timestamp order.
-        // Iterate in reverse so per-field arrays end up chronologically ascending —
-        // a property the regression slope relies on.
-        for (let i = assignment.runs.length - 1; i >= 0; i--) {
-          const row = assignment.runs[i];
-          if (!row.result) continue;
+        for (const [environmentId, envRuns] of runsByEnv) {
+          const fieldValues: Record<string, (string | boolean | number)[]> = {};
+          const fieldCollectorIds: Record<string, string> = {};
+          const fieldNames: Record<string, string> = {};
 
-          const result = row.result as HealthCheckRunResult;
+          // `getRunsForAnalysis` returns runs in DESCENDING timestamp order.
+          // Iterate in reverse so per-field arrays end up chronologically
+          // ascending — a property the regression slope relies on.
+          for (let i = envRuns.length - 1; i >= 0; i--) {
+            const row = envRuns[i];
+            if (!row.result) continue;
 
-          if (typeof result.latencyMs === "number") {
-            const fullPath = "latencyMs";
-            if (!fieldValues[fullPath]) fieldValues[fullPath] = [];
-            fieldValues[fullPath].push(result.latencyMs);
-          }
+            const result = row.result as HealthCheckRunResult;
 
-          const collectors = result.metadata?.collectors;
-          if (!collectors) continue;
-
-          for (const collectorData of Object.values(collectors)) {
-            if (typeof collectorData !== "object" || collectorData === null) continue;
-            const data = collectorData as Record<string, unknown>;
-            const realCollectorId = data._collectorId;
-            if (typeof realCollectorId !== "string") continue;
-
-            for (const [fieldName, value] of Object.entries(data)) {
-              if (fieldName === "_collectorId" || fieldName.startsWith("_")) continue;
-              if (
-                typeof value !== "number" &&
-                typeof value !== "string" &&
-                typeof value !== "boolean"
-              ) {
-                continue;
-              }
-              const fullPath = `collectors.${realCollectorId}.${fieldName}`;
+            if (typeof result.latencyMs === "number") {
+              const fullPath = "latencyMs";
               if (!fieldValues[fullPath]) fieldValues[fullPath] = [];
-              fieldValues[fullPath].push(value);
-              fieldCollectorIds[fullPath] = realCollectorId;
-              fieldNames[fullPath] = fieldName;
+              fieldValues[fullPath].push(result.latencyMs);
+            }
+
+            const collectors = result.metadata?.collectors;
+            if (!collectors) continue;
+
+            for (const collectorData of Object.values(collectors)) {
+              if (typeof collectorData !== "object" || collectorData === null) continue;
+              const data = collectorData as Record<string, unknown>;
+              const realCollectorId = data._collectorId;
+              if (typeof realCollectorId !== "string") continue;
+
+              for (const [fieldName, value] of Object.entries(data)) {
+                if (fieldName === "_collectorId" || fieldName.startsWith("_")) continue;
+                if (
+                  typeof value !== "number" &&
+                  typeof value !== "string" &&
+                  typeof value !== "boolean"
+                ) {
+                  continue;
+                }
+                const fullPath = `collectors.${realCollectorId}.${fieldName}`;
+                if (!fieldValues[fullPath]) fieldValues[fullPath] = [];
+                fieldValues[fullPath].push(value);
+                fieldCollectorIds[fullPath] = realCollectorId;
+                fieldNames[fullPath] = fieldName;
+              }
             }
           }
-        }
 
-        for (const [path, values] of Object.entries(fieldValues)) {
-          if (values.length < MIN_BASELINE_SAMPLES) continue;
+          for (const [path, values] of Object.entries(fieldValues)) {
+            if (values.length < MIN_BASELINE_SAMPLES) continue;
 
-          let mean = 0;
-          let stdDev = 0;
-          let trendSlope = 0;
-          let dominantValue: string | undefined;
-          let dominantRatio: number | undefined;
+            let mean = 0;
+            let stdDev = 0;
+            let trendSlope = 0;
+            let dominantValue: string | undefined;
+            let dominantRatio: number | undefined;
 
-          if (typeof values[0] === "number") {
-            const numValues = values as number[];
-            mean = computeMean(numValues);
-            stdDev = computeStdDev(numValues);
-            trendSlope = computeLinearRegressionSlope(numValues);
-          }
+            if (typeof values[0] === "number") {
+              const numValues = values as number[];
+              mean = computeMean(numValues);
+              stdDev = computeStdDev(numValues);
+              trendSlope = computeLinearRegressionSlope(numValues);
+            }
 
-          const dom = computeDominance(values);
-          if (dom.dominantValue !== undefined) {
-            dominantValue = String(dom.dominantValue);
-            dominantRatio = dom.dominantRatio;
-          }
+            const dom = computeDominance(values);
+            if (dom.dominantValue !== undefined) {
+              dominantValue = String(dom.dominantValue);
+              dominantRatio = dom.dominantRatio;
+            }
 
-          const baseline = {
-            mean,
-            stdDev,
-            trendSlope,
-            dominantValue,
-            dominantRatio,
-            sampleCount: values.length,
-            computedAt: new Date(),
-          };
+            const baseline = {
+              mean,
+              stdDev,
+              trendSlope,
+              dominantValue,
+              dominantRatio,
+              sampleCount: values.length,
+              computedAt: new Date(),
+            };
 
-          await db
-            .insert(schema.anomalyBaselines)
-            .values({
-              systemId: assignment.systemId,
-              configurationId: assignment.configurationId,
-              fieldPath: path,
+            await db
+              .insert(schema.anomalyBaselines)
+              .values({
+                systemId: assignment.systemId,
+                configurationId: assignment.configurationId,
+                environmentId,
+                fieldPath: path,
+                ...baseline,
+              })
+              .onConflictDoUpdate({
+                target: [
+                  schema.anomalyBaselines.systemId,
+                  schema.anomalyBaselines.configurationId,
+                  schema.anomalyBaselines.environmentId,
+                  schema.anomalyBaselines.fieldPath,
+                ],
+                set: baseline,
+              });
+
+            // Cache key mirrors the detector's lookup, including the env slice
+            // so a per-env baseline never shadows another env's cached entry.
+            const cacheKey = `baseline:${assignment.configurationId}:${assignment.systemId}:${environmentId ?? "<none>"}:${path}`;
+            await cache.set(
+              cacheKey,
+              { ...baseline, computedAt: baseline.computedAt.toISOString() },
+              1000 * 60 * 60 * 24,
+            );
+
+            if (signalService && typeof values[0] === "number") {
+              await signalService.broadcast(ANOMALY_BASELINE_UPDATED, {
+                systemId: assignment.systemId,
+                configurationId: assignment.configurationId,
+                environmentId,
+                fieldPath: path,
+                mean: baseline.mean,
+                stdDev: baseline.stdDev,
+                sampleCount: baseline.sampleCount,
+              });
+            }
+
+            // Drift evaluation runs only for numeric fields scoped to a collector
+            // (the path layout `collectors.${id}.${field}`). Run-level fields like
+            // `latencyMs` are skipped because we have no schema-declared direction
+            // for them.
+            if (typeof values[0] !== "number") continue;
+            const collectorId = fieldCollectorIds[path];
+            const fieldName = fieldNames[path];
+            if (!collectorId || !fieldName) continue;
+
+            const schemaInfo = lookupSchemaInfo({
+              collectorRegistry,
+              collectorId,
+              fieldName,
+            });
+
+            const baselineDto: FieldBaseline = {
               ...baseline,
-            })
-            .onConflictDoUpdate({
-              target: [
-                schema.anomalyBaselines.systemId,
-                schema.anomalyBaselines.configurationId,
-                schema.anomalyBaselines.fieldPath,
-              ],
-              set: baseline,
-            });
+              computedAt: baseline.computedAt.toISOString(),
+            };
 
-          const cacheKey = `baseline:${assignment.configurationId}:${assignment.systemId}:${path}`;
-          await cache.set(
-            cacheKey,
-            { ...baseline, computedAt: baseline.computedAt.toISOString() },
-            1000 * 60 * 60 * 24,
-          );
-
-          if (signalService && typeof values[0] === "number") {
-            await signalService.broadcast(ANOMALY_BASELINE_UPDATED, {
+            await evaluateDrift({
+              db,
+              logger,
+              catalogClient,
+              notificationClient,
+              signalService,
               systemId: assignment.systemId,
               configurationId: assignment.configurationId,
               fieldPath: path,
-              mean: baseline.mean,
-              stdDev: baseline.stdDev,
-              sampleCount: baseline.sampleCount,
+              baseline: baselineDto,
+              schemaDirection: schemaInfo.direction,
+              schemaSensitivity: schemaInfo.sensitivity,
+              schemaConfirmationWindow: schemaInfo.confirmationWindow,
+              schemaDriftEnabled: schemaInfo.driftEnabled,
+              schemaDriftThreshold: schemaInfo.driftThreshold,
+              schemaMinAbsoluteDelta: schemaInfo.minAbsoluteDelta,
+              schemaMinRelativeDelta: schemaInfo.minRelativeDelta,
+              templateConfig,
+              assignmentConfig,
             });
           }
-
-          // Drift evaluation runs only for numeric fields scoped to a collector
-          // (the path layout `collectors.${id}.${field}`). Run-level fields like
-          // `latencyMs` are skipped because we have no schema-declared direction
-          // for them.
-          if (typeof values[0] !== "number") continue;
-          const collectorId = fieldCollectorIds[path];
-          const fieldName = fieldNames[path];
-          if (!collectorId || !fieldName) continue;
-
-          const schemaInfo = lookupSchemaInfo({
-            collectorRegistry,
-            collectorId,
-            fieldName,
-          });
-
-          const baselineDto: FieldBaseline = {
-            ...baseline,
-            computedAt: baseline.computedAt.toISOString(),
-          };
-
-          await evaluateDrift({
-            db,
-            logger,
-            catalogClient,
-            notificationClient,
-            signalService,
-            systemId: assignment.systemId,
-            configurationId: assignment.configurationId,
-            fieldPath: path,
-            baseline: baselineDto,
-            schemaDirection: schemaInfo.direction,
-            schemaSensitivity: schemaInfo.sensitivity,
-            schemaConfirmationWindow: schemaInfo.confirmationWindow,
-            schemaDriftEnabled: schemaInfo.driftEnabled,
-            schemaDriftThreshold: schemaInfo.driftThreshold,
-            schemaMinAbsoluteDelta: schemaInfo.minAbsoluteDelta,
-            schemaMinRelativeDelta: schemaInfo.minRelativeDelta,
-            templateConfig,
-            assignmentConfig,
-          });
         }
       }
 
@@ -266,6 +282,37 @@ interface SchemaInfo {
   driftThreshold?: number;
   minAbsoluteDelta?: number;
   minRelativeDelta?: number;
+}
+
+/**
+ * Partition an assignment's runs by `environmentId` so each environment gets
+ * its own baseline. `null` (env-less slice) is kept as a distinct key — the
+ * pre-feature cross-env baseline survives as the env-less row. A `Map` preserves
+ * the first-seen order of environments; ordering across envs is not
+ * significant (each env's stats are computed independently), only the
+ * chronological order of runs *within* an env group matters, and that is
+ * preserved by appending in the same DESC order the upstream query returned.
+ */
+function groupRunsByEnvironment(
+  runs: Array<{ result?: unknown; environmentId: string | null }>,
+): Map<
+  string | null,
+  Array<{ result?: unknown; environmentId: string | null }>
+> {
+  const groups = new Map<
+    string | null,
+    Array<{ result?: unknown; environmentId: string | null }>
+  >();
+  for (const run of runs) {
+    const key = run.environmentId ?? null;
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = [];
+      groups.set(key, bucket);
+    }
+    bucket.push(run);
+  }
+  return groups;
 }
 
 function lookupSchemaInfo({

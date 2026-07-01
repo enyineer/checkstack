@@ -25,6 +25,15 @@ interface UseHealthCheckDataProps {
   };
   /** Filter by source: "local" = core only, satellite UUID = specific satellite, undefined = all */
   sourceFilter?: string;
+  /**
+   * Restrict the chart's aggregated buckets to a single environment
+   * (server-side DB filter across the raw / hourly / daily tiers the
+   * aggregation engine reads). `null` → env-less slice; `undefined` → no
+   * env filter (all envs of the (system, configuration)). Threaded from
+   * the overview's per-(check, environment) row, so the drawer's charts
+   * see only the env the operator clicked.
+   */
+  environmentId?: string | null;
   /** Whether the date range is a rolling preset (e.g., 'Last 7 days') that should auto-update */
   isRollingPreset?: boolean;
   /** Callback to update the date range (e.g., to refresh endDate to current time) */
@@ -63,6 +72,7 @@ export function useHealthCheckData({
   strategyId,
   dateRange,
   sourceFilter,
+  environmentId,
   isRollingPreset = false,
   onDateRangeRefresh,
 }: UseHealthCheckDataProps): UseHealthCheckDataResult {
@@ -85,6 +95,7 @@ export function useHealthCheckData({
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
         sourceFilter,
+        environmentId: environmentId ?? undefined,
         targetPoints: 500,
       },
       {

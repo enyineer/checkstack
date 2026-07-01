@@ -67,7 +67,7 @@ describe("healthcheck triggers", () => {
   });
 
 
-  it("extracts systemId as the contextKey on all three", () => {
+  it("extracts systemId as the contextKey on all three (bare rollup, no environmentId)", () => {
     const degradedOrChanged = {
       systemId: "sys-1",
       previousStatus: "healthy",
@@ -88,6 +88,48 @@ describe("healthcheck triggers", () => {
     expect(systemHealthChangedTrigger.contextKey?.(degradedOrChanged)).toBe(
       "sys-1",
     );
+  });
+
+  it("partitions the contextKey per-(system, environment) when environmentId is present", () => {
+    // Per-env partition: two failing envs of one system share a SYSTEM
+    // but NOT a flapping/dwell/dedup window — automations get N distinct
+    // `system_health_changed` events with independent partitions. The bare
+    // rollup change (no environmentId) keys on the bare systemId alone so
+    // existing recipes keep working.
+    const prodSpread = {
+      systemId: "sys-1",
+      environmentId: "prod",
+      previousStatus: "healthy",
+      newStatus: "unhealthy",
+      healthyChecks: 1,
+      totalChecks: 2,
+      timestamp: "2026-05-29T11:00:00Z",
+    } as const;
+    const stagingSpread = {
+      ...prodSpread,
+      environmentId: "staging",
+    } as const;
+    const rollup = {
+      systemId: "sys-1",
+      previousStatus: "degraded",
+      newStatus: "unhealthy",
+      healthyChecks: 1,
+      totalChecks: 2,
+      timestamp: "2026-05-29T11:00:00Z",
+    } as const;
+
+    expect(systemHealthChangedTrigger.contextKey?.(prodSpread)).toBe(
+      "sys-1::prod",
+    );
+    expect(systemHealthChangedTrigger.contextKey?.(stagingSpread)).toBe(
+      "sys-1::staging",
+    );
+    // Rollup stays system-scoped.
+    expect(systemHealthChangedTrigger.contextKey?.(rollup)).toBe("sys-1");
+    // The directional triggers use the SAME partition function (they share
+    // the schema's { systemId, environmentId? } fields by structural type).
+    expect(systemDegradedTrigger.contextKey?.(prodSpread)).toBe("sys-1::prod");
+    expect(systemHealthyTrigger.contextKey?.(prodSpread)).toBe("sys-1::prod");
   });
 });
 
