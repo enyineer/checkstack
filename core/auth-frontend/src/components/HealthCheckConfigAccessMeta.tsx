@@ -11,7 +11,12 @@ export const HealthCheckConfigAccessMeta: React.FC<{
 }> = ({ configurationId }) => {
   return (
     <ResourceManagedBy
-      resourceType="healthcheck.configuration"
+      // Health-check configuration grants are keyed on `healthcheck.healthcheck`
+      // (the type the RPC middleware derives from the configuration access rule's
+      // resource). This equals `healthCheckResourceTypes.configuration`, hardcoded
+      // here because auth-frontend (platform) must not import healthcheck-common
+      // (domain). Keep in sync with that constant.
+      resourceType="healthcheck.healthcheck"
       resourceId={configurationId}
     />
   );

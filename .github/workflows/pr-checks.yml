@@ -53,6 +53,16 @@ jobs:
       - name: Check bundled docs index is up to date
         run: bun run generate:docs-index:check
 
+      # RLAC drift guard: a frontend management route/nav gated on a team-scopable
+      # `manage` rule MUST declare a matching `manageCapability`, or team-scoped
+      # users (team grant, no global rule) silently lose the surface. The set of
+      # team-scopable types is derived from the backend contracts' instanceAccess
+      # (the same keying the RPC middleware uses), so this fails when the frontend
+      # gating drifts from the backend authorization contract. See
+      # .claude/rules/rlac.md.
+      - name: Check manage-capability gating matches the backend contract
+        run: bun run check:manage-capabilities
+
       # `tsgo -b` writes incremental artifacts to per-package `.tsbuild/`
       # directories. Caching them lets PRs that don't touch source compile
       # in ~0.3s; cold runs are ~30s on the runner. The cache is ~4 MB

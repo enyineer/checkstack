@@ -42,7 +42,12 @@ import {
 import { Plus, MessageSquare, AlertCircle } from "lucide-react";
 import { IncidentUpdateForm } from "./IncidentUpdateForm";
 import { getIncidentStatusBadge } from "../utils/badges";
-import { TeamAccessEditor, TeamOwnershipPicker, teamCreateErrorMessage } from "@checkstack/auth-frontend";
+import {
+  TeamAccessEditor,
+  TeamOwnershipPicker,
+  teamCreateErrorMessage,
+  useManageableResources,
+} from "@checkstack/auth-frontend";
 import {
   deriveIncidentFieldErrors,
   type IncidentFieldKey,
@@ -71,16 +76,6 @@ export const IncidentEditor: React.FC<Props> = ({
     incidentAccess.incident.manage,
   );
 
-  // Only systems the user may MANAGE are selectable: the backend requires manage
-  // on EVERY referenced system (unless the caller holds the global incident rule,
-  // which lets it target any). Filtering here keeps the picker consistent with
-  // what the create/update will accept, instead of failing after submit.
-  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
-    accessRule: catalogAccess.system.manage,
-    objectType: catalogResourceTypes.system,
-    resourceIds: systems.map((s) => s.id),
-  });
-
   // Owning-team selection — create mode only
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
@@ -97,11 +92,16 @@ export const IncidentEditor: React.FC<Props> = ({
   // Systems offered in the picker: everything for a global incident manager,
   // otherwise only systems the user manages, plus any already attached to the
   // incident being edited (so existing links stay visible even if unmanaged).
-  const selectableSystems = allowGlobal
-    ? systems
-    : systems.filter(
-        (s) => canManageSystem(s.id) || selectedSystemIds.has(s.id),
-      );
+  // The backend requires manage on EVERY referenced system, so filtering here
+  // keeps the picker consistent with what the create/update will accept.
+  const { manageable: selectableSystems } = useManageableResources({
+    items: systems,
+    getId: (s) => s.id,
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    keepIds: selectedSystemIds,
+    allowAllOverride: allowGlobal,
+  });
 
   // Status update fields
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);

@@ -139,6 +139,19 @@ export { teamCreateErrorMessage } from "./lib/teamCreateError";
 export { ResourceManagedBy } from "./components/ResourceManagedBy";
 export type { ResourceManagedByProps } from "./components/ResourceManagedBy";
 
+// Safe-by-default RLAC picker primitive (see .claude/rules/rlac.md): filter a
+// resource picker to exactly what the backend will accept, so a team-scoped user
+// is never offered a resource the submit would reject. (Capability GATING of
+// buttons/pages stays on the `accessApi` hooks + PageLayout, which the pages use
+// compoundly - a wrapper component can't sit in a useEffect dep or a per-row
+// predicate, so there is deliberately no gate component here.)
+export { useManageableResources } from "./hooks/useManageableResources";
+export type {
+  UseManageableResourcesParams,
+  UseManageableResourcesResult,
+} from "./hooks/useManageableResources";
+export { selectManageable } from "./lib/selectManageable";
+
 // Re-export SessionProvider for App.tsx to wrap the component tree
 export { SessionProvider } from "./lib/SessionProvider";
 

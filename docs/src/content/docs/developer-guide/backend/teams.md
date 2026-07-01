@@ -878,9 +878,14 @@ In **frontend components**, use the fully qualified type since there's no middle
 <TeamAccessEditor resourceType="catalog.system" resourceId={id} />
 ```
 
-**Stored values** in the database are always fully qualified:
+**Stored values** in the database are always fully qualified. The qualified type
+is derived from the access rule's `resource`
+(`qualifyResourceType(pluginId, rule.resource)`), NOT from a separate resource
+name, so it always matches the key the RPC middleware checks:
 - `catalog.system`
-- `healthcheck.configuration`
+- `healthcheck.healthcheck` (the health-check configuration rule is
+  `accessPair("healthcheck", ...)`, so its grants key on `healthcheck.healthcheck`,
+  exposed as `healthCheckResourceTypes.configuration`)
 - `incident.incident`
 - `maintenance.maintenance`
 

@@ -4,7 +4,10 @@ import type {
   CollectorDto,
   HealthCheckStrategyDto,
 } from "@checkstack/healthcheck-common";
-import { healthCheckAccess } from "@checkstack/healthcheck-common";
+import {
+  healthCheckAccess,
+  healthCheckResourceTypes,
+} from "@checkstack/healthcheck-common";
 import type { TreeNodeId } from "./EditorTree";
 import { GeneralSection } from "./GeneralSection";
 import { CollectorSection } from "./CollectorSection";
@@ -176,7 +179,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           </div>
           {isEditMode && configId ? (
             <TeamAccessEditor
-              resourceType="healthcheck.configuration"
+              resourceType={healthCheckResourceTypes.configuration}
               resourceId={configId}
               compact
               expanded

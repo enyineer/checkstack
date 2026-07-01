@@ -19,6 +19,14 @@ export default createFrontendPlugin({
         })),
       title: "{{pluginNamePascal}}",
       accessRule: {{pluginNameCamel}}Access.read,
+      // If you TEAM-SCOPE this resource (add instanceAccess in the contract),
+      // a management route/nav gated on `{{pluginNameCamel}}Access.manage` MUST
+      // also declare `manageCapability`, or team-scoped users (a team grant, no
+      // global rule) never see it. The objectType is the exported constant:
+      //   manageCapability: { objectType: {{pluginNameCamel}}ResourceTypes.item }
+      // (add `parentType` when the create is authorized via a parent gate). The
+      // CI guard `bun run check:manage-capabilities` enforces this - see
+      // `.claude/rules/rlac.md`. A global-only route needs no manageCapability.
       // `nav` opts this route into the left sidebar. Without it the page is
       // still reachable by URL but not listed. Pick the section heading
       // (group) and icon that fit your plugin.

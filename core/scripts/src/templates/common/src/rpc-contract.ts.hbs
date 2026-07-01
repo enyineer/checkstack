@@ -25,6 +25,18 @@ export const {{pluginNameCamel}}Contract = {
     .input(z.object({ id: z.string() }))
     .output({{pluginNamePascal}}ItemSchema),
 
+  // These write procs are GLOBAL-only by default (no instanceAccess), so only a
+  // holder of the global `manage` rule can call them. To TEAM-SCOPE this
+  // resource (let a team manage specific items via a grant), add exactly one
+  // instanceAccess mode per proc and export a matching `manageCapability` on the
+  // frontend route - the noun must match `{{pluginNameCamel}}ResourceTypes.item`:
+  //   createItem: instanceAccess: { create: { teamIdParam: "teamId", idField: "id" } }
+  //   updateItem/deleteItem: instanceAccess: { idParam: "id" }
+  //   ("for a parent" instead: instanceAccess: { parentScope: {
+  //     resourceType: "catalog.system", action: "manage", idParam: "systemId" } })
+  // Then filter the frontend pickers to manageable items. See
+  // `.claude/rules/rlac.md` and `bun run check:manage-capabilities`.
+
   // Create item
   createItem: proc({
     operationType: "mutation",
