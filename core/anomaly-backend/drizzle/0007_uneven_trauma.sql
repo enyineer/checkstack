@@ -1,0 +1,1 @@
+ALTER TABLE "anomalies" ADD COLUMN "environment_id" text;
