@@ -28,6 +28,8 @@
   },
   "dependencies": {
     "@checkstack/common": "workspace:*",
+    "@opentui/core": "0.4.2",
+    "@opentui/react": "0.4.2",
     "ansi-escapes": "^7.3.0",
     "handlebars": "^4.7.8",
     "ink": "^7.0.5",

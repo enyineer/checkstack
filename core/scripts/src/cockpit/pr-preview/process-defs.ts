@@ -1,0 +1,64 @@
+import type { ProcessDef } from "../../dev-tui/process-config.ts";
+
+export interface BuildPreviewProcessDefsInput {
+  /** Random free port the preview backend listens on. */
+  readonly backendPort: number;
+  /** Random free port the preview frontend (vite) serves on. */
+  readonly vitePort: number;
+  /** DATABASE_URL pointing at the ephemeral preview database copy. */
+  readonly previewDatabaseUrl: string;
+  /** Instance namespace for shared-infra isolation (e.g. "preview"). */
+  readonly namespace: string;
+}
+
+/**
+ * Build the supervised process defs for the preview instance. Mirrors the dev
+ * backend/frontend, but each carries an `env` override so it runs as a SECONDARY
+ * instance:
+ *
+ * - backend: its own PORT, BASE_URL pointing at the preview vite origin, the
+ *   preview DATABASE_URL, and CHECKSTACK_INSTANCE_NAMESPACE so it namespaces
+ *   shared redis/BullMQ state (PR A). It still loads `../../.env` for secrets;
+ *   real env wins over the env-file, so these overrides take effect.
+ * - frontend: vite on its own port with `--strictPort`, and
+ *   CHECKSTACK_DEV_BACKEND_URL so its proxy targets the preview backend instead
+ *   of the primary dev backend.
+ *
+ * `cwd` is RELATIVE to the supervisor's cwd, which for the preview instance is
+ * the merged worktree root - so these run against the merged code, not the
+ * primary checkout.
+ */
+export function buildPreviewProcessDefs({
+  backendPort,
+  vitePort,
+  previewDatabaseUrl,
+  namespace,
+}: BuildPreviewProcessDefsInput): ProcessDef[] {
+  return [
+    {
+      id: "backend",
+      label: `preview backend :${backendPort}`,
+      command: "bun",
+      args: ["--env-file=../../.env", "--watch", "src/index.ts"],
+      cwd: "core/backend",
+      oneShot: false,
+      env: {
+        PORT: String(backendPort),
+        BASE_URL: `http://localhost:${vitePort}`,
+        DATABASE_URL: previewDatabaseUrl,
+        CHECKSTACK_INSTANCE_NAMESPACE: namespace,
+      },
+    },
+    {
+      id: "frontend",
+      label: `preview frontend :${vitePort}`,
+      command: "bun",
+      args: ["x", "vite", "--port", String(vitePort), "--strictPort"],
+      cwd: "core/frontend",
+      oneShot: false,
+      env: {
+        CHECKSTACK_DEV_BACKEND_URL: `http://localhost:${backendPort}`,
+      },
+    },
+  ];
+}

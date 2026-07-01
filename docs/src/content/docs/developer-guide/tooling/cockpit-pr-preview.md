@@ -1,0 +1,61 @@
+---
+title: "Developer cockpit and PR preview"
+description: "Run the local dev instance and preview one or more open PRs together as an isolated secondary instance from a single terminal UI."
+---
+
+The developer cockpit is the local dev entry point (`bun run dev`). It is a terminal UI, built on [opentui](https://opentui.com/), that hosts two views: the dev-run instance you already know, and a PR-preview flow that boots one or more merged PRs as an isolated secondary instance next to it. It lives in `core/scripts/src/cockpit/` and reuses the dev runner's headless supervision core.
+
+## Views
+
+- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with live status dots and colour-coded logs. This is the same supervision the runner has always done.
+- **PR preview** (`2`): pick open PRs, merge them into a throwaway worktree, snapshot the dev database, and boot the merged app on random ports as a namespaced secondary instance.
+
+Switch views with `1` / `2` or `Tab`; quit with `q` (or `Ctrl-C`). Both instances keep running as you switch, and quitting tears them all down cleanly.
+
+## How a preview is isolated
+
+A preview runs concurrently with your dev instance and must not collide with it. Three things keep them apart:
+
+- **Ports**: the preview backend and frontend bind random free ports (never the dev defaults 3000 / 5173). The frontend uses `--strictPort` so a residual collision fails loudly.
+- **Database**: the dev database is copied into an ephemeral `checkstack_<namespace>` database (default `checkstack_preview`) inside the compose postgres. The preview runs against the copy; your dev data is untouched.
+- **Shared infrastructure**: the preview sets `CHECKSTACK_INSTANCE_NAMESPACE`, so redis/BullMQ keys are namespaced per instance. See [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/).
+
+Nothing user-visible is suppressed - notifications, integrations, AI, and probes all run in the preview, so you can actually test them.
+
+## Interactive use
+
+```bash
+bun run dev
+```
+
+Open the PR-preview view (`2`), select PRs (`Up`/`Down` to move, `Space` to toggle, `Enter` to start). On quit you are asked whether to wipe the database copy; if you wipe it, the next run takes a fresh snapshot.
+
+## Non-interactive use (agents / scripts)
+
+When stdout is not a TTY the cockpit degrades to a plain streaming runner driven by flags. This is how an agent starts a preview:
+
+```bash
+# Preview specific PRs (snapshot kept on exit).
+bun run preview:prs --prs 380,381
+
+# Force a fresh snapshot before starting.
+bun run preview:prs --prs 380,381 --fresh
+
+# Wipe the ephemeral copy and exit.
+bun run preview:prs --wipe
+```
+
+`--prs` is required in non-interactive mode; invalid or closed numbers produce an error listing the open PRs. The runner prints the preview frontend URL once it is up.
+
+## Merge conflicts
+
+Selected PRs are merged into the worktree in order. Conflicts in generated files (`docs-index`, the SDK, the lockfile) are auto-resolved by regenerating them. A hand-authored conflict stops preparation and is reported with the conflicting files, so you can resolve it deliberately rather than previewing a bad merge.
+
+## Requirements
+
+- The dev deps must be running (`bun run dev`, or `docker compose -f docker-compose-dev.yml up -d`) - the database copy is made inside the compose postgres container.
+- `gh` must be installed and authenticated (the PR list comes from `gh pr list`).
+
+> [!NOTE]
+> The previous ink-based dev runner is still available as `bun run dev:legacy`
+> until the cockpit reaches full feature parity.

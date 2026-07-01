@@ -2184,6 +2184,21 @@ export const DOCS_INDEX: readonly DocsIndexEntry[] = [
     "truncated": false
   },
   {
+    "slug": "developer-guide/tooling/cockpit-pr-preview",
+    "title": "Developer cockpit and PR preview",
+    "description": "Run the local dev instance and preview one or more open PRs together as an isolated secondary instance from a single terminal UI.",
+    "headings": [
+      "Views",
+      "How a preview is isolated",
+      "Interactive use",
+      "Non-interactive use (agents / scripts)",
+      "Merge conflicts",
+      "Requirements"
+    ],
+    "content": "The developer cockpit is the local dev entry point (`bun run dev`). It is a terminal UI, built on [opentui](https://opentui.com/), that hosts two views: the dev-run instance you already know, and a PR-preview flow that boots one or more merged PRs as an isolated secondary instance next to it. It lives in `core/scripts/src/cockpit/` and reuses the dev runner's headless supervision core.\n\n## Views\n\n- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with live status dots and colour-coded logs. This is the same supervision the runner has always done.\n- **PR preview** (`2`): pick open PRs, merge them into a throwaway worktree, snapshot the dev database, and boot the merged app on random ports as a namespaced secondary instance.\n\nSwitch views with `1` / `2` or `Tab`; quit with `q` (or `Ctrl-C`). Both instances keep running as you switch, and quitting tears them all down cleanly.\n\n## How a preview is isolated\n\nA preview runs concurrently with your dev instance and must not collide with it. Three things keep them apart:\n\n- **Ports**: the preview backend and frontend bind random free ports (never the dev defaults 3000 / 5173). The frontend uses `--strictPort` so a residual collision fails loudly.\n- **Database**: the dev database is copied into an ephemeral `checkstack_<namespace>` database (default `checkstack_preview`) inside the compose postgres. The preview runs against the copy; your dev data is untouched.\n- **Shared infrastructure**: the preview sets `CHECKSTACK_INSTANCE_NAMESPACE`, so redis/BullMQ keys are namespaced per instance. See [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/).\n\nNothing user-visible is suppressed - notifications, integrations, AI, and probes all run in the preview, so you can actually test them.\n\n## Interactive use\n\n```bash\nbun run dev\n```\n\nOpen the PR-preview view (`2`), select PRs (`Up`/`Down` to move, `Space` to toggle, `Enter` to start). On quit you are asked whether to wipe the database copy; if you wipe it, the next run takes a fresh snapshot.\n\n## Non-interactive use (agents / scripts)\n\nWhen stdout is not a TTY the cockpit degrades to a plain streaming runner driven by flags. This is how an agent starts a preview:\n\n```bash\n# Preview specific PRs (snapshot kept on exit).\nbun run preview:prs --prs 380,381\n\n# Force a fresh snapshot before starting.\nbun run preview:prs --prs 380,381 --fresh\n\n# Wipe the ephemeral copy and exit.\nbun run preview:prs --wipe\n```\n\n`--prs` is required in non-interactive mode; invalid or closed numbers produce an error listing the open PRs. The runner prints the preview frontend URL once it is up.\n\n## Merge conflicts\n\nSelected PRs are merged into the worktree in order. Conflicts in generated files (`docs-index`, the SDK, the lockfile) are auto-resolved by regenerating them. A hand-authored conflict stops preparation and is reported with the conflicting files, so you can resolve it deliberately rather than previewing a bad merge.\n\n## Requirements\n\n- The dev deps must be running (`bun run dev`, or `docker compose -f docker-compose-dev.yml up -d`) - the database copy is made inside the compose postgres container.\n- `gh` must be installed and authenticated (the PR list comes from `gh pr list`).\n\n> [!NOTE]\n> The previous ink-based dev runner is still available as `bun run dev:legacy`\n> until the cockpit reaches full feature parity.",
+    "truncated": false
+  },
+  {
     "slug": "developer-guide/tooling/dependency-linter",
     "title": "Dependency Architecture Linter",
     "description": "This document explains the dependency validation system that enforces clean architecture rules.",
@@ -3323,4 +3338,4 @@ export const DOCS_INDEX: readonly DocsIndexEntry[] = [
 ];
 
 /** A content hash of the source tree, so a CI check can detect drift. */
-export const DOCS_INDEX_HASH = "a92782b49ebd9ed19f991b29fe1c988f0d43941adaa67f80d25499188c39125e";
+export const DOCS_INDEX_HASH = "1daa16d890ff0bf5230961f696a6bf2666de459805c16de59353fb5f9dd6a493";

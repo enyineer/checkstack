@@ -50,11 +50,36 @@ interface RunningProcess {
   status: ProcessStatus;
 }
 
+/**
+ * Compute a child process's environment: the parent env with the def's own env
+ * merged OVER it (def values win on conflict). Returns the parent env unchanged
+ * (same reference) when the def declares no overrides, so the common dev path is
+ * allocation-free. Pure and exported for unit testing.
+ */
+export function buildChildEnv({
+  parentEnv,
+  defEnv,
+}: {
+  parentEnv: NodeJS.ProcessEnv;
+  defEnv?: Readonly<Record<string, string>>;
+}): NodeJS.ProcessEnv {
+  if (!defEnv) return parentEnv;
+  return { ...parentEnv, ...defEnv };
+}
+
 export interface CreateSupervisorInput {
   /** Working directory to spawn children in (the repo root). */
   cwd: string;
   /** Runner mode; `preview` serves the frontend production build. Default `dev`. */
   mode?: DevMode;
+  /**
+   * Explicit process definitions to supervise. When provided, these are used
+   * verbatim instead of the built-in dev/preview defs derived from `mode`. The
+   * PR-preview instance passes its own backend/frontend defs (custom `cwd` in a
+   * merged worktree, and per-process `env`) here so one supervisor can drive a
+   * secondary instance alongside the primary dev run.
+   */
+  defs?: readonly ProcessDef[];
 }
 
 /**
@@ -67,8 +92,9 @@ export interface CreateSupervisorInput {
 export function createSupervisor({
   cwd,
   mode = "dev",
+  defs: injectedDefs,
 }: CreateSupervisorInput): Supervisor {
-  const defs = getProcessDefs(mode);
+  const defs = injectedDefs ?? getProcessDefs(mode);
   const processes = new Map<ProcessId, RunningProcess>();
   for (const def of defs) {
     processes.set(def.id, { def, status: "stopped" });
@@ -134,7 +160,10 @@ export function createSupervisor({
       // New process group on POSIX so we can kill the whole watcher tree.
       // On Windows this is ignored; taskkill /T handles the tree instead.
       detached: process.platform !== "win32",
-      env: process.env,
+      // A def's own env is merged OVER process.env so the PR-preview instance
+      // can override PORT / BASE_URL / DATABASE_URL / CHECKSTACK_INSTANCE_NAMESPACE
+      // while still inheriting the rest of the parent environment.
+      env: buildChildEnv({ parentEnv: process.env, defEnv: def.env }),
       stdio: ["ignore", "pipe", "pipe"],
     });
     proc.child = child;

@@ -8,6 +8,7 @@
 @.claude/rules/healthcheck-collectors.md
 @.claude/rules/migrations.md
 @.claude/rules/performance.md
+@.claude/rules/pr-preview.md
 @.claude/rules/rlac.md
 @.claude/rules/state-and-scale.md
 @.claude/rules/testing.md
