@@ -1,4 +1,8 @@
-export { incidentAccess, incidentAccessRules } from "./access";
+export {
+  incidentAccess,
+  incidentAccessRules,
+  incidentResourceTypes,
+} from "./access";
 export {
   incidentContract,
   IncidentApi,

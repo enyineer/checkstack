@@ -18,6 +18,8 @@ import {
   useProvenanceLock,
   GitOpsSourceBadge,
 } from "@checkstack/gitops-frontend";
+import { useApi, accessApiRef } from "@checkstack/frontend-api";
+import { catalogAccess, catalogResourceTypes } from "@checkstack/catalog-common";
 import { Plus, LayoutGrid, Check, Pencil, Trash2, X } from "lucide-react";
 import type { Group, System } from "../../api";
 import { AssignMenu } from "./AssignMenu";
@@ -183,6 +185,14 @@ function useGroupRowState({
     kind: "Group",
     entityId: group.id,
   });
+  const accessApi = useApi(accessApiRef);
+  // Adding a system to a group requires MANAGE on that SYSTEM, so only offer
+  // systems the user actually manages (global-manage users get all).
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: allSystems.map((s) => s.id),
+  });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(group.name);
 
@@ -190,7 +200,9 @@ function useGroupRowState({
   const members = memberIds
     .map((id) => systemsById.get(id))
     .filter((s): s is System => s !== undefined);
-  const available = allSystems.filter((s) => !memberIds.includes(s.id));
+  const available = allSystems.filter(
+    (s) => !memberIds.includes(s.id) && canAccess(s.id),
+  );
   const lockTitle = isLocked ? "Managed by GitOps" : undefined;
 
   const commitRename = (): void => {

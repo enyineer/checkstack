@@ -13,10 +13,11 @@ import type {
 } from "@checkstack/maintenance-common";
 import {
   maintenanceAccess,
+  maintenanceResourceTypes,
   pluginMetadata as maintenancePluginMetadata,
 } from "@checkstack/maintenance-common";
 import { Tip } from "@checkstack/tips-frontend";
-import { CatalogApi } from "@checkstack/catalog-common";
+import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import {
   Card,
   CardHeader,
@@ -72,9 +73,23 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
 
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    maintenanceAccess.maintenance.manage,
-  );
+  // Create capability: gates the "Create Maintenance" action. A user who manages
+  // a system (directly or via a team) may schedule maintenance for it even
+  // without the global `maintenance.manage` rule; the backend authorizes that.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanCreate({
+      accessRule: maintenanceAccess.maintenance.manage,
+      objectType: maintenanceResourceTypes.maintenance,
+      parentType: catalogResourceTypes.system,
+    });
+  // Surface access: gates reaching this page (matches the route guard), and is
+  // also true for a user who manages an existing maintenance via a team.
+  const { allowed: canAccessSurface, loading: surfaceLoading } =
+    accessApi.useCanAccessType({
+      accessRule: maintenanceAccess.maintenance.manage,
+      objectType: maintenanceResourceTypes.maintenance,
+      parentType: catalogResourceTypes.system,
+    });
 
   const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">(
     "all",
@@ -115,6 +130,15 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const maintenances = maintenancesData?.maintenances ?? [];
   const systems = systemsData?.systems ?? [];
   const loading = maintenancesLoading || systemsLoading;
+
+  // Per-resource gate: a user may manage a specific maintenance via a team
+  // grant on that object even without the global rule (global-manage users
+  // pass automatically). Gates each row's Edit / Complete / Delete action.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: maintenanceAccess.maintenance.manage,
+    objectType: maintenanceResourceTypes.maintenance,
+    resourceIds: maintenances.map((m) => m.id),
+  });
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -180,8 +204,8 @@ const MaintenanceConfigPageContent: React.FC = () => {
       title="Planned Maintenances"
       subtitle="Manage scheduled maintenance windows for systems"
       icon={Wrench}
-      loading={accessLoading}
-      allowed={canManage}
+      loading={accessLoading || surfaceLoading}
+      allowed={canAccessSurface}
       actions={
         <Tip
           plugin={maintenancePluginMetadata}
@@ -333,14 +357,16 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(m)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            {canComplete({ status: m.status }) && (
+                            {canAccess(m.id) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(m)}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canAccess(m.id) && canComplete({ status: m.status }) && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -349,13 +375,15 @@ const MaintenanceConfigPageContent: React.FC = () => {
                                 <CheckCircle2 className="h-4 w-4 text-success" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeleteId(m.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canAccess(m.id) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setDeleteId(m.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -415,14 +443,16 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         </div>
                       </div>
                       <div className="mt-3 flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(m)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        {canComplete({ status: m.status }) && (
+                        {canAccess(m.id) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(m)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {canAccess(m.id) && canComplete({ status: m.status }) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -431,13 +461,15 @@ const MaintenanceConfigPageContent: React.FC = () => {
                             <CheckCircle2 className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(m.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {canAccess(m.id) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteId(m.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

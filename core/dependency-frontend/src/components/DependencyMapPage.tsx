@@ -14,8 +14,17 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { usePluginClient, wrapInSuspense } from "@checkstack/frontend-api";
-import { CatalogApi } from "@checkstack/catalog-common";
+import {
+  usePluginClient,
+  wrapInSuspense,
+  useApi,
+  accessApiRef,
+} from "@checkstack/frontend-api";
+import {
+  CatalogApi,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   DependencyApi,
@@ -112,6 +121,17 @@ function DependencyMapContent() {
       { enabled: systemIds.length > 0 },
     );
 
+  // A dependency edge can only ORIGINATE from a system the user may MANAGE:
+  // `createDependency` requires MANAGE on the SOURCE (the target is not
+  // access-checked). Gate the drag-to-connect source handle and the create
+  // mutation on this, so users don't attempt a guaranteed-to-fail request.
+  const accessApi = useApi(accessApiRef);
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: systemIds,
+  });
+
   // Fetch real health statuses for all systems — kept fresh via SignalAutoInvalidator
   // (foreignSignals declares SYSTEM_STATUS_CHANGED on the dependency plugin).
   const { data: healthData } = healthCheckClient.getBulkSystemHealthStatus.useQuery(
@@ -195,6 +215,15 @@ function DependencyMapContent() {
       if (!connection.source || !connection.target) return;
       if (connection.source === connection.target) return;
 
+      // Creating a dependency requires MANAGE on the SOURCE system. Bail out
+      // before firing a request the backend is guaranteed to reject.
+      if (!canManageSystem(connection.source)) {
+        toast.error(
+          "You can only add dependencies from systems you manage.",
+        );
+        return;
+      }
+
       const sourceLocked = getSystemLock({
         kind: "System",
         entityId: connection.source,
@@ -213,7 +242,7 @@ function DependencyMapContent() {
         transitive: false,
       });
     },
-    [createDependency, getSystemLock, toast],
+    [createDependency, getSystemLock, canManageSystem, toast],
   );
 
   // Track node positions for saving and for preserving in-memory positions
@@ -292,6 +321,9 @@ function DependencyMapContent() {
         derivedState: warning?.derivedState,
         upstreamCount: upstreamCountMap.get(system.id) ?? 0,
         downstreamCount: downstreamCountMap.get(system.id) ?? 0,
+        // Only systems the user manages may ORIGINATE a dependency edge, so
+        // only they expose an enabled outgoing (source) connection handle.
+        canManage: canManageSystem(system.id),
       };
 
       return {
@@ -303,7 +335,15 @@ function DependencyMapContent() {
     });
 
     setNodes(newNodes);
-  }, [systemsData, posData, warningsData, healthData, depsData, setNodes]);
+  }, [
+    systemsData,
+    posData,
+    warningsData,
+    healthData,
+    depsData,
+    canManageSystem,
+    setNodes,
+  ]);
 
   // Build edges separately — only depends on dependency data
   useEffect(() => {

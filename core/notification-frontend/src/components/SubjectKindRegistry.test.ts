@@ -30,4 +30,21 @@ describe("SubjectKindRegistry", () => {
     registerSubjectKind("a.b", { label: "AB", icon: Server });
     expect(getSubjectKindRenderer("c.d").label).toBe("Subject");
   });
+
+  // Regression: the registry is lazily initialised so a registrant importing
+  // this module at load time can never observe an undefined registry, whatever
+  // order the bundler evaluates the chunks in. Safari's production Module
+  // Federation evaluation order invoked the exported function before the module
+  // body's field initialiser ran, throwing "undefined is not an object
+  // (evaluating 'registry.set')" and 404-ing the catalog plugin. Registering
+  // and reading must therefore never throw.
+  test("register + read never throw (lazy registry init)", () => {
+    expect(() =>
+      registerSubjectKind("safari.regression", {
+        label: "Safari",
+        icon: Server,
+      }),
+    ).not.toThrow();
+    expect(getSubjectKindRenderer("safari.regression").label).toBe("Safari");
+  });
 });

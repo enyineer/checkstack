@@ -8,11 +8,13 @@ import {
   maintenanceRoutes,
   pluginMetadata,
   maintenanceAccess,
+  maintenanceResourceTypes,
 } from "@checkstack/maintenance-common";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemSignalsSlot,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import { SystemMaintenancePanel } from "./components/SystemMaintenancePanel";
 import { SystemMaintenanceBadge } from "./components/SystemMaintenanceBadge";
@@ -28,6 +30,11 @@ export default createFrontendPlugin({
         })),
       title: "Maintenances",
       accessRule: maintenanceAccess.maintenance.manage,
+      // Team-scoped: managing a system unlocks the maintenance surface for it.
+      manageCapability: {
+        objectType: maintenanceResourceTypes.maintenance,
+        parentType: catalogResourceTypes.system,
+      },
       nav: { group: "Reliability", icon: Wrench },
     },
     {

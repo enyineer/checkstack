@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { usePluginClient, wrapInSuspense, ExtensionSlot } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  wrapInSuspense,
+  ExtensionSlot,
+  useApi,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import {
@@ -23,7 +29,12 @@ import {
 } from "@checkstack/ui";
 import { Settings, Plus, Bell } from "lucide-react";
 import { resolveRoute } from "@checkstack/common";
-import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
+import {
+  catalogRoutes,
+  CatalogApi,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import {
   environmentIdsForMode,
   toggleEnvironmentId,
@@ -98,6 +109,21 @@ const AssignmentIDEPageContent = () => {
     kind: "System",
     entityId: systemId,
   });
+
+  // Assigning/unassigning health checks requires MANAGE on the target system
+  // (enforced backend-side by `associateSystem` / `createAndAssign`). Users who
+  // can reach this page via feature-level config access but do not manage the
+  // system get a read-only surface: no assign/unassign, no create.
+  const accessApi = useApi(accessApiRef);
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: systemId ? [systemId] : [],
+  });
+  const canManage = systemId ? canManageSystem(systemId) : false;
+  // Any write surface is disabled when GitOps-locked OR the user cannot manage
+  // the system.
+  const readOnly = isLocked || !canManage;
 
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
 
@@ -622,7 +648,7 @@ const AssignmentIDEPageContent = () => {
             onToggleEnabled={() => handleToggleEnabled(configId, assoc.enabled)}
             onUnassign={() => handleToggleAssignment(configId, true)}
             saving={saving}
-            isLocked={isLocked}
+            isLocked={readOnly}
           />
         );
       }
@@ -637,7 +663,7 @@ const AssignmentIDEPageContent = () => {
             onChange={(t) => handleThresholdChange(configId, t)}
             onSave={() => handleSaveThresholds(configId)}
             saving={saving}
-            isLocked={isLocked}
+            isLocked={readOnly}
           />
         );
       }
@@ -651,7 +677,7 @@ const AssignmentIDEPageContent = () => {
             onSave={() => handleSaveRetention(configId)}
             onReset={() => handleResetRetention(configId)}
             saving={saving}
-            isLocked={isLocked}
+            isLocked={readOnly}
           />
         );
       }
@@ -677,7 +703,7 @@ const AssignmentIDEPageContent = () => {
               handleToggleEnvironment(configId, envId)
             }
             saving={saving}
-            isLocked={isLocked}
+            isLocked={readOnly}
           />
         );
       }
@@ -699,7 +725,7 @@ const AssignmentIDEPageContent = () => {
             onChange={(p) => handleNotificationPolicyChange(configId, p)}
             onSave={() => handleSaveNotificationPolicy(configId)}
             saving={saving}
-            isLocked={isLocked}
+            isLocked={readOnly}
             isOverridden={isOverridden}
             onOverride={() => handleOverrideForAssignment(configId)}
             onUseDefaults={() => handleUseDefaultsForAssignment(configId)}
@@ -715,8 +741,8 @@ const AssignmentIDEPageContent = () => {
               configurationId: configId,
               selectedNode,
               onSelectNode: setSelectedNode,
-              isLocked
-            }} 
+              isLocked: readOnly
+            }}
           />
         );
       }
@@ -746,7 +772,7 @@ const AssignmentIDEPageContent = () => {
             <Bell className="mr-2 h-4 w-4" />
             Notification defaults
           </Button>
-          {!isLocked && systemId && (
+          {!readOnly && systemId && (
             <Button
               size="sm"
               onClick={() =>
@@ -781,7 +807,7 @@ const AssignmentIDEPageContent = () => {
             selectedNode={selectedNode}
             onSelectNode={setSelectedNode}
             onToggleAssignment={handleToggleAssignment}
-            isLocked={isLocked}
+            isLocked={readOnly}
           />
         }
         panel={renderPanel()}

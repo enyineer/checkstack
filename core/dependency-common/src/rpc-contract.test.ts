@@ -73,26 +73,47 @@ describe("dependencyContract instanceAccess wiring", () => {
   });
 
   // -------------------------------------------------------------------------
-  // createDependency / updateDependency / deleteDependency — existing wiring
+  // createDependency / updateDependency / deleteDependency — writes are
+  // authorized by MANAGE on the SOURCE system (catalog.system parentScope), NOT
+  // by a `dependency` grant keyed by the system id (which never exists and
+  // denied every team-scoped user). The target system is not access-checked.
   // -------------------------------------------------------------------------
-  describe("createDependency (existing wiring — regression guard)", () => {
-    test("carries instanceAccess.idParam = 'sourceSystemId'", () => {
+  describe("createDependency parent-scopes on the source system", () => {
+    test("carries parentScope catalog.system manage on 'sourceSystemId'", () => {
       const meta = metaFor("createDependency");
-      expect(meta.instanceAccess).toEqual({ idParam: "sourceSystemId" });
+      expect(meta.instanceAccess).toEqual({
+        parentScope: {
+          resourceType: "catalog.system",
+          action: "manage",
+          idParam: "sourceSystemId",
+        },
+      });
     });
   });
 
-  describe("updateDependency (existing wiring — regression guard)", () => {
-    test("carries instanceAccess.idParam = 'systemId'", () => {
+  describe("updateDependency parent-scopes on the source system", () => {
+    test("carries parentScope catalog.system manage on 'systemId'", () => {
       const meta = metaFor("updateDependency");
-      expect(meta.instanceAccess).toEqual({ idParam: "systemId" });
+      expect(meta.instanceAccess).toEqual({
+        parentScope: {
+          resourceType: "catalog.system",
+          action: "manage",
+          idParam: "systemId",
+        },
+      });
     });
   });
 
-  describe("deleteDependency (existing wiring — regression guard)", () => {
-    test("carries instanceAccess.idParam = 'systemId'", () => {
+  describe("deleteDependency parent-scopes on the source system", () => {
+    test("carries parentScope catalog.system manage on 'systemId'", () => {
       const meta = metaFor("deleteDependency");
-      expect(meta.instanceAccess).toEqual({ idParam: "systemId" });
+      expect(meta.instanceAccess).toEqual({
+        parentScope: {
+          resourceType: "catalog.system",
+          action: "manage",
+          idParam: "systemId",
+        },
+      });
     });
   });
 });

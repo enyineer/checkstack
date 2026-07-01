@@ -6,11 +6,13 @@ import {
   incidentRoutes,
   pluginMetadata,
   incidentAccess,
+  incidentResourceTypes,
 } from "@checkstack/incident-common";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemSignalsSlot,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import { AlertTriangle } from "lucide-react";
 import { SystemIncidentPanel } from "./components/SystemIncidentPanel";
@@ -27,6 +29,11 @@ export default createFrontendPlugin({
         })),
       title: "Incidents",
       accessRule: incidentAccess.incident.manage,
+      // Team-scoped: managing a system unlocks the incidents surface for it.
+      manageCapability: {
+        objectType: incidentResourceTypes.incident,
+        parentType: catalogResourceTypes.system,
+      },
       nav: {
         group: "Reliability",
         icon: AlertTriangle,

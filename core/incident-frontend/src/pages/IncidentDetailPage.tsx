@@ -12,6 +12,7 @@ import { IncidentApi } from "../api";
 import {
   incidentRoutes,
   incidentAccess,
+  incidentResourceTypes,
   IncidentDetailsSlot,
 } from "@checkstack/incident-common";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -57,10 +58,6 @@ const IncidentDetailPageContent: React.FC = () => {
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
-  const { allowed: canManage } = accessApi.useAccess(
-    incidentAccess.incident.manage,
-  );
-
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
   // Fetch incident with useQuery
@@ -72,6 +69,15 @@ const IncidentDetailPageContent: React.FC = () => {
     { id: incidentId ?? "" },
     { enabled: !!incidentId },
   );
+
+  // Per-resource action gate: ORs the global rule with a team grant on THIS
+  // incident. Empty ids until the incident loads; global managers get access
+  // to everything automatically.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: incidentAccess.incident.manage,
+    objectType: incidentResourceTypes.incident,
+    resourceIds: incident ? [incident.id] : [],
+  });
 
   // Fetch systems with useQuery
   const { data: systemsData, isLoading: systemsLoading } =
@@ -127,7 +133,7 @@ const IncidentDetailPageContent: React.FC = () => {
     );
   }
 
-  const canResolve = canManage && incident.status !== "resolved";
+  const canResolve = canAccess(incident.id) && incident.status !== "resolved";
   // Use 'from' query param for back navigation, fallback to first affected system
   const sourceSystemId = searchParams.get("from") ?? incident.systemIds[0];
 
@@ -273,7 +279,7 @@ const IncidentDetailPageContent: React.FC = () => {
                 <MessageSquare className="h-5 w-5 text-muted-foreground" />
                 <CardTitle>Status Updates</CardTitle>
               </div>
-              {canManage && !showUpdateForm && (
+              {canAccess(incident.id) && !showUpdateForm && (
                 <Button
                   variant="outline"
                   size="sm"

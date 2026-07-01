@@ -35,6 +35,7 @@ import {
   useRuntimeConfigContext,
   OrpcQueryProvider,
   readBootstrap,
+  type ManageCapability,
 } from "@checkstack/frontend-api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -117,6 +118,27 @@ const getRegisteredPlugins = () => pluginRegistry.getPlugins();
 // page content streams in); the error state contains a failed page load instead
 // of white-screening the shell.
 const ROUTE_SUSPENSE_FALLBACK = <PageSkeleton />;
+
+// Load local + remote plugins exactly ONCE per page load, memoized at module
+// scope. Registering a plugin is a non-idempotent side effect (it mutates the
+// shared `pluginRegistry`), but React.StrictMode invokes the mount effect twice
+// in dev - which fired `loadLocalPlugins()` twice and made the registry log a
+// noisy "⚠️ Plugin <id> already registered" for every bundled plugin on the
+// second pass. Memoizing the promise here means the actual load runs once while
+// each StrictMode effect invocation still awaits the same promise (so the
+// surviving mount can flip `pluginsInitializing`). `readBootstrap()` is a pure
+// read of the inlined blob, so resolving it once is correct.
+let pluginLoadPromise: Promise<void> | null = null;
+function ensurePluginsLoaded(): Promise<void> {
+  if (!pluginLoadPromise) {
+    const boot = readBootstrap();
+    pluginLoadPromise = (async () => {
+      await loadLocalPlugins();
+      await loadRemotePlugins({ enabledPlugins: boot?.enabledPlugins });
+    })();
+  }
+  return pluginLoadPromise;
+}
 
 /**
  * Friendly, actionable fallback for a hard failure (a route page that throws /
@@ -220,13 +242,18 @@ function GlobalShortcuts() {
 const RouteGuard: React.FC<{
   children: React.ReactNode;
   accessRule?: AccessRule;
-}> = ({ children, accessRule }) => {
+  manageCapability?: ManageCapability;
+}> = ({ children, accessRule, manageCapability }) => {
   const accessApi = useApi(accessApiRef);
-  // Pass the FULL rule so the check qualifies it (`{pluginId}.{id}`) against the
-  // user's granted ids and applies manage->read escalation.
-  const { allowed, loading } = accessRule
-    ? accessApi.useAccess(accessRule)
-    : { allowed: true, loading: false };
+  // A management route can declare a `manageCapability`: then a team-scoped user
+  // who can create/manage the type (or its parent) is allowed even without the
+  // global rule. `useRouteAccess` handles both (global rule OR capability) with a
+  // CONSTANT hook count - RouteGuard is reconciled in place as the URL changes,
+  // so branching the hook calls here would trip the rules of hooks.
+  const { allowed, loading } = accessApi.useRouteAccess({
+    accessRule,
+    manageCapability,
+  });
 
   if (loading) {
     return <PageSkeleton />;
@@ -351,15 +378,11 @@ function AppContent() {
   const [pluginsInitializing, setPluginsInitializing] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const boot = readBootstrap();
-      try {
-        await loadLocalPlugins();
-        await loadRemotePlugins({ enabledPlugins: boot?.enabledPlugins });
-      } finally {
-        if (!cancelled) setPluginsInitializing(false);
-      }
-    })();
+    // Memoized at module scope, so StrictMode's second dev invocation reuses the
+    // same in-flight load instead of re-registering every plugin.
+    void ensurePluginsLoaded().finally(() => {
+      if (!cancelled) setPluginsInitializing(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -378,7 +401,10 @@ function AppContent() {
             key={route.path}
             path={route.path}
             element={
-              <RouteGuard accessRule={route.accessRule}>
+              <RouteGuard
+                accessRule={route.accessRule}
+                manageCapability={route.manageCapability}
+              >
                 {routeElement(route, { standalone: true })}
               </RouteGuard>
             }
@@ -400,7 +426,10 @@ function AppContent() {
               key={route.path}
               path={route.path}
               element={
-                <RouteGuard accessRule={route.accessRule}>
+                <RouteGuard
+                  accessRule={route.accessRule}
+                  manageCapability={route.manageCapability}
+                >
                   {routeElement(route)}
                 </RouteGuard>
               }
@@ -444,6 +473,14 @@ function AppWithApis() {
       .register(accessApiRef, {
         // Default to allow all if no auth plugin present (mirrors useAccess).
         useAccess: () => ({ loading: false, allowed: true }),
+        useCanCreate: () => ({ loading: false, allowed: true }),
+        useCanAccessType: () => ({ loading: false, allowed: true }),
+        useRouteAccess: () => ({ loading: false, allowed: true }),
+        useResourceAccess: () => ({
+          loading: false,
+          hasGlobal: true,
+          canAccess: () => true,
+        }),
         useIsAuthenticated: () => ({ loading: false, isAuthenticated: true }),
       })
       // Safe default so the shell (sidebar's useAccessRules) can render BEFORE

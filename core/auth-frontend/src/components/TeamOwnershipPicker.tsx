@@ -67,14 +67,19 @@ export const TeamOwnershipPicker: React.FC<TeamOwnershipPickerProps> = ({
   // selected parents (e.g. systems for an incident).
   const restricting =
     !!parentResourceType && (parentResourceIds?.length ?? 0) > 0;
-  const { data: managing, isLoading: managingLoading } =
-    authClient.getMyManagingTeams.useQuery(
-      {
-        resourceType: parentResourceType ?? "",
-        resourceIds: parentResourceIds ?? [],
-      },
-      { enabled: restricting },
-    );
+  const { data: managing } = authClient.getMyManagingTeams.useQuery(
+    {
+      resourceType: parentResourceType ?? "",
+      resourceIds: parentResourceIds ?? [],
+    },
+    {
+      enabled: restricting,
+      // Keep the previous eligible teams visible while re-resolving after the
+      // selected systems change, so the picker doesn't collapse to a loading
+      // row (which made the modal briefly jump height on first selection).
+      placeholderData: (prev) => prev,
+    },
+  );
   const eligibleIds = restricting ? managing?.teamIds : undefined;
   const teams = eligibleIds
     ? allTeams.filter((t) => eligibleIds.includes(t.id))
@@ -87,7 +92,21 @@ export const TeamOwnershipPicker: React.FC<TeamOwnershipPickerProps> = ({
     }
   }, [eligibleIds, value, onChange]);
 
-  if (isLoading || (restricting && managingLoading)) {
+  // When a global (un-owned) resource is NOT allowed, an owning team is
+  // required: a resource created with no team would be uneditable by a
+  // team-scoped creator afterwards (no team grant, no global rule; the server
+  // enforces this too). Auto-select when there's exactly one eligible team so
+  // the common case needs no interaction.
+  useEffect(() => {
+    if (!allowGlobal && !value && teams.length === 1) {
+      onChange(teams[0].id);
+    }
+  }, [allowGlobal, value, teams, onChange]);
+
+  // Only block on the INITIAL teams load. Re-resolving eligible teams after the
+  // selected systems change keeps the previous list (see `placeholderData`), so
+  // the picker stays mounted instead of flashing this loading row.
+  if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <LoadingSpinner /> Loading teams...
@@ -135,6 +154,11 @@ export const TeamOwnershipPicker: React.FC<TeamOwnershipPickerProps> = ({
       <Label className="flex items-center gap-1.5">
         <Users2 className="h-3.5 w-3.5" />
         {label}
+        {!allowGlobal && (
+          <span className="text-destructive" aria-hidden>
+            *
+          </span>
+        )}
       </Label>
       <Select
         value={selectValue}

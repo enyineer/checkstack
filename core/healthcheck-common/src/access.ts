@@ -1,6 +1,15 @@
-import { access, accessPair } from "@checkstack/common";
+import { access, accessPair, resourceType } from "@checkstack/common";
 
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the health check plugin's resources.
+ * Reference these (never a raw `"healthcheck.configuration"` string) at
+ * capability call sites so a typo fails typecheck.
+ */
+export const healthCheckResourceTypes = {
+  configuration: resourceType(pluginMetadata, "configuration"),
+};
 
 /**
  * Access rules for the Health Check plugin.

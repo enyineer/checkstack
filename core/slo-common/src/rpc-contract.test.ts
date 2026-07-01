@@ -21,7 +21,11 @@ type ProcMeta = {
     idParam?: string;
     listKey?: string;
     recordKey?: string;
-    create?: { teamIdParam?: string; idField?: string };
+    create?: {
+      teamIdParam?: string;
+      idField?: string;
+      parent?: { resourceType?: string; idParam?: string };
+    };
     global?: boolean;
     parentScope?: {
       resourceType?: string;
@@ -68,9 +72,18 @@ describe("getDailySnapshots instanceAccess", () => {
 // ─── Create-mode team ownership ───────────────────────────────────────────────
 
 describe("createObjective instanceAccess.create", () => {
-  test("carries create config with teamIdParam 'teamId' and idField 'id'", () => {
+  test("carries create config with teamIdParam 'teamId', idField 'id', and a catalog.system parent gate", () => {
+    // The parent gate makes SLO creation system-scoped: managing the target
+    // system (idParam "systemId") authorizes creating an SLO for it, matching
+    // incident/maintenance. Without it, only a slo.slo creator grant or the
+    // global rule would allow creation, letting any slo creator target any
+    // system.
     expect(metaFor("createObjective").instanceAccess).toEqual({
-      create: { teamIdParam: "teamId", idField: "id" },
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        parent: { resourceType: "catalog.system", idParam: "systemId" },
+      },
     });
   });
 

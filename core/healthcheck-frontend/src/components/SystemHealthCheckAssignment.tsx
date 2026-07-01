@@ -9,7 +9,11 @@ import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import { Button } from "@checkstack/ui";
 import { Activity } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
+import {
+  CatalogSystemActionsSlot,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import {
   healthcheckRoutes,
   healthCheckAccess,
@@ -30,6 +34,13 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   const { allowed: canManage } = accessApi.useAccess(
     healthCheckAccess.configuration.manage,
   );
+  // Assigning health checks to a system requires MANAGE on the target system
+  // (enforced backend-side by `associateSystem` / `createAndAssign`).
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: [systemId],
+  });
   const navigate = useNavigate();
 
   // Fetch associations count for the badge
@@ -39,7 +50,7 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
       { enabled: true },
     );
 
-  if (!canManage) return;
+  if (!canManage || !canManageSystem(systemId)) return;
 
   const assignmentUrl = resolveRoute(healthcheckRoutes.routes.assignments, {
     systemId,

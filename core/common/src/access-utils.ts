@@ -220,6 +220,44 @@ export function qualifyAccessRuleId(
 }
 
 /**
+ * A plugin-qualified resource type id, e.g. `"catalog.system"` - the key under
+ * which a resource's relation-tuple grants are stored, and the value the
+ * team-capability APIs (`useCanCreate`, `useCanAccessType`, `useResourceAccess`,
+ * a route's `manageCapability`) expect.
+ *
+ * Nominal on purpose: a plain string is NOT assignable here, so capability call
+ * sites must reference an exported constant (built via {@link resourceType})
+ * rather than hand-writing `"catalog.system"`, and a typo fails typecheck.
+ */
+export type ResourceType = string & { readonly __resourceType: unique symbol };
+
+/**
+ * Build a plugin-qualified {@link ResourceType} from the plugin's metadata and a
+ * local type name, mirroring how {@link access} qualifies rule ids. Export the
+ * result as a constant from your `*-common` package and use THAT at capability
+ * call sites instead of a raw string.
+ *
+ * @example
+ * ```typescript
+ * import { resourceType } from "@checkstack/common";
+ * import { pluginMetadata } from "./plugin-metadata";
+ *
+ * export const catalogResourceTypes = {
+ *   system: resourceType(pluginMetadata, "system"), // "catalog.system"
+ *   group: resourceType(pluginMetadata, "group"),   // "catalog.group"
+ * };
+ * ```
+ */
+export function resourceType(
+  pluginMetadata: Pick<PluginMetadata, "pluginId">,
+  localType: string,
+): ResourceType {
+  // The sole place a ResourceType is minted: the value is a plain
+  // `${pluginId}.${localType}` string; the nominal brand is erased at runtime.
+  return `${pluginMetadata.pluginId}.${localType}` as ResourceType;
+}
+
+/**
  * Pure predicate: does a set of granted access-rule ids satisfy a rule?
  *
  * This is the single source of truth for client-side access checks - the

@@ -1,4 +1,4 @@
-export { sloAccess, sloAccessRules } from "./access";
+export { sloAccess, sloAccessRules, sloResourceTypes } from "./access";
 export { sloContract, SloApi, type SloContract } from "./rpc-contract";
 export {
   DependencyExclusionModeSchema,

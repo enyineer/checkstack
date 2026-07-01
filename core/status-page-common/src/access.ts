@@ -1,5 +1,14 @@
-import { access, accessPair } from "@checkstack/common";
+import { access, accessPair, resourceType } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the status page plugin's resources.
+ * Reference these (never a raw `"statuspage.page"` string) at capability call
+ * sites so a typo fails typecheck.
+ */
+export const statusPageResourceTypes = {
+  page: resourceType(pluginMetadata, "page"),
+};
 
 /**
  * Access rules for the Status Pages plugin.

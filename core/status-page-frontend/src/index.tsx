@@ -5,6 +5,7 @@ import {
   statusPageRoutes,
   statusPublicRoutes,
   statusPageAccess,
+  statusPageResourceTypes,
 } from "@checkstack/status-page-common";
 
 // Re-exported for the separate custom-domain public bundle (core/frontend's
@@ -40,6 +41,9 @@ export default createFrontendPlugin({
         })),
       title: "Status page builder",
       accessRule: statusPageAccess.page.manage,
+      // Team-scoped: creating/managing a status page via a team unlocks the
+      // builder even without the global manage rule.
+      manageCapability: { objectType: statusPageResourceTypes.page },
     },
     {
       // PUBLIC: no access rule -> renders for anonymous visitors. `standalone`

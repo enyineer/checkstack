@@ -1,5 +1,14 @@
-import { accessPair } from "@checkstack/common";
+import { accessPair, resourceType } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the SLO plugin's resources.
+ * Reference these (never a raw `"slo.slo"` string) at capability call sites so
+ * a typo fails typecheck.
+ */
+export const sloResourceTypes = {
+  slo: resourceType(pluginMetadata, "slo"),
+};
 
 /**
  * Access rules for the SLO plugin.

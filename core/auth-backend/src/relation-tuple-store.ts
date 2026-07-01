@@ -198,6 +198,32 @@ export class RelationTupleStore {
     return !!row;
   }
 
+  /**
+   * The distinct resource types the given teams can act on as a MANAGER: either
+   * a `creator` grant (may create the type) or an `editor`/`owner` grant on at
+   * least one concrete object of the type (may manage an existing one). Powers
+   * the frontend nav/route/page "should this management surface be visible?"
+   * gate for team-scoped users who hold no global manage rule.
+   */
+  async manageableTypesForTeams({
+    userTeamIds,
+  }: {
+    userTeamIds: string[];
+  }): Promise<string[]> {
+    if (userTeamIds.length === 0) return [];
+    const rows = await this.db
+      .select({ objectType: schema.relationTuple.objectType })
+      .from(schema.relationTuple)
+      .where(
+        and(
+          eq(schema.relationTuple.subjectType, "team"),
+          inArray(schema.relationTuple.subjectId, userTeamIds),
+          inArray(schema.relationTuple.relation, ["creator", "editor", "owner"]),
+        ),
+      );
+    return [...new Set(rows.map((r) => r.objectType))];
+  }
+
   /** Teams (of the caller's) that may CREATE the given type. */
   async creatorTeamIds({
     objectType,

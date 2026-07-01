@@ -17,6 +17,7 @@ import { MaintenanceApi } from "../api";
 import {
   maintenanceRoutes,
   maintenanceAccess,
+  maintenanceResourceTypes,
   MaintenanceDetailsSlot,
 } from "@checkstack/maintenance-common";
 import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
@@ -65,9 +66,14 @@ const MaintenanceDetailPageContent: React.FC = () => {
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
-  const { allowed: canManage } = accessApi.useAccess(
-    maintenanceAccess.maintenance.manage,
-  );
+  // Per-resource gate: ORs the global rule with a team grant on THIS
+  // maintenance (global-manage users pass automatically). Gates the
+  // "Complete" and "Add Update" actions.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: maintenanceAccess.maintenance.manage,
+    objectType: maintenanceResourceTypes.maintenance,
+    resourceIds: [maintenanceId ?? ""],
+  });
 
   const [showUpdateForm, setShowUpdateForm] = useState(false);
 
@@ -142,7 +148,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
   // Use 'from' query param for back navigation, fallback to first affected system
   const sourceSystemId = searchParams.get("from") ?? maintenance.systemIds[0];
   const canComplete =
-    canManage &&
+    canAccess(maintenanceId) &&
     maintenance.status !== "completed" &&
     maintenance.status !== "cancelled";
 
@@ -304,7 +310,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 <MessageSquare className="h-5 w-5 text-muted-foreground" />
                 <CardTitle>Status Updates</CardTitle>
               </div>
-              {canManage && !showUpdateForm && (
+              {canAccess(maintenanceId) && !showUpdateForm && (
                 <Button
                   variant="outline"
                   size="sm"

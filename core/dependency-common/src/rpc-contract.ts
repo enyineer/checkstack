@@ -77,7 +77,18 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
-    instanceAccess: { idParam: "sourceSystemId" },
+    // A dependency edge is authorized by MANAGE on its SOURCE system (the target
+    // is not access-checked). Scope on the `catalog.system` parent so a team
+    // that manages the source system may edit its dependencies without the
+    // global `dependency.manage` rule. (An `idParam` here would wrongly look for
+    // a `dependency` grant keyed by the system id, which never exists.)
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "manage",
+        idParam: "sourceSystemId",
+      },
+    },
   })
     .input(CreateDependencyInputSchema)
     .output(DependencySchema),
@@ -87,7 +98,14 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
-    instanceAccess: { idParam: "systemId" },
+    // Authorized by MANAGE on the source system (`systemId`).
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "manage",
+        idParam: "systemId",
+      },
+    },
   })
     .route({ method: "PATCH" })
     .input(UpdateDependencyInputSchema)
@@ -98,7 +116,14 @@ export const dependencyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [dependencyAccess.dependency.manage],
-    instanceAccess: { idParam: "systemId" },
+    // Authorized by MANAGE on the source system (`systemId`).
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "manage",
+        idParam: "systemId",
+      },
+    },
   })
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string(), systemId: z.string() }))

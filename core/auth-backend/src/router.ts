@@ -457,9 +457,15 @@ export const createAuthRouter = (
   const updateRole = os.updateRole.handler(async ({ input, context }) => {
     const { id, name, description, accessRules: inputAccessRules } = input;
 
-    // Track if user has this role (for access elevation prevention)
+    // Track if user has this role (for access elevation prevention). A platform
+    // admin (wildcard `*`) is exempt: they already hold every access rule, so
+    // editing a role they belong to cannot elevate them - and blocking it would
+    // lock them out of configuring roles they were automatically added to.
     const userRoles = isRealUser(context.user) ? context.user.roles || [] : [];
-    const isUserOwnRole = userRoles.includes(id);
+    const isWildcardAdmin =
+      isRealUser(context.user) &&
+      (context.user.accessRules || []).includes("*");
+    const isUserOwnRole = userRoles.includes(id) && !isWildcardAdmin;
 
     // Check if role exists
     const existingRole = await internalDb
@@ -624,9 +630,16 @@ export const createAuthRouter = (
   });
 
   const deleteRole = os.deleteRole.handler(async ({ input: id, context }) => {
-    // Security check: prevent users from deleting their own roles
+    // Security check: prevent users from deleting their own roles (access
+    // elevation / self-lockout). A platform admin (wildcard `*`) is exempt -
+    // they hold every rule regardless of role membership, and blocking this
+    // would stop them managing roles they were automatically added to. System
+    // roles remain undeletable via the `isSystem` check below.
     const userRoles = isRealUser(context.user) ? context.user.roles || [] : [];
-    if (userRoles.includes(id)) {
+    const isWildcardAdmin =
+      isRealUser(context.user) &&
+      (context.user.accessRules || []).includes("*");
+    if (userRoles.includes(id) && !isWildcardAdmin) {
       throw new ORPCError("FORBIDDEN", {
         message: "Cannot delete a role that you currently have",
       });
@@ -2186,6 +2199,85 @@ export const createAuthRouter = (
     },
   );
 
+  // Frontend-facing mirror of the team-derived branch of `authorizeCreate`: does
+  // the caller belong to a team that may create `objectType` — either via a
+  // per-type `creator` grant, or (when `parentType` is given) by managing at
+  // least one object of that parent type (the parent gate). The global-RBAC
+  // path is intentionally NOT resolved here; the frontend ORs `useAccess(rule)`
+  // with this. Anonymous callers and users with no teams get `false`.
+  const canCreate = os.canCreate.handler(async ({ context, input }) => {
+    const user = context.user;
+    if (!user || (user.type !== "user" && user.type !== "application")) {
+      return { allowed: false };
+    }
+    const userTeamIds = await resolveUserTeamIds(user.id, user.type);
+    if (userTeamIds.length === 0) return { allowed: false };
+
+    // Per-type create capability.
+    const creatorTeamIds = await tupleStore.creatorTeamIds({
+      objectType: input.objectType,
+      userTeamIds,
+    });
+    if (creatorTeamIds.length > 0) return { allowed: true };
+
+    // Parent gate: managing any object of the parent type authorizes creating
+    // the child for it (e.g. manage a system -> open an incident/maintenance).
+    if (input.parentType) {
+      const hasParentManage = await tupleStore.hasAnyTypeGrant({
+        objectType: input.parentType,
+        userTeamIds,
+        action: "manage",
+      });
+      if (hasParentManage) return { allowed: true };
+    }
+
+    return { allowed: false };
+  });
+
+  // The resource types the caller can create or manage any object of via a team
+  // grant. Powers capability-aware nav/route gating (the frontend ORs the global
+  // rule). Empty for anonymous callers and users with no teams.
+  const myManageableTypes = os.myManageableTypes.handler(
+    async ({ context }) => {
+      const user = context.user;
+      if (!user || (user.type !== "user" && user.type !== "application")) {
+        return { types: [] };
+      }
+      const userTeamIds = await resolveUserTeamIds(user.id, user.type);
+      if (userTeamIds.length === 0) return { types: [] };
+      const types = await tupleStore.manageableTypesForTeams({ userTeamIds });
+      return { types };
+    },
+  );
+
+  // Frontend-facing mirror of the S2S `listAccessibleObjectIds`, resolved with
+  // `hasGlobalAccess: false`: returns ONLY the team-derived subset of the given
+  // ids the caller may act on. The frontend ORs the global-RBAC path on top, so
+  // this deliberately does not resolve global manage here. Anonymous callers and
+  // users with no teams get an empty set.
+  const listMyAccessibleResources = os.listMyAccessibleResources.handler(
+    async ({ context, input }) => {
+      const user = context.user;
+      if (!user || (user.type !== "user" && user.type !== "application")) {
+        return { accessibleIds: [] };
+      }
+      const candidateIds = [...new Set(input.resourceIds)];
+      if (candidateIds.length === 0) return { accessibleIds: [] };
+
+      const userTeamIds = await resolveUserTeamIds(user.id, user.type);
+      if (userTeamIds.length === 0) return { accessibleIds: [] };
+
+      const accessibleIds = await tupleStore.listAccessibleObjectIds({
+        objectType: input.objectType,
+        candidateIds,
+        userTeamIds,
+        action: input.action,
+        hasGlobalAccess: false,
+      });
+      return { accessibleIds };
+    },
+  );
+
   const authorizeCreate = os.authorizeCreate.handler(async ({ input }) => {
     const {
       userId,
@@ -2220,8 +2312,8 @@ export const createAuthRouter = (
     }
 
     // Authorized by a parent gate (e.g. manage on the system an incident is
-    // for): no per-type creator grant needed; just resolve the optional owning
-    // team, which must be one the caller belongs to.
+    // for): no per-type creator grant needed; resolve the owning team, which
+    // must be one the caller belongs to.
     if (alreadyAuthorized) {
       if (requestedTeamId) {
         if (!memberTeamIds.has(requestedTeamId)) {
@@ -2231,6 +2323,28 @@ export const createAuthRouter = (
           });
         }
         return { ownerTeamId: requestedTeamId, isPrivate: false };
+      }
+      // No team requested. A parent-gated creator has NO global manage (that
+      // branch returned above), so an object with no owning team would be
+      // UNEDITABLE by them afterwards (no team grant, no global rule). If the
+      // caller belongs to teams, require an explicit owning team (auto-assign
+      // when there is exactly one) so they retain manage on what they create.
+      // Only a caller who belongs to NO team - i.e. reached the gate via a
+      // GLOBAL parent rule, not team membership - may create a team-less,
+      // globally-readable object.
+      const ownableTeamIds = [...memberTeamIds];
+      if (ownableTeamIds.length === 1) {
+        return { ownerTeamId: ownableTeamIds[0], isPrivate: false };
+      }
+      if (ownableTeamIds.length > 1) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "Choose which team should own the new resource.",
+          data: {
+            code: "OWNER_TEAM_REQUIRED",
+            resourceType: objectType,
+            eligibleTeamIds: ownableTeamIds,
+          },
+        });
       }
       return { ownerTeamId: null, isPrivate: false };
     }
@@ -2400,6 +2514,9 @@ export const createAuthRouter = (
     getMyManagingTeams,
     setCreateGrant,
     listTeamCreateGrants,
+    canCreate,
+    myManageableTypes,
+    listMyAccessibleResources,
     authorizeCreate,
     setOwner,
   });

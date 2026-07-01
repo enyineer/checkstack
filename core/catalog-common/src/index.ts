@@ -1,4 +1,8 @@
-export { catalogAccess, catalogAccessRules } from "./access";
+export {
+  catalogAccess,
+  catalogAccessRules,
+  catalogResourceTypes,
+} from "./access";
 export * from "./rpc-contract";
 export * from "./types";
 export * from "./slots";

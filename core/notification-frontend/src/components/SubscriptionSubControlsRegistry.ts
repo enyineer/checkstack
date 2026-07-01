@@ -17,7 +17,22 @@ export type SubscriptionSubControlsComponent<TResource = unknown> =
     groupId: string;
   }>;
 
-const registry = new Map<string, SubscriptionSubControlsComponent<unknown>>();
+// Lazily initialised for the same reason as SubjectKindRegistry: `anomaly-
+// frontend` registers its sub-controls as a top-level import side effect, so
+// the exported function can run before this module body's field initialiser
+// under some production bundle-evaluation orders (Safari's Module Federation
+// order in particular). A function-scoped lazy init guarantees the registry is
+// never undefined at call time.
+let registry:
+  | Map<string, SubscriptionSubControlsComponent<unknown>>
+  | undefined;
+
+function getRegistry(): Map<string, SubscriptionSubControlsComponent<unknown>> {
+  if (!registry) {
+    registry = new Map<string, SubscriptionSubControlsComponent<unknown>>();
+  }
+  return registry;
+}
 
 /**
  * Register a sub-control panel for a subscription spec. Most plugins
@@ -28,7 +43,7 @@ export function registerSubscriptionSubControls<TResource>(
   spec: NotificationSubscriptionSpec<TResource>,
   Component: SubscriptionSubControlsComponent<TResource>,
 ): void {
-  registry.set(
+  getRegistry().set(
     spec.specId,
     Component as SubscriptionSubControlsComponent<unknown>,
   );
@@ -41,5 +56,5 @@ export function registerSubscriptionSubControls<TResource>(
 export function getSubscriptionSubControls(
   specId: string,
 ): SubscriptionSubControlsComponent<unknown> | undefined {
-  return registry.get(specId);
+  return getRegistry().get(specId);
 }

@@ -12,6 +12,7 @@ import {
   type HealthCheckConfiguration,
   healthcheckRoutes,
   healthCheckAccess,
+  healthCheckResourceTypes,
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
 import { CatalogApi } from "@checkstack/catalog-common";
@@ -90,9 +91,10 @@ const HealthCheckConfigPageContent = () => {
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.read,
   );
-  const { allowed: canManage } = accessApi.useAccess(
-    healthCheckAccess.configuration.manage,
-  );
+  const { allowed: canManage } = accessApi.useCanCreate({
+    accessRule: healthCheckAccess.configuration.manage,
+    objectType: healthCheckResourceTypes.configuration,
+  });
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -419,7 +421,6 @@ const HealthCheckConfigPageContent = () => {
               onDelete={handleDelete}
               onPause={(id) => pauseMutation.mutate({ id })}
               onResume={(id) => resumeMutation.mutate({ id })}
-              canManage={canManage}
             />
           )}
         </div>

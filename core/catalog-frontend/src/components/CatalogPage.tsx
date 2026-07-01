@@ -9,6 +9,7 @@ import { resolveRoute } from "@checkstack/common";
 import {
   catalogRoutes,
   catalogAccess,
+  catalogResourceTypes,
   CatalogApi,
   type CatalogHealthStatuses,
 } from "@checkstack/catalog-common";
@@ -35,9 +36,18 @@ import { healthStatusesEqual } from "./browse/healthStatuses.logic";
 const CatalogPageContent: React.FC = () => {
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
-  const { allowed: canManage } = accessApi.useAccess(
-    catalogAccess.system.manage,
-  );
+  // Create capability: gates the empty-state "Add your first system" action.
+  const { allowed: canManage } = accessApi.useCanCreate({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+  });
+  // Surface access: gates the "Manage catalog" link. A user who can manage an
+  // existing system (via a team) should reach the management page to edit it,
+  // even without create capability.
+  const { allowed: canAccessManagement } = accessApi.useCanAccessType({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+  });
 
   const entitiesQuery = catalogClient.getEntities.useQuery({});
   const { data, isLoading, isError } = entitiesQuery;
@@ -95,7 +105,7 @@ const CatalogPageContent: React.FC = () => {
       title="Catalog"
       subtitle="Browse every system, grouped the way your teams think about them"
       icon={Layers}
-      actions={canManage ? manageLink : undefined}
+      actions={canAccessManagement ? manageLink : undefined}
     >
       {isLoading ? (
         <div className="space-y-6">

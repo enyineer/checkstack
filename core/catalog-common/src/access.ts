@@ -1,6 +1,17 @@
-import { accessPair } from "@checkstack/common";
+import { accessPair, resourceType } from "@checkstack/common";
 
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the catalog's team-scopable resources.
+ * Reference these (never a raw `"catalog.system"` string) at capability call
+ * sites - `useCanCreate`, `useCanAccessType`, `useResourceAccess`, and a route's
+ * `manageCapability` - so a typo fails typecheck.
+ */
+export const catalogResourceTypes = {
+  system: resourceType(pluginMetadata, "system"),
+  group: resourceType(pluginMetadata, "group"),
+};
 
 /**
  * Access rules for the Catalog plugin.

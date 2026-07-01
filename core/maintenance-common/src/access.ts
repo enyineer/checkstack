@@ -1,5 +1,14 @@
-import { accessPair } from "@checkstack/common";
+import { accessPair, resourceType } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the maintenance plugin's resources.
+ * Reference these (never a raw `"maintenance.maintenance"` string) at capability
+ * call sites so a typo fails typecheck.
+ */
+export const maintenanceResourceTypes = {
+  maintenance: resourceType(pluginMetadata, "maintenance"),
+};
 
 /**
  * Access rules for the Maintenance plugin.

@@ -945,6 +945,66 @@ export const authContract = {
     .input(z.object({ teamId: z.string() }))
     .output(z.object({ resourceTypes: z.array(z.string()) })),
 
+  // Can the CURRENT caller create an object of `objectType` via a TEAM grant?
+  // This is the frontend-facing mirror of the S2S `authorizeCreate` matrix,
+  // minus the global-RBAC path (the frontend already checks the manage rule via
+  // `useAccess`, and ORs it with this). It answers TRUE when the caller belongs
+  // to a team that either:
+  //   - holds a `creator` grant on `objectType` (per-type create capability), OR
+  //   - holds a MANAGE grant on at least one object of `parentType` (the parent
+  //     gate: e.g. "you manage a system, so you may open an incident for it").
+  // `parentType` is supplied by the caller because auth is domain-agnostic — it
+  // comes from the plugin's own `instanceAccess.create.parent.resourceType`.
+  // Drives create-button/page visibility so team-scoped users see the actions
+  // the backend would actually let them perform. Returns false for anonymous
+  // callers and users with no teams.
+  canCreate: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(
+      z.object({
+        objectType: z.string(),
+        parentType: z.string().optional(),
+      }),
+    )
+    .output(z.object({ allowed: z.boolean() })),
+
+  // The set of resource types the CURRENT caller can create or manage ANY object
+  // of via a TEAM grant (a `creator` grant, or an `editor`/`owner` grant on at
+  // least one object of the type). Drives capability-aware NAV/ROUTE gating so a
+  // team-scoped user who holds no global manage rule still sees the management
+  // surfaces they can actually use. The frontend ORs the global RBAC rule on top.
+  // Anonymous callers and users with no teams get an empty list.
+  myManageableTypes: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  }).output(z.object({ types: z.array(z.string()) })),
+
+  // Which of the given `resourceIds` (of `objectType`) may the CURRENT caller
+  // act on at `action` level via a TEAM grant? The frontend-facing mirror of
+  // the S2S `listAccessibleObjectIds`, resolved with `hasGlobalAccess: false` —
+  // it returns ONLY the team-derived subset. The frontend ORs the global-RBAC
+  // path (`useAccess(rule)`) on top, so a global-manage holder sees every row
+  // and a team-scoped user sees exactly the rows their teams grant. This powers
+  // per-row edit/delete gating so a user managing system X never sees a manage
+  // action for system Y they cannot touch. Empty input or no teams => empty.
+  listMyAccessibleResources: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(
+      z.object({
+        objectType: z.string(),
+        resourceIds: z.array(z.string()),
+        action: z.enum(["read", "manage"]),
+      }),
+    )
+    .output(z.object({ accessibleIds: z.array(z.string()) })),
+
   // ==========================================================================
   // S2S ENDPOINTS FOR TEAM ACCESS (userType: "service")
   // ==========================================================================
