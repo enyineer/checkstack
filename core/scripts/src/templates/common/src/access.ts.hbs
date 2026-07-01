@@ -1,4 +1,23 @@
-import { accessPair } from "@checkstack/common";
+import { accessPair, resourceType } from "@checkstack/common";
+
+import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for this plugin's team-scopable resources.
+ * Reference these (never a raw string) at capability call sites - `useCanCreate`,
+ * `useCanAccessType`, `useResourceAccess`, and a route's `manageCapability` - so
+ * a typo fails typecheck.
+ *
+ * IMPORTANT: a resource's team grants are keyed on
+ * `qualifyResourceType(pluginId, <the access rule's resource>)`, so this constant
+ * MUST use the SAME noun you pass to `accessPair` below ("item" here). Naming
+ * them differently is the health-check footgun: grants key on one type while the
+ * frontend gate checks another, and team-scoped users silently see no surface.
+ * See `.claude/rules/rlac.md`.
+ */
+export const {{pluginNameCamel}}ResourceTypes = {
+  item: resourceType(pluginMetadata, "item"),
+};
 
 /**
  * Access rules for the {{pluginBaseName}} plugin.
@@ -6,12 +25,12 @@ import { accessPair } from "@checkstack/common";
  */
 export const {{pluginNameCamel}}Access = {
   /**
-   * Access rules for {{pluginBaseName}} data operations.
+   * Access rules for {{pluginBaseName}} items.
    * - read: View {{pluginBaseName}} data (auto-assigned to authenticated users)
    * - manage: Create, update, and delete {{pluginBaseName}} data
    */
   ...accessPair(
-    "{{pluginBaseName}}",
+    "item",
     {
       read: {
         description: "Read {{pluginBaseName}} data",
@@ -23,7 +42,7 @@ export const {{pluginNameCamel}}Access = {
     },
     {
       // Owning plugin id - rules are matched only as `{pluginId}.{id}`.
-      pluginId: "{{pluginBaseName}}",
+      pluginId: pluginMetadata.pluginId,
     },
   ),
 };
