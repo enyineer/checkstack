@@ -119,6 +119,27 @@ const getRegisteredPlugins = () => pluginRegistry.getPlugins();
 // of white-screening the shell.
 const ROUTE_SUSPENSE_FALLBACK = <PageSkeleton />;
 
+// Load local + remote plugins exactly ONCE per page load, memoized at module
+// scope. Registering a plugin is a non-idempotent side effect (it mutates the
+// shared `pluginRegistry`), but React.StrictMode invokes the mount effect twice
+// in dev - which fired `loadLocalPlugins()` twice and made the registry log a
+// noisy "⚠️ Plugin <id> already registered" for every bundled plugin on the
+// second pass. Memoizing the promise here means the actual load runs once while
+// each StrictMode effect invocation still awaits the same promise (so the
+// surviving mount can flip `pluginsInitializing`). `readBootstrap()` is a pure
+// read of the inlined blob, so resolving it once is correct.
+let pluginLoadPromise: Promise<void> | null = null;
+function ensurePluginsLoaded(): Promise<void> {
+  if (!pluginLoadPromise) {
+    const boot = readBootstrap();
+    pluginLoadPromise = (async () => {
+      await loadLocalPlugins();
+      await loadRemotePlugins({ enabledPlugins: boot?.enabledPlugins });
+    })();
+  }
+  return pluginLoadPromise;
+}
+
 /**
  * Friendly, actionable fallback for a hard failure (a route page that throws /
  * fails to load, or a render error in the shell itself). Mirrors the look of
@@ -357,15 +378,11 @@ function AppContent() {
   const [pluginsInitializing, setPluginsInitializing] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const boot = readBootstrap();
-      try {
-        await loadLocalPlugins();
-        await loadRemotePlugins({ enabledPlugins: boot?.enabledPlugins });
-      } finally {
-        if (!cancelled) setPluginsInitializing(false);
-      }
-    })();
+    // Memoized at module scope, so StrictMode's second dev invocation reuses the
+    // same in-flight load instead of re-registering every plugin.
+    void ensurePluginsLoaded().finally(() => {
+      if (!cancelled) setPluginsInitializing(false);
+    });
     return () => {
       cancelled = true;
     };
