@@ -88,6 +88,7 @@ export const CatalogSystemRow: React.FC<CatalogSystemRowProps> = ({
           <NotificationSubscriptionsManager
             target={catalogSystemTarget}
             resource={{ systemId: system.id, systemName: system.name }}
+            triggerClassName="h-8 w-8"
           />
         </div>
       )}

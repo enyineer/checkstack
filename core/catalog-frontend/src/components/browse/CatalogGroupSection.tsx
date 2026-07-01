@@ -189,6 +189,7 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
             <NotificationSubscriptionsManager
               target={catalogGroupTarget}
               resource={{ groupId: section.id, groupName: section.name }}
+              triggerClassName="h-8 w-8"
             />
           </div>
         )}
