@@ -335,6 +335,10 @@ T=3:   Job A completes
 
 > **Recommendation:** Set `intervalSeconds` to a value greater than the expected maximum execution time to avoid job accumulation. For health checks, consider the network timeout plus processing time.
 
+### Instance namespacing
+
+When a backend runs as a SECONDARY instance sharing the same redis as the default instance (see [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/)), a distributed queue backend MUST namespace its redis key space so the two instances cannot collide. The BullMQ backend does this by folding `coreServices.instanceRuntime.namespace` into its effective key prefix (`checkstack:` becomes `checkstack:preview:` under the `preview` namespace); the default instance's prefix is unchanged. All BullMQ keys - queues, jobs, schedulers, consumer groups - derive from the prefix, so this single fold isolates the entire key space. Custom distributed queue plugins should do the same.
+
 ### Graceful Shutdown
 
 `queue.stop()` behavior:

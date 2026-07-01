@@ -58,6 +58,10 @@ The factory follows the same shape as the rest of the codebase: object-destructu
 
 > **Pattern**: this mirrors the scoped registry pattern used by `HealthCheckRegistry`, `CollectorRegistry`, etc. A plugin should only ever see resources scoped to itself.
 
+## Instance namespacing
+
+The default memory cache is per-process, so two instances sharing infrastructure are already isolated - no namespacing is needed. A SHARED cache provider (e.g. a future redis-backed cache) that could be reached by more than one instance MUST namespace its keys so a secondary instance cannot collide with the default one. Fold `coreServices.instanceRuntime.namespace` into the key prefix your provider builds, exactly as the BullMQ queue backend does. See [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/).
+
 ## Using the Cache from a Backend Plugin
 
 Backend plugins receive `cacheManager` via `coreServices.cacheManager` and call `getProvider()` to obtain the active provider:

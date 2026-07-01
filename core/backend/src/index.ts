@@ -12,6 +12,8 @@ import {
   coreHooks,
   publicHostResolverExtensionPoint,
   publicPathExtensionPoint,
+  parseInstanceNamespace,
+  createInstanceRuntime,
   type PublicHostMatch,
 } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
@@ -104,6 +106,17 @@ pluginManager.registerExtensionPoint(
 // blob so the SPA entry loads the LEAN public bundle for these paths instead of
 // booting the admin app. The platform never interprets the prefixes.
 const publicPathPrefixes: string[] = [];
+
+// Which INSTANCE this backend runs as. The default instance carries the empty
+// namespace; a non-empty `CHECKSTACK_INSTANCE_NAMESPACE` (validated/normalized
+// here, failing fast if malformed) marks a secondary instance (e.g. the
+// PR-preview instance) that must namespace all shared-infra state. Surfaced to
+// the frontend via `/api/config` and registered as `coreServices.instanceRuntime`
+// so every plugin can namespace accordingly.
+const instanceNamespace = parseInstanceNamespace(
+  process.env.CHECKSTACK_INSTANCE_NAMESPACE,
+);
+
 pluginManager.registerExtensionPoint(publicPathExtensionPoint, {
   registerPublicPath: ({ pathPrefix }) => {
     if (!publicPathPrefixes.includes(pathPrefix)) {
@@ -334,7 +347,13 @@ app.get("/api/config", async (c) => {
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   // On the primary (admin) origin, advertise the public path prefixes so the
   // SPA entry can load the lean public bundle for e.g. `/statuspage/view/:slug`.
-  return c.json({ baseUrl, publicPathPrefixes });
+  // A non-empty instance namespace is advertised too so the admin SPA can show
+  // the "preview instance" banner; the default instance omits it.
+  return c.json({
+    baseUrl,
+    publicPathPrefixes,
+    ...(instanceNamespace ? { instanceNamespace } : {}),
+  });
 });
 
 /**
@@ -508,6 +527,7 @@ if (frontendDistPath && fs.existsSync(frontendDistPath)) {
       : {
           baseUrl: process.env.BASE_URL || "http://localhost:3000",
           publicPathPrefixes,
+          ...(instanceNamespace ? { instanceNamespace } : {}),
         };
     // The public bundle loads no host plugins, so it never needs the list.
     const enabledPlugins = publicMatch
@@ -619,6 +639,19 @@ const init = async () => {
     db,
     rootLogger.child({ plugin: "backend" }),
   );
+
+  // 1.65. Register the instance runtime so plugins can namespace shared-infra
+  // state (redis/BullMQ key prefixes, shared cache prefixes, consumer groups).
+  // Registered BEFORE the queue/cache services so those can resolve it at init.
+  pluginManager.registerService(
+    coreServices.instanceRuntime,
+    createInstanceRuntime({ namespace: instanceNamespace }),
+  );
+  if (instanceNamespace) {
+    rootLogger.info(
+      `🔀 Running as secondary instance "${instanceNamespace}"; shared infrastructure is namespaced.`,
+    );
+  }
 
   // 1.7. Register Queue Services
   rootLogger.debug("Registering queue services...");

@@ -68,6 +68,7 @@ import {
 } from "@checkstack/auth-frontend";
 import { Sidebar } from "./components/Sidebar";
 import { HelpMenu } from "./components/HelpMenu";
+import { InstanceNamespaceBanner } from "./components/InstanceNamespaceBanner";
 import { PageSkeleton, ShellSkeleton } from "./components/AppSkeletons";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
 import { loadLocalPlugins, loadRemotePlugins } from "./plugin-loader";
@@ -308,6 +309,7 @@ function AppShellLayout() {
       <GlobalShortcuts />
       <AmbientBackground className="text-foreground font-sans">
         <div className="flex flex-col h-screen overflow-hidden">
+          <InstanceNamespaceBanner />
           <AnnouncementBanner />
           <header
             className={cn(

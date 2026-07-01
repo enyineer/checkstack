@@ -6,6 +6,7 @@ import {
 } from "@checkstack/backend-api";
 import { z } from "zod";
 import { BullMQQueue } from "./bullmq-queue";
+import { composeEffectiveKeyPrefix } from "./key-prefix";
 
 const configSchema = z.object({
   host: z.string().default("localhost").describe("Redis host"),
@@ -34,12 +35,23 @@ export class BullMQPlugin implements QueuePlugin<BullMQConfig> {
   configVersion = 1;
   configSchema = configSchema;
 
+  /**
+   * The instance namespace this backend runs as (empty for the default
+   * instance). Folded into every queue's redis key prefix so a secondary
+   * instance sharing the same redis cannot collide with the default instance.
+   */
+  constructor(private readonly options: { namespace: string } = { namespace: "" }) {}
+
   createQueue<T>(
     name: string,
     config: BullMQConfig,
     _logger: Logger,
   ): Queue<T> {
     // Note: BullMQ has its own logging via Redis events
-    return new BullMQQueue<T>(name, config);
+    const keyPrefix = composeEffectiveKeyPrefix({
+      keyPrefix: config.keyPrefix,
+      namespace: this.options.namespace,
+    });
+    return new BullMQQueue<T>(name, { ...config, keyPrefix });
   }
 }
