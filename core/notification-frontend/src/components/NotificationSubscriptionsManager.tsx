@@ -84,10 +84,18 @@ export function NotificationSubscriptionsManager<TResource>({
   // Structural parent-group inheritance for this resource (e.g. a system's
   // parent catalog groups). Same answer for every user; the per-user
   // subscribed flags come from the status batch below.
+  //
+  // Only fetched while the dialog is open: it is consumed solely inside the
+  // dialog (to fold parent-group ids into the status batch and render the
+  // inheritance hint rows). The collapsed bell trigger's fill/variant derives
+  // exclusively from primaryGroupIds - with empty inheritance,
+  // collectStatusGroupIds returns exactly primaryGroupIds - so gating this
+  // avoids an N+M multi-round-trip query storm now that a bell mounts on every
+  // system row and group header of the catalog browse page.
   const { data: inheritance = [] } =
     notificationClient.resolveSubscriptionInheritance.useQuery(
       { targetTypeId: target.targetTypeId, resourceKey },
-      { staleTime: 60_000 },
+      { enabled: open, staleTime: 60_000 },
     );
 
   // Fetch subscription status for BOTH the primary groups and every
