@@ -21,6 +21,9 @@ integrations, AI and probes all run in the preview.
 - The preview instance boots against an isolated `CHECKSTACK_DATA_DIR` seeded
   from the dev instance's script-package store, so its startup reconcile reuses
   the already-built trees instead of a cold offline install.
+- When an instance's frontend is up, the cockpit auto-opens its served URL in
+  the default browser (dev and preview alike), taken from vite's `Local:` banner
+  so it matches the actual port; it opens once and does not reopen on reload.
 - Generated-file merge conflicts (docs-index, sdk, lockfile) auto-resolve by
   regeneration; hand-authored conflicts stop and are reported.
 - Each instance (dev and preview) has a full supervision panel: a process

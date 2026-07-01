@@ -17,6 +17,7 @@ import {
   type TeardownInstance,
 } from "./components/ShutdownScreen.tsx";
 import { copyToClipboard } from "./clipboard.ts";
+import { attachBrowserAutoOpen } from "./open-browser.ts";
 import { ACCENT } from "./theme.ts";
 
 type View = "home" | "dev" | "pr-preview";
@@ -90,6 +91,7 @@ export function App({
       });
       const store = createProcessStore(supervisor);
       const unregister = session.registerShutdown(() => supervisor.shutdown());
+      attachBrowserAutoOpen({ supervisor });
       store.start();
       setDev({ store, defs, unregister });
     }

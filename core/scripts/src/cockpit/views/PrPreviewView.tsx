@@ -9,6 +9,7 @@ import { listOpenPrs, resolvePrSelection, type PrInfo } from "../pr-preview/gh-p
 import { preparePreview } from "../pr-preview/prepare.ts";
 import { PrMultiSelect } from "../components/PrMultiSelect.tsx";
 import { InstancePanel } from "../components/InstancePanel.tsx";
+import { attachBrowserAutoOpen } from "../open-browser.ts";
 import { ACCENT } from "../theme.ts";
 
 /** Live details of a running preview instance, surfaced to the user. */
@@ -85,6 +86,7 @@ export function PrPreviewView({
       });
       const previewStore = createProcessStore(supervisor);
       const unregister = session.registerShutdown(() => supervisor.shutdown());
+      attachBrowserAutoOpen({ supervisor });
       previewStore.start();
       onReady({
         store: previewStore,

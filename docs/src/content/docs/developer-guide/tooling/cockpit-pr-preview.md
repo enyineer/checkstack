@@ -15,6 +15,8 @@ Switch views with `1` / `2`; return to Home with `Esc`. Stop the current instanc
 
 Because opentui captures the mouse for its own selection, the cockpit auto-copies any text you select to the system clipboard (via `pbcopy` / `wl-copy` / `xclip` / `clip`), so drag-to-select works as copy.
 
+When an instance's frontend finishes starting, the cockpit opens its served URL in your default browser once (via `open` / `xdg-open` / `start`). This works for both the dev and preview instances - the URL is taken from vite's own `Local:` banner, so it always matches the actual port (including the preview's random one). A later hot-reload or restart does not reopen the tab.
+
 ## How a preview is isolated
 
 A preview runs concurrently with your dev instance and must not collide with it. Three things keep them apart:
