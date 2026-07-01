@@ -13,7 +13,7 @@ import {
 } from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
-import { eq, and, or, lte, gte, isNull } from "drizzle-orm";
+import { eq, and, or, lte, gte, isNull, asc, inArray, sql } from "drizzle-orm";
 import type { AnnouncementCache } from "./cache";
 
 type AnnouncementDb = SafeDatabase<typeof schema>;
@@ -83,6 +83,13 @@ export function createAnnouncementRouter(
                   gte(schema.announcements.expiresAt, now),
                 ),
               ),
+            )
+            // Stable, operator-controlled order. createdAt + id break ties so
+            // the sequence never shifts when an announcement is merely updated.
+            .orderBy(
+              asc(schema.announcements.sortOrder),
+              asc(schema.announcements.createdAt),
+              asc(schema.announcements.id),
             );
 
           let announcements = rows.map((row) => toAnnouncement(row));
@@ -158,7 +165,11 @@ export function createAnnouncementRouter(
         const rows = await db
           .select()
           .from(schema.announcements)
-          .orderBy(schema.announcements.createdAt);
+          .orderBy(
+            asc(schema.announcements.sortOrder),
+            asc(schema.announcements.createdAt),
+            asc(schema.announcements.id),
+          );
 
         return { announcements: rows.map((row) => toAnnouncement(row)) };
       }),
@@ -174,6 +185,16 @@ export function createAnnouncementRouter(
         const id = crypto.randomUUID();
         const now = new Date();
 
+        // Append new announcements at the end of the operator's ordering.
+        const [maxRow] = await db
+          .select({
+            maxOrder: sql<
+              number | null
+            >`max(${schema.announcements.sortOrder})`,
+          })
+          .from(schema.announcements);
+        const nextSortOrder = (maxRow?.maxOrder ?? -1) + 1;
+
         const [row] = await db
           .insert(schema.announcements)
           .values({
@@ -184,6 +205,7 @@ export function createAnnouncementRouter(
             visibility: input.visibility,
             displayMode: input.displayMode,
             active: input.active ?? true,
+            sortOrder: nextSortOrder,
             startsAt: input.startsAt ?? undefined,
             expiresAt: input.expiresAt ?? undefined,
             createdBy: userId,
@@ -280,6 +302,39 @@ export function createAnnouncementRouter(
       }
 
       return { success: result.length > 0 };
+    }),
+
+    // -------------------------------------------------------------------------
+    // Admin: Reorder announcements
+    // -------------------------------------------------------------------------
+    reorderAnnouncements: os.reorderAnnouncements.handler(async ({ input }) => {
+      const { orderedIds } = input;
+
+      // Write the new position for every listed id in a single atomic UPDATE:
+      // sort_order = index of the id in `orderedIds`. A CASE keeps it to one
+      // statement (no partial reorder on failure); ids not listed are untouched.
+      const whenClauses = orderedIds.map(
+        (id, index) =>
+          sql`when ${schema.announcements.id} = ${id} then ${index}`,
+      );
+      const sortOrderCase = sql`case ${sql.join(whenClauses, sql` `)} else ${schema.announcements.sortOrder} end`;
+
+      await db
+        .update(schema.announcements)
+        .set({ sortOrder: sortOrderCase })
+        .where(inArray(schema.announcements.id, orderedIds));
+
+      await Promise.all([
+        cache.invalidateAllActive(),
+        cache.invalidateListAll(),
+      ]);
+
+      await signalService.broadcast(ANNOUNCEMENT_UPDATED, {
+        announcementId: orderedIds[0],
+        action: "reordered",
+      });
+
+      return { success: true };
     }),
   });
 }

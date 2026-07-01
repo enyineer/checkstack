@@ -175,15 +175,6 @@ function BannerItem({
 }
 
 /**
- * Severity sort priority for sorting banners (critical first).
- */
-const SEVERITY_ORDER: Record<string, number> = {
-  critical: 0,
-  warning: 1,
-  info: 2,
-};
-
-/**
  * Global announcement banner component.
  * Renders active banner announcements as slim strips above the navbar.
  *
@@ -206,13 +197,10 @@ export const AnnouncementBanner: React.FC = () => {
   const bannerAnnouncements = React.useMemo(() => {
     if (!data?.announcements) return [];
 
+    // Preserve the operator-defined order the backend returns; only filter.
     return data.announcements
       .filter((a) => a.displayMode === "banner" || a.displayMode === "both")
-      .filter((a) => !localDismissedIds.has(a.id))
-      .toSorted(
-        (a, b) =>
-          (SEVERITY_ORDER[a.severity] ?? 2) - (SEVERITY_ORDER[b.severity] ?? 2),
-      );
+      .filter((a) => !localDismissedIds.has(a.id));
   }, [data?.announcements, localDismissedIds]);
 
   const handleDismiss = useCallback(

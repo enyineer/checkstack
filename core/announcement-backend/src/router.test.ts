@@ -72,8 +72,11 @@ describe("Announcement Router", () => {
     it("returns active announcements for anonymous users", async () => {
       const context = createMockRpcContext({ user: undefined });
 
-      // Mock select chain for announcements query
-      const mockWhereChain = Promise.resolve([sampleAnnouncement]);
+      // Mock select chain for announcements query (ends in orderBy)
+      const mockWhereChain = Object.assign(
+        Promise.resolve([sampleAnnouncement]),
+        { orderBy: mock(() => Promise.resolve([sampleAnnouncement])) },
+      );
       const mockFromChain = Object.assign(
         Promise.resolve([sampleAnnouncement]),
         { where: mock(() => mockWhereChain) },
@@ -99,10 +102,14 @@ describe("Announcement Router", () => {
         visibility: "authenticated",
       };
 
-      const mockWhereChain = Promise.resolve([
-        sampleAnnouncement,
-        authenticatedOnly,
-      ]);
+      const mockWhereChain = Object.assign(
+        Promise.resolve([sampleAnnouncement, authenticatedOnly]),
+        {
+          orderBy: mock(() =>
+            Promise.resolve([sampleAnnouncement, authenticatedOnly]),
+          ),
+        },
+      );
       const mockFromChain = Object.assign(
         Promise.resolve([sampleAnnouncement, authenticatedOnly]),
         { where: mock(() => mockWhereChain) },
@@ -123,8 +130,11 @@ describe("Announcement Router", () => {
     it("excludes dismissed announcements for authenticated users", async () => {
       const context = createMockRpcContext({ user: adminUser });
 
-      // First query: active announcements
-      const mockWhereChain = Promise.resolve([sampleAnnouncement]);
+      // First query: active announcements (ends in orderBy)
+      const mockWhereChain = Object.assign(
+        Promise.resolve([sampleAnnouncement]),
+        { orderBy: mock(() => Promise.resolve([sampleAnnouncement])) },
+      );
       const mockFromChain = Object.assign(
         Promise.resolve([sampleAnnouncement]),
         { where: mock(() => mockWhereChain) },
@@ -155,8 +165,11 @@ describe("Announcement Router", () => {
     it("includes dismissed announcements when includeDismissed is true", async () => {
       const context = createMockRpcContext({ user: adminUser });
 
-      // Query returns one active announcement
-      const mockWhereChain = Promise.resolve([sampleAnnouncement]);
+      // Query returns one active announcement (ends in orderBy)
+      const mockWhereChain = Object.assign(
+        Promise.resolve([sampleAnnouncement]),
+        { orderBy: mock(() => Promise.resolve([sampleAnnouncement])) },
+      );
       const mockFromChain = Object.assign(
         Promise.resolve([sampleAnnouncement]),
         { where: mock(() => mockWhereChain) },
@@ -298,6 +311,41 @@ describe("Announcement Router", () => {
       );
     });
 
+    it("appends new announcements at the end of the sort order", async () => {
+      const context = createMockRpcContext({ user: adminUser });
+
+      // max(sort_order) currently 7 → the new row must be 8.
+      mockDb.select.mockReturnValueOnce({
+        from: mock(() => Promise.resolve([{ maxOrder: 7 }])),
+      } as never);
+
+      let capturedValues: Record<string, unknown> | undefined;
+      mockDb.insert.mockReturnValueOnce({
+        values: mock((v: Record<string, unknown>) => {
+          capturedValues = v;
+          return {
+            returning: mock(() =>
+              Promise.resolve([{ ...sampleAnnouncement, id: "new-id" }]),
+            ),
+          };
+        }),
+      } as never);
+
+      await call(
+        router.createAnnouncement,
+        {
+          title: "New",
+          message: "Body",
+          severity: "info",
+          visibility: "all",
+          displayMode: "both",
+        },
+        { context },
+      );
+
+      expect(capturedValues?.sortOrder).toBe(8);
+    });
+
     it("rejects unauthenticated users", async () => {
       const context = createMockRpcContext({ user: undefined });
 
@@ -343,6 +391,35 @@ describe("Announcement Router", () => {
         ANNOUNCEMENT_UPDATED,
         { announcementId: "ann-1", action: "updated" },
       );
+    });
+
+    it("never changes sort order on update (position stays stable)", async () => {
+      const context = createMockRpcContext({ user: adminUser });
+
+      // Regression guard for the reported bug: editing an announcement must not
+      // move it. The handler must never write sort_order.
+      let capturedSet: Record<string, unknown> | undefined;
+      mockDb.update.mockReturnValueOnce({
+        set: mock((v: Record<string, unknown>) => {
+          capturedSet = v;
+          return {
+            where: mock(() => ({
+              returning: mock(() =>
+                Promise.resolve([{ ...sampleAnnouncement, title: "Updated" }]),
+              ),
+            })),
+          };
+        }),
+      } as never);
+
+      await call(
+        router.updateAnnouncement,
+        { id: "ann-1", title: "Updated" },
+        { context },
+      );
+
+      expect(capturedSet).toBeDefined();
+      expect(capturedSet && "sortOrder" in capturedSet).toBe(false);
     });
 
     it("invalidates both active and list-all caches after a successful update", async () => {
@@ -428,6 +505,50 @@ describe("Announcement Router", () => {
         ANNOUNCEMENT_UPDATED,
         { announcementId: "ann-1", action: "deleted" },
       );
+    });
+  });
+
+  describe("reorderAnnouncements", () => {
+    it("persists the new order in one update and broadcasts a reordered signal", async () => {
+      const context = createMockRpcContext({ user: adminUser });
+
+      let capturedSet: Record<string, unknown> | undefined;
+      const whereSpy = mock(() => Promise.resolve());
+      mockDb.update.mockReturnValueOnce({
+        set: mock((v: Record<string, unknown>) => {
+          capturedSet = v;
+          return { where: whereSpy };
+        }),
+      } as never);
+
+      const result = await call(
+        router.reorderAnnouncements,
+        { orderedIds: ["a", "b", "c"] },
+        { context },
+      );
+
+      expect(result.success).toBe(true);
+      // A single atomic UPDATE with a CASE expression on sort_order.
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+      expect(whereSpy).toHaveBeenCalledTimes(1);
+      expect(capturedSet?.sortOrder).toBeDefined();
+
+      expect(mockSignalService.broadcast).toHaveBeenCalledWith(
+        ANNOUNCEMENT_UPDATED,
+        { announcementId: "a", action: "reordered" },
+      );
+    });
+
+    it("rejects unauthenticated users", async () => {
+      const context = createMockRpcContext({ user: undefined });
+
+      await expect(
+        call(
+          router.reorderAnnouncements,
+          { orderedIds: ["a"] },
+          { context },
+        ),
+      ).rejects.toThrow("Authentication required");
     });
   });
 
