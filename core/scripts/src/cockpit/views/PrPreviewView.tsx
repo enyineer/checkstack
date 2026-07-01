@@ -1,16 +1,15 @@
 /** @jsxImportSource @opentui/react */
 import { useEffect, useRef, useState } from "react";
-import { useTerminalDimensions } from "@opentui/react";
+import { extractErrorMessage } from "@checkstack/common";
 import { createSupervisor } from "../../dev-tui/supervisor.ts";
+import type { ProcessDef } from "../../dev-tui/process-config.ts";
 import { createProcessStore, type ProcessStore } from "../process-store.ts";
-import { useProcessStore } from "../hooks.ts";
 import { useCockpitSession } from "../session.ts";
 import { listOpenPrs, resolvePrSelection, type PrInfo } from "../pr-preview/gh-prs.ts";
 import { preparePreview } from "../pr-preview/prepare.ts";
 import { buildPreviewProcessDefs } from "../pr-preview/process-defs.ts";
 import { PrMultiSelect } from "../components/PrMultiSelect.tsx";
-import { ProcessList } from "../components/ProcessList.tsx";
-import { LogPane } from "../components/LogPane.tsx";
+import { InstancePanel } from "../components/InstancePanel.tsx";
 import { ACCENT } from "../theme.ts";
 
 /** Live details of a running preview instance, surfaced to the user. */
@@ -36,11 +35,19 @@ type Phase =
 export function PrPreviewView({
   store,
   info,
+  defs,
+  active,
   onReady,
 }: {
   store: ProcessStore | null;
   info: PreviewInfo | null;
-  onReady: (next: { store: ProcessStore; info: PreviewInfo }) => void;
+  defs: readonly ProcessDef[] | null;
+  active: boolean;
+  onReady: (next: {
+    store: ProcessStore;
+    info: PreviewInfo;
+    defs: readonly ProcessDef[];
+  }) => void;
 }) {
   const session = useCockpitSession();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
@@ -86,6 +93,7 @@ export function PrPreviewView({
       previewStore.start();
       onReady({
         store: previewStore,
+        defs,
         info: {
           backendPort: result.backendPort,
           vitePort: result.vitePort,
@@ -96,7 +104,7 @@ export function PrPreviewView({
     } catch (error) {
       setPhase({
         kind: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: extractErrorMessage(error),
       });
       preparingRef.current = false;
     }
@@ -134,7 +142,7 @@ export function PrPreviewView({
         if (cancelled) return;
         setPhase({
           kind: "error",
-          message: error instanceof Error ? error.message : String(error),
+          message: extractErrorMessage(error),
         });
       }
     })();
@@ -145,8 +153,8 @@ export function PrPreviewView({
   }, []);
 
   // Running: a preview instance exists.
-  if (store && info) {
-    return <RunningPreview store={store} info={info} />;
+  if (store && info && defs) {
+    return <RunningPreview store={store} info={info} defs={defs} active={active} />;
   }
 
   if (phase.kind === "loading") {
@@ -196,36 +204,25 @@ export function PrPreviewView({
 function RunningPreview({
   store,
   info,
+  defs,
+  active,
 }: {
   store: ProcessStore;
   info: PreviewInfo;
+  defs: readonly ProcessDef[];
+  active: boolean;
 }) {
-  const { lines, statuses } = useProcessStore(store);
-  const { height } = useTerminalDimensions();
-  const rows = [
-    {
-      id: "backend" as const,
-      label: `preview backend :${info.backendPort}`,
-      status: statuses.backend ?? ("stopped" as const),
-    },
-    {
-      id: "frontend" as const,
-      label: `preview frontend :${info.vitePort}`,
-      status: statuses.frontend ?? ("stopped" as const),
-    },
-  ];
   return (
-    <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
-      <text fg={ACCENT}>
-        Preview instance (PRs {info.mergedPrs.map((n) => `#${n}`).join(", ")})
-      </text>
-      <text>
-        Open: <span fg="green">{`http://localhost:${info.vitePort}`}</span>
-      </text>
-      <ProcessList rows={rows} />
-      <box paddingTop={1} flexGrow={1}>
-        <LogPane lines={lines} visible={Math.max(3, height - 14)} />
+    <box flexDirection="column" flexGrow={1}>
+      <box paddingLeft={1}>
+        <text>
+          <span fg={ACCENT}>
+            {`Preview (PRs ${info.mergedPrs.map((n) => `#${n}`).join(", ")})  `}
+          </span>
+          Open: <span fg="green">{`http://localhost:${info.vitePort}`}</span>
+        </text>
       </box>
+      <InstancePanel store={store} defs={defs} active={active} />
     </box>
   );
 }

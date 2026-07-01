@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /** @jsxImportSource @opentui/react */
 import process from "node:process";
+import { extractErrorMessage } from "@checkstack/common";
 import { parseCockpitArgs } from "./args.ts";
 import { createBunExec } from "./pr-preview/exec.ts";
 import { resolveDbCopyConfig, wipeSnapshot } from "./pr-preview/db-copy.ts";
@@ -38,10 +39,15 @@ async function main(): Promise<void> {
 
   if (!isInteractive) {
     const onShutdownComplete = () => process.exit(0);
-    if (args.view === "pr-preview") {
-      await runPlainPreview({ repoRoot, args, onShutdownComplete });
-    } else {
-      runPlainDev({ repoRoot, args, onShutdownComplete });
+    try {
+      if (args.view === "pr-preview") {
+        await runPlainPreview({ repoRoot, args, onShutdownComplete });
+      } else {
+        runPlainDev({ repoRoot, args, onShutdownComplete });
+      }
+    } catch (error) {
+      process.stderr.write(`${extractErrorMessage(error)}\n`);
+      process.exit(1);
     }
     return;
   }
@@ -90,4 +96,4 @@ async function main(): Promise<void> {
   );
 }
 
-void main();
+await main();

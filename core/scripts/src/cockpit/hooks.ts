@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { ProcessSnapshot, ProcessStore } from "./process-store.ts";
 
 /**
@@ -11,3 +11,14 @@ export function useProcessStore(store: ProcessStore): ProcessSnapshot {
   useEffect(() => store.subscribe(forceRender), [store]);
   return store.getSnapshot();
 }
+
+/** Advance a spinner frame on a fixed interval (for the shutdown overlay). */
+export function useSpinnerFrame(intervalMs = 80): number {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setFrame((f) => f + 1), intervalMs);
+    return () => clearInterval(interval);
+  }, [intervalMs]);
+  return frame;
+}
+

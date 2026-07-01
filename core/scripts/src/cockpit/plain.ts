@@ -43,19 +43,17 @@ export async function runPlainPreview({
   const exec = createBunExec();
   const requested = args.prNumbers ?? [];
   if (requested.length === 0) {
-    write(
+    throw new Error(
       "Non-interactive PR preview requires --prs <numbers> (e.g. --prs 380,381).",
     );
-    process.exit(1);
   }
 
   const prs = await listOpenPrs({ exec });
   const { selected, invalid } = resolvePrSelection({ requested, available: prs });
   if (invalid.length > 0) {
-    write(
+    throw new Error(
       `Not open PRs: ${invalid.join(", ")}. Open PRs: ${prs.map((p) => p.number).join(", ")}`,
     );
-    process.exit(1);
   }
 
   const result = await preparePreview({
@@ -67,8 +65,7 @@ export async function runPlainPreview({
     onStep: write,
   });
   if (!result.ok) {
-    write(`Preview preparation failed: ${result.reason}`);
-    process.exit(1);
+    throw new Error(`Preview preparation failed: ${result.reason}`);
   }
 
   write(

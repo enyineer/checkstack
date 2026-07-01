@@ -18,9 +18,13 @@ integrations, AI and probes all run in the preview.
   (`--fresh` to re-snapshot, `--wipe` to drop the copy).
 - Generated-file merge conflicts (docs-index, sdk, lockfile) auto-resolve by
   regeneration; hand-authored conflicts stop and are reported.
-- Adds `@opentui/core` / `@opentui/react` (prebuilt native renderer, no Zig
-  toolchain needed). The previous ink dev runner remains as `bun run dev:legacy`
-  until the cockpit reaches full parity.
+- Each instance (dev and preview) has a full supervision panel: a process
+  sidebar with status dots and unread-alert badges, a scrollable per-process log
+  (Tab/Arrows to switch, Up/Down/PgUp/PgDn to scroll), a pinned alerts panel,
+  `r` to restart the focused process, and a teardown overlay on quit.
+- Swaps the renderer from ink to `@opentui/core` / `@opentui/react` (prebuilt
+  native renderer, no Zig toolchain needed) and REMOVES the previous ink dev
+  runner and its component kit - the cockpit is now the sole `bun run dev`.
 
 The dev supervisor now supports per-process `env` overrides and injected process
 defs (used by the preview instance), and `core/frontend`'s vite dev proxy target

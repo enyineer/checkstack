@@ -7,10 +7,10 @@ The developer cockpit is the local dev entry point (`bun run dev`). It is a term
 
 ## Views
 
-- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with live status dots and colour-coded logs. This is the same supervision the runner has always done.
-- **PR preview** (`2`): pick open PRs, merge them into a throwaway worktree, snapshot the dev database, and boot the merged app on random ports as a namespaced secondary instance.
+- **Dev** (`1`): the primary instance - docker deps, backend, and frontend - with a process sidebar (status dots + unread-alert badges), a scrollable per-process log, and a pinned alerts panel.
+- **PR preview** (`2`): pick open PRs, merge them into a throwaway worktree, snapshot the dev database, and boot the merged app on random ports as a namespaced secondary instance - shown with the same full instance panel once running.
 
-Switch views with `1` / `2` or `Tab`; quit with `q` (or `Ctrl-C`). Both instances keep running as you switch, and quitting tears them all down cleanly.
+Switch views with `1` / `2`; quit with `q` (or `Ctrl-C`). Within a running instance, `Tab` / `←` `→` switch the focused process, `↑` `↓` / `PgUp` `PgDn` scroll its log (the title shows `(tail)` vs `(scrolled)`), and `r` restarts the focused process. Both instances keep running as you switch views, and quitting shows a teardown overlay while every child is stopped.
 
 ## How a preview is isolated
 
@@ -55,7 +55,3 @@ Selected PRs are merged into the worktree in order. Conflicts in generated files
 
 - The dev deps must be running (`bun run dev`, or `docker compose -f docker-compose-dev.yml up -d`) - the database copy is made inside the compose postgres container.
 - `gh` must be installed and authenticated (the PR list comes from `gh pr list`).
-
-> [!NOTE]
-> The previous ink-based dev runner is still available as `bun run dev:legacy`
-> until the cockpit reaches full feature parity.

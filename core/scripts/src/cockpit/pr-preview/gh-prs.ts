@@ -31,7 +31,7 @@ export const GH_PR_JSON_FIELDS =
 export function parsePrList(stdout: string): PrInfo[] {
   const json: unknown = JSON.parse(stdout);
   const prs = prListSchema.parse(json);
-  return [...prs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return prs.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /**

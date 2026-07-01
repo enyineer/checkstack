@@ -35,7 +35,7 @@ export function createCockpitSession({
     },
     async shutdownAll() {
       await Promise.all(
-        [...handlers].map((fn) => fn().catch(() => undefined)),
+        [...handlers].map((fn) => fn().catch(() => {})),
       );
     },
   };

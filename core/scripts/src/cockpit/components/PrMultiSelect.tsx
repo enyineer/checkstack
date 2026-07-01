@@ -20,21 +20,30 @@ export function PrMultiSelect({
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
   useKeyboard((key) => {
-    if (key.name === "up") {
-      setCursor((c) => Math.max(0, c - 1));
-    } else if (key.name === "down") {
-      setCursor((c) => Math.min(prs.length - 1, c + 1));
-    } else if (key.name === "space") {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        const num = prs[cursor]?.number;
-        if (num === undefined) return prev;
-        if (next.has(num)) next.delete(num);
-        else next.add(num);
-        return next;
-      });
-    } else if (key.name === "return") {
-      onSubmit(prs.filter((pr) => selected.has(pr.number)));
+    switch (key.name) {
+      case "up": {
+        setCursor((c) => Math.max(0, c - 1));
+        break;
+      }
+      case "down": {
+        setCursor((c) => Math.min(prs.length - 1, c + 1));
+        break;
+      }
+      case "space": {
+        setSelected((prev) => {
+          const next = new Set(prev);
+          const num = prs[cursor]?.number;
+          if (num === undefined) return prev;
+          if (next.has(num)) next.delete(num);
+          else next.add(num);
+          return next;
+        });
+        break;
+      }
+      case "return": {
+        onSubmit(prs.filter((pr) => selected.has(pr.number)));
+        break;
+      }
     }
   });
 

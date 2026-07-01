@@ -26,7 +26,7 @@ export function parsePrNumbers(raw: string): number[] {
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
-    .map((part) => Number(part))
+    .map(Number)
     .filter((n) => Number.isInteger(n) && n > 0);
 }
 
