@@ -20,6 +20,7 @@ import {
 } from "@checkstack/ui";
 import { Check } from "lucide-react";
 import type { Role, AccessRuleEntry } from "../api";
+import { useAccessRules } from "../hooks/useAccessRules";
 
 interface RoleDialogProps {
   open: boolean;
@@ -60,8 +61,15 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
 
   const isEditing = !!role;
   const isAdminRole = role?.id === "admin";
-  // Disable access rules for admin (wildcard) or user's own roles (prevent elevation)
-  const accessRulesDisabled = isAdminRole || isUserRole;
+  // A platform admin (wildcard `*`) already holds every access rule, so editing
+  // a role they belong to cannot elevate them - exempt them from the own-role
+  // lock so they can configure roles they were automatically added to (the
+  // backend applies the same exemption).
+  const { accessRules: viewerAccessRules } = useAccessRules();
+  const isWildcardAdmin = viewerAccessRules.includes("*");
+  // Disable access rules for the admin role (wildcard, not rule-editable) or the
+  // viewer's own role (prevent elevation) - unless the viewer is a wildcard admin.
+  const accessRulesDisabled = isAdminRole || (isUserRole && !isWildcardAdmin);
   // The anonymous role may only hold rules that a PUBLIC endpoint actually uses;
   // granting an authenticated-only rule to it is inert (the server rejects
   // unauthenticated callers before checking rules). Mirrors the backend guardrail.
@@ -169,7 +177,7 @@ export const RoleDialog: React.FC<RoleDialogProps> = ({
                   </AlertDescription>
                 </Alert>
               )}
-              {!isAdminRole && isUserRole && (
+              {!isAdminRole && isUserRole && !isWildcardAdmin && (
                 <Alert variant="info" className="mb-3">
                   <AlertDescription>
                     You cannot modify access rules for a role you currently

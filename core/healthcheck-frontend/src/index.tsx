@@ -23,6 +23,7 @@ import {
 import {
   healthcheckRoutes,
   pluginMetadata,
+  healthCheckResourceTypes,
 } from "@checkstack/healthcheck-common";
 
 // Export slot definitions for other plugins to use
@@ -54,6 +55,9 @@ export default createFrontendPlugin({
         })),
       title: "Health Checks",
       accessRule: healthCheckAccess.configuration.manage,
+      // Team-scoped: creating/managing a health check via a team unlocks the
+      // management route even without the global manage rule.
+      manageCapability: { objectType: healthCheckResourceTypes.configuration },
       nav: {
         group: "Reliability",
         icon: Activity,

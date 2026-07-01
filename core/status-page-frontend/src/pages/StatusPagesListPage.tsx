@@ -32,6 +32,7 @@ import {
   statusPageAccess,
   statusPageRoutes,
   statusPublicRoutes,
+  statusPageResourceTypes,
 } from "@checkstack/status-page-common";
 import { TeamOwnershipPicker } from "@checkstack/auth-frontend";
 import { slugify } from "../utils/slugify";
@@ -41,13 +42,30 @@ export const StatusPagesListPage: React.FC = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const accessApi = useApi(accessApiRef);
+  // `allowGlobal` on the ownership picker needs the true global-manage grant,
+  // so keep the raw access check for it.
   const { allowed: canCreateGlobal } = accessApi.useAccess(
     statusPageAccess.page.manage,
   );
+  // Gate the create button on the platform create primitive (global-manage
+  // holders and team-scoped creators both pass automatically).
+  const { allowed: canCreate } = accessApi.useCanCreate({
+    accessRule: statusPageAccess.page.manage,
+    objectType: statusPageResourceTypes.page,
+  });
 
   const listQuery = client.listStatusPages.useQuery({});
   const { data, isLoading, isError } = listQuery;
   const pages = data?.pages ?? [];
+
+  // Per-resource gate: a user may manage a specific page via a team grant on
+  // that object even without the global rule (global-manage users pass
+  // automatically). Gates each card's Edit / Delete action.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: statusPageAccess.page.manage,
+    objectType: statusPageResourceTypes.page,
+    resourceIds: pages.map((p) => p.id),
+  });
 
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
@@ -81,18 +99,20 @@ export const StatusPagesListPage: React.FC = () => {
       title="Status pages"
       icon={MonitorCheck}
       actions={
-        <Button
-          onClick={() => {
-            setTitle("");
-            setSlug("");
-            setSlugEdited(false);
-            setTeamId(null);
-            setCreateError(null);
-            setCreating(true);
-          }}
-        >
-          <Plus className="mr-1.5 h-4 w-4" /> New status page
-        </Button>
+        canCreate ? (
+          <Button
+            onClick={() => {
+              setTitle("");
+              setSlug("");
+              setSlugEdited(false);
+              setTeamId(null);
+              setCreateError(null);
+              setCreating(true);
+            }}
+          >
+            <Plus className="mr-1.5 h-4 w-4" /> New status page
+          </Button>
+        ) : undefined
       }
     >
       {isLoading ? (
@@ -170,28 +190,32 @@ export const StatusPagesListPage: React.FC = () => {
                     <ExternalLink className="h-4 w-4" />
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    navigate(
-                      resolveRoute(statusPageRoutes.routes.builder, {
-                        id: page.id,
-                      }),
-                    )
-                  }
-                  aria-label="Edit"
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDeleteId(page.id)}
-                  aria-label="Delete"
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                {canAccess(page.id) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      navigate(
+                        resolveRoute(statusPageRoutes.routes.builder, {
+                          id: page.id,
+                        }),
+                      )
+                    }
+                    aria-label="Edit"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
+                {canAccess(page.id) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDeleteId(page.id)}
+                    aria-label="Delete"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

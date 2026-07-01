@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { pluginRegistry } from "@checkstack/frontend-api";
-import { useAccessRules } from "@checkstack/auth-frontend";
+import { useAccessRules, useManageableTypes } from "@checkstack/auth-frontend";
 import { openSearchPalette } from "@checkstack/command-frontend";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import { selectNavGroups } from "./Sidebar.logic";
@@ -56,6 +56,10 @@ interface NavGroup {
 /** Build the access-filtered, grouped, ordered nav model from the route registry. */
 function useNavGroups(): NavGroup[] {
   const { accessRules, isAuthenticated } = useAccessRules();
+  // Team-derived capability set: lets management entries (incidents, catalog
+  // management, etc.) appear for a team-scoped user who holds no global rule but
+  // whose team can create/manage the type. Global-rule users don't need it.
+  const { types: manageableTypeList } = useManageableTypes();
 
   // getAllRoutes() is recomputed from the registry; plugin load/unload triggers
   // an App re-render so this stays current. Cheap O(routes) work.
@@ -70,8 +74,9 @@ function useNavGroups(): NavGroup[] {
         accessRules,
         isAuthenticated,
         groupOrder: GROUP_ORDER,
+        manageableTypes: new Set(manageableTypeList),
       }) as NavGroup[],
-    [routes, accessRules, isAuthenticated],
+    [routes, accessRules, isAuthenticated, manageableTypeList],
   );
 }
 

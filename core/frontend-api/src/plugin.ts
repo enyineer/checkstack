@@ -5,6 +5,7 @@ import type {
   RouteDefinition,
   PluginMetadata,
   AccessRule,
+  ResourceType,
 } from "@checkstack/common";
 import type { Signal } from "@checkstack/signal-common";
 
@@ -103,6 +104,30 @@ export function createSlotExtension<
  * Uses RouteDefinition from the plugin's common package.
  */
 /**
+ * Team-capability gate for a management route/nav entry. When present, the route
+ * guard and the sidebar treat the surface as accessible if the user holds the
+ * route's global `accessRule` OR a team of theirs can create/manage the
+ * `objectType` (or, via `parentType`, manage the parent - e.g. managing a
+ * `catalog.system` unlocks the incidents surface). Lets team-scoped users reach
+ * management pages they hold no global rule for. Resolved via
+ * `accessApi.useCanAccessType`.
+ */
+export interface ManageCapability {
+  /**
+   * The resource type this surface manages, e.g. `incidentResourceTypes.incident`
+   * (`"incident.incident"`). Use an exported `*ResourceTypes` constant, not a raw
+   * string.
+   */
+  objectType: ResourceType;
+  /**
+   * Optional parent type the resource is created "for" (mirrors the backend
+   * contract's `instanceAccess.create.parent.resourceType`), e.g.
+   * `catalogResourceTypes.system`. Managing a parent unlocks the child's surface.
+   */
+  parentType?: ResourceType;
+}
+
+/**
  * Sidebar navigation metadata. A route opts into the left sidebar by setting
  * `nav` on its registration; routes without `nav` are reachable (deep links,
  * detail pages) but are not listed in the sidebar.
@@ -122,6 +147,12 @@ export interface NavEntry {
    * (e.g. show on `read` while the page itself needs `manage`).
    */
   accessRule?: AccessRule;
+  /**
+   * Team-capability gate for sidebar visibility. Defaults to the route's
+   * `manageCapability`. When present, the entry is shown if `accessRule` is
+   * satisfied OR the user can create/manage the type (or its parent) via a team.
+   */
+  manageCapability?: ManageCapability;
   /**
    * Dynamic visibility predicate, evaluated with the current user's access
    * rules and auth state. Use for entries whose visibility cannot be expressed
@@ -148,6 +179,14 @@ interface PluginRouteBase {
   title?: string;
   /** Access rule required to access this route (use access object from common package) */
   accessRule?: AccessRule;
+  /**
+   * Team-capability gate. When set, the route guard and sidebar allow the route
+   * if the user holds `accessRule` (global RBAC) OR can create/manage the
+   * declared type via a team grant (ReBAC). Use on management routes so
+   * team-scoped users can reach the surfaces they can actually use. The sidebar
+   * inherits this for the nav entry unless `nav.manageCapability` overrides it.
+   */
+  manageCapability?: ManageCapability;
   /** Optional sidebar navigation entry for this route. */
   nav?: NavEntry;
   /**

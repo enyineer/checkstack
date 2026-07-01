@@ -145,6 +145,8 @@ export { SessionProvider } from "./lib/SessionProvider";
 // Re-export the access-rules hook so the app shell (sidebar) can resolve
 // nav visibility from the granted rules in one place.
 export { useAccessRules } from "./hooks/useAccessRules";
+// The team-derived manageable-types set powers capability-aware sidebar gating.
+export { useManageableTypes } from "./hooks/useManageableTypes";
 
 // Re-export the auth API ref + its safe default so the host can register the
 // default in the core registry (the shell reads `authApiRef` before the auth

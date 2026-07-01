@@ -308,6 +308,28 @@ types a team may create (replace `grantResourceCreate` / `revokeResourceCreate`
 { teamId: string } -> { resourceTypes: string[] }
 ```
 
+##### `canCreate` / `listMyAccessibleResources`
+Frontend-facing capability queries for the CURRENT caller, so the UI can show
+exactly the create and per-resource actions the backend would authorise. Both
+resolve ONLY the team-derived (ReBAC) grants (`hasGlobalAccess: false`); the
+frontend ORs the global RBAC rule on top via `useAccess`. They are the
+authenticated mirrors of the S2S `authorizeCreate` / `listAccessibleObjectIds`.
+
+```typescript
+// canCreate: may the caller create this type via a team grant?
+// True when a team of theirs holds a `creator` grant on `objectType`, OR
+// (when parentType is given) manages at least one object of `parentType`.
+{ objectType: string; parentType?: string } -> { allowed: boolean }
+
+// listMyAccessibleResources: which of these ids may the caller act on?
+{ objectType: string; resourceIds: string[]; action: "read" | "manage" }
+  -> { accessibleIds: string[] }
+```
+
+Prefer the frontend hooks (`useCanCreate` / `useResourceAccess`, see
+[Frontend access gating](/checkstack/developer-guide/frontend/access-gating/))
+over calling these procedures directly.
+
 #### S2S procedures (`userType: "service"`)
 
 Called by `autoAuthMiddleware` (and create handlers) to enforce access. They

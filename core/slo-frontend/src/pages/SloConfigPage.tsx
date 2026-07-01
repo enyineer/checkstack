@@ -9,11 +9,12 @@ import {
 import { SloApi } from "../api";
 import {
   sloAccess,
+  sloResourceTypes,
   pluginMetadata as sloPluginMetadata,
   type SloObjective,
 } from "@checkstack/slo-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
-import { CatalogApi } from "@checkstack/catalog-common";
+import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
   Card,
@@ -69,9 +70,22 @@ const SloConfigPageContent: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
 
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    sloAccess.slo.manage,
-  );
+  // Create capability: gates the create-objective action. Managing the target
+  // system (the SLO's parent) is enough - matching the backend parent gate.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanCreate({
+      accessRule: sloAccess.slo.manage,
+      objectType: sloResourceTypes.slo,
+      parentType: catalogResourceTypes.system,
+    });
+  // Surface access: gates reaching this page (matches the route guard); also
+  // true for a user who manages a system or an existing objective via a team.
+  const { allowed: canAccessSurface, loading: surfaceLoading } =
+    accessApi.useCanAccessType({
+      accessRule: sloAccess.slo.manage,
+      objectType: sloResourceTypes.slo,
+      parentType: catalogResourceTypes.system,
+    });
 
   const objectivesQuery = sloClient.listObjectives.useQuery({});
   const {
@@ -84,6 +98,12 @@ const SloConfigPageContent: React.FC = () => {
     catalogClient.getSystems.useQuery({});
 
   const objectives = objectivesData?.objectives ?? [];
+
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: sloAccess.slo.manage,
+    objectType: sloResourceTypes.slo,
+    resourceIds: objectives.map((item) => item.objective.id),
+  });
   const systems = systemsData?.systems ?? [];
   const loading = objectivesLoading || systemsLoading;
   const isError = objectivesQuery.isError;
@@ -176,8 +196,8 @@ const SloConfigPageContent: React.FC = () => {
       title="SLO Management"
       subtitle="Define and manage Service Level Objectives"
       icon={Target}
-      loading={accessLoading}
-      allowed={canManage}
+      loading={accessLoading || surfaceLoading}
+      allowed={canAccessSurface}
       actions={
         <Tip
           plugin={sloPluginMetadata}
@@ -287,22 +307,26 @@ const SloConfigPageContent: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(item.objective)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setDeleteId(item.objective.id)
-                              }
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canAccess(item.objective.id) && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEdit(item.objective)}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setDeleteId(item.objective.id)
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -330,22 +354,24 @@ const SloConfigPageContent: React.FC = () => {
                     <div className="mt-2">
                       {getExclusionBadge(item.objective.dependencyExclusion)}
                     </div>
-                    <div className="mt-3 flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(item.objective)}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteId(item.objective.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                    {canAccess(item.objective.id) && (
+                      <div className="mt-3 flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(item.objective)}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteId(item.objective.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </MobileCardList>

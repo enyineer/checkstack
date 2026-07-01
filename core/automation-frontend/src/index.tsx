@@ -3,6 +3,7 @@ import {
   automationRoutes,
   pluginMetadata,
   automationAccess,
+  automationResourceTypes,
 } from "@checkstack/automation-common";
 import { Workflow } from "lucide-react";
 
@@ -60,6 +61,8 @@ export default createFrontendPlugin({
         })),
       title: "New automation",
       accessRule: automationAccess.manage,
+      // Team-scoped: a team with an automation creator grant may reach create.
+      manageCapability: { objectType: automationResourceTypes.automation },
     },
     {
       route: automationRoutes.routes.createBlank,
@@ -69,6 +72,8 @@ export default createFrontendPlugin({
         })),
       title: "New automation",
       accessRule: automationAccess.manage,
+      // Team-scoped: a team with an automation creator grant may reach create.
+      manageCapability: { objectType: automationResourceTypes.automation },
     },
     {
       route: automationRoutes.routes.edit,

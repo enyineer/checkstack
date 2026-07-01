@@ -17,6 +17,7 @@ import {
   AutomationApi,
   automationAccess,
   automationRoutes,
+  automationResourceTypes,
   type AutomationDefinition,
 } from "@checkstack/automation-common";
 import {
@@ -118,12 +119,28 @@ const AutomationEditContent: React.FC = () => {
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  const { allowed: hasManageAccess } = accessApi.useAccess(
+  // allowGlobal: the GLOBAL manage rule means the caller may create a resource
+  // not scoped to any team. This feeds the TeamOwnershipPicker only.
+  const { allowed: hasGlobalManageAccess } = accessApi.useAccess(
     automationAccess.manage,
   );
-  // allowGlobal: reuse the manage access check — global manage permission
-  // means the caller may create a resource not scoped to any team.
-  const allowGlobal = hasManageAccess;
+  const allowGlobal = hasGlobalManageAccess;
+
+  // Create/page gate (new automations): global manage rule OR team-derived
+  // create capability.
+  const { allowed: canCreate } = accessApi.useCanCreate({
+    accessRule: automationAccess.manage,
+    objectType: automationResourceTypes.automation,
+  });
+  // Per-resource manage gate (existing automations): grants to global-manage
+  // holders AND to team-scoped users with a per-object grant on THIS id.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: automationAccess.manage,
+    objectType: automationResourceTypes.automation,
+    resourceIds: !isNew && automationId ? [automationId] : [],
+  });
+  const canManageThisAutomation =
+    !isNew && automationId ? canAccess(automationId) : false;
 
   // GitOps provenance lock: when this automation is declaratively managed,
   // disable manual edits + show a banner. `entityId` is the automation id
@@ -134,8 +151,10 @@ const AutomationEditContent: React.FC = () => {
     entityId: isNew ? undefined : automationId,
   });
 
-  // Effective edit permission: manage access AND not GitOps-locked.
-  const canManage = hasManageAccess && !isLocked;
+  // Effective edit permission: RLAC manage (create capability for new, per-
+  // resource access for existing) AND not GitOps-locked.
+  const canManage =
+    (isNew ? canCreate : canManageThisAutomation) && !isLocked;
 
   const loadQuery = client.getAutomation.useQuery(
     { id: automationId ?? "" },

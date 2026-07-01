@@ -2,6 +2,10 @@ import React, { useState, useEffect, useId, useMemo } from "react";
 import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
 import { SloApi, type SloObjective } from "../api";
 import type { System } from "@checkstack/catalog-common";
+import {
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import type { DependencyExclusionMode } from "@checkstack/slo-common";
 import { sloAccess } from "@checkstack/slo-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
@@ -69,6 +73,18 @@ export const SloEditor: React.FC<Props> = ({
   const fieldIds = useId();
 
   const { allowed: allowGlobal } = accessApi.useAccess(sloAccess.slo.manage);
+
+  // Only systems the user may MANAGE are selectable: the backend now parent-
+  // gates SLO creation on the target system (unless the caller holds the global
+  // SLO rule, which lets it target any).
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: systems.map((s) => s.id),
+  });
+  const selectableSystems = allowGlobal
+    ? systems
+    : systems.filter((s) => canManageSystem(s.id));
 
   // Form state
   const [systemId, setSystemId] = useState(DEFAULTS.systemId);
@@ -326,7 +342,7 @@ export const SloEditor: React.FC<Props> = ({
                         <SelectValue placeholder="Select a system" />
                       </SelectTrigger>
                       <SelectContent>
-                        {systems.map((system) => (
+                        {selectableSystems.map((system) => (
                           <SelectItem key={system.id} value={system.id}>
                             {system.name}
                           </SelectItem>

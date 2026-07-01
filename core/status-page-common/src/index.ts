@@ -1,5 +1,9 @@
 export * from "./plugin-metadata";
-export { statusPageAccess, statusPageAccessRules } from "./access";
+export {
+  statusPageAccess,
+  statusPageAccessRules,
+  statusPageResourceTypes,
+} from "./access";
 export { statusPageContract, StatusPageApi } from "./rpc-contract";
 export { statusPageRoutes, statusPublicRoutes } from "./routes";
 export * from "./schemas";

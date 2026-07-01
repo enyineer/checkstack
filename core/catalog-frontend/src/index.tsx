@@ -3,6 +3,7 @@ import {
   catalogRoutes,
   pluginMetadata,
   catalogAccess,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 
 import { Server, FolderTree } from "lucide-react";
@@ -46,6 +47,9 @@ export const catalogPlugin = createFrontendPlugin({
           default: m.CatalogConfigPage,
         })),
       accessRule: catalogAccess.system.manage,
+      // Team-scoped: managing any system unlocks the catalog management surface
+      // (they can edit their systems even without the global manage rule).
+      manageCapability: { objectType: catalogResourceTypes.system },
     },
     {
       route: catalogRoutes.routes.systemDetail,

@@ -1,5 +1,14 @@
-import { accessPair } from "@checkstack/common";
+import { accessPair, resourceType } from "@checkstack/common";
 import { pluginMetadata } from "./plugin-metadata";
+
+/**
+ * Plugin-qualified resource type ids for the incident plugin's resources.
+ * Reference these (never a raw `"incident.incident"` string) at capability call
+ * sites so a typo fails typecheck.
+ */
+export const incidentResourceTypes = {
+  incident: resourceType(pluginMetadata, "incident"),
+};
 
 /**
  * Access rules for the Incident plugin.

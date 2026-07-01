@@ -1045,16 +1045,34 @@ describe("Auth Router", () => {
     );
   });
 
-  it("deleteRole prevents deleting own roles", async () => {
-    const userWithRole = {
-      ...mockUser,
+  it("deleteRole prevents a non-admin from deleting a role they currently have", async () => {
+    // Has the delete capability but NOT the wildcard, so the self-lockout /
+    // elevation guard applies.
+    const nonAdminWithRole = {
+      type: "user" as const,
+      id: "non-admin-user",
+      accessRules: ["test-plugin.roles.delete.manage"],
       roles: ["custom-role"],
-    };
-    const context = createMockRpcContext({ user: userWithRole });
+    } as ReturnType<typeof createMockRpcContext>["user"];
+    const context = createMockRpcContext({ user: nonAdminWithRole });
 
     expect(call(router.deleteRole, "custom-role", { context })).rejects.toThrow(
       "currently have",
     );
+  });
+
+  it("deleteRole lets a wildcard admin delete a (non-system) role they have", async () => {
+    // mockUser holds `*`, so the own-role guard is bypassed (no elevation risk).
+    const context = createMockRpcContext({
+      user: { ...mockUser, roles: ["custom-role"] },
+    });
+    // existingRole lookup -> a non-system role, so the delete proceeds.
+    mockDb.select.mockImplementationOnce(() => ({
+      from: mock(() => createChain([{ id: "custom-role", isSystem: false }])),
+    }));
+
+    await call(router.deleteRole, "custom-role", { context });
+    expect(mockDb.transaction).toHaveBeenCalled();
   });
 
   it("getAccessRules returns registry access rules", async () => {

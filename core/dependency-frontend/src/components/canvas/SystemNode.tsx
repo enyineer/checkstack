@@ -12,6 +12,13 @@ export interface SystemNodeData extends Record<string, unknown> {
   upstreamCount: number;
   /** Number of systems that depend on this node (incoming edges via left handle) */
   downstreamCount: number;
+  /**
+   * Whether the current user may MANAGE this system, and therefore ORIGINATE a
+   * dependency FROM it. Only managed systems expose an enabled outgoing (source)
+   * connection handle; the incoming (target) handle is always available since
+   * targets are not access-checked.
+   */
+  canManage: boolean;
 }
 
 export type SystemNode = Node<SystemNodeData, "system">;
@@ -163,12 +170,23 @@ export const SystemNodeComponent = memo(function SystemNodeComponent({
         )}
       </div>
 
-      {/* Source handle (right) — "I depend on..." — violet */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!w-3 !h-3 !bg-violet-400/60 !border-2 !border-background !z-10"
-      />
+      {/* Source handle (right) — "I depend on..." — violet.
+          Only rendered for systems the user manages: a dependency can only
+          originate from a system you manage, so unmanaged systems show no
+          outgoing handle (a muted read-only affordance takes its place). */}
+      {data.canManage ? (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="!w-3 !h-3 !bg-violet-400/60 !border-2 !border-background !z-10"
+        />
+      ) : (
+        <span
+          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 block size-3 rounded-full border-2 border-background bg-muted-foreground/25 z-10"
+          title="You can only add dependencies from systems you manage"
+          aria-label="You can only add dependencies from systems you manage"
+        />
+      )}
     </>
   );
 });

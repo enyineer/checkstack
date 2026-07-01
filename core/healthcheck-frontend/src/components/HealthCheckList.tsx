@@ -2,7 +2,10 @@ import React from "react";
 import {
   HealthCheckConfiguration,
   HealthCheckStrategyDto,
+  healthCheckAccess,
+  healthCheckResourceTypes,
 } from "@checkstack/healthcheck-common";
+import { accessApiRef, useApi } from "@checkstack/frontend-api";
 import {
   Table,
   TableBody,
@@ -29,7 +32,6 @@ interface HealthCheckListProps {
   onDelete: (id: string) => void;
   onPause?: (id: string) => void;
   onResume?: (id: string) => void;
-  canManage?: boolean;
 }
 
 export const HealthCheckList: React.FC<HealthCheckListProps> = ({
@@ -39,8 +41,17 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
   onDelete,
   onPause,
   onResume,
-  canManage = true,
 }) => {
+  const accessApi = useApi(accessApiRef);
+  // Per-resource action gate: ORs the global manage rule with a team grant on
+  // each specific configuration, so team-scoped managers see row actions only
+  // for the checks they own while global managers see them for all.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: healthCheckAccess.configuration.manage,
+    objectType: healthCheckResourceTypes.configuration,
+    resourceIds: configurations.map((c) => c.id),
+  });
+
   const getStrategyName = (id: string) => {
     return strategies.find((s) => s.id === id)?.displayName || id;
   };
@@ -68,7 +79,7 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
                 onDelete={onDelete}
                 onPause={onPause}
                 onResume={onResume}
-                canManage={canManage}
+                canManage={canAccess(config.id)}
               />
             ))}
           </TableBody>
@@ -85,7 +96,7 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
             onDelete={onDelete}
             onPause={onPause}
             onResume={onResume}
-            canManage={canManage}
+            canManage={canAccess(config.id)}
           />
         ))}
       </MobileCardList>
@@ -337,18 +348,20 @@ const HealthCheckActionButtons: React.FC<HealthCheckActionButtonsProps> = ({
           <Pause className="h-4 w-4" />
         </Button>
       ))}
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => onEdit(config)}
-      title={
-        isLocked
-          ? "View configuration (Managed by GitOps)"
-          : "Edit configuration"
-      }
-    >
-      <Edit className="h-4 w-4" />
-    </Button>
+    {canManage && (
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => onEdit(config)}
+        title={
+          isLocked
+            ? "View configuration (Managed by GitOps)"
+            : "Edit configuration"
+        }
+      >
+        <Edit className="h-4 w-4" />
+      </Button>
+    )}
     {canManage && (
       <Button
         variant="ghost"

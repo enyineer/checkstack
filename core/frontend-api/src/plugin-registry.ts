@@ -198,6 +198,7 @@ class PluginRegistry {
           element: route.element,
           title: route.title,
           accessRule: route.accessRule,
+          manageCapability: route.manageCapability,
           standalone: route.standalone,
           // Resolved sidebar entry (defaults applied) for routes that opt in.
           // `accessRule` here is the EFFECTIVE rule object (nav override, else
@@ -209,6 +210,11 @@ class PluginRegistry {
                 label: route.nav.label ?? route.title ?? route.route.id,
                 order: route.nav.order ?? 0,
                 accessRule: route.nav.accessRule ?? route.accessRule,
+                // Effective team-capability gate (nav override, else the route's
+                // own) so the sidebar can OR team-derived access on top of the
+                // global rule for management surfaces.
+                manageCapability:
+                  route.nav.manageCapability ?? route.manageCapability,
                 // Dynamic visibility predicate (e.g. Infrastructure: any
                 // readable tab; per-user entries: authenticated) — passed
                 // through so the sidebar can evaluate it.

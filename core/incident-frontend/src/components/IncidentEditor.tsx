@@ -9,6 +9,10 @@ import type {
 import { incidentAccess } from "@checkstack/incident-common";
 import type { System } from "@checkstack/catalog-common";
 import {
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -67,6 +71,16 @@ export const IncidentEditor: React.FC<Props> = ({
     incidentAccess.incident.manage,
   );
 
+  // Only systems the user may MANAGE are selectable: the backend requires manage
+  // on EVERY referenced system (unless the caller holds the global incident rule,
+  // which lets it target any). Filtering here keeps the picker consistent with
+  // what the create/update will accept, instead of failing after submit.
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: systems.map((s) => s.id),
+  });
+
   // Owning-team selection — create mode only
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
@@ -79,6 +93,15 @@ export const IncidentEditor: React.FC<Props> = ({
     new Set(),
   );
   const [suppressNotifications, setSuppressNotifications] = useState(false);
+
+  // Systems offered in the picker: everything for a global incident manager,
+  // otherwise only systems the user manages, plus any already attached to the
+  // incident being edited (so existing links stay visible even if unmanaged).
+  const selectableSystems = allowGlobal
+    ? systems
+    : systems.filter(
+        (s) => canManageSystem(s.id) || selectedSystemIds.has(s.id),
+      );
 
   // Status update fields
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
@@ -380,7 +403,7 @@ export const IncidentEditor: React.FC<Props> = ({
                 Affected Systems
               </Label>
               <SystemMultiSelect
-                systems={systems}
+                systems={selectableSystems}
                 selectedIds={[...selectedSystemIds]}
                 onChange={handleSystemChange}
                 labelledBy="systems-label"

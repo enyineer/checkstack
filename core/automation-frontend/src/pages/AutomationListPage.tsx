@@ -12,6 +12,7 @@ import {
   AutomationApi,
   automationAccess,
   automationRoutes,
+  automationResourceTypes,
   type Automation,
 } from "@checkstack/automation-common";
 import {
@@ -84,7 +85,12 @@ const AutomationListContent: React.FC = () => {
   const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  const { allowed: canManage } = accessApi.useAccess(automationAccess.manage);
+  // Create/page gate: whether the user may create a new automation at all
+  // (global manage rule OR team-derived create capability).
+  const { allowed: canCreate } = accessApi.useCanCreate({
+    accessRule: automationAccess.manage,
+    objectType: automationResourceTypes.automation,
+  });
 
   const [statusFilter, setStatusFilter] = React.useState<
     "all" | "enabled" | "disabled"
@@ -163,6 +169,15 @@ const AutomationListContent: React.FC = () => {
   const automations = React.useMemo(() => items ?? [], [items]);
   const isEmpty = !query.isLoading && automations.length === 0;
 
+  // Per-resource manage gate: grants ALL rows to global-manage holders, and
+  // per-object grants to team-scoped users. Gate each row's toggle/delete on
+  // `canAccess(automation.id)` instead of a single global bool.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: automationAccess.manage,
+    objectType: automationResourceTypes.automation,
+    resourceIds: automations.map((a) => a.id),
+  });
+
   // Collapsible sections, sorted alphabetically with "Ungrouped" last.
   const groups = React.useMemo(
     () => groupAutomations({ automations }),
@@ -195,7 +210,7 @@ const AutomationListContent: React.FC = () => {
           )}
           aria-hidden
         />
-        {canManage ? (
+        {canAccess(automation.id) ? (
           <Toggle
             checked={automation.status === "enabled"}
             onCheckedChange={(enabled) =>
@@ -276,7 +291,7 @@ const AutomationListContent: React.FC = () => {
               Runs
             </Button>
           </Link>
-          {canManage && (
+          {canAccess(automation.id) && (
             <Button
               variant="ghost"
               size="icon"
@@ -324,7 +339,7 @@ const AutomationListContent: React.FC = () => {
           )}
         </div>
         <div onClick={(e) => e.stopPropagation()}>
-          {canManage ? (
+          {canAccess(automation.id) ? (
             <Toggle
               checked={automation.status === "enabled"}
               onCheckedChange={(enabled) =>
@@ -389,7 +404,7 @@ const AutomationListContent: React.FC = () => {
             Runs
           </Button>
         </Link>
-        {canManage && (
+        {canAccess(automation.id) && (
           <Button
             variant="ghost"
             size="icon"
@@ -419,7 +434,7 @@ const AutomationListContent: React.FC = () => {
               Playground
             </Button>
           </Link>
-          {canManage && (
+          {canCreate && (
             <Link to={resolveRoute(automationRoutes.routes.create)}>
               <Button size="sm">
                 <Plus className="mr-1 h-4 w-4" />
@@ -464,7 +479,7 @@ const AutomationListContent: React.FC = () => {
               icon={<Workflow className="h-8 w-8 text-muted-foreground" />}
               title="No automations yet"
               description={
-                canManage
+                canCreate
                   ? 'Click "New automation" to wire your first trigger.'
                   : "Once an admin creates an automation it will appear here."
               }

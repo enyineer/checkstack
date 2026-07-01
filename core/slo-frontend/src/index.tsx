@@ -3,13 +3,19 @@ import {
   createSlotExtension,
 } from "@checkstack/frontend-api";
 import { Target, Settings } from "lucide-react";
-import { sloRoutes, pluginMetadata, sloAccess } from "@checkstack/slo-common";
+import {
+  sloRoutes,
+  pluginMetadata,
+  sloAccess,
+  sloResourceTypes,
+} from "@checkstack/slo-common";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemSignalsSlot,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 
 export default createFrontendPlugin({
@@ -35,6 +41,12 @@ export default createFrontendPlugin({
         })),
       title: "SLO Management",
       accessRule: sloAccess.slo.manage,
+      // Team-scoped: managing a system (the SLO's parent) unlocks this surface,
+      // as does creating/managing an SLO via a team.
+      manageCapability: {
+        objectType: sloResourceTypes.slo,
+        parentType: catalogResourceTypes.system,
+      },
       nav: {
         group: "Reliability",
         icon: Settings,

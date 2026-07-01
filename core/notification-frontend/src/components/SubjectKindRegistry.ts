@@ -20,7 +20,22 @@ export interface SubjectKindRenderer {
   icon: LucideIcon | ComponentType<{ className?: string }>;
 }
 
-const registry = new Map<string, SubjectKindRenderer>();
+// Lazily initialised so a registrant that imports this module at load time can
+// never observe an undefined registry, whatever order the bundler evaluates the
+// chunks in. `catalog-frontend` registers its kinds as a top-level import side
+// effect; under some production bundle graphs (notably Safari's Module
+// Federation module evaluation order) the exported function was invoked before
+// this module body's field initialiser had run, throwing "undefined is not an
+// object (evaluating 'registry.set')". A function-scoped lazy init removes the
+// evaluation-order dependency entirely.
+let registry: Map<string, SubjectKindRenderer> | undefined;
+
+function getRegistry(): Map<string, SubjectKindRenderer> {
+  if (!registry) {
+    registry = new Map<string, SubjectKindRenderer>();
+  }
+  return registry;
+}
 
 /**
  * Register frontend rendering metadata for a notification subject kind.
@@ -38,7 +53,7 @@ export function registerSubjectKind(
   kind: string,
   renderer: SubjectKindRenderer,
 ): void {
-  registry.set(kind, renderer);
+  getRegistry().set(kind, renderer);
 }
 
 /** Default renderer used for unknown / unregistered kinds. */
@@ -53,5 +68,5 @@ const FALLBACK_RENDERER: SubjectKindRenderer = {
  * this frontend bundle).
  */
 export function getSubjectKindRenderer(kind: string): SubjectKindRenderer {
-  return registry.get(kind) ?? FALLBACK_RENDERER;
+  return getRegistry().get(kind) ?? FALLBACK_RENDERER;
 }

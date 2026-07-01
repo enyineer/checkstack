@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AccessRule } from "@checkstack/common";
+import { resourceType, type AccessRule } from "@checkstack/common";
 import { selectNavGroups, type NavLike } from "./Sidebar.logic";
 
 const GROUP_ORDER = ["Workspace", "Configuration", "Documentation"] as const;
@@ -96,6 +96,48 @@ describe("selectNavGroups", () => {
         groupOrder: GROUP_ORDER,
       })[0]?.items.map((r) => r.path),
     ).toEqual(["/notification"]);
+  });
+
+  test("shows a manageCapability entry when the team set has its objectType, without the global rule", () => {
+    const objectType = resourceType({ pluginId: "p" }, "thing");
+    const groups = selectNavGroups({
+      routes: [route("/mgmt", { accessRule: rule("x.manage"), manageCapability: { objectType } })],
+      accessRules: [], // no global rule
+      isAuthenticated: true,
+      groupOrder: GROUP_ORDER,
+      manageableTypes: new Set<string>([objectType]),
+    });
+    expect(groups[0]?.items.map((r) => r.path)).toEqual(["/mgmt"]);
+  });
+
+  test("shows a manageCapability entry via its parentType (managing the parent unlocks it)", () => {
+    const objectType = resourceType({ pluginId: "p" }, "child");
+    const parentType = resourceType({ pluginId: "cat" }, "system");
+    const groups = selectNavGroups({
+      routes: [
+        route("/child", {
+          accessRule: rule("x.manage"),
+          manageCapability: { objectType, parentType },
+        }),
+      ],
+      accessRules: [],
+      isAuthenticated: true,
+      groupOrder: GROUP_ORDER,
+      manageableTypes: new Set<string>([parentType]),
+    });
+    expect(groups[0]?.items.map((r) => r.path)).toEqual(["/child"]);
+  });
+
+  test("hides a manageCapability entry when the team set lacks the type and the rule is absent", () => {
+    const objectType = resourceType({ pluginId: "p" }, "thing");
+    const groups = selectNavGroups({
+      routes: [route("/mgmt", { accessRule: rule("x.manage"), manageCapability: { objectType } })],
+      accessRules: [],
+      isAuthenticated: true,
+      groupOrder: GROUP_ORDER,
+      manageableTypes: new Set<string>(["something.else"]),
+    });
+    expect(groups).toEqual([]);
   });
 
   test("both accessRule AND isVisible must pass", () => {

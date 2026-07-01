@@ -8,6 +8,7 @@ import {
 import { System, Environment, CatalogApi } from "../api";
 import {
   catalogAccess,
+  catalogResourceTypes,
   pluginMetadata as catalogPluginMetadata,
 } from "@checkstack/catalog-common";
 import type { CatalogHealthStatuses } from "@checkstack/catalog-common";
@@ -63,9 +64,21 @@ export const CatalogConfigPage = () => {
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    catalogAccess.system.manage,
-  );
+  // Create capability: gates the "Add System" action and the ?action=create
+  // deep-link. A team-scoped user needs a `creator` grant to create systems.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanCreate({
+      accessRule: catalogAccess.system.manage,
+      objectType: catalogResourceTypes.system,
+    });
+  // Surface access: gates reaching this management page at all. A user who can
+  // MANAGE an existing system (via a team) should be able to open it to edit
+  // that system, even without create capability - matching the route guard.
+  const { allowed: canAccessSurface, loading: surfaceLoading } =
+    accessApi.useCanAccessType({
+      accessRule: catalogAccess.system.manage,
+      objectType: catalogResourceTypes.system,
+    });
   // Environment CRUD is gated on its own access rule, independent of the
   // system-level manage permission that gates the rest of this page.
   const { allowed: canManageEnvironments } = accessApi.useAccess(
@@ -455,8 +468,8 @@ export const CatalogConfigPage = () => {
       title="Catalog Management"
       subtitle="Manage systems, logical groups, and environments"
       icon={Server}
-      loading={loading || accessLoading}
-      allowed={canManage}
+      loading={loading || accessLoading || surfaceLoading}
+      allowed={canAccessSurface}
     >
       <TipBanner
         plugin={catalogPluginMetadata}

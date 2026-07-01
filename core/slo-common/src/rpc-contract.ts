@@ -124,7 +124,17 @@ export const sloContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [sloAccess.slo.manage],
-    instanceAccess: { create: { teamIdParam: "teamId", idField: "id" } },
+    instanceAccess: {
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        // System-scoped: anyone who can MANAGE the target system may define an
+        // SLO for it, even without the global `slo.manage` rule (the result
+        // stays globally readable). Falls back to a per-type create-capability
+        // grant when no parent gate matches, matching incident/maintenance.
+        parent: { resourceType: "catalog.system", idParam: "systemId" },
+      },
+    },
   })
     .input(CreateSloObjectiveInputSchema)
     .output(SloObjectiveSchema),

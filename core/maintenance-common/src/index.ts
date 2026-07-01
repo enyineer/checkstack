@@ -1,4 +1,8 @@
-export { maintenanceAccess, maintenanceAccessRules } from "./access";
+export {
+  maintenanceAccess,
+  maintenanceAccessRules,
+  maintenanceResourceTypes,
+} from "./access";
 export {
   maintenanceContract,
   MaintenanceApi,

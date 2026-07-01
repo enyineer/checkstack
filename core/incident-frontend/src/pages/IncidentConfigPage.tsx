@@ -13,10 +13,11 @@ import type {
 } from "@checkstack/incident-common";
 import {
   incidentAccess,
+  incidentResourceTypes,
   pluginMetadata as incidentPluginMetadata,
 } from "@checkstack/incident-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
-import { CatalogApi } from "@checkstack/catalog-common";
+import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
   Card,
@@ -91,9 +92,24 @@ const IncidentConfigPageContent: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
 
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    incidentAccess.incident.manage,
-  );
+  // Create capability: gates the "Report Incident" action. A user who manages a
+  // system (directly or via a team) may open an incident for it even without the
+  // global `incident.manage` rule, and the backend authorizes exactly that.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanCreate({
+      accessRule: incidentAccess.incident.manage,
+      objectType: incidentResourceTypes.incident,
+      parentType: catalogResourceTypes.system,
+    });
+  // Surface access: gates reaching this page (matches the route guard). Also
+  // true for a user who manages an existing incident via a team but cannot
+  // create new ones - they still need to open the page to manage theirs.
+  const { allowed: canAccessSurface, loading: surfaceLoading } =
+    accessApi.useCanAccessType({
+      accessRule: incidentAccess.incident.manage,
+      objectType: incidentResourceTypes.incident,
+      parentType: catalogResourceTypes.system,
+    });
 
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | "all">(
     "all",
@@ -131,6 +147,15 @@ const IncidentConfigPageContent: React.FC = () => {
   const incidents = incidentsData?.incidents ?? [];
   const systems = systemsData?.systems ?? [];
   const loading = incidentsLoading || systemsLoading;
+
+  // Per-resource action gate: ORs the global rule with a team grant on each
+  // specific incident, so team-scoped managers see actions only for incidents
+  // they own while global managers see them for all.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: incidentAccess.incident.manage,
+    objectType: incidentResourceTypes.incident,
+    resourceIds: incidents.map((i) => i.id),
+  });
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -206,8 +231,8 @@ const IncidentConfigPageContent: React.FC = () => {
       title="Incident Management"
       subtitle="Track and manage incidents affecting your systems"
       icon={AlertTriangle}
-      loading={accessLoading}
-      allowed={canManage}
+      loading={accessLoading || surfaceLoading}
+      allowed={canAccessSurface}
       actions={
         <Tip
           plugin={incidentPluginMetadata}
@@ -378,14 +403,16 @@ const IncidentConfigPageContent: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(i)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            {i.status !== "resolved" && (
+                            {canAccess(i.id) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(i)}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canAccess(i.id) && i.status !== "resolved" && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -394,13 +421,15 @@ const IncidentConfigPageContent: React.FC = () => {
                                 <CheckCircle2 className="h-4 w-4 text-success" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeleteId(i.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canAccess(i.id) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setDeleteId(i.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -452,14 +481,16 @@ const IncidentConfigPageContent: React.FC = () => {
                         </p>
                       )}
                       <div className="mt-3 flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(i)}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      {i.status !== "resolved" && (
+                      {canAccess(i.id) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(i)}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {canAccess(i.id) && i.status !== "resolved" && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -468,13 +499,15 @@ const IncidentConfigPageContent: React.FC = () => {
                           <CheckCircle2 className="h-4 w-4 text-success" />
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteId(i.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {canAccess(i.id) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteId(i.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
                       </div>
                     </div>
                   </div>

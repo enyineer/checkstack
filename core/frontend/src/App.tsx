@@ -35,6 +35,7 @@ import {
   useRuntimeConfigContext,
   OrpcQueryProvider,
   readBootstrap,
+  type ManageCapability,
 } from "@checkstack/frontend-api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
@@ -220,13 +221,18 @@ function GlobalShortcuts() {
 const RouteGuard: React.FC<{
   children: React.ReactNode;
   accessRule?: AccessRule;
-}> = ({ children, accessRule }) => {
+  manageCapability?: ManageCapability;
+}> = ({ children, accessRule, manageCapability }) => {
   const accessApi = useApi(accessApiRef);
-  // Pass the FULL rule so the check qualifies it (`{pluginId}.{id}`) against the
-  // user's granted ids and applies manage->read escalation.
-  const { allowed, loading } = accessRule
-    ? accessApi.useAccess(accessRule)
-    : { allowed: true, loading: false };
+  // A management route can declare a `manageCapability`: then a team-scoped user
+  // who can create/manage the type (or its parent) is allowed even without the
+  // global rule. `useRouteAccess` handles both (global rule OR capability) with a
+  // CONSTANT hook count - RouteGuard is reconciled in place as the URL changes,
+  // so branching the hook calls here would trip the rules of hooks.
+  const { allowed, loading } = accessApi.useRouteAccess({
+    accessRule,
+    manageCapability,
+  });
 
   if (loading) {
     return <PageSkeleton />;
@@ -378,7 +384,10 @@ function AppContent() {
             key={route.path}
             path={route.path}
             element={
-              <RouteGuard accessRule={route.accessRule}>
+              <RouteGuard
+                accessRule={route.accessRule}
+                manageCapability={route.manageCapability}
+              >
                 {routeElement(route, { standalone: true })}
               </RouteGuard>
             }
@@ -400,7 +409,10 @@ function AppContent() {
               key={route.path}
               path={route.path}
               element={
-                <RouteGuard accessRule={route.accessRule}>
+                <RouteGuard
+                  accessRule={route.accessRule}
+                  manageCapability={route.manageCapability}
+                >
                   {routeElement(route)}
                 </RouteGuard>
               }
@@ -444,6 +456,14 @@ function AppWithApis() {
       .register(accessApiRef, {
         // Default to allow all if no auth plugin present (mirrors useAccess).
         useAccess: () => ({ loading: false, allowed: true }),
+        useCanCreate: () => ({ loading: false, allowed: true }),
+        useCanAccessType: () => ({ loading: false, allowed: true }),
+        useRouteAccess: () => ({ loading: false, allowed: true }),
+        useResourceAccess: () => ({
+          loading: false,
+          hasGlobal: true,
+          canAccess: () => true,
+        }),
         useIsAuthenticated: () => ({ loading: false, isAuthenticated: true }),
       })
       // Safe default so the shell (sidebar's useAccessRules) can render BEFORE

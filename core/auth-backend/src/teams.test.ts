@@ -2056,8 +2056,10 @@ describe("Teams and Resource Access Control", () => {
       expect(result).toEqual({ ownerTeamId: "team-1", isPrivate: false });
     });
 
-    it("alreadyAuthorized + no team => global (ownerTeamId null)", async () => {
+    it("alreadyAuthorized + no requested team + caller in NO team => global (ownerTeamId null)", async () => {
       const mockDb = createMockDb();
+      // resolveUserTeamIds => no teams (reached the gate via a global parent
+      // rule, not membership) -> a team-less, globally-readable object is ok.
       (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
         from: mock(() => createChain([])),
       }));
@@ -2073,6 +2075,49 @@ describe("Teams and Resource Access Control", () => {
         { context: ctx() }
       );
       expect(result).toEqual({ ownerTeamId: null, isPrivate: false });
+    });
+
+    it("alreadyAuthorized + no requested team + caller in exactly ONE team => auto-owns via that team (stays editable)", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => one team. Without an explicit team the object
+      // would be uneditable by the parent-gated creator, so it auto-owns.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-1" }])),
+      }));
+      const result = await call(
+        makeRouter(mockDb).authorizeCreate,
+        {
+          userId: "u1",
+          userType: "user",
+          objectType: "incident.incident",
+          hasGlobalManage: false,
+          alreadyAuthorized: true,
+        },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ ownerTeamId: "team-1", isPrivate: false });
+    });
+
+    it("alreadyAuthorized + no requested team + caller in MULTIPLE teams => OWNER_TEAM_REQUIRED", async () => {
+      const mockDb = createMockDb();
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([{ teamId: "team-1" }, { teamId: "team-2" }])
+        ),
+      }));
+      expect(
+        call(
+          makeRouter(mockDb).authorizeCreate,
+          {
+            userId: "u1",
+            userType: "user",
+            objectType: "incident.incident",
+            hasGlobalManage: false,
+            alreadyAuthorized: true,
+          },
+          { context: ctx() }
+        )
+      ).rejects.toThrow();
     });
   });
 
@@ -2125,6 +2170,229 @@ describe("Teams and Resource Access Control", () => {
       );
       expect(result).toEqual({
         resourceTypes: ["incident.incident", "maintenance.maintenance"],
+      });
+    });
+  });
+
+  describe("canCreate (authenticated, team-derived create capability)", () => {
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+    const ctx = () => createMockRpcContext({ user: mockRegularUser });
+
+    it("returns allowed=false when the caller has no teams", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => no teams.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+      const result = await call(
+        makeRouter(mockDb).canCreate,
+        { objectType: "incident.incident", parentType: "catalog.system" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ allowed: false });
+    });
+
+    it("returns allowed=true when a team holds a creator grant on the type", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => one team.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      // creatorTeamIds => team-beta may create the type.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ subjectId: "team-beta" }])),
+      }));
+      const result = await call(
+        makeRouter(mockDb).canCreate,
+        { objectType: "incident.incident" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ allowed: true });
+    });
+
+    it("returns allowed=true via the parent gate (manages a parent object) without a creator grant", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => one team.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      // creatorTeamIds => none.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+      // hasAnyTypeGrant(parentType, manage) => a managed parent object exists.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ objectId: "sys-1" }])),
+      }));
+      const result = await call(
+        makeRouter(mockDb).canCreate,
+        { objectType: "incident.incident", parentType: "catalog.system" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ allowed: true });
+    });
+
+    it("returns allowed=false with no creator grant and no managed parent", async () => {
+      const mockDb = createMockDb();
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])), // no creator grant
+      }));
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])), // no managed parent object
+      }));
+      const result = await call(
+        makeRouter(mockDb).canCreate,
+        { objectType: "incident.incident", parentType: "catalog.system" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ allowed: false });
+    });
+
+    it("returns allowed=false with no creator grant and no parentType supplied", async () => {
+      const mockDb = createMockDb();
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])), // no creator grant, and no parent gate
+      }));
+      const result = await call(
+        makeRouter(mockDb).canCreate,
+        { objectType: "slo.slo" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ allowed: false });
+    });
+  });
+
+  describe("listMyAccessibleResources (authenticated, per-resource subset)", () => {
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+    const ctx = () => createMockRpcContext({ user: mockRegularUser });
+
+    it("returns an empty set when no resourceIds are given", async () => {
+      const mockDb = createMockDb();
+      const result = await call(
+        makeRouter(mockDb).listMyAccessibleResources,
+        { objectType: "catalog.system", resourceIds: [], action: "manage" },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ accessibleIds: [] });
+    });
+
+    it("returns an empty set when the caller has no teams", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => no teams.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+      const result = await call(
+        makeRouter(mockDb).listMyAccessibleResources,
+        {
+          objectType: "catalog.system",
+          resourceIds: ["sys-a", "sys-b"],
+          action: "manage",
+        },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ accessibleIds: [] });
+    });
+
+    it("returns only the ids the caller's team manages", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => one team.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      // listAccessibleObjectIds tuple rows: team-beta is editor of sys-a only.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            {
+              objectId: "sys-a",
+              relation: "editor",
+              subjectType: "team",
+              subjectId: "team-beta",
+            },
+          ])
+        ),
+      }));
+      const result = await call(
+        makeRouter(mockDb).listMyAccessibleResources,
+        {
+          objectType: "catalog.system",
+          resourceIds: ["sys-a", "sys-b"],
+          action: "manage",
+        },
+        { context: ctx() }
+      );
+      expect(result).toEqual({ accessibleIds: ["sys-a"] });
+    });
+  });
+
+  describe("myManageableTypes (authenticated, nav/route capability set)", () => {
+    const makeRouter = (mockDb: AuthDatabase) =>
+      createAuthRouter(
+        mockDb,
+        mockRegistry,
+        async () => {},
+        mockConfigService,
+        mockAccessRuleRegistry,
+        () => undefined
+      );
+    const ctx = () => createMockRpcContext({ user: mockRegularUser });
+
+    it("returns an empty list when the caller has no teams", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => no teams.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([])),
+      }));
+      const result = await call(makeRouter(mockDb).myManageableTypes, {}, {
+        context: ctx(),
+      });
+      expect(result).toEqual({ types: [] });
+    });
+
+    it("returns the distinct types the caller's teams can create/manage", async () => {
+      const mockDb = createMockDb();
+      // resolveUserTeamIds => one team.
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() => createChain([{ teamId: "team-beta" }])),
+      }));
+      // manageableTypesForTeams => creator/editor/owner rows (with a duplicate).
+      (mockDb.select as ReturnType<typeof mock>).mockImplementationOnce(() => ({
+        from: mock(() =>
+          createChain([
+            { objectType: "catalog.system" },
+            { objectType: "catalog.system" },
+            { objectType: "incident.incident" },
+          ])
+        ),
+      }));
+      const result = await call(makeRouter(mockDb).myManageableTypes, {}, {
+        context: ctx(),
+      });
+      expect(result).toEqual({
+        types: ["catalog.system", "incident.incident"],
       });
     });
   });
