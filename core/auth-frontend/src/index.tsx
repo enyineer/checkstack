@@ -139,6 +139,18 @@ export { teamCreateErrorMessage } from "./lib/teamCreateError";
 export { ResourceManagedBy } from "./components/ResourceManagedBy";
 export type { ResourceManagedByProps } from "./components/ResourceManagedBy";
 
+// Safe-by-default RLAC primitives (see .claude/rules/rlac.md): gate a create
+// action / management surface by capability, and filter a resource picker to
+// exactly what the backend will accept - so team-scoped users see the right
+// surfaces and pickers never offer a resource the submit would reject.
+export { CreateGate, ManageTypeGate, resolveGate } from "./components/AccessGates";
+export { useManageableResources } from "./hooks/useManageableResources";
+export type {
+  UseManageableResourcesParams,
+  UseManageableResourcesResult,
+} from "./hooks/useManageableResources";
+export { selectManageable } from "./lib/selectManageable";
+
 // Re-export SessionProvider for App.tsx to wrap the component tree
 export { SessionProvider } from "./lib/SessionProvider";
 

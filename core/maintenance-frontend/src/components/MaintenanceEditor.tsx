@@ -41,6 +41,7 @@ import {
   TeamAccessEditor,
   TeamOwnershipPicker,
   teamCreateErrorMessage,
+  useManageableResources,
 } from "@checkstack/auth-frontend";
 import {
   deriveMaintenanceFieldErrors,
@@ -79,16 +80,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
     maintenanceAccess.maintenance.manage,
   );
 
-  // Only systems the user may MANAGE are selectable: the backend requires manage
-  // on EVERY referenced system (unless the caller holds the global maintenance
-  // rule, which lets it target any). Keeps the picker consistent with what the
-  // create/update accepts instead of failing after submit.
-  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
-    accessRule: catalogAccess.system.manage,
-    objectType: catalogResourceTypes.system,
-    resourceIds: systems.map((s) => s.id),
-  });
-
   // Maintenance fields
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -101,12 +92,17 @@ export const MaintenanceEditor: React.FC<Props> = ({
 
   // Systems offered in the picker: everything for a global maintenance manager,
   // otherwise only systems the user manages, plus any already attached (so
-  // existing links stay visible when editing even if now unmanaged).
-  const selectableSystems = allowGlobal
-    ? systems
-    : systems.filter(
-        (s) => canManageSystem(s.id) || selectedSystemIds.has(s.id),
-      );
+  // existing links stay visible when editing even if now unmanaged). The backend
+  // requires manage on EVERY referenced system, so filtering here keeps the
+  // picker consistent with what the create/update accepts.
+  const { manageable: selectableSystems } = useManageableResources({
+    items: systems,
+    getId: (s) => s.id,
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    keepIds: selectedSystemIds,
+    allowAllOverride: allowGlobal,
+  });
 
   // Status update fields
   const [updates, setUpdates] = useState<MaintenanceUpdate[]>([]);

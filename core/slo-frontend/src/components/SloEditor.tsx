@@ -12,6 +12,7 @@ import { HealthCheckApi } from "@checkstack/healthcheck-common";
 import {
   TeamOwnershipPicker,
   teamCreateErrorMessage,
+  useManageableResources,
 } from "@checkstack/auth-frontend";
 import {
   Dialog,
@@ -76,15 +77,15 @@ export const SloEditor: React.FC<Props> = ({
 
   // Only systems the user may MANAGE are selectable: the backend now parent-
   // gates SLO creation on the target system (unless the caller holds the global
-  // SLO rule, which lets it target any).
-  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+  // SLO rule, which lets it target any). Filtering here keeps the picker
+  // consistent with what create will accept instead of failing after submit.
+  const { manageable: selectableSystems } = useManageableResources({
+    items: systems,
+    getId: (s) => s.id,
     accessRule: catalogAccess.system.manage,
     objectType: catalogResourceTypes.system,
-    resourceIds: systems.map((s) => s.id),
+    allowAllOverride: allowGlobal,
   });
-  const selectableSystems = allowGlobal
-    ? systems
-    : systems.filter((s) => canManageSystem(s.id));
 
   // Form state
   const [systemId, setSystemId] = useState(DEFAULTS.systemId);

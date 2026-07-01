@@ -82,6 +82,17 @@ Use the `AccessApi` primitives (`@checkstack/frontend-api`), never a bare
   the options to `canAccess(id)` (or all when the user holds the global rule), so
   the picker only offers what the backend will accept.
 
+Prefer the safe-by-default primitives from `@checkstack/auth-frontend` over
+re-deriving the hook boilerplate, so a new surface is gated by construction:
+
+- `<CreateGate objectType accessRule parentType?>` / `<ManageTypeGate ...>` -
+  render children only when the caller can create / reach the surface.
+- `useManageableResources({ items, getId, accessRule, objectType, keepIds?,
+  allowAllOverride? })` returns `{ manageable, ... }` - the exact list a picker
+  should offer. `keepIds` keeps an existing selection visible; `allowAllOverride`
+  is for a HIGHER rule that authorizes any instance (a global incident manager
+  may reference any system). Used by the incident/maintenance/SLO pickers.
+
 ## Adding a new team-scoped resource - checklist
 
 1. `*-common/access.ts`: `accessPair("<noun>", ...)` + `resourceType(
