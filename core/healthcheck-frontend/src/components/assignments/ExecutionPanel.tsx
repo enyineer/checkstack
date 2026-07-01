@@ -31,6 +31,13 @@ interface ExecutionPanelProps {
   environmentIds: string[] | null;
   /** Environments the system currently belongs to. */
   environments: EnvironmentDto[];
+  /**
+   * Whether the environments query has successfully resolved. The
+   * "No environment configured" empty-state only shows once this is true, so a
+   * still-loading or errored fetch keeps the mode selector visible instead of
+   * masquerading as a genuinely env-less system.
+   */
+  environmentsSettled: boolean;
   onSetEnvironmentMode: (mode: EnvironmentSelectorMode) => void;
   onToggleEnvironment: (environmentId: string) => void;
   saving: boolean;
@@ -49,6 +56,7 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   onToggleSatellite,
   environmentIds,
   environments,
+  environmentsSettled,
   onSetEnvironmentMode,
   onToggleEnvironment,
   saving,
@@ -56,7 +64,11 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
 }) => {
   const hasSatellites = satelliteIds.length > 0;
   const willRunAnywhere = includeLocal || hasSatellites;
-  const envView = environmentSectionView({ environments, environmentIds });
+  const envView = environmentSectionView({
+    environments,
+    environmentIds,
+    settled: environmentsSettled,
+  });
   const selectedEnvIds = new Set<string>(
     environmentIds === null ? [] : environmentIds,
   );

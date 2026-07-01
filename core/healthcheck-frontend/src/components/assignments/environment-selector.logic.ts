@@ -69,15 +69,24 @@ export type EnvironmentSectionView =
  * meaningless (only "run once with no environment" applies), so the selector
  * collapses to an empty-state. Otherwise the stored `environmentIds` wire value
  * drives the active mode.
+ *
+ * The empty-state only appears once the environments query has actually
+ * resolved (`settled`): while it is still loading, or if it errored, the
+ * selector stays visible. The All/Specific/None mode is derived from the stored
+ * `environmentIds`, not from the fetched list, so collapsing to the empty-state
+ * on a transient or failed fetch would wrongly hide the control (and its stored
+ * fan-out mode) instead of reflecting a genuinely env-less system.
  */
 export function environmentSectionView({
   environments,
   environmentIds,
+  settled,
 }: {
   environments: { id: string }[];
   environmentIds: string[] | null | undefined;
+  settled: boolean;
 }): EnvironmentSectionView {
-  if (environments.length === 0) return { kind: "empty" };
+  if (settled && environments.length === 0) return { kind: "empty" };
   return { kind: "selector", mode: modeFromEnvironmentIds(environmentIds) };
 }
 

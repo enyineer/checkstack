@@ -129,7 +129,7 @@ const AssignmentIDEPageContent = () => {
 
   // Environments the system currently belongs to — drives the per-assignment
   // environment selector (the fan-out set is a subset of these).
-  const { data: systemEnvironments = [] } =
+  const { data: systemEnvironments = [], isSuccess: systemEnvironmentsSettled } =
     catalogClient.getSystemEnvironments.useQuery(
       { systemId: systemId ?? "" },
       { enabled: !!systemId },
@@ -696,6 +696,7 @@ const AssignmentIDEPageContent = () => {
               id: e.id,
               name: e.name,
             }))}
+            environmentsSettled={systemEnvironmentsSettled}
             onSetEnvironmentMode={(mode) =>
               handleSetEnvironmentMode(configId, mode)
             }
