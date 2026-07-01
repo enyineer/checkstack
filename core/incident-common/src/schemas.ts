@@ -126,3 +126,46 @@ export const AddIncidentUpdateInputSchema = z.object({
 export type AddIncidentUpdateInput = z.infer<
   typeof AddIncidentUpdateInputSchema
 >;
+
+/**
+ * Per-id outcome of a bulk incident action (mass delete / mass resolve).
+ *
+ * - `deleted` / `resolved`: the action succeeded for this incident.
+ * - `notFound`: no incident with this id exists (or it vanished mid-batch).
+ * - `forbidden`: the caller cannot MANAGE this incident (filtered out by the
+ *   `bulkManage` instance-access mode before the handler ran).
+ * - `error`: the per-id operation threw; the batch continued past it.
+ */
+export const BulkIncidentActionStatusEnum = z.enum([
+  "deleted",
+  "resolved",
+  "notFound",
+  "forbidden",
+  "error",
+]);
+export type BulkIncidentActionStatus = z.infer<
+  typeof BulkIncidentActionStatusEnum
+>;
+
+export const BulkIncidentActionResultSchema = z.object({
+  id: z.string(),
+  status: BulkIncidentActionStatusEnum,
+});
+export type BulkIncidentActionResult = z.infer<
+  typeof BulkIncidentActionResultSchema
+>;
+
+/** Input for a bulk incident action: a non-empty set of incident ids. */
+export const BulkIncidentIdsInputSchema = z.object({
+  ids: z.array(z.string()).min(1, "At least one incident is required"),
+});
+export type BulkIncidentIdsInput = z.infer<typeof BulkIncidentIdsInputSchema>;
+
+/** Input for bulk resolve: incident ids plus an optional shared message. */
+export const BulkResolveIncidentsInputSchema = z.object({
+  ids: z.array(z.string()).min(1, "At least one incident is required"),
+  message: z.string().optional(),
+});
+export type BulkResolveIncidentsInput = z.infer<
+  typeof BulkResolveIncidentsInputSchema
+>;

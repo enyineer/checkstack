@@ -12,6 +12,9 @@ import {
   UpdateIncidentInputSchema,
   AddIncidentUpdateInputSchema,
   IncidentStatusEnum,
+  BulkIncidentActionResultSchema,
+  BulkIncidentIdsInputSchema,
+  BulkResolveIncidentsInputSchema,
 } from "./schemas";
 
 export const incidentContract = {
@@ -192,6 +195,41 @@ export const incidentContract = {
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Mass-delete incidents, authorizing EACH id against the caller's manage
+   * grant. The `bulkManage` instance-access mode pre-partitions `input.ids`
+   * into the caller's manageable subset (global rule OR per-incident team
+   * grant) and the denied remainder BEFORE the handler runs, so an
+   * unauthorized id is never deleted. Returns a per-id result so the frontend
+   * can report partial success; a denied id is reported as `forbidden`, never a
+   * hard failure of the whole batch.
+   */
+  bulkDeleteIncidents: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+    instanceAccess: { bulkManage: { idsParam: "ids" } },
+  })
+    .route({ method: "POST" })
+    .input(BulkIncidentIdsInputSchema)
+    .output(z.object({ results: z.array(BulkIncidentActionResultSchema) })),
+
+  /**
+   * Mass-resolve incidents (mirrors the single-item `resolveIncident`: status →
+   * resolved). Authorizes EACH id against the caller's manage grant via the
+   * `bulkManage` mode; only authorized ids are resolved and a per-id result is
+   * returned. Already-resolved or missing ids are reported, never fatal.
+   */
+  bulkResolveIncidents: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+    instanceAccess: { bulkManage: { idsParam: "ids" } },
+  })
+    .route({ method: "POST" })
+    .input(BulkResolveIncidentsInputSchema)
+    .output(z.object({ results: z.array(BulkIncidentActionResultSchema) })),
 
   /**
    * Check if a system has an active incident with notification suppression enabled.

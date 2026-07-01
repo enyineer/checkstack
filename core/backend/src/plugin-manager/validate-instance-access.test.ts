@@ -244,6 +244,72 @@ describe("validateContractInstanceAccess", () => {
     });
   });
 
+  describe("bulkManage mode", () => {
+    it("accepts instanceAccess: { bulkManage: { idsParam } } as a single valid mode", () => {
+      expect(
+        run(fakeContract({ bulk: { instanceAccess: { bulkManage: { idsParam: "ids" } } } })),
+      ).toEqual([]);
+    });
+
+    it("rejects bulkManage combined with another scoping mode", () => {
+      const errors = run(
+        fakeContract({
+          bad: {
+            instanceAccess: { bulkManage: { idsParam: "ids" }, idParam: "id" },
+          },
+        }),
+      );
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain("multiple instanceAccess modes");
+      expect(errors[0]).toContain("bulkManage");
+    });
+
+    it("flags a bulkManage.idsParam missing from the input schema", () => {
+      const errors = run(
+        fakeContractWithSchema({
+          bulk: {
+            instanceAccess: { bulkManage: { idsParam: "ids" } },
+            inputSchema: z.object({ identifiers: z.array(z.string()) }),
+          },
+        }),
+      );
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain("bulkManage.idsParam");
+      expect(errors[0]).toContain("ids");
+    });
+
+    it("accepts a bulkManage.idsParam present as an array field in the input schema", () => {
+      const errors = run(
+        fakeContractWithSchema({
+          bulk: {
+            instanceAccess: { bulkManage: { idsParam: "ids" } },
+            inputSchema: z.object({ ids: z.array(z.string()) }),
+          },
+        }),
+      );
+      expect(errors).toEqual([]);
+    });
+
+    it("marks the access-rule type team-scopable (a sibling endpoint touching it with no mode fails open)", () => {
+      const incidentRule = { resource: "incident", pluginId: "incident" };
+      const errors = run(
+        fakeContractFull({
+          bulk: {
+            instanceAccess: { bulkManage: { idsParam: "ids" } },
+            access: [incidentRule],
+            inputSchema: z.object({ ids: z.array(z.string()) }),
+          },
+          // Touches incident.incident but declares nothing -> fail-open.
+          listAll: { access: [incidentRule] },
+        }),
+      );
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain("listAll");
+      expect(errors[0]).toContain("incident.incident");
+      expect(errors[0]).toContain("fails OPEN");
+    });
+  });
+
   describe("global mode", () => {
     it("accepts instanceAccess: { global: true } as a single valid mode", () => {
       expect(run(fakeContract({ g: { instanceAccess: { global: true } } }))).toEqual([]);

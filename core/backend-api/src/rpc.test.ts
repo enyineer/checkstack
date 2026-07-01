@@ -203,6 +203,31 @@ const testContracts = {
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ incidents: z.array(z.object({ id: z.string() })) })),
 
+  // Bulk-manage WRITE endpoint: pre-partitions input.ids into the caller's
+  // manageable subset (echoed back by the handler from context.bulkAccess).
+  bulkManageEndpoint: proc({
+    userType: "authenticated",
+    operationType: "mutation",
+    access: [
+      accessPair(
+        "system",
+        {
+          read: { description: "View systems" },
+          manage: { description: "Manage systems" },
+        },
+        { pluginId: "test" },
+      ).manage,
+    ],
+    instanceAccess: { bulkManage: { idsParam: "ids" } },
+  })
+    .input(z.object({ ids: z.array(z.string()).min(1) }))
+    .output(
+      z.object({
+        authorizedIds: z.array(z.string()),
+        deniedIds: z.array(z.string()),
+      }),
+    ),
+
   // Parent-scoped bulk read: Record<systemId, data>, keys filtered by parent
   // (catalog.system) read access.
   parentScopeRecordEndpoint: proc({
@@ -295,6 +320,14 @@ const testImplementations = {
   ).handler(({ input }) => ({
     bySystem: Object.fromEntries(input.systemIds.map((id) => [id, ["inc"]])),
   })),
+
+  // The real behavioural test builds this procedure through
+  // `.$context<RpcContext>().use(autoAuthMiddleware)` in `build()` below (so the
+  // handler sees the middleware-populated `context.bulkAccess`); this shared
+  // stub just satisfies the illustrative implementations map.
+  bulkManageEndpoint: implement(testContracts.bulkManageEndpoint).handler(
+    () => ({ authorizedIds: [], deniedIds: [] }),
+  ),
 };
 
 // =============================================================================
@@ -813,6 +846,107 @@ describe("autoAuthMiddleware", () => {
       );
       expect(Object.keys(result.bySystem)).toEqual(["sys-1"]);
     });
+  });
+});
+
+// =============================================================================
+// BULK-MANAGE MODE (instanceAccess.bulkManage) — per-id write authorization
+// =============================================================================
+//
+// A bulk WRITE (mass delete / mass resolve) must authorize EACH id against the
+// caller's manage grant and never act on an unauthorized id. The `bulkManage`
+// mode pre-partitions input[idsParam] into { authorizedIds, deniedIds } BEFORE
+// the handler runs and exposes it on context.bulkAccess. These tests prove the
+// partition is correct for a global caller, a team-scoped caller, and an S2S
+// failure (fail closed).
+describe("bulkManage mode (per-id write authorization)", () => {
+  let mockContext: RpcContext;
+
+  beforeEach(() => {
+    mockContext = createMockRpcContext();
+  });
+
+  const build = () =>
+    implement(testContracts.bulkManageEndpoint)
+      .$context<RpcContext>()
+      .use(autoAuthMiddleware)
+      .handler(({ context }) => ({
+        authorizedIds: context.bulkAccess?.ids?.authorizedIds ?? [],
+        deniedIds: context.bulkAccess?.ids?.deniedIds ?? [],
+      }));
+
+  it("authorizes ALL ids for a caller holding the global manage rule", async () => {
+    // default mock user holds "*" → global manage.
+    const result = await call(
+      build(),
+      { ids: ["a", "b", "c"] },
+      { context: mockContext },
+    );
+    expect(result.authorizedIds).toEqual(["a", "b", "c"]);
+    expect(result.deniedIds).toEqual([]);
+  });
+
+  it("authorizes only the granted subset for a team-scoped caller (no global rule) and is NOT rejected by the global gate", async () => {
+    const ctx = {
+      ...mockContext,
+      // A team member with NO global rule — must still reach the handler.
+      user: { type: "user" as const, id: "u1", accessRules: [] },
+      auth: {
+        ...mockContext.auth,
+        // Only "a" is grant-covered for this caller.
+        listAccessibleObjectIds: () => Promise.resolve(["a"]),
+      },
+    };
+    const result = await call(build(), { ids: ["a", "b"] }, { context: ctx });
+    expect(result.authorizedIds).toEqual(["a"]);
+    expect(result.deniedIds).toEqual(["b"]);
+  });
+
+  it("fails CLOSED (no ids authorized) when the S2S grant lookup throws", async () => {
+    const ctx = {
+      ...mockContext,
+      user: { type: "user" as const, id: "u1", accessRules: [] },
+      auth: {
+        ...mockContext.auth,
+        listAccessibleObjectIds: () => Promise.reject(new Error("s2s down")),
+      },
+    };
+    const result = await call(
+      build(),
+      { ids: ["a", "b"] },
+      { context: ctx },
+    );
+    expect(result.authorizedIds).toEqual([]);
+    expect(result.deniedIds).toEqual(["a", "b"]);
+  });
+
+  it("dedupes the input id array before partitioning", async () => {
+    const ctx = {
+      ...mockContext,
+      user: { type: "user" as const, id: "u1", accessRules: [] },
+      auth: {
+        ...mockContext.auth,
+        listAccessibleObjectIds: (p: { objectIds: string[] }) =>
+          Promise.resolve(p.objectIds.filter((id) => id === "a")),
+      },
+    };
+    const result = await call(
+      build(),
+      { ids: ["a", "a", "b", "b"] },
+      { context: ctx },
+    );
+    expect(result.authorizedIds).toEqual(["a"]);
+    expect(result.deniedIds).toEqual(["b"]);
+  });
+
+  it("denies an anonymous caller (authentication required)", async () => {
+    await expect(
+      call(
+        build(),
+        { ids: ["a"] },
+        { context: { ...mockContext, user: undefined } },
+      ),
+    ).rejects.toThrow("Authentication required");
   });
 });
 

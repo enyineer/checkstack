@@ -29,6 +29,7 @@ interface InstanceAccess {
     teamIdParam?: string;
     idField?: string;
   };
+  bulkManage?: { idsParam?: string };
 }
 
 function instanceAccessFor(
@@ -231,5 +232,45 @@ describe("maintenance contract team-scoping instanceAccess wiring", () => {
       expect(ia?.idParam).toBeUndefined();
       expect(ia?.listKey).toBeUndefined();
     });
+  });
+
+  describe("bulk actions gate per-id via bulkManage", () => {
+    // Both bulk mutations authorize EACH id against the caller's manage grant
+    // through the platform `bulkManage` instance-access mode, keyed on the `ids`
+    // input array (RLAC: never fail open on a bulk WRITE). The "resolve"
+    // equivalent for a maintenance is CLOSE (status -> completed).
+    const bulkProcs: Array<keyof typeof maintenanceContract> = [
+      "bulkDeleteMaintenances",
+      "bulkCloseMaintenances",
+    ];
+
+    for (const proc of bulkProcs) {
+      test(`${String(proc)} declares instanceAccess.bulkManage.idsParam = "ids"`, () => {
+        const ia = instanceAccessFor(proc);
+        expect(ia).toBeDefined();
+        expect(ia?.bulkManage?.idsParam).toBe("ids");
+        // Exactly one mode alongside it.
+        expect(ia?.idParam).toBeUndefined();
+        expect(ia?.listKey).toBeUndefined();
+        expect(ia?.recordKey).toBeUndefined();
+        expect(ia?.create).toBeUndefined();
+        expect(ia?.global).toBeUndefined();
+      });
+
+      test(`${String(proc)} is gated on the maintenance.manage access rule`, () => {
+        const procDef = maintenanceContract[proc] as unknown as Record<
+          string,
+          unknown
+        >;
+        const orpc = procDef["~orpc"] as {
+          meta?: {
+            access?: Array<{ resource: string; level: string }>;
+          };
+        };
+        const rule = orpc.meta?.access?.[0];
+        expect(rule?.resource).toBe("maintenance");
+        expect(rule?.level).toBe("manage");
+      });
+    }
   });
 });
