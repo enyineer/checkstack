@@ -1,5 +1,6 @@
 import { createApiRef } from "@checkstack/frontend-api";
 import type { LucideIconName } from "@checkstack/common";
+import { useSessionContext } from "./lib/SessionProvider";
 
 // Types for better-auth entities
 export interface AuthUser {
@@ -105,13 +106,21 @@ export const authApiRef = createApiRef<AuthApi>("auth.api");
  * `useAccessRules`) renders in a logged-out / pending state instead of throwing
  * "No implementation found". The real auth plugin OVERRIDES this when it
  * registers (last-write-wins in the API registry), so the shell can paint before
- * plugins finish loading. `useSession` reports `isPending` so access-gated UI
- * stays hidden until the real session resolves.
+ * plugins finish loading.
+ *
+ * `useSession` reads the SAME `SessionProvider` context as the real
+ * implementation (`useSessionContext`) - it must call the identical hooks, since
+ * the API registry swaps this default for the real one mid-load and shell
+ * components (sidebar, help menu) that call `authApi.useSession()` would
+ * otherwise change their hook count across the swap ("Rendered fewer/more hooks
+ * than expected"). The provider is mounted at the app root and defaults to
+ * `{ isPending: true }`, so access-gated UI still stays hidden until the session
+ * resolves.
  */
 export const defaultAuthApi: AuthApi = {
   signIn: async () => ({ error: new Error("Auth not initialized") }),
   signInWithSocial: async () => {},
   signOut: async () => {},
   getSession: async () => ({ data: undefined }),
-  useSession: () => ({ data: undefined, isPending: true, error: undefined }),
+  useSession: () => useSessionContext(),
 };
