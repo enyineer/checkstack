@@ -1,5 +1,12 @@
 # @checkstack/auth-github-backend
 
+## 0.0.59
+
+### Patch Changes
+
+- @checkstack/backend-api@0.27.1
+- @checkstack/auth-backend@0.9.1
+
 ## 0.0.58
 
 ### Patch Changes

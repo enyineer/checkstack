@@ -1,5 +1,62 @@
 # @checkstack/healthcheck-backend
 
+## 1.13.0
+
+### Minor Changes
+
+- 0cac684: Align the health-check run-history gates end to end. The history surfaces had a
+  three-way drift: the route allowed `configuration.read`, the page required
+  manage capability, and the procedures required the standalone
+  `healthcheck.details` rule - so global read-rule holders reached a page that
+  denied them, and team-scoped managers passed the page gate but got 403s from
+  every data call.
+
+  Detailed run history is now a MANAGER surface everywhere, with system owners
+  included: access requires global `configuration.manage`, a team manage grant
+  on the CONFIGURATION, or manage access to the SYSTEM - a system's owning team
+  sees every run of that system, whoever owns the configuration.
+
+  - Routes, pages, drawer links, and the anomaly/health signals gate on the
+    manage capability (with `catalog.system` as the parent type); the drawer and
+    chart hook check the caller's grant on the specific configuration OR system.
+  - All three history procedures (`getDetailedHistory`,
+    `getDetailedAggregatedHistory`, `getRunById`) are authorized in the handler
+    via a shared fail-closed module (`history-access.ts`) - the triple-OR is not
+    expressible with the declarative instanceAccess modes. `getRunById`
+    authorizes against the fetched run's own configuration/system, and answers
+    `undefined` for unauthorized callers so run ids don't leak existence.
+  - The feed (`getDetailedHistory`) scopes team callers to runs of their
+    configurations UNION runs of their systems, with correct pagination totals.
+
+  BREAKING CHANGES:
+
+  - The standalone `healthcheck.details` access rule is REMOVED. Roles that held
+    `details` without `configuration.manage` lose access to detailed run data;
+    grant them the manage rule (or a team grant on the configuration/system)
+    instead. Stale role rows referencing the removed rule are inert.
+  - `getDetailedAggregatedHistory` is `authenticated` (was `public`); anonymous
+    callers could never pass its access rule anyway.
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/ai-backend@0.10.3
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/automation-backend@0.10.5
+  - @checkstack/catalog-backend@1.6.3
+  - @checkstack/incident-backend@1.9.1
+  - @checkstack/sdk@0.119.1
+  - @checkstack/gitops-backend@0.5.16
+  - @checkstack/satellite-backend@0.7.6
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/script-packages-backend@0.3.20
+  - @checkstack/command-backend@0.2.16
+  - @checkstack/secrets-backend@0.2.16
+  - @checkstack/status-page-backend@0.4.3
+
 ## 1.12.0
 
 ### Minor Changes

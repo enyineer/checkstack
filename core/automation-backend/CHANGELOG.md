@@ -1,5 +1,21 @@
 # @checkstack/automation-backend
 
+## 0.10.5
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/ai-backend@0.10.3
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/sdk@0.119.1
+  - @checkstack/gitops-backend@0.5.16
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/script-packages-backend@0.3.20
+  - @checkstack/command-backend@0.2.16
+
 ## 0.10.4
 
 ### Patch Changes

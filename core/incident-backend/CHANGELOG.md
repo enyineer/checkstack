@@ -1,5 +1,18 @@
 # @checkstack/incident-backend
 
+## 1.9.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+  - @checkstack/ai-backend@0.10.3
+  - @checkstack/automation-backend@0.10.5
+  - @checkstack/catalog-backend@1.6.3
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/command-backend@0.2.16
+  - @checkstack/integration-backend@0.6.9
+  - @checkstack/status-page-backend@0.4.3
+
 ## 1.9.0
 
 ### Minor Changes

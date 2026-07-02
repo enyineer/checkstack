@@ -1,5 +1,24 @@
 # @checkstack/slo-backend
 
+## 0.10.6
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/ai-backend@0.10.3
+  - @checkstack/dependency-common@1.6.0
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/healthcheck-backend@1.13.0
+  - @checkstack/automation-backend@0.10.5
+  - @checkstack/catalog-backend@1.6.3
+  - @checkstack/gitops-backend@0.5.16
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/command-backend@0.2.16
+
 ## 0.10.5
 
 ### Patch Changes
