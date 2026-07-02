@@ -17,6 +17,7 @@ import {
   notificationContract,
   NOTIFICATION_RECEIVED,
   NOTIFICATION_READ,
+  qualifyNotificationUrls,
 } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { SignalService } from "@checkstack/signal-common";
@@ -201,6 +202,27 @@ export const createNotificationRouter = ({
     // Get all enabled strategies
     const strategies = strategyRegistry.getStrategies();
 
+    // Fully-qualify the primary action link AND every affected-subject deep
+    // link against the instance's configured base URL, once for all strategies.
+    // External channels (email, Slack, Teams, ...) render a bare
+    // "/catalog/systems/..." path as a broken link, so they need an absolute
+    // URL. The in-app read path deliberately keeps relative links (the SPA
+    // router resolves them); only this external-delivery branch qualifies.
+    // When BASE_URL is unset we still deliver (links stay relative) rather than
+    // dropping the notification entirely.
+    const baseUrl = process.env.BASE_URL;
+    if (!baseUrl) {
+      logger.warn(
+        "[external-delivery] BASE_URL is not configured; external notification links will be delivered as relative paths and may not resolve in email/chat channels"
+      );
+    }
+    const { action: qualifiedAction, subjects: qualifiedSubjects } =
+      qualifyNotificationUrls({
+        baseUrl,
+        action: notification.action,
+        subjects: notification.subjects,
+      });
+
     for (const strategy of strategies) {
       try {
         logger.debug(
@@ -266,22 +288,7 @@ export const createNotificationRouter = ({
           strategy.qualifiedId
         );
 
-        const baseUrl = process.env.BASE_URL;
-        if (!baseUrl) {
-          logger.error(
-            "[notification-backend] No frontend URL configured, but action included only a path"
-          );
-          continue;
-        }
-
-        const actionUrl = notification.action?.url;
-        if (actionUrl && !actionUrl.startsWith("http")) {
-          notification.action!.url = `${baseUrl.replace(/\/$/, "")}${
-            actionUrl.startsWith("/") ? "" : "/"
-          }${actionUrl}`;
-        }
-
-        // Build payload
+        // Build payload with fully-qualified URLs (computed once above).
         const payload: NotificationPayload = {
           title: notification.title,
           body: notification.body,
@@ -289,8 +296,8 @@ export const createNotificationRouter = ({
             | "info"
             | "warning"
             | "critical",
-          action: notification.action,
-          subjects: notification.subjects,
+          action: qualifiedAction,
+          subjects: qualifiedSubjects,
           type: "notification",
         };
 
