@@ -21,6 +21,15 @@ export class AnomalyService {
     state?: schema.AnomalyState;
     kind?: schema.AnomalyKind;
     /**
+     * Optional environment filter. Mirrors the proc input tristate (identical
+     * to {@link getAnomalyBaselines}):
+     * - `undefined` -> no env predicate (return every env for the given
+     *   filters, e.g. the widget's cross-env feed).
+     * - `null` -> only the env-less slice (environment_id IS NULL).
+     * - a string -> only that environment's anomalies.
+     */
+    environmentId?: string | null;
+    /**
      * Suppression filter. Defaults to "active": suppressed rows are excluded
      * from the active view. Pass "suppressed" to list only suppressed rows, or
      * "all" to ignore the suppression flag entirely.
@@ -36,6 +45,13 @@ export class AnomalyService {
     if (params.configurationId) {
       conditions.push(
         eq(schema.anomalies.configurationId, params.configurationId),
+      );
+    }
+    if (params.environmentId !== undefined) {
+      conditions.push(
+        params.environmentId === null
+          ? isNull(schema.anomalies.environmentId)
+          : eq(schema.anomalies.environmentId, params.environmentId),
       );
     }
     if (params.state) {
@@ -84,6 +100,7 @@ export class AnomalyService {
     Array<{
       systemId: string;
       configurationId: string;
+      environmentId: string | null;
       fieldPath: string;
       startedAt: string;
       state: schema.AnomalyState;
@@ -93,6 +110,7 @@ export class AnomalyService {
       .select({
         systemId: schema.anomalies.systemId,
         configurationId: schema.anomalies.configurationId,
+        environmentId: schema.anomalies.environmentId,
         fieldPath: schema.anomalies.fieldPath,
         startedAt: schema.anomalies.startedAt,
         state: schema.anomalies.state,

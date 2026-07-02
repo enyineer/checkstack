@@ -239,6 +239,7 @@ export async function setupBaselineAnalyzerJob({
               signalService,
               systemId: assignment.systemId,
               configurationId: assignment.configurationId,
+              environmentId,
               fieldPath: path,
               baseline: baselineDto,
               schemaDirection: schemaInfo.direction,
