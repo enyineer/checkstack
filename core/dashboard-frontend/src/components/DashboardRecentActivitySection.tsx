@@ -5,6 +5,7 @@ import { SectionHeader, TerminalFeed, type TerminalEntry } from "@checkstack/ui"
 import { Terminal } from "lucide-react";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 import { useSignal } from "@checkstack/signal-frontend";
+import { buildRunActivityContent } from "../logic/recentActivity";
 
 const MAX_TERMINAL_ENTRIES = 8;
 
@@ -47,11 +48,16 @@ export const DashboardRecentActivitySection: React.FC = () => {
 
   useSignal(
     HEALTH_CHECK_RUN_COMPLETED,
-    ({ systemName, configurationName, status, latencyMs }) => {
+    ({ systemName, configurationName, status, latencyMs, environmentName }) => {
       const newEntry: TerminalEntry = {
         id: `${configurationName}-${Date.now()}`,
         timestamp: new Date(),
-        content: `${systemName} (${configurationName}) → ${status}`,
+        content: buildRunActivityContent({
+          systemName,
+          configurationName,
+          status,
+          environmentName,
+        }),
         variant: statusToVariant(status),
         suffix: latencyMs === undefined ? undefined : `${latencyMs}ms`,
       };
