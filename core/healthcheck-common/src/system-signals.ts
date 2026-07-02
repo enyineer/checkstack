@@ -48,16 +48,17 @@ export function deriveHealthcheckSignals({
 
     const failing = status.checkStatuses.filter((c) => c.status !== "healthy");
     const failingCheck = failing[0];
-    // Link target and its gating rule differ: the check history detail page
-    // needs `details`; the assignments page needs `configuration.manage`. The
-    // dashboard renders text instead of a link for users without the rule.
+    // Both link targets gate on `configuration.manage`: detailed run history
+    // is a manager surface (globally or via a team grant). The signal's
+    // accessRule is a GLOBAL check, so team-scoped managers see text instead
+    // of a link here - they reach the same history via the Health Checks page.
     const { href, accessRule } = failingCheck
       ? {
           href: resolveRoute(healthcheckRoutes.routes.historyDetail, {
             systemId,
             configurationId: failingCheck.configurationId,
           }),
-          accessRule: healthCheckAccess.details,
+          accessRule: healthCheckAccess.configuration.manage,
         }
       : {
           href: resolveRoute(healthcheckRoutes.routes.assignments, {

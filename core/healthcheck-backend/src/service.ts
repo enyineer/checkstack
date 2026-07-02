@@ -33,6 +33,7 @@ import * as schema from "./schema";
 import {
   eq,
   and,
+  or,
   InferSelectModel,
   desc,
   gte,
@@ -1268,9 +1269,31 @@ export class HealthCheckService {
    * Restricted to users with manage access.
    * @param sortOrder - 'asc' for chronological (oldest first), 'desc' for reverse (newest first)
    */
+  /**
+   * Distinct system ids that have at least one recorded run - the candidate
+   * set for scoping the run-history feed by SYSTEM manage access (a system's
+   * owning team sees every run of that system).
+   */
+  async getRunSystemIds(): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ systemId: healthCheckRuns.systemId })
+      .from(healthCheckRuns);
+    return rows.map((r) => r.systemId);
+  }
+
   async getDetailedHistory(props: {
     systemId?: string;
     configurationId?: string;
+    /**
+     * Restrict the feed to a team-scoped caller's slice: runs of their
+     * configurations OR runs belonging to their systems (a system's owning
+     * team sees every run of that system). Applied on TOP of the other
+     * filters; both `total` and the page respect it, so pagination stays
+     * correct for a filtered feed. At least one array must be non-empty
+     * (an entirely-empty scope is the caller's "forbidden" case, decided
+     * before the query).
+     */
+    teamScope?: { configurationIds: string[]; systemIds: string[] };
     startDate?: Date;
     endDate?: Date;
     sourceFilter?: string;
@@ -1283,6 +1306,7 @@ export class HealthCheckService {
     const {
       systemId,
       configurationId,
+      teamScope,
       startDate,
       endDate,
       sourceFilter,
@@ -1297,6 +1321,28 @@ export class HealthCheckService {
     if (systemId) conditions.push(eq(healthCheckRuns.systemId, systemId));
     if (configurationId)
       conditions.push(eq(healthCheckRuns.configurationId, configurationId));
+    if (teamScope) {
+      // drizzle's inArray rejects empty arrays, so only include non-empty
+      // branches of the OR.
+      const scopeBranches = [];
+      if (teamScope.configurationIds.length > 0) {
+        scopeBranches.push(
+          inArray(healthCheckRuns.configurationId, teamScope.configurationIds),
+        );
+      }
+      if (teamScope.systemIds.length > 0) {
+        scopeBranches.push(
+          inArray(healthCheckRuns.systemId, teamScope.systemIds),
+        );
+      }
+      if (scopeBranches.length === 0) {
+        // Defensive: an empty scope must never widen to the full feed.
+        return { runs: [], total: 0 };
+      }
+      conditions.push(
+        scopeBranches.length === 1 ? scopeBranches[0] : or(...scopeBranches),
+      );
+    }
     if (startDate) conditions.push(gte(healthCheckRuns.timestamp, startDate));
     if (endDate) conditions.push(lte(healthCheckRuns.timestamp, endDate));
 

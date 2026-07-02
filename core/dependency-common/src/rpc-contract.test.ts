@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProcedureMetadata } from "@checkstack/common";
 import { dependencyContract } from "./rpc-contract";
+import { dependencyAccess } from "./access";
 
 /**
  * Reads the oRPC meta block from a contract procedure.
@@ -69,6 +70,44 @@ describe("dependencyContract instanceAccess wiring", () => {
     test("carries no instanceAccess (full topology, map-rule gated)", () => {
       const meta = metaFor("getAllDependencies");
       expect(meta.instanceAccess).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The map is authenticated-only BY CONSTRUCTION: a rule is anonymous-usable
+  // iff at least one proc requiring it is `public` (plugin-manager's
+  // getAnonymousUsableAccessRuleIds). If any map-gated proc regresses to
+  // `public`, `dependency.map.read` becomes grantable to the anonymous role
+  // and the full system topology leaks to guests.
+  // -------------------------------------------------------------------------
+  describe("map-rule procs are never public (anonymous cannot hold the map rule)", () => {
+    const procNames = Object.keys(dependencyContract) as Array<
+      keyof typeof dependencyContract
+    >;
+
+    test("every proc requiring dependency.map is a non-public userType", () => {
+      const mapGated = procNames.filter((name) =>
+        metaFor(name).access?.some(
+          (rule) => rule.id === dependencyAccess.map.id,
+        ),
+      );
+      // Guard the guard: the known map procs must actually be found, or the
+      // filter itself has gone stale.
+      expect(mapGated).toEqual(
+        expect.arrayContaining([
+          "getAllDependencies",
+          "getNodePositions",
+          "saveNodePositions",
+        ]),
+      );
+      for (const name of mapGated) {
+        expect(metaFor(name).userType).not.toBe("public");
+        expect(metaFor(name).userType).not.toBe("anonymous");
+      }
+    });
+
+    test("getAllDependencies stays 'authenticated' (users AND application principals for the AI projection)", () => {
+      expect(metaFor("getAllDependencies").userType).toBe("authenticated");
     });
   });
 

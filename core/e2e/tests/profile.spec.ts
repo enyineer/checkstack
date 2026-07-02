@@ -19,6 +19,30 @@ const ADMIN_NAME = "E2E Admin";
 const ADMIN_EMAIL = "e2e-admin@checkstack.local";
 
 test.describe("auth profile, password & strategies", () => {
+  test("a guest hitting /auth/profile is redirected to login (no 401 spam)", async ({
+    browser,
+  }) => {
+    // Regression guard: the profile route carries no access rule, so an
+    // anonymous visitor could previously reach the page and fire the
+    // authenticated-only `getCurrentUserProfile` query into a guaranteed 401.
+    // The page now resolves the session first and bounces guests to login.
+    // newContext() inherits the project's `use.storageState` (the admin
+    // session), so the guest context must explicitly clear it.
+    const guestContext = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+    });
+    const guestPage = await guestContext.newPage();
+    try {
+      await guestPage.goto("/auth/profile");
+      await guestPage.waitForURL(/\/auth\/login/, { timeout: 30_000 });
+      await expect(
+        guestPage.getByText("Sign in to your account"),
+      ).toBeVisible({ timeout: 30_000 });
+    } finally {
+      await guestContext.close();
+    }
+  });
+
   test("profile page renders the admin's name and email", async ({ page }) => {
     await page.goto("/auth/profile");
 

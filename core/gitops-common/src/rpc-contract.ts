@@ -18,7 +18,10 @@ export const gitopsContract = {
   getProvenance: proc({
     operationType: "query",
     userType: "public",
-    access: [gitopsAccess.provider.read],
+    // Provenance lookups power the lock indicators in every editor, so they
+    // sit on the DEFAULT `provenance.read` rule - not on `provider.read`,
+    // which admin-gates the GitOps page.
+    access: [gitopsAccess.provenance.read],
   })
     .input(z.object({
       kind: z.string(),
@@ -33,7 +36,8 @@ export const gitopsContract = {
   listProvenance: proc({
     operationType: "query",
     userType: "public",
-    access: [gitopsAccess.provider.read],
+    // Same default `provenance.read` rule as getProvenance (see above).
+    access: [gitopsAccess.provenance.read],
   })
     .input(
       z

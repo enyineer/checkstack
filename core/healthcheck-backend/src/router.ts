@@ -20,6 +20,13 @@ import {
   resolveScriptPackagesDir,
 } from "@checkstack/script-packages-backend";
 import { HealthCheckService } from "./service";
+import {
+  canReadRunScope,
+  hasGlobalHistoryAccess,
+  listManageableSystemIds,
+  listTeamManageableConfigurationIds,
+  resolveHistoryScope,
+} from "./history-access";
 import { collectConfigurationIssues } from "./validate-configuration";
 import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
@@ -482,12 +489,76 @@ export const createHealthCheckRouter = (opts: {
       return service.getRunStats(input);
     }),
 
-    getDetailedHistory: os.getDetailedHistory.handler(async ({ input }) => {
-      return service.getDetailedHistory(input);
-    }),
+    getDetailedHistory: os.getDetailedHistory.handler(
+      async ({ input, context }) => {
+        // Handler-side authorization (the contract's `access` is deliberately
+        // empty - see the contract doc): global `configuration.manage` (or a
+        // trusted service) gets the full feed; a team-scoped caller gets the
+        // feed filtered to the configurations their teams manage PLUS all
+        // runs of the systems they manage (a system's owning team sees every
+        // run of that system); everyone else is forbidden. Fail-closed via
+        // history-access.ts.
+        const user = context.user;
+        let accessibleConfigurationIds: string[] = [];
+        let accessibleSystemIds: string[] = [];
+        if (
+          user &&
+          (user.type === "user" || user.type === "application") &&
+          !hasGlobalHistoryAccess(user)
+        ) {
+          const configs = await service.getConfigurations();
+          [accessibleConfigurationIds, accessibleSystemIds] =
+            await Promise.all([
+              listTeamManageableConfigurationIds({
+                auth: context.auth,
+                user,
+                allConfigurationIds: configs.map((c) => c.id),
+              }),
+              listManageableSystemIds({
+                auth: context.auth,
+                user,
+                allSystemIds: await service.getRunSystemIds(),
+              }),
+            ]);
+        }
+        const scope = resolveHistoryScope({
+          user,
+          accessibleConfigurationIds,
+          accessibleSystemIds,
+        });
+        if (scope.kind === "forbidden") {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "Run history requires health check manage access (globally, or via a team grant on a configuration or system)",
+          });
+        }
+        if (scope.kind === "all") {
+          return service.getDetailedHistory(input);
+        }
+        return service.getDetailedHistory({
+          ...input,
+          teamScope: {
+            configurationIds: scope.configurationIds,
+            systemIds: scope.systemIds,
+          },
+        });
+      },
+    ),
 
-    getRunById: os.getRunById.handler(async ({ input }) => {
-      return service.getRunById(input);
+    getRunById: os.getRunById.handler(async ({ input, context }) => {
+      // Authorized against the FETCHED run's own configuration/system (the
+      // anchor cannot be spoofed via input). An unauthorized caller gets the
+      // same `undefined` as a missing run, so run ids don't leak existence.
+      const run = await service.getRunById({ runId: input.runId });
+      if (!run) return;
+      const allowed = await canReadRunScope({
+        auth: context.auth,
+        user: context.user,
+        configurationId: run.configurationId,
+        systemId: run.systemId,
+      });
+      if (!allowed) return;
+      return run;
     }),
 
     getAggregatedHistory: os.getAggregatedHistory.handler(async ({ input }) => {
@@ -497,7 +568,21 @@ export const createHealthCheckRouter = (opts: {
     }),
 
     getDetailedAggregatedHistory: os.getDetailedAggregatedHistory.handler(
-      async ({ input }) => {
+      async ({ input, context }) => {
+        // Authorized on the (configurationId, systemId) input pair - exactly
+        // the slice returned. See the contract doc / history-access.ts.
+        const allowed = await canReadRunScope({
+          auth: context.auth,
+          user: context.user,
+          configurationId: input.configurationId,
+          systemId: input.systemId,
+        });
+        if (!allowed) {
+          throw new ORPCError("FORBIDDEN", {
+            message:
+              "Detailed run data requires health check manage access (globally, or via a team grant on this configuration or system)",
+          });
+        }
         return service.getAggregatedHistory(input, {
           includeAggregatedResult: true,
         });

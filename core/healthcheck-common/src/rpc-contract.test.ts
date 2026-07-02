@@ -30,6 +30,7 @@ interface InstanceAccessMeta {
 
 function metaFor(procName: keyof typeof healthCheckContract): {
   userType?: string;
+  access?: unknown[];
   instanceAccess?: InstanceAccessMeta;
 } {
   const proc = healthCheckContract[procName] as unknown as Record<
@@ -37,7 +38,11 @@ function metaFor(procName: keyof typeof healthCheckContract): {
     unknown
   >;
   const orpc = proc["~orpc"] as {
-    meta?: { userType?: string; instanceAccess?: InstanceAccessMeta };
+    meta?: {
+      userType?: string;
+      access?: unknown[];
+      instanceAccess?: InstanceAccessMeta;
+    };
   };
   return orpc.meta ?? {};
 }
@@ -200,5 +205,47 @@ describe("healthcheck createConfiguration is wired for create-mode team ownershi
         (validateParsed.data as Record<string, unknown>).teamId,
       ).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Detailed run history is a MANAGER surface: global `configuration.manage`, a
+// team manage grant on the CONFIGURATION, or manage access to the SYSTEM (a
+// system's owning team sees all of its runs). That triple-OR is enforced in
+// the HANDLER (healthcheck-backend/src/history-access.ts), so all three
+// history procs deliberately carry an EMPTY declarative `access` and no
+// instanceAccess - if a rule/mode is ever added back here without removing
+// the handler logic, revisit both together. Also guards the three-way gate
+// drift that previously existed (route allowed `read`, page required manage
+// capability, procedures required the removed standalone `details` rule).
+// ---------------------------------------------------------------------------
+describe("detailed run history is handler-authorized (manage or system-owner)", () => {
+  const historyProcs = [
+    "getDetailedHistory",
+    "getDetailedAggregatedHistory",
+    "getRunById",
+  ] as const;
+
+  for (const procName of historyProcs) {
+    test(`${procName} is authenticated-only with empty access and no instanceAccess`, () => {
+      const meta = metaFor(procName);
+      // Anonymous callers can never hold manage access, so the procs must not
+      // be `public` (that would only produce guaranteed-403 attempts).
+      expect(meta.userType).toBe("authenticated");
+      expect(meta.access).toEqual([]);
+      expect(meta.instanceAccess).toBeUndefined();
+    });
+  }
+
+  test("getRunById takes only `runId` - the run's own fields are the authorization anchor", () => {
+    expect(
+      inputSchemaFor("getRunById").safeParse({ runId: "run-1" }).success,
+    ).toBe(true);
+  });
+
+  test("the standalone details rule is gone from the access surface", () => {
+    expect(
+      (healthCheckAccess as Record<string, unknown>).details,
+    ).toBeUndefined();
   });
 });

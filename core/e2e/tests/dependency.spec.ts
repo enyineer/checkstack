@@ -28,6 +28,17 @@ const NS = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 const SOURCE_SYSTEM = `Web Frontend ${NS}`;
 const TARGET_SYSTEM = `Payments API ${NS}`;
 
+// A dedicated read-only actor for the map-visibility regression test. Fresh
+// self-registration yields a plain member whose default role carries
+// `dependency.dependency.read` + `dependency.map.read` (both `isDefault`) but
+// NO manage rule on any system — the exact cohort that lost all map edges.
+const READONLY_MEMBER = {
+  name: `Dep ReadOnly ${NS}`,
+  email: `dep-readonly-${NS}@checkstack.local`,
+  // Satisfies the register passwordSchema: >= 8 chars, upper, lower, number.
+  password: "DepReadonlyPass123",
+};
+
 /**
  * Create a system through the Catalog Management UI. The shared DB may already
  * hold systems from other parallel specs, so we always target the stable
@@ -158,5 +169,77 @@ test.describe("dependency map", () => {
     // nodes may also render these labels, so scope to "first" presence only.
     await expect(page.getByText("depends").first()).toBeVisible();
     await expect(page.getByText("used by").first()).toBeVisible();
+
+    // Sanity for the read-only regression test below: the admin DOES get a
+    // rendered React Flow edge element, proving the locator is the right
+    // primitive before we assert it for the member. Attachment (not
+    // visibility) is the signal: React Flow only creates the edge element
+    // when it can resolve both handles, and Playwright's visibility check
+    // false-negatives on SVG edges (a horizontal edge path has a zero-height
+    // bounding box and reads as "hidden" even when painted).
+    await expect(page.locator(".react-flow__edge").first()).toBeAttached();
+  });
+
+  test("shows edges to a read-only member without manage access on any system", async ({
+    browser,
+  }) => {
+    // Regression guard: React Flow silently drops every edge whose source node
+    // has no source handle, and the source handle used to be rendered only for
+    // systems the user may MANAGE. A plain member (read + map access via the
+    // default role, no manage grants) therefore saw all system nodes but ZERO
+    // edges. The handle must always render; manage access gates only
+    // drag-to-connect (see SystemNode.tsx).
+    //
+    // Registration + a second context is a long flow; give it room.
+    test.setTimeout(120_000);
+
+    // Self-register a dedicated namespaced member in a fresh context (the
+    // rlac-team-scoped.spec.ts pattern), so this never depends on or perturbs
+    // the shared MEMBER session used by permissions.spec.ts. newContext()
+    // inherits the project's `use.storageState` (the admin session), so start
+    // it explicitly session-less.
+    const memberContext = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+    });
+    const memberPage = await memberContext.newPage();
+    try {
+      await memberPage.goto("/auth/register");
+      await expect(
+        memberPage.getByRole("heading", { name: "Create your account" }),
+      ).toBeVisible({ timeout: 30_000 });
+      await memberPage.locator("#name").fill(READONLY_MEMBER.name);
+      await memberPage.locator("#email").fill(READONLY_MEMBER.email);
+      await memberPage.locator("#password").fill(READONLY_MEMBER.password);
+      await memberPage.getByRole("button", { name: "Create Account" }).click();
+      await memberPage.waitForURL((url) => url.pathname === "/", {
+        timeout: 30_000,
+      });
+      await expect(
+        memberPage.getByRole("button", { name: READONLY_MEMBER.name }),
+      ).toBeVisible({ timeout: 30_000 });
+
+      // The member reaches the map (map read is a default rule) and sees the
+      // system nodes created by the previous test.
+      await memberPage.goto("/dependency/map");
+      await expect(
+        memberPage.getByRole("heading", { name: "Dependency Map" }),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(memberPage.getByText(SOURCE_SYSTEM)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(memberPage.getByText(TARGET_SYSTEM)).toBeVisible();
+
+      // THE regression assertion: at least one edge element is rendered. The
+      // member manages no system at all, so before the fix React Flow created
+      // ZERO edge elements here (every source handle was missing) — including
+      // the edge between our two namespaced systems, which is guaranteed to
+      // exist from the previous serial test. Attachment is the signal (see the
+      // admin sanity assertion above for why not `toBeVisible`).
+      await expect(
+        memberPage.locator(".react-flow__edge").first(),
+      ).toBeAttached({ timeout: 30_000 });
+    } finally {
+      await memberContext.close();
+    }
   });
 });

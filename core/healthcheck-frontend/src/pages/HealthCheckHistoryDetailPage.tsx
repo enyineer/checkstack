@@ -13,6 +13,7 @@ import {
   HealthCheckApi,
   HealthCheckConfigDetailsSlot,
 } from "@checkstack/healthcheck-common";
+import { catalogResourceTypes } from "@checkstack/catalog-common";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
 import {
@@ -55,12 +56,15 @@ const HealthCheckHistoryDetailPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
   const accessApi = useApi(accessApiRef);
-  // Capability-aware: a team-scoped manager of a health check (a team grant, no
-  // global rule) can open its detailed run history too, matching the route guard.
+  // Capability-aware: a team-scoped manager of a health check OR of a system
+  // (a system's owning team sees its runs) can open detailed run history too,
+  // matching the route guard; the data procs authorize the specific
+  // (configuration, system) pair server-side.
   const { allowed: canManage, loading: accessLoading } =
     accessApi.useCanAccessType({
       accessRule: healthCheckAccess.configuration.manage,
       objectType: healthCheckResourceTypes.configuration,
+      parentType: catalogResourceTypes.system,
     });
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
@@ -74,7 +78,8 @@ const HealthCheckHistoryDetailPageContent = () => {
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
   const satellites = satellitesData?.satellites ?? [];
 
-  // Fetch specific run if runId is provided
+  // Fetch specific run if runId is provided. Authorization happens server-side
+  // against the run's own configuration/system.
   const { data: specificRun } = healthCheckClient.getRunById.useQuery(
     {
       runId: runId!,

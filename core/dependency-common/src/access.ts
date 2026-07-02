@@ -35,12 +35,14 @@ export const dependencyAccess = {
    * Access to the dependency map (the full system-topology graph) - its nav
    * entry, page, and full-graph/canvas endpoints.
    *
-   * Deliberately NOT public: the map exposes the entire system topology, so
-   * anonymous visitors must not get it by default. Authenticated users get it
-   * by default (`isDefault`). Per-system dependency warnings stay on the public
-   * `dependency.read` rule, so withholding the map does not hide warning badges.
-   * Admins can still grant this rule to the anonymous role to make the map
-   * public again.
+   * Authenticated-only BY CONSTRUCTION: the map exposes the entire system
+   * topology, so anonymous visitors never get it. No map proc is `public`
+   * (see `getAllDependencies` / the node-position procs), which keeps this
+   * rule out of the anonymous-usable set - the role editor and auth-backend
+   * refuse to grant it to the anonymous role. Authenticated users get it by
+   * default (`isDefault`). Per-system dependency warnings stay on the public
+   * `dependency.read` rule, so withholding the map does not hide warning
+   * badges.
    */
   map: access("map", "read", "View the dependency map (full system topology)", {
     isDefault: true,

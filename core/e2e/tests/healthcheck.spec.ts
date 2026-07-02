@@ -156,6 +156,28 @@ test.describe("health checks", () => {
     await expect(page.getByLabel("Interval (seconds)")).toHaveValue("120");
   });
 
+  test("history page renders its run feed for a global manager", async ({
+    page,
+  }) => {
+    // Regression guard for the manage-or-team-grant history model: the
+    // global History feed (`getDetailedHistory`) is authorized in the HANDLER
+    // (global `configuration.manage` → full feed), so this drives the real
+    // authorization path, not just the route guard. The admin holds the
+    // wildcard rule, so the page must render its Run History table (runs may
+    // legitimately be empty - the created check may not have fired yet).
+    await page.goto("/healthcheck/history", { timeout: NAV_TIMEOUT });
+
+    await expect(
+      page.getByRole("heading", { name: "Health Check History" }),
+    ).toBeVisible({ timeout: NAV_TIMEOUT });
+    await expect(
+      page.getByRole("heading", { name: "Run History" }),
+    ).toBeVisible();
+    // Must NOT be the Access-Denied gate or the catch-all 404.
+    await expect(page.locator("body")).not.toContainText("Access Denied");
+    await expect(page.locator("body")).not.toContainText("Route not found");
+  });
+
   test("deleting a check requires confirmation and removes it from the list", async ({
     page,
   }) => {

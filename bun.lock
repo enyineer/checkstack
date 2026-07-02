@@ -881,6 +881,8 @@
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "react-dom": "19.2.7",
         "typescript": "^5.0.0",
       },
     },
@@ -1813,7 +1815,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.118.1",
+      "version": "0.119.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

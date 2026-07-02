@@ -35,11 +35,15 @@ export const dependencyContract = {
 
   /**
    * Get the full dependency graph (all dependencies, for the canvas).
-   * Gated by the map rule - the full topology is map-only, not public.
+   * Gated by the map rule - the full topology is map-only. Deliberately NOT
+   * `public`: no map proc is public, so `dependency.map.read` is never
+   * anonymous-usable and cannot be granted to the anonymous role (the role
+   * editor and auth-backend both guard on that). `authenticated` (not `user`)
+   * so the AI projection below keeps working for application-token principals.
    */
   getAllDependencies: proc({
     operationType: "query",
-    userType: "public",
+    userType: "authenticated",
     access: [dependencyAccess.map],
   }).output(z.object({ dependencies: z.array(DependencySchema) })),
 

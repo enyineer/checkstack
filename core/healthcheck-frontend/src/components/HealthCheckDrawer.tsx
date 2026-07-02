@@ -1,7 +1,11 @@
 import React, { useState, useCallback, useRef } from "react";
 import { ExternalLink, Server, Layers } from "lucide-react";
 import { Satellite as SatelliteIcon } from "lucide-react";
-import { CatalogApi } from "@checkstack/catalog-common";
+import {
+  CatalogApi,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import {
   ExtensionSlot,
   usePluginClient,
@@ -11,6 +15,7 @@ import {
 import {
   HealthCheckApi,
   healthCheckAccess,
+  healthCheckResourceTypes,
   healthcheckRoutes,
 } from "@checkstack/healthcheck-common";
 import { SatelliteApi, satelliteAccess } from "@checkstack/satellite-common";
@@ -148,9 +153,27 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   );
   const navigate = useNavigate();
   const accessApi = useApi(accessApiRef);
-  const { allowed: canViewDetails } = accessApi.useAccess(
-    healthCheckAccess.details,
-  );
+  // Detailed run history is a MANAGER surface: global manage, a team grant on
+  // THIS configuration, or manage access to THIS system (a system's owning
+  // team sees its runs). Gates the run-row click-through and the detail links
+  // so users never navigate into a page whose data they cannot fetch.
+  const { hasGlobal: hasGlobalManage, canAccess: canManageConfiguration } =
+    accessApi.useResourceAccess({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+      resourceIds: [item.configurationId],
+    });
+  const { hasGlobal: hasGlobalSystemManage, canAccess: canManageSystem } =
+    accessApi.useResourceAccess({
+      accessRule: catalogAccess.system.manage,
+      objectType: catalogResourceTypes.system,
+      resourceIds: [systemId],
+    });
+  const canViewDetails =
+    hasGlobalManage ||
+    canManageConfiguration(item.configurationId) ||
+    hasGlobalSystemManage ||
+    canManageSystem(systemId);
   const { allowed: canReadSatellites } = accessApi.useAccess(
     satelliteAccess.satellite.read,
   );
@@ -282,17 +305,19 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 {item.strategyId}
               </Badge>
             </div>
-            <Link
-              to={resolveRoute(healthcheckRoutes.routes.historyDetail, {
-                systemId,
-                configurationId: item.configurationId,
-              })}
-              className="text-sm text-primary hover:underline flex items-center gap-1 shrink-0"
-            >
-              <span className="hidden sm:inline">Open Full Detail</span>
-              <span className="sm:hidden">Details</span>
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
+            {canViewDetails && (
+              <Link
+                to={resolveRoute(healthcheckRoutes.routes.historyDetail, {
+                  systemId,
+                  configurationId: item.configurationId,
+                })}
+                className="text-sm text-primary hover:underline flex items-center gap-1 shrink-0"
+              >
+                <span className="hidden sm:inline">Open Full Detail</span>
+                <span className="sm:hidden">Details</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </div>
           <SheetDescription className="sr-only">
             Health check details for {item.name}
@@ -719,15 +744,17 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 />
               </div>
               <div className="text-center">
-                <Link
-                  to={resolveRoute(healthcheckRoutes.routes.historyDetail, {
-                    systemId,
-                    configurationId: item.configurationId,
-                  })}
-                  className="text-sm text-primary hover:underline"
-                >
-                  View all runs →
-                </Link>
+                {canViewDetails && (
+                  <Link
+                    to={resolveRoute(healthcheckRoutes.routes.historyDetail, {
+                      systemId,
+                      configurationId: item.configurationId,
+                    })}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    View all runs →
+                  </Link>
+                )}
               </div>
             </div>
           )}
