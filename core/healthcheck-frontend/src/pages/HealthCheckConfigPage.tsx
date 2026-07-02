@@ -88,9 +88,20 @@ const HealthCheckConfigPageContent = () => {
     setSystem,
     clearFilters,
   } = useHealthCheckListState();
-  const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
+  const { allowed: canRead, loading: readLoading } = accessApi.useAccess(
     healthCheckAccess.configuration.read,
   );
+  // Surface gate: matches the route guard's `manageCapability`. A team-scoped
+  // user (a create-capability grant, or a per-config team grant) has no GLOBAL
+  // read rule, so gating the page on `canRead` alone showed them "Access Denied"
+  // even though the route let them in. `useCanAccessType` resolves the same
+  // capability the route uses, so the page and the route agree.
+  const { allowed: canManageSurface, loading: surfaceLoading } =
+    accessApi.useCanAccessType({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+    });
+  const accessLoading = readLoading || surfaceLoading;
   const { allowed: canManage } = accessApi.useCanCreate({
     accessRule: healthCheckAccess.configuration.manage,
     objectType: healthCheckResourceTypes.configuration,
@@ -308,7 +319,7 @@ const HealthCheckConfigPageContent = () => {
       subtitle="Manage health check configurations"
       icon={Activity}
       loading={accessLoading}
-      allowed={canRead}
+      allowed={canRead || canManageSurface}
       actions={
         <div className="flex gap-2">
           {canManage && (

@@ -19,6 +19,7 @@ import {
 } from "../components/HealthCheckRunsTable";
 import {
   healthCheckAccess,
+  healthCheckResourceTypes,
   HealthCheckApi,
 } from "@checkstack/healthcheck-common";
 import { History } from "lucide-react";
@@ -26,9 +27,13 @@ import { History } from "lucide-react";
 const HealthCheckHistoryPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    healthCheckAccess.configuration.manage,
-  );
+  // Capability-aware: a team-scoped manager of a health check (a team grant, no
+  // global rule) can review run history too, matching the route guard.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanAccessType({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+    });
 
   // Pagination state
   const pagination = usePagination({ defaultLimit: 25 });

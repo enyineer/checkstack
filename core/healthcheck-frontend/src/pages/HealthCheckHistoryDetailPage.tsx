@@ -9,6 +9,7 @@ import {
 import {
   healthcheckRoutes,
   healthCheckAccess,
+  healthCheckResourceTypes,
   HealthCheckApi,
   HealthCheckConfigDetailsSlot,
 } from "@checkstack/healthcheck-common";
@@ -54,9 +55,13 @@ const HealthCheckHistoryDetailPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
   const accessApi = useApi(accessApiRef);
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    healthCheckAccess.configuration.manage,
-  );
+  // Capability-aware: a team-scoped manager of a health check (a team grant, no
+  // global rule) can open its detailed run history too, matching the route guard.
+  const { allowed: canManage, loading: accessLoading } =
+    accessApi.useCanAccessType({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+    });
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [sourceFilter, setSourceFilter] = useState<string | undefined>();

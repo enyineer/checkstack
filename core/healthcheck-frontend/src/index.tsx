@@ -118,6 +118,9 @@ export default createFrontendPlugin({
         })),
       title: "Health Check History",
       accessRule: healthCheckAccess.configuration.read,
+      // Team-scoped: a manager of a health check via a team grant can review its
+      // run history without the global manage/read rule.
+      manageCapability: { objectType: healthCheckResourceTypes.configuration },
     },
     {
       route: healthcheckRoutes.routes.historyDetail,
@@ -127,6 +130,9 @@ export default createFrontendPlugin({
         })),
       title: "Health Check Detail",
       accessRule: healthCheckAccess.details,
+      // Team-scoped: managing a health check via a team grant unlocks its
+      // detailed run history without the global manage/details rule.
+      manageCapability: { objectType: healthCheckResourceTypes.configuration },
     },
     {
       route: healthcheckRoutes.routes.historyRun,
@@ -136,6 +142,8 @@ export default createFrontendPlugin({
         })),
       title: "Health Check Run",
       accessRule: healthCheckAccess.details,
+      // Team-scoped: same as the detail route - a team manager can open a run.
+      manageCapability: { objectType: healthCheckResourceTypes.configuration },
     },
   ],
   // No APIs needed - components use usePluginClient() directly
