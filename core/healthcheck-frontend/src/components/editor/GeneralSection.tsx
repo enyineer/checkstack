@@ -1,6 +1,6 @@
 import React from "react";
 import type { HealthCheckStrategyDto } from "@checkstack/healthcheck-common";
-import { Input, Label, DynamicForm } from "@checkstack/ui";
+import { Input, Label, DynamicForm, listSecretFieldKeys } from "@checkstack/ui";
 import { AlertTriangle } from "lucide-react";
 
 interface GeneralSectionProps {
@@ -8,6 +8,12 @@ interface GeneralSectionProps {
   intervalSeconds: number;
   strategyConfig: Record<string, unknown>;
   strategy: HealthCheckStrategyDto | undefined;
+  /**
+   * EDIT mode: the loaded config is REDACTED (x-secret fields absent), so a
+   * blank secret input means "keep the stored value" and must count as
+   * valid. CREATE mode leaves blank secrets genuinely required.
+   */
+  isEditMode: boolean;
   onNameChange: (name: string) => void;
   onIntervalChange: (interval: number) => void;
   onStrategyConfigChange: (config: Record<string, unknown>) => void;
@@ -19,6 +25,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
   intervalSeconds,
   strategyConfig,
   strategy,
+  isEditMode,
   onNameChange,
   onIntervalChange,
   onStrategyConfigChange,
@@ -90,6 +97,9 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
             value={strategyConfig}
             onChange={onStrategyConfigChange}
             onValidChange={onStrategyConfigValidChange}
+            keepExistingSecretFields={
+              isEditMode ? listSecretFieldKeys(strategy.configSchema) : []
+            }
           />
         </div>
       )}

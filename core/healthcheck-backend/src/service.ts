@@ -63,6 +63,14 @@ import {
   calculateLatencyStats,
   type NormalizedBucket,
 } from "./aggregation-utils";
+import {
+  extractConfigurationSecrets,
+  mergeConfigurationSecrets,
+  deleteConfigurationSecrets,
+  redactSecretFields,
+  type GetCollectorSchema,
+  type HealthCheckSecretsDeps,
+} from "./config-secrets";
 
 // Drizzle type helper - uses SafeDatabase to prevent relational query API usage
 type Db = SafeDatabase<typeof schema>;
@@ -118,7 +126,25 @@ export class HealthCheckService {
      * test constructions), `systemName` falls back to the `systemId`.
      */
     private catalogClient?: CatalogClient,
+    /**
+     * Optional — the secrets channel for config credentials. When present,
+     * every write extracts inline `x-secret` values into internal secrets
+     * (the stored row holds only markers / `${{ secrets.* }}` references)
+     * and updates merge blank/absent secrets from the stored row. MUST be
+     * provided on every construction that serves writes (router, gitops);
+     * kept optional only for read-path and test constructions.
+     */
+    private secrets?: HealthCheckSecretsDeps,
   ) {}
+
+  /** Schema lookup for a collector entry, or undefined when unregistered. */
+  private getCollectorSchema: GetCollectorSchema = (collectorId) =>
+    this.collectorRegistry.getCollector(collectorId)?.collector.config.schema;
+
+  /** Schema lookup for a strategy, or undefined when unregistered. */
+  private getStrategySchema(strategyId: string) {
+    return this.registry.getStrategy(strategyId)?.config.schema;
+  }
 
   /**
    * Resolve the platform-wide notification policy defaults. Returns
@@ -163,13 +189,34 @@ export class HealthCheckService {
   async createConfiguration(
     data: CreateHealthCheckConfiguration,
   ): Promise<HealthCheckConfiguration> {
+    // Generate the id up front: secret extraction keys internal secrets by
+    // configuration id, and the raw values must never reach the row insert.
+    const id = crypto.randomUUID();
+    let configToStore = data.config;
+    let collectorsToStore = data.collectors;
+
+    const strategySchema = this.getStrategySchema(data.strategyId);
+    if (this.secrets && strategySchema) {
+      const extracted = await extractConfigurationSecrets({
+        configurationId: id,
+        strategySchema,
+        config: data.config,
+        collectors: data.collectors,
+        getCollectorSchema: this.getCollectorSchema,
+        internalSecrets: this.secrets.internalSecrets,
+      });
+      configToStore = extracted.config;
+      collectorsToStore = extracted.collectors;
+    }
+
     const [config] = await this.db
       .insert(healthCheckConfigurations)
       .values({
+        id,
         name: data.name,
         strategyId: data.strategyId,
-        config: data.config,
-        collectors: data.collectors ?? undefined,
+        config: configToStore,
+        collectors: collectorsToStore ?? undefined,
         intervalSeconds: data.intervalSeconds,
         isTemplate: false, // Defaulting for now
       })
@@ -187,14 +234,87 @@ export class HealthCheckService {
     return config ? this.mapConfig(config) : undefined;
   }
 
+  /**
+   * Redact a configuration for a UI/AI read: every `x-secret` field is
+   * removed from the strategy config and each collector config. Stored
+   * values, `${{ secrets.* }}` references, and even internal markers never
+   * leave the backend; the editor treats the absent field as
+   * "keep existing" (`keepExistingSecretFields`).
+   */
+  redactConfiguration(
+    configuration: HealthCheckConfiguration,
+  ): HealthCheckConfiguration {
+    // FAIL CLOSED on an unregistered strategy/collector (plugin uninstalled):
+    // without its schema we cannot know which fields are secret, so return an
+    // empty config rather than a possibly-secret-bearing one.
+    const strategySchema = this.getStrategySchema(configuration.strategyId);
+    const config = strategySchema
+      ? redactSecretFields({ schema: strategySchema, config: configuration.config })
+      : {};
+    const collectors = configuration.collectors?.map((entry) => {
+      const schema = this.getCollectorSchema(entry.collectorId);
+      if (!schema) return { ...entry, config: {} };
+      return { ...entry, config: redactSecretFields({ schema, config: entry.config }) };
+    });
+    return { ...configuration, config, collectors };
+  }
+
+  async getConfigurationRedacted(
+    id: string,
+  ): Promise<HealthCheckConfiguration | undefined> {
+    const configuration = await this.getConfiguration(id);
+    return configuration ? this.redactConfiguration(configuration) : undefined;
+  }
+
+  async getConfigurationsRedacted(): Promise<HealthCheckConfiguration[]> {
+    const configurations = await this.getConfigurations();
+    return configurations.map((c) => this.redactConfiguration(c));
+  }
+
   async updateConfiguration(
     id: string,
     data: UpdateHealthCheckConfiguration,
   ): Promise<HealthCheckConfiguration | undefined> {
+    let body = data;
+
+    if (this.secrets && (data.config || data.collectors)) {
+      // The editor round-trips the REDACTED config, so blank/absent secrets
+      // mean "keep existing": restore them from the stored row BEFORE
+      // extraction (restored markers pass through extraction untouched).
+      const stored = await this.getConfiguration(id);
+      if (stored) {
+        const strategyId = data.strategyId ?? stored.strategyId;
+        const strategySchema = this.getStrategySchema(strategyId);
+        if (strategySchema) {
+          const merged = mergeConfigurationSecrets({
+            strategySchema,
+            incomingConfig: data.config ?? stored.config,
+            storedConfig: stored.config,
+            incomingCollectors: data.collectors,
+            storedCollectors: stored.collectors,
+            getCollectorSchema: this.getCollectorSchema,
+          });
+          const extracted = await extractConfigurationSecrets({
+            configurationId: id,
+            strategySchema,
+            config: merged.config,
+            collectors: merged.collectors,
+            getCollectorSchema: this.getCollectorSchema,
+            internalSecrets: this.secrets.internalSecrets,
+          });
+          body = {
+            ...data,
+            ...(data.config ? { config: extracted.config } : {}),
+            ...(data.collectors ? { collectors: extracted.collectors } : {}),
+          };
+        }
+      }
+    }
+
     const [config] = await this.db
       .update(healthCheckConfigurations)
       .set({
-        ...data,
+        ...body,
         updatedAt: new Date(),
       })
       .where(eq(healthCheckConfigurations.id, id))
@@ -203,6 +323,24 @@ export class HealthCheckService {
   }
 
   async deleteConfiguration(id: string): Promise<void> {
+    // Clean up the internal secrets the stored markers point at BEFORE the
+    // row disappears (the markers are the only index into them).
+    if (this.secrets) {
+      const stored = await this.getConfiguration(id);
+      const strategySchema = stored
+        ? this.getStrategySchema(stored.strategyId)
+        : undefined;
+      if (stored && strategySchema) {
+        await deleteConfigurationSecrets({
+          configurationId: id,
+          strategySchema,
+          config: stored.config,
+          collectors: stored.collectors,
+          getCollectorSchema: this.getCollectorSchema,
+          internalSecrets: this.secrets.internalSecrets,
+        });
+      }
+    }
     await this.db
       .delete(healthCheckConfigurations)
       .where(eq(healthCheckConfigurations.id, id));

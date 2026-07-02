@@ -212,10 +212,24 @@ export const sshConfigSchema = baseStrategyConfigSchema.extend({
 
 ### Secret Fields
 
-Fields marked with `"x-secret": true` are:
-- Encrypted at rest in the database
-- Masked in the UI
-- Never logged
+Fields marked with `"x-secret": true` flow through the platform's one
+secrets channel; the strategy code itself always receives the real value in
+`createClient` and never has to care:
+
+- **At rest**: an operator-typed inline value is EXTRACTED into the internal
+  secret store (AES-GCM encrypted) on save; the stored configuration row
+  holds only an opaque marker. A `${{ secrets.NAME }}` reference is stored
+  as-is and resolves through the active secrets backend (local or Vault) at
+  run time.
+- **Reads**: `getConfiguration` / `getConfigurations` (and the create/update
+  responses) strip `x-secret` fields entirely - values, references, and
+  markers never reach a browser or an AI model context. The editor renders a
+  blank secret input; leaving it blank on save keeps the stored value.
+- **Runs**: the core executor inflates markers/references to real values in
+  memory just before `createClient`. A satellite receives assignments with
+  markers only and fetches the values just-in-time over its authenticated
+  WebSocket channel, per run, never persisting them.
+- Never logged.
 
 ## Result Schemas with Chart Metadata
 

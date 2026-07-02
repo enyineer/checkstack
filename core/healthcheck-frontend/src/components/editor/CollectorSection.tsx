@@ -8,6 +8,7 @@ import {
   DynamicForm,
   Label,
   healthcheckScriptContext,
+  listSecretFieldKeys,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import {
@@ -26,6 +27,12 @@ import { schemaHasTemplatableFields } from "./collector-preview-context.logic";
 interface CollectorSectionProps {
   entry: CollectorConfigEntry;
   collectorDef: CollectorDto | undefined;
+  /**
+   * EDIT mode: the loaded config is REDACTED (x-secret fields absent), so a
+   * blank secret input means "keep the stored value" and must count as
+   * valid. CREATE mode leaves blank secrets genuinely required.
+   */
+  isEditMode: boolean;
   onConfigChange: (config: Record<string, unknown>) => void;
   onAssertionsChange: (assertions: CollectorConfigEntry["assertions"]) => void;
   onValidChange: (isValid: boolean) => void;
@@ -50,6 +57,7 @@ interface CollectorSectionProps {
 export const CollectorSection: React.FC<CollectorSectionProps> = ({
   entry,
   collectorDef,
+  isEditMode,
   onConfigChange,
   onAssertionsChange,
   onValidChange,
@@ -133,6 +141,9 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 {...ctx}
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
+                keepExistingSecretFields={
+                  isEditMode ? listSecretFieldKeys(collectorDef.configSchema) : []
+                }
                 acquireTypes={acquireTypes}
                 acquireResetKey={acquireResetKey}
                 sdkTypes={sdkTypes}

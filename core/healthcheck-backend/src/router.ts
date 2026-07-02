@@ -20,6 +20,7 @@ import {
   resolveScriptPackagesDir,
 } from "@checkstack/script-packages-backend";
 import { HealthCheckService } from "./service";
+import type { HealthCheckSecretsDeps } from "./config-secrets";
 import {
   canReadRunScope,
   hasGlobalHistoryAccess,
@@ -74,6 +75,12 @@ export const createHealthCheckRouter = (opts: {
    * run / the SLO self-heal converge the rollup lazily.
    */
   recomputeSystemRollupHealth?: (systemId: string) => Promise<void>;
+  /**
+   * Secrets channel for config credentials (extract-on-write, redact-on-read,
+   * blank-keeps-existing on update). Optional only for tests; the real
+   * router MUST receive it or writes would store inline secrets verbatim.
+   */
+  configSecrets?: HealthCheckSecretsDeps;
 }) => {
   const {
     database,
@@ -95,6 +102,7 @@ export const createHealthCheckRouter = (opts: {
     collectorRegistry,
     configService,
     catalogClient,
+    opts.configSecrets,
   );
 
   // Create contract implementer with context type AND auto auth middleware
@@ -252,12 +260,15 @@ export const createHealthCheckRouter = (opts: {
       return runCollectorScriptTest({ input, deps: { resolutionRoot } });
     }),
 
+    // UI/AI reads are ALWAYS redacted: `x-secret` fields (values, references,
+    // internal markers alike) are stripped server-side. The editor renders a
+    // blank secret input and blank-on-save means "keep existing".
     getConfigurations: os.getConfigurations.handler(async () => {
-      return { configurations: await service.getConfigurations() };
+      return { configurations: await service.getConfigurationsRedacted() };
     }),
 
     getConfiguration: os.getConfiguration.handler(async ({ input }) => {
-      return service.getConfiguration(input.id);
+      return service.getConfigurationRedacted(input.id);
     }),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {
@@ -271,7 +282,8 @@ export const createHealthCheckRouter = (opts: {
         action: "created",
         configurationId: created.id,
       });
-      return created;
+      // The response goes back to the editor: keep it redacted like reads.
+      return service.redactConfiguration(created);
     }),
 
     validateConfiguration: os.validateConfiguration.handler(
@@ -307,7 +319,8 @@ export const createHealthCheckRouter = (opts: {
         action: "updated",
         configurationId: config.id,
       });
-      return config;
+      // The response goes back to the editor: keep it redacted like reads.
+      return service.redactConfiguration(config);
     }),
 
     deleteConfiguration: os.deleteConfiguration.handler(async ({ input }) => {

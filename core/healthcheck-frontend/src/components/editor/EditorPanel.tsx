@@ -125,6 +125,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
       <div className="p-6">
         <GeneralSection
           name={formState.name}
+          isEditMode={isEditMode}
           intervalSeconds={formState.intervalSeconds}
           strategyConfig={formState.strategyConfig}
           strategy={strategy}
@@ -223,6 +224,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         <CollectorSection
           entry={entry}
           collectorDef={collectorDef}
+          isEditMode={isEditMode}
           onConfigChange={(config) => onCollectorConfigChange(entryId, config)}
           onAssertionsChange={(assertions) =>
             onCollectorAssertionsChange(entryId, assertions)

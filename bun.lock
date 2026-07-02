@@ -1126,6 +1126,7 @@
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "zod": "^4.2.1",
       },
@@ -1610,8 +1611,11 @@
       "dependencies": {
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
+        "zod": "^4.2.1",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -1816,7 +1820,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.121.0",
+      "version": "0.122.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

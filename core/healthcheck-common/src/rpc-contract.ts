@@ -166,6 +166,12 @@ export const healthCheckContract = {
 
   // ==========================================================================
   // CONFIGURATION MANAGEMENT (userType: "authenticated")
+  //
+  // Config reads (and the create/update responses) are REDACTED: every
+  // `x-secret` field of the strategy config and each collector config is
+  // stripped server-side - stored values, `${{ secrets.* }}` references, and
+  // internal markers never reach a client or a model context. On update, a
+  // blank/absent secret means "keep the stored value".
   // ==========================================================================
 
   getConfigurations: proc({
