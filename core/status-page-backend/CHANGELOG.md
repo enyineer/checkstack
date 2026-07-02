@@ -1,5 +1,12 @@
 # @checkstack/status-page-backend
 
+## 0.4.3
+
+### Patch Changes
+
+- @checkstack/backend-api@0.27.1
+- @checkstack/command-backend@0.2.16
+
 ## 0.4.2
 
 ### Patch Changes

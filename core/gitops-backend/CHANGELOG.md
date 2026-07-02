@@ -1,5 +1,15 @@
 # @checkstack/gitops-backend
 
+## 0.5.16
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/command-backend@0.2.16
+  - @checkstack/secrets-backend@0.2.16
+
 ## 0.5.15
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @checkstack/ai-backend
 
+## 0.10.3
+
+### Patch Changes
+
+- 0cac684: Update the generated docs index to reflect the access-gating documentation
+  changes (anonymous behavior of the capability hooks, the new "Gate
+  affordances, not structure" section, and the dependency map's signed-in-only
+  note).
+  - @checkstack/sdk@0.119.1
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/integration-backend@0.6.9
+
 ## 0.10.2
 
 ### Patch Changes

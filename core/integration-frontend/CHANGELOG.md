@@ -1,5 +1,11 @@
 # @checkstack/integration-frontend
 
+## 0.7.6
+
+### Patch Changes
+
+- @checkstack/tips-frontend@0.4.6
+
 ## 0.7.5
 
 ### Patch Changes

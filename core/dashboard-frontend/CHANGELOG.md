@@ -1,5 +1,14 @@
 # @checkstack/dashboard-frontend
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/catalog-frontend@0.15.1
+  - @checkstack/tips-frontend@0.4.6
+
 ## 0.10.0
 
 ### Minor Changes

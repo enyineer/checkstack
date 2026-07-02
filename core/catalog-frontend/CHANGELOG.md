@@ -1,5 +1,16 @@
 # @checkstack/catalog-frontend
 
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/auth-frontend@0.11.1
+  - @checkstack/notification-frontend@0.7.1
+  - @checkstack/tips-frontend@0.4.6
+  - @checkstack/gitops-frontend@0.6.6
+
 ## 0.15.0
 
 ### Minor Changes

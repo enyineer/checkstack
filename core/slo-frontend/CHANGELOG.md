@@ -1,5 +1,19 @@
 # @checkstack/slo-frontend
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/auth-frontend@0.11.1
+  - @checkstack/dependency-common@1.6.0
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/tips-frontend@0.4.6
+  - @checkstack/dashboard-frontend@0.10.1
+
 ## 0.8.0
 
 ### Minor Changes

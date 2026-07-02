@@ -1,5 +1,11 @@
 # @checkstack/test-utils-backend
 
+## 0.1.50
+
+### Patch Changes
+
+- @checkstack/backend-api@0.27.1
+
 ## 0.1.49
 
 ### Patch Changes

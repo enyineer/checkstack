@@ -1,5 +1,19 @@
 # @checkstack/catalog-backend
 
+## 1.6.3
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/ai-backend@0.10.3
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/automation-backend@0.10.5
+  - @checkstack/gitops-backend@0.5.16
+  - @checkstack/backend-api@0.27.1
+  - @checkstack/auth-backend@0.9.1
+  - @checkstack/command-backend@0.2.16
+
 ## 1.6.2
 
 ### Patch Changes

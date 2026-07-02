@@ -1,5 +1,14 @@
 # @checkstack/release
 
+## 0.120.0
+
+### Minor Changes
+
+- 0cac684: Redirect anonymous visitors from `/auth/profile` to the login page instead of
+  rendering the profile skeleton and firing the authenticated-only
+  `getCurrentUserProfile` query into a guaranteed 401. The profile query now
+  only runs once a signed-in session is resolved.
+
 ## 0.119.0
 
 ### Minor Changes

@@ -1,5 +1,17 @@
 # @checkstack/sdk
 
+## 0.119.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+- Updated dependencies [0cac684]
+  - @checkstack/dependency-common@1.6.0
+  - @checkstack/gitops-common@0.7.0
+  - @checkstack/healthcheck-common@1.11.0
+  - @checkstack/satellite-common@0.8.14
+
 ## 0.118.1
 
 ### Patch Changes

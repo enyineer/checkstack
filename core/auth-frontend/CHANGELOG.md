@@ -1,5 +1,24 @@
 # @checkstack/auth-frontend
 
+## 0.11.1
+
+### Patch Changes
+
+- 0cac684: Stop firing the authenticated-only capability RPCs (`canCreate`,
+  `myManageableTypes`, `listMyAccessibleResources`) for anonymous sessions. The
+  `AccessApi` capability hooks fell through to the team-derived path whenever the
+  global rule was absent - including for guests, whose requests can only fail and
+  spam the backend log with 401 "Authentication required" errors. The queries are
+  now additionally gated on `isAuthenticated`; anonymous callers resolve from the
+  global (anonymous-role) rules alone, which is also the only access they can
+  hold.
+- 0cac684: Redirect anonymous visitors from `/auth/profile` to the login page instead of
+  rendering the profile skeleton and firing the authenticated-only
+  `getCurrentUserProfile` query into a guaranteed 401. The profile query now
+  only runs once a signed-in session is resolved.
+- Updated dependencies [0cac684]
+  - @checkstack/healthcheck-common@1.11.0
+
 ## 0.11.0
 
 ### Minor Changes

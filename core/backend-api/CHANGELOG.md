@@ -1,5 +1,12 @@
 # @checkstack/backend-api
 
+## 0.27.1
+
+### Patch Changes
+
+- Updated dependencies [0cac684]
+  - @checkstack/healthcheck-common@1.11.0
+
 ## 0.27.0
 
 ### Minor Changes
