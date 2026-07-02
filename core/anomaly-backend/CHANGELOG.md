@@ -1,5 +1,14 @@
 # @checkstack/anomaly-backend
 
+## 1.4.2
+
+### Patch Changes
+
+- Updated dependencies [b4e0832]
+  - @checkstack/ai-backend@0.10.4
+  - @checkstack/catalog-backend@1.6.4
+  - @checkstack/healthcheck-backend@1.13.1
+
 ## 1.4.1
 
 ### Patch Changes

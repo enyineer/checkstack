@@ -1,5 +1,16 @@
 # @checkstack/healthcheck-backend
 
+## 1.13.1
+
+### Patch Changes
+
+- Updated dependencies [b4e0832]
+  - @checkstack/ai-backend@0.10.4
+  - @checkstack/automation-backend@0.10.6
+  - @checkstack/catalog-backend@1.6.4
+  - @checkstack/incident-backend@1.9.2
+  - @checkstack/satellite-backend@0.7.7
+
 ## 1.13.0
 
 ### Minor Changes

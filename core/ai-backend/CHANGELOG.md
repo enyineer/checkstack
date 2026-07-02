@@ -1,5 +1,13 @@
 # @checkstack/ai-backend
 
+## 0.10.4
+
+### Patch Changes
+
+- b4e0832: Update the generated docs index to reflect the new HTTP health check
+  authentication documentation (the Authentication picker in the first-health-
+  check guide).
+
 ## 0.10.3
 
 ### Patch Changes
