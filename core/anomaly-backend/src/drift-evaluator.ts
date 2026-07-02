@@ -15,7 +15,7 @@ import {
   type AnomalySettings,
   type FieldBaseline,
 } from "@checkstack/anomaly-common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import * as schema from "./schema";
 import { dispatchAnomalyNotification } from "./notification";
 
@@ -32,6 +32,15 @@ export interface EvaluateDriftInput {
   signalService?: SignalService;
   systemId: string;
   configurationId: string;
+  /**
+   * Environment this drift was evaluated for (per-environment fan-out).
+   * null = the env-less slice (no environment membership). The analyzer's
+   * per-env loop threads it so the drift row is located/created by
+   * `(systemId, configurationId, environmentId, fieldPath, kind)` - a drift for
+   * this check in env A is a distinct row from env B, mirroring the spike
+   * detector and the per-env baseline.
+   */
+  environmentId: string | null;
   fieldPath: string;
   baseline: FieldBaseline;
   /** Direction declared by the schema for this field, if any. */
@@ -70,6 +79,7 @@ export async function evaluateDrift({
   signalService,
   systemId,
   configurationId,
+  environmentId,
   fieldPath,
   baseline,
   schemaDirection,
@@ -118,6 +128,13 @@ export async function evaluateDrift({
     minRelativeDelta,
   });
 
+  // Resolve the per-env drift row: match environmentId when present, or the
+  // env-less (NULL) slice otherwise. Mirrors the per-env baseline lookup so a
+  // drift for this check in env A is a distinct row from env B.
+  const envPredicate =
+    environmentId === null
+      ? isNull(schema.anomalies.environmentId)
+      : eq(schema.anomalies.environmentId, environmentId);
   const [existing] = await db
     .select()
     .from(schema.anomalies)
@@ -125,6 +142,7 @@ export async function evaluateDrift({
       and(
         eq(schema.anomalies.systemId, systemId),
         eq(schema.anomalies.configurationId, configurationId),
+        envPredicate,
         eq(schema.anomalies.fieldPath, fieldPath),
         eq(schema.anomalies.kind, "drift"),
       ),
@@ -138,6 +156,7 @@ export async function evaluateDrift({
         .values({
           systemId,
           configurationId,
+          environmentId,
           fieldPath,
           kind: "drift",
           state: "suspicious",
@@ -191,6 +210,7 @@ export async function evaluateDrift({
         await dispatchAnomalyNotification({
           action: "drift_confirmed",
           systemId,
+          environmentId,
           fieldPath,
           observedValue: baseline.mean,
           baselineMean: baseline.mean,
@@ -256,6 +276,7 @@ export async function evaluateDrift({
         await dispatchAnomalyNotification({
           action: "drift_recovered",
           systemId,
+          environmentId,
           fieldPath,
           observedValue: baseline.mean,
           baselineMean: baseline.mean,
@@ -316,6 +337,7 @@ export async function evaluateDrift({
     await dispatchAnomalyNotification({
       action: "drift_recovered",
       systemId,
+      environmentId,
       fieldPath,
       observedValue: baseline.mean,
       baselineMean: baseline.mean,

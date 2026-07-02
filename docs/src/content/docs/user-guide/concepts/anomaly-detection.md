@@ -24,6 +24,10 @@ An anomaly never flips a system to unhealthy. Health state and anomalies are del
 
 Anomalies surface on the system detail page and feed the [dashboard](/checkstack/user-guide/concepts/catalog-and-dashboards/) signals and the assistant's "what is wrong?" view, but a system with an anomaly and all-passing checks still reads as healthy.
 
+## Anomalies are tracked per environment
+
+When a check runs in several [environments](/checkstack/user-guide/concepts/health-checks/) (for example staging and production), each environment learns its own baseline and its anomalies are tracked separately. An unusual reading in production opens a production anomaly that does not affect staging, and vice versa. On the system detail page an environment label appears next to any anomaly that belongs to a specific environment, so two environments of the same metric read as two distinct entries. Checks that do not fan out into environments behave exactly as before.
+
 ## How a reading becomes an alert
 
 Detection is debounced so a single odd sample does not page anyone:

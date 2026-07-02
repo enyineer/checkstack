@@ -52,6 +52,9 @@ function createMockDb({ existingAnomaly }: { existingAnomaly?: Record<string, un
   const insertCalls: Array<Record<string, unknown>> = [];
   const updateCalls: Array<Record<string, unknown>> = [];
   const deleteCalls: unknown[] = [];
+  // Captures the WHERE condition passed to each SELECT against `anomalies` so
+  // tests can assert the per-env drift lookup predicate.
+  const anomalyWheres: unknown[] = [];
 
   const makeThenable = (rows: unknown[]) => {
     const promise = Promise.resolve(rows);
@@ -61,8 +64,14 @@ function createMockDb({ existingAnomaly }: { existingAnomaly?: Record<string, un
       limit: mock(() => Promise.resolve(rows)),
     };
   };
-  const makeWhereChain = (rows: unknown[]) => ({
-    where: mock(() => makeThenable(rows)),
+  const makeWhereChain = (
+    rows: unknown[],
+    onWhere?: (condition: unknown) => void,
+  ) => ({
+    where: mock((condition: unknown) => {
+      onWhere?.(condition);
+      return makeThenable(rows);
+    }),
     ...makeThenable(rows),
   });
 
@@ -70,7 +79,9 @@ function createMockDb({ existingAnomaly }: { existingAnomaly?: Record<string, un
     select: mock(() => ({
       from: mock((table: unknown) => {
         if (table === schema.anomalies) {
-          return makeWhereChain(existingAnomaly ? [existingAnomaly] : []);
+          return makeWhereChain(existingAnomaly ? [existingAnomaly] : [], (c) =>
+            anomalyWheres.push(c),
+          );
         }
         return makeWhereChain([]);
       }),
@@ -102,13 +113,37 @@ function createMockDb({ existingAnomaly }: { existingAnomaly?: Record<string, un
     _insertCalls: insertCalls,
     _updateCalls: updateCalls,
     _deleteCalls: deleteCalls,
+    _anomalyWheres: anomalyWheres,
   };
   return db;
+}
+
+/**
+ * Flattens a drizzle SQL condition into a readable string by walking its
+ * `queryChunks`, so tests can assert the per-env drift lookup predicate
+ * ("environment_id = env-prod" vs "environment_id is null") without a live DB.
+ */
+function serializeCondition(cond: unknown): string {
+  if (cond === null || cond === undefined || typeof cond !== "object") {
+    return String(cond);
+  }
+  const c = cond as Record<string, unknown>;
+  if (Array.isArray(c.queryChunks)) {
+    return c.queryChunks.map(serializeCondition).join("");
+  }
+  if (Array.isArray(c.value)) {
+    return (c.value as unknown[]).join("");
+  }
+  if (typeof c.name === "string") return c.name;
+  if ("value" in c) return String(c.value);
+  return "";
 }
 
 const baseProps = {
   systemId: "sys-1",
   configurationId: "config-1",
+  // Default to the env-less slice; env-scoped behaviour has dedicated tests.
+  environmentId: null,
   fieldPath: "collectors.http.request.responseTimeMs",
 };
 
@@ -499,6 +534,85 @@ describe("evaluateDrift", () => {
       });
       expect(db2._insertCalls.length).toBe(1);
       expect(db2._insertCalls[0].direction).toBe("below");
+    });
+  });
+
+  // ─── Per-(check, environment) drift rows (deferred #375 follow-up) ─────
+  describe("environment scoping", () => {
+    test("tags a new drift row with its environmentId and scopes the lookup", async () => {
+      const db = createMockDb();
+      await evaluateDrift({
+        ...baseProps,
+        environmentId: "env-prod",
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+      expect(db._insertCalls.length).toBe(1);
+      expect(db._insertCalls[0].environmentId).toBe("env-prod");
+      expect(serializeCondition(db._anomalyWheres[0])).toContain(
+        "environment_id = env-prod",
+      );
+    });
+
+    test("env A and env B produce independent, env-tagged drift rows", async () => {
+      const dbA = createMockDb();
+      await evaluateDrift({
+        ...baseProps,
+        environmentId: "env-a",
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: dbA as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+
+      const dbB = createMockDb();
+      await evaluateDrift({
+        ...baseProps,
+        environmentId: "env-b",
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: dbB as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+
+      expect(dbA._insertCalls[0].environmentId).toBe("env-a");
+      expect(dbB._insertCalls[0].environmentId).toBe("env-b");
+      expect(serializeCondition(dbA._anomalyWheres[0])).toContain(
+        "environment_id = env-a",
+      );
+      expect(serializeCondition(dbB._anomalyWheres[0])).toContain(
+        "environment_id = env-b",
+      );
+    });
+
+    test("env-less drift resolves the IS NULL slice and tags the row null", async () => {
+      const db = createMockDb();
+      await evaluateDrift({
+        ...baseProps,
+        environmentId: null,
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+      });
+      expect(db._insertCalls[0].environmentId).toBeNull();
+      const where = serializeCondition(db._anomalyWheres[0]);
+      expect(where).toContain("environment_id is null");
+      expect(where).not.toContain("environment_id =");
     });
   });
 });

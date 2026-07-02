@@ -300,10 +300,11 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 
 ### 5.1 Storage Model
 
-`anomalies` table ([core/anomaly-backend/src/schema.ts](../../core/anomaly-backend/src/schema.ts)) - at most one open row per `(systemId, configurationId, fieldPath, kind)`. Spike and drift on the same metric are independent rows.
+`anomalies` table ([core/anomaly-backend/src/schema.ts](../../core/anomaly-backend/src/schema.ts)) - at most one open row per `(systemId, configurationId, environmentId, fieldPath, kind)`. Spike and drift on the same metric are independent rows, and so are two environments of the same check (see [5.7](#57-per-environment-scoping)).
 
 | Column | Description |
 |---|---|
+| `environmentId` | Environment the anomaly was detected for. `null` = the env-less slice (no environment membership). Part of the row identity - see [5.7](#57-per-environment-scoping). |
 | `kind` | `"spike"` (Phase 1, inline detector) or `"drift"` (Phase 2, hourly evaluator). |
 | `state` | `"suspicious"`, `"anomaly"`, or `"recovered"`. |
 | `direction` | `"above"`, `"below"`, or `"changed"`. |
@@ -374,6 +375,17 @@ Suppression is modelled as a **flag layered on top of `state`** (a nullable `sup
 - **Auto-unsuppress** ("changes again"): the inline detector clears suppression once a fresh observed value moves more than `SUPPRESSION_REACTIVATION_DELTA` (25%) away from `suppressedValue`. A baseline-relative recovery also clears suppression.
 
 Suppression state lives on the shared `anomalies` row, so every horizontally-scaled pod reads the same suppressed/active set.
+
+### 5.7 Per-environment scoping
+
+When a `(system, configuration)` assignment fans out to multiple environments (see [per-environment health](/checkstack/user-guide/concepts/health-checks/)), each environment runs its own check and its baselines are computed per environment. Anomaly **rows** follow the same split: the open row is keyed on `(systemId, configurationId, environmentId, fieldPath, kind)`, so an anomaly for a check in environment A is a **distinct row** from the same check in environment B. A healthy value in one environment never masks (or merges with) an anomaly in another.
+
+- **Detection.** The inline spike detector receives `environmentId` from the `checkCompleted` hook, and the drift evaluator receives it from the analyzer's per-environment loop. Both locate/create the row with `environmentId = <id>` when present, or `environment_id IS NULL` for the **env-less slice** (a check that opts out of fan-out, or a system with no environments).
+- **Reads.** `getAnomalies` accepts an optional `environmentId` filter with the same tristate as `getAnomalyBaselines`: `undefined` returns every environment, `null` returns only the env-less slice, and a string returns that environment's anomalies. Each `AnomalyDto` and each `getActiveSignalAnomalies` row surfaces `environmentId`, so the system-detail widget renders an environment pill and the dashboard signal feed keeps two environments of the same field distinct.
+- **Notifications.** When an anomaly is env-scoped, its environment id is appended to the notification collapse key (`anomaly.anomaly.<systemId>.<fieldPath>.<environmentId>`), so two failing environments render as two independent cards instead of collapsing into one. The env-less slice keeps the pre-feature two-segment key. Mutes stay env-agnostic (per system / per field).
+
+> [!NOTE]
+> No unique constraint is placed on the `anomalies` table (and none existed before): multiple rows legitimately share the identity tuple - a `recovered` historical row coexists with a fresh active row. Env is just an additional column on the row, stored in shared Postgres, so every pod reads the same per-`(system, config, env, field, kind)` state. On upgrade, existing cross-env rows backfill to `null` (the env-less slice) and remain until they recover; the next detection tick opens fresh per-environment rows for fanned-out checks.
 
 ---
 
@@ -461,10 +473,10 @@ The system anomaly widget on each system detail page exposes a bell icon on ever
 The inline detector reads baselines from the `CacheProvider` first; cache misses fall back to the database (and warm the cache). Keys are namespaced under the anomaly plugin id (see [Cache System](/checkstack/developer-guide/backend/cache-system/)) and shaped as:
 
 ```text
-baseline:${configurationId}:${systemId}:${fieldPath}
+baseline:${configurationId}:${systemId}:${environmentId ?? "<none>"}:${fieldPath}
 ```
 
-Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick refreshes them. Plugin authors do not normally need to touch this - the cache is internal to `core/anomaly-backend`.
+The env segment keeps per-environment baselines from shadowing each other; the env-less slice uses the literal `<none>`. Baselines are written with a 24-hour TTL by the analyzer. The next hourly tick refreshes them. Plugin authors do not normally need to touch this - the cache is internal to `core/anomaly-backend`.
 
 ---
 
