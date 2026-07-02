@@ -18,6 +18,7 @@ import type { WebSocketRouteRegistry } from "./ws-registry";
 import type { ReadinessRegistry } from "./readiness-registry";
 import type { AdvisoryLockService } from "./advisory-lock";
 import type { ResourceResolverRegistry } from "./resource-resolver";
+import type { InstanceRuntime } from "./instance-runtime";
 
 export * from "./types";
 export * from "./resource-resolver";
@@ -97,4 +98,12 @@ export const coreServices = {
    * See {@link AdvisoryLockService}.
    */
   advisoryLock: createServiceRef<AdvisoryLockService>("core.advisoryLock"),
+  /**
+   * Identifies which INSTANCE this backend runs as, so plugins can namespace
+   * any state they keep on shared external infrastructure (redis/BullMQ keys,
+   * shared cache prefixes, consumer groups). The default instance carries the
+   * empty namespace; a secondary instance (e.g. the PR-preview instance)
+   * carries a non-empty slug. See {@link InstanceRuntime}.
+   */
+  instanceRuntime: createServiceRef<InstanceRuntime>("core.instanceRuntime"),
 };

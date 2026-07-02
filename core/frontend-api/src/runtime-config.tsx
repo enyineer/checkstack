@@ -25,6 +25,14 @@ export interface RuntimeConfig {
    * only on the primary/admin origin.
    */
   publicPathPrefixes?: string[];
+  /**
+   * The instance NAMESPACE this backend runs as, when it is a SECONDARY instance
+   * (e.g. the PR-preview instance booted alongside the normal dev instance). The
+   * admin SPA renders a "preview instance" banner when this is present. Absent
+   * (undefined) on the default instance. See the backend's `instanceRuntime` and
+   * the developer-guide "parallel instances" page.
+   */
+  instanceNamespace?: string;
 }
 
 interface RuntimeConfigContextValue {
