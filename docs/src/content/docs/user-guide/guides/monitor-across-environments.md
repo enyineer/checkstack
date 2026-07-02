@@ -97,6 +97,9 @@ The **Environments** section offers three modes:
 Leave **All environments** selected (the default). With staging and production attached, the check now fans out to two runs per tick.
 
 > [!NOTE]
+> If the system belongs to no environment, the **Environments** section shows a "No environment configured" empty-state instead of the mode selector. Attach the system to at least one environment in the catalog (step 2) to enable per-environment fan-out. The check still runs once with no environment context until then.
+
+> [!NOTE]
 > If you later add a third environment (for example `canary`) to the system and the assignment is still in **All environments** mode, the next tick automatically picks it up with no config change.
 
 ---

@@ -8,6 +8,14 @@ export const AnomalyDtoSchema = z.object({
   id: z.string(),
   systemId: z.string(),
   configurationId: z.string(),
+  /**
+   * Environment this anomaly was detected for. null = the env-less slice (no
+   * environment membership). Part of the anomaly's identity: an anomaly for a
+   * check in environment A is a distinct row from the same check in environment
+   * B. Surfaced so the frontend can render an environment pill and disambiguate
+   * two envs of the same field.
+   */
+  environmentId: z.string().nullable(),
   fieldPath: z.string(),
   kind: AnomalyKindSchema,
   state: AnomalyStateSchema,
@@ -93,6 +101,14 @@ export const anomalyContract = {
     .input(z.object({
       systemId: z.string().optional(),
       configurationId: z.string().optional(),
+      /**
+       * Optional environment filter, mirroring `getAnomalyBaselines`:
+       * - `undefined` (omitted) -> anomalies for ALL environments (the widget's
+       *   cross-env feed, or any caller that isn't env-scoped).
+       * - `null` -> only the env-less slice (environment_id IS NULL).
+       * - a string -> only that environment's anomalies.
+       */
+      environmentId: z.string().nullish(),
       state: AnomalyStateSchema.optional(),
       kind: AnomalyKindSchema.optional(),
       /**

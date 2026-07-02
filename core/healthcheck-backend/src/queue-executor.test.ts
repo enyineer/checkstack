@@ -793,7 +793,12 @@ describe("Queue-Based Health Check Executor", () => {
       collectorConfig?: Record<string, unknown>;
       /** Schema used to detect `x-templatable` fields for the render pass. */
       collectorConfigSchema?: z.ZodType<unknown>;
-    }): Promise<Array<{ environment?: unknown; config?: unknown }>> {
+    }): Promise<{
+      /** Run-context captured per fanned-out run (env + rendered config). */
+      runs: Array<{ environment?: unknown; config?: unknown }>;
+      /** Payloads broadcast on `healthcheck.run.completed`, in order. */
+      runCompletedPayloads: Array<Record<string, unknown>>;
+    }> {
       const mockDb = createMockDb();
       const mockRegistry = createMockRegistry();
       const mockLogger = createMockLogger();
@@ -817,8 +822,13 @@ describe("Queue-Based Health Check Executor", () => {
         })),
       );
 
+      // The default full select chain (from().where(), groupBy, orderBy, ...)
+      // so the durable persist path (aggregate read + rollup) resolves instead
+      // of throwing on an unmodelled query shape - which is what lets the run
+      // reach the `HEALTH_CHECK_RUN_COMPLETED` broadcast.
+      const defaultSelect = mockDb.select;
       let selectCallCount = 0;
-      (mockDb.select as any) = mock(() => {
+      (mockDb.select as any) = mock((...args: unknown[]) => {
         selectCallCount++;
         if (selectCallCount === 2) {
           return {
@@ -851,13 +861,7 @@ describe("Queue-Based Health Check Executor", () => {
             })),
           };
         }
-        return {
-          from: mock(() => ({
-            innerJoin: mock(() => ({
-              where: mock(() => Promise.resolve([])),
-            })),
-          })),
-        };
+        return (defaultSelect as (...a: unknown[]) => unknown)(...args);
       });
 
       const captured: Array<{ environment?: unknown; config?: unknown }> = [];
@@ -941,11 +945,15 @@ describe("Queue-Based Health Check Executor", () => {
         }).catch(() => {});
       }
 
-      return captured;
+      const runCompletedPayloads = mockSignalService
+        .getRecordedSignalsById("healthcheck.run.completed")
+        .map((r) => z.record(z.string(), z.unknown()).parse(r.payload));
+
+      return { runs: captured, runCompletedPayloads };
     }
 
     it("runs once per effective environment with that env in run-context (null selector = all)", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: null,
         membership: [
           { id: "prod", name: "Production", metadata: { baseUrl: "p" } },
@@ -966,8 +974,40 @@ describe("Queue-Based Health Check Executor", () => {
       });
     });
 
+    it("broadcasts the fanned-out environment on run.completed for each env", async () => {
+      const { runCompletedPayloads } = await runFanOut({
+        environmentIds: null,
+        membership: [
+          { id: "prod", name: "Production", metadata: { baseUrl: "p" } },
+          { id: "staging", name: "Staging", metadata: { baseUrl: "s" } },
+        ],
+      });
+
+      expect(runCompletedPayloads).toHaveLength(2);
+      expect(runCompletedPayloads[0]).toMatchObject({
+        environmentId: "prod",
+        environmentName: "Production",
+      });
+      expect(runCompletedPayloads[1]).toMatchObject({
+        environmentId: "staging",
+        environmentName: "Staging",
+      });
+    });
+
+    it("omits the environment on run.completed for an env-less run", async () => {
+      const { runCompletedPayloads } = await runFanOut({
+        environmentIds: [],
+        membership: [{ id: "prod", name: "Production", metadata: {} }],
+      });
+
+      expect(runCompletedPayloads).toHaveLength(1);
+      // Zod optionals are omitted when unset, so env-less runs are unchanged.
+      expect(runCompletedPayloads[0]?.environmentId).toBeUndefined();
+      expect(runCompletedPayloads[0]?.environmentName).toBeUndefined();
+    });
+
     it("renders x-templatable config fields per environment against environment.*", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: null,
         membership: [
           {
@@ -998,7 +1038,7 @@ describe("Queue-Based Health Check Executor", () => {
     });
 
     it("renders environment.* to empty string for an env-less run (render-empty, §11.6)", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: [],
         membership: [
           { id: "prod", name: "Production", metadata: { baseUrl: "x" } },
@@ -1017,7 +1057,7 @@ describe("Queue-Based Health Check Executor", () => {
     });
 
     it("runs only the explicit subset, intersected with membership", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: ["staging"],
         membership: [
           { id: "prod", name: "Production", metadata: {} },
@@ -1030,7 +1070,7 @@ describe("Queue-Based Health Check Executor", () => {
     });
 
     it("runs exactly once with no environment when opting out ([] selector)", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: [],
         membership: [{ id: "prod", name: "Production", metadata: {} }],
       });
@@ -1040,7 +1080,7 @@ describe("Queue-Based Health Check Executor", () => {
     });
 
     it("runs exactly once env-less when the system has no environments (null selector, empty membership)", async () => {
-      const captured = await runFanOut({
+      const { runs: captured } = await runFanOut({
         environmentIds: null,
         membership: [],
       });

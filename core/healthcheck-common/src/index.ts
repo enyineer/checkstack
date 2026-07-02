@@ -69,6 +69,13 @@ export const HEALTH_CHECK_RUN_COMPLETED = createSignal({
     configurationName: z.string(),
     status: z.enum(["healthy", "degraded", "unhealthy"]),
     latencyMs: z.number().optional(),
+    /**
+     * The environment this run was fanned out to, when the run was
+     * environment-scoped. Both are omitted for env-less runs (no membership /
+     * opt-out), so non-environment-scoped runs are byte-for-byte unchanged.
+     */
+    environmentId: z.string().optional(),
+    environmentName: z.string().optional(),
   }),
 });
 

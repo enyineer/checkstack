@@ -78,6 +78,9 @@ function createMockDb({
   const insertCalls: Array<Record<string, unknown>> = [];
   const updateCalls: Array<Record<string, unknown>> = [];
   const deleteCalls: unknown[] = [];
+  // Captures the WHERE condition passed to each SELECT against the `anomalies`
+  // table so tests can assert the per-env lookup predicate (env id vs IS NULL).
+  const anomalyWheres: unknown[] = [];
 
   /**
    * Create an object that is BOTH awaitable (thenable) and has .limit() / .orderBy().
@@ -99,8 +102,14 @@ function createMockDb({
     };
   };
 
-  const makeWhereChain = (rows: unknown[]) => ({
-    where: mock(() => makeThenableChain(rows)),
+  const makeWhereChain = (
+    rows: unknown[],
+    onWhere?: (condition: unknown) => void,
+  ) => ({
+    where: mock((condition: unknown) => {
+      onWhere?.(condition);
+      return makeThenableChain(rows);
+    }),
     ...makeThenableChain(rows),
   });
 
@@ -118,7 +127,9 @@ function createMockDb({
           return makeWhereChain(assignmentRecord ? [{ config: assignmentRecord }] : []);
         }
         if (table === schema.anomalies) {
-          return makeWhereChain(existingAnomaly ? [existingAnomaly] : []);
+          return makeWhereChain(existingAnomaly ? [existingAnomaly] : [], (c) =>
+            anomalyWheres.push(c),
+          );
         }
         return makeWhereChain([]);
       }),
@@ -153,9 +164,35 @@ function createMockDb({
     _insertCalls: insertCalls,
     _updateCalls: updateCalls,
     _deleteCalls: deleteCalls,
+    _anomalyWheres: anomalyWheres,
   };
 
   return db;
+}
+
+/**
+ * Flattens a drizzle SQL condition (from `and`/`eq`/`isNull`) into a readable
+ * string by walking its `queryChunks`, so a test can assert the per-env lookup
+ * predicate ("environment_id = env-prod" vs "environment_id is null") without a
+ * live database.
+ */
+function serializeCondition(cond: unknown): string {
+  if (cond === null || cond === undefined || typeof cond !== "object") {
+    return String(cond);
+  }
+  const c = cond as Record<string, unknown>;
+  if (Array.isArray(c.queryChunks)) {
+    return c.queryChunks.map(serializeCondition).join("");
+  }
+  // StringChunk: `value` is a string[] (e.g. [" = "], [" is null"]).
+  if (Array.isArray(c.value)) {
+    return (c.value as unknown[]).join("");
+  }
+  // Column reference (PgText etc.).
+  if (typeof c.name === "string") return c.name;
+  // Bound Param: `value` is the scalar.
+  if ("value" in c) return String(c.value);
+  return "";
 }
 
 // Real schemas registered with healthcheck-common's healthResultRegistry, so
@@ -1160,5 +1197,239 @@ describe("Anomaly Detector — processCheckCompleted", () => {
 
     expect(cache.get).toHaveBeenCalledWith(envLessKey);
     expect(cache.get).not.toHaveBeenCalledWith(envKey);
+  });
+
+  // ─── Per-(check, environment) anomaly ROWS (deferred #375 follow-up) ───
+  //
+  // Anomaly rows are now keyed by (system, config, environment, field, kind),
+  // so an anomaly for a check in env A is a distinct row from env B. These
+  // guards prove new rows are tagged with their env and the existing-row lookup
+  // is env-scoped, so a healthy value in one env never merges with an anomaly
+  // in another.
+
+  test("tags a newly created spike anomaly with its environmentId", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cacheKey = `baseline:${configurationId}:${systemId}:env-prod:collectors.http.request.responseTimeMs`;
+    const cache = createMockCache(new Map([[cacheKey, baseline]]));
+    const db = createMockDb();
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: "env-prod",
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(db._insertCalls.length).toBe(1);
+    expect(db._insertCalls[0]).toMatchObject({
+      state: "suspicious",
+      environmentId: "env-prod",
+      systemId,
+      configurationId,
+    });
+    // The existing-row lookup was scoped to this environment.
+    expect(db._anomalyWheres.length).toBe(1);
+    expect(serializeCondition(db._anomalyWheres[0])).toContain(
+      "environment_id = env-prod",
+    );
+  });
+
+  test("env A and env B produce independent, env-tagged anomaly rows", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const envAKey = `baseline:${configurationId}:${systemId}:env-a:collectors.http.request.responseTimeMs`;
+    const envBKey = `baseline:${configurationId}:${systemId}:env-b:collectors.http.request.responseTimeMs`;
+    const cache = createMockCache(
+      new Map([
+        [envAKey, baseline],
+        [envBKey, baseline],
+      ]),
+    );
+
+    // No existing row in either env → each anomalous run inserts its own.
+    const dbA = createMockDb();
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: "env-a",
+      result: anomalousResult,
+      db: dbA as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    const dbB = createMockDb();
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: "env-b",
+      result: anomalousResult,
+      db: dbB as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(dbA._insertCalls[0]).toMatchObject({ environmentId: "env-a" });
+    expect(dbB._insertCalls[0]).toMatchObject({ environmentId: "env-b" });
+    // Each lookup is scoped to its own env, so an env-A row can never satisfy an
+    // env-B lookup (and vice versa).
+    expect(serializeCondition(dbA._anomalyWheres[0])).toContain(
+      "environment_id = env-a",
+    );
+    expect(serializeCondition(dbB._anomalyWheres[0])).toContain(
+      "environment_id = env-b",
+    );
+  });
+
+  test("env-less run resolves the IS NULL slice and tags the row null", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const db = createMockDb();
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      // environmentId omitted → defaults to null (env-less slice).
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(db._insertCalls[0]).toMatchObject({ environmentId: null });
+    expect(serializeCondition(db._anomalyWheres[0])).toContain(
+      "environment_id is null",
+    );
+    expect(serializeCondition(db._anomalyWheres[0])).not.toContain(
+      "environment_id =",
+    );
+  });
+
+  test("env-less run updates only the env-less row (never an env-scoped one)", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    // An env-less confirmed row exists; a fresh normal env-less run recovers it.
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-env-less",
+        systemId,
+        configurationId,
+        environmentId: null,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+        suspiciousRunCount: 5,
+        confirmationThreshold: 3,
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: null,
+      result: normalResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    expect(serializeCondition(db._anomalyWheres[0])).toContain(
+      "environment_id is null",
+    );
+    expect(db._updateCalls[0]).toMatchObject({ state: "recovered" });
+  });
+
+  test("env-qualified collapse key keeps two envs as independent cards", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cacheKey = `baseline:${configurationId}:${systemId}:env-prod:collectors.http.request.responseTimeMs`;
+    const cache = createMockCache(new Map([[cacheKey, baseline]]));
+    const notificationClient = createMockNotificationClient(["user-1"]);
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-existing",
+        systemId,
+        configurationId,
+        environmentId: "env-prod",
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "suspicious",
+        suspiciousRunCount: 2,
+        confirmationThreshold: 3,
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: "env-prod",
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: notificationClient as never,
+    });
+
+    const notifArgs = (
+      notificationClient.notifyForSubscription as Mock<
+        (...args: unknown[]) => unknown
+      >
+    ).mock.calls[0] as unknown[];
+    const notifPayload = notifArgs[0] as Record<string, unknown>;
+    // Env is appended to the collapse key so env-prod stays distinct from
+    // another env's card (and from the env-less two-segment key).
+    expect(notifPayload.collapseKey).toBe(
+      `anomaly.anomaly.${systemId}.collectors.http.request.responseTimeMs.env-prod`,
+    );
+  });
+
+  test("env-less confirmation uses the pre-feature two-segment collapse key", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const notificationClient = createMockNotificationClient(["user-1"]);
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-existing",
+        systemId,
+        configurationId,
+        environmentId: null,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "suspicious",
+        suspiciousRunCount: 2,
+        confirmationThreshold: 3,
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      environmentId: null,
+      result: anomalousResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: notificationClient as never,
+    });
+
+    const notifArgs = (
+      notificationClient.notifyForSubscription as Mock<
+        (...args: unknown[]) => unknown
+      >
+    ).mock.calls[0] as unknown[];
+    const notifPayload = notifArgs[0] as Record<string, unknown>;
+    expect(notifPayload.collapseKey).toBe(
+      `anomaly.anomaly.${systemId}.collectors.http.request.responseTimeMs`,
+    );
   });
 });

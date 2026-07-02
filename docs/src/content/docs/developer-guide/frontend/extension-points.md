@@ -618,6 +618,45 @@ createSlotExtension(SystemSignalsSlot, {
 });
 ```
 
+##### `AboutSectionsSlot` (platform About page)
+
+The **About Checkstack** page (`@checkstack/about-frontend`) is a general,
+platform-owned surface, so it must not depend on any specific plugin. It exposes
+`AboutSectionsSlot` (from `@checkstack/about-common`) for plugins to CONTRIBUTE
+self-contained section cards; the About page only renders whatever is registered.
+This inverts the dependency: the owning plugin imports `@checkstack/about-common`,
+never the other way round.
+
+```typescript
+import { createSlot } from "@checkstack/frontend-api";
+
+export const AboutSectionsSlot = createSlot<undefined, { priority?: number }>(
+  "plugin.about.sections",
+);
+```
+
+Contract rules:
+
+- Each contribution is fully self-contained: it renders its own card and gates
+  itself. For example, `@checkstack/ai-frontend` contributes a **Memories**
+  section that hides entirely for users without `ai.memory.read` (returning
+  `null`), so it never fires a request they are not permitted to make.
+- Extensions declare an optional `priority` in their metadata; the page renders
+  them sorted ascending (lower first), mirroring `DashboardSlot`. Unspecified
+  priority defaults to 0.
+
+```tsx
+import { createSlotExtension } from "@checkstack/frontend-api";
+import { AboutSectionsSlot } from "@checkstack/about-common";
+
+createSlotExtension(AboutSectionsSlot, {
+  id: "my-plugin.about.section",
+  metadata: { priority: 10 },
+  load: () =>
+    import("./MyAboutSection").then((m) => ({ default: m.MyAboutSection })),
+});
+```
+
 #### Registering Extensions to Slots
 
 Extensions use the `slot:` property with a `SlotDefinition` object:

@@ -21,6 +21,14 @@ export const ANOMALY_SIGNAL_SOURCE_ID = "anomaly";
 export interface AnomalySignalRow {
   systemId: string;
   configurationId: string;
+  /**
+   * Environment this anomaly belongs to. null = the env-less slice; optional so
+   * callers predating per-env anomaly rows stay source-compatible. Carried
+   * through so two envs of the same field remain distinct rows in the feed
+   * (env-name resolution is done at the render layer, not in this pure,
+   * dependency-free deriver).
+   */
+  environmentId?: string | null;
   fieldPath: string;
   /** ISO timestamp the anomaly started. */
   startedAt: string;

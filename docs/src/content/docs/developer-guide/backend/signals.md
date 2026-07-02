@@ -227,14 +227,27 @@ Rules:
 import { useSignal } from "@checkstack/signal-frontend";
 import { HEALTH_CHECK_RUN_COMPLETED } from "@checkstack/healthcheck-common";
 
-useSignal(HEALTH_CHECK_RUN_COMPLETED, ({ systemName, status, latencyMs }) => {
-  // Append to local terminal feed — not derivable from cache
-  setTerminalEntries((prev) => [
-    { systemName, status, latencyMs, timestamp: new Date() },
-    ...prev,
-  ].slice(0, MAX_ENTRIES));
-});
+useSignal(
+  HEALTH_CHECK_RUN_COMPLETED,
+  ({ systemName, status, latencyMs, environmentName }) => {
+    // Append to local terminal feed (not derivable from cache). When the run
+    // was fanned out to an environment, `environmentName` is present (both
+    // `environmentId` and `environmentName` are omitted for env-less runs).
+    setTerminalEntries((prev) =>
+      [
+        { systemName, status, latencyMs, environmentName, timestamp: new Date() },
+        ...prev,
+      ].slice(0, MAX_ENTRIES),
+    );
+  },
+);
 ```
+
+> [!NOTE]
+> `healthcheck.run.completed` carries the optional `environmentId` and
+> `environmentName` fields only when the run was fanned out to a specific
+> environment (per-environment fan-out). Runs that are not environment-scoped
+> omit both, so consumers that ignore them are unaffected.
 
 > **If your handler body is just `refetch()` or `queryClient.invalidateQueries(...)`, delete the handler.** The auto-invalidator already does it.
 
