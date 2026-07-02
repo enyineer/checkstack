@@ -879,7 +879,12 @@ export function validateContractInstanceAccess({
     });
     // A "real" scoping mode (not the global opt-out) marks the type scopable.
     const hasScopingMode =
-      !!ia && (!!ia.idParam || !!ia.listKey || !!ia.recordKey || !!ia.create);
+      !!ia &&
+      (!!ia.idParam ||
+        !!ia.listKey ||
+        !!ia.recordKey ||
+        !!ia.create ||
+        !!ia.bulkManage);
     if (hasScopingMode) {
       for (const t of accessTypes) scopableTypes.add(t);
     }
@@ -906,8 +911,8 @@ export function validateContractInstanceAccess({
             `team-scopable resource type (${scoped.join(", ")}) but declares no ` +
             `instanceAccess. This silently fails OPEN (enforced only at the ` +
             `global-rule level). Declare a scoping mode (idParam/listKey/` +
-            `recordKey/create), or assert it is intentionally unscoped with ` +
-            `instanceAccess: { global: true }.`,
+            `recordKey/create/bulkManage), or assert it is intentionally ` +
+            `unscoped with instanceAccess: { global: true }.`,
         );
       }
       continue;
@@ -920,11 +925,12 @@ export function validateContractInstanceAccess({
     if (ia.recordKey) modes.push("recordKey");
     if (ia.create) modes.push("create");
     if (ia.parentScope) modes.push("parentScope");
+    if (ia.bulkManage) modes.push("bulkManage");
 
     if (modes.length === 0) {
       validationErrors.push(
         `Plugin "${pluginId}" procedure "${procedureName}" declares an empty instanceAccess ` +
-          `(no global/idParam/listKey/recordKey/create/parentScope). Remove it, or set exactly one mode.`,
+          `(no global/idParam/listKey/recordKey/create/parentScope/bulkManage). Remove it, or set exactly one mode.`,
       );
       continue;
     }
@@ -945,6 +951,13 @@ export function validateContractInstanceAccess({
 
     if (ia.idParam) {
       flagMissingInputPath({ ...pathCtx, configKey: "idParam", path: ia.idParam });
+    }
+    if (ia.bulkManage) {
+      flagMissingInputPath({
+        ...pathCtx,
+        configKey: "bulkManage.idsParam",
+        path: ia.bulkManage.idsParam,
+      });
     }
     if (ia.create) {
       flagMissingInputPath({

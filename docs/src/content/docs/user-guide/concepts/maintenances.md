@@ -103,12 +103,28 @@ Standard hotlink slots, identical to incidents: free-form URL labels for change 
 
 The lifecycle events (created, status changed, completed, cancelled) flow through the integration system the same way incident events do. You can mirror them to a Slack channel, a status page, or any HTTP webhook. See [Integrations](/checkstack/user-guide/concepts/integrations/).
 
+## Mass actions
+
+The maintenances list supports acting on many windows at once. Select rows with
+the leading checkboxes (or use "Select all"), then use the toolbar to:
+
+- **Mass complete**: close every selected, still-open window early (status ->
+  `completed`). Windows already completed or cancelled are skipped.
+- **Mass delete**: permanently delete the selected maintenances. This is
+  destructive and asks for confirmation first.
+
+You can only select maintenances you are allowed to manage: a checkbox appears
+only on rows you can act on, so a team-scoped member sees checkboxes only for the
+windows their team manages. After a mass action, Checkstack shows a short
+summary such as "3 completed, 1 skipped" - a skipped entry is one that no longer
+qualified (already completed/cancelled, deleted, or not yours to manage).
+
 ## UI tour
 
 | Where to go | What you do there |
 |-------------|-------------------|
 | **Dashboard** | See the soonest upcoming (scheduled) maintenances at a glance. |
-| **Maintenances** (list) | See scheduled, in-progress, and past maintenances. Filter by status. |
+| **Maintenances** (list) | See scheduled, in-progress, and past maintenances. Filter by status. Select rows for mass complete / mass delete. |
 | **Schedule Maintenance** | Create one. Pick the time window, attach systems, decide on suppression. |
 | **Maintenance detail** | Edit, cancel, post updates, manage hotlinks. |
 | **System detail** | See the upcoming and active maintenances for this system. |

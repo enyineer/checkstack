@@ -12,6 +12,9 @@ import {
   UpdateMaintenanceInputSchema,
   AddMaintenanceUpdateInputSchema,
   MaintenanceStatusEnum,
+  BulkMaintenanceActionResultSchema,
+  BulkMaintenanceIdsInputSchema,
+  BulkCloseMaintenancesInputSchema,
 } from "./schemas";
 
 export const maintenanceContract = {
@@ -192,6 +195,40 @@ export const maintenanceContract = {
     .route({ method: "DELETE" })
     .input(z.object({ id: z.string() }))
     .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Mass-delete maintenances, authorizing EACH id against the caller's manage
+   * grant via the `bulkManage` instance-access mode. `input.ids` is
+   * pre-partitioned into the caller's manageable subset and the denied
+   * remainder BEFORE the handler runs, so an unauthorized id is never deleted.
+   * Returns a per-id result for partial-success reporting.
+   */
+  bulkDeleteMaintenances: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+    instanceAccess: { bulkManage: { idsParam: "ids" } },
+  })
+    .route({ method: "POST" })
+    .input(BulkMaintenanceIdsInputSchema)
+    .output(z.object({ results: z.array(BulkMaintenanceActionResultSchema) })),
+
+  /**
+   * Mass-close maintenances (the "resolve"-equivalent: status → completed,
+   * mirroring the single-item `closeMaintenance`). Authorizes EACH id against
+   * the caller's manage grant via the `bulkManage` mode; only authorized ids
+   * are closed and a per-id result is returned. Already-completed/cancelled or
+   * missing ids are reported, never fatal.
+   */
+  bulkCloseMaintenances: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+    instanceAccess: { bulkManage: { idsParam: "ids" } },
+  })
+    .route({ method: "POST" })
+    .input(BulkCloseMaintenancesInputSchema)
+    .output(z.object({ results: z.array(BulkMaintenanceActionResultSchema) })),
 
   /** Check if a system has active maintenance with notification suppression enabled.
    * Used by healthcheck to skip notifications during expected downtime.

@@ -61,6 +61,14 @@ scoped elsewhere.
 - `{ global: true }` - the deliberate "this endpoint is NOT team-scoped" marker.
 - `listKey`/`recordKey` - post-filter a list / single record by the caller's
   grants.
+- `bulkManage: { idsParam }` - a bulk WRITE (mass delete / mass resolve) over an
+  id ARRAY. PRE-handler, the middleware partitions `input[idsParam]` into the
+  caller's manageable subset and the denied remainder and exposes both on
+  `context.bulkAccess[idsParam]` as `{ authorizedIds, deniedIds }`. The handler
+  MUST mutate only `authorizedIds` and report `deniedIds` as forbidden, returning
+  a per-id result. This is the ONLY correct mode for a bulk write: `idParam`
+  throws on the first unauthorized id, `listKey`/`recordKey` post-filter AFTER the
+  mutation (fail-open), and `global: true` excludes team-scoped users.
 
 A parent-gated create (`create.parent`) MUST resolve an owning team, or a
 team-scoped creator makes an object they cannot later edit. `authorizeCreate`
