@@ -8,6 +8,7 @@ import type {
 } from "@checkstack/backend-api";
 import { createNotificationRouter } from "./router";
 import type { NotificationCache } from "./cache";
+import * as schema from "./schema";
 
 /**
  * Notification router tests (Phase 9b of the v1 polishing plan).
@@ -1032,5 +1033,193 @@ describe("notification router · sendTransactional (strategy fallback)", () => {
     // loop. That's the whole point.
     expect(throwingPrimary).toHaveBeenCalledTimes(1);
     expect(workingSecondary).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSubscriptionInheritance (structural inheritance read)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a DB double for `resolveSubscriptionInheritance`. It routes by the
+ * `.from(table)` handle (not a call counter) so it survives the Promise.all
+ * ordering inside the handler:
+ *   - subscription_specs: first query = the target's specs; every later
+ *     query = the parent specs (issued from `resolveInheritedGroups`).
+ *   - notification_resource_parents: the child's parent edges.
+ *   - notification_resources: parent display labels.
+ */
+function createInheritanceDb({
+  targetSpecs,
+  parentSpecs,
+  parentEdges,
+  resourceLabels,
+}: {
+  targetSpecs: ReadonlyArray<Record<string, unknown>>;
+  parentSpecs: ReadonlyArray<Record<string, unknown>>;
+  parentEdges: ReadonlyArray<Record<string, unknown>>;
+  resourceLabels: ReadonlyArray<{
+    targetTypeId: string;
+    resourceKey: string;
+    displayLabel: string;
+  }>;
+}): { db: unknown } {
+  let specCallIdx = 0;
+  const db = {
+    select: mock(() => ({
+      from: mock((table: unknown) => {
+        if (table === schema.subscriptionSpecs) {
+          const data = specCallIdx === 0 ? targetSpecs : parentSpecs;
+          specCallIdx += 1;
+          return buildThenable(data);
+        }
+        if (table === schema.notificationResourceParents) {
+          return buildThenable(parentEdges);
+        }
+        if (table === schema.notificationResources) {
+          return buildThenable(resourceLabels);
+        }
+        return buildThenable([]);
+      }),
+    })),
+  };
+  return { db };
+}
+
+describe("notification router · resolveSubscriptionInheritance", () => {
+  // authenticated proc - any real user passes.
+  const user = {
+    type: "user" as const,
+    id: "user-1",
+    accessRules: ["*"],
+  };
+
+  const SYSTEM_TARGET = "catalog.system";
+  const GROUP_TARGET = "catalog.group";
+
+  const incidentSystemSpec = {
+    specId: "incident.system",
+    ownerPlugin: "incident",
+    localId: "system",
+    targetTypeId: SYSTEM_TARGET,
+    displayTitle: "Incidents",
+    displayDescription: "Incident notifications",
+    displayIconName: null,
+    registeredAt: new Date(),
+  };
+  const incidentGroupSpec = {
+    specId: "incident.group",
+    ownerPlugin: "incident",
+    localId: "group",
+    targetTypeId: GROUP_TARGET,
+    displayTitle: "Incidents",
+    displayDescription: "Incident notifications",
+    displayIconName: null,
+    registeredAt: new Date(),
+  };
+
+  it("returns primary group + inherited parent group with human label for a system", async () => {
+    const { db } = createInheritanceDb({
+      targetSpecs: [incidentSystemSpec],
+      parentSpecs: [incidentGroupSpec],
+      parentEdges: [
+        {
+          childTargetTypeId: SYSTEM_TARGET,
+          childResourceKey: "system-1",
+          parentTargetTypeId: GROUP_TARGET,
+          parentResourceKey: "group-1",
+        },
+      ],
+      resourceLabels: [
+        {
+          targetTypeId: GROUP_TARGET,
+          resourceKey: "group-1",
+          displayLabel: "Platform Team",
+        },
+      ],
+    });
+    const router = buildRouterForReads({ db });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user,
+    });
+
+    const result = await call(
+      router.resolveSubscriptionInheritance,
+      { targetTypeId: SYSTEM_TARGET, resourceKey: "system-1" },
+      { context },
+    );
+
+    expect(result).toEqual([
+      {
+        specId: "incident.system",
+        groupId: "incident.system.system-1",
+        inheritance: [
+          { groupId: "incident.group.group-1", label: "Platform Team" },
+        ],
+      },
+    ]);
+  });
+
+  it("returns empty inheritance for a target with no parents (catalog.group)", async () => {
+    const { db } = createInheritanceDb({
+      targetSpecs: [incidentGroupSpec],
+      parentSpecs: [],
+      parentEdges: [], // groups have no parents
+      resourceLabels: [],
+    });
+    const router = buildRouterForReads({ db });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user,
+    });
+
+    const result = await call(
+      router.resolveSubscriptionInheritance,
+      { targetTypeId: GROUP_TARGET, resourceKey: "group-1" },
+      { context },
+    );
+
+    expect(result).toEqual([
+      {
+        specId: "incident.group",
+        groupId: "incident.group.group-1",
+        inheritance: [],
+      },
+    ]);
+  });
+
+  it("falls back to the parent resource key when the display label is missing", async () => {
+    const { db } = createInheritanceDb({
+      targetSpecs: [incidentSystemSpec],
+      parentSpecs: [incidentGroupSpec],
+      parentEdges: [
+        {
+          childTargetTypeId: SYSTEM_TARGET,
+          childResourceKey: "system-1",
+          parentTargetTypeId: GROUP_TARGET,
+          parentResourceKey: "group-1",
+        },
+      ],
+      resourceLabels: [], // no label row for the parent group
+    });
+    const router = buildRouterForReads({ db });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user,
+    });
+
+    const result = await call(
+      router.resolveSubscriptionInheritance,
+      { targetTypeId: SYSTEM_TARGET, resourceKey: "system-1" },
+      { context },
+    );
+
+    expect(result[0].inheritance).toEqual([
+      { groupId: "incident.group.group-1", label: "group-1" },
+    ]);
   });
 });

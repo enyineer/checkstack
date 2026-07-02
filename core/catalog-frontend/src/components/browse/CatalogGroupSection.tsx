@@ -135,9 +135,12 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
   const Icon = section.isUngrouped ? Layers : FolderTree;
   const tone = resolveSectionTone(section.rollup);
 
-  // The synthetic "Ungrouped" bucket is not a real group, so it has no group
-  // resource to subscribe to.
-  const canSubscribe = !section.isUngrouped && !!session;
+  // Read the session once per section (not once per row). Signed-in users get
+  // a per-system bell on every row; the group-level bell additionally
+  // requires a real group (the synthetic "Ungrouped" bucket has no group
+  // resource to subscribe to).
+  const hasSession = !!session;
+  const canSubscribeGroup = !section.isUngrouped && hasSession;
 
   return (
     <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
@@ -181,11 +184,12 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
             </span>
           </span>
         </button>
-        {canSubscribe && (
+        {canSubscribeGroup && (
           <div className="shrink-0 pr-2 pl-1">
             <NotificationSubscriptionsManager
               target={catalogGroupTarget}
               resource={{ groupId: section.id, groupName: section.name }}
+              triggerClassName="h-8 w-8"
             />
           </div>
         )}
@@ -208,6 +212,7 @@ export const CatalogGroupSection: React.FC<CatalogGroupSectionProps> = ({
                 key={system.id}
                 system={system}
                 density={density}
+                canSubscribe={hasSession}
               />
             ))
           )}

@@ -39,6 +39,7 @@ import {
   provisionGroupsForResource,
   provisionGroupsForSpec,
   resolveInheritedGroupIds,
+  resolveInheritedGroups,
   teardownGroupsForResource,
 } from "./subscription-engine";
 import {
@@ -1036,6 +1037,94 @@ export const createNotificationRouter = ({
         },
       }));
     }),
+
+    resolveSubscriptionInheritance:
+      os.resolveSubscriptionInheritance.handler(async ({ input }) => {
+        // Structural read - same answer for every user (per-user subscribed
+        // flags stay in getMySubscriptionStatus). Resolves purely from
+        // durable tables (subscription_specs, notification_resource_parents,
+        // notification_resources), so every pod returns the same result.
+        const specs = await database
+          .select()
+          .from(schema.subscriptionSpecs)
+          .where(
+            eq(schema.subscriptionSpecs.targetTypeId, input.targetTypeId),
+          );
+        if (specs.length === 0) return [];
+
+        const perSpec = await Promise.all(
+          specs.map(async (spec) => ({
+            spec,
+            inherited: await resolveInheritedGroups({
+              db: database,
+              spec,
+              resourceKey: input.resourceKey,
+            }),
+          })),
+        );
+
+        // Batch-load parent display labels for every distinct parent
+        // (targetTypeId, resourceKey) pair referenced by any spec.
+        const seenPair = new Set<string>();
+        const parentTargetTypeIds = new Set<string>();
+        const parentResourceKeys = new Set<string>();
+        for (const { inherited } of perSpec) {
+          for (const g of inherited) {
+            const key = `${g.parentTargetTypeId} ${g.parentResourceKey}`;
+            if (seenPair.has(key)) continue;
+            seenPair.add(key);
+            parentTargetTypeIds.add(g.parentTargetTypeId);
+            parentResourceKeys.add(g.parentResourceKey);
+          }
+        }
+
+        const labelByPair = new Map<string, string>();
+        if (seenPair.size > 0) {
+          const rows = await database
+            .select({
+              targetTypeId: schema.notificationResources.targetTypeId,
+              resourceKey: schema.notificationResources.resourceKey,
+              displayLabel: schema.notificationResources.displayLabel,
+            })
+            .from(schema.notificationResources)
+            .where(
+              and(
+                inArray(
+                  schema.notificationResources.targetTypeId,
+                  [...parentTargetTypeIds],
+                ),
+                inArray(
+                  schema.notificationResources.resourceKey,
+                  [...parentResourceKeys],
+                ),
+              ),
+            );
+          for (const row of rows) {
+            labelByPair.set(
+              `${row.targetTypeId} ${row.resourceKey}`,
+              row.displayLabel,
+            );
+          }
+        }
+
+        return perSpec.map(({ spec, inherited }) => ({
+          specId: spec.specId,
+          groupId: deriveGroupId({
+            ownerPlugin: spec.ownerPlugin,
+            localId: spec.localId,
+            resourceKey: input.resourceKey,
+          }),
+          inheritance: inherited.map((g) => ({
+            groupId: g.groupId,
+            // Fall back to the raw key so a row never renders "undefined"
+            // if the parent resource label is momentarily missing.
+            label:
+              labelByPair.get(
+                `${g.parentTargetTypeId} ${g.parentResourceKey}`,
+              ) ?? g.parentResourceKey,
+          })),
+        }));
+      }),
 
     notifyForSubscription: os.notifyForSubscription.handler(
       async ({ input, context }) => {
