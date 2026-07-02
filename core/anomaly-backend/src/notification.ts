@@ -20,6 +20,15 @@ export type AnomalyNotificationAction =
 export interface DispatchAnomalyNotificationInput {
   action: AnomalyNotificationAction;
   systemId: string;
+  /**
+   * Environment the anomaly belongs to. null = the env-less slice. When
+   * non-null it is appended to the collapse key so two failing environments of
+   * the same (system, field) render as two independent notification cards
+   * instead of collapsing into one - mirroring healthcheck's per-env
+   * `systemHealthCollapseKey(systemId, envId)`. Mutes stay env-agnostic
+   * (per-system / per-field), which is the existing intended UX.
+   */
+  environmentId?: string | null;
   fieldPath: string;
   observedValue: string | boolean | number;
   baselineMean: number;
@@ -41,6 +50,7 @@ export interface DispatchAnomalyNotificationInput {
 export async function dispatchAnomalyNotification({
   action,
   systemId,
+  environmentId,
   fieldPath,
   observedValue,
   baselineMean,
@@ -97,7 +107,13 @@ export async function dispatchAnomalyNotification({
       body: message,
       importance,
       action: { label: "View System", url: actionUrl },
-      collapseKey: anomalyCollapseKey(systemId, fieldPath),
+      // Env-qualify the collapse key so two failing environments of the same
+      // (system, field) stay independent cards. The env-less slice keeps the
+      // pre-feature two-segment key so its notifications are unchanged.
+      collapseKey:
+        environmentId == null
+          ? anomalyCollapseKey(systemId, fieldPath)
+          : anomalyCollapseKey(systemId, fieldPath, environmentId),
       subjects: [
         createSystemSubject({
           id: systemId,

@@ -31,6 +31,7 @@ Subscriptions inherit through resource hierarchies where they exist:
 
 - A system that belongs to a group inherits the group's subscriptions. If you subscribe to the "Payments team" group, you receive notifications for every system in it without subscribing system-by-system.
 - New systems added to that group automatically inherit the subscription. No backfill step required.
+- When you open the bell on a system that is already covered by one of its groups, each notification type shows an "Inherited from: `<group>`" hint. You can still "Override here" to add a granular, system-only subscription for that type on top of the inherited group coverage.
 
 > [!IMPORTANT]
 > Subscriptions belong to **users**, not to roles or teams. Each user controls their own subscription list under their notification settings.
@@ -130,6 +131,7 @@ Silencing checks happen before subscriber resolution; if a system is silenced, t
 | **Bell icon** (top nav) | Read in-app notifications, dismiss, jump to subjects. |
 | **Notification settings** (profile menu) | Configure external strategies (Slack token, SMTP password, ...). |
 | **Notification subscriptions** | Subscribe to systems, groups, and event families. |
+| **Catalog page -> bell** | Subscribe directly from the browse page: a bell on each group header covers every system in the group, and a bell on each system row subscribes to that one system (showing when it is already inherited from a group). |
 | **System detail page -> Subscribe** | Subscribe to all notification families for one system in one click. |
 | **Infrastructure -> Notifications -> Delivery log** | Admin view of every external delivery attempt. |
 

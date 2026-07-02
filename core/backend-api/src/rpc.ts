@@ -69,6 +69,20 @@ export interface RpcContext {
    * reason as `requestHeaders`.
    */
   responseHeaders?: Headers;
+
+  /**
+   * Per-request result of the `bulkManage` instance-access mode. For each
+   * `bulkManage` rule the middleware pre-partitions `input[idsParam]` into the
+   * caller's manageable subset and the denied remainder, keyed by that
+   * `idsParam`. A bulk WRITE handler MUST read this and mutate ONLY
+   * `authorizedIds` (reporting `deniedIds` as forbidden), so an unauthorized id
+   * is never acted on. Absent for every non-bulk endpoint; a handler that finds
+   * it absent must treat the whole batch as denied (fail closed).
+   */
+  bulkAccess?: Record<
+    string,
+    { authorizedIds: string[]; deniedIds: string[] }
+  >;
 }
 
 /** Context with authenticated real user */
@@ -160,6 +174,11 @@ export const autoAuthMiddleware = os.middleware(
     );
     const createResourceRules = instanceRules.filter(
       (r) => r.instanceAccess?.create,
+    );
+    // Bulk-manage rules pre-partition an id ARRAY into the caller's authorized
+    // subset before the handler runs (mass delete / mass resolve).
+    const bulkManageRules = instanceRules.filter(
+      (r) => r.instanceAccess?.bulkManage,
     );
     // Parent-scoped rules delegate the per-resource decision to a PARENT type
     // (e.g. "you may see incidents for system X iff you may see system X").
@@ -482,8 +501,55 @@ export const autoAuthMiddleware = os.middleware(
       }
     }
 
-    // Execute handler
-    const result = await next({});
+    // Pre-handler: bulk-manage endpoints.
+    // Partition each declared id array into the caller's authorized subset
+    // (global rule OR per-id manage grant) and the denied remainder, and expose
+    // both to the handler via `context.bulkAccess`. This runs BEFORE the handler
+    // so a bulk WRITE never mutates an unauthorized id (the fail-open hazard of
+    // a post-filter on a mutation). Only reachable for authenticated real users
+    // — services short-circuit at step 5 and anonymous fails step 3.
+    const bulkAccess: Record<
+      string,
+      { authorizedIds: string[]; deniedIds: string[] }
+    > = {};
+    if (bulkManageRules.length > 0 && userId && userType) {
+      for (const rule of bulkManageRules) {
+        const idsParam = rule.instanceAccess!.bulkManage!.idsParam;
+        const requestedIds = [...new Set(getNestedValues(input, idsParam))];
+        const hasGlobalAccess =
+          userAccessRules.includes("*") ||
+          userAccessRules.includes(rule.qualifiedId);
+
+        // A global-manage caller is authorized for every id; a team-scoped
+        // caller gets only the ids their grants cover (fail-closed on S2S
+        // error → empty subset via getAccessibleResourceIdsViaS2S).
+        const authorizedIds = hasGlobalAccess
+          ? requestedIds
+          : await getAccessibleResourceIdsViaS2S({
+              auth: context.auth,
+              userId,
+              userType,
+              resourceType: rule.qualifiedResourceType,
+              resourceIds: requestedIds,
+              action: rule.level,
+              hasGlobalAccess,
+            });
+
+        const authorizedSet = new Set(authorizedIds);
+        bulkAccess[idsParam] = {
+          authorizedIds: requestedIds.filter((id) => authorizedSet.has(id)),
+          deniedIds: requestedIds.filter((id) => !authorizedSet.has(id)),
+        };
+      }
+    }
+
+    // Execute handler. Partial-merge style (no `...context` spread) so the
+    // bulkAccess partition reaches the handler without widening the inferred
+    // context chain type (see correlationMiddleware for the rationale).
+    const result =
+      Object.keys(bulkAccess).length > 0
+        ? await next({ context: { bulkAccess } })
+        : await next({});
 
     // Post-grant: write the owning-team grant for newly-created resources, now
     // that the handler has produced the resource id. The handler has ALREADY

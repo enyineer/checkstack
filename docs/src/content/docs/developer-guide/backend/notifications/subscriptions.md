@@ -181,7 +181,8 @@ The dispatcher will reject calls that violate any of these.
 ## Frontend
 
 The frontend renders no per-spec rows in plugin code. Every host
-surface - system detail page, dashboard group cards, future SLO pages
+surface - system detail page, the catalog browse page (both the group
+header and each system row), dashboard group cards, future SLO pages
  - mounts a single component:
 
 ```tsx
@@ -201,7 +202,36 @@ backend spec automatically gets a row in every host surface; no
 frontend extension to remember.
 
 A bulk "Subscribe to all / Unsubscribe from all" toolbar at the top of
-the dialog operates on the same set of groupIds.
+the dialog operates on the primary (resource-level) groupIds only.
+
+### Inherited-from-group indication
+
+At a resource whose target declares `parents` (e.g. `catalog.system`,
+whose parent is `catalog.group`), the manager also calls
+`notificationClient.resolveSubscriptionInheritance`:
+
+```ts
+const inheritance = await notificationClient.resolveSubscriptionInheritance({
+  targetTypeId: catalogSystemTarget.targetTypeId,
+  resourceKey: systemId,
+});
+// → [{ specId, groupId, inheritance: [{ groupId, label }] }, ...]
+```
+
+This is a **structural** read - the target-graph shape plus parent
+display labels, the same answer for every user. It reuses the exact
+inheritance derivation the dispatcher uses (`resolveInheritedGroups`,
+whose pure join is `mapInheritedGroups`), so the row can never disagree
+with what dispatch would actually deliver. Per-user "am I subscribed?"
+flags still come from `getMySubscriptionStatus`: the manager folds the
+inherited parent group ids into that one batch call.
+
+Each row then shows an "Inherited from: `<group>`" hint when the user is
+reachable via a parent group rather than a direct subscription, with an
+"Override here" action that creates a granular, resource-only
+subscription alongside the inherited group coverage. Group bells (a
+target with no parents) get an empty `inheritance` array and render
+unchanged.
 
 ### Sub-controls (optional)
 

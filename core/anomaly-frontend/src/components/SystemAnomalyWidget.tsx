@@ -5,7 +5,7 @@ import {
   accessApiRef,
   type SlotContext,
 } from "@checkstack/frontend-api";
-import { SystemDetailsSlot } from "@checkstack/catalog-common";
+import { SystemDetailsSlot, CatalogApi } from "@checkstack/catalog-common";
 import {
   AnomalyApi,
   anomalyAccess,
@@ -33,6 +33,7 @@ import {
   Bell,
   BellOff,
   EyeOff,
+  Layers,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
@@ -123,6 +124,7 @@ function humanizeCollectorSource(strategyId: string, collectorId: string): strin
 function AnomalyRow({
   anomaly,
   systemId,
+  environmentLabel,
   isMuted,
   onToggleMute,
   isToggling,
@@ -133,6 +135,12 @@ function AnomalyRow({
 }: {
   anomaly: AnomalyDto;
   systemId: string;
+  /**
+   * Resolved environment label for an env-scoped anomaly (rendered as a pill
+   * next to the field name). `undefined` for the env-less slice / cross-env
+   * feed - no pill, matching the pre-per-env single-row look.
+   */
+  environmentLabel?: string;
   isMuted: boolean;
   onToggleMute: (fieldPath: string, isMuted: boolean) => void;
   isToggling: boolean;
@@ -196,6 +204,12 @@ function AnomalyRow({
           {parsed.source ? (
             <span className="text-xs text-muted-foreground shrink-0">
               {parsed.source}
+            </span>
+          ) : undefined}
+          {environmentLabel ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <Layers className="h-2.5 w-2.5" />
+              {environmentLabel}
             </span>
           ) : undefined}
           {isMuted && (
@@ -299,6 +313,7 @@ function AnomalyRow({
 
 export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
   const anomalyClient = usePluginClient(AnomalyApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const toast = useToast();
   const accessApi = useApi(accessApiRef);
   // Muting notifications is a per-user preference any LOGGED-IN user may set
@@ -328,6 +343,19 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
       { systemId: system.id },
       { staleTime: 30_000 },
     );
+
+  // Resolve env names for env-scoped anomaly rows (two envs of the same field
+  // now surface as two rows). Same query the healthcheck overview/drawer issue,
+  // so the cache entry is shared when those surfaces mount alongside this one.
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId: system.id },
+      { staleTime: 30_000 },
+    );
+  const envNameById = React.useMemo(
+    () => new Map(systemEnvironments.map((e) => [e.id, e.name])),
+    [systemEnvironments],
+  );
 
   const mutedFields = React.useMemo(
     () => new Set(mutes.map((m) => m.fieldPath)),
@@ -502,6 +530,12 @@ export const SystemAnomalyWidget: React.FC<Props> = ({ system }) => {
               key={anomaly.id}
               anomaly={anomaly}
               systemId={system.id}
+              environmentLabel={
+                anomaly.environmentId
+                  ? (envNameById.get(anomaly.environmentId) ??
+                    anomaly.environmentId)
+                  : undefined
+              }
               isMuted={isSystemMuted || mutedFields.has(anomaly.fieldPath)}
               onToggleMute={handleToggleMute}
               isToggling={isToggling}

@@ -694,6 +694,7 @@ const AnnouncementManageContent: React.FC = () => {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Edit announcement"
                               onClick={() => handleEdit(a)}
                             >
                               <Edit2 className="h-4 w-4" />
@@ -701,6 +702,7 @@ const AnnouncementManageContent: React.FC = () => {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Delete announcement"
                               onClick={() => setDeleteId(a.id)}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
@@ -754,6 +756,7 @@ const AnnouncementManageContent: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Edit announcement"
                         onClick={() => handleEdit(a)}
                       >
                         <Edit2 className="h-4 w-4" />
@@ -761,6 +764,7 @@ const AnnouncementManageContent: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Delete announcement"
                         onClick={() => setDeleteId(a.id)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />

@@ -83,6 +83,18 @@ If you're getting *too many*, the most common cause is overlapping subscriptions
 
 Each notification strategy (Slack, Teams, etc.) also de-duplicates within a short window, but cross-target duplicates (one Slack + one email for the same event) are by design - that is what subscribing to two targets does.
 
+## Step 7: links in external channels are broken
+
+If a notification arrives but its links (the action button and the "Affected" system links) point to a broken or blank page in email, Slack, Teams, or another external channel, the cause is almost always `BASE_URL`.
+
+Checkstack builds notification links as relative paths (like `/catalog/systems/...`) and fully-qualifies them against `BASE_URL` before sending to external channels, because a relative path has no origin to resolve against outside the app.
+
+1. Confirm `BASE_URL` is set to the exact public URL you type into the browser to reach Checkstack (for example `https://status.example.com`).
+2. If it is unset, external links are delivered as relative paths and will not resolve. The notification is still delivered, but with a warning in the backend logs.
+3. If it is set to the wrong host (for example an internal cluster address), links resolve to somewhere unreachable. Update it to the public URL and restart.
+
+See [Configuration](/checkstack/user-guide/reference/configuration/) for the full `BASE_URL` description. In-app notifications (the bell) are unaffected because the app resolves relative links itself.
+
 ## Where to go next
 
 - [Notifications](/checkstack/user-guide/concepts/notifications/) - the concept overview.
