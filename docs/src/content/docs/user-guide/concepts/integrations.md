@@ -1,9 +1,9 @@
 ---
 title: Integrations
-description: Outbound webhooks that forward platform events to Slack, Jira, Teams, and other external systems.
+description: Reusable connections to external systems (Jira, Teams, Webex, webhooks) that automation actions call out through.
 ---
 
-Integrations are how Checkstack pushes events out to tools your team already uses: file a Jira ticket when an incident opens, post a card to a Slack channel when a maintenance starts, drop a structured payload on any HTTP endpoint when a system goes red. This page describes the model. For configuring a specific provider, see the relevant guide under the Guides section.
+An integration is a connection to an external system that [automation](/checkstack/user-guide/concepts/automations/) actions use to do work: file a Jira ticket, post a card to a Teams or Webex space, or POST a payload to any HTTP endpoint. Integrations are no longer a standalone "event to subscription to delivery" mechanism. Today they supply the connection plus the callable actions; the automation platform decides when those actions run and in what order.
 
 ## Integrations vs notifications
 
@@ -13,118 +13,73 @@ Both integrations and [Notifications](/checkstack/user-guide/concepts/notificati
 |---|---|---|
 | Audience | Individual users who subscribed | A channel, ticket queue, or external system |
 | Configured by | Each user, in their settings | An admin, once, for the whole org |
-| Driven by | Subscriptions to targets | Provider + event subscriptions |
-| Typical use | "Send my Slack DM when my system is unhealthy" | "Post to #ops-alerts when any incident opens" |
-| Examples | Slack DM, SMTP, Telegram | Slack channel webhook, Jira project, custom webhook |
+| Driven by | Per-user subscriptions to targets | Admin-managed connections plus [automation](/checkstack/user-guide/concepts/automations/) actions |
+| Typical use | "Send my Slack DM when my system is unhealthy" | "Open a Jira ticket when any incident opens" |
+| Examples | Slack DM, SMTP, Telegram | Jira project, Teams channel, custom webhook |
 
-A team would typically run both: each on-call gets personal notifications, and an admin wires up a Slack channel integration so the whole team sees major events even if nobody's settings happen to be configured.
+A team would typically run both: each on-call gets personal notifications, and an admin wires up an integration so an automation can file a ticket or post to a shared channel when a major event happens.
 
 ## The pieces
 
-The integration system has three building blocks:
+The integration system has two building blocks, and the actual "do something" step lives in an automation:
 
-- **Providers.** Plugins that know how to deliver events to a specific external system. Bundled providers include generic webhook, Slack, Microsoft Teams, Webex, Telegram, and Jira. You can also use the script integration to write arbitrary delivery logic.
-- **Events.** The platform's hooks (`incident.created`, `healthcheck.state-changed`, `maintenance.started`, ...) exposed as subscribable external events. Plugins decide which of their hooks become events.
-- **Subscriptions.** Admin-configured rules that say "when event X fires, deliver through provider Y with configuration Z, optionally filtered by system list."
+- **Providers.** Plugins that define a connection to an external system. A provider declares a connection schema, an optional test-connection endpoint, and optional dynamic option resolvers that feed the automation editor's config dropdowns. Bundled providers include Jira, Microsoft Teams, and Webex.
+- **Connections.** Admin-created, credentialed instances of a provider, stored centrally and encrypted at rest. A connection is selectable in an automation action's config form.
 
-A single subscription connects exactly one event to one provider. Admins create as many subscriptions as they need.
+The work itself is an **automation action** (for example `integration-jira.create_issue`) that references a connection through its provider id. When the action runs, it resolves that connection's credentials and calls the external system.
 
-## How an event flows out
+> [!NOTE]
+> Not every integration needs a reusable connection. The webhook and script plugins contribute automation actions that carry their configuration inline (a target URL, an auth header, a script body), so there is no separate connection to manage for them.
 
-Roughly:
+## How an integration is used
 
-```text
-[domain plugin] emits hook ----+
-                               |
-                               v
-                  +-------------------------+
-                  |    Event Registry       |
-                  | (is this hook a public  |
-                  |  event? who is subscribed?) |
-                  +-------------------------+
-                               |
-                               v
-              for each matching subscription
-                               |
-                               v
-                  +-------------------------+
-                  |   queue a delivery job  |
-                  +-------------------------+
-                               |
-                               v
-                  +-------------------------+
-                  |   provider.deliver()    |
-                  |  (HTTP call, Slack API,  |
-                  |   Jira create, ...)     |
-                  +-------------------------+
-                               |
-                               v
-                  +-------------------------+
-                  |   write delivery log    |
-                  +-------------------------+
-```
+An integration never fires on its own. It runs as a step inside an automation:
 
-The queue step exists so a slow provider does not block the originating plugin, and so failed deliveries can be retried independently.
+1. An automation trigger fires (an incident opened, a system degraded, a schedule elapsed).
+2. The automation runs its steps. One of those steps is an integration action.
+3. The action runs as the automation's `runAs` service account, resolves its connection's credentials, and calls the external system.
+4. The result (an external id such as a Jira issue key, plus any errors and retries) is recorded in the automation **run log**, not a separate delivery log.
 
-## Subscriptions in detail
-
-When you create a subscription you choose:
-
-- **A provider.** "Generic webhook", "Slack", "Jira", and so on. The set of providers depends on which integration plugins you have installed.
-- **A provider configuration.** The fields the provider needs (Slack token, Jira project key, target URL, ...). Sensitive fields are encrypted at rest.
-- **An event.** A single event ID from the catalogue of registered events, fully qualified (`incident-backend.incident.created`, `healthcheck-backend.state-changed`, ...).
-- **Optional system filters.** A list of system IDs to scope to. The subscription fires only when the event involves one of those systems. Leave empty to receive events for every system.
-- **Enabled / disabled.** Pause a subscription temporarily without losing its configuration.
+Retry and queue semantics belong to the automation platform: a slow or failing external call is retried by the run engine, and you inspect what happened in the run detail view. See [Automations](/checkstack/user-guide/concepts/automations/) for triggers, steps, artifacts, and run history.
 
 > [!TIP]
-> Use system filters for noisy events. "State-changed" fires every time any check transitions, which is a lot. If you only care about Tier 1 systems, list them in the filter rather than firehosing everything into Slack.
+> Actions can pass results downstream. `integration-jira.create_issue` produces a `jira.issue` artifact that a later step (for example "add a comment" or "transition the issue") can consume, so a single automation can open a ticket and keep it updated.
 
-## The delivery log
-
-Every delivery attempt writes a row to the delivery log with:
-
-- The event payload that was delivered.
-- The status: `pending`, `success`, `failed`, or `retrying`.
-- The number of attempts.
-- The timestamp of the last attempt and (if retrying) the next retry.
-- Any **external ID** returned by the target system (for example, the Jira issue key created by the delivery), so a follow-up event can correlate to the same external record.
-- The error message if the last attempt failed.
-
-Admins can inspect this log from the integrations admin UI to debug a dead webhook or a misconfigured Jira project without grepping logs.
-
-## Bundled providers
+## Bundled integrations
 
 The integration plugins shipped with Checkstack at the time of writing:
 
-| Provider plugin | What it does |
+| Integration plugin | What it contributes |
 |------------------|--------------|
-| `integration-webhook-backend` | Generic HTTP POST with the event payload as JSON. The most flexible option. |
-| `integration-teams-backend` | Post a card to a Microsoft Teams channel. |
-| `integration-webex-backend` | Post a message to a Webex space. |
-| `integration-jira-backend` | Create a Jira issue, update on follow-up events. |
-| `integration-script-backend` | Run a script to deliver, for arbitrary custom logic. |
+| `integration-jira-backend` | A Jira connection plus actions to create, transition, comment on, and search issues. Create produces a `jira.issue` artifact later steps can read. |
+| `integration-teams-backend` | A Microsoft Teams connection plus an action to post a message to a channel. |
+| `integration-webex-backend` | A Webex connection plus an action to post a message to a space. |
+| `integration-webhook-backend` | A generic HTTP action that POSTs a JSON (or form-encoded) payload to a URL you configure inline. The most flexible option. |
+| `integration-script-backend` | Actions that run a shell command or a TypeScript script for arbitrary custom logic. |
 
-For Slack channel delivery you can either install a dedicated Slack provider plugin (if available in the Plugin Manager) or use the generic webhook provider with Slack's incoming webhook URL.
+There is no dedicated Slack integration provider. For Slack, either use the generic webhook action with a Slack incoming webhook URL, or use the Slack **notification** plugin for per-user delivery.
 
 > [!NOTE]
-> "Notification" plugins (Slack DM, Discord, SMTP, ...) are separate from "Integration" plugins. The notification side is for per-user delivery; integrations are for org-wide channel delivery. Both can coexist.
+> "Notification" plugins (Slack DM, Discord, SMTP, ...) are separate from "Integration" plugins. Notifications are for per-user delivery; integrations are org-wide connections and actions that automations drive. Both can coexist.
 
 ## UI tour
 
 | Where to go | What you do there |
 |-------------|-------------------|
-| **Infrastructure -> Integrations -> Subscriptions** | Create, edit, enable, or disable webhook subscriptions. |
-| **Infrastructure -> Integrations -> Delivery Log** | Audit recent delivery attempts. See failures and external IDs. |
+| **Platform -> Integrations** | Land on the provider list. Every registered integration provider appears here. |
+| **Platform -> Integrations -> a provider** | Manage that provider's connections (create, edit, test, delete). Providers without a connection schema show no connections to manage. |
+| **Automations editor** | Add an integration action to an automation and pick the connection it uses. This is where delivery is actually wired up. |
 | **Plugin Manager** | Install or remove integration provider plugins. |
 
 ## Security notes
 
-- Provider configurations are encrypted at rest using your `ENCRYPTION_MASTER_KEY`. Webhook tokens, Slack secrets, Jira credentials all live in the database as ciphertext.
-- Delivery error messages are sanitised before storage so secrets embedded in raw error objects do not leak into the delivery log.
-- Subscriptions respect your access model. Only admins (or users with the relevant integration access rule) can create or modify them.
+- Connection configurations are encrypted at rest using your `ENCRYPTION_MASTER_KEY`. Jira credentials, Teams and Webex tokens, and any inline webhook secret live in the database as ciphertext. See [Secret encryption](/checkstack/user-guide/reference/secret-encryption/).
+- Integration actions run as the automation's `runAs` service account and are gated by the action's required access rules. Being able to author an automation does not by itself grant the ability to act on a connection: the service account still needs the matching access rule. See [Automations](/checkstack/user-guide/concepts/automations/) for how `runAs` bounds what an automation may do.
+- Errors surfaced from an external call are masked before they reach the run log so a credential echoed in a raw error does not leak.
 
 ## Where to go next
 
-- **Hands-on, common channels.** Walk through [Wire up Slack notifications](/checkstack/user-guide/guides/wire-up-slack/). The same shape applies to Teams, Webex, and Discord.
+- **Orchestration.** [Automations](/checkstack/user-guide/concepts/automations/) covers triggers, actions, artifacts, and run history - the engine that drives every integration.
+- **Hands-on, common channels.** Walk through [Wire up Slack notifications](/checkstack/user-guide/guides/wire-up-slack/).
 - **Personal alerts.** [Notifications](/checkstack/user-guide/concepts/notifications/) covers the per-user equivalent.
 - **Authoring your own provider.** See the developer-side [Integration providers](/checkstack/developer-guide/backend/integrations/providers/) docs.

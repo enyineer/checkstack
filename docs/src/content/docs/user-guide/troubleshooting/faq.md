@@ -7,11 +7,11 @@ This page collects the questions that come up most often when running Checkstack
 
 ## Are incidents auto-created?
 
-**No.** Checkstack does not automatically open incidents when a health check fails. Incidents are explicit operator-reported events that you create from the UI (or via the public REST API). A failing health check produces an unhealthy status and, depending on your subscriptions, a notification - but the platform leaves the decision of "is this incident-worthy?" to a human.
+**Not by default.** Checkstack does not open an incident on its own when a health check fails. Out of the box, a failing check produces an unhealthy status and, depending on your subscriptions, a notification - but the platform leaves the decision of "is this incident-worthy?" to a human.
 
-The rationale: automated incident creation produces noise. The platform's job is to surface the failing state; whether that warrants an incident timeline, an SLA breach, or a public status update is a judgement call.
+The rationale: unconditional auto-creation produces noise. The platform's job is to surface the failing state; whether that warrants an incident timeline, an SLA breach, or a public status update is a judgement call.
 
-If you want auto-creation, you can plumb it yourself: subscribe to health-check events via an integration (webhook, script integration, ...) and call the public REST API to open an incident when your own logic decides one should exist.
+**You can opt in through automation.** Checkstack ships an `incident.create` automation action, so you can build an automation on health signals (for example `healthcheck.system_degraded` with a dwell window, or a flapping window) whose action opens an incident, and a follow-up automation that resolves it on recovery. Set `dedupe_open_for_system: true` to keep one open incident per system. Nothing is seeded for you; you build exactly the rules you want. See [Build auto-incident automations](/checkstack/user-guide/guides/customise-auto-incident/) and [Automations](/checkstack/user-guide/concepts/automations/).
 
 ## Can I use SQLite?
 
@@ -111,7 +111,7 @@ Yes - the public REST API exposes the aggregated history endpoints. A SQL `COPY`
 The platform itself does not phone home. The only outbound calls are made by:
 
 - **Plugin installs from npm / GitHub** - on demand, when you click Install.
-- **Integration plugins** - when you wire one up (Jira, Slack, webhooks, ...).
+- **Integration connections** - when an automation action calls out (Jira, Teams, Webex, webhooks, ...).
 - **Notification plugins** - when a notification fires.
 
 Everything else is purely internal. You can run a fully offline install by pre-loading plugin tarballs via the **Tarball upload** tab in the Plugin Manager.
