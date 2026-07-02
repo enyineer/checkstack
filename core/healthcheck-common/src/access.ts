@@ -44,24 +44,22 @@ export const healthCheckAccess = {
 
   /**
    * Configuration access for viewing and managing health check configurations.
+   *
+   * The `manage` level (globally, or via a team grant on a configuration) also
+   * authorizes DETAILED RUN HISTORY - run payloads may expose sensitive data,
+   * so they are managers-only. The former standalone `healthcheck.details`
+   * read rule was removed: it created a three-way gate drift (route vs page vs
+   * procedure) and could not be satisfied by team-scoped managers at all.
    */
   configuration: accessPair(
     "healthcheck",
     {
       read: { description: "Read Health Check Configurations" },
-      manage: { description: "Full management of Health Check Configurations" },
+      manage: {
+        description:
+          "Full management of Health Check Configurations, including detailed run history (Warning: run data may expose sensitive details, depending on the health check strategy)",
+      },
     },
-    { pluginId: pluginMetadata.pluginId },
-  ),
-
-  /**
-   * Access for viewing detailed health check run data including metadata.
-   * Allows access to extended visualizations without full management access.
-   */
-  details: access(
-    "healthcheck.details",
-    "read",
-    "View Detailed Health Check Run Data (Warning: This may expose sensitive data, depending on the health check strategy)",
     { pluginId: pluginMetadata.pluginId },
   ),
 };
@@ -73,5 +71,4 @@ export const healthCheckAccessRules = [
   healthCheckAccess.status,
   healthCheckAccess.configuration.read,
   healthCheckAccess.configuration.manage,
-  healthCheckAccess.details,
 ];

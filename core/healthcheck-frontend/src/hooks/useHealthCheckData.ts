@@ -7,8 +7,13 @@ import {
 import { HealthCheckApi } from "../api";
 import {
   healthCheckAccess,
+  healthCheckResourceTypes,
   HEALTH_CHECK_RUN_COMPLETED,
 } from "@checkstack/healthcheck-common";
+import {
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import { useSignal } from "@checkstack/signal-frontend";
 import type {
   HealthCheckDiagramSlotContext,
@@ -79,10 +84,34 @@ export function useHealthCheckData({
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
 
-  // Access state
-  const { allowed: hasAccess, loading: accessLoading } = accessApi.useAccess(
-    healthCheckAccess.details,
-  );
+  // Access state: detailed run data is a MANAGER surface - global manage, a
+  // team grant on THIS configuration, or manage access to THIS system (a
+  // system's owning team sees its runs) - matching the backend's
+  // (configuration, system) authorization of getDetailedAggregatedHistory.
+  const {
+    hasGlobal,
+    canAccess,
+    loading: configAccessLoading,
+  } = accessApi.useResourceAccess({
+    accessRule: healthCheckAccess.configuration.manage,
+    objectType: healthCheckResourceTypes.configuration,
+    resourceIds: [configurationId],
+  });
+  const {
+    hasGlobal: hasGlobalSystemManage,
+    canAccess: canManageSystem,
+    loading: systemAccessLoading,
+  } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: [systemId],
+  });
+  const accessLoading = configAccessLoading || systemAccessLoading;
+  const hasAccess =
+    hasGlobal ||
+    canAccess(configurationId) ||
+    hasGlobalSystemManage ||
+    canManageSystem(systemId);
 
   // Always use aggregated data with fixed target points.
   // Realtime refetches happen via SignalAutoInvalidator (auto-invalidates

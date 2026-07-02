@@ -52,7 +52,7 @@ describe("deriveHealthcheckSignals", () => {
           label: "Unhealthy",
           detail: "1 of 2 checks failing",
           href: "/healthcheck/history/s1/c1",
-          accessRule: healthCheckAccess.details,
+          accessRule: healthCheckAccess.configuration.manage,
           iconName: "Activity",
         },
       ],

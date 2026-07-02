@@ -322,7 +322,10 @@ const HealthCheckConfigPageContent = () => {
       allowed={canRead || canManageSurface}
       actions={
         <div className="flex gap-2">
-          {canManage && (
+          {/* History is usable by anyone with the manage CAPABILITY (global
+              manage, or any team grant) - not just create-capable users - so
+              it gates on the same surface capability as the history route. */}
+          {canManageSurface && (
             <Button variant="outline" asChild>
               <Link to={resolveRoute(healthcheckRoutes.routes.history)}>
                 <History className="mr-2 h-4 w-4" /> View History

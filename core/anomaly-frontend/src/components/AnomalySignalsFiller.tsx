@@ -60,8 +60,10 @@ export const AnomalySignalsFiller: React.FC<Props> = ({
           systemId: row.systemId,
           configurationId: row.configurationId,
         }),
-      // The history detail page is gated; render as text for users without it.
-      accessRule: healthCheckAccess.details,
+      // The history detail page is a manager surface; render as text for
+      // users without global healthcheck manage (a signal's accessRule is a
+      // global check - team-scoped managers reach history via their pages).
+      accessRule: healthCheckAccess.configuration.manage,
     });
   }, [confirmed, suspicious, systemIds]);
 

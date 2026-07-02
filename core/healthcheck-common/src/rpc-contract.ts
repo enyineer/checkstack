@@ -516,10 +516,23 @@ export const healthCheckContract = {
     )
     .output(RunStatsSchema),
 
+  /**
+   * Global run-history feed (the History page). AUTHORIZED IN THE HANDLER,
+   * not declaratively: the caller needs global `configuration.manage` (full
+   * feed) OR a team manage grant on a configuration OR manage access to a
+   * SYSTEM (a system's owning team sees ALL of its runs, whoever owns the
+   * configuration) - the feed is then filtered to exactly those
+   * configurations/systems. That OR-with-row-filtering on a PAGINATED list is
+   * not expressible with the middleware's instanceAccess modes (`listKey`
+   * post-filters by each row's own id and would corrupt `total`/paging; run
+   * rows are keyed by run id, grants by configuration/system id), so `access`
+   * is deliberately empty and the router enforces the rule via
+   * `history-access.ts` (fail-closed).
+   */
   getDetailedHistory: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [healthCheckAccess.details],
+    access: [],
   })
     .input(
       z.object({
@@ -549,10 +562,18 @@ export const healthCheckContract = {
       }),
     ),
 
+  /**
+   * Single-run detail. AUTHORIZED IN THE HANDLER against the fetched run's
+   * OWN configuration/system (so the anchor cannot be spoofed via input):
+   * global `configuration.manage`, a team manage grant on the run's
+   * configuration, or manage access to the run's system. An unauthorized
+   * caller gets the same `undefined` as a missing run - run ids don't leak
+   * existence. `access` is deliberately empty; see `history-access.ts`.
+   */
   getRunById: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [healthCheckAccess.details],
+    access: [],
   })
     .input(
       z.object({
@@ -594,10 +615,20 @@ export const healthCheckContract = {
       }),
     ),
 
+  /**
+   * Detailed per-configuration aggregated history (charts on the history
+   * detail page / drawer). AUTHORIZED IN THE HANDLER on the input
+   * (`configurationId`, `systemId`) pair - exactly the slice it returns:
+   * global `configuration.manage`, a team manage grant on the configuration,
+   * or manage access to the system. `authenticated` (was `public`): anonymous
+   * callers can never hold any of those, so a public userType only produced
+   * guaranteed-403 attempts. `access` is deliberately empty; see
+   * `history-access.ts`.
+   */
   getDetailedAggregatedHistory: proc({
     operationType: "query",
-    userType: "public",
-    access: [healthCheckAccess.details],
+    userType: "authenticated",
+    access: [],
   })
     .input(
       z.object({
