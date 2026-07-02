@@ -7,7 +7,11 @@ import {
 } from "bun:test";
 import * as http from "node:http";
 import { AddressInfo } from "node:net";
-import { HttpHealthCheckStrategy } from "./strategy";
+import {
+  buildAuthorizationHeader,
+  HttpHealthCheckStrategy,
+  httpHealthCheckConfigSchema,
+} from "./strategy";
 
 describe("HttpHealthCheckStrategy", () => {
   // Inject a deterministic DNS resolver so the in-process SSRF guard does not
@@ -88,8 +92,9 @@ describe("HttpHealthCheckStrategy", () => {
         headers: [{ name: "Accept", value: "application/json" }],
         body: "payload",
       });
-      // v1->v2 fabricates the default timeout, v2->v3 strips the moved fields.
-      expect(migrated).toEqual({ timeout: 30_000 });
+      // v1->v2 fabricates the default timeout, v2->v3 strips the moved fields;
+      // the final validation fills the defaulted authType.
+      expect(migrated).toEqual({ timeout: 30_000, authType: "none" });
     });
 
     it("carries a v1 timeout through both migration steps", async () => {
@@ -98,12 +103,12 @@ describe("HttpHealthCheckStrategy", () => {
         method: "POST",
         timeout: 12_345,
       });
-      expect(migrated).toEqual({ timeout: 12_345 });
+      expect(migrated).toEqual({ timeout: 12_345, authType: "none" });
     });
 
     it("is idempotent: an already-current {timeout} blob is unchanged", async () => {
       const migrated = await strategy.config.parseAssumingV1({ timeout: 5000 });
-      expect(migrated).toEqual({ timeout: 5000 });
+      expect(migrated).toEqual({ timeout: 5000, authType: "none" });
     });
 
     it("has a complete v1->version migration chain", () => {
@@ -298,6 +303,120 @@ describe("HttpHealthCheckStrategy", () => {
       expect(parsed.host).toBe(`127.0.0.1:${serverPort}`);
 
       connectedClient.close();
+    });
+  });
+
+  describe("authentication", () => {
+    it("sends no Authorization header by default (authType none)", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as { auth: string | null };
+      expect(parsed.auth).toBeNull();
+
+      connectedClient.close();
+    });
+
+    it("sends Authorization: Basic with base64(username:password)", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+        authType: "basic",
+        authUsername: "alice",
+        authPassword: "s3cret",
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as { auth: string | null };
+      const expected = Buffer.from("alice:s3cret", "utf8").toString("base64");
+      expect(parsed.auth).toBe(`Basic ${expected}`);
+
+      connectedClient.close();
+    });
+
+    it("sends Authorization: Bearer with the configured token", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+        authType: "token",
+        authToken: "my-api-token",
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as { auth: string | null };
+      expect(parsed.auth).toBe("Bearer my-api-token");
+
+      connectedClient.close();
+    });
+
+    it("lets an explicit request Authorization header win over the config", async () => {
+      const connectedClient = await localStrategy.createClient({
+        timeout: 5000,
+        authType: "token",
+        authToken: "config-token",
+      });
+      const result = await connectedClient.client.exec({
+        url: localUrl("/echo"),
+        method: "GET",
+        // Lower-case on purpose: precedence must be case-insensitive.
+        headers: { authorization: "Bearer request-token" },
+        timeout: 5000,
+      });
+
+      const parsed = JSON.parse(result.body) as { auth: string | null };
+      expect(parsed.auth).toBe("Bearer request-token");
+
+      connectedClient.close();
+    });
+
+    it("builds no header for authType none", () => {
+      expect(
+        buildAuthorizationHeader({ config: { authType: "none" } }),
+      ).toBeUndefined();
+    });
+
+    it("rejects basic auth without username or password", () => {
+      const missingPassword = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        authType: "basic",
+        authUsername: "alice",
+      });
+      expect(missingPassword.success).toBe(false);
+
+      const missingUsername = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        authType: "basic",
+        authPassword: "s3cret",
+      });
+      expect(missingUsername.success).toBe(false);
+    });
+
+    it("rejects token auth without a token", () => {
+      const result = httpHealthCheckConfigSchema.safeParse({
+        timeout: 5000,
+        authType: "token",
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts a config without auth fields (existing stored configs)", () => {
+      const result = httpHealthCheckConfigSchema.safeParse({ timeout: 5000 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.authType).toBe("none");
+      }
     });
   });
 

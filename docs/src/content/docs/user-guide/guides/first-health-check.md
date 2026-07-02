@@ -57,6 +57,14 @@ The editor is a split-pane IDE. The left tree lists the editable sections (Gener
 
 The HTTP strategy itself only requires global request defaults; the actual URL lives on a collector. Leave the defaults unless you have specific timeout requirements.
 
+If the endpoint requires authentication, pick a scheme in the **Authentication** dropdown:
+
+- **none** (default) - no `Authorization` header is sent.
+- **basic** - enter a username and password; requests carry `Authorization: Basic <base64(username:password)>`.
+- **token** - enter a token; requests carry `Authorization: Bearer <token>`.
+
+Passwords and tokens are secret fields: they are stored encrypted and redacted in the UI. A collector that sets its own `Authorization` header takes precedence over the strategy-level setting.
+
 ### Collectors
 
 The HTTP strategy ships with a built-in **Request collector**. Add it from the **Add Collector** menu, then configure:

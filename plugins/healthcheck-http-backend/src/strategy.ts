@@ -6,6 +6,7 @@ import {
   aggregatedCounter,
   mergeCounter,
   z,
+  configString,
   type InferAggregatedResult,
   type ConnectedClient,
   type TransportTimings,
@@ -30,6 +31,14 @@ import type {
 // ============================================================================
 
 /**
+ * Supported authentication schemes for outbound HTTP health-check requests.
+ * - none: no Authorization header is set (default)
+ * - basic: `Authorization: Basic base64(<username>:<password>)`
+ * - token: `Authorization: Bearer <token>`
+ */
+export const HTTP_AUTH_TYPES = ["none", "basic", "token"] as const;
+
+/**
  * HTTP health check configuration schema.
  * Global defaults only - action params moved to RequestCollector.
  *
@@ -40,19 +49,124 @@ import type {
  * the metadata/link-local block. Leaving it unset keeps the secure default.
  * RFC1918 / internal probing stays allowed by default (a monitoring tool's job).
  *
- * Optional + additive: existing stored configs (which lack this field) remain
- * valid, so no schema-version bump / migration is required.
+ * The auth fields hide behind the `authType` picker via `x-hidden-when`; the
+ * `""` entry covers configs stored before the field existed (no value in the
+ * form until the default is applied). Their conditional requiredness lives in
+ * the superRefine below, mirroring the Jira connection config pattern.
+ *
+ * Optional + additive: existing stored configs (which lack these fields)
+ * remain valid, so no schema-version bump / migration is required.
  */
-export const httpHealthCheckConfigSchema = baseStrategyConfigSchema.extend({
-  egressDenyCidrs: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "Extra CIDR ranges to deny for outbound requests (added on top of the always-on cloud-metadata/link-local block).",
-    ),
-});
+export const httpHealthCheckConfigSchema = baseStrategyConfigSchema
+  .extend({
+    egressDenyCidrs: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Extra CIDR ranges to deny for outbound requests (added on top of the always-on cloud-metadata/link-local block).",
+      ),
+    authType: z
+      .enum(HTTP_AUTH_TYPES)
+      .default("none")
+      .describe("Authentication for outbound requests"),
+    authUsername: configString({
+      "x-hidden-when": { authType: ["none", "token", ""] },
+    })
+      .optional()
+      .describe("Username for Basic authentication"),
+    authPassword: configString({
+      "x-secret": true,
+      "x-hidden-when": { authType: ["none", "token", ""] },
+    })
+      .optional()
+      .describe("Password for Basic authentication"),
+    authToken: configString({
+      "x-secret": true,
+      "x-hidden-when": { authType: ["none", "basic", ""] },
+    })
+      .optional()
+      .describe("Bearer token for Token authentication"),
+  })
+  .superRefine((data, ctx) => {
+    if (data.authType === "basic") {
+      if (!data.authUsername) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Username is required for Basic authentication",
+          path: ["authUsername"],
+        });
+      }
+      if (!data.authPassword) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Password is required for Basic authentication",
+          path: ["authPassword"],
+        });
+      }
+    }
+    if (data.authType === "token" && !data.authToken) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Token is required for Token authentication",
+        path: ["authToken"],
+      });
+    }
+  });
 
 export type HttpHealthCheckConfig = z.infer<typeof httpHealthCheckConfigSchema>;
+export type HttpHealthCheckConfigInput = z.input<
+  typeof httpHealthCheckConfigSchema
+>;
+
+/**
+ * Build the `Authorization` header value for the configured auth scheme, or
+ * `undefined` when the check runs unauthenticated. Basic credentials are
+ * base64-encoded as `<username>:<password>` per RFC 7617.
+ */
+export function buildAuthorizationHeader({
+  config,
+}: {
+  config: Pick<
+    HttpHealthCheckConfig,
+    "authType" | "authUsername" | "authPassword" | "authToken"
+  >;
+}): string | undefined {
+  switch (config.authType) {
+    case "basic": {
+      const credentials = Buffer.from(
+        `${config.authUsername ?? ""}:${config.authPassword ?? ""}`,
+        "utf8",
+      ).toString("base64");
+      return `Basic ${credentials}`;
+    }
+    case "token": {
+      return `Bearer ${config.authToken ?? ""}`;
+    }
+    default: {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Merge the strategy-level auth header into a request's headers. A collector
+ * that explicitly sets its own `Authorization` header (any casing) wins over
+ * the strategy config - the more specific setting takes precedence.
+ */
+function mergeAuthHeader({
+  headers,
+  authHeader,
+}: {
+  headers: Record<string, string> | undefined;
+  authHeader: string | undefined;
+}): Record<string, string> | undefined {
+  if (!authHeader) return headers;
+  const hasExplicitAuth = Object.keys(headers ?? {}).some(
+    (name) => name.toLowerCase() === "authorization",
+  );
+  if (hasExplicitAuth) return headers;
+  return { ...headers, Authorization: authHeader };
+}
 
 // The migrate input is `unknown` per the versioning chain, so narrowing is
 // done with `typeof`/`in` guards (no casts).
@@ -206,9 +320,13 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
    * All request parameters come from the collector (RequestCollector).
    */
   async createClient(
-    config: HttpHealthCheckConfig,
+    config: HttpHealthCheckConfigInput,
   ): Promise<ConnectedClient<HttpTransportClient>> {
     const validatedConfig = this.config.validate(config);
+
+    // Strategy-level auth: computed once from the validated config; merged
+    // into every request unless the collector sets its own Authorization.
+    const authHeader = buildAuthorizationHeader({ config: validatedConfig });
 
     // SSRF secure default: deny cloud-metadata + link-local always, plus any
     // operator-configured extra ranges. This collector runs IN-PROCESS on the
@@ -279,7 +397,7 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           const fetchStart = performance.now();
           const response = await fetch(request.url, {
             method: request.method,
-            headers: request.headers,
+            headers: mergeAuthHeader({ headers: request.headers, authHeader }),
             body: request.body,
             signal: controller.signal,
           });
