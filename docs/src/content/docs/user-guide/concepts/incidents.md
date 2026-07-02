@@ -119,11 +119,27 @@ Incidents emit lifecycle events the integration system can forward externally:
 
 A webhook subscription on those events can post into Slack, file or update a Jira ticket, page a PagerDuty service, and so on. See [Integrations](/checkstack/user-guide/concepts/integrations/).
 
+## Mass actions
+
+The incidents list supports acting on many incidents at once. Select rows with
+the leading checkboxes (or use "Select all"), then use the toolbar to:
+
+- **Mass resolve**: mark every selected, still-open incident as resolved.
+  Already-resolved rows in the selection are skipped.
+- **Mass delete**: permanently delete the selected incidents. This is
+  destructive and asks for confirmation first.
+
+You can only select incidents you are allowed to manage: a checkbox appears only
+on rows you can act on, so a team-scoped member sees checkboxes only for the
+incidents their team manages. After a mass action, Checkstack shows a short
+summary such as "3 resolved, 1 skipped" - a skipped entry is one that no longer
+qualified (already resolved, deleted, or not yours to manage).
+
 ## UI tour
 
 | Where to go | What you do there |
 |-------------|-------------------|
-| **Incidents** (list) | See all incidents, filter by status, severity, or affected system. |
+| **Incidents** (list) | See all incidents, filter by status, severity, or affected system. Select rows for mass resolve / mass delete. |
 | **Open Incident** | Create a new incident. Set title, description, severity, attach systems. |
 | **Incident detail** | Post updates, change status, edit affected systems, manage hotlinks. |
 | **System detail** | See the active incidents currently touching this system. |

@@ -39,6 +39,7 @@ interface InstanceAccess {
   recordKey?: string;
   create?: InstanceAccessCreate;
   parentScope?: InstanceAccessParentScope;
+  bulkManage?: { idsParam?: string };
 }
 
 function instanceAccessFor(
@@ -145,4 +146,41 @@ describe("incident contract createIncident carries create-mode team ownership", 
     const access = instanceAccessFor("createAutoIncident");
     expect(access?.create).toBeUndefined();
   });
+});
+
+describe("incident contract bulk actions gate per-id via bulkManage", () => {
+  // Both bulk mutations authorize EACH id against the caller's manage grant
+  // through the platform `bulkManage` instance-access mode, keyed on the `ids`
+  // input array (RLAC: never fail open on a bulk WRITE).
+  const bulkProcs: Array<keyof typeof incidentContract> = [
+    "bulkDeleteIncidents",
+    "bulkResolveIncidents",
+  ];
+
+  for (const proc of bulkProcs) {
+    test(`${proc} declares instanceAccess.bulkManage.idsParam = "ids"`, () => {
+      const access = instanceAccessFor(proc);
+      expect(access).toBeDefined();
+      expect(access?.bulkManage?.idsParam).toBe("ids");
+      // Exactly one mode: no object/list/record/create scoping alongside it.
+      expect(access?.idParam).toBeUndefined();
+      expect(access?.listKey).toBeUndefined();
+      expect(access?.recordKey).toBeUndefined();
+      expect(access?.create).toBeUndefined();
+      expect(access?.global).toBeUndefined();
+    });
+
+    test(`${proc} is gated on the incident.manage access rule`, () => {
+      const procDef = incidentContract[proc] as unknown as Record<
+        string,
+        unknown
+      >;
+      const orpc = procDef["~orpc"] as {
+        meta?: { access?: Array<{ id: string; resource: string; level: string }> };
+      };
+      const rule = orpc.meta?.access?.[0];
+      expect(rule?.resource).toBe("incident");
+      expect(rule?.level).toBe("manage");
+    });
+  }
 });

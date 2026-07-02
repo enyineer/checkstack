@@ -17,7 +17,11 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { InferClient } from "@checkstack/common";
 import { notifyAffectedSystems } from "./notifications";
-import type { MaintenanceUpdate } from "@checkstack/maintenance-common";
+import type {
+  MaintenanceUpdate,
+  MaintenanceWithSystems,
+  BulkMaintenanceActionResult,
+} from "@checkstack/maintenance-common";
 import type { MaintenanceCache } from "./cache";
 import {
   removeMaintenanceEntity,
@@ -113,6 +117,105 @@ export function createRouter({
       }),
     );
     return systemNames;
+  }
+
+  /**
+   * Close a single maintenance early (status → completed) and run the full
+   * post-mutation sequence (entity write → cache invalidate → signal → notify).
+   * Returns `"notFound"` for a missing maintenance WITHOUT throwing, so the
+   * single-item handler (404) and the bulk handler (per-id outcome) share one
+   * path. This is the "resolve"-equivalent action for a maintenance.
+   */
+  async function closeOneMaintenance({
+    id,
+    message,
+    userId,
+    actor,
+  }: {
+    id: string;
+    message?: string;
+    userId?: string;
+    actor: ReturnType<typeof resolveActor>;
+  }): Promise<{
+    status: "completed" | "notFound";
+    maintenance?: MaintenanceWithSystems;
+  }> {
+    const existing = await service.getMaintenance(id);
+    if (!existing) return { status: "notFound" };
+
+    let closed: MaintenanceWithSystems | undefined;
+    await writeMaintenanceEntity({
+      handle: entityHandle,
+      maintenanceId: id,
+      opts: { actor },
+      apply: async () => {
+        closed = await service.closeMaintenance(id, message, userId);
+        // A race could delete the maintenance between probe and write; fall
+        // back to the pre-write snapshot so the entity diff is a no-op.
+        return toMaintenanceEntityState(closed ?? existing);
+      },
+    });
+    if (!closed) return { status: "notFound" };
+
+    await cache.invalidateForMutation({
+      maintenanceId: closed.id,
+      systemIds: closed.systemIds,
+    });
+    await signalService.broadcast(MAINTENANCE_UPDATED, {
+      maintenanceId: closed.id,
+      systemIds: closed.systemIds,
+      action: "closed",
+    });
+    const systemNames = await resolveSystemNames(closed.systemIds);
+    await notifyAffectedSystems({
+      catalogClient,
+      notificationClient,
+      logger,
+      maintenanceId: closed.id,
+      maintenanceTitle: closed.title,
+      systemIds: closed.systemIds,
+      systemNames,
+      action: "completed",
+    });
+    return { status: "completed", maintenance: closed };
+  }
+
+  /**
+   * Delete a single maintenance + post-mutation sequence (entity tombstone →
+   * cache invalidate → signal). Returns `"notFound"` when the row does not
+   * exist, matching the single-item handler's historical `{ success: false }`.
+   */
+  async function deleteOneMaintenance({
+    id,
+    actor,
+  }: {
+    id: string;
+    actor: ReturnType<typeof resolveActor>;
+  }): Promise<"deleted" | "notFound"> {
+    const maintenance = await service.getMaintenance(id);
+    if (!maintenance) return "notFound";
+
+    let success = false;
+    await removeMaintenanceEntity({
+      handle: entityHandle,
+      maintenanceId: id,
+      opts: { actor },
+      apply: async () => {
+        success = await service.deleteMaintenance(id);
+      },
+    });
+    if (!success) return "notFound";
+
+    await cache.invalidateForMutation({
+      maintenanceId: id,
+      systemIds: maintenance.systemIds,
+    });
+    await signalService.broadcast(MAINTENANCE_UPDATED, {
+      maintenanceId: id,
+      systemIds: maintenance.systemIds,
+      action: "closed", // "closed" doubles for delete (historical behaviour).
+    });
+    return "deleted";
   }
 
   const os = implement(maintenanceContract)
@@ -358,103 +461,98 @@ export function createRouter({
         const userId =
           context.user && "id" in context.user ? context.user.id : undefined;
 
-        // Probe existence first so a missing maintenance still surfaces as
-        // NOT_FOUND without driving an entity write.
-        const exists = await service.getMaintenance(input.id);
-        if (!exists) {
+        // Drive the close through the shared per-id helper. A missing
+        // maintenance surfaces as NOT_FOUND.
+        const outcome = await closeOneMaintenance({
+          id: input.id,
+          message: input.message,
+          userId,
+          actor: resolveActor(context.user),
+        });
+        if (outcome.status !== "completed" || !outcome.maintenance) {
           throw new ORPCError("NOT_FOUND", {
             message: "Maintenance not found",
           });
         }
-
-        // Drive the close through the reactive `maintenance` entity (§10.2);
-        // `apply` performs the REAL close (status → completed, the plugin's own
-        // db/tx) and returns the new reactive state. The deriver fires
-        // `maintenance.updated` from the status transition.
-        let result!: NonNullable<
-          Awaited<ReturnType<typeof service.closeMaintenance>>
-        >;
-        await writeMaintenanceEntity({
-          handle: entityHandle,
-          maintenanceId: input.id,
-          opts: { actor: resolveActor(context.user) },
-          apply: async () => {
-            const closed = await service.closeMaintenance(
-              input.id,
-              input.message,
-              userId,
-            );
-            if (!closed) {
-              throw new ORPCError("NOT_FOUND", {
-                message: "Maintenance not found",
-              });
-            }
-            result = closed;
-            return toMaintenanceEntityState(result);
-          },
-        });
-
-        await cache.invalidateForMutation({
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-        });
-        // Broadcast signal for realtime updates
-        await signalService.broadcast(MAINTENANCE_UPDATED, {
-          maintenanceId: result.id,
-          systemIds: result.systemIds,
-          action: "closed",
-        });
-
-        // Send notifications to system subscribers
-        const systemNames = await resolveSystemNames(result.systemIds);
-        await notifyAffectedSystems({
-          catalogClient,
-          notificationClient,
-          logger,
-          maintenanceId: result.id,
-          maintenanceTitle: result.title,
-          systemIds: result.systemIds,
-          systemNames,
-          action: "completed",
-        });
-
-        return result;
+        return outcome.maintenance;
       },
     ),
 
     deleteMaintenance: os.deleteMaintenance.handler(async ({ input, context }) => {
-      // Get maintenance before deleting to get systemIds
-      const maintenance = await service.getMaintenance(input.id);
-
-      // Drive the delete through the reactive `maintenance` entity tombstone
-      // (§10.2). `apply` performs the REAL delete (the plugin's own db/tx);
-      // the framework records the tombstone transition and emits a tombstone
-      // change. The deriver fires nothing, matching the historical behaviour
-      // where delete emitted no maintenance hook.
-      let success = false;
-      await removeMaintenanceEntity({
-        handle: entityHandle,
-        maintenanceId: input.id,
-        opts: { actor: resolveActor(context.user) },
-        apply: async () => {
-          success = await service.deleteMaintenance(input.id);
-        },
+      // Shared per-id delete helper drives the reactive `maintenance` tombstone
+      // (§10.2) + cache invalidate + signal. `success` tracks whether the row
+      // actually existed and was deleted.
+      const status = await deleteOneMaintenance({
+        id: input.id,
+        actor: resolveActor(context.user),
       });
-
-      if (success && maintenance) {
-        await cache.invalidateForMutation({
-          maintenanceId: input.id,
-          systemIds: maintenance.systemIds,
-        });
-
-        await signalService.broadcast(MAINTENANCE_UPDATED, {
-          maintenanceId: input.id,
-          systemIds: maintenance.systemIds,
-          action: "closed", // Use "closed" for delete as well
-        });
-      }
-      return { success };
+      return { success: status === "deleted" };
     }),
+
+    bulkDeleteMaintenances: os.bulkDeleteMaintenances.handler(
+      async ({ input, context }) => {
+        // The `bulkManage` instance-access mode pre-partitioned `input.ids`
+        // into the caller's manageable subset and the denied remainder. A
+        // missing partition means we cannot prove authorization, so treat the
+        // whole batch as denied (fail closed).
+        const partition = context.bulkAccess?.ids ?? {
+          authorizedIds: [],
+          deniedIds: input.ids,
+        };
+        const actor = resolveActor(context.user);
+        const results: BulkMaintenanceActionResult[] = [];
+        for (const id of partition.authorizedIds) {
+          try {
+            results.push({ id, status: await deleteOneMaintenance({ id, actor }) });
+          } catch (error) {
+            // Isolate per-id failures so one bad row never aborts the batch.
+            logger.error(
+              `bulkDeleteMaintenances: failed to delete maintenance ${id}`,
+              error,
+            );
+            results.push({ id, status: "error" });
+          }
+        }
+        for (const id of partition.deniedIds) {
+          results.push({ id, status: "forbidden" });
+        }
+        return { results };
+      },
+    ),
+
+    bulkCloseMaintenances: os.bulkCloseMaintenances.handler(
+      async ({ input, context }) => {
+        const userId =
+          context.user && "id" in context.user ? context.user.id : undefined;
+        const partition = context.bulkAccess?.ids ?? {
+          authorizedIds: [],
+          deniedIds: input.ids,
+        };
+        const actor = resolveActor(context.user);
+        const results: BulkMaintenanceActionResult[] = [];
+        for (const id of partition.authorizedIds) {
+          try {
+            const outcome = await closeOneMaintenance({
+              id,
+              message: input.message,
+              userId,
+              actor,
+            });
+            results.push({ id, status: outcome.status });
+          } catch (error) {
+            logger.error(
+              `bulkCloseMaintenances: failed to close maintenance ${id}`,
+              error,
+            );
+            results.push({ id, status: "error" });
+          }
+        }
+        for (const id of partition.deniedIds) {
+          results.push({ id, status: "forbidden" });
+        }
+        return { results };
+      },
+    ),
 
     hasActiveMaintenanceWithSuppression:
       os.hasActiveMaintenanceWithSuppression.handler(async ({ input }) => {

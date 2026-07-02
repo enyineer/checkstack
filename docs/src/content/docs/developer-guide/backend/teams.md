@@ -477,6 +477,7 @@ export const catalogContract = {
 | `record` | `recordKey` | Post-handler filter for bulk records | Filters Record<resourceId, data> to only accessible keys |
 | `create` | `create` | Pre-handler authorize + post-handler ownership write | Lets a team member with a create-capability grant create a resource owned by their team; writes the owning-team grant for the created id |
 | `parent` | `parentScope` | Scope by access to a PARENT resource type (cross-plugin, single-hop) | Pre-check (idParam) or record-filter (recordKey) against the parent type's grants - "see X for system S iff you can see S" |
+| `bulkManage` | `bulkManage` | Pre-handler partition of an id ARRAY for a bulk WRITE (mass delete / mass resolve) | Splits `input[idsParam]` into the caller's authorized subset and the denied remainder, exposed on `context.bulkAccess`; the handler mutates only authorized ids |
 | `global` | `global` | Explicit opt-out of team scoping | Enforced purely at the global-rule level; no per-resource check |
 
 > **Note:** `instanceAccess` for a procedure is a single config object naming EXACTLY ONE mode. Set the field that matches how the endpoint identifies its resource(s).
@@ -522,6 +523,51 @@ getBulkIncidentsForSystems: proc({
 the parent (e.g. associating a health check to a system). Set EXACTLY ONE of
 `idParam` (pre-check) or `recordKey` (post-filter). This is a single-hop, fixed
 delegation - there is no recursive resource hierarchy (yet).
+
+#### Bulk WRITE authorization (`bulkManage`) - mass delete / mass resolve
+
+A bulk WRITE that acts on an ARRAY of ids (mass delete, mass resolve/complete)
+cannot use the other modes: `idParam` is a single pre-check that THROWS on the
+first unauthorized id (no partial success); `listKey` / `recordKey` are
+post-filters that run AFTER the handler already mutated everything (fail-open for
+a write); `global: true` would exclude team-scoped users. `bulkManage` is the
+correct mode: BEFORE the handler runs, the middleware resolves `input[idsParam]`,
+splits it into the caller's manageable subset (global rule OR per-id team grant)
+and the denied remainder, and exposes both on `context.bulkAccess[idsParam]` as
+`{ authorizedIds, deniedIds }`. It fails CLOSED - an S2S error yields an empty
+authorized subset - and a team-scoped caller is never rejected up front; they
+simply receive only their granted ids.
+
+```ts
+// contract
+bulkDeleteIncidents: proc({
+  operationType: "mutation",
+  userType: "authenticated",
+  access: [incidentAccess.incident.manage],
+  instanceAccess: { bulkManage: { idsParam: "ids" } },
+})
+  .route({ method: "POST" })
+  .input(z.object({ ids: z.array(z.string()).min(1) }))
+  .output(z.object({ results: z.array(BulkIncidentActionResultSchema) })),
+
+// handler: act ONLY on authorizedIds, report deniedIds as forbidden
+bulkDeleteIncidents: os.bulkDeleteIncidents.handler(async ({ input, context }) => {
+  const { authorizedIds, deniedIds } = context.bulkAccess?.ids ?? {
+    authorizedIds: [],
+    deniedIds: input.ids, // no partition => fail closed
+  };
+  const results = [];
+  for (const id of authorizedIds) results.push({ id, status: await deleteOne(id) });
+  for (const id of deniedIds) results.push({ id, status: "forbidden" });
+  return { results };
+}),
+```
+
+The handler MUST wrap each id in try/catch so one failure never aborts the batch,
+and MUST run the per-id post-mutation sequence (cache invalidate, signal,
+notification) for every success so dashboards and the status page stay
+consistent. Return a per-id result so the frontend can report partial success
+(e.g. "3 deleted, 1 skipped").
 
 #### Keying: the id must match the grant's `resourceId`
 
@@ -604,7 +650,9 @@ for grouping never gain create rights. An admin grants a team create-capability 
 `auth.setCreateGrant({ objectType, teamId, allowed: true })` (and lists a team's grants with
 `listTeamCreateGrants`), or from the **Resource creation** section of the team management dialog.
 Absent a grant, creation stays admin/global-only. The platform enumerates the create-capable resource
-types via `auth.getResourceKinds` (derived from the contracts).
+types via `auth.getResourceKinds` (derived from the contracts). Only **parent-less** creates are
+enumerated: a create with a `parent` gate (below) is authorized via manage on the parent, so offering a
+per-type toggle for it would be redundant and is deliberately excluded.
 
 ##### Parent-gated creation (e.g. "for a system")
 
@@ -634,6 +682,12 @@ When `parent` is set, the middleware authorizes the create if the caller can man
 parent ids (`idParam` may resolve to a single id or an array), independent of any create-capability
 grant. This implements "only those who manage system X may create incidents/maintenances for X", while
 the result stays globally readable.
+
+Because a parent-gated create needs no per-type grant, its type does **not** appear in the **Resource
+creation** toggles (`getResourceKinds` marks it non-create-capable). Grant creation for these types by
+giving the team **manage** access to the parent (e.g. the system), not a create toggle. A type that has
+BOTH a parent-gated and a parent-less create procedure is still enumerated (the parent-less path needs
+the grant).
 
 ### Meaningful authorization errors (not silent empties)
 

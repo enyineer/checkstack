@@ -18,6 +18,7 @@ import { notifyAffectedSystems } from "./notifications";
 import type {
   IncidentUpdate,
   IncidentWithSystems,
+  BulkIncidentActionResult,
 } from "@checkstack/incident-common";
 import type { IncidentCache } from "./cache";
 import type { EntityHandle } from "@checkstack/automation-backend";
@@ -108,6 +109,98 @@ export function createRouter({
       }),
     );
     return systemNames;
+  }
+
+  /**
+   * Resolve a single incident and run the full post-mutation sequence
+   * (entity write → cache invalidate → signal → notify). Returns `"notFound"`
+   * for a missing incident WITHOUT throwing, so the single-item handler (which
+   * turns that into a 404) and the bulk handler (which records it as a per-id
+   * outcome) share one code path.
+   */
+  async function resolveOneIncident({
+    id,
+    message,
+    userId,
+  }: {
+    id: string;
+    message?: string;
+    userId?: string;
+  }): Promise<{
+    status: "resolved" | "notFound";
+    incident?: IncidentWithSystems;
+  }> {
+    const existing = await service.getIncident(id);
+    if (!existing) return { status: "notFound" };
+
+    let resolved: IncidentWithSystems | undefined;
+    await writeIncidentEntity({
+      handle: getIncidentEntity?.(),
+      incidentId: id,
+      apply: async () => {
+        resolved = await service.resolveIncident(id, message, userId);
+        // A race could delete the incident between probe and write; fall back
+        // to the pre-write snapshot so the entity diff is a no-op.
+        return toIncidentEntityState(resolved ?? existing);
+      },
+    });
+    if (!resolved) return { status: "notFound" };
+
+    await cache.invalidateForMutation({
+      incidentId: resolved.id,
+      systemIds: resolved.systemIds,
+    });
+    await signalService.broadcast(INCIDENT_UPDATED, {
+      incidentId: resolved.id,
+      systemIds: resolved.systemIds,
+      action: "resolved",
+    });
+    const systemNames = await resolveSystemNames(resolved.systemIds);
+    await notifyAffectedSystems({
+      catalogClient,
+      notificationClient,
+      logger,
+      incidentId: resolved.id,
+      incidentTitle: resolved.title,
+      systemIds: resolved.systemIds,
+      systemNames,
+      action: "resolved",
+      severity: resolved.severity,
+    });
+    return { status: "resolved", incident: resolved };
+  }
+
+  /**
+   * Delete a single incident + post-mutation sequence (entity tombstone →
+   * cache invalidate → signal). Returns `"notFound"` when the row does not
+   * exist, matching the single-item handler's historical `{ success: false }`.
+   */
+  async function deleteOneIncident(
+    id: string,
+  ): Promise<"deleted" | "notFound"> {
+    const incident = await service.getIncident(id);
+    if (!incident) return "notFound";
+
+    let success = false;
+    await removeIncidentEntity({
+      handle: getIncidentEntity?.(),
+      incidentId: id,
+      apply: async () => {
+        success = await service.deleteIncident(id);
+      },
+    });
+    if (!success) return "notFound";
+
+    await cache.invalidateForMutation({
+      incidentId: id,
+      systemIds: incident.systemIds,
+    });
+    await signalService.broadcast(INCIDENT_UPDATED, {
+      incidentId: id,
+      systemIds: incident.systemIds,
+      action: "deleted",
+    });
+    return "deleted";
   }
 
   const os = implement(incidentContract)
@@ -361,97 +454,88 @@ export function createRouter({
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;
 
-      const exists = await service.getIncident(input.id);
-      if (!exists) {
+      // Drive the resolve through the shared per-id helper (entity write →
+      // cache → signal → notify). A missing incident surfaces as NOT_FOUND.
+      const outcome = await resolveOneIncident({
+        id: input.id,
+        message: input.message,
+        userId,
+      });
+      if (outcome.status !== "resolved" || !outcome.incident) {
         throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
       }
-
-      // Drive the resolve through the reactive `incident` entity (§10.1);
-      // `apply` performs the REAL resolve (the plugin's own db/tx) and returns
-      // the new reactive state. The deriver fires `incident.resolved` from the
-      // status → resolved transition.
-      let result!: NonNullable<Awaited<ReturnType<typeof service.resolveIncident>>>;
-      await writeIncidentEntity({
-        handle: getIncidentEntity?.(),
-        incidentId: input.id,
-        apply: async () => {
-          const resolved = await service.resolveIncident(
-            input.id,
-            input.message,
-            userId,
-          );
-          if (!resolved) {
-            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
-          }
-          result = resolved;
-          return toIncidentEntityState(result);
-        },
-      });
-
-      await cache.invalidateForMutation({
-        incidentId: result.id,
-        systemIds: result.systemIds,
-      });
-
-      // Broadcast signal for realtime updates
-      await signalService.broadcast(INCIDENT_UPDATED, {
-        incidentId: result.id,
-        systemIds: result.systemIds,
-        action: "resolved",
-      });
-
-      // Send notifications to system subscribers
-      const systemNames = await resolveSystemNames(result.systemIds);
-      await notifyAffectedSystems({
-        catalogClient,
-        notificationClient,
-        logger,
-        incidentId: result.id,
-        incidentTitle: result.title,
-        systemIds: result.systemIds,
-        systemNames,
-        action: "resolved",
-        severity: result.severity,
-      });
-
-      return result;
+      return outcome.incident;
     }),
 
     deleteIncident: os.deleteIncident.handler(async ({ input }) => {
-      // Get incident before deleting to get systemIds.
-      const incident = await service.getIncident(input.id);
-      if (!incident) {
-        return { success: false };
-      }
-
-      // Drive the delete through the reactive `incident` entity tombstone
-      // (§10.1). `apply` performs the REAL delete (the plugin's own db/tx);
-      // the framework records the tombstone transition and emits a tombstone
-      // change. No `incident.deleted` trigger event exists, so the deriver
-      // fires nothing. `success` tracks whether the row was actually deleted.
-      let success = false;
-      await removeIncidentEntity({
-        handle: getIncidentEntity?.(),
-        incidentId: input.id,
-        apply: async () => {
-          success = await service.deleteIncident(input.id);
-        },
-      });
-
-      if (success) {
-        await cache.invalidateForMutation({
-          incidentId: input.id,
-          systemIds: incident.systemIds,
-        });
-
-        await signalService.broadcast(INCIDENT_UPDATED, {
-          incidentId: input.id,
-          systemIds: incident.systemIds,
-          action: "deleted",
-        });
-      }
-      return { success };
+      // Shared per-id delete helper drives the reactive `incident` tombstone
+      // (§10.1) + cache invalidate + signal. `success` tracks whether the row
+      // actually existed and was deleted.
+      const status = await deleteOneIncident(input.id);
+      return { success: status === "deleted" };
     }),
+
+    bulkDeleteIncidents: os.bulkDeleteIncidents.handler(
+      async ({ input, context }) => {
+        // The `bulkManage` instance-access mode pre-partitioned `input.ids`
+        // into the caller's manageable subset and the denied remainder. A
+        // missing partition means we cannot prove authorization, so treat the
+        // whole batch as denied (fail closed) rather than acting on any id.
+        const partition = context.bulkAccess?.ids ?? {
+          authorizedIds: [],
+          deniedIds: input.ids,
+        };
+        const results: BulkIncidentActionResult[] = [];
+        for (const id of partition.authorizedIds) {
+          try {
+            results.push({ id, status: await deleteOneIncident(id) });
+          } catch (error) {
+            // Isolate per-id failures so one bad row never aborts the batch.
+            logger.error(
+              `bulkDeleteIncidents: failed to delete incident ${id}`,
+              error,
+            );
+            results.push({ id, status: "error" });
+          }
+        }
+        for (const id of partition.deniedIds) {
+          results.push({ id, status: "forbidden" });
+        }
+        return { results };
+      },
+    ),
+
+    bulkResolveIncidents: os.bulkResolveIncidents.handler(
+      async ({ input, context }) => {
+        const userId =
+          context.user && "id" in context.user ? context.user.id : undefined;
+        const partition = context.bulkAccess?.ids ?? {
+          authorizedIds: [],
+          deniedIds: input.ids,
+        };
+        const results: BulkIncidentActionResult[] = [];
+        for (const id of partition.authorizedIds) {
+          try {
+            const outcome = await resolveOneIncident({
+              id,
+              message: input.message,
+              userId,
+            });
+            results.push({ id, status: outcome.status });
+          } catch (error) {
+            logger.error(
+              `bulkResolveIncidents: failed to resolve incident ${id}`,
+              error,
+            );
+            results.push({ id, status: "error" });
+          }
+        }
+        for (const id of partition.deniedIds) {
+          results.push({ id, status: "forbidden" });
+        }
+        return { results };
+      },
+    ),
 
     hasActiveIncidentWithSuppression:
       os.hasActiveIncidentWithSuppression.handler(async ({ input }) => {

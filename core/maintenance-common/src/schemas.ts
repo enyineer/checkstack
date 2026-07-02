@@ -123,3 +123,51 @@ export const AddMaintenanceUpdateInputSchema = z.object({
 export type AddMaintenanceUpdateInput = z.infer<
   typeof AddMaintenanceUpdateInputSchema
 >;
+
+/**
+ * Per-id outcome of a bulk maintenance action (mass delete / mass complete).
+ *
+ * The "resolve"-equivalent for a maintenance is CLOSE (status → `completed`),
+ * so mass-resolve reports `completed` on success.
+ *
+ * - `deleted` / `completed`: the action succeeded for this maintenance.
+ * - `notFound`: no maintenance with this id exists (or it vanished mid-batch).
+ * - `forbidden`: the caller cannot MANAGE this maintenance (filtered out by the
+ *   `bulkManage` instance-access mode before the handler ran).
+ * - `error`: the per-id operation threw; the batch continued past it.
+ */
+export const BulkMaintenanceActionStatusEnum = z.enum([
+  "deleted",
+  "completed",
+  "notFound",
+  "forbidden",
+  "error",
+]);
+export type BulkMaintenanceActionStatus = z.infer<
+  typeof BulkMaintenanceActionStatusEnum
+>;
+
+export const BulkMaintenanceActionResultSchema = z.object({
+  id: z.string(),
+  status: BulkMaintenanceActionStatusEnum,
+});
+export type BulkMaintenanceActionResult = z.infer<
+  typeof BulkMaintenanceActionResultSchema
+>;
+
+/** Input for a bulk maintenance action: a non-empty set of maintenance ids. */
+export const BulkMaintenanceIdsInputSchema = z.object({
+  ids: z.array(z.string()).min(1, "At least one maintenance is required"),
+});
+export type BulkMaintenanceIdsInput = z.infer<
+  typeof BulkMaintenanceIdsInputSchema
+>;
+
+/** Input for bulk close: maintenance ids plus an optional shared message. */
+export const BulkCloseMaintenancesInputSchema = z.object({
+  ids: z.array(z.string()).min(1, "At least one maintenance is required"),
+  message: z.string().optional(),
+});
+export type BulkCloseMaintenancesInput = z.infer<
+  typeof BulkCloseMaintenancesInputSchema
+>;

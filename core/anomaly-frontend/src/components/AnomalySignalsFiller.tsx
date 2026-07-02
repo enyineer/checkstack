@@ -47,6 +47,7 @@ export const AnomalySignalsFiller: React.FC<Props> = ({
       .map((a) => ({
         systemId: a.systemId,
         configurationId: a.configurationId,
+        environmentId: a.environmentId,
         fieldPath: a.fieldPath,
         startedAt: a.startedAt,
         state: a.state,

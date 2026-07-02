@@ -5,6 +5,7 @@ export * from "./signals";
 export * from "./plugin-metadata";
 export * from "./builders";
 export * from "./subject-render";
+export * from "./notification-urls";
 export * from "./targets";
 export * from "./subscriptions";
 export { notificationRoutes } from "./routes";

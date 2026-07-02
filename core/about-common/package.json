@@ -13,7 +13,8 @@
     }
   },
   "dependencies": {
-    "@checkstack/common": "workspace:*"
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*"
   },
   "devDependencies": {
     "@checkstack/tsconfig": "workspace:*",
@@ -23,7 +24,8 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "lint": "bun run lint:code",
-    "lint:code": "eslint . --max-warnings 0"
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
   },
   "checkstack": {
     "type": "common"

@@ -125,6 +125,32 @@ const { canAccess } = accessApi.useResourceAccess({
 > depth, not the security boundary. Never move an access decision that the
 > backend owns into the frontend.
 
+## Gate multi-select bulk actions
+
+A list with mass actions (mass delete, mass resolve/complete) restricts the
+selectable rows to the ones the caller can MANAGE, using the SAME
+`canAccess(id)` predicate as the per-row controls. Only render a row's checkbox
+when `canAccess(id)` is true, and derive the select-all set from those ids so a
+row the backend would reject is never selectable.
+
+```tsx
+// pure helpers keep the gating testable (see incidentConfig.logic.ts)
+const selectableIds = selectableIncidentIds({ incidents, canAccess });
+// of the selection, the subset still eligible for the "resolve" action:
+const resolvableSelected = resolvableIncidentIds({ selectedIds, incidents, canAccess });
+
+// per row:
+{canAccess(i.id) && (
+  <Checkbox checked={selectedIds.has(i.id)} onCheckedChange={() => toggleOne(i.id)} />
+)}
+```
+
+Prune the selection whenever the selectable set changes (a refetch, a revoked
+grant, a deleted row) so a stale id can never be submitted, and submit only the
+still-eligible subset. The backend mirrors this with the `bulkManage`
+instance-access mode, which authorizes each id server-side and reports a per-id
+result - so a mismatched frontend gate can only under-offer, never grant access.
+
 ## Gate a route and its sidebar entry
 
 A management route is otherwise gated only on its global `accessRule`, so a

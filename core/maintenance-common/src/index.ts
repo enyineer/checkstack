@@ -19,6 +19,10 @@ export {
   CreateMaintenanceInputSchema,
   UpdateMaintenanceInputSchema,
   AddMaintenanceUpdateInputSchema,
+  BulkMaintenanceActionStatusEnum,
+  BulkMaintenanceActionResultSchema,
+  BulkMaintenanceIdsInputSchema,
+  BulkCloseMaintenancesInputSchema,
   type MaintenanceStatus,
   type Maintenance,
   type MaintenanceWithSystems,
@@ -29,6 +33,10 @@ export {
   type CreateMaintenanceInput,
   type UpdateMaintenanceInput,
   type AddMaintenanceUpdateInput,
+  type BulkMaintenanceActionStatus,
+  type BulkMaintenanceActionResult,
+  type BulkMaintenanceIdsInput,
+  type BulkCloseMaintenancesInput,
 } from "./schemas";
 export { MaintenanceDetailsSlot, MaintenanceStatusSlot } from "./slots";
 export {
