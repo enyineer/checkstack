@@ -38,8 +38,12 @@ const monaco = monacoViteConfig({
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
-  // Backend URL for proxy - always targets local backend in dev
-  const backendUrl = "http://localhost:3000";
+  // Backend URL for proxy. Defaults to the primary dev backend, but the
+  // PR-preview instance overrides it via CHECKSTACK_DEV_BACKEND_URL so a merged
+  // worktree's dev server proxies to the PREVIEW backend's random port instead
+  // of the primary one.
+  const backendUrl =
+    process.env.CHECKSTACK_DEV_BACKEND_URL ?? "http://localhost:3000";
 
   // Proxy table shared by `server` (dev) and `preview` (prod-bundle preview).
   const proxy = {

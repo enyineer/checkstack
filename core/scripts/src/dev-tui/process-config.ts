@@ -24,6 +24,14 @@ export interface ProcessDef {
    * ones become "ready" on a readiness marker and "stopped"/"errored" on exit.
    */
   readonly oneShot: boolean;
+  /**
+   * Extra environment variables for this process, MERGED over `process.env`
+   * (these win on conflict). Undefined inherits the parent environment
+   * unchanged. Used by the PR-preview instance to point a merged worktree's
+   * backend/frontend at a random port, the copied database, and a non-default
+   * `CHECKSTACK_INSTANCE_NAMESPACE`, without disturbing the primary dev run.
+   */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /**

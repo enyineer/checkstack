@@ -9,8 +9,9 @@
     "docs"
   ],
   "scripts": {
-    "dev": "bun run core/scripts/src/dev-tui/cli.tsx",
-    "preview": "bun run core/scripts/src/dev-tui/cli.tsx preview",
+    "dev": "bun run core/scripts/src/cockpit/cli.tsx",
+    "preview": "bun run core/scripts/src/cockpit/cli.tsx preview",
+    "preview:prs": "bun run core/scripts/src/cockpit/cli.tsx",
     "dev:plain": "docker compose -f docker-compose-dev.yml up -d && bun run --filter '@checkstack/backend' --filter '@checkstack/frontend' dev",
     "typecheck": "bun run typecheck:references:check && tsgo -b",
     "typecheck:clean": "find . -name '.tsbuild' -not -path '*/node_modules/*' -prune -exec rm -rf {} + ; find . -name 'tsconfig.tsbuildinfo' -not -path '*/node_modules/*' -delete",
