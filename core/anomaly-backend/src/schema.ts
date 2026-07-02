@@ -39,6 +39,22 @@ export const anomalies = pgTable("anomalies", {
    * Together with systemId, this maps to the specific health check assignment.
    */
   configurationId: uuid("configuration_id").notNull(),
+  /**
+   * Environment this anomaly was detected for (per-environment fan-out).
+   * null = the env-less slice (no environment membership), mirroring
+   * `anomaly_baselines.environmentId` and `health_check_runs.environmentId`.
+   * An anomaly for check X in environment A is a distinct row from the same
+   * check in environment B: the inline detector and the drift evaluator both
+   * locate/create the open row by
+   * `(systemId, configurationId, environmentId, fieldPath, kind)`, so a healthy
+   * value in one env never masks (or merges with) an anomaly in another.
+   *
+   * No unique constraint is placed on this table (and none existed before):
+   * multiple rows legitimately share the tuple - a `recovered` historical row
+   * coexists with a fresh active row - so uniqueness would break the state
+   * machine. Pre-feature rows backfill to null (the env-less slice).
+   */
+  environmentId: text("environment_id"),
   fieldPath: text("field_path").notNull(),
   kind: anomalyKindEnum("kind").default("spike").notNull(),
   state: anomalyStateEnum("state").notNull(),

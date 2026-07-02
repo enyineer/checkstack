@@ -18,6 +18,7 @@ const sampleRows: Rows = [
   {
     systemId: "sys-1",
     configurationId: "cfg-1",
+    environmentId: "env-prod",
     fieldPath: "latency",
     startedAt: "2026-06-07T10:00:00.000Z",
     state: "anomaly",
@@ -25,6 +26,7 @@ const sampleRows: Rows = [
   {
     systemId: "sys-2",
     configurationId: "cfg-2",
+    environmentId: null,
     fieldPath: "errors",
     startedAt: "2026-06-07T11:00:00.000Z",
     state: "suspicious",

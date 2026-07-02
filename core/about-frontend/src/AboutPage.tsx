@@ -11,6 +11,8 @@ import {
   cn,
 } from "@checkstack/ui";
 import { extractErrorMessage } from "@checkstack/common";
+import { ExtensionSlot } from "@checkstack/frontend-api";
+import { AboutSectionsSlot } from "@checkstack/about-common";
 import { AboutHero } from "./AboutHero";
 import { pluginTypeChipStyle } from "./pluginTypeChip.logic";
 
@@ -83,6 +85,11 @@ export function AboutPage() {
     >
       {/* Hero Section */}
       <AboutHero />
+
+      {/* Plugin-contributed sections (e.g. the assistant Memories sheet). Each
+          contribution gates itself, so the general About page stays ignorant of
+          any specific plugin. */}
+      <ExtensionSlot slot={AboutSectionsSlot} />
 
       {/* License Section */}
       <Card>
