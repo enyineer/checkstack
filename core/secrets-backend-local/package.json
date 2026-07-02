@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/secrets-backend-local",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Default local secret backend: AES-256-GCM values in Postgres",
   "author": "Checkstack contributors",
   "license": "Elastic-2.0",

@@ -1,5 +1,77 @@
 # @checkstack/dashboard-frontend
 
+## 0.10.0
+
+### Minor Changes
+
+- 259b93c: Surface scheduled (upcoming) maintenances on the dashboard.
+
+  The dashboard now shows a "Planned maintenances" section listing the soonest
+  scheduled maintenance windows (not yet started), each deep-linking to its
+  detail page. Previously scheduled windows were invisible on the dashboard until
+  they went live - operators had no at-a-glance view of upcoming planned work.
+
+  Only `scheduled` windows are listed. In-progress windows continue to surface as
+  per-system signals via the existing signals filler; showing them here too would
+  duplicate. The section renders nothing when there are no upcoming windows, so
+  the dashboard stays calm.
+
+  Dashboard sections are now registered as individual `DashboardSlot` extensions
+  with a `priority` metadata field, rendered sorted ascending. This replaces the
+  single monolithic `dashboard-main` extension and lets plugins position their
+  dashboard contributions relative to the platform-owned sections without a fixed
+  slot per position. Priority layout:
+
+  - 0: Welcome banner + getting-started checklist + queue-lag alert
+  - 5: Active announcements
+  - 10: System health overview
+  - 20: Planned maintenances (new)
+  - 30: Recent activity feed
+
+  `SectionHeader` now accepts an optional `actions` prop for right-aligned
+  controls, and both "System health" and "Planned maintenances" use it for
+  consistent header styling.
+
+- d2d49cf: Show the environment for fanned-out runs in the dashboard Recent Activity feed.
+  The `healthcheck.run.completed` signal now carries optional `environmentId` and
+  `environmentName` fields, populated at the two per-environment fan-out broadcast
+  sites in the run executor. The Dashboard "Recent activity" terminal feed renders
+  the environment name inline (`system (config) @ env -> status`) when a run was
+  fanned out to an environment. Runs that are not environment-scoped omit both
+  fields and render exactly as before, so their behavior is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [52c55bf]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [0d912a3]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d9f4654]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [53666a7]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/catalog-frontend@0.15.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/incident-common@1.7.0
+  - @checkstack/maintenance-common@1.8.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/tips-frontend@0.4.5
+  - @checkstack/command-frontend@0.5.3
+  - @checkstack/queue-frontend@0.6.5
+  - @checkstack/command-common@0.3.8
+  - @checkstack/signal-frontend@0.3.2
+
 ## 0.9.4
 
 ### Patch Changes

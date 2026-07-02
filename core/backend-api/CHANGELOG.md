@@ -1,5 +1,82 @@
 # @checkstack/backend-api
 
+## 0.27.0
+
+### Minor Changes
+
+- e430fbe: Add "Mass delete" and "Mass resolve" to the Incidents and Maintenances lists,
+  authorized per item (RLAC).
+
+  The incidents and maintenances list pages now support multi-select with a bulk
+  action bar. A user may only select and act on entries they are allowed to
+  MANAGE: a row's checkbox appears only when the caller can manage it (the same
+  `canAccess(id)` gate as the per-row actions), so a team-scoped member sees
+  checkboxes only for their team's entries. Mass delete confirms before running;
+  mass resolve (incidents) and mass complete (maintenances, the "resolve"
+  equivalent = close, status -> completed) skip entries that are already
+  resolved/completed. Each action reports a per-id partial-success summary
+  (e.g. "3 deleted, 1 skipped").
+
+  New backend procedures: `incident.bulkDeleteIncidents`,
+  `incident.bulkResolveIncidents`, `maintenance.bulkDeleteMaintenances`, and
+  `maintenance.bulkCloseMaintenances`. Each authorizes EACH id against the
+  caller's manage grant and never fails open: unauthorized ids are filtered out
+  before the handler runs and returned as `forbidden`; missing ids as `notFound`;
+  a per-id failure is isolated as `error` without aborting the batch. Per-id cache
+  invalidation, realtime signals, and subscriber notifications run for every
+  success so dashboards and status pages stay consistent.
+
+  Platform: a new `instanceAccess` mode `bulkManage: { idsParam }` is the
+  enforcement point for bulk writes. Before the handler runs, `autoAuthMiddleware`
+  partitions the input id array into the caller's manageable subset and the denied
+  remainder and exposes both on `context.bulkAccess` (fail-closed on an S2S
+  error). The boot-time contract validator (`validateContractInstanceAccess`)
+  accepts `bulkManage` as one of the mutually-exclusive scoping modes, marks its
+  type team-scopable, and cross-checks `idsParam` against the input schema.
+
+  State and scale: authorization is derived per request from the shared team-grant
+  store via the existing auth S2S path (no process-local state); the read returns
+  the same answer on every pod. No database migration.
+
+- eab80e3: Add an instance-namespace runtime mode so a secondary backend instance can run
+  alongside the default one on shared external infrastructure without colliding.
+
+  - `@checkstack/backend-api` now exposes `coreServices.instanceRuntime`
+    (`InstanceRuntime { namespace, isDefault }`) plus `parseInstanceNamespace` /
+    `createInstanceRuntime` / `instanceNamespaceSchema`. The core backend reads
+    `CHECKSTACK_INSTANCE_NAMESPACE` at boot (validated, failing fast on a bad
+    value), registers the service, and advertises a non-empty namespace on
+    `/api/config`.
+  - Plugin-author contract: a plugin that keeps state on infrastructure SHARED
+    across instances (redis key space, shared cache prefix, consumer group, topic)
+    MUST fold `instanceRuntime.namespace` into that key/name. Namespace rather than
+    suppress: user-visible behaviour keeps running in a secondary instance, only
+    the shared keys change. See the new "Parallel instances and namespacing"
+    developer-guide page.
+  - `@checkstack/queue-bullmq-backend` is the reference implementation: it folds
+    the namespace into the effective redis key prefix (`checkstack:` becomes
+    `checkstack:preview:` under the `preview` namespace), isolating queues, jobs,
+    schedulers and consumer groups. The default instance's prefix is byte-for-byte
+    unchanged.
+  - The admin frontend shows a slim "preview instance" banner when the runtime
+    config carries a non-empty `instanceNamespace`.
+
+### Patch Changes
+
+- Updated dependencies [52c55bf]
+- Updated dependencies [d9f4654]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [e430fbe]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/common@0.19.0
+  - @checkstack/cache-api@0.3.16
+  - @checkstack/queue-api@0.3.16
+  - @checkstack/signal-common@0.2.14
+  - @checkstack/template-engine@0.4.8
+
 ## 0.26.1
 
 ### Patch Changes

@@ -1,5 +1,63 @@
 # @checkstack/notification-common
 
+## 1.5.0
+
+### Minor Changes
+
+- d1b71b6: Add the notification bell to the catalog browse page and surface inherited
+  group subscriptions at a system's bell.
+
+  You can now subscribe to notifications directly from the catalog page: a bell on
+  each group header (covering every system in the group) and a bell on each system
+  row (subscribing to that one system). Previously the system bell was only
+  reachable from a system's detail page.
+
+  At a system's bell, each notification type now shows an "Inherited from:
+  `<group>`" hint when you are already reachable via one of the system's groups,
+  with an "Override here" action that still lets you add a granular, system-only
+  subscription on top of the inherited group coverage.
+
+  Group-level subscriptions, targets, specs and parent edges already existed, so
+  there is no schema change or migration. A new structural read proc,
+  `notification.resolveSubscriptionInheritance`, returns per-spec primary and
+  inherited parent group ids plus their display labels for a
+  `(targetTypeId, resourceKey)`. It reuses the dispatcher's exact inheritance
+  derivation (`resolveInheritedGroups` / the extracted pure `mapInheritedGroups`),
+  so the bell can never disagree with what dispatch delivers. The read is purely
+  structural (same answer on every pod, resolved from durable tables); per-user
+  "am I subscribed?" flags stay in `getMySubscriptionStatus`, which the bell folds
+  the inherited parent group ids into.
+
+- 53666a7: Fully-qualify affected-system links in external notifications. Previously only
+  the primary call-to-action (`action.url`) was made absolute before dispatch,
+  while the "Affected" subject deep links (`subjects[].url`, e.g.
+  `/catalog/systems/...`) were delivered as relative paths. In external channels
+  (email, Slack, Teams, Discord, and so on) a relative path has no origin to
+  resolve against, so those links were broken.
+
+  A new pure helper `qualifyNotificationUrls` (and the underlying `toAbsoluteUrl`)
+  lives in `@checkstack/notification-common` and is applied at the single external
+  dispatch chokepoint in `@checkstack/notification-backend`, qualifying both the
+  action URL and every subject URL against the instance's configured `BASE_URL`.
+  Already-absolute `http(s)` URLs are left untouched, and the helper returns new
+  objects so the shared payload is never mutated across recipients or strategies.
+
+  The in-app notification path is unchanged: those links stay relative so the SPA
+  router resolves them.
+
+  BREAKING CHANGE (behavioral): when `BASE_URL` is not configured, external
+  delivery previously aborted the channel entirely. It now logs a warning and
+  still delivers with links left relative, so a missing `BASE_URL` degrades
+  gracefully instead of silently dropping notifications. Set `BASE_URL` to your
+  instance's public URL for links to resolve correctly in external channels.
+
+### Patch Changes
+
+- Updated dependencies [e430fbe]
+- Updated dependencies [0d912a3]
+  - @checkstack/common@0.19.0
+  - @checkstack/signal-common@0.2.14
+
 ## 1.4.2
 
 ### Patch Changes

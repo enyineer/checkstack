@@ -1,5 +1,82 @@
 # @checkstack/notification-frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- d1b71b6: Add the notification bell to the catalog browse page and surface inherited
+  group subscriptions at a system's bell.
+
+  You can now subscribe to notifications directly from the catalog page: a bell on
+  each group header (covering every system in the group) and a bell on each system
+  row (subscribing to that one system). Previously the system bell was only
+  reachable from a system's detail page.
+
+  At a system's bell, each notification type now shows an "Inherited from:
+  `<group>`" hint when you are already reachable via one of the system's groups,
+  with an "Override here" action that still lets you add a granular, system-only
+  subscription on top of the inherited group coverage.
+
+  Group-level subscriptions, targets, specs and parent edges already existed, so
+  there is no schema change or migration. A new structural read proc,
+  `notification.resolveSubscriptionInheritance`, returns per-spec primary and
+  inherited parent group ids plus their display labels for a
+  `(targetTypeId, resourceKey)`. It reuses the dispatcher's exact inheritance
+  derivation (`resolveInheritedGroups` / the extracted pure `mapInheritedGroups`),
+  so the bell can never disagree with what dispatch delivers. The read is purely
+  structural (same answer on every pod, resolved from durable tables); per-user
+  "am I subscribed?" flags stay in `getMySubscriptionStatus`, which the bell folds
+  the inherited parent group ids into.
+
+- 0d912a3: Fix a Safari-only crash that 404'd the catalog plugin (and any page relying on
+  notification subject-kind rendering). The `SubjectKindRegistry` and
+  `SubscriptionSubControlsRegistry` module-level `Map`s are now lazily
+  initialised behind an accessor, so a registrant that calls
+  `registerSubjectKind` / `registerSubscriptionSubControls` as a top-level import
+  side effect can never observe an undefined registry.
+
+  Previously the registry was a module-level `const registry = new Map()`.
+  `catalog-frontend` registers its subject kinds at import time, and under
+  Safari's production Module Federation chunk-evaluation order the exported
+  `registerSubjectKind` function ran before that field initialiser, throwing
+  `undefined is not an object (evaluating 'registry.set')` — which surfaced as
+  "Failed to load local plugin from .../catalog-frontend/src/index.tsx" and a 404
+  on `/catalog`. Chrome/Firefox happened to evaluate the modules in an order that
+  masked the bug. The lazy accessor removes the evaluation-order dependency
+  entirely, so registration works regardless of bundler/browser ordering.
+
+### Patch Changes
+
+- b3b547c: Show a copyable error when a notification channel test fails. Testing a
+  configured channel returned `{ success, error }`, but the frontend discarded
+  the result - a failed test cleared the spinner and gave no feedback, so
+  operators had to open the browser network console to see why. The channel card
+  now surfaces the full error inline in a dismissible callout with a copy button
+  (and a success toast on a passing test). The message is shown untruncated,
+  unlike toasts which cap at ~100 characters, so the actual transport error is
+  readable and shareable.
+- Updated dependencies [0d912a3]
+- Updated dependencies [0d912a3]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [0d912a3]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [53666a7]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/auth-frontend@0.11.0
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/tips-frontend@0.4.5
+  - @checkstack/signal-frontend@0.3.2
+
 ## 0.6.4
 
 ### Patch Changes

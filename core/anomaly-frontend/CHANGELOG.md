@@ -1,5 +1,94 @@
 # @checkstack/anomaly-frontend
 
+## 0.6.0
+
+### Minor Changes
+
+- 5236e41: Scope anomaly rows by (check, environment), completing the deferred follow-up
+  from the per-environment work in #375 (which env-scoped only baselines).
+
+  Previously the `anomalies` table was cross-environment: the inline spike
+  detector and the drift evaluator located and created the open row by
+  `(systemId, configurationId, fieldPath, kind)` with no environment predicate.
+  When a `(system, configuration)` assignment fanned out to multiple environments,
+  a healthy value in environment A shared one row with an anomaly in environment B,
+  so one env could mask (or merge with) another.
+
+  - **Schema.** New nullable `anomalies.environment_id` column (migration
+    `0007_uneven_trauma.sql`, a single `ADD COLUMN`). No unique constraint is
+    added: the table intentionally allows multiple rows per identity tuple (a
+    `recovered` historical row plus a fresh active row), so uniqueness would break
+    the state machine.
+  - **Detection.** The spike detector (from the `checkCompleted` hook) and the
+    drift evaluator (from the analyzer's per-environment loop) now locate/create
+    the open row by `(systemId, configurationId, environmentId, fieldPath, kind)`,
+    matching `environment_id = <id>` when present or `IS NULL` for the env-less
+    slice - mirroring the per-environment baseline lookup.
+  - **Reads.** `getAnomalies` gains an optional `environmentId` tristate filter
+    (`undefined` = all envs, `null` = env-less slice, string = that env), and both
+    `AnomalyDto` and `getActiveSignalAnomalies` surface `environmentId`. The
+    system-detail widget renders an environment pill on env-scoped anomaly rows.
+  - **Notifications.** An env-scoped anomaly appends its environment id to the
+    collapse key, so two failing environments render as two independent cards
+    instead of collapsing into one. The env-less slice keeps the pre-feature
+    two-segment key. Mutes stay env-agnostic (per system / per field).
+
+  BREAKING (semantics, not types; BETA so minor only):
+
+  - **Anomaly row identity now includes `environmentId`.** For a fanned-out check,
+    an anomaly in one environment is a distinct row from another environment. Any
+    code that assumed a single anomaly row per `(system, config, field, kind)`
+    must account for the environment dimension.
+  - **`AnomalyDto` and `getActiveSignalAnomalies` rows carry a new
+    `environmentId: string | null` field**, and `getAnomalies` accepts a new
+    optional `environmentId` filter. Additive on the wire; consumers that reject
+    unknown fields should be updated.
+  - **Upgrade behaviour.** Existing rows backfill to `null` (the env-less slice)
+    and stay until they recover; the next detection tick opens fresh
+    per-environment rows for fanned-out checks. This mirrors how #375 handled
+    baselines.
+
+  State and scale: the anomaly state lives entirely in the shared `anomalies`
+  Postgres table. `environmentId` is just another column on the row, so every pod
+  reads the same per-`(system, config, env, field, kind)` state - no pod-local
+  state, and reads return the same answer on every pod. The baseline cache key
+  already carries the env segment (#375), so there is no cross-env cache shadowing.
+
+### Patch Changes
+
+- Updated dependencies [52c55bf]
+- Updated dependencies [5236e41]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [0d912a3]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [b45be8e]
+- Updated dependencies [d9f4654]
+- Updated dependencies [3420d24]
+- Updated dependencies [dea02f0]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [935d34e]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [53666a7]
+- Updated dependencies [b3b547c]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/anomaly-common@1.6.0
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/healthcheck-frontend@0.27.0
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/notification-frontend@0.7.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/signal-frontend@0.3.2
+
 ## 0.5.18
 
 ### Patch Changes

@@ -1,5 +1,42 @@
 # @checkstack/queue-bullmq-backend
 
+## 0.5.0
+
+### Minor Changes
+
+- eab80e3: Add an instance-namespace runtime mode so a secondary backend instance can run
+  alongside the default one on shared external infrastructure without colliding.
+
+  - `@checkstack/backend-api` now exposes `coreServices.instanceRuntime`
+    (`InstanceRuntime { namespace, isDefault }`) plus `parseInstanceNamespace` /
+    `createInstanceRuntime` / `instanceNamespaceSchema`. The core backend reads
+    `CHECKSTACK_INSTANCE_NAMESPACE` at boot (validated, failing fast on a bad
+    value), registers the service, and advertises a non-empty namespace on
+    `/api/config`.
+  - Plugin-author contract: a plugin that keeps state on infrastructure SHARED
+    across instances (redis key space, shared cache prefix, consumer group, topic)
+    MUST fold `instanceRuntime.namespace` into that key/name. Namespace rather than
+    suppress: user-visible behaviour keeps running in a secondary instance, only
+    the shared keys change. See the new "Parallel instances and namespacing"
+    developer-guide page.
+  - `@checkstack/queue-bullmq-backend` is the reference implementation: it folds
+    the namespace into the effective redis key prefix (`checkstack:` becomes
+    `checkstack:preview:` under the `preview` namespace), isolating queues, jobs,
+    schedulers and consumer groups. The default instance's prefix is byte-for-byte
+    unchanged.
+  - The admin frontend shows a slim "preview instance" banner when the runtime
+    config carries a non-empty `instanceNamespace`.
+
+### Patch Changes
+
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [0d912a3]
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+  - @checkstack/queue-api@0.3.16
+  - @checkstack/queue-bullmq-common@0.1.24
+
 ## 0.4.16
 
 ### Patch Changes

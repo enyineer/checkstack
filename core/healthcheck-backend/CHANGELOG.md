@@ -1,5 +1,275 @@
 # @checkstack/healthcheck-backend
 
+## 1.12.0
+
+### Minor Changes
+
+- 52c55bf: Anomaly baselines are now per-environment, so the env-scoped
+  `HealthCheckDrawer` shows the clicked env's baseline (not a cross-env
+  one). Closes the follow-up noted in `healthcheck-per-env-rollup`.
+
+  ## What changed
+
+  - **`anomaly_baselines`** now carries a nullable `environment_id`
+    column, and its unique constraint grew to
+    `(systemId, configurationId, environmentId, fieldPath)` with
+    `NULLS NOT DISTINCT` — so there is exactly one baseline per
+    `(system, config, env, path)` tuple, and the env-less slice (`NULL`)
+    stays a single row (the pre-feature cross-env baseline, preserved as
+    the env-less row until the next analyzer tick rewrites per-env rows).
+    Existing rows backfill to `environment_id = NULL` with no data work.
+  - **Baseline analyzer** (`jobs/baseline-analyzer.ts`) now fans out per
+    environment within each assignment: runs are grouped by
+    `environmentId` (null = env-less), stats are computed per env, and
+    the upsert targets the 4-tuple. The cache key gained an env segment
+    (`baseline:${config}:${system}:${env ?? "<none>"}:${path}`) and the
+    `ANOMALY_BASELINE_UPDATED` signal payload now carries `environmentId`.
+    Previously the analyzer computed one cross-env batch per assignment.
+  - **Inline detector** (`detector.ts`) resolves the per-env baseline:
+    the lookup matches `environmentId` when present or `IS NULL` for the
+    env-less slice, and the cache key matches the analyzer's env segment.
+    `environmentId` is threaded from the `checkCompleted` hook (see
+    below); it defaults to `null` (env-less) so a caller that omits it
+    resolves the env-less baseline rather than failing.
+  - **`getAnomalyBaselines` RPC** now accepts an optional
+    `environmentId: string | null` filter and surfaces `environmentId` on
+    every `AnomalyBaselineDto`. Tristate semantics, mirroring
+    `getHistory`: `undefined` → all envs (no predicate), `null` → env-less
+    slice (`IS NULL`), a string → that env. The service predicate is at
+    the DB layer.
+  - **`HealthCheckDrawer`** threads `item.environmentId` (already on its
+    props) into the baselines query, so the drawer's anomaly overlay
+    resolves server-side to the clicked env's baseline only — matching the
+    env-scoping already applied to its history table and charts. The
+    latency chart tolerates the new field (it picks the single
+    `"latencyMs"` baseline, which the env filter guarantees is unique).
+  - **`getRunsForAnalysis`** (healthcheck) now returns `environmentId`
+    on each run so the analyzer can group by env. Additive optional
+    field; only the analyzer consumes it.
+  - **`checkCompleted` / `checkFailed` hooks** (healthcheck) now carry
+    `environmentId: string | null` on their payloads, sourced from the
+    per-env execution loop. Only the anomaly detector subscribes to
+    `checkCompleted` (it was updated); the failure-path emit (rollup
+    error) passes `null`.
+
+  ## Notes
+
+  - Anomaly _rows_ (`anomalies` table) remain cross-env by design in this
+    step — only baselines are env-scoped, matching the scoped task. A
+    detector run for env A and env B's normal value still share one
+    `(system, config, path)` anomaly row; env-scoping the anomalies table
+    is tracked as a separate follow-up so this change stays focused on
+    the drawer's baseline overlay.
+  - The `checkCompleted` / `checkFailed` payload change is technically
+    breaking for hook subscribers that destructure the payload, but the
+    only in-tree subscriber (the anomaly plugin) was updated in lockstep.
+    External webhook subscribers receive an additional field and are not
+    affected unless they reject unknown keys (uncommon).
+  - Migration `0006_sad_retro_girl.sql` drops + recreates the unique
+    constraint with `NULLS NOT DISTINCT` and adds the column. It applies
+    cleanly to fresh and already-populated DBs (existing NULL-env rows
+    remain unique under the new key).
+
+- d9f4654: Fix team-scoped health-check management being invisible. Health-check
+  configuration team grants are keyed on `healthcheck.healthcheck` (the RPC
+  middleware derives the grant key from the configuration access rule's
+  `resource`, and that rule is `accessPair("healthcheck", ...)`), but the frontend
+  capability gate, the route `manageCapability`, and the Teams grant-name resolver
+  all declared `healthcheck.configuration`. Because the two never matched, a user
+  who could manage a health check via a team grant (without the global manage
+  rule) saw none of the health-check management surfaces, and health-check grant
+  names did not resolve in the Teams admin UI.
+
+  `healthCheckResourceTypes.configuration` now resolves to `healthcheck.healthcheck`
+  (with a regression test pinning it to the middleware's grant key), the resolver
+  registers under the same type, and the create/edit/assignments routes gain the
+  `manageCapability` they were missing so team-scoped health-check managers (and,
+  for create/assign, system managers) can reach them. This is a non-breaking fix:
+  no stored access-rule id or grant key changes.
+
+- 21e0d88: Paused health-check configurations no longer contribute to their systems'
+  health aggregate, pausing one now closes any open SLO downtime event it was
+  keeping open, and the system overview's "Health Checks" list renders a
+  "Paused" pill for paused checks instead of their stale run-evaluated status.
+
+  Previously, pausing a configuration only skipped execution — its stale
+  failing runs inside the evaluation window kept the system's rollup status
+  `degraded`/`unhealthy`, which in turn kept any open SLO downtime event open
+  until those runs aged out, and the system overview list still showed the
+  paused check as "Unhealthy". Now:
+
+  - `getSystemHealthStatus` excludes paused configurations from the worst-
+    wins aggregate, so a system whose only failing check is paused reads
+    healthy (and paused checks no longer drive the system's red badge).
+  - The `pauseConfiguration` RPC recomputes the rollup `health` entity for
+    every system the config is enabled-assigned to. If the recomputed
+    aggregate transitions degraded → healthy, the existing `HEALTH_ENTITY_KIND`
+    "recovered" edge fires and the SLO engine closes the open downtime event
+    at the pause time. If the system stays degraded (other failing checks),
+    the event correctly stays open.
+  - `resumeConfiguration` intentionally does NOT recompute. The next actual
+    run drives any degraded transition: if the check still fails, a fresh
+    downtime event opens (the previous one was closed on pause, so the
+    `handleSystemDown` idempotent guard doesn't suppress it); if it now
+    passes, no event opens. This avoids fabricating a downtime from stale
+    last-known state when the underlying condition may have been fixed
+    during the pause.
+  - `getSystemHealthOverview` now returns a `paused` boolean per check. The
+    system overview's "Health Checks" list renders a "Paused" pill (unknown
+    tone) for paused checks instead of the run-evaluated status, while still
+    showing the pre-pause sparkline for context. Paused checks only appear
+    under the "All" filter tab, not "Failing" or "Healthy".
+
+- 52c55bf: Per-environment health semantics: rollup no longer masks sibling outages,
+  and notifications + automation windows are env-scoped.
+
+  ## The bug
+
+  When a `(system, configuration)` assignment fanned out to multiple
+  environments and only some of them failed, the system rollup could
+  read **healthy** (masking a permanently-failing env), or **flap**
+  healthy↔degraded/unhealthy tick-by-tick whenever env insertion order
+  drifted, because the rollup derivation flattened every env's runs into
+  one `timestamp DESC` list and handed the interleaved list to the
+  threshold evaluator. The default `consecutive` mode walks newest-first
+  and breaks the streak on the first interleaving env, so the rollup
+  collapsed to whichever single env's status the most recent run landed
+  on. Each flap fired an escalation/recovery notification + a
+  `system_health_changed` trigger event.
+
+  ## What changed
+
+  - **`getSystemHealthStatus(systemId)` rollup** now groups the latest
+    run window by `environmentId`, evaluates the threshold window PER
+    ENVIRONMENT, and takes worst-wins across envs within each association
+    (unhealthy > degraded > healthy) before worst-wins across associations.
+    This is stable regardless of env insertion order or multi-pod racing.
+    For a single-env (or env-less-only) assignment this reduces to the
+    pre-existing flat-window behavior. Per-env and env-less slices
+    (`environmentId: string` / `null`) are unchanged.
+  - **`getSystemHealthOverview`** now groups runs per `(configurationId,
+environmentId)`, evaluates each env's slice on its own monotonic run
+    window, and worst-wins across envs — mirroring `getSystemHealthStatus`.
+    The response carries `environmentId` on every `recentRuns[]` entry,
+    and adds `perEnvironment[]` per check (one entry per env with its own
+    `status` and env-scoped `recentRuns`) so a frontend can render one
+    row per `(check, environment)` pair, surfacing per-env outages the
+    rollup intentionally hides in the aggregate view. The top-level
+    `recentRuns[]` and `status` keep their pre-existing shape for
+    backwards compatibility (single-env checks are unchanged).
+  - **`HealthCheckSystemOverview`** (frontend) now flattens multi-env
+    assignments into one row per `(check, environment)` — each row carries
+    the check name, an env pill (resolved via the same
+    `getSystemEnvironments` query the drawer already uses), the per-env
+    status, sparkline, and last-run. With the "Failing"/"Healthy" filter
+    now scoped per env, a permanently-failing environment surfaces as its
+    own failing row beside its healthy sibling, instead of being masked by
+    the rollup's worst-wins / latest-wins. Single-env and env-less
+    assignments render the historical single row (no env pill). Clicking
+    any env row opens the check-level drawer, scoped to that env via the
+    server-side env filter on the queries below — the drawer's run
+    history table, charts, and tiles all see only the (check, environment)
+    pair the operator clicked, never a mixed-env pool.
+  - **`getHistory`, `getDetailedHistory`, `getRunStats`,
+    `getAggregatedHistory`, and `getDetailedAggregatedHistory`** now accept
+    an optional `environmentId: string | null` input that filters
+    server-side at the DB layer (`environment_id = $X` for an env, `IS
+NULL` for the env-less slice, no predicate when omitted). The drawer's
+    charts and Recent Runs table pass the clicked row's `environmentId`
+    so the pagination, totals, and buckets reflect only that env — a
+    client-side filter would double-paginate and miscount totals; the
+    filter is at the DB so the data is honest end-to-end. The aggregated
+    history applies the env filter to all three tiers the cross-tier
+    aggregation engine reads (raw `health_check_runs` + hourly and daily
+    `health_check_aggregates`), since both tables are env-keyed. Single-env
+    and env-less rows omit the filter, so historical callers are
+    unchanged.
+  - **Anomaly baselines are NOT yet env-scoped** — `anomaly_baselines` is
+    keyed on `(systemId, configurationId, fieldPath)` with no
+    `environmentId` column, and the detector computes a single baseline
+    across all envs of an assignment. Scoping the drawer's anomaly overlay
+    per env needs a schema migration + a per-env detector rewrite, and is
+    tracked as a follow-up. The drawer continues to show the cross-env
+    baseline next to the (now env-scoped) history + charts.
+  - **`system_health_changed` / `system_degraded` / `system_healthy`
+    triggers** now partition by `(systemId, environmentId)` instead of
+    the bare `systemId` when the trigger fires from a per-env change.
+    Two failing environments of one system now fire two distinct events
+    with independent flapping/dwell/dedup windows — operators can author
+    per-env automations and get per-env notifications. A bare rollup
+    transition (`environmentId` absent) partitions on `systemId` alone,
+    so existing recipes that read only `payload.systemId` keep working.
+  - **`notifyStateChange`** now accepts `environmentId` +
+    `environmentName`. Per-env notifications get an env-qualified title
+    (`"System health critical (prod): ..."`) and body, and an
+    env-qualified collapse key (`systemHealthCollapseKey(systemId, envId)`)
+    so two failing envs render as two independent cards instead of
+    merging into one. Suppression checks (maintenance/incident) remain
+    system-scoped.
+
+  ## Notes
+
+  - Each failing env now fires its own `system_health_changed` event with
+    its own partition — this is the documented migration away from the
+    bug-report flapping cadence into a per-env flap cadence. Operators
+    with existing `window:` / `dwell:` recipes on `system_health_changed`
+    may see different refire cadence per env (one flapping env no longer
+    drowns out its steady sibling). To opt back into the pooled
+    historical behavior, an automation recipe can override its own
+    `partitionBy: (p) => p.systemId`.
+  - `SYSTEM_STATUS_CHANGED` remains rollup-only (one broadcast per tick
+    on the rollup status transition): it drives low-noise cache
+    invalidation for `SystemHealthBadge` and `DependencyBadge`, and the
+    per-env trigger events above already cover per-env automation needs.
+
+- d2d49cf: Show the environment for fanned-out runs in the dashboard Recent Activity feed.
+  The `healthcheck.run.completed` signal now carries optional `environmentId` and
+  `environmentName` fields, populated at the two per-environment fan-out broadcast
+  sites in the run executor. The Dashboard "Recent activity" terminal feed renders
+  the environment name inline (`system (config) @ env -> status`) when a run was
+  fanned out to an environment. Runs that are not environment-scoped omit both
+  fields and render exactly as before, so their behavior is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [52c55bf]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [7c18b25]
+- Updated dependencies [d9f4654]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [53666a7]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/ai-backend@0.10.2
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+  - @checkstack/incident-common@1.7.0
+  - @checkstack/incident-backend@1.9.0
+  - @checkstack/maintenance-common@1.8.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/status-page-common@0.5.0
+  - @checkstack/catalog-backend@1.6.2
+  - @checkstack/sdk@0.118.1
+  - @checkstack/satellite-backend@0.7.5
+  - @checkstack/automation-backend@0.10.4
+  - @checkstack/script-packages-backend@0.3.19
+  - @checkstack/ai-common@0.6.3
+  - @checkstack/cache-api@0.3.16
+  - @checkstack/cache-utils@0.2.21
+  - @checkstack/command-backend@0.2.15
+  - @checkstack/gitops-backend@0.5.15
+  - @checkstack/gitops-common@0.6.8
+  - @checkstack/queue-api@0.3.16
+  - @checkstack/secrets-backend@0.2.15
+  - @checkstack/secrets-common@0.2.8
+  - @checkstack/signal-common@0.2.14
+  - @checkstack/status-page-backend@0.4.2
+
 ## 1.11.1
 
 ### Patch Changes

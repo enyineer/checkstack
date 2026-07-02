@@ -1,5 +1,21 @@
 # @checkstack/healthcheck-grpc-backend
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [52c55bf]
+- Updated dependencies [d9f4654]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+
 ## 0.3.2
 
 ### Patch Changes

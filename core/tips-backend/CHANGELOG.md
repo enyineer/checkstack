@@ -1,5 +1,18 @@
 # @checkstack/tips-backend
 
+## 0.3.15
+
+### Patch Changes
+
+- Updated dependencies [0d912a3]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [0d912a3]
+  - @checkstack/auth-backend@0.9.0
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+  - @checkstack/tips-common@0.3.8
+
 ## 0.3.14
 
 ### Patch Changes
