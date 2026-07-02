@@ -117,8 +117,9 @@ test.describe("announcements (boot-once)", () => {
     const row = page.getByRole("row", { name: new RegExp(NS) });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
-    // The first action button in the row is Edit (pencil), the second is Delete.
-    await row.getByRole("button").first().click();
+    // Select the Edit action by its accessible name so the assertion is robust
+    // to other row buttons (e.g. the reorder Move up/down controls).
+    await row.getByRole("button", { name: "Edit announcement" }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(
@@ -146,8 +147,9 @@ test.describe("announcements (boot-once)", () => {
     const row = page.getByRole("row", { name: new RegExp(NS) });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
-    // Open the delete confirmation (second action button = trash).
-    await row.getByRole("button").nth(1).click();
+    // Open the delete confirmation via the trash action, selected by its
+    // accessible name (robust to the reorder Move up/down controls).
+    await row.getByRole("button", { name: "Delete announcement" }).click();
 
     const confirm = page.getByRole("dialog");
     await expect(
@@ -165,7 +167,7 @@ test.describe("announcements (boot-once)", () => {
     await expect(page.getByRole("cell", { name: EDITED_TITLE })).toBeVisible();
 
     // Now actually delete it.
-    await row.getByRole("button").nth(1).click();
+    await row.getByRole("button", { name: "Delete announcement" }).click();
     await expect(
       page.getByRole("dialog").getByRole("heading", {
         name: "Delete Announcement",
