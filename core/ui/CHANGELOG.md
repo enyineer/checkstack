@@ -1,5 +1,80 @@
 # @checkstack/ui
 
+## 1.22.0
+
+### Minor Changes
+
+- 259b93c: Surface scheduled (upcoming) maintenances on the dashboard.
+
+  The dashboard now shows a "Planned maintenances" section listing the soonest
+  scheduled maintenance windows (not yet started), each deep-linking to its
+  detail page. Previously scheduled windows were invisible on the dashboard until
+  they went live - operators had no at-a-glance view of upcoming planned work.
+
+  Only `scheduled` windows are listed. In-progress windows continue to surface as
+  per-system signals via the existing signals filler; showing them here too would
+  duplicate. The section renders nothing when there are no upcoming windows, so
+  the dashboard stays calm.
+
+  Dashboard sections are now registered as individual `DashboardSlot` extensions
+  with a `priority` metadata field, rendered sorted ascending. This replaces the
+  single monolithic `dashboard-main` extension and lets plugins position their
+  dashboard contributions relative to the platform-owned sections without a fixed
+  slot per position. Priority layout:
+
+  - 0: Welcome banner + getting-started checklist + queue-lag alert
+  - 5: Active announcements
+  - 10: System health overview
+  - 20: Planned maintenances (new)
+  - 30: Recent activity feed
+
+  `SectionHeader` now accepts an optional `actions` prop for right-aligned
+  controls, and both "System health" and "Planned maintenances" use it for
+  consistent header styling.
+
+- 692fa18: Add a searchable, stably-sorted system picker to maintenance and incident editors.
+
+  The "Affected Systems" picker in the maintenance and incident editors was a
+  plain inline checkbox list that was neither sorted nor searchable, so the
+  order jumped between renders and finding a system in a large catalog meant
+  scrolling. Both now use a shared `SystemMultiSelect` component that sorts
+  systems by name (case-insensitive, natural numeric order) once per render and
+  adds a substring search box, with a "{n} selected" count.
+
+  `SystemMultiSelect` is now exported from `@checkstack/ui`. The status-page
+  builder's inline duplicate of the same component is removed in favour of the
+  shared one.
+
+### Patch Changes
+
+- 0d912a3: Make `Checkbox` an accessible control. It was a bare `<div>` with an `onClick` -
+  not keyboard-focusable, no `role="checkbox"`/`aria-checked`, and a wrapping
+  `<label>` could not forward clicks to it (so clicking a row label next to it did
+  nothing). It now renders a real, transparent, keyboard-focusable native
+  `<input type="checkbox">` over the styled visual box: Space toggles it, it has a
+  focus-visible ring, and label clicks work. Fixes multi-select rows (e.g. an
+  incident/maintenance editor's "Affected Systems") where clicking the system name
+  failed to toggle selection.
+- a07b375: Fix inline-script editor `Response` type missing `ok`/`status`/`body` (and
+  `Request`/`Headers`/`fetch` members).
+
+  The editor's Monaco virtual filesystem bundled `@types/node` and `bun-types`
+  but not `undici-types`, which both packages reference via
+  `import("undici-types").Response` for the concrete fetch-API members. With
+  `undici-types` absent those imports resolved to `any`/`{}`, so the global
+  `Response` collapsed to just the `headers` override `bun-types` adds. The
+  stdlib-types generator now bundles `undici-types` alongside `@types/node` and
+  `bun-types`.
+
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [0d912a3]
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/template-engine@0.4.8
+
 ## 1.21.0
 
 ### Minor Changes

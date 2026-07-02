@@ -1,5 +1,44 @@
 # @checkstack/sdk
 
+## 0.118.1
+
+### Patch Changes
+
+- Updated dependencies [a7f7e98]
+- Updated dependencies [52c55bf]
+- Updated dependencies [5236e41]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [d9f4654]
+- Updated dependencies [21e0d88]
+- Updated dependencies [52c55bf]
+- Updated dependencies [e430fbe]
+- Updated dependencies [53666a7]
+- Updated dependencies [d2d49cf]
+- Updated dependencies [0d912a3]
+  - @checkstack/announcement-common@0.6.0
+  - @checkstack/anomaly-common@1.6.0
+  - @checkstack/healthcheck-common@1.10.0
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/common@0.19.0
+  - @checkstack/incident-common@1.7.0
+  - @checkstack/maintenance-common@1.8.0
+  - @checkstack/auth-common@0.12.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/slo-common@0.8.0
+  - @checkstack/automation-common@0.9.0
+  - @checkstack/dependency-common@1.5.0
+  - @checkstack/satellite-common@0.8.13
+  - @checkstack/cache-common@0.5.8
+  - @checkstack/command-common@0.3.8
+  - @checkstack/gitops-common@0.6.8
+  - @checkstack/integration-common@0.9.5
+  - @checkstack/pluginmanager-common@0.2.13
+  - @checkstack/queue-common@0.6.8
+  - @checkstack/script-packages-common@0.3.8
+  - @checkstack/secrets-common@0.2.8
+  - @checkstack/theme-common@0.2.8
+  - @checkstack/tips-common@0.3.8
+
 ## 0.116.1
 
 ### Patch Changes

@@ -1,5 +1,142 @@
 # @checkstack/maintenance-common
 
+## 1.8.0
+
+### Minor Changes
+
+- e430fbe: Add "Mass delete" and "Mass resolve" to the Incidents and Maintenances lists,
+  authorized per item (RLAC).
+
+  The incidents and maintenances list pages now support multi-select with a bulk
+  action bar. A user may only select and act on entries they are allowed to
+  MANAGE: a row's checkbox appears only when the caller can manage it (the same
+  `canAccess(id)` gate as the per-row actions), so a team-scoped member sees
+  checkboxes only for their team's entries. Mass delete confirms before running;
+  mass resolve (incidents) and mass complete (maintenances, the "resolve"
+  equivalent = close, status -> completed) skip entries that are already
+  resolved/completed. Each action reports a per-id partial-success summary
+  (e.g. "3 deleted, 1 skipped").
+
+  New backend procedures: `incident.bulkDeleteIncidents`,
+  `incident.bulkResolveIncidents`, `maintenance.bulkDeleteMaintenances`, and
+  `maintenance.bulkCloseMaintenances`. Each authorizes EACH id against the
+  caller's manage grant and never fails open: unauthorized ids are filtered out
+  before the handler runs and returned as `forbidden`; missing ids as `notFound`;
+  a per-id failure is isolated as `error` without aborting the batch. Per-id cache
+  invalidation, realtime signals, and subscriber notifications run for every
+  success so dashboards and status pages stay consistent.
+
+  Platform: a new `instanceAccess` mode `bulkManage: { idsParam }` is the
+  enforcement point for bulk writes. Before the handler runs, `autoAuthMiddleware`
+  partitions the input id array into the caller's manageable subset and the denied
+  remainder and exposes both on `context.bulkAccess` (fail-closed on an S2S
+  error). The boot-time contract validator (`validateContractInstanceAccess`)
+  accepts `bulkManage` as one of the mutually-exclusive scoping modes, marks its
+  type team-scopable, and cross-checks `idsParam` against the input schema.
+
+  State and scale: authorization is derived per request from the shared team-grant
+  store via the existing auth S2S path (no process-local state); the read returns
+  the same answer on every pod. No database migration.
+
+- 0d912a3: Make the frontend fully RLAC-aware so team-scoped users see and can use exactly
+  what the backend already authorises - no more, no less. Previously every nav
+  entry, route, management page, create button, per-row action, and resource
+  picker gated purely on a user's GLOBAL access rule, so a user whose team manages
+  a system saw none of the surfaces the backend would happily let them use, and
+  (where a page did render) could select systems they don't manage and only fail
+  after submit.
+
+  Platform primitives (on `AccessApi`, from `@checkstack/frontend-api`, implemented
+  in `@checkstack/auth-frontend`). Each ORs the global RBAC rule with team-derived
+  (ReBAC) grants, so a global-rule holder always sees everything:
+
+  - `useCanCreate({ accessRule, objectType, parentType? })` - may the user create
+    this type (global rule, a team `creator` grant, or managing a parent resource).
+  - `useCanAccessType({ accessRule, objectType, parentType? })` - may the user
+    reach a management SURFACE for this type at all (create capability OR managing
+    any existing object of the type / its parent). Powers route guards, sidebar
+    entries, and a management page's top-level `allowed`.
+  - `useResourceAccess({ accessRule, objectType, resourceIds })` - a `canAccess(id)`
+    predicate for per-row controls and for filtering resource pickers.
+
+  Backed by three authenticated `auth` RPC procedures - `canCreate`,
+  `myManageableTypes`, and `listMyAccessibleResources` - the frontend-facing
+  mirrors of the existing S2S authorization endpoints, resolved against the
+  caller's own team grants.
+
+  Route/nav gating is now capability-aware: a route may declare
+  `manageCapability: { objectType, parentType? }`; the route guard and sidebar then
+  show/allow it for team-scoped users via `myManageableTypes`. Applied to the
+  catalog, incident, maintenance, SLO, healthcheck, automation, and status-page
+  management routes. The route guard resolves this through a single
+  `useRouteAccess` hook with a constant hook count, since the guard is reconciled
+  in place as the URL changes (a conditional hook there would trip the rules of
+  hooks).
+
+  Resource types are now typed, plugin-qualified constants. A new
+  `resourceType(pluginMetadata, localType)` factory in `@checkstack/common` mints a
+  nominal `ResourceType`, and each `*-common` package exports its constants (e.g.
+  `catalogResourceTypes.system`, `incidentResourceTypes.incident`). The capability
+  APIs accept `ResourceType`, so a mistyped `"catalog.system"` string now fails
+  typecheck instead of silently breaking a gate.
+
+  Resource pickers now offer only what the backend will accept:
+
+  - Incident and maintenance "Affected Systems" pickers show only systems the user
+    manages (or all with the global rule), matching the backend's requirement of
+    MANAGE on every referenced system.
+  - SLO creation is now system-scoped end to end: `createObjective` gains a
+    `catalog.system` parent gate (managing the target system authorises creating an
+    SLO for it, like incident/maintenance), and the SLO editor's system picker is
+    filtered to manageable systems.
+  - Catalog group and environment membership (add-to-group / add-to-environment,
+    per-row and bulk) is gated on managing the system being (re)assigned.
+  - The health-check assignment surface (Assignment IDE + the system-detail
+    "Health Checks" action) requires MANAGE on the target system.
+
+  Catalog membership chips only render a removable "x" for systems the user
+  manages (removing a group/environment membership requires managing the system),
+  and the Dependency Map only lets a user originate an edge from a system they
+  manage (the source is access-checked; the target is not).
+
+  Owning-team correctness: a parent-gated creator (team member, no global rule)
+  who left the owning team unset previously created an object with no team grant -
+  which they then could not edit. The `authorizeCreate` parent-gate path now
+  resolves an owning team instead of silently orphaning the object (auto-assigns
+  when the caller belongs to exactly one team, requires an explicit choice when
+  several), and the `TeamOwnershipPicker` marks the field required and
+  auto-selects the sole eligible team.
+
+  Dependency writes are fixed to authorize on the SOURCE system. `createDependency`
+  / `updateDependency` / `deleteDependency` previously used `instanceAccess:
+{ idParam: "systemId" }`, which made the middleware look for a `dependency` grant
+  keyed by the system id - a grant that never exists - so every team-scoped source
+  manager was denied ("Access denied to resource dependency:<systemId>"). They now
+  `parentScope` on `catalog.system` manage, so managing the source system
+  authorises editing its dependencies (the target is not access-checked), matching
+  health-check assignment.
+
+  The backend authorization changes are limited to: the new read-only capability
+  procedures (`canCreate` / `myManageableTypes` / `listMyAccessibleResources`), the
+  SLO create parent gate, the `authorizeCreate` owning-team resolution, and the
+  dependency source-scope fix. Everything else only aligns the UI with
+  authorization the backend already enforced.
+
+### Patch Changes
+
+- Updated dependencies [d1b71b6]
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [53666a7]
+- Updated dependencies [0d912a3]
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/signal-common@0.2.14
+
 ## 1.7.4
 
 ### Patch Changes

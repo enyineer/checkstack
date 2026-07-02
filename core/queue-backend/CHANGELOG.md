@@ -1,5 +1,17 @@
 # @checkstack/queue-backend
 
+## 0.4.15
+
+### Patch Changes
+
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [0d912a3]
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+  - @checkstack/queue-api@0.3.16
+  - @checkstack/queue-common@0.6.8
+
 ## 0.4.14
 
 ### Patch Changes

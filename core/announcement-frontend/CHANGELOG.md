@@ -1,5 +1,96 @@
 # @checkstack/announcement-frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- a7f7e98: Announcements now have a stable, operator-controlled display order.
+
+  ## What changed
+
+  - **Stable ordering (bugfix).** `getActiveAnnouncements` had no `ORDER BY`, so
+    Postgres returned rows in heap order, which shifts after any `UPDATE` - that
+    is why announcements jumped position whenever one was edited. Both
+    `getActiveAnnouncements` and `listAllAnnouncements` now order by
+    `sort_order`, with `created_at` and `id` as stable tiebreakers, so the
+    sequence never changes on its own.
+  - **Manual sorting.** `announcements` gained a `sort_order` integer column
+    (migration `0001`, back-filled from existing creation order). A new
+    `reorderAnnouncements` admin procedure takes the full ordered id list and
+    writes each announcement's position in one atomic `UPDATE ... CASE`. Operators
+    reorder from the management page with per-row up/down arrows (desktop table
+    and mobile cards). New announcements append at the end; editing an
+    announcement never moves it.
+  - **Pure manual order everywhere.** The public banner no longer force-sorts by
+    severity - banner, dashboard, and admin list all render the operator's order.
+  - The `announcement.updated` signal payload's `action` gained a `"reordered"`
+    value so listeners refetch after a reorder.
+
+  ## Notes
+
+  - `sort_order` is backend-internal; it is not exposed on the public
+    `Announcement` schema (the frontend derives order from query order).
+  - Migration `0001_typical_omega_red.sql` adds the column (default `0`) and
+    back-fills distinct values via `row_number()` over `created_at, id`. It
+    applies cleanly to both fresh and already-populated databases.
+
+- 259b93c: Surface scheduled (upcoming) maintenances on the dashboard.
+
+  The dashboard now shows a "Planned maintenances" section listing the soonest
+  scheduled maintenance windows (not yet started), each deep-linking to its
+  detail page. Previously scheduled windows were invisible on the dashboard until
+  they went live - operators had no at-a-glance view of upcoming planned work.
+
+  Only `scheduled` windows are listed. In-progress windows continue to surface as
+  per-system signals via the existing signals filler; showing them here too would
+  duplicate. The section renders nothing when there are no upcoming windows, so
+  the dashboard stays calm.
+
+  Dashboard sections are now registered as individual `DashboardSlot` extensions
+  with a `priority` metadata field, rendered sorted ascending. This replaces the
+  single monolithic `dashboard-main` extension and lets plugins position their
+  dashboard contributions relative to the platform-owned sections without a fixed
+  slot per position. Priority layout:
+
+  - 0: Welcome banner + getting-started checklist + queue-lag alert
+  - 5: Active announcements
+  - 10: System health overview
+  - 20: Planned maintenances (new)
+  - 30: Recent activity feed
+
+  `SectionHeader` now accepts an optional `actions` prop for right-aligned
+  controls, and both "System health" and "Planned maintenances" use it for
+  consistent header styling.
+
+### Patch Changes
+
+- 07546ed: Give the Edit and Delete row actions on the announcement management page
+  accessible names (`aria-label`). The icon-only buttons previously exposed no
+  accessible name, so assistive technology announced them only as "button" and
+  tests had to target them positionally - which broke once the reorder Move
+  up/down controls were added to the same action group. The buttons now read as
+  "Edit announcement" / "Delete announcement".
+- Updated dependencies [0d912a3]
+- Updated dependencies [a7f7e98]
+- Updated dependencies [0d912a3]
+- Updated dependencies [d9f4654]
+- Updated dependencies [0d912a3]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/auth-frontend@0.11.0
+  - @checkstack/announcement-common@0.6.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/tips-frontend@0.4.5
+  - @checkstack/signal-frontend@0.3.2
+
 ## 0.6.2
 
 ### Patch Changes

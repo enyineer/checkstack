@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/api-docs-common",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

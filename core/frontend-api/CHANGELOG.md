@@ -1,5 +1,160 @@
 # @checkstack/frontend-api
 
+## 0.13.0
+
+### Minor Changes
+
+- d9f4654: Add `auditManageCapabilities`, a pure RLAC drift auditor. Given the plugins and
+  the set of backend-team-scopable resource types, it returns every management
+  route/nav entry that is gated on a team-scopable `manage` rule but is missing (or
+  mis-declares) its `manageCapability` - the class of bug where a team-scoped user
+  can act per the backend but never sees the surface. A new CI check
+  (`bun run check:manage-capabilities`) derives the team-scopable types from the
+  backend contracts' `instanceAccess` (mirroring the RPC middleware's grant keying)
+  and runs the auditor over the real plugins, failing when frontend gating drifts
+  from the backend authorization contract.
+- eab80e3: Add an instance-namespace runtime mode so a secondary backend instance can run
+  alongside the default one on shared external infrastructure without colliding.
+
+  - `@checkstack/backend-api` now exposes `coreServices.instanceRuntime`
+    (`InstanceRuntime { namespace, isDefault }`) plus `parseInstanceNamespace` /
+    `createInstanceRuntime` / `instanceNamespaceSchema`. The core backend reads
+    `CHECKSTACK_INSTANCE_NAMESPACE` at boot (validated, failing fast on a bad
+    value), registers the service, and advertises a non-empty namespace on
+    `/api/config`.
+  - Plugin-author contract: a plugin that keeps state on infrastructure SHARED
+    across instances (redis key space, shared cache prefix, consumer group, topic)
+    MUST fold `instanceRuntime.namespace` into that key/name. Namespace rather than
+    suppress: user-visible behaviour keeps running in a secondary instance, only
+    the shared keys change. See the new "Parallel instances and namespacing"
+    developer-guide page.
+  - `@checkstack/queue-bullmq-backend` is the reference implementation: it folds
+    the namespace into the effective redis key prefix (`checkstack:` becomes
+    `checkstack:preview:` under the `preview` namespace), isolating queues, jobs,
+    schedulers and consumer groups. The default instance's prefix is byte-for-byte
+    unchanged.
+  - The admin frontend shows a slim "preview instance" banner when the runtime
+    config carries a non-empty `instanceNamespace`.
+
+- 259b93c: Surface scheduled (upcoming) maintenances on the dashboard.
+
+  The dashboard now shows a "Planned maintenances" section listing the soonest
+  scheduled maintenance windows (not yet started), each deep-linking to its
+  detail page. Previously scheduled windows were invisible on the dashboard until
+  they went live - operators had no at-a-glance view of upcoming planned work.
+
+  Only `scheduled` windows are listed. In-progress windows continue to surface as
+  per-system signals via the existing signals filler; showing them here too would
+  duplicate. The section renders nothing when there are no upcoming windows, so
+  the dashboard stays calm.
+
+  Dashboard sections are now registered as individual `DashboardSlot` extensions
+  with a `priority` metadata field, rendered sorted ascending. This replaces the
+  single monolithic `dashboard-main` extension and lets plugins position their
+  dashboard contributions relative to the platform-owned sections without a fixed
+  slot per position. Priority layout:
+
+  - 0: Welcome banner + getting-started checklist + queue-lag alert
+  - 5: Active announcements
+  - 10: System health overview
+  - 20: Planned maintenances (new)
+  - 30: Recent activity feed
+
+  `SectionHeader` now accepts an optional `actions` prop for right-aligned
+  controls, and both "System health" and "Planned maintenances" use it for
+  consistent header styling.
+
+- 0d912a3: Make the frontend fully RLAC-aware so team-scoped users see and can use exactly
+  what the backend already authorises - no more, no less. Previously every nav
+  entry, route, management page, create button, per-row action, and resource
+  picker gated purely on a user's GLOBAL access rule, so a user whose team manages
+  a system saw none of the surfaces the backend would happily let them use, and
+  (where a page did render) could select systems they don't manage and only fail
+  after submit.
+
+  Platform primitives (on `AccessApi`, from `@checkstack/frontend-api`, implemented
+  in `@checkstack/auth-frontend`). Each ORs the global RBAC rule with team-derived
+  (ReBAC) grants, so a global-rule holder always sees everything:
+
+  - `useCanCreate({ accessRule, objectType, parentType? })` - may the user create
+    this type (global rule, a team `creator` grant, or managing a parent resource).
+  - `useCanAccessType({ accessRule, objectType, parentType? })` - may the user
+    reach a management SURFACE for this type at all (create capability OR managing
+    any existing object of the type / its parent). Powers route guards, sidebar
+    entries, and a management page's top-level `allowed`.
+  - `useResourceAccess({ accessRule, objectType, resourceIds })` - a `canAccess(id)`
+    predicate for per-row controls and for filtering resource pickers.
+
+  Backed by three authenticated `auth` RPC procedures - `canCreate`,
+  `myManageableTypes`, and `listMyAccessibleResources` - the frontend-facing
+  mirrors of the existing S2S authorization endpoints, resolved against the
+  caller's own team grants.
+
+  Route/nav gating is now capability-aware: a route may declare
+  `manageCapability: { objectType, parentType? }`; the route guard and sidebar then
+  show/allow it for team-scoped users via `myManageableTypes`. Applied to the
+  catalog, incident, maintenance, SLO, healthcheck, automation, and status-page
+  management routes. The route guard resolves this through a single
+  `useRouteAccess` hook with a constant hook count, since the guard is reconciled
+  in place as the URL changes (a conditional hook there would trip the rules of
+  hooks).
+
+  Resource types are now typed, plugin-qualified constants. A new
+  `resourceType(pluginMetadata, localType)` factory in `@checkstack/common` mints a
+  nominal `ResourceType`, and each `*-common` package exports its constants (e.g.
+  `catalogResourceTypes.system`, `incidentResourceTypes.incident`). The capability
+  APIs accept `ResourceType`, so a mistyped `"catalog.system"` string now fails
+  typecheck instead of silently breaking a gate.
+
+  Resource pickers now offer only what the backend will accept:
+
+  - Incident and maintenance "Affected Systems" pickers show only systems the user
+    manages (or all with the global rule), matching the backend's requirement of
+    MANAGE on every referenced system.
+  - SLO creation is now system-scoped end to end: `createObjective` gains a
+    `catalog.system` parent gate (managing the target system authorises creating an
+    SLO for it, like incident/maintenance), and the SLO editor's system picker is
+    filtered to manageable systems.
+  - Catalog group and environment membership (add-to-group / add-to-environment,
+    per-row and bulk) is gated on managing the system being (re)assigned.
+  - The health-check assignment surface (Assignment IDE + the system-detail
+    "Health Checks" action) requires MANAGE on the target system.
+
+  Catalog membership chips only render a removable "x" for systems the user
+  manages (removing a group/environment membership requires managing the system),
+  and the Dependency Map only lets a user originate an edge from a system they
+  manage (the source is access-checked; the target is not).
+
+  Owning-team correctness: a parent-gated creator (team member, no global rule)
+  who left the owning team unset previously created an object with no team grant -
+  which they then could not edit. The `authorizeCreate` parent-gate path now
+  resolves an owning team instead of silently orphaning the object (auto-assigns
+  when the caller belongs to exactly one team, requires an explicit choice when
+  several), and the `TeamOwnershipPicker` marks the field required and
+  auto-selects the sole eligible team.
+
+  Dependency writes are fixed to authorize on the SOURCE system. `createDependency`
+  / `updateDependency` / `deleteDependency` previously used `instanceAccess:
+{ idParam: "systemId" }`, which made the middleware look for a `dependency` grant
+  keyed by the system id - a grant that never exists - so every team-scoped source
+  manager was denied ("Access denied to resource dependency:<systemId>"). They now
+  `parentScope` on `catalog.system` manage, so managing the source system
+  authorises editing its dependencies (the target is not access-checked), matching
+  health-check assignment.
+
+  The backend authorization changes are limited to: the new read-only capability
+  procedures (`canCreate` / `myManageableTypes` / `listMyAccessibleResources`), the
+  SLO create parent gate, the `authorizeCreate` owning-team resolution, and the
+  dependency source-scope fix. Everything else only aligns the UI with
+  authorization the backend already enforced.
+
+### Patch Changes
+
+- Updated dependencies [e430fbe]
+- Updated dependencies [0d912a3]
+  - @checkstack/common@0.19.0
+  - @checkstack/signal-common@0.2.14
+
 ## 0.12.1
 
 ### Patch Changes

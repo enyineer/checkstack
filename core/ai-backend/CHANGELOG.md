@@ -1,5 +1,23 @@
 # @checkstack/ai-backend
 
+## 0.10.2
+
+### Patch Changes
+
+- 7c18b25: Update the generated docs index to reflect the rewritten "Script styles"
+  section of the script health-checks reference (renamed heading + new
+  content clarifying the top-level `return` vs `export default` rule).
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [0d912a3]
+  - @checkstack/common@0.19.0
+  - @checkstack/backend-api@0.27.0
+  - @checkstack/auth-common@0.12.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/sdk@0.118.1
+  - @checkstack/ai-common@0.6.3
+  - @checkstack/integration-backend@0.6.8
+
 ## 0.10.1
 
 ### Patch Changes

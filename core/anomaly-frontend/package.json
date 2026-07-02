@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/anomaly-frontend",
-  "version": "0.5.18",
+  "version": "0.6.0",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

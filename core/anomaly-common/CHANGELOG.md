@@ -1,5 +1,136 @@
 # @checkstack/anomaly-common
 
+## 1.6.0
+
+### Minor Changes
+
+- 52c55bf: Anomaly baselines are now per-environment, so the env-scoped
+  `HealthCheckDrawer` shows the clicked env's baseline (not a cross-env
+  one). Closes the follow-up noted in `healthcheck-per-env-rollup`.
+
+  ## What changed
+
+  - **`anomaly_baselines`** now carries a nullable `environment_id`
+    column, and its unique constraint grew to
+    `(systemId, configurationId, environmentId, fieldPath)` with
+    `NULLS NOT DISTINCT` — so there is exactly one baseline per
+    `(system, config, env, path)` tuple, and the env-less slice (`NULL`)
+    stays a single row (the pre-feature cross-env baseline, preserved as
+    the env-less row until the next analyzer tick rewrites per-env rows).
+    Existing rows backfill to `environment_id = NULL` with no data work.
+  - **Baseline analyzer** (`jobs/baseline-analyzer.ts`) now fans out per
+    environment within each assignment: runs are grouped by
+    `environmentId` (null = env-less), stats are computed per env, and
+    the upsert targets the 4-tuple. The cache key gained an env segment
+    (`baseline:${config}:${system}:${env ?? "<none>"}:${path}`) and the
+    `ANOMALY_BASELINE_UPDATED` signal payload now carries `environmentId`.
+    Previously the analyzer computed one cross-env batch per assignment.
+  - **Inline detector** (`detector.ts`) resolves the per-env baseline:
+    the lookup matches `environmentId` when present or `IS NULL` for the
+    env-less slice, and the cache key matches the analyzer's env segment.
+    `environmentId` is threaded from the `checkCompleted` hook (see
+    below); it defaults to `null` (env-less) so a caller that omits it
+    resolves the env-less baseline rather than failing.
+  - **`getAnomalyBaselines` RPC** now accepts an optional
+    `environmentId: string | null` filter and surfaces `environmentId` on
+    every `AnomalyBaselineDto`. Tristate semantics, mirroring
+    `getHistory`: `undefined` → all envs (no predicate), `null` → env-less
+    slice (`IS NULL`), a string → that env. The service predicate is at
+    the DB layer.
+  - **`HealthCheckDrawer`** threads `item.environmentId` (already on its
+    props) into the baselines query, so the drawer's anomaly overlay
+    resolves server-side to the clicked env's baseline only — matching the
+    env-scoping already applied to its history table and charts. The
+    latency chart tolerates the new field (it picks the single
+    `"latencyMs"` baseline, which the env filter guarantees is unique).
+  - **`getRunsForAnalysis`** (healthcheck) now returns `environmentId`
+    on each run so the analyzer can group by env. Additive optional
+    field; only the analyzer consumes it.
+  - **`checkCompleted` / `checkFailed` hooks** (healthcheck) now carry
+    `environmentId: string | null` on their payloads, sourced from the
+    per-env execution loop. Only the anomaly detector subscribes to
+    `checkCompleted` (it was updated); the failure-path emit (rollup
+    error) passes `null`.
+
+  ## Notes
+
+  - Anomaly _rows_ (`anomalies` table) remain cross-env by design in this
+    step — only baselines are env-scoped, matching the scoped task. A
+    detector run for env A and env B's normal value still share one
+    `(system, config, path)` anomaly row; env-scoping the anomalies table
+    is tracked as a separate follow-up so this change stays focused on
+    the drawer's baseline overlay.
+  - The `checkCompleted` / `checkFailed` payload change is technically
+    breaking for hook subscribers that destructure the payload, but the
+    only in-tree subscriber (the anomaly plugin) was updated in lockstep.
+    External webhook subscribers receive an additional field and are not
+    affected unless they reject unknown keys (uncommon).
+  - Migration `0006_sad_retro_girl.sql` drops + recreates the unique
+    constraint with `NULLS NOT DISTINCT` and adds the column. It applies
+    cleanly to fresh and already-populated DBs (existing NULL-env rows
+    remain unique under the new key).
+
+- 5236e41: Scope anomaly rows by (check, environment), completing the deferred follow-up
+  from the per-environment work in #375 (which env-scoped only baselines).
+
+  Previously the `anomalies` table was cross-environment: the inline spike
+  detector and the drift evaluator located and created the open row by
+  `(systemId, configurationId, fieldPath, kind)` with no environment predicate.
+  When a `(system, configuration)` assignment fanned out to multiple environments,
+  a healthy value in environment A shared one row with an anomaly in environment B,
+  so one env could mask (or merge with) another.
+
+  - **Schema.** New nullable `anomalies.environment_id` column (migration
+    `0007_uneven_trauma.sql`, a single `ADD COLUMN`). No unique constraint is
+    added: the table intentionally allows multiple rows per identity tuple (a
+    `recovered` historical row plus a fresh active row), so uniqueness would break
+    the state machine.
+  - **Detection.** The spike detector (from the `checkCompleted` hook) and the
+    drift evaluator (from the analyzer's per-environment loop) now locate/create
+    the open row by `(systemId, configurationId, environmentId, fieldPath, kind)`,
+    matching `environment_id = <id>` when present or `IS NULL` for the env-less
+    slice - mirroring the per-environment baseline lookup.
+  - **Reads.** `getAnomalies` gains an optional `environmentId` tristate filter
+    (`undefined` = all envs, `null` = env-less slice, string = that env), and both
+    `AnomalyDto` and `getActiveSignalAnomalies` surface `environmentId`. The
+    system-detail widget renders an environment pill on env-scoped anomaly rows.
+  - **Notifications.** An env-scoped anomaly appends its environment id to the
+    collapse key, so two failing environments render as two independent cards
+    instead of collapsing into one. The env-less slice keeps the pre-feature
+    two-segment key. Mutes stay env-agnostic (per system / per field).
+
+  BREAKING (semantics, not types; BETA so minor only):
+
+  - **Anomaly row identity now includes `environmentId`.** For a fanned-out check,
+    an anomaly in one environment is a distinct row from another environment. Any
+    code that assumed a single anomaly row per `(system, config, field, kind)`
+    must account for the environment dimension.
+  - **`AnomalyDto` and `getActiveSignalAnomalies` rows carry a new
+    `environmentId: string | null` field**, and `getAnomalies` accepts a new
+    optional `environmentId` filter. Additive on the wire; consumers that reject
+    unknown fields should be updated.
+  - **Upgrade behaviour.** Existing rows backfill to `null` (the env-less slice)
+    and stay until they recover; the next detection tick opens fresh
+    per-environment rows for fanned-out checks. This mirrors how #375 handled
+    baselines.
+
+  State and scale: the anomaly state lives entirely in the shared `anomalies`
+  Postgres table. `environmentId` is just another column on the row, so every pod
+  reads the same per-`(system, config, env, field, kind)` state - no pod-local
+  state, and reads return the same answer on every pod. The baseline cache key
+  already carries the env segment (#375), so there is no cross-env cache shadowing.
+
+### Patch Changes
+
+- Updated dependencies [d1b71b6]
+- Updated dependencies [e430fbe]
+- Updated dependencies [53666a7]
+- Updated dependencies [0d912a3]
+  - @checkstack/notification-common@1.5.0
+  - @checkstack/common@0.19.0
+  - @checkstack/catalog-common@2.6.0
+  - @checkstack/signal-common@0.2.14
+
 ## 1.5.4
 
 ### Patch Changes

@@ -1,5 +1,55 @@
 # @checkstack/ai-frontend
 
+## 0.5.0
+
+### Minor Changes
+
+- 3047ed2: Move the assistant's saved memories into a permission-gated Sheet opened from the
+  About page, and drop the oversized always-open memory card.
+
+  - `@checkstack/about-common` now exports a new `AboutSectionsSlot` render slot
+    (with an optional `priority` metadata, like `DashboardSlot`). Plugins
+    contribute self-contained, self-gating section cards to the platform About
+    page without the general About page depending on any specific plugin.
+  - `@checkstack/about-frontend` renders `AboutSectionsSlot` on the "About
+    Checkstack" page.
+  - `@checkstack/ai-frontend` contributes a compact "Assistant memory" section with
+    a **Memories** button that opens a Sheet listing every memory the caller can
+    see (their preferences plus `system` memories for systems they can read). The
+    section is hidden entirely, and fires no `listMemories` request, for users
+    without `ai.memory.read`.
+
+  BREAKING CHANGE (behavior): the per-system "Assistant memory" card previously
+  shown on a catalog system's detail page (the `SystemDetailsSlot` contribution) is
+  removed. Memories are still viewable and prunable from the About-page Sheet and
+  the existing "Assistant memory" workspace page; in-context per-system viewing on
+  the system detail page is no longer available. This also supersedes the earlier
+  patch that gated that card on `ai.memory.read` (the card no longer exists).
+
+### Patch Changes
+
+- 0d912a3: Hide the system-detail "Assistant memory" card for users who cannot read AI
+  memories. The card assumed system-read access was enough, but `listMemories`
+  requires the separate `ai.memory.read` rule, so users with system access but
+  without `ai.memory.read` triggered a failing request (`Missing access:
+ai.memory.read`). The card now checks `ai.memory.read` and renders nothing (and
+  never fires the query) when the user lacks it.
+- Updated dependencies [3047ed2]
+- Updated dependencies [0d912a3]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/about-common@0.3.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/ai-common@0.6.3
+  - @checkstack/integration-common@0.9.5
+
 ## 0.4.1
 
 ### Patch Changes

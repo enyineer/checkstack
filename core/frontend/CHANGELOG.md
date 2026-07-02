@@ -1,5 +1,102 @@
 # @checkstack/frontend
 
+## 0.14.0
+
+### Minor Changes
+
+- 0d912a3: Load bundled and remote plugins exactly once per page load. The plugin load
+  ran inside App's mount effect, which React.StrictMode invokes twice in dev, so
+  `loadLocalPlugins()` fired twice and the registry logged a noisy
+  "⚠️ Plugin <id> already registered" for every bundled plugin on the second
+  pass. The load promise is now memoized at module scope: the actual
+  registration runs once while each effect invocation still awaits the same
+  promise, so the loading state resolves correctly and the duplicate-registration
+  warnings are gone.
+- eab80e3: Add an instance-namespace runtime mode so a secondary backend instance can run
+  alongside the default one on shared external infrastructure without colliding.
+
+  - `@checkstack/backend-api` now exposes `coreServices.instanceRuntime`
+    (`InstanceRuntime { namespace, isDefault }`) plus `parseInstanceNamespace` /
+    `createInstanceRuntime` / `instanceNamespaceSchema`. The core backend reads
+    `CHECKSTACK_INSTANCE_NAMESPACE` at boot (validated, failing fast on a bad
+    value), registers the service, and advertises a non-empty namespace on
+    `/api/config`.
+  - Plugin-author contract: a plugin that keeps state on infrastructure SHARED
+    across instances (redis key space, shared cache prefix, consumer group, topic)
+    MUST fold `instanceRuntime.namespace` into that key/name. Namespace rather than
+    suppress: user-visible behaviour keeps running in a secondary instance, only
+    the shared keys change. See the new "Parallel instances and namespacing"
+    developer-guide page.
+  - `@checkstack/queue-bullmq-backend` is the reference implementation: it folds
+    the namespace into the effective redis key prefix (`checkstack:` becomes
+    `checkstack:preview:` under the `preview` namespace), isolating queues, jobs,
+    schedulers and consumer groups. The default instance's prefix is byte-for-byte
+    unchanged.
+  - The admin frontend shows a slim "preview instance" banner when the runtime
+    config carries a non-empty `instanceNamespace`.
+
+### Patch Changes
+
+- 259b93c: Surface scheduled (upcoming) maintenances on the dashboard.
+
+  The dashboard now shows a "Planned maintenances" section listing the soonest
+  scheduled maintenance windows (not yet started), each deep-linking to its
+  detail page. Previously scheduled windows were invisible on the dashboard until
+  they went live - operators had no at-a-glance view of upcoming planned work.
+
+  Only `scheduled` windows are listed. In-progress windows continue to surface as
+  per-system signals via the existing signals filler; showing them here too would
+  duplicate. The section renders nothing when there are no upcoming windows, so
+  the dashboard stays calm.
+
+  Dashboard sections are now registered as individual `DashboardSlot` extensions
+  with a `priority` metadata field, rendered sorted ascending. This replaces the
+  single monolithic `dashboard-main` extension and lets plugins position their
+  dashboard contributions relative to the platform-owned sections without a fixed
+  slot per position. Priority layout:
+
+  - 0: Welcome banner + getting-started checklist + queue-lag alert
+  - 5: Active announcements
+  - 10: System health overview
+  - 20: Planned maintenances (new)
+  - 30: Recent activity feed
+
+  `SectionHeader` now accepts an optional `actions` prop for right-aligned
+  controls, and both "System health" and "Planned maintenances" use it for
+  consistent header styling.
+
+- Updated dependencies [0d912a3]
+- Updated dependencies [07546ed]
+- Updated dependencies [a7f7e98]
+- Updated dependencies [3047ed2]
+- Updated dependencies [0d912a3]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d1b71b6]
+- Updated dependencies [0d912a3]
+- Updated dependencies [19d7afd]
+- Updated dependencies [a07b375]
+- Updated dependencies [d9f4654]
+- Updated dependencies [d9f4654]
+- Updated dependencies [e430fbe]
+- Updated dependencies [eab80e3]
+- Updated dependencies [259b93c]
+- Updated dependencies [0d912a3]
+- Updated dependencies [692fa18]
+  - @checkstack/auth-frontend@0.11.0
+  - @checkstack/announcement-frontend@0.7.0
+  - @checkstack/about-frontend@0.4.0
+  - @checkstack/catalog-frontend@0.15.0
+  - @checkstack/ui@1.22.0
+  - @checkstack/dependency-frontend@0.7.0
+  - @checkstack/frontend-api@0.13.0
+  - @checkstack/common@0.19.0
+  - @checkstack/status-page-common@0.5.0
+  - @checkstack/status-page-frontend@0.5.0
+  - @checkstack/tips-frontend@0.4.5
+  - @checkstack/command-frontend@0.5.3
+  - @checkstack/signal-common@0.2.14
+  - @checkstack/signal-frontend@0.3.2
+
 ## 0.13.1
 
 ### Patch Changes
