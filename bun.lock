@@ -31,6 +31,7 @@
       "version": "0.2.15",
       "dependencies": {
         "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
       },
       "devDependencies": {
         "@checkstack/scripts": "workspace:*",
@@ -106,8 +107,8 @@
       "name": "@checkstack/ai-frontend",
       "version": "0.4.1",
       "dependencies": {
+        "@checkstack/about-common": "workspace:*",
         "@checkstack/ai-common": "workspace:*",
-        "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/frontend-api": "workspace:*",
         "@checkstack/integration-common": "workspace:*",

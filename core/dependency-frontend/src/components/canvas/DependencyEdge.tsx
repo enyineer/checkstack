@@ -6,6 +6,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import type { ImpactType } from "@checkstack/dependency-common";
+import { edgeImpactStyle } from "./dependencyEdge.logic";
 
 export interface DependencyEdgeData extends Record<string, unknown> {
   impactType: ImpactType;
@@ -15,29 +16,12 @@ export interface DependencyEdgeData extends Record<string, unknown> {
 
 export type DependencyEdge = Edge<DependencyEdgeData, "dependency">;
 
-const impactColors: Record<ImpactType, string> = {
-  informational: "stroke-sky-400/50",
-  degraded: "stroke-amber-400/60",
-  critical: "stroke-red-400/70",
-};
-
-const impactStrokeWidths: Record<ImpactType, number> = {
-  informational: 1.5,
-  degraded: 2,
-  critical: 2.5,
-};
-
-/** Hex colors for SVG marker fills — must match the Tailwind stroke classes. */
-const impactHexColors: Record<ImpactType, string> = {
-  informational: "#38bdf8", // sky-400
-  degraded: "#fbbf24", // amber-400
-  critical: "#f87171", // red-400
-};
-
 /**
  * Custom React Flow edge displaying dependency impact type via color + thickness.
- * Transitive edges use dashed stroke. Renders a visible arrowhead marker
- * colored to match the impact type.
+ * The ENTIRE edge stroke and its arrowhead marker are colored by impact from the
+ * same `edgeImpactStyle` mapping, so a whole line reads one impact color even
+ * when several edges feed one system's input. Transitive edges use a dashed
+ * stroke.
  */
 export function DependencyEdgeComponent({
   id,
@@ -61,9 +45,10 @@ export function DependencyEdgeComponent({
 
   const impactType = data?.impactType ?? "informational";
   const isTransitive = data?.transitive ?? false;
-  const colorClass = impactColors[impactType];
-  const strokeWidth = impactStrokeWidths[impactType];
-  const hexColor = selected ? "hsl(var(--primary))" : impactHexColors[impactType];
+  const { stroke, strokeWidth, opacity } = edgeImpactStyle({
+    impactType,
+    selected: !!selected,
+  });
 
   // Unique marker ID per edge to avoid color clashes between different impact types
   const markerId = `arrow-${id}`;
@@ -81,20 +66,17 @@ export function DependencyEdgeComponent({
           orient="auto"
           markerUnits="userSpaceOnUse"
         >
-          <path
-            d="M2,2 L10,6 L2,10 L4,6 Z"
-            fill={hexColor}
-            opacity={selected ? 1 : 0.8}
-          />
+          <path d="M2,2 L10,6 L2,10 L4,6 Z" fill={stroke} opacity={opacity} />
         </marker>
       </defs>
 
       <BaseEdge
         id={id}
         path={edgePath}
-        className={`${colorClass} ${selected ? "!stroke-primary" : ""}`}
         style={{
-          strokeWidth: selected ? strokeWidth + 1 : strokeWidth,
+          stroke,
+          strokeWidth,
+          strokeOpacity: opacity,
           strokeDasharray: isTransitive ? "6 4" : undefined,
           markerEnd: `url(#${markerId})`,
         }}
