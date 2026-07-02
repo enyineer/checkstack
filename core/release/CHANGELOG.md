@@ -1,5 +1,13 @@
 # @checkstack/release
 
+## 0.121.0
+
+### Minor Changes
+
+- b4e0832: Update the generated docs index to reflect the new HTTP health check
+  authentication documentation (the Authentication picker in the first-health-
+  check guide).
+
 ## 0.120.0
 
 ### Minor Changes
