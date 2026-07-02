@@ -604,7 +604,9 @@ for grouping never gain create rights. An admin grants a team create-capability 
 `auth.setCreateGrant({ objectType, teamId, allowed: true })` (and lists a team's grants with
 `listTeamCreateGrants`), or from the **Resource creation** section of the team management dialog.
 Absent a grant, creation stays admin/global-only. The platform enumerates the create-capable resource
-types via `auth.getResourceKinds` (derived from the contracts).
+types via `auth.getResourceKinds` (derived from the contracts). Only **parent-less** creates are
+enumerated: a create with a `parent` gate (below) is authorized via manage on the parent, so offering a
+per-type toggle for it would be redundant and is deliberately excluded.
 
 ##### Parent-gated creation (e.g. "for a system")
 
@@ -634,6 +636,12 @@ When `parent` is set, the middleware authorizes the create if the caller can man
 parent ids (`idParam` may resolve to a single id or an array), independent of any create-capability
 grant. This implements "only those who manage system X may create incidents/maintenances for X", while
 the result stays globally readable.
+
+Because a parent-gated create needs no per-type grant, its type does **not** appear in the **Resource
+creation** toggles (`getResourceKinds` marks it non-create-capable). Grant creation for these types by
+giving the team **manage** access to the parent (e.g. the system), not a create toggle. A type that has
+BOTH a parent-gated and a parent-less create procedure is still enumerated (the parent-less path needs
+the grant).
 
 ### Meaningful authorization errors (not silent empties)
 

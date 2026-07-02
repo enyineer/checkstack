@@ -57,6 +57,58 @@ describe("collectResourceKinds", () => {
     });
   });
 
+  it("does NOT mark a parent-gated create as create-capable", () => {
+    // A parent-gated create (e.g. incident/maintenance "for a system") is
+    // authorized via MANAGE on the parent, so it must not surface a per-type
+    // create toggle.
+    const contract = {
+      list: proc({
+        access: [{ pluginId: "incident", resource: "incident" }],
+        instanceAccess: { listKey: "incidents" },
+      }),
+      create: proc({
+        access: [{ pluginId: "incident", resource: "incident" }],
+        instanceAccess: {
+          create: {
+            idField: "id",
+            parent: { resourceType: "catalog.system", idParam: "systemIds" },
+          },
+        },
+      }),
+    };
+    const kinds = collectResourceKinds([contract]);
+    expect(kinds).toHaveLength(1);
+    expect(kinds[0]).toMatchObject({
+      resourceType: "incident.incident",
+      createCapable: false,
+    });
+  });
+
+  it("keeps create-capable true when a parent-less create coexists with a parent-gated one", () => {
+    // OR across procedures: a type with BOTH a parent-less and a parent-gated
+    // create is still create-capable (the parent-less path needs the grant).
+    const contract = {
+      createStandalone: proc({
+        access: [{ pluginId: "healthcheck", resource: "healthcheck" }],
+        instanceAccess: { create: { idField: "id" } },
+      }),
+      createForParent: proc({
+        access: [{ pluginId: "healthcheck", resource: "healthcheck" }],
+        instanceAccess: {
+          create: {
+            idField: "id",
+            parent: { resourceType: "catalog.system", idParam: "systemId" },
+          },
+        },
+      }),
+    };
+    const kinds = collectResourceKinds([contract]);
+    expect(kinds[0]).toMatchObject({
+      resourceType: "healthcheck.healthcheck",
+      createCapable: true,
+    });
+  });
+
   it("dedupes across contracts and sorts by resource type", () => {
     const a = {
       create: proc({
