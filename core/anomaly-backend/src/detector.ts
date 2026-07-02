@@ -266,6 +266,14 @@ export async function processCheckCompleted({
           : 0;
     }
 
+    // Resolve the per-env anomaly row: match environmentId when present, or the
+    // env-less (NULL) slice otherwise. Mirrors the baseline lookup above, so an
+    // anomaly for this check in env A is a distinct row from env B - a healthy
+    // value in one env never merges with (or masks) an anomaly in another.
+    const anomalyEnvPredicate =
+      environmentId === null
+        ? isNull(schema.anomalies.environmentId)
+        : eq(schema.anomalies.environmentId, environmentId);
     const [existingAnomaly] = await db
       .select()
       .from(schema.anomalies)
@@ -273,6 +281,7 @@ export async function processCheckCompleted({
         and(
           eq(schema.anomalies.systemId, systemId),
           eq(schema.anomalies.configurationId, configurationId),
+          anomalyEnvPredicate,
           eq(schema.anomalies.fieldPath, path),
           eq(schema.anomalies.kind, "spike"),
         ),
@@ -286,6 +295,7 @@ export async function processCheckCompleted({
           .values({
             systemId,
             configurationId,
+            environmentId,
             fieldPath: path,
             kind: "spike",
             state: "suspicious",
@@ -347,6 +357,7 @@ export async function processCheckCompleted({
           await dispatchAnomalyNotification({
             action: "confirmed",
             systemId,
+            environmentId,
             fieldPath: path,
             observedValue: value,
             baselineMean: baseline.mean,
@@ -444,6 +455,7 @@ export async function processCheckCompleted({
             await dispatchAnomalyNotification({
               action: "recovered",
               systemId,
+              environmentId,
               fieldPath: path,
               observedValue: value,
               baselineMean: baseline.mean,
@@ -510,6 +522,7 @@ export async function processCheckCompleted({
           await dispatchAnomalyNotification({
             action: "recovered",
             systemId,
+            environmentId,
             fieldPath: path,
             observedValue: value,
             baselineMean: baseline.mean,

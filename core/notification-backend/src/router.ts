@@ -17,6 +17,7 @@ import {
   notificationContract,
   NOTIFICATION_RECEIVED,
   NOTIFICATION_READ,
+  qualifyNotificationUrls,
 } from "@checkstack/notification-common";
 import { AuthApi } from "@checkstack/auth-common";
 import type { SignalService } from "@checkstack/signal-common";
@@ -38,6 +39,7 @@ import {
   provisionGroupsForResource,
   provisionGroupsForSpec,
   resolveInheritedGroupIds,
+  resolveInheritedGroups,
   teardownGroupsForResource,
 } from "./subscription-engine";
 import {
@@ -201,6 +203,27 @@ export const createNotificationRouter = ({
     // Get all enabled strategies
     const strategies = strategyRegistry.getStrategies();
 
+    // Fully-qualify the primary action link AND every affected-subject deep
+    // link against the instance's configured base URL, once for all strategies.
+    // External channels (email, Slack, Teams, ...) render a bare
+    // "/catalog/systems/..." path as a broken link, so they need an absolute
+    // URL. The in-app read path deliberately keeps relative links (the SPA
+    // router resolves them); only this external-delivery branch qualifies.
+    // When BASE_URL is unset we still deliver (links stay relative) rather than
+    // dropping the notification entirely.
+    const baseUrl = process.env.BASE_URL;
+    if (!baseUrl) {
+      logger.warn(
+        "[external-delivery] BASE_URL is not configured; external notification links will be delivered as relative paths and may not resolve in email/chat channels"
+      );
+    }
+    const { action: qualifiedAction, subjects: qualifiedSubjects } =
+      qualifyNotificationUrls({
+        baseUrl,
+        action: notification.action,
+        subjects: notification.subjects,
+      });
+
     for (const strategy of strategies) {
       try {
         logger.debug(
@@ -266,22 +289,7 @@ export const createNotificationRouter = ({
           strategy.qualifiedId
         );
 
-        const baseUrl = process.env.BASE_URL;
-        if (!baseUrl) {
-          logger.error(
-            "[notification-backend] No frontend URL configured, but action included only a path"
-          );
-          continue;
-        }
-
-        const actionUrl = notification.action?.url;
-        if (actionUrl && !actionUrl.startsWith("http")) {
-          notification.action!.url = `${baseUrl.replace(/\/$/, "")}${
-            actionUrl.startsWith("/") ? "" : "/"
-          }${actionUrl}`;
-        }
-
-        // Build payload
+        // Build payload with fully-qualified URLs (computed once above).
         const payload: NotificationPayload = {
           title: notification.title,
           body: notification.body,
@@ -289,8 +297,8 @@ export const createNotificationRouter = ({
             | "info"
             | "warning"
             | "critical",
-          action: notification.action,
-          subjects: notification.subjects,
+          action: qualifiedAction,
+          subjects: qualifiedSubjects,
           type: "notification",
         };
 
@@ -1029,6 +1037,94 @@ export const createNotificationRouter = ({
         },
       }));
     }),
+
+    resolveSubscriptionInheritance:
+      os.resolveSubscriptionInheritance.handler(async ({ input }) => {
+        // Structural read - same answer for every user (per-user subscribed
+        // flags stay in getMySubscriptionStatus). Resolves purely from
+        // durable tables (subscription_specs, notification_resource_parents,
+        // notification_resources), so every pod returns the same result.
+        const specs = await database
+          .select()
+          .from(schema.subscriptionSpecs)
+          .where(
+            eq(schema.subscriptionSpecs.targetTypeId, input.targetTypeId),
+          );
+        if (specs.length === 0) return [];
+
+        const perSpec = await Promise.all(
+          specs.map(async (spec) => ({
+            spec,
+            inherited: await resolveInheritedGroups({
+              db: database,
+              spec,
+              resourceKey: input.resourceKey,
+            }),
+          })),
+        );
+
+        // Batch-load parent display labels for every distinct parent
+        // (targetTypeId, resourceKey) pair referenced by any spec.
+        const seenPair = new Set<string>();
+        const parentTargetTypeIds = new Set<string>();
+        const parentResourceKeys = new Set<string>();
+        for (const { inherited } of perSpec) {
+          for (const g of inherited) {
+            const key = `${g.parentTargetTypeId} ${g.parentResourceKey}`;
+            if (seenPair.has(key)) continue;
+            seenPair.add(key);
+            parentTargetTypeIds.add(g.parentTargetTypeId);
+            parentResourceKeys.add(g.parentResourceKey);
+          }
+        }
+
+        const labelByPair = new Map<string, string>();
+        if (seenPair.size > 0) {
+          const rows = await database
+            .select({
+              targetTypeId: schema.notificationResources.targetTypeId,
+              resourceKey: schema.notificationResources.resourceKey,
+              displayLabel: schema.notificationResources.displayLabel,
+            })
+            .from(schema.notificationResources)
+            .where(
+              and(
+                inArray(
+                  schema.notificationResources.targetTypeId,
+                  [...parentTargetTypeIds],
+                ),
+                inArray(
+                  schema.notificationResources.resourceKey,
+                  [...parentResourceKeys],
+                ),
+              ),
+            );
+          for (const row of rows) {
+            labelByPair.set(
+              `${row.targetTypeId} ${row.resourceKey}`,
+              row.displayLabel,
+            );
+          }
+        }
+
+        return perSpec.map(({ spec, inherited }) => ({
+          specId: spec.specId,
+          groupId: deriveGroupId({
+            ownerPlugin: spec.ownerPlugin,
+            localId: spec.localId,
+            resourceKey: input.resourceKey,
+          }),
+          inheritance: inherited.map((g) => ({
+            groupId: g.groupId,
+            // Fall back to the raw key so a row never renders "undefined"
+            // if the parent resource label is momentarily missing.
+            label:
+              labelByPair.get(
+                `${g.parentTargetTypeId} ${g.parentResourceKey}`,
+              ) ?? g.parentResourceKey,
+          })),
+        }));
+      }),
 
     notifyForSubscription: os.notifyForSubscription.handler(
       async ({ input, context }) => {

@@ -3,6 +3,7 @@ import {
   modeFromEnvironmentIds,
   environmentIdsForMode,
   toggleEnvironmentId,
+  environmentSectionView,
 } from "./environment-selector.logic";
 
 describe("modeFromEnvironmentIds", () => {
@@ -51,6 +52,92 @@ describe("environmentIdsForMode", () => {
         environmentIdsForMode({ mode: "specific", selectedIds: ["e1"] }),
       ),
     ).toBe("specific");
+  });
+});
+
+describe("environmentSectionView", () => {
+  it("settled with no environments => empty, regardless of environmentIds", () => {
+    expect(
+      environmentSectionView({
+        environments: [],
+        environmentIds: null,
+        settled: true,
+      }),
+    ).toEqual({ kind: "empty" });
+    expect(
+      environmentSectionView({
+        environments: [],
+        environmentIds: [],
+        settled: true,
+      }),
+    ).toEqual({ kind: "empty" });
+    expect(
+      environmentSectionView({
+        environments: [],
+        environmentIds: ["x"],
+        settled: true,
+      }),
+    ).toEqual({ kind: "empty" });
+  });
+
+  it("NOT settled with no environments => selector (loading/error must not collapse to empty)", () => {
+    // Query still loading or errored: keep the mode selector (driven by the
+    // stored environmentIds) rather than falsely showing "No environment
+    // configured" and hiding the control.
+    expect(
+      environmentSectionView({
+        environments: [],
+        environmentIds: null,
+        settled: false,
+      }),
+    ).toEqual({ kind: "selector", mode: "all" });
+    expect(
+      environmentSectionView({
+        environments: [],
+        environmentIds: ["e1"],
+        settled: false,
+      }),
+    ).toEqual({ kind: "selector", mode: "specific" });
+  });
+
+  it("has environments, environmentIds=null => selector in 'all' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: null,
+        settled: true,
+      }),
+    ).toEqual({ kind: "selector", mode: "all" });
+  });
+
+  it("has environments, environmentIds=[] => selector in 'none' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: [],
+        settled: true,
+      }),
+    ).toEqual({ kind: "selector", mode: "none" });
+  });
+
+  it("has environments, non-empty environmentIds => selector in 'specific' mode", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: ["e1"],
+        settled: true,
+      }),
+    ).toEqual({ kind: "selector", mode: "specific" });
+  });
+
+  it("has environments while not yet settled => still shows the selector", () => {
+    expect(
+      environmentSectionView({
+        environments: [{ id: "e1" }],
+        environmentIds: null,
+        settled: false,
+      }),
+    ).toEqual({ kind: "selector", mode: "all" });
   });
 });
 

@@ -115,6 +115,45 @@ export const EnrichedSubscriptionSchema = z.object({
 });
 export type EnrichedSubscription = z.infer<typeof EnrichedSubscriptionSchema>;
 
+/**
+ * Structural inheritance map for a single (targetTypeId, resourceKey).
+ *
+ * For every subscription spec registered against the target, describes the
+ * spec's own (primary) group id and the parent groups a subscription would
+ * be inherited from (e.g. a system's parent catalog groups). Purely
+ * structural - the same answer for every user; per-user "am I subscribed?"
+ * flags come from `getMySubscriptionStatus`, keyed on these group ids.
+ *
+ * The frontend bell folds `inheritance[].groupId` into its status batch and
+ * renders an "Inherited from: <label>" hint at the more granular resource's
+ * row while still letting the user subscribe to the resource directly.
+ */
+export const SubscriptionInheritanceEntrySchema = z.object({
+  /** The spec these inheritance sources belong to. */
+  specId: z.string(),
+  /** The primary group id for this (spec x resource). */
+  groupId: z.string(),
+  /** Parent groups whose subscription reaches this resource by inheritance. */
+  inheritance: z.array(
+    z.object({
+      /** Derived parent group id (`<ownerPlugin>.<localId>.<parentKey>`). */
+      groupId: z.string(),
+      /** Human-friendly parent label (parent resource's display label). */
+      label: z.string(),
+    }),
+  ),
+});
+export type SubscriptionInheritanceEntry = z.infer<
+  typeof SubscriptionInheritanceEntrySchema
+>;
+
+export const SubscriptionInheritanceSchema = z.array(
+  SubscriptionInheritanceEntrySchema,
+);
+export type SubscriptionInheritance = z.infer<
+  typeof SubscriptionInheritanceSchema
+>;
+
 // Retention settings
 export const RetentionSettingsSchema = z.object({
   retentionDays: z.number().min(1).max(365),

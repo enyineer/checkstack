@@ -102,7 +102,14 @@ export function collectResourceKinds(
         procedure as { ["~orpc"]?: { meta?: ProcedureMetadata } } | undefined
       )?.["~orpc"]?.meta;
       if (!meta?.instanceAccess) continue;
-      const createCapable = Boolean(meta.instanceAccess.create);
+      // A PARENT-gated create is authorized by MANAGE on the parent (e.g. a
+      // system manager creating an incident/maintenance "for" their system), so
+      // it needs no per-type create-capability grant - offering one in the Teams
+      // "Resource creation" toggles would be redundant and misleading. Only a
+      // PARENT-LESS create (a standalone object like a health-check
+      // configuration) is genuinely create-capability-gated and belongs there.
+      const createMode = meta.instanceAccess.create;
+      const createCapable = Boolean(createMode) && !createMode?.parent;
       for (const rule of meta.access ?? []) {
         const resourceType = `${rule.pluginId}.${rule.resource}`;
         const existing = kinds.get(resourceType);

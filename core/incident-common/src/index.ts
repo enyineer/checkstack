@@ -20,6 +20,10 @@ export {
   CreateIncidentInputSchema,
   UpdateIncidentInputSchema,
   AddIncidentUpdateInputSchema,
+  BulkIncidentActionStatusEnum,
+  BulkIncidentActionResultSchema,
+  BulkIncidentIdsInputSchema,
+  BulkResolveIncidentsInputSchema,
   type IncidentStatus,
   type IncidentSeverity,
   type Incident,
@@ -31,6 +35,10 @@ export {
   type CreateIncidentInput,
   type UpdateIncidentInput,
   type AddIncidentUpdateInput,
+  type BulkIncidentActionStatus,
+  type BulkIncidentActionResult,
+  type BulkIncidentIdsInput,
+  type BulkResolveIncidentsInput,
 } from "./schemas";
 export { IncidentDetailsSlot, IncidentStatusSlot } from "./slots";
 export {

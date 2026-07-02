@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   usePluginClient,
@@ -41,6 +41,7 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
+  Checkbox,
   useToast,
   ConfirmationModal,
   PageLayout,
@@ -63,7 +64,14 @@ import {
   getMaintenanceStatusTone,
   getMaintenanceToneAccentClass,
 } from "../utils/badges";
-import { canComplete, summarizeSystemNames } from "./maintenanceConfig.logic";
+import {
+  canComplete,
+  summarizeSystemNames,
+  selectableMaintenanceIds,
+  completableMaintenanceIds,
+  pruneSelection,
+  summarizeBulkOutcome,
+} from "./maintenanceConfig.logic";
 import { cn } from "@checkstack/ui";
 
 const MaintenanceConfigPageContent: React.FC = () => {
@@ -111,6 +119,12 @@ const MaintenanceConfigPageContent: React.FC = () => {
   // Complete confirmation state
   const [completeId, setCompleteId] = useState<string | undefined>();
 
+  // Multi-select state for the mass (bulk) actions. Only ids the user can
+  // MANAGE ever enter this set (see selectableIds + toggle handlers below).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkCompleteOpen, setBulkCompleteOpen] = useState(false);
+
   // Fetch maintenances with useQuery
   const maintenancesQuery = maintenanceClient.listMaintenances.useQuery(
     statusFilter === "all"
@@ -127,7 +141,13 @@ const MaintenanceConfigPageContent: React.FC = () => {
   const { data: systemsData, isLoading: systemsLoading } =
     catalogClient.getSystems.useQuery({});
 
-  const maintenances = maintenancesData?.maintenances ?? [];
+  // Memoized so the array reference is stable across renders where the query
+  // data is unchanged, keeping the selectableIds memo (and its prune effect)
+  // from re-running every render.
+  const maintenances = useMemo(
+    () => maintenancesData?.maintenances ?? [],
+    [maintenancesData],
+  );
   const systems = systemsData?.systems ?? [];
   const loading = maintenancesLoading || systemsLoading;
 
@@ -139,6 +159,48 @@ const MaintenanceConfigPageContent: React.FC = () => {
     objectType: maintenanceResourceTypes.maintenance,
     resourceIds: maintenances.map((m) => m.id),
   });
+
+  // Ids the user may bulk-act on (manageable rows only) and, of the current
+  // selection, the subset still completable. Both feed the multi-select UI and
+  // keep it in lock-step with what the backend will accept.
+  const selectableIds = useMemo(
+    () => selectableMaintenanceIds({ maintenances, canAccess }),
+    [maintenances, canAccess],
+  );
+  const completableSelected = completableMaintenanceIds({
+    selectedIds,
+    maintenances,
+    canAccess,
+  });
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+
+  // Prune the selection whenever the selectable set changes (refetch, grant
+  // revoked, row deleted) so a stale id can never be submitted. The functional
+  // update returns the SAME set reference when nothing changed, so React bails
+  // out of the re-render and this never loops despite the unstable dep.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const pruned = pruneSelection({ selectedIds: prev, selectableIds });
+      return pruned.length === prev.size ? prev : new Set(pruned);
+    });
+  }, [selectableIds]);
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
+  };
 
   // Handle ?action=create URL parameter (from command palette)
   useEffect(() => {
@@ -173,6 +235,59 @@ const MaintenanceConfigPageContent: React.FC = () => {
       toastError(toast, "Failed to complete", error);
     },
   });
+
+  const bulkDeleteMutation = maintenanceClient.bulkDeleteMaintenances.useMutation(
+    {
+      onSuccess: (data) => {
+        toast.success(
+          summarizeBulkOutcome({
+            results: data.results,
+            successStatus: "deleted",
+            successLabel: "deleted",
+          }),
+        );
+        setSelectedIds(new Set());
+        setBulkDeleteOpen(false);
+        void refetchMaintenances();
+      },
+      onError: (error) => {
+        toastError(toast, "Mass delete failed", error);
+      },
+    },
+  );
+
+  const bulkCompleteMutation =
+    maintenanceClient.bulkCloseMaintenances.useMutation({
+      onSuccess: (data) => {
+        toast.success(
+          summarizeBulkOutcome({
+            results: data.results,
+            successStatus: "completed",
+            successLabel: "completed",
+          }),
+        );
+        setSelectedIds(new Set());
+        setBulkCompleteOpen(false);
+        void refetchMaintenances();
+      },
+      onError: (error) => {
+        toastError(toast, "Mass complete failed", error);
+      },
+    });
+
+  const handleBulkDelete = () => {
+    // Submit only ids that are still manageable (defensive: the selection is
+    // already pruned to selectableIds).
+    const ids = [...selectedIds].filter((id) => selectableIds.includes(id));
+    if (ids.length === 0) return;
+    bulkDeleteMutation.mutate({ ids });
+  };
+
+  const handleBulkComplete = () => {
+    // Complete only the still-completable subset of the selection.
+    if (completableSelected.length === 0) return;
+    bulkCompleteMutation.mutate({ ids: completableSelected });
+  };
 
   const handleCreate = () => {
     setEditingMaintenance(undefined);
@@ -293,10 +408,56 @@ const MaintenanceConfigPageContent: React.FC = () => {
             />
           ) : (
             <>
+              {selectableIds.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-inset/60 px-4 py-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all maintenances"
+                    />
+                    <span className="text-muted-foreground">
+                      {selectedIds.size > 0
+                        ? `${selectedIds.size} selected`
+                        : "Select all"}
+                    </span>
+                  </label>
+                  {selectedIds.size > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBulkCompleteOpen(true)}
+                        disabled={completableSelected.length === 0}
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
+                        Mass complete
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBulkDeleteOpen(true)}
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Mass delete
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedIds(new Set())}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
               <ResponsiveTable>
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-8" aria-hidden />
                       <TableHead>Title</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Systems</TableHead>
@@ -308,8 +469,20 @@ const MaintenanceConfigPageContent: React.FC = () => {
                     {maintenances.map((m) => (
                       <TableRow
                         key={m.id}
-                        className="transition-colors hover:bg-surface-inset"
+                        data-state={
+                          selectedIds.has(m.id) ? "selected" : undefined
+                        }
+                        className="hover:bg-surface-inset"
                       >
+                        <TableCell className="pr-0">
+                          {canAccess(m.id) && (
+                            <Checkbox
+                              checked={selectedIds.has(m.id)}
+                              onCheckedChange={() => toggleOne(m.id)}
+                              aria-label={`Select maintenance ${m.title}`}
+                            />
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="relative pl-3">
                             <span
@@ -394,9 +567,12 @@ const MaintenanceConfigPageContent: React.FC = () => {
 
               <MobileCardList className="p-4">
                 {maintenances.map((m) => (
-                  <div key={m.id} className="group">
-                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                      <span
+                  <div
+                    key={m.id}
+                    data-state={selectedIds.has(m.id) ? "selected" : undefined}
+                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
+                  >
+                    <span
                         className={cn(
                           "absolute inset-y-0 left-0 w-1",
                           getMaintenanceToneAccentClass(
@@ -406,7 +582,18 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         aria-hidden
                       />
                       <div className="flex items-start justify-between gap-2 pl-2">
-                        <p className="min-w-0 truncate font-medium">{m.title}</p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          {canAccess(m.id) && (
+                            <Checkbox
+                              checked={selectedIds.has(m.id)}
+                              onCheckedChange={() => toggleOne(m.id)}
+                              aria-label={`Select maintenance ${m.title}`}
+                            />
+                          )}
+                          <p className="min-w-0 truncate font-medium">
+                            {m.title}
+                          </p>
+                        </div>
                         {getMaintenanceStatusBadge(m.status)}
                       </div>
                       {m.description && (
@@ -472,7 +659,6 @@ const MaintenanceConfigPageContent: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  </div>
                 ))}
               </MobileCardList>
             </>
@@ -508,6 +694,32 @@ const MaintenanceConfigPageContent: React.FC = () => {
         variant="info"
         onConfirm={handleComplete}
         isLoading={completeMutation.isPending}
+      />
+
+      <ConfirmationModal
+        isOpen={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title="Delete maintenances"
+        message={`Delete ${selectedIds.size} selected ${
+          selectedIds.size === 1 ? "maintenance" : "maintenances"
+        }? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        onConfirm={handleBulkDelete}
+        isLoading={bulkDeleteMutation.isPending}
+      />
+
+      <ConfirmationModal
+        isOpen={bulkCompleteOpen}
+        onClose={() => setBulkCompleteOpen(false)}
+        title="Complete maintenances"
+        message={`Mark ${completableSelected.length} selected ${
+          completableSelected.length === 1 ? "maintenance" : "maintenances"
+        } as completed?`}
+        confirmText="Complete"
+        variant="info"
+        onConfirm={handleBulkComplete}
+        isLoading={bulkCompleteMutation.isPending}
       />
     </PageLayout>
   );

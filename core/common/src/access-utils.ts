@@ -68,6 +68,30 @@ export interface InstanceAccessConfig {
   idParam?: string;
 
   /**
+   * For bulk WRITE endpoints that act on an ARRAY of resource ids (mass delete /
+   * mass resolve). Unlike `idParam` (a single pre-check that THROWS on the first
+   * unauthorized id) and `listKey`/`recordKey` (post-filters that run AFTER the
+   * handler has already mutated everything = fail-open for a write), this is a
+   * PRE-handler partition: the middleware resolves the id array at
+   * `input[idsParam]`, splits it into the caller's manageable subset (global rule
+   * OR per-id team grant) and the denied remainder, and exposes both to the
+   * handler via `context.bulkAccess[idsParam]` as
+   * `{ authorizedIds, deniedIds }`. The handler MUST mutate only `authorizedIds`
+   * and report `deniedIds` as forbidden, so an unauthorized id is never acted on
+   * and the batch reports per-id partial success. Team-scoped callers (a grant,
+   * no global rule) are NOT rejected up front — they simply receive only their
+   * granted ids. Fails CLOSED: an S2S error yields an empty authorized subset.
+   */
+  bulkManage?: {
+    /**
+     * Input path (dot notation) to the array of resource ids to authorize.
+     * The value may be a single string or a string array; it is resolved the
+     * same way as `create.parent.idParam`.
+     */
+    idsParam: string;
+  };
+
+  /**
    * For list endpoints: key in response object containing the array to filter.
    * When set, post-filters results based on team grants.
    * Example: "systems" for response { systems: [...] }
