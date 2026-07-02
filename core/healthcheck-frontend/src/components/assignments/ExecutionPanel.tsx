@@ -1,8 +1,8 @@
 import React from "react";
-import { Checkbox, Label, Tooltip } from "@checkstack/ui";
+import { Checkbox, EmptyState, Label, Skeleton, Tooltip } from "@checkstack/ui";
 import { Satellite, Layers } from "lucide-react";
 import {
-  modeFromEnvironmentIds,
+  environmentSectionView,
   type EnvironmentSelectorMode,
 } from "./environment-selector.logic";
 
@@ -31,6 +31,21 @@ interface ExecutionPanelProps {
   environmentIds: string[] | null;
   /** Environments the system currently belongs to. */
   environments: EnvironmentDto[];
+  /**
+   * Whether the environments query has successfully resolved. The
+   * "No environment configured" empty-state only shows once this is true, so a
+   * still-loading or errored fetch keeps the mode selector visible instead of
+   * masquerading as a genuinely env-less system.
+   */
+  environmentsSettled: boolean;
+  /**
+   * Whether the environments query is still in its first fetch (no data yet).
+   * While true the subsection shows a skeleton instead of the selector, so a
+   * genuinely env-less system does not flash the mode selector before
+   * collapsing to the empty-state. An errored fetch is not "loading", so it
+   * still falls through to the (deliberately preserved) selector.
+   */
+  environmentsLoading: boolean;
   onSetEnvironmentMode: (mode: EnvironmentSelectorMode) => void;
   onToggleEnvironment: (environmentId: string) => void;
   saving: boolean;
@@ -49,6 +64,8 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
   onToggleSatellite,
   environmentIds,
   environments,
+  environmentsSettled,
+  environmentsLoading,
   onSetEnvironmentMode,
   onToggleEnvironment,
   saving,
@@ -56,7 +73,11 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
 }) => {
   const hasSatellites = satelliteIds.length > 0;
   const willRunAnywhere = includeLocal || hasSatellites;
-  const envMode = modeFromEnvironmentIds(environmentIds);
+  const envView = environmentSectionView({
+    environments,
+    environmentIds,
+    settled: environmentsSettled,
+  });
   const selectedEnvIds = new Set<string>(
     environmentIds === null ? [] : environmentIds,
   );
@@ -160,51 +181,62 @@ export const ExecutionPanel: React.FC<ExecutionPanelProps> = ({
           Choose how this check fans out across the system's environments.
         </p>
 
-        <div className="space-y-1.5">
-          {envModes.map((m) => (
-            <label
-              key={m.value}
-              className="flex items-start gap-3 p-2.5 rounded-md border hover:bg-muted/30 transition-colors cursor-pointer"
-            >
-              <input
-                type="radio"
-                name="environment-mode"
-                className="mt-1"
-                checked={envMode === m.value}
-                disabled={saving || isLocked}
-                onChange={() => onSetEnvironmentMode(m.value)}
-              />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium">{m.label}</span>
-                <p className="text-xs text-muted-foreground mt-0.5">{m.hint}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-
-        {envMode === "specific" && (
-          <div className="space-y-1.5 pl-6">
-            {environments.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic py-2">
-                This system has no environments. Attach environments to the
-                system in the catalog first.
-              </p>
-            ) : (
-              environments.map((env) => (
-                <div
-                  key={env.id}
-                  className="flex items-center gap-3 p-2 rounded-md border hover:bg-muted/30 transition-colors"
-                >
-                  <Checkbox
-                    checked={selectedEnvIds.has(env.id)}
-                    onCheckedChange={() => onToggleEnvironment(env.id)}
-                    disabled={saving || isLocked}
-                  />
-                  <span className="text-sm truncate">{env.name}</span>
-                </div>
-              ))
-            )}
+        {environmentsLoading ? (
+          <div className="space-y-1.5" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <Skeleton key={row} className="h-14 w-full rounded-md" />
+            ))}
           </div>
+        ) : envView.kind === "empty" ? (
+          <EmptyState
+            icon={<Layers className="h-10 w-10" />}
+            title="No environment configured"
+            description="This system doesn't belong to any environment yet. Attach environments to the system in the catalog to fan this check out per environment."
+          />
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {envModes.map((m) => (
+                <label
+                  key={m.value}
+                  className="flex items-start gap-3 p-2.5 rounded-md border hover:bg-muted/30 transition-colors cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="environment-mode"
+                    className="mt-1"
+                    checked={envView.mode === m.value}
+                    disabled={saving || isLocked}
+                    onChange={() => onSetEnvironmentMode(m.value)}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{m.label}</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {m.hint}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {envView.mode === "specific" && (
+              <div className="space-y-1.5 pl-6">
+                {environments.map((env) => (
+                  <div
+                    key={env.id}
+                    className="flex items-center gap-3 p-2 rounded-md border hover:bg-muted/30 transition-colors"
+                  >
+                    <Checkbox
+                      checked={selectedEnvIds.has(env.id)}
+                      onCheckedChange={() => onToggleEnvironment(env.id)}
+                      disabled={saving || isLocked}
+                    />
+                    <span className="text-sm truncate">{env.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
