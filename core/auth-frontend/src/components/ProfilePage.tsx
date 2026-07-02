@@ -30,6 +30,7 @@ import {
 } from "@checkstack/ui";
 import { AuthLandingCard } from "./AuthLandingCard";
 import { deriveInitial } from "./identity.logic";
+import { useSessionContext } from "../lib/SessionProvider";
 
 export const ProfilePage = () => {
   const navigate = useNavigate();
@@ -45,9 +46,25 @@ export const ProfilePage = () => {
   const authClient = usePluginClient(AuthApi);
   const { isLowPower } = usePerformance();
 
-  // Fetch current user profile
+  // The profile is a logged-in-only surface, but its route carries no access
+  // rule (there is nothing role-specific about "my profile"). Resolve the
+  // session first: guests are redirected to login instead of firing the
+  // authenticated-only profile query into a guaranteed 401.
+  const { data: session, isPending: sessionPending } = useSessionContext();
+  const isAuthenticated = !!session?.user;
+
+  useEffect(() => {
+    if (!sessionPending && !isAuthenticated) {
+      navigate(resolveRoute(authRoutes.routes.login));
+    }
+  }, [sessionPending, isAuthenticated, navigate]);
+
+  // Fetch current user profile (only once we know a user is signed in)
   const { data: profile, isLoading: loadingProfile } =
-    authClient.getCurrentUserProfile.useQuery({});
+    authClient.getCurrentUserProfile.useQuery(
+      {},
+      { enabled: isAuthenticated },
+    );
 
   // Update mutation
   const updateMutation = authClient.updateCurrentUser.useMutation({
@@ -101,8 +118,9 @@ export const ProfilePage = () => {
   const hasChanges =
     name !== originalName || (hasCredentialAccount && email !== originalEmail);
 
-  // Loading state
-  if (loadingProfile) {
+  // Loading state — also shown while the session resolves (or briefly for a
+  // guest before the login redirect above kicks in).
+  if (sessionPending || !isAuthenticated || loadingProfile) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
         <AuthLandingCard>

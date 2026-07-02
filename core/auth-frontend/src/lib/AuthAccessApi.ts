@@ -63,12 +63,15 @@ export class AuthAccessApi implements AccessApi {
     // Team-derived (ReBAC) path: resolved server-side against the caller's team
     // `creator`/parent-manage grants. Only fetched when the global path hasn't
     // already granted access, so most (admin/global) callers pay no extra round
-    // trip.
+    // trip. Anonymous callers never fetch: the procedure is authenticated-only
+    // (a guest holds no team grants), so calling it would just 401.
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const { isAuthenticated } = useAccessRules();
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const authClient = usePluginClient(AuthApi);
     const { data, isLoading } = authClient.canCreate.useQuery(
       { objectType, parentType },
-      { enabled: !global.loading && !global.allowed },
+      { enabled: !global.loading && !global.allowed && isAuthenticated },
     );
 
     if (global.allowed) return { loading: false, allowed: true };
@@ -91,11 +94,14 @@ export class AuthAccessApi implements AccessApi {
     // Team-derived path: the set of types the caller can create/manage-any of.
     // Only fetched when the global path hasn't already granted access. One small
     // query serves every surface gate on the page (React Query dedupes the key).
+    // Anonymous callers never fetch: the procedure is authenticated-only.
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const { isAuthenticated } = useAccessRules();
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const authClient = usePluginClient(AuthApi);
     const { data, isLoading } = authClient.myManageableTypes.useQuery(
       {},
-      { enabled: !global.loading && !global.allowed },
+      { enabled: !global.loading && !global.allowed && isAuthenticated },
     );
 
     if (global.allowed) return { loading: false, allowed: true };
@@ -120,7 +126,8 @@ export class AuthAccessApi implements AccessApi {
     // remounting), so branching the hook calls would trip "Rendered fewer/more
     // hooks than expected".
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
-    const { accessRules, loading: rulesLoading } = useAccessRules();
+    const rulesState = useAccessRules();
+    const { accessRules, loading: rulesLoading, isAuthenticated } = rulesState;
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const authClient = usePluginClient(AuthApi);
 
@@ -129,11 +136,16 @@ export class AuthAccessApi implements AccessApi {
         ? true
         : isAccessRuleSatisfied(accessRules, accessRule);
 
+    // Anonymous callers never fetch: the procedure is authenticated-only (a
+    // guest holds no team grants), so calling it would just 401.
     const { data, isLoading } = authClient.myManageableTypes.useQuery(
       {},
       {
         enabled:
-          manageCapability !== undefined && !rulesLoading && !globalAllowed,
+          manageCapability !== undefined &&
+          !rulesLoading &&
+          !globalAllowed &&
+          isAuthenticated,
       },
     );
 
@@ -172,13 +184,23 @@ export class AuthAccessApi implements AccessApi {
     const global = this.useAccess(accessRule);
 
     // Team-derived subset — only fetched when the global path hasn't already
-    // granted access, and only for the ids actually on screen.
+    // granted access, and only for the ids actually on screen. Anonymous
+    // callers never fetch: the procedure is authenticated-only (a guest holds
+    // no team grants), so calling it would just 401.
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const { isAuthenticated } = useAccessRules();
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const authClient = usePluginClient(AuthApi);
     const ids = [...new Set(resourceIds)];
     const { data, isLoading } = authClient.listMyAccessibleResources.useQuery(
       { objectType, resourceIds: ids, action },
-      { enabled: !global.loading && !global.allowed && ids.length > 0 },
+      {
+        enabled:
+          !global.loading &&
+          !global.allowed &&
+          isAuthenticated &&
+          ids.length > 0,
+      },
     );
 
     const hasGlobal = global.allowed;

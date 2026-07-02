@@ -31,6 +31,12 @@ what you are gating.
 All four OR the global rule with team-derived grants, so a user holding the
 global manage rule always sees everything.
 
+For anonymous callers the team-derived path is skipped entirely: the backing
+procedures (`canCreate`, `myManageableTypes`, `listMyAccessibleResources`) are
+authenticated-only and a guest holds no team grants, so the hooks resolve from
+the global (anonymous-role) rules alone and never fire a request that could
+only fail with 401 "Authentication required".
+
 ## Reference resource types by constant, never a string
 
 `objectType` and `parentType` are typed `ResourceType` values, not raw strings.
@@ -205,6 +211,16 @@ const selectableSystems = allowGlobal
 
 Keep already-selected resources visible when editing (the `|| selectedIds.has(id)`
 above) so existing links don't vanish.
+
+## Gate affordances, not structure
+
+Capability gating hides ACTIONS - it must never unmount structural DOM that a
+read-only user's view depends on. The dependency map is the cautionary tale:
+React Flow silently drops every edge whose source node has no source
+`<Handle>`, so conditionally rendering the handle only for managed systems
+erased ALL edges from read-only users' maps. Always render the handle and gate
+its `isConnectable` / `isConnectableStart` (the drag-to-connect affordance)
+on `useResourceAccess(...).canAccess(id)` instead.
 
 ## Keep the owning-team picker on the global rule
 

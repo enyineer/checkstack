@@ -31,14 +31,36 @@ let manageableTypesQueryResult: {
   isLoading: boolean;
 } = { data: undefined, isLoading: false };
 
+// The `enabled` option each capability hook last passed to its query — lets
+// tests assert an authenticated-only RPC would NOT be fired (e.g. for
+// anonymous callers, where it could only 401).
+let lastCanCreateQueryEnabled: boolean | undefined;
+let lastAccessibleQueryEnabled: boolean | undefined;
+let lastManageableTypesQueryEnabled: boolean | undefined;
+
 // Override only `usePluginClient` so `useCanCreate` / `useResourceAccess` read
 // from controllable query stubs; everything else stays real.
 mock.module("@checkstack/frontend-api", () => ({
   ...realFrontendApiModule,
   usePluginClient: () => ({
-    canCreate: { useQuery: () => canCreateQueryResult },
-    listMyAccessibleResources: { useQuery: () => accessibleQueryResult },
-    myManageableTypes: { useQuery: () => manageableTypesQueryResult },
+    canCreate: {
+      useQuery: (_input: unknown, options?: { enabled?: boolean }) => {
+        lastCanCreateQueryEnabled = options?.enabled;
+        return canCreateQueryResult;
+      },
+    },
+    listMyAccessibleResources: {
+      useQuery: (_input: unknown, options?: { enabled?: boolean }) => {
+        lastAccessibleQueryEnabled = options?.enabled;
+        return accessibleQueryResult;
+      },
+    },
+    myManageableTypes: {
+      useQuery: (_input: unknown, options?: { enabled?: boolean }) => {
+        lastManageableTypesQueryEnabled = options?.enabled;
+        return manageableTypesQueryResult;
+      },
+    },
   }),
 }));
 
@@ -205,6 +227,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       canCreateQueryResult = { data: { allowed: true }, isLoading: false };
 
@@ -221,6 +244,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       canCreateQueryResult = { data: { allowed: false }, isLoading: false };
 
@@ -271,6 +295,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       manageableTypesQueryResult = {
         data: { types: [TEST_TYPE] },
@@ -289,6 +314,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       manageableTypesQueryResult = {
         data: { types: [CATALOG_SYSTEM_TYPE] },
@@ -308,6 +334,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       manageableTypesQueryResult = {
         data: { types: ["some.other"] },
@@ -349,6 +376,7 @@ describe("AuthAccessApi", () => {
       (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
         accessRules: [],
         loading: false,
+        isAuthenticated: true,
       });
       accessibleQueryResult = {
         data: { accessibleIds: ["a"] },
@@ -378,6 +406,125 @@ describe("AuthAccessApi", () => {
       });
       expect(loading).toBe(true);
       expect(canAccess("a")).toBe(false);
+    });
+  });
+
+  // Anonymous callers must NEVER fire the authenticated-only capability RPCs
+  // (canCreate / myManageableTypes / listMyAccessibleResources): a guest holds
+  // no team grants, so the call can only fail with 401 "Authentication
+  // required" and spam the backend log. Regression guard for that 401 noise.
+  describe("anonymous callers keep authenticated-only RPCs disabled", () => {
+    beforeEach(() => {
+      canCreateQueryResult = { data: undefined, isLoading: false };
+      accessibleQueryResult = { data: undefined, isLoading: false };
+      manageableTypesQueryResult = { data: undefined, isLoading: false };
+      lastCanCreateQueryEnabled = undefined;
+      lastAccessibleQueryEnabled = undefined;
+      lastManageableTypesQueryEnabled = undefined;
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: [],
+        loading: false,
+        isAuthenticated: false,
+      });
+    });
+
+    it("useCanCreate leaves the canCreate query disabled and denies", () => {
+      const result = accessApi.useCanCreate({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+      });
+
+      expect(lastCanCreateQueryEnabled).toBe(false);
+      expect(result).toEqual({ loading: false, allowed: false });
+    });
+
+    it("useCanAccessType leaves the myManageableTypes query disabled and denies", () => {
+      const result = accessApi.useCanAccessType({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+      });
+
+      expect(lastManageableTypesQueryEnabled).toBe(false);
+      expect(result).toEqual({ loading: false, allowed: false });
+    });
+
+    it("useRouteAccess with a manageCapability leaves the query disabled and denies", () => {
+      const result = accessApi.useRouteAccess({
+        accessRule: testManageAccess,
+        manageCapability: { objectType: TEST_TYPE },
+      });
+
+      expect(lastManageableTypesQueryEnabled).toBe(false);
+      expect(result).toEqual({ loading: false, allowed: false });
+    });
+
+    it("useResourceAccess leaves the listMyAccessibleResources query disabled and fails closed", () => {
+      const { loading, hasGlobal, canAccess } = accessApi.useResourceAccess({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+        resourceIds: ["a"],
+      });
+
+      expect(lastAccessibleQueryEnabled).toBe(false);
+      expect(loading).toBe(false);
+      expect(hasGlobal).toBe(false);
+      expect(canAccess("a")).toBe(false);
+    });
+  });
+
+  // The counterpart guard: an AUTHENTICATED caller without the global rule
+  // must still consult the team-derived RPCs, or team-scoped users lose their
+  // capability-gated surfaces entirely.
+  describe("authenticated team-scoped callers still fetch the capability RPCs", () => {
+    beforeEach(() => {
+      canCreateQueryResult = { data: undefined, isLoading: false };
+      accessibleQueryResult = { data: undefined, isLoading: false };
+      manageableTypesQueryResult = { data: undefined, isLoading: false };
+      lastCanCreateQueryEnabled = undefined;
+      lastAccessibleQueryEnabled = undefined;
+      lastManageableTypesQueryEnabled = undefined;
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: [],
+        loading: false,
+        isAuthenticated: true,
+      });
+    });
+
+    it("useCanCreate enables the canCreate query", () => {
+      accessApi.useCanCreate({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+      });
+
+      expect(lastCanCreateQueryEnabled).toBe(true);
+    });
+
+    it("useCanAccessType enables the myManageableTypes query", () => {
+      accessApi.useCanAccessType({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+      });
+
+      expect(lastManageableTypesQueryEnabled).toBe(true);
+    });
+
+    it("useRouteAccess with a manageCapability enables the query", () => {
+      accessApi.useRouteAccess({
+        accessRule: testManageAccess,
+        manageCapability: { objectType: TEST_TYPE },
+      });
+
+      expect(lastManageableTypesQueryEnabled).toBe(true);
+    });
+
+    it("useResourceAccess enables the listMyAccessibleResources query", () => {
+      accessApi.useResourceAccess({
+        accessRule: testManageAccess,
+        objectType: TEST_TYPE,
+        resourceIds: ["a"],
+      });
+
+      expect(lastAccessibleQueryEnabled).toBe(true);
     });
   });
 });
