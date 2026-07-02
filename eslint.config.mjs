@@ -15,6 +15,10 @@ export default tseslint.config(
       // store caches installed npm packages here. Git-ignored runtime output,
       // not project source - never lint it.
       "**/.data/**",
+      // Developer-cockpit workspace (PR-preview worktrees, db snapshots, and
+      // the preview instance's own script-packages cache). Git-ignored runtime
+      // output, same rationale as `.data`.
+      ".dev/**",
       "**/drizzle/**",
       "**/public/vendor/**",
       "**/*.test.ts*",
