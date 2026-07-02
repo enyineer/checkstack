@@ -1,5 +1,39 @@
 # @checkstack/healthcheck-backend
 
+## 1.14.0
+
+### Minor Changes
+
+- e819276: Fix JSONPath collector assertions: the executor previously evaluated every
+  assertion with a flat field lookup, so a `Body (JSONPath)` assertion compared
+  against `undefined` and the configured path was silently ignored (`Exists`
+  always failed, `Not Exists` always passed). The executor now parses the source
+  field as JSON and extracts the configured path via `jsonpath-plus` (with
+  expression evaluation disabled - filter/script expressions are rejected).
+  Fail-closed: a non-JSON body, missing expression, or invalid path fails the
+  assertion with a diagnostic, never the collection.
+
+  Also adds `isEmpty` / `isNotEmpty` to the JSONPath operator set (and the
+  AssertionBuilder), treating `[]`, `{}`, `""`, and missing values as empty - so
+  "no errors reported" is a single `$.errors Is Empty` assertion, and "key exists
+  but is empty" is `Exists` + `Is Empty` on the same path.
+
+### Patch Changes
+
+- Updated dependencies [e819276]
+- Updated dependencies [e819276]
+  - @checkstack/ai-backend@0.10.5
+  - @checkstack/backend-api@0.28.0
+  - @checkstack/automation-backend@0.10.7
+  - @checkstack/catalog-backend@1.6.5
+  - @checkstack/incident-backend@1.9.3
+  - @checkstack/satellite-backend@0.7.8
+  - @checkstack/command-backend@0.2.17
+  - @checkstack/gitops-backend@0.5.17
+  - @checkstack/script-packages-backend@0.3.21
+  - @checkstack/secrets-backend@0.2.17
+  - @checkstack/status-page-backend@0.4.4
+
 ## 1.13.1
 
 ### Patch Changes

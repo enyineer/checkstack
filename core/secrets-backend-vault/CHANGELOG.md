@@ -1,5 +1,13 @@
 # @checkstack/secrets-backend-vault
 
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [e819276]
+  - @checkstack/backend-api@0.28.0
+  - @checkstack/secrets-backend@0.2.17
+
 ## 0.1.18
 
 ### Patch Changes

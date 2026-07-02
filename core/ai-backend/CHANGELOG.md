@@ -1,5 +1,15 @@
 # @checkstack/ai-backend
 
+## 0.10.5
+
+### Patch Changes
+
+- e819276: Update the generated docs index to reflect the new "Asserting on JSON response
+  bodies" section in the health-checks concept page.
+- Updated dependencies [e819276]
+  - @checkstack/backend-api@0.28.0
+  - @checkstack/integration-backend@0.6.10
+
 ## 0.10.4
 
 ### Patch Changes
