@@ -1101,6 +1101,7 @@
         "@orpc/server": "^1.14.4",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.12.25",
+        "jsonpath-plus": "^10.4.0",
         "tdigest": "^0.1.2",
         "yaml": "^2.6.1",
         "zod": "^4.2.1",
@@ -1815,7 +1816,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.120.0",
+      "version": "0.121.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

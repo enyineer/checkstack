@@ -3,7 +3,6 @@ import {
   Logger,
   type EmitHookFn,
   type CollectorRegistry,
-  evaluateAssertions,
   type SafeDatabase,
   type BaseStrategyConfig,
   type ConnectedClient,
@@ -57,6 +56,7 @@ import {
   shouldNotifyTransition,
 } from "./notification-policy";
 import { recordStateTransition } from "./state-transitions";
+import { evaluateCollectorAssertions } from "./collector-assertions";
 import {
   writeHealthEntity,
   createHealthEntitySerializer,
@@ -901,21 +901,14 @@ async function executeHealthCheckJob(props: {
                 collectorError = collectorResult.error;
               }
 
-              // Evaluate per-collector assertions
+              // Evaluate per-collector assertions (plain fields + JSONPath)
               let assertionFailed: string | undefined;
-              if (
-                collectorEntry.assertions &&
-                collectorEntry.assertions.length > 0 &&
-                collectorResult.result
-              ) {
-                const failedAssertion = evaluateAssertions(
-                  collectorEntry.assertions,
-                  collectorResult.result as Record<string, unknown>,
-                );
-                if (failedAssertion) {
-                  assertionFailed = `${failedAssertion.field} ${
-                    failedAssertion.operator
-                  } ${failedAssertion.value ?? ""}`;
+              if (collectorResult.result) {
+                assertionFailed = evaluateCollectorAssertions({
+                  assertions: collectorEntry.assertions,
+                  result: collectorResult.result as Record<string, unknown>,
+                });
+                if (assertionFailed) {
                   logger.debug(
                     `Collector ${storageKey} assertion failed: ${assertionFailed}`,
                   );

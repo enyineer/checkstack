@@ -94,6 +94,10 @@ const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
   jsonpath: [
     { value: "exists", label: "Exists" },
     { value: "notExists", label: "Not Exists" },
+    // Empty = [] / {} / "". A missing path is also "empty": combine with an
+    // `exists` assertion on the same path to require "present but empty".
+    { value: "isEmpty", label: "Is Empty" },
+    { value: "isNotEmpty", label: "Is Not Empty" },
     { value: "equals", label: "Equals" },
     { value: "notEquals", label: "Not Equals" },
     { value: "contains", label: "Contains" },

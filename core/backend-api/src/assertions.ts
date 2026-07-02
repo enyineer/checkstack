@@ -70,6 +70,10 @@ export const DynamicOperators = z.enum([
   // Existence check
   "exists",
   "notExists",
+  // Emptiness check: [] / {} / "" / missing are empty. Pair with `exists` to
+  // assert "present but empty" (isEmpty alone also passes for a missing path).
+  "isEmpty",
+  "isNotEmpty",
   // Numeric operators (value coerced to number at runtime)
   "lessThan",
   "lessThanOrEqual",
@@ -317,6 +321,17 @@ function evaluateOperator(
         return actual.length > 0;
       }
     }
+  }
+
+  // Empty check for plain objects (JSONPath values): {} is empty. Arrays are
+  // handled above by length; strings/missing fall through to the check below.
+  if (
+    (op === "isEmpty" || op === "isNotEmpty") &&
+    actual !== null &&
+    typeof actual === "object"
+  ) {
+    const size = Object.keys(actual).length;
+    return op === "isEmpty" ? size === 0 : size > 0;
   }
 
   // Empty check (for strings)

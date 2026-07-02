@@ -10,6 +10,7 @@ import {
   enumField,
   jsonPathField,
   arrayField,
+  DynamicOperators,
 } from "./assertions";
 import { z } from "zod";
 
@@ -469,5 +470,49 @@ describe("evaluateJsonPathAssertions", () => {
       extractPath
     );
     expect(result).toBe(null);
+  });
+});
+
+describe("dynamic isEmpty / isNotEmpty (JSONPath values)", () => {
+  const extractValue = (path: string, json: unknown) =>
+    (json as Record<string, unknown>)?.[path];
+
+  const evalOne = (operator: string, value: unknown) =>
+    evaluateJsonPathAssertions(
+      [{ path: "v", operator }],
+      { v: value },
+      extractValue
+    );
+
+  it("is part of the DynamicOperators enum", () => {
+    expect(DynamicOperators.options).toContain("isEmpty");
+    expect(DynamicOperators.options).toContain("isNotEmpty");
+  });
+
+  it("treats an empty array as empty and a populated one as not empty", () => {
+    expect(evalOne("isEmpty", [])).toBe(null);
+    expect(evalOne("isNotEmpty", [])).not.toBe(null);
+    expect(evalOne("isEmpty", [1])).not.toBe(null);
+    expect(evalOne("isNotEmpty", [1])).toBe(null);
+  });
+
+  it("treats an empty object as empty and a populated one as not empty", () => {
+    expect(evalOne("isEmpty", {})).toBe(null);
+    expect(evalOne("isNotEmpty", {})).not.toBe(null);
+    expect(evalOne("isEmpty", { a: 1 })).not.toBe(null);
+    expect(evalOne("isNotEmpty", { a: 1 })).toBe(null);
+  });
+
+  it("treats an empty/blank string as empty", () => {
+    expect(evalOne("isEmpty", "")).toBe(null);
+    expect(evalOne("isEmpty", "   ")).toBe(null);
+    expect(evalOne("isEmpty", "x")).not.toBe(null);
+    expect(evalOne("isNotEmpty", "x")).toBe(null);
+  });
+
+  it("treats a missing value as empty (pair with exists to require presence)", () => {
+    expect(evalOne("isEmpty", undefined)).toBe(null);
+    expect(evalOne("isEmpty", null)).toBe(null);
+    expect(evalOne("isNotEmpty", undefined)).not.toBe(null);
   });
 });

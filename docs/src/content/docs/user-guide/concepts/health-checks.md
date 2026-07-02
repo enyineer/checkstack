@@ -157,6 +157,30 @@ as a metric and the assertions decide whether that counts as healthy. Only the
 probe failing to complete at all short-circuits to `unhealthy`. Each
 environment's runs roll up into its own [per-environment health](/checkstack/user-guide/concepts/environments/#per-environment-health) plus the system-wide status.
 
+## Asserting on JSON response bodies
+
+Collectors that return a raw body (for example the HTTP strategy's Request
+collector) expose a **Body (JSONPath)** assertion field. Enter a JSONPath
+expression (like `$.status` or `$.data[0].id`), pick an operator, and the run
+parses the body as JSON, extracts the value at that path, and grades it.
+
+Useful patterns:
+
+- **A key equals a value**: `$.status` with **Equals** `ok`.
+- **No errors reported**: `$.errors` with **Is Empty** - passes for `[]`, `{}`,
+  `""`, or a missing key.
+- **A key exists but is empty**: two assertions on the same path - `$.error`
+  **Exists** plus `$.error` **Is Empty**. `Is Empty` alone also passes when the
+  key is missing entirely; the `Exists` pair pins the shape down.
+- **A list has entries**: `$.items` with **Is Not Empty**, or assert on the
+  count with `$.items.length` and **Greater Than** `0`.
+
+> [!NOTE]
+> A body that is not valid JSON fails the assertion (the run detail shows a
+> diagnostic), not the collection itself. Filter expressions such as
+> `$.items[?(@.x == 1)]` are rejected: they would evaluate user-authored code
+> inside the platform, so only plain path expressions are supported.
+
 ## How a check moves through the system
 
 A simplified view of one run:
