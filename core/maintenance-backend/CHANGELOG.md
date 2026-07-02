@@ -1,5 +1,18 @@
 # @checkstack/maintenance-backend
 
+## 1.8.3
+
+### Patch Changes
+
+- Updated dependencies [e819276]
+- Updated dependencies [e819276]
+  - @checkstack/ai-backend@0.10.5
+  - @checkstack/backend-api@0.28.0
+  - @checkstack/automation-backend@0.10.7
+  - @checkstack/catalog-backend@1.6.5
+  - @checkstack/command-backend@0.2.17
+  - @checkstack/status-page-backend@0.4.4
+
 ## 1.8.2
 
 ### Patch Changes

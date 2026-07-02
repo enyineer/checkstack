@@ -1,5 +1,13 @@
 # @checkstack/theme-backend
 
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies [e819276]
+  - @checkstack/backend-api@0.28.0
+  - @checkstack/auth-backend@0.9.2
+
 ## 0.2.16
 
 ### Patch Changes
