@@ -49,6 +49,7 @@ const diskResultSchema = z.object({
     "x-chart-label": "Total Disk",
     "x-chart-unit": "GB",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   usedGb: healthResultNumber({
     "x-chart-type": "line",
@@ -58,6 +59,8 @@ const diskResultSchema = z.object({
     // the percent form; the absolute GB value drifts with normal growth
     // without being a problem. Kept chartable.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
   availableGb: healthResultNumber({
     "x-chart-type": "line",
@@ -66,6 +69,8 @@ const diskResultSchema = z.object({
     // Off by default: inverse of usedGb and therefore the same absolute twin
     // of usedPercent. Tracked via the percent form instead.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 40,
+    "x-chart-good-direction": "up",
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
@@ -79,6 +84,7 @@ const diskResultSchema = z.object({
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 10,
   }),
   mountPoint: healthResultString({
     "x-chart-type": "text",
@@ -97,6 +103,7 @@ const diskAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-chart-priority": 10,
   }),
   maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
@@ -105,6 +112,8 @@ const diskAggregatedFields = {
     // Off by default: a max rollup alerts on the single peak sample per
     // window. The avg rollup is the stable signal; this stays chartable.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 };
 

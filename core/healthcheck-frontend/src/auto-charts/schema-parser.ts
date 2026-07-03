@@ -7,6 +7,7 @@
  * Supports nested schemas under `collectors.*` for per-collector metrics.
  */
 
+import { z } from "zod";
 import type {
   ChartType,
   JsonSchemaPropertyCore,
@@ -22,7 +23,30 @@ export interface ResultSchemaProperty extends JsonSchemaPropertyCore<ResultSchem
   "x-chart-type"?: ChartType;
   "x-chart-label"?: string;
   "x-chart-unit"?: string;
+  "x-chart-priority"?: number;
+  "x-chart-good-direction"?: "up" | "down";
+  "x-chart-true-label"?: string;
+  "x-chart-false-label"?: string;
+  "x-anomaly-direction"?: string;
 }
+
+/** Priority assigned to fields without an explicit `x-chart-priority`. */
+export const DEFAULT_CHART_PRIORITY = 100;
+
+// Emitted JSON schemas cross a serialization boundary, so the annotation
+// values are validated instead of trusted (a collector could ship anything).
+const prioritySchema = z.number().finite();
+const goodDirectionSchema = z.enum(["up", "down"]);
+const booleanLabelSchema = z.string().min(1);
+const anomalyDirectionSchema = z.enum(["higher-is-better", "lower-is-better"]);
+
+const anomalyToGoodDirection: Record<
+  z.infer<typeof anomalyDirectionSchema>,
+  "up" | "down"
+> = {
+  "higher-is-better": "up",
+  "lower-is-better": "down",
+};
 
 /**
  * JSON Schema for result schemas with chart metadata.
@@ -45,6 +69,18 @@ export interface ChartField {
   schemaType: string;
   /** Collector ID if this field is from a collector (used for data lookup) */
   collectorId?: string;
+  /** Tile sort weight; lower renders earlier. Defaults to 100. */
+  priority: number;
+  /**
+   * Which direction of change is an improvement, for trend coloring. Explicit
+   * `x-chart-good-direction` wins; otherwise derived from
+   * `x-anomaly-direction`; undefined renders neutral trends.
+   */
+  goodDirection?: "up" | "down";
+  /** Prose label for a boolean field's `true` value (e.g. "successful"). */
+  trueLabel?: string;
+  /** Prose label for a boolean field's `false` value (e.g. "failing"). */
+  falseLabel?: string;
 }
 
 /**
@@ -136,12 +172,40 @@ function extractSingleField(
     schemaType = `record<${prop.additionalProperties.type}>`;
   }
 
+  const parsedPriority = prioritySchema.safeParse(prop["x-chart-priority"]);
+  const parsedGoodDirection = goodDirectionSchema.safeParse(
+    prop["x-chart-good-direction"],
+  );
+  const parsedAnomalyDirection = anomalyDirectionSchema.safeParse(
+    prop["x-anomaly-direction"],
+  );
+
+  let goodDirection: "up" | "down" | undefined;
+  if (parsedGoodDirection.success) {
+    goodDirection = parsedGoodDirection.data;
+  } else if (parsedAnomalyDirection.success) {
+    goodDirection = anomalyToGoodDirection[parsedAnomalyDirection.data];
+  }
+
+  const parsedTrueLabel = booleanLabelSchema.safeParse(
+    prop["x-chart-true-label"],
+  );
+  const parsedFalseLabel = booleanLabelSchema.safeParse(
+    prop["x-chart-false-label"],
+  );
+
   return {
     name,
     chartType: prop["x-chart-type"]!,
     label: prop["x-chart-label"] ?? formatFieldName(name),
     unit: prop["x-chart-unit"],
     schemaType,
+    priority: parsedPriority.success
+      ? parsedPriority.data
+      : DEFAULT_CHART_PRIORITY,
+    goodDirection,
+    trueLabel: parsedTrueLabel.success ? parsedTrueLabel.data : undefined,
+    falseLabel: parsedFalseLabel.success ? parsedFalseLabel.data : undefined,
   };
 }
 

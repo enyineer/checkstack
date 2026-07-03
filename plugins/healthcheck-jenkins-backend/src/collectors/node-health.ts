@@ -43,6 +43,7 @@ const nodeHealthResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Total Nodes",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   // Cluster-wide online/offline counts drift with scaling and sit on a
   // near-constant (often near-zero) baseline, which is a poor fit for
@@ -52,11 +53,15 @@ const nodeHealthResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Online Nodes",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "up",
   }),
   offlineNodes: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Offline Nodes",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "down",
   }),
   // Raw executor work counts swing with load and cluster size; the
   // utilization percentage below is the stable saturation signal.
@@ -64,17 +69,20 @@ const nodeHealthResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Busy Executors",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   idleExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Idle Executors",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   // Echo of provisioned capacity; near-constant, no meaningful baseline.
   totalExecutors: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Total Executors",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   // Saturation expressed as a percentage: stable, bounded, maps to a real
   // capacity problem. Kept enabled with a confirmation window and an
@@ -88,6 +96,7 @@ const nodeHealthResultSchema = z.object({
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 10,
   }),
   // For single node mode
   nodeDisplayName: healthResultString({
@@ -98,8 +107,11 @@ const nodeHealthResultSchema = z.object({
   nodeOffline: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Node Offline",
+    "x-chart-true-label": "offline",
+    "x-chart-false-label": "online",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
   }).optional(),
   nodeOfflineReason: healthResultString({
     "x-chart-type": "text",
@@ -118,6 +130,8 @@ const nodeHealthAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Online Nodes",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   avgUtilization: aggregatedAverage({
     "x-chart-type": "gauge",
@@ -128,11 +142,14 @@ const nodeHealthAggregatedFields = {
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 10,
   }),
   minOnlineNodes: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Min Online Nodes",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "up",
   }),
 };
 

@@ -1,4 +1,5 @@
 export * from "./config-secret-markers";
+export * from "./assertion-analytics";
 export * from "./access";
 export * from "./schemas";
 export * from "./run-timing-phases";

@@ -3,6 +3,11 @@ import { TimeSeriesChart, type SeriesPoint } from "@checkstack/ui";
 import type { HealthCheckDiagramSlotContext } from "../slots";
 
 import type { AnomalyBaselineDto } from "@checkstack/anomaly-common";
+import {
+  deriveExpectedBand,
+  deriveTrend,
+  formatBaselineChips,
+} from "../auto-charts/baseline.logic";
 
 interface HealthCheckLatencyChartProps {
   context: HealthCheckDiagramSlotContext;
@@ -20,7 +25,8 @@ interface HealthCheckLatencyChartProps {
  * anomaly baseline exists — a shaded "expected" healthy band plus a dashed
  * reference line at the band's upper bound. Straight raw-bucket segments only
  * (no `monotone` spline), so a spike reads as a spike. Token-driven; no
- * hardcoded colors.
+ * hardcoded colors. Band/trend derivation is shared with the auto-chart tiles
+ * via `auto-charts/baseline.logic`.
  */
 export const HealthCheckLatencyChart: React.FC<
   HealthCheckLatencyChartProps
@@ -46,45 +52,22 @@ export const HealthCheckLatencyChart: React.FC<
       }));
     }
     const observed = avg.filter((p): p is { x: number; y: number } => p.y !== null);
-    const mean =
-      observed.length > 0
-        ? observed.reduce((sum, p) => sum + p.y, 0) / observed.length
-        : 0;
+    let sum = 0;
+    for (const p of observed) sum += p.y;
+    const mean = observed.length > 0 ? sum / observed.length : 0;
     return { avgPoints: avg, p95Points: p95, avgLatency: mean };
   }, [buckets]);
 
   // The "expected" band is sigma/sqrt(n) so it reflects the averaged series the
-  // chart plots, matching the prior Recharts ReferenceArea derivation.
-  const band = useMemo<
-    { from: number; to: number; spread: number } | undefined
-  >(() => {
-    if (!baseline) return;
-    const totalRuns = context.buckets.reduce(
-      (sum, b) => sum + (b.runCount || 1),
-      0,
-    );
-    const avgRunCount = Math.max(
-      1,
-      totalRuns / Math.max(1, context.buckets.length),
-    );
-    const spread = (baseline.stdDev / Math.sqrt(avgRunCount)) * 3;
-    return {
-      from: Math.max(0, baseline.mean - spread),
-      to: baseline.mean + spread,
-      spread,
-    };
-  }, [baseline, context.buckets]);
-
-  // Trend is the slope projected over the baseline window — a rate, surfaced in
-  // the header chip rather than as a chart line so it doesn't share a y-axis
-  // with absolute latency values.
-  const projectedChange = baseline ? baseline.trendSlope * baseline.sampleCount : 0;
-  const showTrend = !!baseline && Math.abs(projectedChange) > 0.01;
-  const driftSigmas =
-    baseline && baseline.stdDev > 0
-      ? Math.abs(projectedChange) / baseline.stdDev
-      : 0;
-  const isDrifting = driftSigmas >= 2;
+  // chart plots; trend is the slope projected over the baseline window,
+  // surfaced as a chip rather than a chart line because it's a rate and shares
+  // no natural axis with absolute latency values.
+  const band = useMemo(
+    () => deriveExpectedBand({ baseline, buckets: context.buckets }),
+    [baseline, context.buckets],
+  );
+  const trend = deriveTrend({ baseline });
+  const chips = formatBaselineChips({ band, trend, unit: "ms" });
 
   if (buckets.length === 0) {
     return (
@@ -100,22 +83,21 @@ export const HealthCheckLatencyChart: React.FC<
   return (
     <div className="space-y-2">
       {showAverage &&
-        (baseline && band ? (
+        (chips.expected ? (
           <div className="flex items-center justify-between text-xs px-1 gap-3">
             <span className="text-[hsl(var(--status-warn))] font-medium">
-              Expected: {baseline.mean.toFixed(0)}ms (±{band.spread.toFixed(0)})
+              {chips.expected}
             </span>
             <div className="flex items-center gap-3">
-              {showTrend && (
+              {chips.trend && (
                 <span
                   className={
-                    isDrifting
+                    chips.trend.drifting
                       ? "text-[hsl(var(--status-warn))] font-medium"
                       : "text-muted-foreground"
                   }
                 >
-                  Trend: {projectedChange >= 0 ? "↑ +" : "↓ "}
-                  {projectedChange.toFixed(0)}ms
+                  {chips.trend.text}
                 </span>
               )}
               <span className="text-muted-foreground">

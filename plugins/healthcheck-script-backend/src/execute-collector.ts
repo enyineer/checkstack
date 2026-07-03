@@ -179,6 +179,8 @@ const executeResultSchema = healthResultSchema({
     // covered by `success`. Charting it stays useful; alerting on it just
     // double-fires (and flaps for scripts that vary their nonzero codes).
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "down",
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
@@ -202,20 +204,29 @@ const executeResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
+    "x-chart-true-label": "timed out",
+    "x-chart-false-label": "completed in time",
     // A timeout always implies `success: false`, so alerting here on top of
     // `success` double-fires on the same incident. Keep it chartable, let
     // `success` carry the alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 });
 
@@ -233,6 +244,7 @@ const executeAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -244,6 +256,7 @@ const executeAggregatedFields = {
     // jitter in the rate.
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
 };
 

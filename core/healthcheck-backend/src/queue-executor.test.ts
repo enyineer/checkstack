@@ -1459,3 +1459,185 @@ describe("recomputeSystemRollupHealth", () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("executeHealthCheckJob - structured assertion outcomes", () => {
+  it("stores _assertions per collector entry and downgrades on failure", async () => {
+    const mockDb = createMockDb();
+    const mockRegistry = createMockRegistry();
+    const mockLogger = createMockLogger();
+    const mockQueueManager = createMockQueueManager();
+    const mockCatalogClient = createMockCatalogClient();
+    const mockMaintenanceClient = createMockMaintenanceClient();
+    const mockIncidentClient = createMockIncidentClient();
+    const mockSignalService = createMockSignalService();
+
+    (mockCatalogClient.getSystem as any) = mock(async () => ({
+      id: "system-1",
+      name: "web-01",
+    }));
+
+    // One collector entry with two assertions: isTrue passes, equals fails.
+    let selectCallCount = 0;
+    (mockDb.select as any) = mock(() => {
+      selectCallCount++;
+      if (selectCallCount === 2) {
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() =>
+                Promise.resolve([
+                  {
+                    configId: "config-1",
+                    configName: "checkout",
+                    strategyId: "test-strategy",
+                    config: { timeout: 5000 },
+                    collectors: [
+                      {
+                        id: "col-1",
+                        collectorId: "test-collector",
+                        config: {},
+                        assertions: [
+                          { field: "ok", operator: "isTrue" },
+                          { field: "code", operator: "equals", value: 200 },
+                        ],
+                      },
+                    ],
+                    interval: 45,
+                    enabled: true,
+                    paused: false,
+                    includeLocal: true,
+                    satelliteIds: [],
+                  },
+                ]),
+              ),
+            })),
+          })),
+        };
+      }
+      return {
+        from: mock(() => ({
+          innerJoin: mock(() => ({
+            where: mock(() => Promise.resolve([])),
+          })),
+        })),
+      };
+    });
+
+    // Capture every insert's values so we can find the stored run.
+    const insertedValues: Record<string, unknown>[] = [];
+    (mockDb.insert as any) = mock(() => ({
+      values: mock((vals: Record<string, unknown>) => {
+        insertedValues.push(vals);
+        return Object.assign(Promise.resolve(), {
+          onConflictDoUpdate: mock(() => Promise.resolve()),
+          onConflictDoNothing: mock(() => Promise.resolve()),
+          returning: mock(() => Promise.resolve([])),
+        });
+      }),
+    }));
+
+    const mockCollectorRegistry = {
+      register: mock(() => {}),
+      getCollector: mock(() => ({
+        collector: {
+          id: "test-collector",
+          execute: mock(async () => ({ result: { ok: true, code: 404 } })),
+          config: new Versioned({ version: 1, schema: z.object({}) }),
+          result: new Versioned({
+            version: 1,
+            schema: z.object({ ok: z.boolean(), code: z.number() }),
+          }),
+          mergeResult: mock(() => ({})),
+        },
+      })),
+      getCollectors: mock(() => []),
+    };
+
+    const queue =
+      mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+    let capturedHandler:
+      | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+      | undefined;
+    (queue.consume as any) = mock(
+      async (
+        handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+      ) => {
+        capturedHandler = handler;
+      },
+    );
+
+    await setupHealthCheckWorker({
+      db: mockDb as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["db"],
+      advisoryLock: mockAdvisoryLock,
+      registry: mockRegistry,
+      collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["collectorRegistry"],
+      logger: mockLogger,
+      queueManager: mockQueueManager,
+      signalService: mockSignalService,
+      catalogClient: mockCatalogClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["catalogClient"],
+      notificationClient: {
+        notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+      } as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["notificationClient"],
+      maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["maintenanceClient"],
+      incidentClient: mockIncidentClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["incidentClient"],
+      getEmitHook: () => undefined,
+      cache: passthroughCache,
+    });
+
+    if (capturedHandler) {
+      // Downstream aggregation touches DB surfaces the lightweight mock
+      // doesn't model; the run insert we assert on happens before that.
+      await capturedHandler({
+        data: { configId: "config-1", systemId: "system-1" },
+      }).catch(() => {});
+    }
+
+    const runInsert = insertedValues.find(
+      (vals) => "status" in vals && "result" in vals,
+    );
+    expect(runInsert).toBeDefined();
+    // The failed `code equals 200` assertion downgrades the run.
+    expect(runInsert?.status).toBe("unhealthy");
+
+    const runResult = runInsert?.result as {
+      metadata: {
+        collectors: Record<
+          string,
+          {
+            _assertionFailed?: string;
+            _assertions?: {
+              field: string;
+              passed: boolean;
+              actual?: string;
+            }[];
+          }
+        >;
+      };
+    };
+    const entry = runResult.metadata.collectors["col-1"];
+    expect(entry._assertionFailed).toBe("code equals 200");
+    expect(entry._assertions?.length).toBe(2);
+    expect(entry._assertions?.[0]).toMatchObject({
+      field: "ok",
+      passed: true,
+      actual: "true",
+    });
+    expect(entry._assertions?.[1]).toMatchObject({
+      field: "code",
+      passed: false,
+      actual: "404",
+    });
+  });
+});

@@ -20,13 +20,17 @@ import {
 import {
   healthCheckAccess,
   healthCheckResourceTypes,
+  healthcheckRoutes,
   HealthCheckApi,
 } from "@checkstack/healthcheck-common";
 import { catalogResourceTypes } from "@checkstack/catalog-common";
+import { resolveRoute } from "@checkstack/common";
+import { useNavigate } from "react-router-dom";
 import { History } from "lucide-react";
 
 const HealthCheckHistoryPageContent = () => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const navigate = useNavigate();
   const accessApi = useApi(accessApiRef);
   // Capability-aware: a team-scoped manager of a health check OR of a system
   // (a system's owning team sees its runs) can review run history too,
@@ -71,6 +75,15 @@ const HealthCheckHistoryPageContent = () => {
             loading={isLoading}
             showFilterColumns
             pagination={pagination}
+            onRowSelect={(run) =>
+              navigate(
+                resolveRoute(healthcheckRoutes.routes.historyRun, {
+                  systemId: run.systemId,
+                  configurationId: run.configurationId,
+                  runId: run.id,
+                }),
+              )
+            }
           />
         </CardContent>
       </Card>

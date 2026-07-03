@@ -65,6 +65,8 @@ const certificateResultSchema = healthResultSchema({
     "x-chart-type": "gauge",
     "x-chart-label": "Days Remaining",
     "x-chart-unit": "days",
+    "x-chart-priority": 10,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": false,
   }),
   // Certificate validity is an availability-style signal: a flip from valid to
@@ -73,6 +75,10 @@ const certificateResultSchema = healthResultSchema({
   valid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
+    "x-chart-true-label": "valid",
+    "x-chart-false-label": "invalid",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
     "x-anomaly-confirmation-window": 3,
@@ -90,6 +96,8 @@ const certificateAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Days Remaining",
     "x-chart-unit": "days",
+    "x-chart-priority": 10,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": false,
   }),
   // Fraction of probes returning a valid certificate. A drop is a real
@@ -99,6 +107,7 @@ const certificateAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Valid Rate",
     "x-chart-unit": "%",
+    "x-chart-priority": 20,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
     "x-anomaly-confirmation-window": 3,

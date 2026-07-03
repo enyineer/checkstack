@@ -49,6 +49,7 @@ const pingResultSchema = healthResultSchema({
   packetsSent: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Sent",
+    "x-chart-priority": 90,
     "x-anomaly-enabled": false,
   }),
   // Absolute twin of packetLoss. The percent form (packetLoss) is the better
@@ -57,6 +58,7 @@ const pingResultSchema = healthResultSchema({
   packetsReceived: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Packets Received",
+    "x-chart-priority": 90,
     "x-anomaly-enabled": false,
   }),
   // Primary saturation signal: packet loss as a percent. Confirmation window
@@ -66,6 +68,7 @@ const pingResultSchema = healthResultSchema({
     "x-chart-type": "gauge",
     "x-chart-label": "Packet Loss",
     "x-chart-unit": "%",
+    "x-chart-priority": 20,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
@@ -78,6 +81,7 @@ const pingResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Min Latency",
     "x-chart-unit": "ms",
+    "x-chart-good-direction": "down",
     "x-anomaly-enabled": false,
   }).optional(),
   // Representative latency signal. Wider band plus a confirmation window and
@@ -86,6 +90,7 @@ const pingResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
@@ -99,6 +104,7 @@ const pingResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Max Latency",
     "x-chart-unit": "ms",
+    "x-chart-good-direction": "down",
     "x-anomaly-enabled": false,
   }).optional(),
 });
@@ -111,6 +117,7 @@ const pingAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Avg Packet Loss",
     "x-chart-unit": "%",
+    "x-chart-priority": 20,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,
@@ -121,6 +128,7 @@ const pingAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Latency",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 1.5,

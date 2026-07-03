@@ -71,9 +71,13 @@ const grpcResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
     "x-anomaly-confirmation-window": 3,
+    "x-chart-good-direction": "up",
+    "x-chart-priority": 20,
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -85,6 +89,7 @@ const grpcResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   // Informational echo of the gRPC status enum. Availability is already
   // captured by the `connected` boolean (dominance), so anomaly on the raw
@@ -94,6 +99,7 @@ const grpcResultSchema = healthResultSchema({
     "x-chart-type": "text",
     "x-chart-label": "Status",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -116,6 +122,7 @@ const grpcAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -137,11 +144,14 @@ const grpcAggregatedFields = {
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
     "x-anomaly-enabled": false,
+    "x-chart-good-direction": "down",
+    "x-chart-priority": 90,
   }),
   servingCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Serving",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
 };
 

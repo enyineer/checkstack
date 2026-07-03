@@ -57,12 +57,17 @@ const commandResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
 });
 
@@ -83,6 +88,7 @@ const commandAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -94,6 +100,7 @@ const commandAggregatedFields = {
     // percent of real movement before alerting.
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
 };
 

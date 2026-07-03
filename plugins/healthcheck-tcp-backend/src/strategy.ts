@@ -72,8 +72,11 @@ const tcpResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-good-direction": "up",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -85,6 +88,7 @@ const tcpResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   banner: healthResultString({
     "x-chart-type": "text",
@@ -114,6 +118,7 @@ const tcpAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -134,6 +139,8 @@ const tcpAggregatedFields = {
     // available; alerting is owned by successRate to avoid duplicate, noisy
     // alerts on the same failures.
     "x-anomaly-enabled": false,
+    "x-chart-good-direction": "down",
+    "x-chart-priority": 90,
   }),
 };
 

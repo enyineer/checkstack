@@ -4,12 +4,14 @@ import {
   calculateLatencyStats,
   countStatuses,
   extractLatencies,
+  foldRunAssertionStats,
   mergeTieredBuckets,
   combineBuckets,
   reaggregateBuckets,
   mergeAggregatedBucketResults,
   type NormalizedBucket,
 } from "./aggregation-utils";
+import { computeAssertionKey } from "@checkstack/healthcheck-common";
 import {
   VersionedAggregated,
   aggregatedCounter,
@@ -979,6 +981,136 @@ describe("aggregation-utils", () => {
       expect((result as Record<string, unknown>).errorCount).toEqual({
         count: 5,
       });
+    });
+  });
+});
+
+describe("assertion stats in aggregation", () => {
+  const KEY = computeAssertionKey({
+    assertion: { field: "statusCode", operator: "equals", value: 200 },
+  });
+
+  const outcome = (passed: boolean) => ({
+    key: KEY,
+    field: "statusCode",
+    operator: "equals",
+    value: "200",
+    passed,
+  });
+
+  describe("foldRunAssertionStats", () => {
+    it("folds outcomes across a bucket's runs per collector entry", () => {
+      const runs = [
+        {
+          metadata: {
+            collectors: {
+              "uuid-1": { _collectorId: "c", _assertions: [outcome(true)] },
+            },
+          },
+        },
+        {
+          metadata: {
+            collectors: {
+              "uuid-1": { _collectorId: "c", _assertions: [outcome(false)] },
+            },
+          },
+        },
+        // Pre-feature run without outcomes is tolerated.
+        { metadata: { collectors: { "uuid-1": { _collectorId: "c" } } } },
+      ];
+      expect(foldRunAssertionStats(runs)).toEqual({
+        "uuid-1": { [KEY]: { passCount: 1, failCount: 1 } },
+      });
+    });
+
+    it("returns undefined when no run carries outcomes", () => {
+      expect(foldRunAssertionStats([{ metadata: {} }, {}])).toBeUndefined();
+    });
+
+    it("ignores malformed outcome entries", () => {
+      const runs = [
+        {
+          metadata: {
+            collectors: {
+              "uuid-1": {
+                _collectorId: "c",
+                _assertions: ["garbage", outcome(true)],
+              },
+            },
+          },
+        },
+      ];
+      expect(foldRunAssertionStats(runs)).toEqual({
+        "uuid-1": { [KEY]: { passCount: 1, failCount: 0 } },
+      });
+    });
+  });
+
+  describe("mergeAggregatedBucketResults with assertion stats", () => {
+    it("merges counts additively and keeps them out of strategy merging", () => {
+      const mergeAggregatedStates = mock(
+        (a: Record<string, unknown>, b: Record<string, unknown>) => ({
+          ...a,
+          ...b,
+        }),
+      );
+      const registry = {
+        getStrategy: mock(() => ({
+          aggregatedResult: { mergeAggregatedStates },
+        })),
+        register: mock(() => {}),
+        getStrategies: mock(() => []),
+        getStrategiesWithMeta: mock(() => []),
+      } as unknown as HealthCheckRegistry;
+      const collectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => undefined),
+        getCollectors: mock(() => []),
+      } as unknown as CollectorRegistry;
+
+      const merged = mergeAggregatedBucketResults({
+        aggregatedResults: [
+          {
+            uptime: 1,
+            assertions: { "uuid-1": { [KEY]: { passCount: 3, failCount: 1 } } },
+          },
+          {
+            uptime: 2,
+            assertions: { "uuid-1": { [KEY]: { passCount: 2, failCount: 0 } } },
+          },
+        ],
+        collectorRegistry,
+        registry,
+        strategyId: "test-strategy",
+      });
+
+      expect(merged?.assertions).toEqual({
+        "uuid-1": { [KEY]: { passCount: 5, failCount: 1 } },
+      });
+      // The strategy merger only ever saw its own fields.
+      for (const call of mergeAggregatedStates.mock.calls) {
+        for (const arg of call) {
+          expect(
+            (arg as Record<string, unknown>).assertions,
+          ).toBeUndefined();
+        }
+      }
+    });
+
+    it("single-bucket results pass through with their stats intact", () => {
+      const { collectorRegistry, registry, strategyId } =
+        createMockRegistries();
+      const only = {
+        assertions: { "uuid-1": { [KEY]: { passCount: 7, failCount: 0 } } },
+      };
+      expect(
+        mergeAggregatedBucketResults({
+          aggregatedResults: [only],
+          collectorRegistry,
+          registry,
+          strategyId,
+        }),
+      ).toBe(only);
     });
   });
 });

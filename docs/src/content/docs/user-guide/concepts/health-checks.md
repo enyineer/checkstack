@@ -106,6 +106,30 @@ Anomalies generate their own notifications and show up on system detail pages, b
 > [!NOTE]
 > Anomaly detection is enabled per check assignment. You will see an Anomaly Detection card on the health-check configuration page if the strategy exposes metrics that support it.
 
+## Assertion analytics
+
+Assertions do not just pass or fail a single run; Checkstack tracks each
+assertion over time so you can see how a specific check has been behaving.
+
+- On any run in the history, the **Assertions** tab lists every assertion the
+  run evaluated, each with a pass or fail marker and the expected value next to
+  the actual value the probe saw. Failing assertions are called out so you can
+  tell at a glance why a run went unhealthy.
+- In a check's drawer, each collector leads with a **pass-rate tile** per
+  assertion. The tile shows the recent pass rate and a small trend, and expands
+  to a timeline of passes and failures per time bucket, so a flaky assertion is
+  obvious even when the overall state looks fine.
+- Editing an assertion starts a fresh history series (the old one stops
+  collecting), so a rate you are looking at always reflects the assertion as it
+  is configured now. A series whose assertion was later removed still shows,
+  marked as no longer configured.
+
+> [!NOTE]
+> Checks executed by [satellites](/checkstack/user-guide/concepts/satellites/)
+> now enforce assertions too. The core grades a satellite's reported result
+> against the check's assertions, so a satellite run that fails an assertion is
+> marked unhealthy just like a locally executed one.
+
 ## Data retention
 
 Raw check results add up quickly. Checkstack aggregates them on a tiered schedule so old data still fuels long-term charts without ballooning the database:

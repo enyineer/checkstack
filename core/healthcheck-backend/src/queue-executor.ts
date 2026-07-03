@@ -60,7 +60,8 @@ import {
   shouldNotifyTransition,
 } from "./notification-policy";
 import { recordStateTransition } from "./state-transitions";
-import { evaluateCollectorAssertions } from "./collector-assertions";
+import { evaluateCollectorAssertionOutcomes } from "./collector-assertions";
+import type { AssertionOutcome } from "@checkstack/healthcheck-common";
 import {
   writeHealthEntity,
   createHealthEntitySerializer,
@@ -947,13 +948,18 @@ async function executeHealthCheckJob(props: {
                 collectorError = collectorResult.error;
               }
 
-              // Evaluate per-collector assertions (plain fields + JSONPath)
+              // Evaluate per-collector assertions (plain fields + JSONPath).
+              // ALL outcomes are stored (pass AND fail) so assertions are
+              // analyzable over time, not only visible on failure.
               let assertionFailed: string | undefined;
+              let assertionOutcomes: AssertionOutcome[] = [];
               if (collectorResult.result) {
-                assertionFailed = evaluateCollectorAssertions({
+                const evaluation = evaluateCollectorAssertionOutcomes({
                   assertions: collectorEntry.assertions,
                   result: collectorResult.result as Record<string, unknown>,
                 });
+                assertionFailed = evaluation.firstFailureMessage;
+                assertionOutcomes = evaluation.outcomes;
                 if (assertionFailed) {
                   logger.debug(
                     `Collector ${storageKey} assertion failed: ${assertionFailed}`,
@@ -977,6 +983,9 @@ async function executeHealthCheckJob(props: {
                   _collectorId: collectorEntry.collectorId,
                   _assertionFailed: assertionFailed,
                   _collectorError: collectorError,
+                  ...(assertionOutcomes.length > 0
+                    ? { _assertions: assertionOutcomes }
+                    : {}),
                   ...strippedResult,
                 },
               };

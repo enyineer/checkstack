@@ -122,8 +122,19 @@ A daily background job manages the data lifecycle:
 2. Groups hourly buckets by day
 3. Calculates weighted-average latency: `SUM(avg * runCount) / SUM(runCount)`
 4. Keeps global min/max latency across all hourly buckets
-5. Inserts daily aggregate (note: P95 and `aggregatedResult` are dropped)
+5. Inserts daily aggregate (note: P95 and `aggregatedResult` are dropped, **except** per-assertion pass/fail counts - see below)
 6. Deletes processed hourly aggregates
+
+> [!NOTE]
+> Per-assertion pass/fail counts are the **only** `aggregatedResult` content that
+> survives the daily rollup. They live under the platform-owned top-level
+> `assertions` key of `aggregatedResult` and are merged additively across the
+> day's hourly buckets, so long-term assertion pass-rate history stays intact
+> even after strategy-specific aggregated data is dropped. The rest of
+> `aggregatedResult` (strategy/collector display fields) is not carried into
+> daily buckets. See
+> [Assertion outcomes and analytics](/checkstack/developer-guide/backend/healthchecks/collectors/#assertion-outcomes-and-analytics)
+> for the shape.
 
 ### Stage 3: Expired Cleanup
 

@@ -44,6 +44,7 @@ const memoryResultSchema = z.object({
     "x-chart-label": "Total Memory",
     "x-chart-unit": "MB",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   usedMb: healthResultNumber({
     "x-chart-type": "line",
@@ -53,6 +54,8 @@ const memoryResultSchema = z.object({
     // saturation signal that maps to a real problem; the MB value drifts with
     // workload without being a problem. Kept chartable.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
   freeMb: healthResultNumber({
     "x-chart-type": "line",
@@ -61,6 +64,8 @@ const memoryResultSchema = z.object({
     // Off by default: inverse of usedMb and therefore the same absolute twin
     // of usedPercent. Tracked via the percent form instead.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 40,
+    "x-chart-good-direction": "up",
   }),
   usedPercent: healthResultNumber({
     "x-chart-type": "gauge",
@@ -73,6 +78,7 @@ const memoryResultSchema = z.object({
     "x-anomaly-sensitivity": 2,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 10,
   }),
   swapUsedMb: healthResultNumber({
     "x-chart-type": "line",
@@ -83,12 +89,15 @@ const memoryResultSchema = z.object({
     // real concern but is better expressed as a static threshold than a
     // baseline anomaly. Kept chartable for opt-in.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }).optional(),
   swapTotalMb: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Swap Total",
     "x-chart-unit": "MB",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }).optional(),
 });
 
@@ -102,6 +111,7 @@ const memoryAggregatedFields = {
     "x-chart-unit": "%",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
+    "x-chart-priority": 10,
   }),
   maxUsedPercent: aggregatedMinMax({
     "x-chart-type": "line",
@@ -110,6 +120,8 @@ const memoryAggregatedFields = {
     // Off by default: a max rollup alerts on the single peak sample per
     // window. The avg rollup is the stable signal; this stays chartable.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
   avgUsedMb: aggregatedAverage({
     "x-chart-type": "line",
@@ -118,6 +130,8 @@ const memoryAggregatedFields = {
     // Off by default: absolute twin of avgUsedPercent. Tracked via the
     // percent rollup instead.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
 };
 

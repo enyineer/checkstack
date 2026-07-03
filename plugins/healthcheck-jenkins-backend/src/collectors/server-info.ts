@@ -45,11 +45,13 @@ const serverInfoResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Executors",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   usableWorkers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Usable Workers",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   // Grows monotonically as jobs are created and varies widely between
   // servers; no stable baseline and no good/bad direction. High
@@ -58,12 +60,14 @@ const serverInfoResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Total Jobs",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   uptime: healthResultNumber({
     "x-chart-type": "line",
     "x-chart-label": "Uptime",
     "x-chart-unit": "hours",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }).optional(),
 });
 
@@ -76,6 +80,7 @@ const serverInfoAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Executors",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   // Job count grows monotonically and varies widely between servers; no
   // stable baseline and no good/bad direction.
@@ -83,6 +88,7 @@ const serverInfoAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Jobs",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
 };
 

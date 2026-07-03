@@ -60,8 +60,12 @@ const sshResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -73,6 +77,7 @@ const sshResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -97,6 +102,7 @@ const sshAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
@@ -107,6 +113,8 @@ const sshAggregatedFields = {
     // already covers sustained latency regressions, so keep this off by default
     // (still chartable for tail-latency inspection).
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -118,6 +126,7 @@ const sshAggregatedFields = {
     // of real movement before alerting.
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -127,6 +136,8 @@ const sshAggregatedFields = {
     // volume rather than with a real problem. Availability is already covered
     // by successRate (the percent form), so prefer that and keep this off.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 };
 

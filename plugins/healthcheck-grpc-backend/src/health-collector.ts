@@ -46,6 +46,7 @@ const grpcHealthResultSchema = healthResultSchema({
     "x-chart-type": "text",
     "x-chart-label": "Status",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
   }),
   // Canonical availability signal. Dominance flip (SERVING -> not) is the
   // real problem. A confirmation window debounces single-sample flaps so a
@@ -53,9 +54,13 @@ const grpcHealthResultSchema = healthResultSchema({
   serving: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Serving",
+    "x-chart-true-label": "serving",
+    "x-chart-false-label": "not serving",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
     "x-anomaly-confirmation-window": 3,
+    "x-chart-good-direction": "up",
+    "x-chart-priority": 20,
   }),
   responseTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -67,6 +72,7 @@ const grpcHealthResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
 });
 
@@ -84,6 +90,7 @@ const healthAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   servingRate: aggregatedRate({
     "x-chart-type": "gauge",

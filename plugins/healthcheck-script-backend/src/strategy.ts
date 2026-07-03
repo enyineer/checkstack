@@ -64,8 +64,12 @@ const scriptResultSchema = healthResultSchema({
   executed: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Executed",
+    "x-chart-true-label": "executed",
+    "x-chart-false-label": "not executed",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "up",
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -77,6 +81,7 @@ const scriptResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   exitCode: healthResultNumber({
     "x-chart-type": "counter",
@@ -84,19 +89,29 @@ const scriptResultSchema = healthResultSchema({
     // Arbitrary integer with no stable distribution; the pass/fail signal
     // it carries is already covered by `success`. Keep chartable only.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "down",
   }).optional(),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
+    "x-chart-true-label": "timed out",
+    "x-chart-false-label": "completed in time",
     // Always implies `success: false`; alerting here as well double-fires
     // on the same incident. Keep chartable, let `success` carry the alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -119,6 +134,7 @@ const scriptAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -128,6 +144,7 @@ const scriptAggregatedFields = {
     "x-anomaly-direction": "higher-is-better",
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -136,6 +153,8 @@ const scriptAggregatedFields = {
     // with bucket volume and has no stable baseline. Prefer the percent
     // form (`successRate`) for alerting and keep this chartable only.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
   timeoutCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -143,6 +162,8 @@ const scriptAggregatedFields = {
     // Same as errorCount: a volume-scaled absolute twin of the failure
     // rate already expressed by `successRate`. Chartable only.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 };
 

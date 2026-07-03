@@ -200,6 +200,8 @@ const httpAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
     // Off by default: a raw per-bucket error COUNT scales with how many runs
     // land in the bucket, so it has no stable baseline and drifts with traffic
     // volume. The percent form of the same signal (`successRate`) is the one

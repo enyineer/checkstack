@@ -1,4 +1,11 @@
 import type { SafeDatabase, CollectorRegistry } from "@checkstack/backend-api";
+import {
+  ASSERTIONS_AGG_KEY,
+  AssertionOutcomeSchema,
+  foldOutcomesIntoStats,
+  readAssertionStats,
+  type AssertionOutcome,
+} from "@checkstack/healthcheck-common";
 import { TDigest } from "tdigest";
 import * as schema from "./schema";
 import { healthCheckAggregates } from "./schema";
@@ -269,6 +276,31 @@ function mergeCollectorResults(params: {
     return existingResult ?? undefined;
   }
 
+  // Fold this run's structured assertion outcomes into the bucket's
+  // per-assertion pass/fail counts (a PLATFORM-owned top-level key, sibling
+  // of `collectors`, so collector mergers never see it). Folded for every
+  // entry that carries outcomes, even collectors without a mergeResult.
+  let assertionStats = readAssertionStats({
+    aggregatedResult: existingResult ?? undefined,
+  });
+  if (runCollectors) {
+    for (const [uuid, collectorData] of Object.entries(runCollectors)) {
+      const rawOutcomes = collectorData._assertions;
+      if (!Array.isArray(rawOutcomes) || rawOutcomes.length === 0) continue;
+      const outcomes: AssertionOutcome[] = [];
+      for (const raw of rawOutcomes) {
+        const parsed = AssertionOutcomeSchema.safeParse(raw);
+        if (parsed.success) outcomes.push(parsed.data);
+      }
+      if (outcomes.length === 0) continue;
+      assertionStats = foldOutcomesIntoStats({
+        stats: assertionStats,
+        collectorEntryId: uuid,
+        outcomes,
+      });
+    }
+  }
+
   // Start with existing collectors or empty object
   const existingCollectors = (existingResult?.collectors ?? {}) as Record<
     string,
@@ -291,7 +323,7 @@ function mergeCollectorResults(params: {
       const existingAggregate = existingCollectors[uuid];
 
       // Strip internal fields from collector data for the run
-      const { _collectorId, _assertionFailed, ...collectorMetadata } =
+      const { _collectorId, _assertionFailed, _assertions, ...collectorMetadata } =
         collectorData;
 
       // Call the collector's mergeResult
@@ -313,5 +345,10 @@ function mergeCollectorResults(params: {
     }
   }
 
-  return { collectors: mergedCollectors };
+  return {
+    collectors: mergedCollectors,
+    ...(assertionStats === undefined
+      ? {}
+      : { [ASSERTIONS_AGG_KEY]: assertionStats }),
+  };
 }

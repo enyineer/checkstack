@@ -53,6 +53,7 @@ const minecraftServerResultSchema = z.object({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 2,
     "x-anomaly-min-relative-delta": 0.1,
+    "x-chart-priority": 10,
   }).optional(),
 });
 
@@ -71,6 +72,7 @@ const minecraftServerAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 2,
     "x-anomaly-min-relative-delta": 0.1,
+    "x-chart-priority": 10,
   }),
   minTps: aggregatedMinMax({
     "x-chart-type": "line",
@@ -79,6 +81,8 @@ const minecraftServerAggregatedFields = {
     // far noisier than the average twin we keep enabled. Disable to avoid
     // alert fatigue from one-off lag spikes.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "up",
   }),
 };
 

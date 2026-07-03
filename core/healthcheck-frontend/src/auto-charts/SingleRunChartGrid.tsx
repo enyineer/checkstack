@@ -1,22 +1,25 @@
 /**
- * SingleRunChartGrid - Renders auto-generated charts for a single health check run.
+ * SingleRunChartGrid - Renders auto-generated value tiles for a single health
+ * check run.
  *
  * Unlike AutoChartGrid which shows time series data, this component displays
- * static values from a single run's result/metadata.
+ * static values from a single run's result/metadata, in the same compact
+ * left-aligned tile grid as the timeline view.
  */
 
 import type { ChartField } from "./schema-parser";
 import { extractChartFields, getFieldValue } from "./schema-parser";
 import { useStrategySchemas } from "./useStrategySchemas";
 import {
-  Badge,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   RadialGauge,
-  type GaugeCaptionTone,
+  StatTile,
+  type StatTileProps,
 } from "@checkstack/ui";
+import { formatMetricValue, gaugeTone } from "./tile-model.logic";
 
 interface SingleRunChartGridProps {
   /** Strategy ID (qualified, e.g., "healthcheck-http-backend.http") */
@@ -26,7 +29,7 @@ interface SingleRunChartGridProps {
 }
 
 /**
- * Main component that renders a grid of charts for a single run.
+ * Main component that renders a grid of value tiles for a single run.
  */
 export function SingleRunChartGrid({
   strategyId,
@@ -69,14 +72,16 @@ export function SingleRunChartGrid({
     <div className="space-y-6">
       {/* Strategy-level fields */}
       {strategyFields.length > 0 && (
-        <div className="space-y-4">
-          {strategyFields.map((field) => (
-            <SingleValueCard
-              key={field.name}
-              field={field}
-              value={getFieldValue(metadata, field.name)}
-            />
-          ))}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {strategyFields
+            .toSorted((a, b) => a.priority - b.priority)
+            .map((field) => (
+              <SingleValueTile
+                key={field.name}
+                field={field}
+                value={getFieldValue(metadata, field.name)}
+              />
+            ))}
         </div>
       )}
 
@@ -117,7 +122,8 @@ interface CollectorSectionProps {
 }
 
 /**
- * Section for a single collector instance.
+ * Section for a single collector instance. The qualified collector id and the
+ * instance uuid are demoted to a hover title on the header.
  */
 function CollectorSection({
   instanceId,
@@ -130,15 +136,12 @@ function CollectorSection({
   const collectorError = data._collectorError as string | undefined;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap border-b pb-2">
-        <h3 className="text-lg font-semibold capitalize">{displayName}</h3>
-        <Badge variant="outline" className="font-mono">
-          {collectorId}
-        </Badge>
-        <span className="text-xs text-muted-foreground font-mono">
-          {instanceId.slice(0, 8)}
-        </span>
+    <div className="space-y-3">
+      <div
+        className="flex flex-wrap items-baseline gap-2 border-b border-border/60 pb-2"
+        title={`${collectorId} · ${instanceId}`}
+      >
+        <h3 className="text-sm font-medium capitalize">{displayName}</h3>
       </div>
 
       {/* Assertion status if present */}
@@ -173,194 +176,114 @@ function CollectorSection({
         </Card>
       )}
 
-      <div className="space-y-4">
-        {fields.map((field) => (
-          <SingleValueCard
-            key={field.name}
-            field={field}
-            value={getFieldValue(data, field.name)}
-          />
-        ))}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {fields
+          .toSorted((a, b) => a.priority - b.priority)
+          .map((field) => (
+            <SingleValueTile
+              key={field.name}
+              field={field}
+              value={getFieldValue(data, field.name)}
+            />
+          ))}
       </div>
     </div>
   );
 }
 
-interface SingleValueCardProps {
+interface SingleValueTileProps {
   field: ChartField;
   value: unknown;
 }
 
 /**
- * Card displaying a single value based on its chart type.
+ * One field's value as a compact tile. Gauges keep the quiet RadialGauge;
+ * everything else is a number-led StatTile.
  */
-function SingleValueCard({ field, value }: SingleValueCardProps) {
+function SingleValueTile({ field, value }: SingleValueTileProps) {
+  if (field.chartType === "gauge") {
+    const numValue = typeof value === "number" ? value : Number(value);
+    if (!Number.isNaN(numValue) && value !== undefined && value !== null) {
+      const clamped = Math.min(100, Math.max(0, numValue));
+      const unit = field.unit ?? "%";
+      return (
+        <div className="rounded-[var(--d-card-r)] border border-border/70 bg-card p-3">
+          <span className="block truncate text-xs text-muted-foreground">
+            {field.label}
+          </span>
+          <div className="mt-1 flex justify-center">
+            <RadialGauge
+              variant="quiet"
+              width={140}
+              value={clamped / 100}
+              displayValue={formatMetricValue({ value: clamped, unit })}
+              captionTone={mapTone(
+                gaugeTone({ value: clamped, goodDirection: field.goodDirection }),
+              )}
+              ariaLabel={`${field.label}: ${formatMetricValue({ value: clamped, unit })}`}
+            />
+          </div>
+        </div>
+      );
+    }
+  }
+
+  const { text, tone } = formatSingleValue({ field, value });
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-center">
-          {field.label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center text-center [&>*]:w-full">
-        <SingleValueRenderer field={field} value={value} />
-      </CardContent>
-    </Card>
+    <StatTile
+      label={field.label}
+      value={text}
+      tone={tone}
+      hoverTitle={typeof value === "string" ? value : undefined}
+    />
   );
 }
 
-interface SingleValueRendererProps {
-  field: ChartField;
-  value: unknown;
+function mapTone(
+  tone: "ok" | "warn" | "down" | "unknown" | "default",
+): "ok" | "warn" | "down" | "muted" {
+  return tone === "unknown" || tone === "default" ? "muted" : tone;
 }
 
-/**
- * Dispatches to appropriate renderer based on chart type.
- */
-function SingleValueRenderer({ field, value }: SingleValueRendererProps) {
+/** Format a single run value per chart type, with a status tone. */
+function formatSingleValue({
+  field,
+  value,
+}: {
+  field: ChartField;
+  value: unknown;
+}): { text: string; tone: StatTileProps["tone"] } {
+  if (value === undefined || value === null || value === "") {
+    return field.chartType === "status"
+      ? { text: "No errors", tone: "default" }
+      : { text: "—", tone: "default" };
+  }
+
   switch (field.chartType) {
     case "line":
-    case "counter": {
-      return <NumberRenderer value={value} unit={field.unit} />;
-    }
+    case "counter":
     case "gauge": {
-      return <GaugeRenderer value={value} unit={field.unit} />;
+      const numValue = typeof value === "number" ? value : Number(value);
+      if (Number.isNaN(numValue)) {
+        return { text: String(value), tone: "default" };
+      }
+      return {
+        text: formatMetricValue({ value: numValue, unit: field.unit ?? "" }),
+        tone: "default",
+      };
     }
     case "boolean": {
-      return <BooleanRenderer value={value} />;
-    }
-    case "text": {
-      return <TextRenderer value={value} />;
+      const boolValue = Boolean(value);
+      return {
+        text: boolValue ? "Yes" : "No",
+        tone: boolValue ? "ok" : "down",
+      };
     }
     case "status": {
-      return <StatusRenderer value={value} />;
-    }
-    case "bar":
-    case "pie": {
-      // For bar/pie, just show the value since we can't do distributions with a single point
-      return <TextRenderer value={value} />;
+      return { text: String(value), tone: "down" };
     }
     default: {
-      return <TextRenderer value={value} />;
+      return { text: String(value), tone: "default" };
     }
   }
-}
-
-/**
- * Renders a numeric value with optional unit.
- */
-function NumberRenderer({ value, unit }: { value: unknown; unit?: string }) {
-  if (value === undefined || value === null) {
-    return <div className="text-muted-foreground">—</div>;
-  }
-
-  const numValue = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(numValue)) {
-    return <div className="text-muted-foreground">{String(value)}</div>;
-  }
-
-  const formatted = Number.isInteger(numValue)
-    ? String(numValue)
-    : numValue.toFixed(2);
-
-  return (
-    <div className="text-2xl font-bold">
-      {formatted}
-      {unit && (
-        <span className="text-sm font-normal text-muted-foreground ml-1">
-          {unit}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/**
- * Renders a percentage gauge visualization.
- */
-function GaugeRenderer({ value, unit }: { value: unknown; unit?: string }) {
-  if (value === undefined || value === null) {
-    return <div className="text-muted-foreground">—</div>;
-  }
-
-  const numValue = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(numValue)) {
-    return <div className="text-muted-foreground">{String(value)}</div>;
-  }
-
-  const clampedValue = Math.min(100, Math.max(0, numValue));
-  const displayUnit = unit ?? "%";
-
-  // Tone follows value (higher is better for rate-style gauges).
-  const captionTone: GaugeCaptionTone =
-    clampedValue >= 90 ? "ok" : clampedValue >= 70 ? "warn" : "down";
-
-  return (
-    <div className="flex items-center justify-center">
-      <RadialGauge
-        variant="quiet"
-        width={140}
-        value={clampedValue / 100}
-        displayValue={`${clampedValue.toFixed(1)}${displayUnit}`}
-        captionTone={captionTone}
-        ariaLabel={`${clampedValue.toFixed(1)}${displayUnit}`}
-      />
-    </div>
-  );
-}
-
-/**
- * Renders a boolean indicator.
- */
-function BooleanRenderer({ value }: { value: unknown }) {
-  if (value === undefined || value === null) {
-    return <div className="text-muted-foreground">—</div>;
-  }
-
-  const boolValue = Boolean(value);
-
-  return (
-    <div className="flex items-center justify-center gap-2">
-      <div
-        className={`w-3 h-3 rounded-full ${
-          boolValue ? "bg-status-ok" : "bg-status-down"
-        }`}
-      />
-      <span className={boolValue ? "text-status-ok" : "text-status-down"}>
-        {boolValue ? "Yes" : "No"}
-      </span>
-    </div>
-  );
-}
-
-/**
- * Renders a text value.
- */
-function TextRenderer({ value }: { value: unknown }) {
-  if (value === undefined || value === null || value === "") {
-    return <div className="text-muted-foreground">—</div>;
-  }
-
-  const strValue = String(value);
-
-  return (
-    <div className="text-sm font-mono truncate" title={strValue}>
-      {strValue}
-    </div>
-  );
-}
-
-/**
- * Renders an error/status badge.
- */
-function StatusRenderer({ value }: { value: unknown }) {
-  if (value === undefined || value === null || value === "") {
-    return <div className="text-sm text-muted-foreground">No errors</div>;
-  }
-
-  return (
-    <div className="text-sm text-status-down bg-status-down/10 px-2 py-1 rounded truncate">
-      {String(value)}
-    </div>
-  );
 }

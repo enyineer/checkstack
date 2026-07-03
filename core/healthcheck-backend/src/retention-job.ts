@@ -8,6 +8,12 @@ import {
   DEFAULT_RETENTION_CONFIG,
 } from "./schema";
 import { eq, and, lt, sql, desc } from "drizzle-orm";
+import {
+  ASSERTIONS_AGG_KEY,
+  mergeAssertionStats,
+  readAssertionStats,
+  type BucketAssertionStats,
+} from "@checkstack/healthcheck-common";
 import type { QueueManager } from "@checkstack/queue-api";
 
 type Db = SafeDatabase<typeof schema>;
@@ -244,6 +250,8 @@ export interface HourlyAggregateRow {
   minLatencyMs: number | null;
   maxLatencyMs: number | null;
   p95LatencyMs: number | null;
+  /** Carried for the per-assertion pass/fail counts (additive across hours). */
+  aggregatedResult?: Record<string, unknown> | null;
 }
 
 /** A computed daily aggregate ready to upsert. */
@@ -261,6 +269,12 @@ export interface DailyAggregateValues {
   minLatencyMs: number | undefined;
   maxLatencyMs: number | undefined;
   p95LatencyMs: number | undefined;
+  /**
+   * Summed per-assertion pass/fail counts across the day's hourly buckets.
+   * The ONLY part of `aggregatedResult` that survives the daily rollup —
+   * assertion counts are purely additive, unlike strategy/collector states.
+   */
+  assertionStats: BucketAssertionStats | undefined;
 }
 
 /**
@@ -296,6 +310,7 @@ export function buildDailyAggregates(
     let degradedCount = 0;
     let unhealthyCount = 0;
     let latencySumMs = 0;
+    let assertionStats: BucketAssertionStats | undefined;
 
     for (const a of rows) {
       runCount += a.runCount;
@@ -308,6 +323,12 @@ export function buildDailyAggregates(
       } else if (a.avgLatencyMs !== null) {
         latencySumMs += a.avgLatencyMs * a.runCount;
       }
+      assertionStats = mergeAssertionStats({
+        a: assertionStats,
+        b: readAssertionStats({
+          aggregatedResult: a.aggregatedResult ?? undefined,
+        }),
+      });
     }
 
     const minValues = rows
@@ -336,6 +357,7 @@ export function buildDailyAggregates(
       maxLatencyMs: maxValues.length > 0 ? Math.max(...maxValues) : undefined,
       // Use max of hourly p95s as an upper-bound approximation.
       p95LatencyMs: p95Values.length > 0 ? Math.max(...p95Values) : undefined,
+      assertionStats,
     });
   }
 
@@ -370,6 +392,42 @@ async function rollupHourlyAggregates(params: RollupParams) {
   // Fold into daily aggregates, preserving (day, environmentId, sourceId) series.
   for (const daily of buildDailyAggregates(oldHourly)) {
     const newLatencySum = daily.latencySumMs;
+
+    // Assertion pass/fail counts are the ONLY aggregatedResult content that
+    // survives the daily rollup (strategy/collector states cannot combine
+    // across hours). The conflict path merges in JS by pre-reading the
+    // existing daily row — safe because retention runs in a single work-queue
+    // consumer group, so there is no concurrent writer for this tuple.
+    let dailyAggregatedResult: Record<string, unknown> | undefined;
+    if (daily.assertionStats !== undefined) {
+      const [existingDaily] = await db
+        .select({ aggregatedResult: healthCheckAggregates.aggregatedResult })
+        .from(healthCheckAggregates)
+        .where(
+          and(
+            eq(healthCheckAggregates.systemId, systemId),
+            eq(healthCheckAggregates.configurationId, configurationId),
+            eq(healthCheckAggregates.bucketSize, "daily"),
+            eq(healthCheckAggregates.bucketStart, daily.bucketStart),
+            daily.environmentId === null
+              ? sql`${healthCheckAggregates.environmentId} IS NULL`
+              : eq(healthCheckAggregates.environmentId, daily.environmentId),
+            daily.sourceId === null
+              ? sql`${healthCheckAggregates.sourceId} IS NULL`
+              : eq(healthCheckAggregates.sourceId, daily.sourceId),
+          ),
+        );
+      const mergedStats = mergeAssertionStats({
+        a: readAssertionStats({
+          aggregatedResult: existingDaily?.aggregatedResult ?? undefined,
+        }),
+        b: daily.assertionStats,
+      });
+      if (mergedStats !== undefined) {
+        dailyAggregatedResult = { [ASSERTIONS_AGG_KEY]: mergedStats };
+      }
+    }
+
     // Upsert the daily aggregate. A row may already exist for this
     // (configurationId, systemId, environmentId, day, daily, sourceId) tuple if
     // a prior rollup ran and then late-arriving hourly buckets (e.g. from a
@@ -394,7 +452,8 @@ async function rollupHourlyAggregates(params: RollupParams) {
         minLatencyMs: daily.minLatencyMs,
         maxLatencyMs: daily.maxLatencyMs,
         p95LatencyMs: daily.p95LatencyMs,
-        aggregatedResult: undefined, // Cannot combine result across hours
+        // Only the additive assertion counts survive across hours.
+        aggregatedResult: dailyAggregatedResult,
       })
       .onConflictDoUpdate({
         target: [...DAILY_AGGREGATE_CONFLICT_TARGET],
@@ -417,6 +476,10 @@ async function rollupHourlyAggregates(params: RollupParams) {
             daily.p95LatencyMs === undefined
               ? sql`${healthCheckAggregates.p95LatencyMs}`
               : sql`GREATEST(COALESCE(${healthCheckAggregates.p95LatencyMs}, ${daily.p95LatencyMs}), ${daily.p95LatencyMs})`,
+          // JS-merged above (existing row's counts + this rollup's counts).
+          ...(dailyAggregatedResult === undefined
+            ? {}
+            : { aggregatedResult: dailyAggregatedResult }),
         },
       });
   }

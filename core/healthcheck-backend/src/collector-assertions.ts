@@ -1,8 +1,12 @@
+import { evaluateAssertion } from "@checkstack/backend-api";
+import type {
+  AssertionOutcome,
+  CollectorAssertion,
+} from "@checkstack/healthcheck-common";
 import {
-  evaluateAssertions,
-  evaluateJsonPathAssertions,
-} from "@checkstack/backend-api";
-import type { CollectorAssertion } from "@checkstack/healthcheck-common";
+  computeAssertionKey,
+  truncateActual,
+} from "@checkstack/healthcheck-common";
 import { extractErrorMessage } from "@checkstack/common";
 import { JSONPath } from "jsonpath-plus";
 
@@ -69,9 +73,23 @@ function formatFailure({
   return detail ? `${base} (${detail})` : base;
 }
 
+/** All outcomes of a collector's assertions plus the legacy failure string. */
+export interface CollectorAssertionEvaluation {
+  /** One structured outcome per configured assertion, in config order. */
+  outcomes: AssertionOutcome[];
+  /**
+   * The FIRST failing assertion's message, formatted exactly like the legacy
+   * `_assertionFailed` string. Undefined when everything passed.
+   */
+  firstFailureMessage?: string;
+}
+
 /**
- * Evaluate a collector's assertions - plain field assertions AND JSONPath
- * assertions - against its result, in the order they were configured.
+ * Evaluate ALL of a collector's assertions - plain field assertions AND
+ * JSONPath assertions - against its result, in the order they were
+ * configured, returning a structured outcome per assertion (pass AND fail;
+ * this is what makes assertions analyzable rather than only visible on
+ * failure).
  *
  * Plain assertions compare `result[field]` directly (unchanged behaviour).
  * JSONPath assertions parse the SOURCE field (e.g. `body` for the field
@@ -79,18 +97,15 @@ function formatFailure({
  * apply the operator to the extracted value. Fail-closed: a missing
  * expression, a non-JSON source value, or an invalid/eval-blocked path fails
  * the assertion (with a diagnostic suffix) - it never fails the collector.
- *
- * Returns the failure message of the FIRST failing assertion, or `undefined`
- * when all pass.
  */
-export function evaluateCollectorAssertions({
+export function evaluateCollectorAssertionOutcomes({
   assertions,
   result,
 }: {
   assertions: CollectorAssertion[] | undefined;
   result: Record<string, unknown>;
-}): string | undefined {
-  if (!assertions?.length) return undefined;
+}): CollectorAssertionEvaluation {
+  if (!assertions?.length) return { outcomes: [] };
 
   // Parse each JSON source field at most once, not once per assertion.
   const parsedSources = new Map<string, { json?: unknown; error?: string }>();
@@ -116,19 +131,72 @@ export function evaluateCollectorAssertions({
     return entry;
   };
 
+  const outcomes: AssertionOutcome[] = [];
+  let firstFailureMessage: string | undefined;
+
+  const baseOutcome = (assertion: CollectorAssertion) => ({
+    key: computeAssertionKey({ assertion }),
+    field: assertion.field,
+    jsonPath: assertion.jsonPath?.trim() || undefined,
+    operator: assertion.operator,
+    value:
+      assertion.value === undefined ? undefined : String(assertion.value),
+  });
+
+  const recordFailure = ({
+    assertion,
+    actual,
+    message,
+    legacyMessage,
+  }: {
+    assertion: CollectorAssertion;
+    actual?: unknown;
+    message: string;
+    legacyMessage: string;
+  }) => {
+    outcomes.push({
+      ...baseOutcome(assertion),
+      passed: false,
+      actual: actual === undefined ? undefined : truncateActual({ value: actual }),
+      message,
+    });
+    if (firstFailureMessage === undefined) firstFailureMessage = legacyMessage;
+  };
+
   for (const assertion of assertions) {
     if (!isJsonPathAssertion(assertion)) {
-      const failed = evaluateAssertions([assertion], result);
-      if (failed) return formatFailure({ assertion: failed });
+      const evaluated = evaluateAssertion(assertion, result);
+      if (evaluated.passed) {
+        outcomes.push({
+          ...baseOutcome(assertion),
+          passed: true,
+          actual:
+            evaluated.actual === undefined
+              ? undefined
+              : truncateActual({ value: evaluated.actual }),
+        });
+      } else {
+        recordFailure({
+          assertion,
+          actual: evaluated.actual,
+          message: evaluated.message ?? formatFailure({ assertion }),
+          legacyMessage: formatFailure({ assertion }),
+        });
+      }
       continue;
     }
 
     const path = assertion.jsonPath?.trim();
     if (!path) {
-      return formatFailure({
+      recordFailure({
         assertion,
-        detail: "missing JSONPath expression",
+        message: "missing JSONPath expression",
+        legacyMessage: formatFailure({
+          assertion,
+          detail: "missing JSONPath expression",
+        }),
       });
+      continue;
     }
 
     const sourceField = assertion.field.endsWith(JSONPATH_FIELD_SUFFIX)
@@ -136,34 +204,73 @@ export function evaluateCollectorAssertions({
       : assertion.field;
     const source = parseSource(sourceField);
     if (source.error) {
-      return formatFailure({ assertion, detail: source.error });
+      recordFailure({
+        assertion,
+        message: source.error,
+        legacyMessage: formatFailure({ assertion, detail: source.error }),
+      });
+      continue;
     }
 
     try {
-      const failed = evaluateJsonPathAssertions(
-        [
-          {
-            path,
-            operator: assertion.operator,
-            value:
-              assertion.value === undefined
-                ? undefined
-                : String(assertion.value),
-          },
-        ],
-        source.json,
-        extractJsonPath,
+      // Extract once, then reuse the shared operator engine on a synthetic
+      // one-field record so the outcome carries the observed value.
+      const extracted = extractJsonPath(path, source.json);
+      const evaluated = evaluateAssertion(
+        {
+          field: "__jsonpath__",
+          operator: assertion.operator,
+          value:
+            assertion.value === undefined
+              ? undefined
+              : String(assertion.value),
+        },
+        { __jsonpath__: extracted },
       );
-      if (failed) return formatFailure({ assertion });
+      if (evaluated.passed) {
+        outcomes.push({
+          ...baseOutcome(assertion),
+          passed: true,
+          actual:
+            extracted === undefined
+              ? undefined
+              : truncateActual({ value: extracted }),
+        });
+      } else {
+        recordFailure({
+          assertion,
+          actual: extracted,
+          message: evaluated.message ?? formatFailure({ assertion }),
+          legacyMessage: formatFailure({ assertion }),
+        });
+      }
     } catch (error) {
       // jsonpath-plus rejects malformed paths and (with eval disabled)
       // filter/script expressions by throwing.
-      return formatFailure({
+      const detail = `invalid JSONPath: ${extractErrorMessage(error)}`;
+      recordFailure({
         assertion,
-        detail: `invalid JSONPath: ${extractErrorMessage(error)}`,
+        message: detail,
+        legacyMessage: formatFailure({ assertion, detail }),
       });
     }
   }
 
-  return undefined;
+  return { outcomes, firstFailureMessage };
+}
+
+/**
+ * Legacy single-string view of {@link evaluateCollectorAssertionOutcomes}:
+ * the failure message of the FIRST failing assertion, or `undefined` when all
+ * pass. Kept for callers that only need the `_assertionFailed` string.
+ */
+export function evaluateCollectorAssertions({
+  assertions,
+  result,
+}: {
+  assertions: CollectorAssertion[] | undefined;
+  result: Record<string, unknown>;
+}): string | undefined {
+  return evaluateCollectorAssertionOutcomes({ assertions, result })
+    .firstFailureMessage;
 }

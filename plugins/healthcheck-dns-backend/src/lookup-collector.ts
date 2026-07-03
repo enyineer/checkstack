@@ -42,11 +42,13 @@ const lookupResultSchema = healthResultSchema({
   values: healthResultArray({
     "x-chart-type": "text",
     "x-chart-label": "Resolved Values",
+    "x-chart-priority": 50,
     "x-anomaly-enabled": false,
   }),
   recordCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Record Count",
+    "x-chart-priority": 90,
     // Off by default: the number of records a name returns legitimately
     // varies run to run (round-robin A sets, CDN rotation, MX/NS changes),
     // so a learned baseline over it produces alert fatigue rather than real
@@ -58,6 +60,7 @@ const lookupResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Resolution Time",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     // Latency is a stable, baseline-able signal. Err wider and debounce so a
     // single slow lookup does not page; floors keep fast resolvers from
     // alerting on small absolute jitter.
@@ -78,6 +81,7 @@ const lookupAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Resolution Time",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     // Bucket-averaged latency. Wider band plus debounce keeps a single slow
     // bucket from paging; floors avoid alerting on small absolute drift.
     "x-anomaly-enabled": true,
@@ -91,6 +95,7 @@ const lookupAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-chart-priority": 20,
     // Availability percent: the primary real-problem signal. Debounce one
     // bucket of transient dips and require a few percent of real drop before
     // alerting.

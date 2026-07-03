@@ -142,8 +142,12 @@ const inlineScriptResultSchema = healthResultSchema({
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   message: healthResultString({
     "x-chart-type": "text",
@@ -170,13 +174,18 @@ const inlineScriptResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   timedOut: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Timed Out",
+    "x-chart-true-label": "timed out",
+    "x-chart-false-label": "completed in time",
     // Always implies `success: false`; alerting here as well double-fires
     // on the same incident. Keep chartable, let `success` carry the alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 });
 
@@ -194,6 +203,7 @@ const inlineScriptAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -203,6 +213,7 @@ const inlineScriptAggregatedFields = {
     "x-anomaly-direction": "higher-is-better",
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
 };
 

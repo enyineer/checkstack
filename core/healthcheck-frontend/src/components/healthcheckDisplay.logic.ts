@@ -8,6 +8,7 @@
  */
 
 import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
+import type { StackedBucket } from "@checkstack/ui";
 
 /** The colorblind-safe status-triad stem a check status maps onto. */
 export type StatusTone = "ok" | "warn" | "down" | "unknown";
@@ -129,6 +130,36 @@ export function bucketAvgLatencyMs({
   }
   if (total === 0) return null;
   return Math.round(weighted / total);
+}
+
+/** A timeline bucket's full per-status tallies plus its time span. */
+export interface TimelineBucket {
+  bucketStart: string | Date;
+  bucketEnd: string | Date;
+  healthyCount: number;
+  degradedCount: number;
+  unhealthyCount: number;
+}
+
+/**
+ * Map aggregated healthcheck buckets onto the chart kit's stacked-timeline
+ * shape: healthy → ok, degraded → warn, unhealthy → down, with millisecond
+ * epoch bucket bounds.
+ */
+export function bucketsToStacked({
+  buckets,
+}: {
+  buckets: TimelineBucket[];
+}): StackedBucket[] {
+  return buckets.map((bucket) => ({
+    start: new Date(bucket.bucketStart).getTime(),
+    end: new Date(bucket.bucketEnd).getTime(),
+    counts: {
+      ok: bucket.healthyCount,
+      warn: bucket.degradedCount,
+      down: bucket.unhealthyCount,
+    },
+  }));
 }
 
 /**

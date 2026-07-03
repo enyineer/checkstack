@@ -12,7 +12,9 @@ import {
   type CollectorConfigEntry,
   type HealthcheckSignalStatuses,
   type RunStats,
+  stripEphemeralFields,
 } from "@checkstack/healthcheck-common";
+import { evaluateCollectorAssertionOutcomes } from "./collector-assertions";
 import { summarizeRuns, type StatRun } from "./run-stats.logic";
 import type { ConfigService } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
@@ -57,12 +59,14 @@ import type {
 import {
   aggregateCollectorData,
   extractLatencies,
+  foldRunAssertionStats,
   mergeTieredBuckets,
   reaggregateBuckets,
   countStatuses,
   calculateLatencyStats,
   type NormalizedBucket,
 } from "./aggregation-utils";
+import { ASSERTIONS_AGG_KEY } from "@checkstack/healthcheck-common";
 import {
   extractConfigurationSecrets,
   mergeConfigurationSecrets,
@@ -2151,9 +2155,16 @@ export class HealthCheckService {
           );
         }
 
+        // Per-assertion pass/fail counts (platform-owned, sibling of
+        // `collectors` — see assertion-analytics in healthcheck-common).
+        const assertionStats = foldRunAssertionStats(bucket.runs);
+
         aggregatedResult = {
           ...strategyResult,
           ...(collectorsAggregated ? { collectors: collectorsAggregated } : {}),
+          ...(assertionStats === undefined
+            ? {}
+            : { [ASSERTIONS_AGG_KEY]: assertionStats }),
         };
       }
 
@@ -2421,6 +2432,15 @@ export class HealthCheckService {
    * Ingest a health check result from a satellite.
    * Stores the run with source attribution (sourceId + sourceLabel)
    * and triggers incremental aggregation to keep charts/availability current.
+   *
+   * Assertions are evaluated HERE, on the core, not on the satellite: the
+   * satellite never held the assertion semantics, so historically
+   * satellite-executed checks silently skipped assertions entirely.
+   * Evaluating at ingest fixes that for every satellite version with no
+   * wire-protocol change. Caveat: buffered results are evaluated against the
+   * configuration CURRENT at ingest time. Ephemeral result fields (e.g. raw
+   * HTTP bodies) are needed for JSONPath assertions and are stripped right
+   * after evaluation, matching what the local executor stores.
    */
   async ingestSatelliteResult(props: {
     configId: string;
@@ -2432,19 +2452,76 @@ export class HealthCheckService {
     sourceId: string;
     sourceLabel: string;
   }) {
-    const {
-      configId,
-      systemId,
-      status,
-      latencyMs,
-      result,
-      sourceId,
-      sourceLabel,
-    } = props;
+    const { configId, systemId, latencyMs, result, sourceId, sourceLabel } =
+      props;
 
     const resultRecord = result
       ? ({ ...result } as Record<string, unknown>)
       : {};
+
+    let status = props.status;
+    const metadata = resultRecord.metadata as
+      | Record<string, unknown>
+      | undefined;
+    const collectorsMeta = metadata?.collectors as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    if (collectorsMeta && Object.keys(collectorsMeta).length > 0) {
+      const [configRow] = await this.db
+        .select({ collectors: healthCheckConfigurations.collectors })
+        .from(healthCheckConfigurations)
+        .where(eq(healthCheckConfigurations.id, configId));
+      const entries: CollectorConfigEntry[] = configRow?.collectors ?? [];
+
+      let firstFailure: string | undefined;
+      const nextCollectorsMeta: Record<string, Record<string, unknown>> = {
+        ...collectorsMeta,
+      };
+      for (const entry of entries) {
+        const entryResult = nextCollectorsMeta[entry.id];
+        if (!entryResult || typeof entryResult !== "object") continue;
+
+        let evaluated: Record<string, unknown> = { ...entryResult };
+        if (entry.assertions?.length) {
+          const evaluation = evaluateCollectorAssertionOutcomes({
+            assertions: entry.assertions,
+            result: evaluated,
+          });
+          evaluated._assertions = evaluation.outcomes;
+          evaluated._assertionFailed = evaluation.firstFailureMessage;
+          if (
+            evaluation.firstFailureMessage !== undefined &&
+            firstFailure === undefined
+          ) {
+            firstFailure = evaluation.firstFailureMessage;
+          }
+        }
+
+        // Parity with the local executor: satellites send raw results, so
+        // ephemeral fields (assertable but never persisted) get stripped
+        // here, AFTER assertions ran against them.
+        const registered = this.collectorRegistry.getCollector(
+          entry.collectorId,
+        );
+        if (registered) {
+          evaluated = stripEphemeralFields(
+            evaluated,
+            registered.collector.result.schema,
+          );
+        }
+        nextCollectorsMeta[entry.id] = evaluated;
+      }
+
+      resultRecord.metadata = { ...metadata, collectors: nextCollectorsMeta };
+
+      // Mirror the local executor: a failed assertion downgrades a run the
+      // satellite reported healthy.
+      if (firstFailure !== undefined && status === "healthy") {
+        status = "unhealthy";
+        resultRecord.status = status;
+        resultRecord.message = `Check failed: Assertion failed: ${firstFailure}`;
+      }
+    }
 
     // Atomic: the run row and the hourly-aggregate increment it feeds must
     // commit together. Without the transaction a failure on the (non-idempotent

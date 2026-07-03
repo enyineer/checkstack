@@ -2,6 +2,15 @@ import type {
   CollectorRegistry,
   HealthCheckRegistry,
 } from "@checkstack/backend-api";
+import {
+  ASSERTIONS_AGG_KEY,
+  AssertionOutcomeSchema,
+  foldOutcomesIntoStats,
+  mergeAssertionStats,
+  readAssertionStats,
+  type AssertionOutcome,
+  type BucketAssertionStats,
+} from "@checkstack/healthcheck-common";
 
 // ===== Percentile Calculation =====
 
@@ -138,7 +147,8 @@ export function aggregateCollectorData(
       const existing = aggregatedByUuid.get(uuid)?.aggregated;
 
       // Strip internal fields from collector data
-      const { _collectorId, _assertionFailed, ...collectorMetadata } = data;
+      const { _collectorId, _assertionFailed, _assertions, ...collectorMetadata } =
+        data;
 
       // Call mergeResult to incrementally aggregate
       const merged = registered.collector.mergeResult(existing, {
@@ -164,6 +174,39 @@ export function aggregateCollectorData(
   }
 
   return result;
+}
+
+/**
+ * Fold the structured assertion outcomes of a bucket's raw runs into the
+ * per-assertion pass/fail stats (the on-read raw tier's counterpart of the
+ * realtime hourly fold). Returns undefined when no run carries outcomes.
+ */
+export function foldRunAssertionStats(
+  runs: Array<{ metadata?: Record<string, unknown> }>,
+): BucketAssertionStats | undefined {
+  let stats: BucketAssertionStats | undefined;
+  for (const run of runs) {
+    const collectors = run.metadata?.collectors as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    if (!collectors) continue;
+    for (const [uuid, data] of Object.entries(collectors)) {
+      const rawOutcomes = data._assertions;
+      if (!Array.isArray(rawOutcomes) || rawOutcomes.length === 0) continue;
+      const outcomes: AssertionOutcome[] = [];
+      for (const raw of rawOutcomes) {
+        const parsed = AssertionOutcomeSchema.safeParse(raw);
+        if (parsed.success) outcomes.push(parsed.data);
+      }
+      if (outcomes.length === 0) continue;
+      stats = foldOutcomesIntoStats({
+        stats,
+        collectorEntryId: uuid,
+        outcomes,
+      });
+    }
+  }
+  return stats;
 }
 
 // ===== Bucket Result Merging =====
@@ -201,15 +244,29 @@ export function mergeAggregatedBucketResults(params: {
     return validResults[0];
   }
 
+  // === Platform-level assertion stats (additive, never strategy-merged) ===
+  let mergedAssertionStats: BucketAssertionStats | undefined;
+  for (const result of validResults) {
+    mergedAssertionStats = mergeAssertionStats({
+      a: mergedAssertionStats,
+      b: readAssertionStats({ aggregatedResult: result }),
+    });
+  }
+
   // === Strategy-level field merging ===
   let mergedStrategyFields: Record<string, unknown> = {};
 
   const registeredStrategy = registry.getStrategy(strategyId);
   if (registeredStrategy?.aggregatedResult) {
-    // Extract strategy-level fields (everything except 'collectors')
+    // Extract strategy-level fields (everything except the platform-owned
+    // 'collectors' and 'assertions' keys)
     const strategyDataSets: Array<Record<string, unknown>> = [];
     for (const result of validResults) {
-      const { collectors: _collectors, ...strategyFields } = result;
+      const {
+        collectors: _collectors,
+        [ASSERTIONS_AGG_KEY]: _assertions,
+        ...strategyFields
+      } = result;
       if (Object.keys(strategyFields).length > 0) {
         strategyDataSets.push(strategyFields);
       }
@@ -233,7 +290,11 @@ export function mergeAggregatedBucketResults(params: {
     }
   } else {
     // Strategy not found - preserve strategy fields from first result
-    const { collectors: _collectors, ...firstStrategyFields } = validResults[0];
+    const {
+      collectors: _collectors,
+      [ASSERTIONS_AGG_KEY]: _assertions,
+      ...firstStrategyFields
+    } = validResults[0];
     mergedStrategyFields = firstStrategyFields;
   }
 
@@ -302,17 +363,20 @@ export function mergeAggregatedBucketResults(params: {
     }
   }
 
-  // Combine strategy fields and collector fields
+  // Combine strategy fields, collector fields, and assertion stats
   const hasCollectors = Object.keys(mergedCollectors).length > 0;
   const hasStrategyFields = Object.keys(mergedStrategyFields).length > 0;
 
-  if (!hasCollectors && !hasStrategyFields) {
+  if (!hasCollectors && !hasStrategyFields && mergedAssertionStats === undefined) {
     return undefined;
   }
 
   return {
     ...mergedStrategyFields,
     ...(hasCollectors ? { collectors: mergedCollectors } : {}),
+    ...(mergedAssertionStats === undefined
+      ? {}
+      : { [ASSERTIONS_AGG_KEY]: mergedAssertionStats }),
   };
 }
 

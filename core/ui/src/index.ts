@@ -88,6 +88,8 @@ export * from "./components/QueryErrorState";
 export * from "./components/ErrorState";
 export * from "./components/stateFootprint";
 export * from "./components/Skeleton";
+export * from "./components/SplitPane";
+export * from "./components/VirtualList";
 export * from "./components/DensityProvider";
 export * from "./components/ResponsiveTable";
 export * from "./utils/toastTemplates";

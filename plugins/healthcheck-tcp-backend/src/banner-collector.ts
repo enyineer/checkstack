@@ -47,6 +47,8 @@ const bannerResultSchema = healthResultSchema({
   hasBanner: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Has Banner",
+    "x-chart-true-label": "present",
+    "x-chart-false-label": "absent",
     // Whether a server emits a banner is protocol/configuration dependent and
     // can legitimately flip run-to-run (timing, quiet protocols, partial
     // reads). It does not map to a real availability problem on its own, so a
@@ -64,6 +66,7 @@ const bannerResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
 });
 
@@ -83,6 +86,7 @@ const bannerAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   bannerRate: aggregatedRate({
     "x-chart-type": "gauge",

@@ -9,7 +9,7 @@ import { createContext, type Context } from "react";
  * `@checkstack/ui` is NOT a shared (vendored / import-mapped) singleton — it is
  * bundled into every consumer (the host app AND each runtime plugin) so it can
  * be tree-shaken (a plugin using a couple of components ships a couple of KB,
- * not the whole 2 MB kit incl. Monaco/recharts). See the runtime
+ * not the whole 2 MB kit incl. Monaco). See the runtime
  * frontend-plugin sharing design.
  *
  * But a few of its values MUST behave as singletons: the Theme / Toast /

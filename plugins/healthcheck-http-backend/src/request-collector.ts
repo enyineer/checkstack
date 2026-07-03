@@ -81,6 +81,7 @@ const requestResultSchema = healthResultSchema({
   statusCode: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Status Code",
+    "x-chart-priority": 30,
     // Off by default: the raw status code is an identifier, not a quantity
     // with a meaningful baseline. Legitimate shifts (200 -> 301/302 redirects,
     // content negotiation) are not problems, while real availability loss is
@@ -97,6 +98,7 @@ const requestResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Response Time",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-sensitivity": 2,
@@ -109,11 +111,16 @@ const requestResultSchema = healthResultSchema({
     "x-chart-type": "counter",
     "x-chart-label": "Body Length",
     "x-chart-unit": "bytes",
+    "x-chart-priority": 90,
     "x-anomaly-enabled": false,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "HTTP Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
   }),
@@ -127,6 +134,7 @@ const requestAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Response Time",
     "x-chart-unit": "ms",
+    "x-chart-priority": 10,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     // Latency: bias toward fewer false positives. Require several consecutive
@@ -141,6 +149,7 @@ const requestAggregatedFields = {
     "x-chart-type": "gauge",
     "x-chart-label": "Success Rate",
     "x-chart-unit": "%",
+    "x-chart-priority": 20,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "higher-is-better",
     // Availability percent: the canonical saturation/failure signal. Debounce

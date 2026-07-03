@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import type { CollectorAssertion } from "@checkstack/healthcheck-common";
-import { evaluateCollectorAssertions } from "./collector-assertions";
+import {
+  ASSERTION_ACTUAL_MAX_LENGTH,
+  computeAssertionKey,
+} from "@checkstack/healthcheck-common";
+import {
+  evaluateCollectorAssertionOutcomes,
+  evaluateCollectorAssertions,
+} from "./collector-assertions";
 
 /** The HTTP Request collector's result shape, as the executor sees it. */
 const httpResult = (body: string): Record<string, unknown> => ({
@@ -272,5 +279,94 @@ describe("evaluateCollectorAssertions", () => {
         }),
       ).toBeUndefined();
     });
+  });
+});
+
+describe("evaluateCollectorAssertionOutcomes", () => {
+  it("evaluates ALL assertions instead of short-circuiting on failure", () => {
+    const result = httpResult('{"status":"degraded"}');
+    const { outcomes, firstFailureMessage } =
+      evaluateCollectorAssertionOutcomes({
+        assertions: [
+          { field: "statusCode", operator: "equals", value: 500 }, // fails
+          { field: "success", operator: "isTrue" }, // passes
+          jsonPathAssertion("$.status", "equals", "ok"), // fails
+        ],
+        result,
+      });
+    expect(outcomes.length).toBe(3);
+    expect(outcomes.map((o) => o.passed)).toEqual([false, true, false]);
+    // The legacy string still reports the FIRST failure only.
+    expect(firstFailureMessage).toBe("statusCode equals 500");
+  });
+
+  it("captures observed values for plain and JSONPath assertions", () => {
+    const result = httpResult('{"status":"ok","items":[1,2]}');
+    const { outcomes } = evaluateCollectorAssertionOutcomes({
+      assertions: [
+        { field: "statusCode", operator: "equals", value: 200 },
+        jsonPathAssertion("$.status", "equals", "ok"),
+        jsonPathAssertion("$.items", "lengthEquals", 2),
+      ],
+      result,
+    });
+    expect(outcomes[0].actual).toBe("200");
+    expect(outcomes[1].actual).toBe("ok");
+    expect(outcomes[2].actual).toBe("[1,2]");
+    expect(outcomes.every((o) => o.passed)).toBe(true);
+  });
+
+  it("truncates long observed values", () => {
+    const longBody = JSON.stringify({ blob: "x".repeat(5000) });
+    const { outcomes } = evaluateCollectorAssertionOutcomes({
+      assertions: [
+        { field: "body", operator: "contains", value: "x" },
+      ],
+      result: httpResult(longBody),
+    });
+    expect(outcomes[0].passed).toBe(true);
+    expect(outcomes[0].actual?.length).toBe(ASSERTION_ACTUAL_MAX_LENGTH);
+  });
+
+  it("fail-closed diagnostics become failed outcomes with messages", () => {
+    const { outcomes, firstFailureMessage } =
+      evaluateCollectorAssertionOutcomes({
+        assertions: [
+          { field: "body.$", jsonPath: "  ", operator: "exists" },
+          jsonPathAssertion("$.status", "equals", "ok"),
+        ],
+        result: httpResult("not json"),
+      });
+    expect(outcomes[0].passed).toBe(false);
+    expect(outcomes[0].message).toBe("missing JSONPath expression");
+    expect(outcomes[1].passed).toBe(false);
+    expect(outcomes[1].message).toBe('field "body" is not valid JSON');
+    expect(firstFailureMessage).toBe(
+      "body.$ exists (missing JSONPath expression)",
+    );
+  });
+
+  it("outcomes carry the canonical assertion identity key", () => {
+    const assertion: CollectorAssertion = {
+      field: "statusCode",
+      operator: "equals",
+      value: 200,
+    };
+    const { outcomes } = evaluateCollectorAssertionOutcomes({
+      assertions: [assertion],
+      result: httpResult("{}"),
+    });
+    expect(outcomes[0].key).toBe(computeAssertionKey({ assertion }));
+    expect(outcomes[0].value).toBe("200");
+  });
+
+  it("no assertions yields an empty evaluation", () => {
+    const { outcomes, firstFailureMessage } =
+      evaluateCollectorAssertionOutcomes({
+        assertions: undefined,
+        result: httpResult("{}"),
+      });
+    expect(outcomes).toEqual([]);
+    expect(firstFailureMessage).toBeUndefined();
   });
 });

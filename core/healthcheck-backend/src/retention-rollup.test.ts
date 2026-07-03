@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { computeAssertionKey } from "@checkstack/healthcheck-common";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { healthCheckAggregates } from "./schema";
 import {
@@ -114,5 +115,73 @@ describe("DAILY_AGGREGATE_CONFLICT_TARGET", () => {
       .sort();
     const targetCols = DAILY_AGGREGATE_CONFLICT_TARGET.map((c) => c.name).sort();
     expect(targetCols).toEqual(constraintCols);
+  });
+});
+
+describe("buildDailyAggregates - assertion stats", () => {
+  const KEY = computeAssertionKey({
+    assertion: { field: "statusCode", operator: "equals", value: 200 },
+  });
+
+  it("sums per-assertion counts across the day's hourly buckets", () => {
+    const daily = buildDailyAggregates([
+      hourly({
+        bucketStart: new Date("2026-01-01T03:00:00.000Z"),
+        aggregatedResult: {
+          collectors: {},
+          assertions: { "uuid-1": { [KEY]: { passCount: 50, failCount: 2 } } },
+        },
+      }),
+      hourly({
+        bucketStart: new Date("2026-01-01T04:00:00.000Z"),
+        aggregatedResult: {
+          assertions: { "uuid-1": { [KEY]: { passCount: 60, failCount: 0 } } },
+        },
+      }),
+      // Pre-feature hourly bucket without stats is tolerated.
+      hourly({
+        bucketStart: new Date("2026-01-01T05:00:00.000Z"),
+        aggregatedResult: null,
+      }),
+    ]);
+
+    expect(daily.length).toBe(1);
+    expect(daily[0].assertionStats).toEqual({
+      "uuid-1": { [KEY]: { passCount: 110, failCount: 2 } },
+    });
+  });
+
+  it("keeps assertion stats scoped to their (env, source) series", () => {
+    const daily = buildDailyAggregates([
+      hourly({
+        environmentId: "prod",
+        aggregatedResult: {
+          assertions: { "uuid-1": { [KEY]: { passCount: 1, failCount: 0 } } },
+        },
+      }),
+      hourly({
+        environmentId: "staging",
+        aggregatedResult: {
+          assertions: { "uuid-1": { [KEY]: { passCount: 0, failCount: 1 } } },
+        },
+      }),
+    ]);
+
+    expect(daily.length).toBe(2);
+    const prod = daily.find((d) => d.environmentId === "prod");
+    const staging = daily.find((d) => d.environmentId === "staging");
+    expect(prod?.assertionStats?.["uuid-1"][KEY]).toEqual({
+      passCount: 1,
+      failCount: 0,
+    });
+    expect(staging?.assertionStats?.["uuid-1"][KEY]).toEqual({
+      passCount: 0,
+      failCount: 1,
+    });
+  });
+
+  it("buckets without stats yield undefined assertionStats", () => {
+    const daily = buildDailyAggregates([hourly({})]);
+    expect(daily[0].assertionStats).toBeUndefined();
   });
 });
