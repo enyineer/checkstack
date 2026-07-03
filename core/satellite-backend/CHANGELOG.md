@@ -1,5 +1,88 @@
 # @checkstack/satellite-backend
 
+## 0.8.0
+
+### Minor Changes
+
+- faf98f5: Security: config secrets (health-check strategy/collector credentials such as
+  SSH passwords, DB credentials, HTTP auth, and integration connection
+  credentials) ride ONE shared, domain-agnostic extraction channel instead of
+  being stored as plaintext or re-implemented per plugin.
+
+  New primitive and shared service:
+
+  - `configSecret({ id })` (in `@checkstack/backend-api`) declares an
+    extraction-channel secret keyed by a STABLE `id`, independent of field name or
+    position, so renaming or reordering a field never orphans its value. Use it
+    (not `configString({ "x-secret": true })`) for any credential whose config is
+    relayed to a satellite, projected to AI, or diffed by GitOps. `validateSecretIds`
+    rejects, at plugin registration, an `x-secret` field with no `id`, a duplicate
+    `id`, or a secret nested in an un-keyable container (array / record / tuple /
+    map) - so a mis-keyable schema fails boot rather than at run time.
+  - `ConfigSecretChannel` (in `@checkstack/secrets-backend`) is the single
+    extract / inflate / collect / redact / merge / delete / prune implementation.
+    Health-checks and integration connections both BIND it to their own scope
+    (marker prefix + internal-secret key layout); neither re-implements the walk.
+
+  Lifecycle (both bindings):
+
+  - **Write**: an inline value is extracted into the encrypted internal secret
+    store; the stored config keeps only an opaque marker. `${{ secrets.NAME }}`
+    references are stored verbatim and resolve through the active backend (local
+    or Vault) at run time.
+  - **Read**: configuration and connection reads strip `x-secret` values and
+    internal markers while keeping `${{ secrets.NAME }}` references visible; the
+    AI `getConfigurations` tool and create/update responses are redacted too. A
+    value never reaches a browser or an AI model context.
+  - **Run**: the core executor inflates markers/references in memory just before
+    the client is built. Satellites receive markers only and fetch values
+    just-in-time over the authenticated WS channel, per run, never persisted, then
+    fail CLOSED if any marker/reference survives resolution.
+  - **No orphan**: clearing a secret, removing a field/collector, swapping an
+    inline value for a reference, updating a connection, or deleting a
+    configuration/connection deletes the now-unreferenced internal secret. Cleanup
+    is schema-free (scans markers by prefix) and best-effort on delete, so it works
+    even when the owning plugin is uninstalled and never blocks a delete.
+  - **Forged-marker safe**: extract/inflate key each internal secret by the
+    SCHEMA leaf's stable `id`, never by an id parsed out of a stored marker string,
+    so a crafted marker can never resolve or delete another scope's secret.
+
+  Health-checks additionally get an idempotent, advisory-locked backfill that
+  moves pre-existing plaintext values into the internal store, and per-config-id
+  locking so concurrent writers across pods can never leave a dangling marker.
+  Integration connection credentials keep their released `__connref__:` marker
+  prefix and key layout (id equals the flat field name), so existing stored
+  connections are byte-compatible.
+
+  BREAKING CHANGES:
+
+  - Configuration and connection reads no longer include `x-secret` field values
+    (clients must treat blank-on-save as keep-existing; the bundled editors
+    already do).
+  - Satellites must be upgraded together with the core: an old satellite cannot
+    resolve the markers a new core stores, so its credentialed checks fail until
+    upgraded.
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/secrets-backend@0.3.0
+  - @checkstack/secrets-common@0.3.0
+  - @checkstack/common@0.20.0
+  - @checkstack/healthcheck-backend@1.15.0
+  - @checkstack/healthcheck-common@1.12.0
+  - @checkstack/satellite-common@0.9.0
+  - @checkstack/automation-backend@0.10.8
+  - @checkstack/command-backend@0.2.18
+  - @checkstack/gitops-backend@0.5.18
+  - @checkstack/script-packages-backend@0.3.22
+  - @checkstack/gitops-common@0.7.1
+  - @checkstack/automation-common@0.9.1
+  - @checkstack/queue-api@0.3.17
+  - @checkstack/script-packages-common@0.3.9
+  - @checkstack/signal-common@0.2.15
+
 ## 0.7.8
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @checkstack/cache-common
 
+## 0.5.9
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+
 ## 0.5.8
 
 ### Patch Changes

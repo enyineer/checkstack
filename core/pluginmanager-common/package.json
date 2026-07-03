@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/pluginmanager-common",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

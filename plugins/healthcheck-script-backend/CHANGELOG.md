@@ -1,5 +1,16 @@
 # @checkstack/healthcheck-script-backend
 
+## 0.8.7
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/secrets-common@0.3.0
+  - @checkstack/common@0.20.0
+  - @checkstack/healthcheck-common@1.12.0
+  - @checkstack/script-packages-backend@0.3.22
+
 ## 0.8.6
 
 ### Patch Changes

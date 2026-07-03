@@ -1,5 +1,15 @@
 # @checkstack/secrets-backend-local
 
+## 0.1.20
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/secrets-backend@0.3.0
+  - @checkstack/secrets-common@0.3.0
+  - @checkstack/common@0.20.0
+
 ## 0.1.19
 
 ### Patch Changes

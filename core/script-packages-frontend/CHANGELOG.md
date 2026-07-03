@@ -1,5 +1,17 @@
 # @checkstack/script-packages-frontend
 
+## 0.4.7
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+  - @checkstack/ui@1.23.0
+  - @checkstack/sdk@0.122.1
+  - @checkstack/frontend-api@0.13.1
+  - @checkstack/script-packages-common@0.3.9
+  - @checkstack/signal-frontend@0.3.3
+
 ## 0.4.6
 
 ### Patch Changes

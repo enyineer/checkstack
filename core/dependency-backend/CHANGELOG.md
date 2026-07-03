@@ -1,5 +1,28 @@
 # @checkstack/dependency-backend
 
+## 1.5.17
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+- Updated dependencies [faf98f5]
+  - @checkstack/ai-backend@0.10.6
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/common@0.20.0
+  - @checkstack/healthcheck-backend@1.15.0
+  - @checkstack/healthcheck-common@1.12.0
+  - @checkstack/automation-backend@0.10.8
+  - @checkstack/catalog-backend@1.6.6
+  - @checkstack/command-backend@0.2.18
+  - @checkstack/gitops-backend@0.5.18
+  - @checkstack/gitops-common@0.7.1
+  - @checkstack/catalog-common@2.6.1
+  - @checkstack/dependency-common@1.6.1
+  - @checkstack/incident-common@1.7.1
+  - @checkstack/maintenance-common@1.8.1
+  - @checkstack/notification-common@1.5.1
+  - @checkstack/signal-common@0.2.15
+
 ## 1.5.16
 
 ### Patch Changes

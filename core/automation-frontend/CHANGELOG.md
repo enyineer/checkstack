@@ -1,5 +1,25 @@
 # @checkstack/automation-frontend
 
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+  - @checkstack/ui@1.23.0
+  - @checkstack/secrets-frontend@0.3.6
+  - @checkstack/ai-common@0.6.4
+  - @checkstack/auth-common@0.12.1
+  - @checkstack/auth-frontend@0.11.2
+  - @checkstack/automation-common@0.9.1
+  - @checkstack/catalog-common@2.6.1
+  - @checkstack/frontend-api@0.13.1
+  - @checkstack/gitops-frontend@0.6.7
+  - @checkstack/integration-common@0.9.6
+  - @checkstack/script-packages-frontend@0.4.7
+  - @checkstack/template-engine@0.4.9
+  - @checkstack/signal-frontend@0.3.3
+
 ## 0.10.1
 
 ### Patch Changes

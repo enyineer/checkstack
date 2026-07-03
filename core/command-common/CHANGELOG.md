@@ -1,5 +1,12 @@
 # @checkstack/command-common
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+
 ## 0.3.8
 
 ### Patch Changes
