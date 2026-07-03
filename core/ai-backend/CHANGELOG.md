@@ -1,5 +1,43 @@
 # @checkstack/ai-backend
 
+## 0.10.7
+
+### Patch Changes
+
+- c55d7c6: Regenerate the docs index for the healthcheck metrics refactor: the rewritten
+  health-check charts guide (unified `@checkstack/ui` chart kit, prioritized
+  auto-chart tile grid), the new master-detail frontend pattern page
+  (`SplitPane` / `VirtualList`), the new chart metadata keys
+  (`x-chart-priority`, `x-chart-good-direction`), and the assertion outcomes
+  and analytics documentation (per-run outcomes, per-bucket pass/fail counts,
+  ingest-time satellite evaluation, rollup survival).
+- a83bcc2: Move the assistant memory UI onto a system's About sidebar.
+
+  The **Assistant Memories** button now lives in the About card of a system's
+  detail page (catalog `SystemMetaSlot`), where it belongs, instead of on the
+  platform "About Checkstack" page. Clicking it opens a Sheet listing the memories
+  the assistant has saved about that specific system. As before, the button hides
+  entirely - and fires no `listMemories` request - for users without
+  `ai.memory.read`; delete and always-apply remain server-enforced
+  (`ai.memory.manage`).
+
+  The platform `AboutSectionsSlot` (`plugin.about.sections`) remains available as
+  a general extension point for plugins to contribute self-gating section cards to
+  the About page; it just no longer hosts the memory button, and its About-page
+  comment no longer references the memory feature.
+
+  The `@checkstack/ai-backend` bundled docs index is regenerated to reflect the
+  updated `ai/memory.md` and `frontend/extension-points.md` content.
+
+- Updated dependencies [c55d7c6]
+  - @checkstack/common@0.21.0
+  - @checkstack/backend-api@0.29.1
+  - @checkstack/sdk@0.123.1
+  - @checkstack/ai-common@0.6.5
+  - @checkstack/auth-common@0.12.2
+  - @checkstack/catalog-common@2.6.2
+  - @checkstack/integration-backend@0.7.1
+
 ## 0.10.6
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @checkstack/status-page-backend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [c55d7c6]
+  - @checkstack/common@0.21.0
+  - @checkstack/backend-api@0.29.1
+  - @checkstack/command-backend@0.2.19
+  - @checkstack/status-page-common@0.5.2
+
 ## 0.4.5
 
 ### Patch Changes

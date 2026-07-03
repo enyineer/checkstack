@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-pushover-backend",
-  "version": "0.1.60",
+  "version": "0.1.61",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
