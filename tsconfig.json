@@ -226,6 +226,9 @@
       "path": "./core/satellite-frontend"
     },
     {
+      "path": "./core/screenshots"
+    },
+    {
       "path": "./core/script-packages-backend"
     },
     {

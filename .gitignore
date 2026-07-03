@@ -26,3 +26,5 @@ backups/
 # Trivy downloads its ~1GB vulnerability DB here during CI scans; it must never
 # pollute `git status` or get committed (it exceeds GitHub's 100MB push limit).
 .cache/
+
+.screenshots/

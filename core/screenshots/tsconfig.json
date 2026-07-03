@@ -1,0 +1,29 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../ai-backend"
+    },
+    {
+      "path": "../anomaly-backend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../healthcheck-backend"
+    },
+    {
+      "path": "../notification-backend"
+    },
+    {
+      "path": "../sdk"
+    },
+    {
+      "path": "../slo-backend"
+    }
+  ]
+}
