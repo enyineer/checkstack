@@ -37,12 +37,16 @@
 <summary><strong>🏠 Dashboard & Navigation</strong></summary>
 
 ### Dashboard
-The central hub showing all your systems with real-time health status badges, recent activity feed, and quick access to key functions.
+The needs-attention hub showing a system health rollup plus signal cards for SLO breaches, anomalies, and active incidents - so only systems that need you surface.
 ![Dashboard](assets/screenshots/dashboard.png)
 
 ### Command Palette
 Lightning-fast keyboard-driven navigation with `Ctrl+K` / `Cmd+K`. Search for systems, actions, and settings instantly. Fully extensible by plugins.
 ![Command Palette](assets/screenshots/command-palette.png)
+
+### Announcements
+Broadcast severity-colored banners and dashboard cards to your portal users, with Markdown, scheduling, and visibility targeting.
+![Announcements](assets/screenshots/announcements.png)
 
 </details>
 
@@ -50,25 +54,41 @@ Lightning-fast keyboard-driven navigation with `Ctrl+K` / `Cmd+K`. Search for sy
 <summary><strong>✅ Health Checks</strong></summary>
 
 ### Strategy Picker
-Browse and search all available health check strategies organized by category - Networking, Database, Infrastructure, and more. Choose a strategy to start configuring.
-![Health Check Strategy Picker](assets/screenshots/healthcheck-categories.png)
+Browse and search all available health check strategies - HTTP, TCP, DNS, TLS, PostgreSQL, MySQL, Redis, gRPC, SSH, Ping, Script, and more. Choose a strategy to start configuring.
+![Health Check Strategy Picker](assets/screenshots/healthcheck-strategies.png)
 
 ### IDE-Style Editor
 Full-page editor with tree navigation, real-time validation, strategy-specific configuration, collector management, and assertion building - all in one view.
 ![Health Check IDE Editor](assets/screenshots/healthcheck-ide.png)
 
+### Run History
+Master-detail run history table with time-range, status, and source (region) filters, so you can isolate exactly which run failed and where it ran.
+![Health Check Run History](assets/screenshots/healthcheck-run-history.png)
+
+### Health Check Drawer
+Slide-over detail with the unified chart kit: a status timeline, a latency chart with an Expected band from anomaly detection, and a recent-history ribbon.
+![Health Check Detail Drawer](assets/screenshots/healthcheck-drawer.png)
+
 ### System Details with Health Status
-Comprehensive system view showing current health status, historical performance charts with response times, and detailed check results.
-![System Details](assets/screenshots/system-details.png)
+Comprehensive system view showing SLO status, active incidents, per-environment health checks, and About metadata - all in one place.
+![System Details](assets/screenshots/system-detail.png)
 
 </details>
 
 <details>
 <summary><strong>📈 Service Level Objectives (SLO)</strong></summary>
 
+### SLO Dashboard
+SLO cards with availability percentages, error budget bars, and burn-rate multipliers across every objective at a glance.
+![SLO Dashboard](assets/screenshots/slo-dashboard.png)
+
 ### SLO Details
 Real-time error budget tracking with dependency-aware downtime attribution, compliance streaks, and availability trend charts.
-![SLO Details](assets/screenshots/slo-details.png)
+![SLO Details](assets/screenshots/slo-detail.png)
+
+### SLO Editor
+Create and tune Service Level Objectives - target, window, and exclusion mode - in a focused management view.
+![SLO Editor](assets/screenshots/slo-editor.png)
 
 </details>
 
@@ -77,19 +97,19 @@ Real-time error budget tracking with dependency-aware downtime attribution, comp
 
 ### Incident Management
 Track and document unplanned outages. Create timeline updates, link affected systems, and keep stakeholders informed in real-time.
-![Incident Management](assets/screenshots/incident-management.png)
+![Incident Management](assets/screenshots/incidents.png)
 
 ### Incident Details
 Rich incident timeline with status updates, affected systems, and full history. Changes are broadcast instantly via WebSocket.
-![Incident Details](assets/screenshots/incident-details.png)
+![Incident Details](assets/screenshots/incident-detail.png)
 
 ### Maintenance Windows
 Schedule planned maintenance with automatic status transitions from "Planned" → "Active" → "Completed". Subscribers are notified automatically.
-![Maintenance Management](assets/screenshots/maintenance-management.png)
+![Maintenance Management](assets/screenshots/maintenance.png)
 
 ### Maintenance Details
 Detailed maintenance view showing schedule, affected systems, and status history. Link multiple systems to a single maintenance window.
-![Maintenance Details](assets/screenshots/maintenance-details.png)
+![Maintenance Details](assets/screenshots/maintenance-detail.png)
 
 </details>
 
@@ -97,24 +117,20 @@ Detailed maintenance view showing schedule, affected systems, and status history
 <summary><strong>📋 Catalog, Dependencies & Notifications</strong></summary>
 
 ### System Catalog
-Organize your infrastructure into Systems and Groups. Track dependencies, assign owners, and maintain a clear inventory of all monitored services.
-![Catalog Management](assets/screenshots/catalog-management.png)
+Organize your infrastructure into Systems and Groups with per-group health rollups. Track dependencies, assign owners, and maintain a clear inventory of all monitored services.
+![Catalog Management](assets/screenshots/catalog-overview.png)
 
 ### Dependency Map
-Interactive topology view of your system dependencies. Drag to connect systems, click edges to edit impact and propagation settings, and auto-save node positions.
+Interactive topology view of your system dependencies with impact-colored edges. Drag to connect systems, click edges to edit impact and propagation settings, and auto-save node positions.
 ![Dependency Map](assets/screenshots/dependency-map.png)
 
-### In-App Notification Bell
-Real-time notification center accessible from any page. Shows unread count badge and instant updates via WebSocket.
-![In-App Notification Bell](assets/screenshots/in-app-notification-bell.png)
-
-### In-App Notification Overview
-Full notification history with read/unread tracking. Mark individual notifications or all as read with a single click.
-![In-App Notification Overview](assets/screenshots/in-app-notification-overview.png)
+### In-App Notifications
+Real-time notification feed accessible from any page. Importance-coloured cards with affected-system chips, read/unread tracking, and instant updates via WebSocket.
+![In-App Notification Overview](assets/screenshots/notification-overview.png)
 
 ### Notifications Configuration
 Configure multi-channel notification delivery: SMTP, Telegram, Microsoft Teams, Webex, Discord, Slack, Gotify, and Pushover. User-specific settings per channel.
-![Notifications Management](assets/screenshots/notifications-management.png)
+![Notifications Management](assets/screenshots/notification-settings.png)
 
 ### Telegram Integration Example
 Example of rich notification delivery via Telegram with formatted messages and direct links to affected systems.
@@ -123,32 +139,68 @@ Example of rich notification delivery via Telegram with formatted messages and d
 </details>
 
 <details>
+<summary><strong>🤖 AI & Automations</strong></summary>
+
+### AI Assistant
+Chat with a guardrailed operator copilot that reads platform state and proposes concrete changes for your approval, with a propose/apply flow and a full audit trail.
+![AI Assistant](assets/screenshots/ai-chat.png)
+
+### Automations
+Wire triggers to ordered actions in a visual editor - open incidents, notify, or run scripts - each executing as a bounded service account.
+![Automations](assets/screenshots/automations.png)
+
+### Script Sandbox
+Admin-owned security policy for scripted checks and shell actions: resource caps, rootless isolation, network egress control, seccomp, and daily vulnerability audits.
+![Script Sandbox](assets/screenshots/script-sandbox.png)
+
+</details>
+
+<details>
 <summary><strong>🔌 Automation Actions - Integrations & Queues</strong></summary>
 
 ### Integration Connections
 Connect to external systems like Jira, Microsoft Teams, Webex, and custom webhooks - each becomes a first-class action you can call from any automation workflow.
-![Integration Management](assets/screenshots/integration-management.png)
+![Integration Management](assets/screenshots/integrations.png)
 
 ### Queue Management
 Monitor background job processing with real-time statistics. View scheduling lag, worker concurrency, and job queue status. Built-in lag warnings for health monitoring.
-![Queue Management](assets/screenshots/queue-management.png)
+![Queue Management](assets/screenshots/queue-config.png)
+
+</details>
+
+<details>
+<summary><strong>🛰️ Satellites & GitOps</strong></summary>
+
+### Satellite Agents
+Lightweight Docker agents stream health checks from any region or private network back to the core over WebSocket - same charts, same SLOs.
+![Satellite Agents](assets/screenshots/satellites.png)
+
+### GitOps Sync
+Sync your monitoring stack from Git and watch reconciliation status per repository, keeping the catalog aligned with your source of truth.
+
+### GitOps Providers
+Configure GitHub and GitLab providers - including self-hosted enterprise instances - and discover definitions across repos, orgs, or wildcard patterns.
+
+### GitOps Secrets
+Reference credentials in your specs with `${{ secrets.NAME }}`, resolved from your secrets backend only in fields a plugin marks as secret.
+![GitOps Secrets](assets/screenshots/gitops-secrets.png)
+
+### GitOps Kinds
+Browse the kind registry of declarable entity kinds - System, Healthcheck, SLO, Satellite, Automation, and more - available as YAML.
+![GitOps Kinds](assets/screenshots/gitops-kinds.png)
 
 </details>
 
 <details>
 <summary><strong>🔐 Authentication & Security</strong></summary>
 
-### User & Role Management
-Manage users with flexible role assignments. Support for both local accounts and external identity provider users (SAML, LDAP, GitHub OAuth).
-![User Role Management](assets/screenshots/user-role-management.png)
-
-### Role-Based Access Control
-Define custom roles with granular permissions. Assign platform-wide access rules and combine with team-based resource-level access control.
-![Role Access Management](assets/screenshots/role-access-management.png)
+### Roles & Access Control
+Define custom roles with granular permissions, assign platform-wide access rules, and combine them with team-based resource-level access control.
+![Roles and Access Control](assets/screenshots/auth-roles.png)
 
 ### Team Management
 Organize users into logical teams for resource-level access control. Designate team managers and assign API keys to teams for automated workflows.
-![Team Management](assets/screenshots/team-management.png)
+![Team Management](assets/screenshots/auth-teams.png)
 
 ### Authentication Strategies
 Configure multiple authentication methods: Credential Login, GitHub OAuth, SAML 2.0 SSO, and LDAP/AD. Includes directory group-to-role mapping for enterprise SSO.
@@ -156,11 +208,11 @@ Configure multiple authentication methods: Credential Login, GitHub OAuth, SAML 
 
 ### External Applications
 Create API keys (service accounts) for machine-to-machine access. Full RBAC permission control and optional team assignment for scoped access.
-![External Applications](assets/screenshots/applications.png)
+![External Applications](assets/screenshots/auth-applications.png)
 
 ### Profile Management
 Users can update their profile information including name and email (for credential users). Credential users can also change their password from this page.
-![Profile Management](assets/screenshots/profile-management.png)
+![Profile Management](assets/screenshots/profile.png)
 
 </details>
 

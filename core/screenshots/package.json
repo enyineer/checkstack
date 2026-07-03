@@ -1,0 +1,35 @@
+{
+  "name": "@checkstack/screenshots",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "private": true,
+  "checkstack": {
+    "type": "tooling"
+  },
+  "type": "module",
+  "scripts": {
+    "screenshots": "bun --env-file=../../.env src/orchestrate.ts",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/ai-backend": "workspace:*",
+    "@checkstack/anomaly-backend": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/healthcheck-backend": "workspace:*",
+    "@checkstack/notification-backend": "workspace:*",
+    "@checkstack/sdk": "workspace:*",
+    "@checkstack/slo-backend": "workspace:*",
+    "@playwright/test": "^1.60.0",
+    "@testcontainers/postgresql": "^12.0.3",
+    "drizzle-orm": "^0.45.0",
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.7.2"
+  }
+}

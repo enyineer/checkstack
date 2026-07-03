@@ -1698,6 +1698,29 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/screenshots": {
+      "name": "@checkstack/screenshots",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/ai-backend": "workspace:*",
+        "@checkstack/anomaly-backend": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-backend": "workspace:*",
+        "@checkstack/notification-backend": "workspace:*",
+        "@checkstack/sdk": "workspace:*",
+        "@checkstack/slo-backend": "workspace:*",
+        "@playwright/test": "^1.60.0",
+        "@testcontainers/postgresql": "^12.0.3",
+        "drizzle-orm": "^0.45.0",
+        "pg": "^8.11.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/pg": "^8.11.0",
+        "typescript": "^5.7.2",
+      },
+    },
     "core/script-packages-backend": {
       "name": "@checkstack/script-packages-backend",
       "version": "0.3.23",
@@ -1819,7 +1842,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.124.0",
+      "version": "0.125.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -3416,6 +3439,8 @@
     "@checkstack/satellite-common": ["@checkstack/satellite-common@workspace:core/satellite-common"],
 
     "@checkstack/satellite-frontend": ["@checkstack/satellite-frontend@workspace:core/satellite-frontend"],
+
+    "@checkstack/screenshots": ["@checkstack/screenshots@workspace:core/screenshots"],
 
     "@checkstack/script-packages-backend": ["@checkstack/script-packages-backend@workspace:core/script-packages-backend"],
 
