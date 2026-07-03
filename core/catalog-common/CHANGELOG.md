@@ -1,5 +1,16 @@
 # @checkstack/catalog-common
 
+## 2.6.2
+
+### Patch Changes
+
+- Updated dependencies [c55d7c6]
+  - @checkstack/common@0.21.0
+  - @checkstack/auth-common@0.12.2
+  - @checkstack/frontend-api@0.13.2
+  - @checkstack/notification-common@1.5.2
+  - @checkstack/signal-common@0.2.16
+
 ## 2.6.1
 
 ### Patch Changes

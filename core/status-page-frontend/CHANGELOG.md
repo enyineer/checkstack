@@ -1,5 +1,18 @@
 # @checkstack/status-page-frontend
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [c55d7c6]
+- Updated dependencies [c55d7c6]
+  - @checkstack/ui@1.24.0
+  - @checkstack/common@0.21.0
+  - @checkstack/auth-frontend@0.11.3
+  - @checkstack/catalog-common@2.6.2
+  - @checkstack/frontend-api@0.13.2
+  - @checkstack/status-page-common@0.5.2
+
 ## 0.5.2
 
 ### Patch Changes

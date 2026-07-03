@@ -1,5 +1,82 @@
 # @checkstack/ui
 
+## 1.24.0
+
+### Minor Changes
+
+- c55d7c6: Unify the healthcheck chart system on the `@checkstack/ui` SVG kit and
+  redesign the HealthCheck drawer.
+
+  - `@checkstack/ui` gains six chart primitives (each with a Storybook story):
+    `StackedTimeline` (stacked status counts per bucket on the colorblind-safe
+    status triad), `ChartTooltip` + `useBandHover` (the one shared chart
+    tooltip and its cursor hit-testing), `ChartCard` / `chartCardChromeClass`
+    (the premium gradient card chrome, flat on low-power devices), `StatTile`
+    (number-led metric tile with delta chip, sparkline/ribbon footer, and
+    click-to-expand disclosure), `DistributionBar` (stacked horizontal
+    distribution + legend, replaces pies), and `CategoryRibbon` (categorical
+    history ribbon). `TimeSeriesChart` gains a hover tooltip with a crosshair
+    marker.
+  - `@checkstack/common` adds four optional chart metadata keys to
+    `BaseHealthResultMeta`: `x-chart-priority` (tile sort weight, lower first,
+    default 100), `x-chart-good-direction` (`"up" | "down"`, which direction
+    of change is an improvement; consumers fall back to
+    `x-anomaly-direction`), and `x-chart-true-label` / `x-chart-false-label`
+    (prose for a boolean field's values wherever they surface in text, e.g. a
+    dominance chip reading "Usually successful (98%)" instead of "Usually
+    true"). Built-in collector backends annotate their headline metrics and
+    boolean fields accordingly (purely additive metadata).
+  - `@checkstack/healthcheck-frontend` rebuilds the drawer: a hero status
+    banner (status pill, healthy %, avg latency, interval, last run with the
+    exact datetime on hover, full-width status ribbon) replaces the metric
+    tiles; the status timeline and latency heroes share the `ChartCard`
+    chrome; the auto-generated charts become a prioritized, click-to-expand
+    2-up tile grid (collector ids demoted to hover titles); the anomaly
+    Expected/Trend derivation is consolidated into one tested module shared by
+    the latency hero and the tiles.
+
+  BREAKING CHANGES: `recharts` is removed from `@checkstack/healthcheck-frontend`
+  (and the unused dependency from `@checkstack/ui`); the
+  `HealthCheckStatusTimeline` and `SparklineTooltip` components are deleted.
+  Extensions rendering into `HealthCheckDiagramSlot` should build on the
+  `@checkstack/ui` chart primitives instead.
+
+- c55d7c6: Rebuild the health-check run history as a master-detail split view.
+
+  - `@checkstack/ui` gains `SplitPane` (master-detail grid with independently
+    scrolling columns; the detail column hides below `md` so callers present
+    mobile detail in a `Sheet`) and `VirtualList` (windowed list built on the
+    new `@tanstack/react-virtual` dependency), both with Storybook stories.
+  - The run-history detail page pins the run detail beside a virtualized run
+    list instead of mounting it above the table, so selecting a run never
+    scrolls the list away. The selected run stays in the URL (deep links keep
+    working), gains prev/next navigation with page fall-through, ArrowUp/Down
+    keyboard walking, a loading skeleton, and an explicit "run not found"
+    retention message. The raw run payload becomes viewable for the first time
+    in a Raw payload tab.
+  - The list ends, on its last page, with an explicit "Aggregated before
+    <date>" divider followed by the pre-retention aggregate buckets instead of
+    an unexplained empty page. The retention config read falls back to the
+    platform default for system-owner viewers without configuration access.
+  - `HealthCheckRunsTable` turns selection into a prop (`onRowSelect` /
+    `selectedRunId`), gains keyboard operability (`role="button"`, Enter/Space,
+    focus ring, `aria-current`) and a status-toned selected-row accent; its
+    timestamp shows the exact datetime on hover for every viewer. The drawer
+    reuses it and opens run details in a nested sheet instead of ejecting to
+    the history page; its hand-rolled source filter is replaced by a shared,
+    tokenized `SourceFilterPills` (removing the raw orange Tailwind colors).
+
+  BREAKING CHANGES: `HealthCheckRunsTable` no longer navigates on row click by
+  itself; callers pass `onRowSelect`. Its row type's `result` field is now
+  optional.
+
+### Patch Changes
+
+- Updated dependencies [c55d7c6]
+  - @checkstack/common@0.21.0
+  - @checkstack/frontend-api@0.13.2
+  - @checkstack/template-engine@0.4.10
+
 ## 1.23.0
 
 ### Minor Changes
