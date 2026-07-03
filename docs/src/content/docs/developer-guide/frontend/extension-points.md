@@ -638,9 +638,8 @@ export const AboutSectionsSlot = createSlot<undefined, { priority?: number }>(
 Contract rules:
 
 - Each contribution is fully self-contained: it renders its own card and gates
-  itself. For example, `@checkstack/ai-frontend` contributes a **Memories**
-  section that hides entirely for users without `ai.memory.read` (returning
-  `null`), so it never fires a request they are not permitted to make.
+  itself (returning `null` when the viewer lacks the relevant access rule), so
+  it never fires a request the viewer is not permitted to make.
 - Extensions declare an optional `priority` in their metadata; the page renders
   them sorted ascending (lower first), mirroring `DashboardSlot`. Unspecified
   priority defaults to 0.
