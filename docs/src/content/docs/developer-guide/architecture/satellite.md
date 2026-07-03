@@ -118,6 +118,18 @@ bounded FIFO ring and flushes them on reconnect, so a brief network outage does
 not lose data.
 
 > [!IMPORTANT]
+> **Assertions are evaluated at ingest, on the core.** A satellite never
+> evaluates assertions; `ingestSatelliteResult` grades the reported result
+> against the check's assertions before storing it, downgrading a
+> satellite-reported `healthy` run to `unhealthy` on any assertion failure. This
+> needs no wire change and works for every satellite version. Ephemeral result
+> fields (for example raw HTTP bodies used only for assertions) are stripped
+> after evaluation, so they are never persisted. Because a dropped connection
+> buffers results, a flushed run is graded against the configuration that is
+> current at ingest time, not at execution time. See
+> [Assertion outcomes and analytics](/checkstack/developer-guide/backend/healthchecks/collectors/#assertion-outcomes-and-analytics).
+
+> [!IMPORTANT]
 > **A satellite may only report results for the `(configId, systemId)` pairs it
 > is actually assigned.** The handshake proves WHICH satellite is connected;
 > this check proves WHAT it may report for. On connect (and on every

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   wrapInSuspense,
   accessApiRef,
@@ -12,38 +12,53 @@ import {
   healthCheckResourceTypes,
   HealthCheckApi,
   HealthCheckConfigDetailsSlot,
+  DEFAULT_RETENTION_CONFIG,
 } from "@checkstack/healthcheck-common";
-import { catalogResourceTypes } from "@checkstack/catalog-common";
+import { catalogResourceTypes, CatalogApi } from "@checkstack/catalog-common";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   PageLayout,
   usePagination,
   usePaginationSync,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
+  useKeptPrevious,
+  useIsMobile,
+  usePerformance,
+  chartCardChromeClass,
   BackLink,
+  Button,
   DateRangeFilter,
   getDefaultDateRange,
-  HealthBadge,
+  EmptyState,
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SplitPane,
+  Pagination,
+  cn,
   type DateRange,
 } from "@checkstack/ui";
 import { useParams, useNavigate } from "react-router-dom";
-import { History, X, Server, Satellite } from "lucide-react";
-import { format } from "date-fns";
-import {
-  HealthCheckRunsTable,
-  type HealthCheckRunDetailed,
-} from "../components/HealthCheckRunsTable";
-import { ExpandedResultView } from "../components/ExpandedResultView";
-import { SingleRunChartGrid } from "../auto-charts";
+import { History, MousePointerClick } from "lucide-react";
+import { type HealthCheckRunDetailed } from "../components/HealthCheckRunsTable";
+import { RunHistoryList } from "../components/RunHistoryList";
+import { RunDetailPanel } from "../components/RunDetailPanel";
 import {
   StatusFilterPills,
   STATUS_FILTER_TO_STATUSES,
   type StatusFilter,
 } from "../components/StatusFilterPills";
+import { SourceFilterPills } from "../components/SourceFilterPills";
+import {
+  buildRunHistoryRows,
+  isLastRawPage,
+  rawRetentionCutoff,
+  shouldQueryAggregates,
+} from "../components/runHistoryRows.logic";
+import { getAdjacentRun } from "../components/runHistorySelection.logic";
 
 const HealthCheckHistoryDetailPageContent = () => {
   const { systemId, configurationId, runId } = useParams<{
@@ -55,7 +70,10 @@ const HealthCheckHistoryDetailPageContent = () => {
   const navigate = useNavigate();
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
+  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
+  const isMobile = useIsMobile();
+  const { isLowPower } = usePerformance();
   // Capability-aware: a team-scoped manager of a health check OR of a system
   // (a system's owning team sees its runs) can open detailed run history too,
   // matching the route guard; the data procs authorize the specific
@@ -78,16 +96,12 @@ const HealthCheckHistoryDetailPageContent = () => {
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
   const satellites = satellitesData?.satellites ?? [];
 
-  // Fetch specific run if runId is provided. Authorization happens server-side
-  // against the run's own configuration/system.
-  const { data: specificRun } = healthCheckClient.getRunById.useQuery(
-    {
-      runId: runId!,
-    },
-    {
-      enabled: !!runId,
-    },
-  );
+  // Environment names for the run rows (per-environment fan-out).
+  const { data: systemEnvironments = [] } =
+    catalogClient.getSystemEnvironments.useQuery(
+      { systemId: systemId! },
+      { enabled: !!systemId },
+    );
 
   // Fetch configurations to get strategyId
   const { data: configurations } = healthCheckClient.getConfigurations.useQuery(
@@ -116,7 +130,71 @@ const HealthCheckHistoryDetailPageContent = () => {
   // Sync total from response
   usePaginationSync(pagination, data?.total);
 
-  const runs = (data?.runs ?? []) as HealthCheckRunDetailed[];
+  const rawRuns = useMemo(
+    () => (data?.runs ?? []) as HealthCheckRunDetailed[],
+    [data],
+  );
+  // Keep the previous page rendered (dimmed) while a refetch is in flight.
+  const { data: displayRuns, isStale } = useKeptPrevious({
+    data: rawRuns,
+    isFetching: isLoading,
+  });
+
+  // Retention boundary. `getRetentionConfig` is gated on configuration.read,
+  // which a system-owning team may not hold even though the history procs
+  // authorize them handler-side — fall back to the platform default instead
+  // of failing the page.
+  const { data: retentionData } = healthCheckClient.getRetentionConfig.useQuery(
+    { systemId: systemId!, configurationId: configurationId! },
+    { enabled: !!systemId && !!configurationId, retry: false },
+  );
+  const rawRetentionDays =
+    retentionData?.retentionConfig?.rawRetentionDays ??
+    DEFAULT_RETENTION_CONFIG.rawRetentionDays;
+  const cutoff = rawRetentionCutoff({ rawRetentionDays, now: new Date() });
+
+  // Aggregate buckets for the pre-retention tail of the list (last page only).
+  const aggregatesEnabled = shouldQueryAggregates({
+    rangeStart: dateRange.startDate,
+    cutoff,
+    page: pagination.page,
+    totalPages: pagination.totalPages,
+  });
+  const { data: aggregatedData } =
+    healthCheckClient.getDetailedAggregatedHistory.useQuery(
+      {
+        systemId: systemId!,
+        configurationId: configurationId!,
+        startDate: dateRange.startDate,
+        endDate: cutoff,
+        sourceFilter,
+        targetPoints: 60,
+      },
+      { enabled: aggregatesEnabled && !!systemId && !!configurationId },
+    );
+
+  const rows = buildRunHistoryRows({
+    runs: displayRuns,
+    buckets: aggregatesEnabled ? (aggregatedData?.buckets ?? []) : [],
+    cutoff,
+    isLastPage: isLastRawPage({
+      page: pagination.page,
+      totalPages: pagination.totalPages,
+    }),
+  });
+
+  const selectRun = useCallback(
+    (nextRunId: string) => {
+      navigate(
+        resolveRoute(healthcheckRoutes.routes.historyRun, {
+          systemId,
+          configurationId,
+          runId: nextRunId,
+        }),
+      );
+    },
+    [navigate, systemId, configurationId],
+  );
 
   // Handler to dismiss the highlighted run
   const dismissHighlightedRun = () => {
@@ -128,6 +206,73 @@ const HealthCheckHistoryDetailPageContent = () => {
       { replace: true },
     );
   };
+
+  // Prev/next: adjacent run on this page, or flip the page and select that
+  // page's first/last run once it arrives.
+  const pendingSelectRef = useRef<"first" | "last" | undefined>(undefined);
+  const runIds = rawRuns.map((run) => run.id);
+
+  useEffect(() => {
+    const pending = pendingSelectRef.current;
+    if (pending === undefined || isLoading || rawRuns.length === 0) return;
+    pendingSelectRef.current = undefined;
+    const target = pending === "first" ? rawRuns[0] : rawRuns.at(-1);
+    if (target !== undefined) selectRun(target.id);
+  }, [rawRuns, isLoading, selectRun]);
+
+  const adjacentFor = (direction: "prev" | "next") =>
+    runId === undefined
+      ? { kind: "none" as const }
+      : getAdjacentRun({
+          runIds,
+          currentRunId: runId,
+          direction,
+          page: pagination.page,
+          totalPages: pagination.totalPages,
+        });
+
+  const handleAdjacent = (direction: "prev" | "next") => {
+    const result = adjacentFor(direction);
+    if (result.kind === "run") {
+      selectRun(result.runId);
+    } else if (result.kind === "page") {
+      pendingSelectRef.current = result.select;
+      pagination.setPage(result.page);
+    }
+  };
+
+  const canPrev = adjacentFor("prev").kind !== "none";
+  const canNext = adjacentFor("next").kind !== "none";
+
+  const defaultRange = getDefaultDateRange();
+  const hasActiveFilters =
+    statusFilter !== "all" ||
+    sourceFilter !== undefined ||
+    dateRange.startDate.getTime() !== defaultRange.startDate.getTime();
+
+  const clearFilters = () => {
+    setDateRange(getDefaultDateRange());
+    setSourceFilter(undefined);
+    setStatusFilter("all");
+    pagination.setPage(1);
+  };
+
+  const detailPanel = runId ? (
+    <RunDetailPanel
+      runId={runId}
+      strategyId={configuration?.strategyId}
+      onDismiss={dismissHighlightedRun}
+      prevNext={{
+        onPrev: canPrev ? () => handleAdjacent("prev") : undefined,
+        onNext: canNext ? () => handleAdjacent("next") : undefined,
+      }}
+    />
+  ) : undefined;
+
+  const emptyMessage =
+    statusFilter !== "all" || sourceFilter !== undefined
+      ? "No runs match the current filters."
+      : "No health check runs found for this configuration.";
 
   return (
     <PageLayout
@@ -156,107 +301,120 @@ const HealthCheckHistoryDetailPageContent = () => {
         </div>
       )}
 
-      {/* Highlighted specific run when navigated with runId */}
-      {runId && specificRun && (
-        <Card className="mb-4 border-primary/50 bg-primary/5">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <span>Selected Run</span>
-                <HealthBadge status={specificRun.status} />
-              </CardTitle>
-              <button
-                onClick={dismissHighlightedRun}
-                className="p-1 hover:bg-muted rounded"
-                title="Dismiss"
-              >
-                <X className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {format(new Date(specificRun.timestamp), "PPpp")}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ExpandedResultView result={specificRun.result} />
-            {configuration?.strategyId && (
-              <SingleRunChartGrid
-                strategyId={configuration.strategyId}
-                result={specificRun.result}
+      {/* Filter bar */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <DateRangeFilter
+          value={dateRange}
+          onChange={(next) => {
+            setDateRange(next);
+            pagination.setPage(1);
+          }}
+        />
+        <StatusFilterPills
+          value={statusFilter}
+          onChange={(next) => {
+            setStatusFilter(next);
+            pagination.setPage(1);
+          }}
+        />
+        <SourceFilterPills
+          value={sourceFilter}
+          onChange={(next) => {
+            setSourceFilter(next);
+            pagination.setPage(1);
+          }}
+          satellites={satellites}
+        />
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        )}
+        {data !== undefined && (
+          <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+            {data.total} runs
+          </span>
+        )}
+      </div>
+
+      <SplitPane
+        master={
+          <div className="flex h-full flex-col gap-3">
+            <RunHistoryList
+              rows={rows}
+              selectedRunId={runId}
+              onSelectRun={({ runId: nextRunId }) => selectRun(nextRunId)}
+              onKeyNavigate={({ direction }) => handleAdjacent(direction)}
+              loading={isLoading}
+              isStale={isStale}
+              environmentLabels={systemEnvironments}
+              emptyMessage={emptyMessage}
+              className="min-h-0 flex-1 max-md:h-[60vh]"
+            />
+            {pagination.totalPages > 1 && (
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                onPageChange={pagination.setPage}
+                total={pagination.total}
+                limit={pagination.limit}
+                onPageSizeChange={pagination.setLimit}
+                showTotal
+                showPageSize
               />
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Run History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <DateRangeFilter value={dateRange} onChange={setDateRange} />
-            <StatusFilterPills
-              value={statusFilter}
-              onChange={(next) => {
-                setStatusFilter(next);
-                pagination.setPage(1);
-              }}
-            />
-            {/* Source filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Source:</span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setSourceFilter(undefined)}
-                  className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                    sourceFilter === undefined
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setSourceFilter("local")}
-                  className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                    sourceFilter === "local"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  <Server className="h-3 w-3" />
-                  Local
-                </button>
-                {satellites.map((sat) => (
-                  <button
-                    key={sat.id}
-                    onClick={() => setSourceFilter(sat.id)}
-                    className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                      sourceFilter === sat.id
-                        ? "bg-orange-500 text-white"
-                        : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
-                    }`}
-                  >
-                    <Satellite className="h-3 w-3" />
-                    {sat.name}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
-          <HealthCheckRunsTable
-            runs={runs}
-            loading={isLoading}
-            emptyMessage={
-              statusFilter !== "all" || sourceFilter !== undefined
-                ? "No runs match the current filters."
-                : "No health check runs found for this configuration."
-            }
-            pagination={pagination}
-          />
-        </CardContent>
-      </Card>
+        }
+        detail={
+          detailPanel === undefined ? (
+            <EmptyState
+              icon={<MousePointerClick className="h-10 w-10" />}
+              title="Select a run"
+              description="Pick a run on the left to inspect its result, timing breakdown, and raw payload."
+            />
+          ) : (
+            <div
+              className={cn(
+                chartCardChromeClass({ isLowPower }),
+                "p-[var(--d-pad)]",
+              )}
+            >
+              {detailPanel}
+            </div>
+          )
+        }
+      />
+
+      {/* Mobile: the detail opens as a sheet over the list. */}
+      {isMobile && (
+        <Sheet
+          open={!!runId}
+          onOpenChange={(open) => {
+            if (!open) dismissHighlightedRun();
+          }}
+        >
+          <SheetContent size="xl">
+            <SheetHeader>
+              <SheetTitle>Run detail</SheetTitle>
+              <SheetDescription className="sr-only">
+                Details for the selected health check run
+              </SheetDescription>
+            </SheetHeader>
+            <SheetBody>
+              {runId && (
+                <RunDetailPanel
+                  runId={runId}
+                  strategyId={configuration?.strategyId}
+                  prevNext={{
+                    onPrev: canPrev ? () => handleAdjacent("prev") : undefined,
+                    onNext: canNext ? () => handleAdjacent("next") : undefined,
+                  }}
+                />
+              )}
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
+      )}
     </PageLayout>
   );
 };

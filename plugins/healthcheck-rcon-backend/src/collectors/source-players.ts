@@ -38,6 +38,7 @@ const sourcePlayersResultSchema = z.object({
     // peak) with no stable baseline and no good or bad direction. Charting it
     // is useful, but baseline anomaly detection here is pure alert fatigue.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }),
   playerNames: z.array(
     healthResultString({
@@ -58,11 +59,13 @@ const sourcePlayersAggregatedFields = {
     // Same volatile population signal as the per-run player count. No stable
     // baseline, no good or bad direction: chart only, do not alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }),
   maxPlayerCount: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Player Count",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
   }),
 };
 

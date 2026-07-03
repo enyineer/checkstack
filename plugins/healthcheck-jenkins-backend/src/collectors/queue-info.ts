@@ -37,6 +37,7 @@ const queueInfoResultSchema = z.object({
     "x-anomaly-confirmation-window": 4,
     "x-anomaly-min-absolute-delta": 1,
     "x-anomaly-min-relative-delta": 0.25,
+    "x-chart-priority": 10,
   }),
   // Spiky sub-counts of the queue that sit on a near-zero baseline and flip
   // with normal scheduling. Off by default to avoid alert fatigue; overall
@@ -45,16 +46,19 @@ const queueInfoResultSchema = z.object({
     "x-chart-type": "counter",
     "x-chart-label": "Blocked Items",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   buildableCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Buildable Items",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   stuckCount: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Stuck Items",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   oldestWaitingMs: healthResultNumber({
     "x-chart-type": "line",
@@ -66,6 +70,7 @@ const queueInfoResultSchema = z.object({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 20,
   }),
   avgWaitingMs: healthResultNumber({
     "x-chart-type": "line",
@@ -77,6 +82,7 @@ const queueInfoResultSchema = z.object({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 30,
   }),
 });
 
@@ -93,6 +99,7 @@ const queueInfoAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 1,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   // Bucket maximum captures transient queue spikes that are normal under
   // bursty CI load; alerting on it produces noise. Average queue length is
@@ -101,6 +108,8 @@ const queueInfoAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Max Queue Length",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
   avgWaitTime: aggregatedAverage({
     "x-chart-type": "line",
@@ -112,6 +121,7 @@ const queueInfoAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 20,
   }),
 };
 

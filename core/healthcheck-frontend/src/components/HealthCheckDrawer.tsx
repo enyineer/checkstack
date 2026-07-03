@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from "react";
-import { ExternalLink, Server, Layers } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { ExternalLink, Server } from "lucide-react";
 import { Satellite as SatelliteIcon } from "lucide-react";
 import {
   CatalogApi,
@@ -23,15 +23,6 @@ import { AnomalyApi } from "@checkstack/anomaly-common";
 import { resolveRoute } from "@checkstack/common";
 import {
   LoadingSpinner,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
-  Pagination,
   usePagination,
   usePaginationSync,
   DateRangeFilter,
@@ -39,10 +30,10 @@ import {
   DateRangePreset,
   detectPreset,
   PRESETS,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  MetricTile,
+  ChartCard,
+  chartCardChromeClass,
+  StackedTimeline,
+  usePerformance,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -57,10 +48,18 @@ import {
   Spinner,
   cn,
 } from "@checkstack/ui";
-import { formatDistanceToNow } from "date-fns";
-import { useNavigate, Link } from "react-router-dom";
-import { HealthCheckStatusTimeline } from "./HealthCheckStatusTimeline";
+import { format, formatDistanceToNow } from "date-fns";
+import { Link } from "react-router-dom";
 import { HealthCheckLatencyChart } from "./HealthCheckLatencyChart";
+import { HealthCheckSparkline } from "./HealthCheckSparkline";
+import { HealthCheckRunsTable } from "./HealthCheckRunsTable";
+import { RunDetailPanel } from "./RunDetailPanel";
+import {
+  deriveExpectedBand,
+  deriveTrend,
+  formatBaselineChips,
+} from "../auto-charts/baseline.logic";
+import { BaselineChipStack } from "../auto-charts/BaselineChips";
 import { useHealthCheckData } from "../hooks/useHealthCheckData";
 import { AggregatedDataBanner } from "./AggregatedDataBanner";
 import { HealthCheckDiagramSlot } from "../slots";
@@ -69,16 +68,16 @@ import {
   STATUS_FILTER_TO_STATUSES,
   type StatusFilter,
 } from "./StatusFilterPills";
-import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
+import { SourceFilterPills } from "./SourceFilterPills";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
   bucketAvgLatencyMs,
   bucketHealthyPercent,
+  bucketsToStacked,
   statusToLabel,
   statusToTone,
-  toneStyles,
 } from "./healthcheckDisplay.logic";
-import { Heart, Clock, CheckCircle, AlertTriangle } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import type {
   StateThresholds,
@@ -112,24 +111,23 @@ interface HealthCheckDrawerProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const getVariantForStatus = (
-  status: HealthCheckStatus,
-): "success" | "warning" | "destructive" | "default" => {
-  switch (status) {
-    case "healthy": {
-      return "success";
-    }
-    case "degraded": {
-      return "warning";
-    }
-    case "unhealthy": {
-      return "destructive";
-    }
-    default: {
-      return "default";
-    }
-  }
-};
+/** One number-led stat in the hero status banner. */
+const BannerStat: React.FC<{
+  value: string;
+  label: string;
+  /** Full-precision hover title (e.g. the exact datetime behind "2m ago"). */
+  title?: string;
+}> = ({ value, label, title }) => (
+  <div className="text-right" title={title}>
+    <span className="block text-lg font-bold leading-none tracking-tight tabular-nums text-foreground">
+      {value}
+    </span>
+    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+      {label}
+    </span>
+  </div>
+);
+
 
 export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
   item,
@@ -148,10 +146,6 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
       { systemId },
       { enabled: !!systemId },
     );
-  const envNameById = new Map(
-    systemEnvironments.map((e) => [e.id, e.name]),
-  );
-  const navigate = useNavigate();
   const accessApi = useApi(accessApiRef);
   // Detailed run history is a MANAGER surface: global manage, a team grant on
   // THIS configuration, or manage access to THIS system (a system's owning
@@ -283,16 +277,29 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 
   usePaginationSync(pagination, historyData?.total);
 
-  const prevRunsRef = useRef(historyData?.runs ?? []);
-  const rawRuns = historyData?.runs ?? [];
-  const displayRuns =
-    historyLoading && prevRunsRef.current.length > 0
-      ? prevRunsRef.current
-      : rawRuns;
-  if (!historyLoading && rawRuns.length > 0) {
-    prevRunsRef.current = rawRuns;
-  }
-  const runs = displayRuns;
+  // The runs table keeps the previous page rendered during refetches itself
+  // (useKeptPrevious inside HealthCheckRunsTable).
+  const runs = historyData?.runs ?? [];
+
+  // Selected run for the nested detail sheet.
+  const [detailRunId, setDetailRunId] = useState<string | undefined>();
+
+  const { isLowPower } = usePerformance();
+  const chartBuckets = chartContext?.buckets ?? [];
+  const healthyPercent = bucketHealthyPercent({ buckets: chartBuckets });
+  const avgLatency = bucketAvgLatencyMs({ buckets: chartBuckets });
+
+  // Expected/Trend chips for the latency card header (shared derivation with
+  // the auto-chart tiles — see auto-charts/baseline.logic).
+  const latencyBaseline = baselines.find((b) => b.fieldPath === "latencyMs");
+  const latencyChips = formatBaselineChips({
+    band: deriveExpectedBand({
+      baseline: latencyBaseline,
+      buckets: chartBuckets,
+    }),
+    trend: deriveTrend({ baseline: latencyBaseline }),
+    unit: "ms",
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -325,37 +332,49 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
         </SheetHeader>
 
         <SheetBody className="space-y-6">
-          {/* Zone 1 — Summary Metric Tiles */}
-          <div className="grid grid-cols-2 gap-3">
-            <MetricTile
-              icon={Heart}
-              label="Status"
-              value={item.state}
-              variant={getVariantForStatus(item.state)}
-            />
-            <MetricTile
-              icon={Clock}
-              label="Last Run"
-              value={
-                item.lastRunAt
-                  ? formatDistanceToNow(item.lastRunAt, { addSuffix: true })
-                  : "Never"
-              }
-            />
-            <MetricTile
-              icon={CheckCircle}
-              label="Interval"
-              value={`${item.intervalSeconds}s`}
-            />
-            <MetricTile
-              icon={AlertTriangle}
-              label="Recent History"
-              value={`${item.recentStatusHistory.filter((s) => s === "healthy").length}/${item.recentStatusHistory.length} healthy`}
-              variant={
-                item.recentStatusHistory.includes("unhealthy")
-                  ? "destructive"
-                  : "success"
-              }
+          {/* Zone 1 — Hero status banner */}
+          <div
+            className={cn(
+              chartCardChromeClass({ isLowPower }),
+              "space-y-3 p-[var(--d-pad)]",
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <HealthStatusPill
+                tone={statusToTone({ status: item.state })}
+                label={statusToLabel({ status: item.state })}
+              />
+              <div className="flex flex-wrap items-end justify-end gap-x-5 gap-y-2">
+                <BannerStat
+                  value={healthyPercent === null ? "—" : `${healthyPercent}%`}
+                  label="healthy"
+                />
+                <BannerStat
+                  value={avgLatency === null ? "—" : `${avgLatency}ms`}
+                  label="avg latency"
+                />
+                <BannerStat
+                  value={`${item.intervalSeconds}s`}
+                  label="interval"
+                />
+                <BannerStat
+                  value={
+                    item.lastRunAt
+                      ? formatDistanceToNow(item.lastRunAt, { addSuffix: true })
+                      : "Never"
+                  }
+                  label="last run"
+                  title={
+                    item.lastRunAt
+                      ? format(item.lastRunAt, "PPpp")
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+            <HealthCheckSparkline
+              runs={item.recentStatusHistory.map((status) => ({ status }))}
+              className="w-full"
             />
           </div>
 
@@ -414,49 +433,11 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 
                     {/* Source filter */}
                     {canReadSatellites && satellites.length > 0 && (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground mr-1">
-                          <Server className="h-4 w-4" />
-                          <span className="font-medium text-foreground">Source:</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setSourceFilter(undefined)}
-                            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
-                              sourceFilter === undefined
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted text-muted-foreground hover:bg-muted/80"
-                            }`}
-                          >
-                            All
-                          </button>
-                          <button
-                            onClick={() => setSourceFilter("local")}
-                            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
-                              sourceFilter === "local"
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted text-muted-foreground hover:bg-muted/80"
-                            }`}
-                          >
-                            <Server className="h-3.5 w-3.5" />
-                            Local
-                          </button>
-                          {satellites.map((sat) => (
-                            <button
-                              key={sat.id}
-                              onClick={() => setSourceFilter(sat.id)}
-                              className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${
-                                sourceFilter === sat.id
-                                  ? "bg-status-warn text-white"
-                                  : "bg-status-warn/10 text-status-warn hover:bg-status-warn/20"
-                              }`}
-                            >
-                              <SatelliteIcon className="h-3.5 w-3.5" />
-                              {sat.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                      <SourceFilterPills
+                        value={sourceFilter}
+                        onChange={setSourceFilter}
+                        satellites={satellites}
+                      />
                     )}
                   </div>
                 </AccordionContent>
@@ -474,62 +455,32 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                     checkIntervalSeconds={item.intervalSeconds}
                   />
                 )}
-                {(() => {
-                  const healthyPercent = bucketHealthyPercent({
-                    buckets: chartContext.buckets,
-                  });
-                  const avgLatency = bucketAvgLatencyMs({
-                    buckets: chartContext.buckets,
-                  });
-                  return (
-                    <>
-                      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
-                        <CardHeader className="pb-2">
-                          <div className="flex items-end justify-between gap-3">
-                            <div>
-                              <span className="block text-3xl font-bold leading-none tabular-nums text-foreground">
-                                {healthyPercent === null
-                                  ? "—"
-                                  : `${healthyPercent}%`}
-                              </span>
-                              <CardTitle className="mt-1 text-xs font-normal text-muted-foreground">
-                                Status Timeline
-                              </CardTitle>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <HealthCheckStatusTimeline
-                            context={chartContext}
-                            height={96}
-                          />
-                        </CardContent>
-                      </div>
-                      <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
-                        <CardHeader className="pb-2">
-                          <div className="flex items-end justify-between gap-3">
-                            <div>
-                              <span className="block text-3xl font-bold leading-none tabular-nums text-foreground">
-                                {avgLatency === null ? "—" : `${avgLatency}ms`}
-                              </span>
-                              <CardTitle className="mt-1 text-xs font-normal text-muted-foreground">
-                                Average Execution Duration
-                              </CardTitle>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <HealthCheckLatencyChart
-                            context={chartContext}
-                            height={120}
-                            showAverage
-                            baselines={baselines}
-                          />
-                        </CardContent>
-                      </div>
-                    </>
-                  );
-                })()}
+                <ChartCard
+                  title="Status Timeline"
+                  heroValue={
+                    healthyPercent === null ? "—" : `${healthyPercent}%`
+                  }
+                >
+                  <StackedTimeline
+                    buckets={bucketsToStacked({
+                      buckets: chartContext.buckets,
+                    })}
+                    height={96}
+                    ariaLabel="Run status distribution over the selected window"
+                  />
+                </ChartCard>
+                <ChartCard
+                  title="Average Execution Duration"
+                  heroValue={avgLatency === null ? "—" : `${avgLatency}ms`}
+                  actions={<BaselineChipStack chips={latencyChips} />}
+                >
+                  <HealthCheckLatencyChart
+                    context={chartContext}
+                    height={120}
+                    showAverage={false}
+                    baselines={baselines}
+                  />
+                </ChartCard>
                 <ExtensionSlot
                   slot={HealthCheckDiagramSlot}
                   context={chartContext}
@@ -566,183 +517,17 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
                 />
               </div>
 
-              <ResponsiveTable className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-24">Status</TableHead>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Environment</TableHead>
-                      <TableHead>Source</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {runs.length === 0 && !historyLoading && (
-                      <EmptyRunsTableRow colSpan={4}>
-                        No runs match the{" "}
-                        <span className="font-medium">{runsStatusFilter}</span>{" "}
-                        filter.
-                      </EmptyRunsTableRow>
-                    )}
-                    {runs.map((run) => (
-                      <TableRow
-                        key={run.id}
-                        className={`${
-                          canViewDetails
-                            ? "cursor-pointer transition-colors hover:bg-surface-inset"
-                            : ""
-                        } ${historyLoading ? "opacity-50" : ""}`}
-                        onClick={
-                          canViewDetails
-                            ? () =>
-                                navigate(
-                                  resolveRoute(
-                                    healthcheckRoutes.routes.historyRun,
-                                    {
-                                      systemId,
-                                      configurationId: item.configurationId,
-                                      runId: run.id,
-                                    },
-                                  ),
-                                )
-                            : undefined
-                        }
-                      >
-                        <TableCell>
-                          <HealthStatusPill
-                            tone={statusToTone({ status: run.status })}
-                            label={statusToLabel({ status: run.status })}
-                          />
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDistanceToNow(new Date(run.timestamp), {
-                            addSuffix: true,
-                          })}
-                        </TableCell>
-                        <TableCell>
-                          {run.environmentId ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
-                              <Layers className="h-3 w-3" />
-                              {envNameById.get(run.environmentId) ??
-                                run.environmentId}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              None
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {run.sourceId ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn">
-                              <SatelliteIcon className="h-3 w-3" />
-                              {run.sourceLabel ?? "Remote"}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
-                              <Server className="h-3 w-3" />
-                              {run.sourceLabel ?? "Local"}
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList>
-                {runs.length === 0 && !historyLoading && (
-                  <div className="rounded-md border px-3 py-4 text-center text-sm text-muted-foreground">
-                    No runs match the{" "}
-                    <span className="font-medium">{runsStatusFilter}</span>{" "}
-                    filter.
-                  </div>
-                )}
-                {runs.map((run) => {
-                  const tone = statusToTone({ status: run.status });
-                  return (
-                  <div
-                    key={run.id}
-                    className={`relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] ${
-                      canViewDetails
-                        ? "cursor-pointer transition-colors hover:bg-surface-inset"
-                        : ""
-                    } ${historyLoading ? "opacity-50" : ""}`}
-                    onClick={
-                      canViewDetails
-                        ? () =>
-                            navigate(
-                              resolveRoute(
-                                healthcheckRoutes.routes.historyRun,
-                                {
-                                  systemId,
-                                  configurationId: item.configurationId,
-                                  runId: run.id,
-                                },
-                              ),
-                            )
-                        : undefined
-                    }
-                  >
-                    <span
-                      className={cn(
-                        "absolute inset-y-0 left-0 w-1",
-                        toneStyles[tone].accent,
-                      )}
-                      aria-hidden
-                    />
-                    <div className="flex items-center justify-between gap-2 pl-2">
-                      <HealthStatusPill
-                        tone={tone}
-                        label={statusToLabel({ status: run.status })}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(run.timestamp), {
-                          addSuffix: true,
-                        })}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-2">
-                      {run.environmentId ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
-                          <Layers className="h-3 w-3" />
-                          {envNameById.get(run.environmentId) ??
-                            run.environmentId}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          None
-                        </span>
-                      )}
-                      {run.sourceId ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn">
-                          <SatelliteIcon className="h-3 w-3" />
-                          {run.sourceLabel ?? "Remote"}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-xs text-muted-foreground">
-                          <Server className="h-3 w-3" />
-                          {run.sourceLabel ?? "Local"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  );
-                })}
-              </MobileCardList>
-              <div className="flex items-center justify-between">
-                <Pagination
-                  page={pagination.page}
-                  totalPages={pagination.totalPages}
-                  onPageChange={pagination.setPage}
-                  total={pagination.total}
-                  limit={pagination.limit}
-                  onPageSizeChange={pagination.setLimit}
-                  showPageSize
-                  showTotal
-                />
-              </div>
+              <HealthCheckRunsTable
+                runs={runs}
+                loading={historyLoading}
+                emptyMessage={`No runs match the ${runsStatusFilter} filter.`}
+                environmentLabels={systemEnvironments}
+                pagination={pagination}
+                selectedRunId={detailRunId}
+                onRowSelect={
+                  canViewDetails ? (run) => setDetailRunId(run.id) : undefined
+                }
+              />
               <div className="text-center">
                 {canViewDetails && (
                   <Link
@@ -760,6 +545,47 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
           )}
         </SheetBody>
       </SheetContent>
+
+      {/* Nested run-detail sheet: keeps the operator's drawer context (filters,
+          scroll) instead of ejecting to the full history page. */}
+      <Sheet
+        open={detailRunId !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setDetailRunId(undefined);
+        }}
+      >
+        <SheetContent size="lg">
+          <SheetHeader>
+            <div className="flex items-center justify-between gap-4 pr-8">
+              <SheetTitle>Run detail</SheetTitle>
+              {detailRunId && (
+                <Link
+                  to={resolveRoute(healthcheckRoutes.routes.historyRun, {
+                    systemId,
+                    configurationId: item.configurationId,
+                    runId: detailRunId,
+                  })}
+                  className="flex shrink-0 items-center gap-1 text-sm text-primary hover:underline"
+                >
+                  Open in full history
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              )}
+            </div>
+            <SheetDescription className="sr-only">
+              Details for the selected health check run
+            </SheetDescription>
+          </SheetHeader>
+          <SheetBody>
+            {detailRunId && (
+              <RunDetailPanel
+                runId={detailRunId}
+                strategyId={item.strategyId}
+              />
+            )}
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </Sheet>
   );
 };

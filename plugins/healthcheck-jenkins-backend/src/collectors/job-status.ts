@@ -49,8 +49,11 @@ const jobStatusResultSchema = z.object({
   buildable: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Buildable",
+    "x-chart-true-label": "buildable",
+    "x-chart-false-label": "not buildable",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
   }),
   lastBuildNumber: healthResultNumber({
     "x-chart-type": "counter",
@@ -61,6 +64,7 @@ const jobStatusResultSchema = z.object({
     "x-chart-type": "text",
     "x-chart-label": "Last Build Result",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }).optional(),
   lastBuildDurationMs: healthResultNumber({
     "x-chart-type": "line",
@@ -72,6 +76,7 @@ const jobStatusResultSchema = z.object({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 30,
   }).optional(),
   lastBuildTimestamp: healthResultNumber({
     "x-chart-type": "counter",
@@ -91,6 +96,8 @@ const jobStatusResultSchema = z.object({
   inQueue: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "In Queue",
+    "x-chart-true-label": "queued",
+    "x-chart-false-label": "not queued",
     "x-anomaly-enabled": false,
   }),
   color: healthResultString({
@@ -114,6 +121,7 @@ const jobStatusAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 30,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -124,6 +132,7 @@ const jobStatusAggregatedFields = {
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 10,
+    "x-chart-priority": 10,
   }),
   buildableRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -134,6 +143,7 @@ const jobStatusAggregatedFields = {
     "x-anomaly-sensitivity": 1.5,
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 10,
+    "x-chart-priority": 20,
   }),
 };
 

@@ -16,9 +16,6 @@ import {
 } from "@checkstack/ui";
 import { formatDistanceToNow, format } from "date-fns";
 import { ExternalLink, Satellite, Server, Layers } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { healthcheckRoutes } from "@checkstack/healthcheck-common";
-import { resolveRoute } from "@checkstack/common";
 import { EmptyRunsTableRow } from "./EmptyRunsTableRow";
 import { HealthStatusPill } from "./HealthStatusPill";
 import {
@@ -27,7 +24,7 @@ import {
   toneStyles,
 } from "./healthcheckDisplay.logic";
 
-const RunTimestamp: React.FC<{ timestamp: Date }> = ({ timestamp }) => (
+export const RunTimestamp: React.FC<{ timestamp: Date }> = ({ timestamp }) => (
   <span title={format(new Date(timestamp), "PPpp")}>
     {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
   </span>
@@ -40,7 +37,7 @@ const NEUTRAL_CHIP =
 const SIGNAL_CHIP =
   "inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-1.5 py-0.5 text-xs text-status-warn";
 
-const RunEnvironmentChip: React.FC<{
+export const RunEnvironmentChip: React.FC<{
   environmentId?: string;
   label?: string;
 }> = ({ environmentId, label }) =>
@@ -53,7 +50,7 @@ const RunEnvironmentChip: React.FC<{
     <span className="text-xs text-muted-foreground">None</span>
   );
 
-const RunSourceChip: React.FC<{
+export const RunSourceChip: React.FC<{
   sourceId?: string;
   sourceLabel?: string;
 }> = ({ sourceId, sourceLabel }) =>
@@ -74,7 +71,12 @@ export interface HealthCheckRunDetailed {
   configurationId: string;
   systemId: string;
   status: "healthy" | "unhealthy" | "degraded";
-  result: Record<string, unknown>;
+  /**
+   * Full run result. Optional: list endpoints (e.g. the drawer's public
+   * history) omit it; the table never reads it, and detail views fetch the
+   * full run via `getRunById`.
+   */
+  result?: Record<string, unknown>;
   timestamp: Date;
   /**
    * Environment this run executed for (per-environment fan-out). undefined =
@@ -106,6 +108,13 @@ export interface HealthCheckRunsTableProps {
   showFilterColumns?: boolean;
   /** Number of columns for the expanded result row */
   colSpan?: number;
+  /**
+   * Selection callback. When absent, rows are non-interactive (no pointer,
+   * no keyboard affordance). Navigation is the CALLER's concern.
+   */
+  onRowSelect?: (run: HealthCheckRunDetailed) => void;
+  /** The currently selected run, highlighted with an accent stripe. */
+  selectedRunId?: string;
   /** Pagination state from usePagination hook */
   pagination?: {
     page: number;
@@ -117,15 +126,27 @@ export interface HealthCheckRunsTableProps {
   };
 }
 
+/** Keyboard activation for row-as-button semantics (Enter / Space). */
+function rowKeyHandler(
+  onActivate: () => void,
+): (event: React.KeyboardEvent) => void {
+  return (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onActivate();
+  };
+}
+
 export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
   runs,
   loading,
   emptyMessage = "No health check runs found.",
   environmentLabels,
   showFilterColumns = false,
+  onRowSelect,
+  selectedRunId,
   pagination,
 }) => {
-  const navigate = useNavigate();
   const envNameById = new Map(
     (environmentLabels ?? []).map((e) => [e.id, e.name]),
   );
@@ -137,15 +158,7 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
     isFetching: loading,
   });
 
-  const handleRowClick = (run: HealthCheckRunDetailed) => {
-    navigate(
-      resolveRoute(healthcheckRoutes.routes.historyRun, {
-        systemId: run.systemId,
-        configurationId: run.configurationId,
-        runId: run.id,
-      }),
-    );
-  };
+  const interactive = onRowSelect !== undefined;
 
   // 4 base columns (Status, Timestamp, Environment, Source) + 3 extras when
   // showFilterColumns is on (System ID, Configuration ID, link icon).
@@ -184,57 +197,80 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                 {emptyMessage}
               </EmptyRunsTableRow>
             )}
-            {displayRuns.map((run) => (
-              <TableRow
-                key={run.id}
-                className={cn(
-                  "cursor-pointer transition-colors hover:bg-surface-inset",
-                  isStale && "opacity-50",
-                )}
-                onClick={() => handleRowClick(run)}
-              >
-                <TableCell>
-                  <HealthStatusPill
-                    tone={statusToTone({ status: run.status })}
-                    label={statusToLabel({ status: run.status })}
-                  />
-                </TableCell>
-                {showFilterColumns && (
-                  <>
-                    <TableCell className="font-mono text-xs">
-                      {run.systemId}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {run.configurationId.slice(0, 8)}...
-                    </TableCell>
-                  </>
-                )}
-                <TableCell className="text-sm text-muted-foreground">
-                  <RunTimestamp timestamp={run.timestamp} />
-                </TableCell>
-                <TableCell>
-                  <RunEnvironmentChip
-                    environmentId={run.environmentId}
-                    label={
-                      run.environmentId
-                        ? envNameById.get(run.environmentId)
-                        : undefined
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <RunSourceChip
-                    sourceId={run.sourceId}
-                    sourceLabel={run.sourceLabel}
-                  />
-                </TableCell>
-                {showFilterColumns && (
-                  <TableCell>
-                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            {displayRuns.map((run) => {
+              const tone = statusToTone({ status: run.status });
+              const selected = run.id === selectedRunId;
+              return (
+                <TableRow
+                  key={run.id}
+                  role={interactive ? "button" : undefined}
+                  tabIndex={interactive ? 0 : undefined}
+                  aria-current={selected ? "true" : undefined}
+                  className={cn(
+                    interactive &&
+                      "cursor-pointer transition-colors hover:bg-surface-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    selected && "bg-surface-inset",
+                    isStale && "opacity-50",
+                  )}
+                  onClick={interactive ? () => onRowSelect(run) : undefined}
+                  onKeyDown={
+                    interactive
+                      ? rowKeyHandler(() => onRowSelect(run))
+                      : undefined
+                  }
+                >
+                  <TableCell className="relative">
+                    {selected && (
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-1",
+                          toneStyles[tone].accent,
+                        )}
+                        aria-hidden
+                      />
+                    )}
+                    <HealthStatusPill
+                      tone={tone}
+                      label={statusToLabel({ status: run.status })}
+                    />
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
+                  {showFilterColumns && (
+                    <>
+                      <TableCell className="font-mono text-xs">
+                        {run.systemId}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {run.configurationId.slice(0, 8)}...
+                      </TableCell>
+                    </>
+                  )}
+                  <TableCell className="text-sm text-muted-foreground">
+                    <RunTimestamp timestamp={run.timestamp} />
+                  </TableCell>
+                  <TableCell>
+                    <RunEnvironmentChip
+                      environmentId={run.environmentId}
+                      label={
+                        run.environmentId
+                          ? envNameById.get(run.environmentId)
+                          : undefined
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <RunSourceChip
+                      sourceId={run.sourceId}
+                      sourceLabel={run.sourceLabel}
+                    />
+                  </TableCell>
+                  {showFilterColumns && (
+                    <TableCell>
+                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </ResponsiveTable>
@@ -247,14 +283,24 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
         )}
         {displayRuns.map((run) => {
           const tone = statusToTone({ status: run.status });
+          const selected = run.id === selectedRunId;
           return (
           <div
             key={run.id}
+            role={interactive ? "button" : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            aria-current={selected ? "true" : undefined}
             className={cn(
-              "relative cursor-pointer overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-colors hover:bg-surface-inset",
+              "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]",
+              interactive &&
+                "cursor-pointer transition-colors hover:bg-surface-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              selected && "bg-surface-inset",
               isStale && "opacity-50",
             )}
-            onClick={() => handleRowClick(run)}
+            onClick={interactive ? () => onRowSelect(run) : undefined}
+            onKeyDown={
+              interactive ? rowKeyHandler(() => onRowSelect(run)) : undefined
+            }
           >
             {/* Status accent stripe keyed to run status. */}
             <span

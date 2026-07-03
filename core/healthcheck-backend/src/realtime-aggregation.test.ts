@@ -5,6 +5,7 @@ import {
   deserializeTDigest,
   incrementHourlyAggregate,
 } from "./realtime-aggregation";
+import { computeAssertionKey } from "@checkstack/healthcheck-common";
 import { TDigest } from "tdigest";
 
 describe("getHourBucketStart", () => {
@@ -492,5 +493,140 @@ describe("incrementHourlyAggregate", () => {
     const inserted = insertedValues[0] as Record<string, unknown>;
     expect(inserted.minLatencyMs).toBe(150);
     expect(inserted.maxLatencyMs).toBe(150);
+  });
+});
+
+describe("incrementHourlyAggregate - assertion stats folding", () => {
+  const KEY = computeAssertionKey({
+    assertion: { field: "statusCode", operator: "equals", value: 200 },
+  });
+
+  const outcome = (passed: boolean) => ({
+    key: KEY,
+    field: "statusCode",
+    operator: "equals",
+    value: "200",
+    passed,
+  });
+
+  const collectorRegistry = {
+    register: mock(() => {}),
+    getCollector: mock(() => ({
+      collector: {
+        id: "test-collector",
+        mergeResult: mock(() => ({ count: 1 })),
+      },
+    })),
+    getCollectors: mock(() => []),
+  } as unknown as Parameters<
+    typeof incrementHourlyAggregate
+  >[0]["collectorRegistry"];
+
+  function runResult(outcomes: unknown[]) {
+    return {
+      metadata: {
+        collectors: {
+          "uuid-1": {
+            _collectorId: "test-collector",
+            _assertions: outcomes,
+            statusCode: 200,
+          },
+        },
+      },
+    };
+  }
+
+  it("folds a run's outcomes into the bucket's per-assertion counts", async () => {
+    let inserted: Record<string, unknown> | undefined;
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(() => Promise.resolve([])),
+          })),
+        })),
+      })),
+      insert: mock(() => ({
+        values: mock((values: Record<string, unknown>) => {
+          inserted = values;
+          return { onConflictDoUpdate: mock(() => Promise.resolve()) };
+        }),
+      })),
+    };
+
+    await incrementHourlyAggregate({
+      db: db as never,
+      systemId: "sys-1",
+      configurationId: "config-1",
+      status: "unhealthy",
+      latencyMs: 100,
+      runTimestamp: new Date("2024-01-15T10:35:00Z"),
+      result: runResult([outcome(true), outcome(false)]) as never,
+      collectorRegistry,
+    });
+
+    const aggregated = inserted?.aggregatedResult as Record<string, unknown>;
+    expect(aggregated.assertions).toEqual({
+      "uuid-1": { [KEY]: { passCount: 1, failCount: 1 } },
+    });
+    // The internal _assertions never leak into collector merge output.
+    const collectors = aggregated.collectors as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(collectors["uuid-1"]._assertions).toBeUndefined();
+  });
+
+  it("increments existing counts and keeps distinct keys separate (mid-bucket config edit)", async () => {
+    const OTHER_KEY = computeAssertionKey({
+      assertion: { field: "statusCode", operator: "equals", value: 201 },
+    });
+    const existing = {
+      tdigestState: null,
+      minLatencyMs: null,
+      maxLatencyMs: null,
+      aggregatedResult: {
+        collectors: {},
+        assertions: { "uuid-1": { [KEY]: { passCount: 4, failCount: 0 } } },
+      },
+    };
+    let inserted: Record<string, unknown> | undefined;
+    const db = {
+      select: mock(() => ({
+        from: mock(() => ({
+          where: mock(() => ({
+            limit: mock(() => Promise.resolve([existing])),
+          })),
+        })),
+      })),
+      insert: mock(() => ({
+        values: mock((values: Record<string, unknown>) => {
+          inserted = values;
+          return { onConflictDoUpdate: mock(() => Promise.resolve()) };
+        }),
+      })),
+    };
+
+    // The edited assertion (value 201) starts a NEW series in the same bucket.
+    await incrementHourlyAggregate({
+      db: db as never,
+      systemId: "sys-1",
+      configurationId: "config-1",
+      status: "healthy",
+      latencyMs: 100,
+      runTimestamp: new Date("2024-01-15T10:40:00Z"),
+      result: runResult([
+        { ...outcome(true), key: OTHER_KEY, value: "201" },
+      ]) as never,
+      collectorRegistry,
+    });
+
+    const aggregated = inserted?.aggregatedResult as Record<string, unknown>;
+    expect(aggregated.assertions).toEqual({
+      "uuid-1": {
+        [KEY]: { passCount: 4, failCount: 0 },
+        [OTHER_KEY]: { passCount: 1, failCount: 0 },
+      },
+    });
   });
 });

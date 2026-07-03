@@ -57,8 +57,12 @@ const rconResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -70,6 +74,7 @@ const rconResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -93,6 +98,7 @@ const rconAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
@@ -102,6 +108,8 @@ const rconAggregatedFields = {
     // noisier than the average twin, which we keep enabled. Disable to avoid
     // alert fatigue from one-off connection spikes.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -112,6 +120,7 @@ const rconAggregatedFields = {
     "x-anomaly-direction": "higher-is-better",
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -120,6 +129,8 @@ const rconAggregatedFields = {
     // have no stable baseline. Success rate already covers failures as a
     // normalized percent, so disable this absolute twin.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 };
 

@@ -25,10 +25,11 @@ import {
   toneStyles,
   type StatusTone,
 } from "./healthcheckDisplay.logic";
-// Lazy-loaded: the drawer pulls in the recharts-based latency/timeline charts
-// (~300 KB). This component is an eagerly-registered slot extension, so a static
-// import would ship recharts in the initial bundle. The drawer only renders when
-// a check is selected, so deferring it keeps charts out of the initial load.
+// Lazy-loaded: the drawer pulls in the full chart stack (timeline, latency,
+// auto-chart tiles). This component is an eagerly-registered slot extension,
+// so a static import would ship all of that in the initial bundle. The drawer
+// only renders when a check is selected, so deferring it keeps the charts out
+// of the initial load.
 const HealthCheckDrawer = lazy(() =>
   import("./HealthCheckDrawer").then((m) => ({ default: m.HealthCheckDrawer })),
 );

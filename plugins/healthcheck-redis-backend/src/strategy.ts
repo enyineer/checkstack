@@ -72,8 +72,12 @@ const redisResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -85,6 +89,7 @@ const redisResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -110,6 +115,7 @@ const redisAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
@@ -119,6 +125,8 @@ const redisAggregatedFields = {
     // run-to-run with no stable baseline. Keep it chartable but do not alert
     // on it: avgConnectionTime already carries the latency signal.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "down",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -130,6 +138,7 @@ const redisAggregatedFields = {
     // percent of real movement before alerting.
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
@@ -138,6 +147,8 @@ const redisAggregatedFields = {
     // stable baseline. The failure signal is already covered by successRate
     // as a percent, so keep this chartable but off by default.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
+    "x-chart-good-direction": "down",
   }),
 };
 

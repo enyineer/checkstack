@@ -1,255 +1,94 @@
 ---
-title: "Health Check Custom Charts"
-description: "Strategy-specific chart slots that let health check plugins ship custom visualizations alongside the platform's generic charts."
+title: "Health check charts"
+description: "The auto-generated metric tile grid, the @checkstack/ui chart primitives, and the diagram slot for strategy-specific health check visualizations."
 ---
 
-## Overview
+Health check charts are generated automatically from the chart annotations on a strategy or collector result schema, and rendered with the shared chart kit in `@checkstack/ui`. This page covers the auto tile grid the platform builds for every check, the primitives you can reuse, and the diagram slot for shipping a strategy-specific visualization.
 
-The health check platform supports **strategy-specific visualizations** through an extension slot system. This allows health check strategies to provide specialized charts for their unique data (e.g., HTTP status code distribution, database connection pool stats).
+> [!NOTE]
+> The earlier Recharts-based auto-chart renderers have been removed. All health check visualizations now render through the token-driven SVG primitives in `@checkstack/ui`. If you maintained a custom diagram that imported `recharts`, migrate it to those primitives.
 
-## Architecture
+## The auto tile grid
 
-### Dual Visualization Pattern
+Every check gets an auto-generated visualization with no per-strategy code: `AutoChartGrid` reads the strategy's aggregated result schema, extracts the chart annotations (`x-chart-*`), and renders one compact tile per annotated field. Fields are grouped by collector instance, and each group is a prioritized two-up grid (single column on mobile).
 
-The platform provides two types of charts:
+- **Ordering.** Tiles sort by the field's `x-chart-priority` (lower renders first, default `100`), so a headline metric leads its group without every field needing a weight. See the [chart metadata keys](/checkstack/developer-guide/backend/healthchecks/collectors/#chart-metadata-keys) for the annotation contract.
+- **Density first, depth on demand.** Each tile is a `StatTile`: a muted label over a bold `tabular-nums` value, with a word-sized sparkline (numeric) or a ribbon footer (boolean/categorical). Clicking a tile expands it in place to a full chart that spans the row - a `TimeSeriesChart` with the anomaly Expected band for numeric metrics, a `RadialGauge` for gauges, a `DistributionBar` for distributions, or an `UptimeRibbon` / `CategoryRibbon` for boolean and categorical history.
+- **Assertion tiles lead each group.** Before the metric tiles, each collector group renders one pass-rate tile per configured assertion (see [Assertion tiles](#assertion-tiles) below).
+- **Collector identity.** The qualified collector id (for example `collector-hardware-backend.cpu`) is demoted to a hover title on the group header and tiles; the group heading shows the clean collector name.
 
-1. **Generic Charts** (Platform-provided)
-   - `HealthCheckLatencyChart`: Tracks execution speed trends
-   - `HealthCheckStatusTimeline`: Visualizes success/failure over time
-   - Work with all health checks, regardless of strategy
+You do not call `AutoChartGrid` directly - the drawer and the history detail view render it for you from a `HealthCheckDiagramSlotContext`.
 
-2. **Strategy-Specific Diagrams** (Custom)
-   - Injected via `HealthCheckDiagramSlot`
-   - Filtered to only show for relevant strategies
-   - Have access to full `result`/`aggregatedResult` data
+## The `@checkstack/ui` chart primitives
 
-### Data Modes
+The chart kit is exported from `@checkstack/ui`. Build any custom diagram on these rather than pulling in a charting library; they are honest (straight-segment lines, no dishonest splines), token-driven for light/dark, and gate motion behind `usePerformance().isLowPower`.
 
-Custom charts must handle two data modes based on the selected time range:
+| Primitive | Use for |
+|-----------|---------|
+| `TimeSeriesChart` | A numeric metric over time, with an optional healthy band, reference line, and a hover tooltip (`useBandHover` + `ChartTooltip`). |
+| `Sparkline` | A word-sized inline trend, with a `tone`. |
+| `RadialGauge` | A single 0-1 fraction (rates, percentages) as a semicircle gauge. |
+| `StackedTimeline` | Stacked status counts per bucket (healthy/degraded/unhealthy), status-triad tokens. |
+| `UptimeRibbon` | A per-cell status history strip (boolean up/down). |
+| `CategoryRibbon` | A categorical history strip - a changed value shows in the warn tone. |
+| `DistributionBar` | A horizontal stacked distribution with a legend. |
+| `RequestWaterfall` | Per-phase request timings (DNS, connect, TLS, ...). |
+| `StatTile` | A metric tile: label, value, delta chip, sparkline/ribbon footer, click-to-expand disclosure. |
+| `ChartCard` | Premium card chrome (`chartCardChromeClass`) with an `isLowPower` fallback. |
+| `ChartTooltip` | The single shared chart tooltip. |
 
-| Mode | Context Type | Data | When Used |
-|------|--------------|------|-----------|
-| **Raw** | `RawDiagramContext` | Individual run results | Short ranges (≤ `rawRetentionDays`) |
-| **Aggregated** | `AggregatedDiagramContext` | Bucketed summaries | Long ranges (> `rawRetentionDays`) |
+All are presentational and framework-free at the math layer (the `chart-math` helpers are exported too, handy when you shape your own data).
 
-## Creating Custom Charts
+### Example: a distribution over buckets
 
-### Step 1: Define Your Types
+```tsx
+import { DistributionBar, type DistributionSlice } from "@checkstack/ui";
+import type { HealthCheckDiagramSlotContext } from "@checkstack/healthcheck-frontend";
 
-In your strategy's **common package**, define the result types:
-
-```typescript
-// @checkstack/healthcheck-http-common/src/types.ts
-import { z } from "zod";
-
-// Per-run result schema
-export const HttpResultSchema = z.object({
-  statusCode: z.number(),
-  responseTimeMs: z.number(),
-  contentLength: z.number().optional(),
-});
-export type HttpResult = z.infer<typeof HttpResultSchema>;
-
-// Aggregated result schema
-export const HttpAggregatedResultSchema = z.object({
-  statusCodeDistribution: z.record(z.string(), z.number()),
-  avgResponseTimeMs: z.number(),
-  errorRate: z.number(),
-});
-export type HttpAggregatedResult = z.infer<typeof HttpAggregatedResultSchema>;
-```
-
-### Step 2: Create the Diagram Extension Factory
-
-In your strategy's **common package**, create a typed helper:
-
-```typescript
-// @checkstack/healthcheck-http-common/src/slots.ts
-import { createDiagramExtensionFactory } from "@checkstack/healthcheck-frontend";
-import { httpCheckMetadata } from "./plugin-metadata";
-import type { HttpResult, HttpAggregatedResult } from "./types";
-
-/**
- * Pre-typed helper for creating HTTP check diagram extensions.
- * Consumers get automatic type inference for their components.
- */
-export const createHttpDiagramExtension = createDiagramExtensionFactory<
-  HttpResult,
-  HttpAggregatedResult
->(httpCheckMetadata);
-```
-
-### Step 3: Implement Chart Components
-
-In your strategy's **frontend package**, create the chart components:
-
-```typescript
-// @checkstack/healthcheck-http-frontend/src/charts/HttpStatusChart.tsx
-import React from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
-import type { RawDiagramContext } from "@checkstack/healthcheck-frontend";
-import type { HttpResult } from "@checkstack/healthcheck-http-common";
-
-/**
- * Raw mode component - renders per-run data.
- */
-export const HttpStatusRawChart: React.FC<RawDiagramContext<HttpResult>> = ({
-  runs,
-}) => {
-  // Aggregate status codes from individual runs
-  const statusCounts: Record<string, number> = {};
-  for (const run of runs) {
-    const code = String(run.result?.statusCode ?? "unknown");
-    statusCounts[code] = (statusCounts[code] ?? 0) + 1;
-  }
-
-  const data = Object.entries(statusCounts).map(([code, count]) => ({
-    code,
-    count,
-  }));
-
-  return (
-    <div className="p-4">
-      <h4 className="text-sm font-medium mb-2">Status Code Distribution</h4>
-      <BarChart width={400} height={200} data={data}>
-        <XAxis dataKey="code" />
-        <YAxis />
-        <Tooltip />
-        <Bar dataKey="count" fill="#3b82f6" />
-      </BarChart>
-    </div>
-  );
-};
-```
-
-```typescript
-// @checkstack/healthcheck-http-frontend/src/charts/HttpStatusAggregatedChart.tsx
-import React from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
-import type { AggregatedDiagramContext } from "@checkstack/healthcheck-frontend";
-import type { HttpAggregatedResult } from "@checkstack/healthcheck-http-common";
-
-/**
- * Aggregated mode component - renders bucketed data.
- */
-export const HttpStatusAggregatedChart: React.FC<
-  AggregatedDiagramContext<HttpAggregatedResult>
-> = ({ buckets }) => {
-  // Combine status distributions across all buckets
-  const totalDistribution: Record<string, number> = {};
+export function HttpStatusDistribution({
+  buckets,
+}: HealthCheckDiagramSlotContext<{ statusCodeDistribution?: Record<string, number> }>) {
+  const totals: Record<string, number> = {};
   for (const bucket of buckets) {
     const dist = bucket.aggregatedResult?.statusCodeDistribution ?? {};
     for (const [code, count] of Object.entries(dist)) {
-      totalDistribution[code] = (totalDistribution[code] ?? 0) + count;
+      totals[code] = (totals[code] ?? 0) + count;
     }
   }
 
-  const data = Object.entries(totalDistribution).map(([code, count]) => ({
-    code,
-    count,
-  }));
+  const slices: DistributionSlice[] = Object.entries(totals).map(
+    ([code, value]) => ({ id: code, label: code, value }),
+  );
 
   return (
-    <div className="p-4">
-      <h4 className="text-sm font-medium mb-2">Status Code Distribution (Aggregated)</h4>
-      <BarChart width={400} height={200} data={data}>
-        <XAxis dataKey="code" />
-        <YAxis />
-        <Tooltip />
-        <Bar dataKey="count" fill="#8b5cf6" />
-      </BarChart>
-    </div>
+    <DistributionBar
+      slices={slices}
+      ariaLabel="HTTP status code distribution over the loaded window"
+    />
   );
-};
-```
-
-### Step 4: Register the Extension
-
-In your strategy's **frontend plugin**, register the extension:
-
-```typescript
-// @checkstack/healthcheck-http-frontend/src/index.tsx
-import { createFrontendPlugin } from "@checkstack/frontend-api";
-import { createHttpDiagramExtension } from "@checkstack/healthcheck-http-common";
-import { HttpStatusRawChart } from "./charts/HttpStatusChart";
-import { HttpStatusAggregatedChart } from "./charts/HttpStatusAggregatedChart";
-
-// Create the extension using the typed helper
-const httpStatusDiagram = createHttpDiagramExtension({
-  id: "http-check.status-distribution",
-  rawComponent: HttpStatusRawChart,           // Required
-  aggregatedComponent: HttpStatusAggregatedChart, // Optional
-});
-
-export default createFrontendPlugin({
-  name: "healthcheck-http-frontend",
-  extensions: [httpStatusDiagram],
-});
-```
-
-## The `createDiagramExtensionFactory` API
-
-```typescript
-function createDiagramExtensionFactory<TResult, TAggregatedResult>(
-  strategyMetadata: PluginMetadata
-): (options: {
-  id: string;
-  rawComponent: React.ComponentType<RawDiagramContext<TResult>>;
-  aggregatedComponent?: React.ComponentType<AggregatedDiagramContext<TAggregatedResult>>;
-}) => SlotExtension;
-```
-
-### Parameters
-
-- **`strategyMetadata`**: Your strategy's plugin metadata. Used for filtering.
-- **`id`**: Unique extension ID (e.g., `"http-check.status-chart"`)
-- **`rawComponent`**: Component for rendering individual run data (required)
-- **`aggregatedComponent`**: Component for rendering aggregated bucket data (optional)
-
-### Automatic Fallback
-
-If `aggregatedComponent` is not provided, the platform shows a fallback message:
-
-> "Strategy does not support aggregated visualization. Select a shorter time range for detailed per-run data."
-
-## Context Types
-
-### `RawDiagramContext<TResult>`
-
-```typescript
-interface RawDiagramContext<TResult> {
-  type: "raw";
-  systemId: string;
-  configurationId: string;
-  strategyId: string;
-  runs: TypedHealthCheckRun<TResult>[];
-}
-
-interface TypedHealthCheckRun<TResult> {
-  id: string;
-  configurationId: string;
-  systemId: string;
-  status: "healthy" | "unhealthy" | "degraded";
-  timestamp: Date;
-  latencyMs?: number;
-  result: TResult;  // Typed!
 }
 ```
 
-### `AggregatedDiagramContext<TAggregatedResult>`
+## The diagram slot
 
-```typescript
-interface AggregatedDiagramContext<TAggregatedResult> {
-  type: "aggregated";
+For a visualization that goes beyond the auto tile grid, contribute to the `HealthCheckDiagramSlot`. The context always carries aggregated bucket data - the platform's cross-tier aggregation engine picks the right tier (raw, hourly, or daily) and re-aggregates to a fixed number of target points, so a diagram renders identically across time ranges.
+
+```ts
+interface HealthCheckDiagramSlotContext<TAggregatedResult = unknown> {
   systemId: string;
   configurationId: string;
   strategyId: string;
   buckets: TypedAggregatedBucket<TAggregatedResult>[];
 }
+```
 
-interface TypedAggregatedBucket<TAggregatedResult> {
+Each bucket is an `AggregatedBucket` with a typed `aggregatedResult`:
+
+```ts
+interface AggregatedBucketBase {
   bucketStart: Date;
-  bucketSize: "hourly" | "daily";
+  bucketEnd: Date;
+  bucketIntervalSeconds: number;
   runCount: number;
   healthyCount: number;
   degradedCount: number;
@@ -259,129 +98,85 @@ interface TypedAggregatedBucket<TAggregatedResult> {
   minLatencyMs?: number;
   maxLatencyMs?: number;
   p95LatencyMs?: number;
-  aggregatedResult?: TAggregatedResult;  // Typed!
 }
+
+type TypedAggregatedBucket<TAggregatedResult> = AggregatedBucketBase & {
+  aggregatedResult?: TAggregatedResult;
+};
 ```
 
-## Using the `useHealthCheckData` Hook
+> [!NOTE]
+> The context is aggregated-only. There is no separate raw-mode component: shape your diagram to read `buckets`, and it works for every time range. `aggregatedResult` is dropped from very old daily rollups, so always guard it with `?.`.
 
-For advanced use cases, you can access the raw hook directly:
+### Register a diagram extension
 
-```typescript
+Create a pre-typed helper once in your strategy's common package, then register a single aggregated component in the frontend package.
+
+```ts
+// @checkstack/healthcheck-http-common/src/slots.ts
+import { createDiagramExtensionFactory } from "@checkstack/healthcheck-frontend";
+import { httpCheckMetadata } from "./plugin-metadata";
+import type { HttpAggregatedResult } from "./types";
+
+export const createHttpDiagramExtension =
+  createDiagramExtensionFactory<HttpAggregatedResult>(httpCheckMetadata);
+```
+
+```tsx
+// @checkstack/healthcheck-http-frontend/src/index.tsx
+import { createFrontendPlugin } from "@checkstack/frontend-api";
+import { createHttpDiagramExtension } from "@checkstack/healthcheck-http-common";
+import { HttpStatusDistribution } from "./charts/HttpStatusDistribution";
+
+const httpStatusDiagram = createHttpDiagramExtension({
+  id: "http-check.status-distribution",
+  component: HttpStatusDistribution,
+});
+
+export default createFrontendPlugin({
+  name: "healthcheck-http-frontend",
+  extensions: [httpStatusDiagram],
+});
+```
+
+The factory only renders the component when `ctx.strategyId` matches the strategy metadata, so an extension never leaks into another strategy's charts.
+
+### Accessing the data directly
+
+For a bespoke surface outside the slot, `useHealthCheckData` from `@checkstack/healthcheck-frontend` returns a ready-to-use context plus loading and access state.
+
+```tsx
 import { useHealthCheckData } from "@checkstack/healthcheck-frontend";
 
-function MyCustomVisualization({ systemId, configurationId, strategyId, dateRange }) {
-  const { 
-    context,        // Ready-to-use slot context
-    loading,        // Loading state
-    isAggregated,   // Whether aggregated mode is active
-    retentionConfig, // Current retention settings
-    hasAccess,  // User has healthCheckDetailsRead
-    accessLoading,
-  } = useHealthCheckData({
+function MyVisualization({ systemId, configurationId, strategyId, dateRange }) {
+  const { context, loading, hasAccess } = useHealthCheckData({
     systemId,
     configurationId,
     strategyId,
     dateRange,
-    limit: 100,     // For raw mode pagination
-    offset: 0,
   });
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <Skeleton variant="card" />;
   if (!hasAccess) return <NoAccessBanner />;
   if (!context) return null;
 
-  // Render based on context.type
-  if (context.type === "raw") {
-    return <MyRawChart runs={context.runs} />;
-  } else {
-    return <MyAggregatedChart buckets={context.buckets} />;
-  }
+  return <MyChart buckets={context.buckets} />;
 }
 ```
 
-## Using the `HealthCheckDiagram` Component
+## Assertion tiles
 
-For the simplest integration, use the wrapper component:
+Every collector group in the auto grid leads with a pass-rate tile per configured assertion. Each tile is a `StatTile` whose value is the latest pass rate and whose sparkline is the pass rate over the loaded window; expanding it reveals a `StackedTimeline` of pass/fail counts per bucket.
 
-```typescript
-import { HealthCheckDiagram } from "@checkstack/healthcheck-frontend";
+The tiles are seeded from the configuration's **current** assertions (so a freshly-added assertion appears before any data exists) and matched to historical series by the canonical assertion key. A series whose configuring assertion was edited away still renders, flagged "No longer configured - historical data only". The per-assertion counts come from the aggregate buckets' assertion stats; see [Assertion outcomes and analytics](/checkstack/developer-guide/backend/healthchecks/collectors/#assertion-outcomes-and-analytics) for the backend contract.
 
-function MyPage({ systemId, configurationId, strategyId, dateRange }) {
-  return (
-    <HealthCheckDiagram
-      systemId={systemId}
-      configurationId={configurationId}
-      strategyId={strategyId}
-      dateRange={dateRange}
-    />
-  );
-}
-```
+For the per-run view (pass/fail rows with expected vs actual), see the Assertions tab documented in [the master-detail pattern](/checkstack/developer-guide/frontend/master-detail/), which the health check history page uses as its reference implementation.
 
-This component:
-- Handles loading states
-- Shows access banners
-- Displays `AggregatedDataBanner` when in aggregated mode
-- Renders the `HealthCheckDiagramSlot` with proper context
+## Next steps
 
-## Recommended Charting Libraries
-
-| Library | Best For | Notes |
-|---------|----------|-------|
-| **Recharts** | Most use cases | Component-based, good DX, SVG rendering |
-| **Nivo** | Highly responsive charts | Built-in theming, Canvas support |
-| **react-chartjs-2** | Performance-critical | Canvas-based, Chart.js wrapper |
-
-## Best Practices
-
-### 1. Handle Missing Data
-
-```typescript
-// ✅ Good - graceful handling
-const data = bucket.aggregatedResult?.statusCodeDistribution ?? {};
-
-// ❌ Bad - may crash
-const data = bucket.aggregatedResult.statusCodeDistribution;
-```
-
-### 2. Keep Charts Performant
-
-```typescript
-// ✅ Good - memoize computed data
-const chartData = useMemo(() => {
-  return processRuns(runs);
-}, [runs]);
-
-// ❌ Bad - recalculates on every render
-const chartData = processRuns(runs);
-```
-
-### 3. Use Consistent Styling
-
-Follow the platform's design system for colors and spacing:
-
-```tsx
-// Use theme-aware colors
-<Bar dataKey="count" fill="var(--color-primary)" />
-
-// Use consistent padding
-<div className="p-4">
-  <ChartComponent />
-</div>
-```
-
-### 4. Provide Meaningful Tooltips
-
-```tsx
-<Tooltip
-  formatter={(value: number) => [`${value} requests`, "Count"]}
-  labelFormatter={(label) => `Status: ${label}`}
-/>
-```
-
-## Next Steps
-
-- [Health Check Data Management](/checkstack/developer-guide/backend/healthchecks/data-management/) - Backend aggregation details
-- [Extension Points](/checkstack/developer-guide/frontend/extension-points/) - General slot system
-- [Theming](/checkstack/developer-guide/frontend/theming/) - Design tokens and colors
+- [Collector plugin development](/checkstack/developer-guide/backend/healthchecks/collectors/) - the chart metadata and assertion contracts.
+- [Health check data management](/checkstack/developer-guide/backend/healthchecks/data-management/) - the tiered storage and aggregation the buckets come from.
+- [Master-detail pattern](/checkstack/developer-guide/frontend/master-detail/) - the run history split view and `RunDetailPanel`.
+- [Extension points](/checkstack/developer-guide/frontend/extension-points/) - the general slot system.
+</content>
+</invoke>

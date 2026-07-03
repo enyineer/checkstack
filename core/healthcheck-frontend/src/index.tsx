@@ -6,11 +6,6 @@ import { Activity } from "lucide-react";
 import { SystemHealthCheckAssignment } from "./components/SystemHealthCheckAssignment";
 import { SystemHealthBadge } from "./components/SystemHealthBadge";
 import { healthCheckAccess } from "@checkstack/healthcheck-common";
-// Import directly from the extension module, NOT the `./auto-charts` barrel:
-// the barrel statically re-exports AutoChartGrid + SingleRunChartGrid (both
-// pull in recharts), so importing the extension through it would drag recharts
-// into this eagerly-loaded plugin entry. The extension itself lazy-loads the
-// chart grid.
 import { autoChartExtension } from "./auto-charts/extension";
 
 import {
@@ -182,8 +177,9 @@ export default createFrontendPlugin({
     }),
     createSlotExtension(SystemDetailsSlot, {
       id: "healthcheck.system-details.overview",
-      // Heavier overview (drawer pulls recharts) — lazy so it stays out of the
-      // initial bundle and loads when a system-detail page renders.
+      // Heavier overview (drawer pulls the chart kit + history table) — lazy
+      // so it stays out of the initial bundle and loads when a system-detail
+      // page renders.
       load: () =>
         import("./components/HealthCheckSystemOverview").then((m) => ({
           default: m.HealthCheckSystemOverview,

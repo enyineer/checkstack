@@ -1,7 +1,7 @@
 import React, { useId, useMemo } from "react";
 import { cn } from "../../utils";
 import { usePerformance } from "../PerformanceProvider";
-import { clampFraction, scaleLinear, semicircleGauge } from "./chart-math";
+import { clampFraction, semicircleGauge } from "./chart-math";
 
 /** Tone of the supporting caption beneath the number. */
 export type GaugeCaptionTone = "ok" | "warn" | "down" | "muted";
@@ -99,11 +99,13 @@ export const RadialGauge: React.FC<RadialGaugeProps> = ({
     };
   }, [target, width, height]);
 
-  const numberY = scaleLinear({
-    value: 0.72,
-    domain: { min: 0, max: 1 },
-    range: { min: 0, max: height },
-  });
+  // Center the readout on the OPTICAL center of the arc's inner void, not its
+  // geometric midpoint: the void is a semicircle opening downward, and a
+  // semicircular area's centroid sits 4r/3π ≈ 0.42·r above its flat side —
+  // the halfway point reads visually high. Paired with
+  // `dominantBaseline="central"` the glyphs center exactly there.
+  const innerRadius = Math.min(width / 2, height) - STROKE;
+  const numberY = height - innerRadius * (4 / (3 * Math.PI));
 
   const label =
     ariaLabel ?? `${displayValue}${caption ? `, ${caption}` : ""}`;
@@ -178,6 +180,7 @@ export const RadialGauge: React.FC<RadialGaugeProps> = ({
           x={arc.centerX}
           y={numberY}
           textAnchor="middle"
+          dominantBaseline="central"
           fontSize={Math.round(width * 0.16)}
           fontWeight={800}
           fill="hsl(var(--foreground))"

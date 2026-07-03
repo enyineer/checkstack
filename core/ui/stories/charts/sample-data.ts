@@ -2,6 +2,7 @@ import type {
   RibbonCell,
   RibbonStatus,
   SeriesPoint,
+  StackedBucket,
   WaterfallPhase,
 } from "../../src/components/charts";
 
@@ -85,6 +86,39 @@ export const sampleWaterfall: WaterfallPhase[] = [
   { id: "wait", label: "Wait (TTFB)", durationMs: 271 },
   { id: "transfer", label: "Transfer", durationMs: 33 },
 ];
+
+/**
+ * Half-hour status-count buckets for the stacked timeline: mostly healthy,
+ * with an optional incident window (degraded then unhealthy) at `incidentAt`.
+ */
+export function stackedStatusBuckets({
+  buckets = 48,
+  seed = 5,
+  incidentAt,
+}: {
+  buckets?: number;
+  seed?: number;
+  incidentAt?: number;
+} = {}): StackedBucket[] {
+  const rand = seededRandom(seed);
+  const interval = HOUR / 2;
+  return Array.from({ length: buckets }, (_, i) => {
+    const runCount = 28 + Math.round(rand() * 6);
+    let down = 0;
+    let warn = 0;
+    if (incidentAt !== undefined && i >= incidentAt && i < incidentAt + 4) {
+      down = Math.round(runCount * (0.4 + rand() * 0.4));
+      warn = Math.round((runCount - down) * 0.5);
+    } else if (rand() > 0.92) {
+      warn = 1 + Math.round(rand() * 2);
+    }
+    return {
+      start: BASE + i * interval,
+      end: BASE + (i + 1) * interval,
+      counts: { ok: runCount - down - warn, warn, down },
+    };
+  });
+}
 
 /** A mostly-healthy 90-day ribbon with a couple of incidents. */
 export function uptimeCells({

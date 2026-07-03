@@ -43,6 +43,7 @@ const queryResultSchema = healthResultSchema({
     // fire on routine data growth, so it is off by default. Still chartable
     // and opt-in per check.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
   }),
   executionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -54,12 +55,16 @@ const queryResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   success: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Success",
+    "x-chart-true-label": "successful",
+    "x-chart-false-label": "failing",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-good-direction": "up",
   }),
 });
 
@@ -79,6 +84,7 @@ const queryAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",

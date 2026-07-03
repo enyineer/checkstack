@@ -1161,7 +1161,6 @@
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
         "react-router-dom": "^7.16.0",
-        "recharts": "^3.6.0",
         "uuid": "^14.0.0",
         "zod": "^4.2.1",
       },
@@ -1820,7 +1819,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.122.1",
+      "version": "0.123.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
@@ -2339,6 +2338,7 @@
         "@radix-ui/react-slider": "^1.2.1",
         "@radix-ui/react-slot": "^1.2.4",
         "@radix-ui/react-tooltip": "^1.2.10",
+        "@tanstack/react-virtual": "^3.14.5",
         "@typefox/monaco-editor-react": "7.7.0",
         "ajv": "^8.18.0",
         "ajv-formats": "^3.0.1",
@@ -2354,7 +2354,6 @@
         "react-dom": "19.2.7",
         "react-markdown": "^10.1.0",
         "react-router-dom": "^7.16.0",
-        "recharts": "^3.6.0",
         "rehype-raw": "^7.0.0",
         "rehype-sanitize": "^6.0.0",
         "remark-gfm": "^4.0.1",
@@ -4269,6 +4268,10 @@
     "@tanstack/react-query": ["@tanstack/react-query@5.100.14", "", { "dependencies": { "@tanstack/query-core": "5.100.14" }, "peerDependencies": { "react": "^18 || ^19" } }, "sha512-oOr6aRdSFEwWhzxEkD/9ZcItM3+LjBSkeVmadWKwUssAHTsqd/7bOjWrX4AbvEkoEhgAxzN0Xk6H/aYzXiYBAw=="],
 
     "@tanstack/react-query-devtools": ["@tanstack/react-query-devtools@5.100.14", "", { "dependencies": { "@tanstack/query-devtools": "5.100.14" }, "peerDependencies": { "@tanstack/react-query": "^5.100.14", "react": "^18 || ^19" } }, "sha512-JkP5VDgKOw3t/QSA1OABRHEqx8BuNs5MfvZRooNqdvN57SzTuGq3fKR1a2IH5rqa5HDLUm+FOXUEnB9ueHiLzg=="],
+
+    "@tanstack/react-virtual": ["@tanstack/react-virtual@3.14.5", "", { "dependencies": { "@tanstack/virtual-core": "3.17.3" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-4EKRXh7zBLkbKbFmG3AUVkircuHd+7OdT1pocJSepxtfBd3qnrJgJ5rtPkRYyo9fmyVb2+pI2xPy5oYvMLQy6A=="],
+
+    "@tanstack/virtual-core": ["@tanstack/virtual-core@3.17.3", "", {}, "sha512-8Np/TFELpI0ySuJoVmjvOrQYXH/8sTX0Biv9szhFhY39xOdAAY+smrMxjxOum/ux3eM8MUJQsEJ0/R0UpvC8dw=="],
 
     "@testcontainers/postgresql": ["@testcontainers/postgresql@12.0.3", "", { "dependencies": { "testcontainers": "^12.0.3" } }, "sha512-y0l/ItWxNfdMU783EOZ66lMq90uuuXPqE+fo1jNSRfMbtfUq/9Ez/wluDxxaS+D/i3I0juep+jmz/WVuip8i9Q=="],
 

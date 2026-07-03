@@ -2,11 +2,39 @@ import { describe, expect, test } from "bun:test";
 import {
   bucketAvgLatencyMs,
   bucketHealthyPercent,
+  bucketsToStacked,
   countHealthy,
   pausedToTone,
   statusToLabel,
   statusToTone,
 } from "./healthcheckDisplay.logic";
+
+describe("bucketsToStacked", () => {
+  test("maps status counts onto the stacked-timeline tones with ms bounds", () => {
+    const stacked = bucketsToStacked({
+      buckets: [
+        {
+          bucketStart: "2026-07-01T00:00:00.000Z",
+          bucketEnd: "2026-07-01T01:00:00.000Z",
+          healthyCount: 58,
+          degradedCount: 3,
+          unhealthyCount: 1,
+        },
+      ],
+    });
+    expect(stacked).toEqual([
+      {
+        start: Date.parse("2026-07-01T00:00:00.000Z"),
+        end: Date.parse("2026-07-01T01:00:00.000Z"),
+        counts: { ok: 58, warn: 3, down: 1 },
+      },
+    ]);
+  });
+
+  test("empty input yields empty output", () => {
+    expect(bucketsToStacked({ buckets: [] })).toEqual([]);
+  });
+});
 
 describe("statusToTone", () => {
   test("maps the triad: healthy=ok, degraded=warn, unhealthy=down", () => {

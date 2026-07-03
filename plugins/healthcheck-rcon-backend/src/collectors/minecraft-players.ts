@@ -39,12 +39,14 @@ const minecraftPlayersResultSchema = z.object({
     // Player population swings widely run to run with no stable baseline and
     // no good or bad direction. Chart only, do not alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }),
   maxPlayers: healthResultNumber({
     "x-chart-type": "counter",
     "x-chart-label": "Max Players",
     // Slot limit is a static config echo, not a health signal. Chart only.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 90,
   }),
   playerNames: z.array(
     healthResultString({
@@ -67,11 +69,13 @@ const minecraftPlayersAggregatedFields = {
     // Volatile player population, see the per-run online players field. Chart
     // only, do not alert.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 10,
   }),
   maxOnlinePlayers: aggregatedMinMax({
     "x-chart-type": "line",
     "x-chart-label": "Max Online Players",
     "x-anomaly-enabled": false,
+    "x-chart-priority": 30,
   }),
 };
 

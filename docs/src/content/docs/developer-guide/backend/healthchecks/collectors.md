@@ -190,6 +190,83 @@ To make a check unhealthy on a 404, the user adds an assertion like
 `statusCode equals 200`; to make a check that WANTS a 404 green, they add
 `statusCode equals 404`. The collector stays out of that decision.
 
+## Assertion outcomes and analytics
+
+Assertions are the user's grading of a completed collection (see the
+transport-vs-metric rule above). The platform records every assertion's outcome
+on each run and folds pass/fail tallies into the aggregates, so a check's
+assertion history charts the same way its metrics do. The contract lives in
+[`healthcheck-common/src/assertion-analytics.ts`](https://github.com/enyineer/checkstack/blob/main/core/healthcheck-common/src/assertion-analytics.ts);
+a collector author does not implement any of this, but understanding the shapes
+helps when reading stored results.
+
+### Per-run outcomes
+
+Each run stores structured outcomes on the collector entry inside
+`result.metadata.collectors`, under the reserved `_assertions` key:
+
+```ts
+interface AssertionOutcome {
+  key: string;        // canonical identity (see below)
+  field: string;
+  jsonPath?: string;
+  operator: string;
+  value?: string;     // expected, stringified (absent for value-less operators)
+  passed: boolean;
+  actual?: string;    // observed value, stringified and truncated to 200 chars
+  message?: string;   // failure detail (absent when passed)
+}
+```
+
+The legacy `_assertionFailed` (the first failure string) is still written for
+backward compatibility with pre-feature readers.
+
+### The assertion key
+
+An assertion's identity is a canonical JSON tuple of
+`[field, jsonPath, operator, value]`, produced by `computeAssertionKey` and
+reversible with `parseAssertionKey`. This key is how a series is tracked over
+time: editing any of those four parts starts a **new** series (the old one stops
+accruing), while two identical assertions collapse into one. Because the key is
+parseable, a historical series stays displayable even after the assertion that
+configured it was edited away.
+
+### Per-bucket counts
+
+Aggregates carry per-assertion pass/fail counts under the platform-owned,
+**top-level** `assertions` key of `aggregatedResult` - a sibling of
+`collectors`, never nested inside it, so a strategy's or collector's aggregated
+merger can never see or mangle it:
+
+```ts
+// aggregatedResult.assertions
+type BucketAssertionStats = {
+  [collectorEntryUuid: string]: {
+    [assertionKey: string]: { passCount: number; failCount: number };
+  };
+};
+```
+
+These counts are maintained across **every** aggregation path: the realtime
+hourly fold, on-read raw-tier normalization, bucket re-merge, and the daily
+retention rollup. They are additive, and are the only `aggregatedResult` content
+that survives the daily rollup (see
+[Data management](/checkstack/developer-guide/backend/healthchecks/data-management/)).
+
+### Where assertions are evaluated
+
+Locally-executed runs evaluate assertions in the run executor on the core.
+Satellite-executed runs are evaluated **at ingest on the core**, inside
+`ingestSatelliteResult` - the satellite never evaluates assertions, so this
+works for every satellite version with no wire change. A satellite-reported
+`healthy` run is downgraded to `unhealthy` when an assertion fails, and ephemeral
+result fields (for example raw HTTP bodies) are stripped after evaluation.
+
+> [!NOTE]
+> Buffered satellite results are evaluated against the check configuration that
+> is current at ingest time, not at execution time - a config change during a
+> satellite's offline window applies to the buffered runs it later flushes.
+
 ## Transport Clients
 
 Each transport strategy provides a specific client interface:
@@ -261,11 +338,37 @@ const cpuResultSchema = z.object({
 
 ### Chart Metadata Keys
 
+These keys are valid on both per-run (`healthResult*`) and aggregated
+(`aggregated*`) result fields.
+
 | Key | Required | Description |
 |-----|----------|-------------|
 | `x-chart-type` | ✅ | Chart type: `line`, `bar`, `counter`, `gauge`, `boolean`, `text`, `status` |
 | `x-chart-label` | Optional | Human-readable label (defaults to field name) |
 | `x-chart-unit` | Optional | Unit suffix (e.g., `ms`, `%`, `bytes`) |
+| `x-chart-priority` | Optional | Tile sort weight in the auto-generated chart grid; lower renders earlier. Fields without one default to `100`, so a headline metric (e.g. `responseTime: 10`) leads without every field needing a weight. |
+| `x-chart-good-direction` | Optional | Which direction of change is an improvement, `"up"` or `"down"` - used to color trend indicators (`"down"` for latency, `"up"` for a success rate). |
+| `x-chart-true-label` | Optional | Prose for a boolean field's `true` value wherever it surfaces in text, e.g. `"successful"` so a dominance chip reads "Usually successful (98%)" instead of "Usually true". Falls back to a humanized form of the field name. |
+| `x-chart-false-label` | Optional | Counterpart for `false`, e.g. `"failing"`. |
+
+> [!TIP]
+> When `x-chart-good-direction` is unset, the frontend falls back to
+> `x-anomaly-direction`: `higher-is-better` reads as `"up"` and
+> `lower-is-better` reads as `"down"`. A field with neither renders neutral
+> trends. Set `x-chart-good-direction` explicitly for a chartable metric that
+> has no anomaly detection, or to override the anomaly-derived default.
+
+```typescript
+const cpuAggregatedSchema = z.object({
+  avgUsagePercent: healthResultNumber({
+    "x-chart-type": "line",
+    "x-chart-label": "Avg CPU Usage",
+    "x-chart-unit": "%",
+    "x-chart-priority": 10, // leads the collector's tile group
+    "x-chart-good-direction": "down", // lower CPU is the improvement
+  }),
+});
+```
 
 ### Aggregated Result Schema
 

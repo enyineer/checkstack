@@ -72,6 +72,29 @@ export interface BaseHealthResultMeta {
    * |slope × sampleCount| > threshold × σ × sensitivity.
    */
   "x-anomaly-drift-threshold"?: number;
+  /**
+   * Sort weight for this field's tile in auto-generated chart grids; lower
+   * renders earlier. Fields without a priority default to 100, so a headline
+   * metric (e.g. `responseTime: 10`) leads without every field needing one.
+   */
+  "x-chart-priority"?: number;
+  /**
+   * Which direction of change is an IMPROVEMENT for this metric, used to color
+   * trend indicators (e.g. `"down"` for latency, `"up"` for a success rate).
+   * When unset, consumers fall back to `x-anomaly-direction`
+   * (`higher-is-better` → `"up"`, `lower-is-better` → `"down"`); metrics with
+   * neither render neutral trends.
+   */
+  "x-chart-good-direction"?: "up" | "down";
+  /**
+   * Human label rendered where this BOOLEAN field's `true` value surfaces in
+   * prose (e.g. `"successful"` for an HTTP `success` field, so a dominance
+   * chip reads "Usually successful (98%)" instead of "Usually true"). When
+   * unset, consumers fall back to a humanized form of the field name.
+   */
+  "x-chart-true-label"?: string;
+  /** Counterpart of `x-chart-true-label` for `false` (e.g. `"failing"`). */
+  "x-chart-false-label"?: string;
 }
 
 /**

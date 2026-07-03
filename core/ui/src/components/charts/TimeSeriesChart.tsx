@@ -1,4 +1,5 @@
 import React, { useId, useMemo } from "react";
+import { format } from "date-fns";
 import { cn } from "../../utils";
 import {
   extentOf,
@@ -10,6 +11,8 @@ import {
   type Range,
   type SeriesPoint,
 } from "./chart-math";
+import { ChartTooltip, type ChartTooltipRow } from "./ChartTooltip";
+import { useBandHover } from "./use-band-hover";
 
 /** A named series rendered on the chart. */
 export interface TimeSeries {
@@ -56,6 +59,8 @@ export interface TimeSeriesChartProps {
   referenceLine?: ReferenceLineSpec;
   /** Format a y value for the axis ticks. Defaults to the raw number. */
   formatY?: (value: number) => string;
+  /** Format an x (ms epoch) for the hover tooltip. Defaults to "MMM d, HH:mm". */
+  formatX?: (x: number) => string;
   /** Number of horizontal gridlines / y ticks. Defaults to 4. */
   yTicks?: number;
   /** Force the y-axis floor to zero. Defaults to true (latency-style charts). */
@@ -98,6 +103,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   healthyBand,
   referenceLine,
   formatY = (v) => String(Math.round(v)),
+  formatX = (x) => format(new Date(x), "MMM d, HH:mm"),
   yTicks = 4,
   zeroFloor = true,
   height = 220,
@@ -170,6 +176,8 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
       areaPaths: toAreaPaths({ projected: primaryProjected, baselineY }),
       primarySegments: toPolylineSegments({ projected: primaryProjected }),
       secondarySegments: toPolylineSegments({ projected: secondaryProjected }),
+      primaryProjected,
+      secondaryProjected,
       ticks,
       bandTop: healthyBand ? yFor(healthyBand.to) : null,
       bandBottom: healthyBand ? yFor(healthyBand.from) : null,
@@ -184,6 +192,23 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     if (referenceLine?.label) parts.push(`reference ${referenceLine.label}`);
     return `Time series chart of ${parts.join(", ")}`;
   }, [ariaLabel, primary.label, secondary, referenceLine]);
+
+  // Hover hit-testing against each point's ACTUAL projected position (as a
+  // fraction of the full width) so unevenly spaced series - e.g. buckets
+  // around a data gap - snap to the temporally nearest point and the tooltip
+  // anchors exactly where the crosshair is.
+  const hoverPositions = useMemo(
+    () =>
+      geom === null
+        ? []
+        : geom.primaryProjected.map((p) => (p === null ? null : p.cx / VIEW_W)),
+    [geom],
+  );
+  const { hoverIndex, containerRef, containerProps, tooltipStyle, tooltipClassName } =
+    useBandHover({
+      count: primary.points.length,
+      positions: hoverPositions,
+    });
 
   if (geom === null) {
     return (
@@ -201,7 +226,38 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     );
   }
 
+  // Hover: the point under the cursor plus its tooltip rows. A null-valued
+  // point still shows the timestamp with an em-dash value so gaps are honest.
+  const hoveredPoint = hoverIndex === null ? undefined : primary.points[hoverIndex];
+  const hoverMarker =
+    hoverIndex === null ? null : geom.primaryProjected[hoverIndex] ?? null;
+  const tooltipRows: ChartTooltipRow[] = [];
+  if (hoveredPoint !== undefined) {
+    tooltipRows.push({
+      id: primary.id,
+      label: primary.label,
+      value: hoveredPoint.y === null ? "–" : formatY(hoveredPoint.y),
+      tone: "primary",
+    });
+    if (secondary && hoverIndex !== null) {
+      const secondaryPoint = secondary.points[hoverIndex];
+      if (secondaryPoint !== undefined) {
+        tooltipRows.push({
+          id: secondary.id,
+          label: secondary.label,
+          value: secondaryPoint.y === null ? "–" : formatY(secondaryPoint.y),
+          tone: "muted",
+        });
+      }
+    }
+  }
+
   return (
+    <div
+      ref={containerRef}
+      {...containerProps}
+      className={cn("relative", className)}
+    >
     <svg
       width="100%"
       height={height}
@@ -209,7 +265,7 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
       preserveAspectRatio="none"
       role="img"
       aria-label={description}
-      className={cn("block", className)}
+      className="block"
     >
       <defs>
         <linearGradient id={`tsc-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
@@ -319,6 +375,43 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
           strokeLinejoin="round"
         />
       ))}
+
+      {/* hover crosshair + point marker */}
+      {hoverMarker !== null && (
+        <g pointerEvents="none">
+          <line
+            x1={hoverMarker.cx}
+            y1={geom.box.top}
+            x2={hoverMarker.cx}
+            y2={geom.baselineY}
+            stroke="hsl(var(--muted-foreground))"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            opacity={0.5}
+          />
+          <circle
+            cx={hoverMarker.cx}
+            cy={hoverMarker.cy}
+            r={3.5}
+            fill="hsl(var(--aurora-2))"
+            stroke="hsl(var(--background))"
+            strokeWidth={1.5}
+          />
+        </g>
+      )}
     </svg>
+
+    {hoveredPoint !== undefined && tooltipRows.length > 0 && (
+      <div
+        className={cn(
+          "pointer-events-none absolute top-2 z-10 -translate-x-1/2",
+          tooltipClassName,
+        )}
+        style={tooltipStyle}
+      >
+        <ChartTooltip title={formatX(hoveredPoint.x)} rows={tooltipRows} />
+      </div>
+    )}
+    </div>
   );
 };

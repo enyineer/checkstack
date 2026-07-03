@@ -65,8 +65,11 @@ const mysqlResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
+    "x-chart-good-direction": "up",
   }),
   connectionTimeMs: healthResultNumber({
     "x-chart-type": "line",
@@ -79,6 +82,7 @@ const mysqlResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   error: healthResultString({
     "x-chart-type": "status",
@@ -101,6 +105,7 @@ const mysqlAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   maxConnectionTime: aggregatedMinMax({
     "x-chart-type": "line",
@@ -110,6 +115,7 @@ const mysqlAggregatedFields = {
     // baseline over it is highly noisy. Avg connection time already covers the
     // latency signal, so this is off by default and remains chartable.
     "x-anomaly-enabled": false,
+    "x-chart-good-direction": "down",
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -129,6 +135,8 @@ const mysqlAggregatedFields = {
     // is the stable twin for this signal, so the absolute count is off by
     // default and remains chartable.
     "x-anomaly-enabled": false,
+    "x-chart-good-direction": "down",
+    "x-chart-priority": 90,
   }),
 };
 

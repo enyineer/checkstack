@@ -66,6 +66,10 @@ const tlsResultSchema = healthResultSchema({
   connected: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Connected",
+    "x-chart-true-label": "connected",
+    "x-chart-false-label": "disconnected",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
     "x-anomaly-confirmation-window": 3,
@@ -75,6 +79,10 @@ const tlsResultSchema = healthResultSchema({
   isValid: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Valid",
+    "x-chart-true-label": "valid",
+    "x-chart-false-label": "invalid",
+    "x-chart-priority": 30,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "dominance",
     "x-anomaly-confirmation-window": 3,
@@ -87,6 +95,9 @@ const tlsResultSchema = healthResultSchema({
   isSelfSigned: healthResultBoolean({
     "x-chart-type": "boolean",
     "x-chart-label": "Self-Signed",
+    "x-chart-true-label": "self-signed",
+    "x-chart-false-label": "CA-signed",
+    "x-chart-priority": 40,
     "x-anomaly-enabled": false,
   }),
   // Days-until-expiry decreases by exactly one per day - deterministic and
@@ -97,6 +108,8 @@ const tlsResultSchema = healthResultSchema({
     "x-chart-type": "line",
     "x-chart-label": "Days Until Expiry",
     "x-chart-unit": "days",
+    "x-chart-priority": 10,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": false,
   }),
   error: healthResultString({
@@ -117,6 +130,8 @@ const tlsAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Avg Days Until Expiry",
     "x-chart-unit": "days",
+    "x-chart-priority": 10,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": false,
   }),
   // Minimum days-until-expiry is likewise deterministic and monotonic; a
@@ -125,6 +140,8 @@ const tlsAggregatedFields = {
     "x-chart-type": "line",
     "x-chart-label": "Min Days Until Expiry",
     "x-chart-unit": "days",
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "up",
     "x-anomaly-enabled": false,
   }),
   // Count of invalid certificates per bucket. A rise is a real validity
@@ -132,6 +149,7 @@ const tlsAggregatedFields = {
   invalidCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Invalid Certificates",
+    "x-chart-priority": 30,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-confirmation-window": 3,
@@ -141,6 +159,7 @@ const tlsAggregatedFields = {
   errorCount: aggregatedCounter({
     "x-chart-type": "counter",
     "x-chart-label": "Errors",
+    "x-chart-priority": 40,
     "x-anomaly-enabled": true,
     "x-anomaly-direction": "lower-is-better",
     "x-anomaly-confirmation-window": 3,

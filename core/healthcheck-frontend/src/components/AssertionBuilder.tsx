@@ -13,6 +13,7 @@ import type {
   JsonSchemaPropertyBase,
 } from "@checkstack/common";
 import { Plus, Trash2 } from "lucide-react";
+import { OPERATOR_LABELS } from "./assertion-display.logic";
 
 // ============================================================================
 // TYPES
@@ -57,52 +58,56 @@ interface AssertionBuilderProps {
 // OPERATORS BY FIELD TYPE
 // ============================================================================
 
+// Labels come from the shared map so the builder's dropdowns and the
+// run-detail Assertions view always describe operators identically.
+const op = (value: string) => ({
+  value,
+  label: OPERATOR_LABELS[value] ?? value,
+});
+
 const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
   string: [
-    { value: "equals", label: "Equals" },
-    { value: "notEquals", label: "Not Equals" },
-    { value: "contains", label: "Contains" },
-    { value: "startsWith", label: "Starts With" },
-    { value: "endsWith", label: "Ends With" },
-    { value: "matches", label: "Matches (Regex)" },
-    { value: "isEmpty", label: "Is Empty" },
+    op("equals"),
+    op("notEquals"),
+    op("contains"),
+    op("startsWith"),
+    op("endsWith"),
+    op("matches"),
+    op("isEmpty"),
   ],
   number: [
-    { value: "equals", label: "Equals" },
-    { value: "notEquals", label: "Not Equals" },
-    { value: "lessThan", label: "Less Than" },
-    { value: "lessThanOrEqual", label: "Less Than or Equal" },
-    { value: "greaterThan", label: "Greater Than" },
-    { value: "greaterThanOrEqual", label: "Greater Than or Equal" },
+    op("equals"),
+    op("notEquals"),
+    op("lessThan"),
+    op("lessThanOrEqual"),
+    op("greaterThan"),
+    op("greaterThanOrEqual"),
   ],
-  boolean: [
-    { value: "isTrue", label: "Is True" },
-    { value: "isFalse", label: "Is False" },
-  ],
-  enum: [{ value: "equals", label: "Equals" }],
+  boolean: [op("isTrue"), op("isFalse")],
+  enum: [op("equals")],
   array: [
-    { value: "includes", label: "Includes" },
-    { value: "notIncludes", label: "Not Includes" },
-    { value: "lengthEquals", label: "Length Equals" },
-    { value: "lengthGreaterThan", label: "Length Greater Than" },
-    { value: "lengthLessThan", label: "Length Less Than" },
-    { value: "isEmpty", label: "Is Empty" },
-    { value: "isNotEmpty", label: "Is Not Empty" },
-    { value: "exists", label: "Exists" },
-    { value: "notExists", label: "Not Exists" },
+    op("includes"),
+    op("notIncludes"),
+    op("lengthEquals"),
+    op("lengthGreaterThan"),
+    op("lengthLessThan"),
+    op("isEmpty"),
+    op("isNotEmpty"),
+    op("exists"),
+    op("notExists"),
   ],
   jsonpath: [
-    { value: "exists", label: "Exists" },
-    { value: "notExists", label: "Not Exists" },
+    op("exists"),
+    op("notExists"),
     // Empty = [] / {} / "". A missing path is also "empty": combine with an
     // `exists` assertion on the same path to require "present but empty".
-    { value: "isEmpty", label: "Is Empty" },
-    { value: "isNotEmpty", label: "Is Not Empty" },
-    { value: "equals", label: "Equals" },
-    { value: "notEquals", label: "Not Equals" },
-    { value: "contains", label: "Contains" },
-    { value: "greaterThan", label: "Greater Than" },
-    { value: "lessThan", label: "Less Than" },
+    op("isEmpty"),
+    op("isNotEmpty"),
+    op("equals"),
+    op("notEquals"),
+    op("contains"),
+    op("greaterThan"),
+    op("lessThan"),
   ],
 };
 

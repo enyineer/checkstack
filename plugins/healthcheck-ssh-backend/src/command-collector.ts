@@ -43,6 +43,8 @@ const commandResultSchema = healthResultSchema({
     // by the aggregated successRate). Treating exit-code changes as anomalies
     // is a classic alert-fatigue source. Still chartable; users can opt in.
     "x-anomaly-enabled": false,
+    "x-chart-priority": 20,
+    "x-chart-good-direction": "down",
   }),
   stdout: healthResultString({
     "x-chart-type": "text",
@@ -64,6 +66,7 @@ const commandResultSchema = healthResultSchema({
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
 });
 
@@ -83,6 +86,7 @@ const commandAggregatedFields = {
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 50,
     "x-anomaly-min-relative-delta": 0.5,
+    "x-chart-priority": 10,
   }),
   successRate: aggregatedRate({
     "x-chart-type": "gauge",
@@ -94,6 +98,7 @@ const commandAggregatedFields = {
     // of real movement before alerting.
     "x-anomaly-confirmation-window": 3,
     "x-anomaly-min-absolute-delta": 5,
+    "x-chart-priority": 20,
   }),
 };
 
