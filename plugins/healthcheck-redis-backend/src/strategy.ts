@@ -14,6 +14,7 @@ import {
   mergeMinMax,
   z,
   configString,
+  configSecret,
   configNumber,
   configBoolean,
   type ConnectedClient,
@@ -50,7 +51,7 @@ export const redisConfigSchema = baseStrategyConfigSchema.extend({
     .max(65_535)
     .default(6379)
     .describe("Redis port"),
-  password: configString({ "x-secret": true })
+  password: configSecret({ id: "password" })
     .optional()
     .describe("Redis password"),
   database: configNumber({})

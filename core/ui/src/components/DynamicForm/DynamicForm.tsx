@@ -117,6 +117,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
           const isRequired = schema.required?.includes(key);
           const label = key.charAt(0).toUpperCase() + key.slice(1);
 
+          // EDIT mode: a secret field whose value is stored server-side reads
+          // back blank. Flag it so the input shows a "keep existing" hint, and
+          // - when the secret is OPTIONAL - a Clear affordance to remove it.
+          const storedSecret =
+            propSchema["x-secret"] === true &&
+            (keepExistingSecretFields?.includes(key) ?? false);
+          const clearableSecret = storedSecret && !isRequired;
+
           // Resolve the inline message for this field. Server-supplied
           // `fieldErrors` (keyed by exact key or a nested `key.*` path) take
           // precedence and show whenever present; client errors only show
@@ -161,6 +169,8 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 importablePackages={importablePackages}
                 templatePreviewContext={templatePreviewContext}
                 siblingSecretEnv={rootSecretEnv}
+                storedSecret={storedSecret}
+                clearableSecret={clearableSecret}
                 onChange={(val) => {
                   // First interaction marks the field touched so its inline
                   // required error can appear (covers touched-then-blanked).

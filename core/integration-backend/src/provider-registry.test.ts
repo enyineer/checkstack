@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { z } from "zod";
-import { Versioned, configString } from "@checkstack/backend-api";
+import { Versioned, configSecret } from "@checkstack/backend-api";
 import {
   createIntegrationProviderRegistry,
   type IntegrationProviderRegistry,
@@ -16,7 +16,7 @@ import type { IntegrationProvider } from "./provider-types";
 const testPlugin = { pluginId: "test-plugin" } as const;
 
 const sampleConnectionSchema = z.object({
-  apiKey: configString({ "x-secret": true }).describe("API key"),
+  apiKey: configSecret({ id: "apiKey" }).describe("API key"),
 });
 
 type SampleConnection = z.infer<typeof sampleConnectionSchema>;

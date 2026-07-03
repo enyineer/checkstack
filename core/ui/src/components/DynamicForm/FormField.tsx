@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { renderTemplatePreview } from "@checkstack/template-engine";
+import {
+  SECRET_CLEAR_SENTINEL,
+  isSecretClearSentinel,
+} from "@checkstack/common";
 
 import {
   Input,
@@ -59,6 +63,8 @@ export const FormField: React.FC<FormFieldProps> = ({
   importablePackages,
   templatePreviewContext,
   siblingSecretEnv,
+  storedSecret,
+  clearableSecret,
   invalid,
   errorId,
   onChange,
@@ -227,6 +233,8 @@ export const FormField: React.FC<FormFieldProps> = ({
           description={cleanDesc}
           value={value as string}
           isRequired={isRequired}
+          storedSecret={storedSecret}
+          clearableSecret={clearableSecret}
           onChange={onChange}
         />
       );
@@ -266,6 +274,8 @@ export const FormField: React.FC<FormFieldProps> = ({
           description={cleanDesc}
           value={value as string}
           isRequired={isRequired}
+          storedSecret={storedSecret}
+          clearableSecret={clearableSecret}
           onChange={onChange}
         />
       );
@@ -894,10 +904,24 @@ const SecretField: React.FC<{
   description?: string;
   value: string;
   isRequired?: boolean;
+  storedSecret?: boolean;
+  clearableSecret?: boolean;
   onChange: (val: unknown) => void;
-}> = ({ id, label, description, value, isRequired, onChange }) => {
+}> = ({
+  id,
+  label,
+  description,
+  value,
+  isRequired,
+  storedSecret,
+  clearableSecret,
+  onChange,
+}) => {
   const [showPassword, setShowPassword] = useState(false);
-  const currentValue = value || "";
+  const isCleared = isSecretClearSentinel(value);
+  // While flagged for clearing, the sentinel is the field value - never show
+  // it in the input.
+  const currentValue = isCleared ? "" : value || "";
   const hasExistingValue = currentValue.length > 0;
 
   return (
@@ -914,7 +938,13 @@ const SecretField: React.FC<{
           type={showPassword ? "text" : "password"}
           value={currentValue}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={hasExistingValue ? "••••••••" : "Enter secret value"}
+          placeholder={
+            isCleared
+              ? "Secret will be cleared on save"
+              : storedSecret
+                ? "••••••••  (stored - leave empty to keep)"
+                : "Enter secret value"
+          }
           className="pr-10"
         />
         <VisibilityToggle
@@ -922,10 +952,69 @@ const SecretField: React.FC<{
           onToggle={() => setShowPassword(!showPassword)}
         />
       </div>
-      {hasExistingValue && currentValue === "" && (
-        <p className="text-xs text-muted-foreground">
-          Leave empty to keep existing value
+      <StoredSecretControls
+        storedSecret={storedSecret}
+        clearableSecret={clearableSecret}
+        isCleared={isCleared}
+        hasInput={hasExistingValue}
+        onClear={() => onChange(SECRET_CLEAR_SENTINEL)}
+        onUndoClear={() => onChange("")}
+      />
+    </div>
+  );
+};
+
+/**
+ * Sub-line beneath a secret input that explains the EDIT-mode "keep existing"
+ * behavior and, for an optional stored secret, offers Clear / Undo. Renders
+ * nothing in create mode or when the operator is actively typing a new value.
+ */
+const StoredSecretControls: React.FC<{
+  storedSecret?: boolean;
+  clearableSecret?: boolean;
+  isCleared: boolean;
+  hasInput: boolean;
+  onClear: () => void;
+  onUndoClear: () => void;
+}> = ({
+  storedSecret,
+  clearableSecret,
+  isCleared,
+  hasInput,
+  onClear,
+  onUndoClear,
+}) => {
+  if (isCleared) {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="text-xs text-destructive">
+          Stored secret will be removed on save.
         </p>
+        <button
+          type="button"
+          onClick={onUndoClear}
+          className="text-xs font-medium text-muted-foreground underline hover:text-foreground"
+        >
+          Undo
+        </button>
+      </div>
+    );
+  }
+  // Only relevant for a stored secret the operator has not started replacing.
+  if (!storedSecret || hasInput) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <p className="text-xs text-muted-foreground">
+        A secret is stored. Leave empty to keep it.
+      </p>
+      {clearableSecret && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-xs font-medium text-destructive underline hover:text-destructive/80"
+        >
+          Clear
+        </button>
       )}
     </div>
   );
@@ -941,11 +1030,28 @@ const SecretTextareaField: React.FC<{
   description?: string;
   value: string;
   isRequired?: boolean;
+  storedSecret?: boolean;
+  clearableSecret?: boolean;
   onChange: (val: unknown) => void;
-}> = ({ id, label, description, value, isRequired, onChange }) => {
+}> = ({
+  id,
+  label,
+  description,
+  value,
+  isRequired,
+  storedSecret,
+  clearableSecret,
+  onChange,
+}) => {
   const [showContent, setShowContent] = useState(false);
-  const currentValue = value || "";
+  const isCleared = isSecretClearSentinel(value);
+  const currentValue = isCleared ? "" : value || "";
   const hasExistingValue = currentValue.length > 0;
+  const placeholder = isCleared
+    ? "Secret will be cleared on save"
+    : storedSecret
+      ? "Leave empty to keep the stored value"
+      : "Paste content here";
 
   return (
     <div className="space-y-2">
@@ -961,11 +1067,7 @@ const SecretTextareaField: React.FC<{
             id={id}
             value={currentValue}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={
-              hasExistingValue
-                ? "Leave empty to keep existing value"
-                : "Paste content here"
-            }
+            placeholder={placeholder}
             rows={5}
             className="pr-10 font-mono text-xs"
           />
@@ -990,11 +1092,7 @@ const SecretTextareaField: React.FC<{
                 onChange(pastedText);
               }
             }}
-            placeholder={
-              hasExistingValue
-                ? "Leave empty to keep existing value"
-                : "Paste content here"
-            }
+            placeholder={placeholder}
             rows={3}
             className="pr-10"
             readOnly={!!currentValue}
@@ -1005,11 +1103,14 @@ const SecretTextareaField: React.FC<{
           onToggle={() => setShowContent(!showContent)}
         />
       </div>
-      {hasExistingValue && currentValue === "" && (
-        <p className="text-xs text-muted-foreground">
-          Leave empty to keep existing value
-        </p>
-      )}
+      <StoredSecretControls
+        storedSecret={storedSecret}
+        clearableSecret={clearableSecret}
+        isCleared={isCleared}
+        hasInput={hasExistingValue}
+        onClear={() => onChange(SECRET_CLEAR_SENTINEL)}
+        onUndoClear={() => onChange("")}
+      />
     </div>
   );
 };

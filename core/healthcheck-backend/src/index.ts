@@ -56,7 +56,9 @@ import {
   type HealthEntityState,
 } from "./health-entity";
 import { entityKindExtensionPoint } from "@checkstack/gitops-backend";
-import { secretResolverRef } from "@checkstack/secrets-backend";
+import { secretResolverRef, internalSecretsRef } from "@checkstack/secrets-backend";
+import type { HealthCheckSecretsDeps } from "./config-secrets";
+import { backfillConfigSecrets } from "./config-secrets-backfill";
 import { createHealthCheckRouter } from "./router";
 import { HealthCheckService } from "./service";
 import {
@@ -171,6 +173,7 @@ export default createBackendPlugin({
     let gitopsHealthCheckRegistry: HealthCheckRegistry | undefined;
     let gitopsCollectorRegistry: CollectorRegistry | undefined;
     let gitopsQueueManager: QueueManager | undefined;
+    let gitopsConfigSecrets: HealthCheckSecretsDeps | undefined;
     let healthCheckCache:
       | ReturnType<typeof createHealthCheckCache>
       | undefined;
@@ -188,6 +191,9 @@ export default createBackendPlugin({
           gitopsDb,
           gitopsHealthCheckRegistry,
           gitopsCollectorRegistry,
+          undefined,
+          undefined,
+          gitopsConfigSecrets,
         );
       },
       getHealthCheckRegistry: () => {
@@ -220,6 +226,7 @@ export default createBackendPlugin({
         cacheManager: coreServices.cacheManager,
         config: coreServices.config,
         secretResolver: secretResolverRef,
+        internalSecrets: internalSecretsRef,
         advisoryLock: coreServices.advisoryLock,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
@@ -236,12 +243,41 @@ export default createBackendPlugin({
         cacheManager,
         config,
         secretResolver,
+        internalSecrets,
         advisoryLock,
         resourceResolverRegistry,
       }) => {
         logger.debug("🏥 Initializing Health Check Backend...");
 
         const typedDb = database as SafeDatabase<typeof schema>;
+
+        // Secrets channel for config credentials: extract-on-write /
+        // redact-on-read / inflate-at-run. Shared by the router, the gitops
+        // reconcile service, the executor, and the boot backfill.
+        const configSecrets: HealthCheckSecretsDeps = {
+          internalSecrets,
+          secretResolver,
+          // Serializes concurrent updateConfiguration writes to the SAME config
+          // id so one writer's orphan-prune cannot delete a secret a concurrent
+          // writer just set (which would leave a dangling marker).
+          advisoryLock,
+        };
+        gitopsConfigSecrets = configSecrets;
+
+        // Move any pre-channel inline secrets out of stored rows (idempotent,
+        // advisory-locked, fail-open: a backfill failure must not block boot).
+        try {
+          await backfillConfigSecrets({
+            db: typedDb,
+            registry: healthCheckRegistry,
+            collectorRegistry,
+            internalSecrets,
+            advisoryLock,
+            logger,
+          });
+        } catch (error) {
+          logger.warn("Config-secrets backfill failed; continuing boot", error);
+        }
 
         // Resolve/search health-check configurations by name for the Teams admin
         // UI (team grants are stored as opaque `<type>:<configId>` rows, where
@@ -458,6 +494,7 @@ export default createBackendPlugin({
           getHealthEntity: () => healthEntity,
           cache,
           secretResolver,
+          internalSecrets,
         });
 
         // Setup retention job for tiered storage (daily aggregation)
@@ -486,6 +523,7 @@ export default createBackendPlugin({
           maintenanceClient,
           logger,
           signalService,
+          configSecrets,
           recomputeSystemRollupHealth: (systemId) =>
             recomputeSystemRollupHealth({
               systemId,
@@ -628,6 +666,14 @@ export default createBackendPlugin({
 
 // Re-export hooks for other plugins to use
 export { healthCheckHooks } from "./hooks";
+
+// Re-export the config-secrets channel so satellite-backend can resolve a
+// satellite's assignment config secrets just-in-time (the same walk +
+// marker/reference semantics the core executor uses).
+export {
+  collectConfigSecretValues,
+  type HealthCheckSecretsDeps,
+} from "./config-secrets";
 
 // Re-export the reactive `health` entity surface so cross-plugin consumers
 // (slo, dependency) can subscribe via onEntityChanged + classify changes

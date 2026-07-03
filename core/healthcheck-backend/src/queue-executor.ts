@@ -46,7 +46,11 @@ import { NotificationApi } from "@checkstack/notification-common";
 import { healthcheckSystemSubscription } from "@checkstack/healthcheck-common";
 import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
 import { secretEnvMappingSchema } from "@checkstack/secrets-common";
-import type { SecretResolverService } from "@checkstack/secrets-backend";
+import type {
+  SecretResolverService,
+  InternalSecretsService,
+} from "@checkstack/secrets-backend";
+import { inflateConfigSecrets } from "./config-secrets";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
@@ -538,6 +542,14 @@ async function executeHealthCheckJob(props: {
    * / test isolation.
    */
   secretResolver?: SecretResolverService;
+  /**
+   * Internal secret store. When set (together with `secretResolver`), stored
+   * strategy/collector config `x-secret` fields - internal markers and
+   * `${{ secrets.* }}` references - are INFLATED to their real values just
+   * before use, in memory only. Optional for version-skew / test isolation;
+   * without it, marker-bearing configs fail their runs clearly.
+   */
+  internalSecrets?: InternalSecretsService;
 }): Promise<void> {
   const {
     payload,
@@ -555,6 +567,7 @@ async function executeHealthCheckJob(props: {
     getHealthEntity,
     cache,
     secretResolver,
+    internalSecrets,
   } = props;
   const { configId, systemId } = payload;
 
@@ -656,6 +669,22 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
+    // Inflate stored secret markers / `${{ secrets.* }}` references to their
+    // real values ONCE, memory-only, BEFORE migrate+validate - so validation
+    // sees real values. Old-shape rows (whose current-schema secret keys do
+    // not exist yet) and legacy bare literals pass through untouched.
+    let rawStrategyConfig = configRow.config;
+    if (internalSecrets && secretResolver) {
+      const inflated = await inflateConfigSecrets({
+        configurationId: configId,
+        scope: { kind: "strategy" },
+        schema: strategy.config.schema,
+        config: configRow.config,
+        deps: { internalSecrets, secretResolver },
+      });
+      rawStrategyConfig = inflated.config;
+    }
+
     // Migrate the stored (UNVERSIONED) strategy config ONCE, before the
     // per-environment render loop, so every env renders from the same
     // migrated shape. Stored configs predate explicit versioning and may be
@@ -663,7 +692,7 @@ async function executeHealthCheckJob(props: {
     // -on-read runs the declared migration chain, then validates. The
     // migrations are idempotent, so an already-current config is a no-op.
     const strategyConfig: BaseStrategyConfig =
-      await strategy.config.parseAssumingV1(configRow.config);
+      await strategy.config.parseAssumingV1(rawStrategyConfig);
     const executionTimeout = strategyConfig.timeout ?? 60_000;
 
     // ── Per-environment fan-out (§7) ────────────────────────────────────────
@@ -872,9 +901,26 @@ async function executeHealthCheckJob(props: {
               // reads the raw `secretEnv` mapping (a constant string field
               // unaffected by the strategy/collector reshapes), keeping the
               // migrate -> secret resolve -> render -> execute order intact.
+              // Inflate this entry's secret markers / references (memory
+              // only) before its migrate+validate parse, mirroring the
+              // strategy-config inflation above.
+              let rawCollectorConfig = collectorEntry.config;
+              if (internalSecrets && secretResolver) {
+                const inflated = await inflateConfigSecrets({
+                  configurationId: configId,
+                  scope: {
+                    kind: "collector",
+                    entryId: collectorEntry.id,
+                  },
+                  schema: registered.collector.config.schema,
+                  config: collectorEntry.config,
+                  deps: { internalSecrets, secretResolver },
+                });
+                rawCollectorConfig = inflated.config;
+              }
               const migratedCollectorConfig =
                 await registered.collector.config.parseAssumingV1(
-                  collectorEntry.config,
+                  rawCollectorConfig,
                 );
 
               // (2) Environment/templating pass for the collector config -
@@ -1518,6 +1564,7 @@ export async function setupHealthCheckWorker(props: {
   getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
+  internalSecrets?: InternalSecretsService;
 }): Promise<void> {
   const {
     db,
@@ -1535,6 +1582,7 @@ export async function setupHealthCheckWorker(props: {
     getHealthEntity,
     cache,
     secretResolver,
+    internalSecrets,
   } = props;
 
   const queue =
@@ -1559,6 +1607,7 @@ export async function setupHealthCheckWorker(props: {
         getHealthEntity,
         cache,
         secretResolver,
+        internalSecrets,
       });
     },
     {

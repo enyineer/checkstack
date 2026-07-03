@@ -184,7 +184,11 @@ describe("createAndAssign router handler", () => {
     expect(assignmentInsert?.values.environmentIds).toBeNull();
     // Returns the created configuration.
     expect(result.name).toBe("Payments API root");
-    expect(result.id).toBe("cfg-new");
+    // The id is generated up front (SEC-1: needed to key extracted secrets
+    // before insert), persisted on the config row, and used to link the
+    // assignment - so all three must agree.
+    expect(configInsert?.values.id).toBe(result.id);
+    expect(assignmentInsert?.values.configurationId).toBe(result.id);
   });
 
   it("broadcasts healthcheck.config.changed so open clients refresh", async () => {

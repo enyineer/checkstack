@@ -265,6 +265,19 @@ export interface FormFieldProps {
    * field control's `aria-describedby` so assistive tech links field -> error.
    */
   errorId?: string;
+  /**
+   * EDIT mode: this `x-secret` field already has a value stored server-side
+   * (its redacted preview arrives blank). When true, the secret input shows a
+   * "keep existing" affordance so the empty field reads as intentional rather
+   * than lost. Defaults to false (create mode / non-secret fields).
+   */
+  storedSecret?: boolean;
+  /**
+   * When true (an OPTIONAL stored secret), the secret input offers a "Clear"
+   * affordance that emits {@link SECRET_CLEAR_SENTINEL} so the backend removes
+   * the stored value instead of keeping it. Defaults to false.
+   */
+  clearableSecret?: boolean;
   /** Callback when value changes. Omit val to clear the field. */
   onChange: (val?: unknown) => void;
 }

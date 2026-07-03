@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { configString, Versioned } from "@checkstack/backend-api";
+import { configString, configSecret, Versioned } from "@checkstack/backend-api";
 import type {
   ConnectionOption,
   GetConnectionOptionsParams,
@@ -41,7 +41,7 @@ export const TEAMS_RESOLVERS = {
 export const TeamsConnectionSchema = z.object({
   tenantId: configString({}).describe("Azure AD Tenant ID"),
   clientId: configString({}).describe("Azure AD Application (Client) ID"),
-  clientSecret: configString({ "x-secret": true }).describe(
+  clientSecret: configSecret({ id: "clientSecret" }).describe(
     "Azure AD Client Secret",
   ),
 });

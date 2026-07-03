@@ -89,6 +89,21 @@ export interface SatelliteSecretSink {
     configId: string;
     collectorId: string;
   }): Promise<Record<string, string>>;
+  /**
+   * Resolve an assignment's CONFIG secrets (`x-secret` strategy/collector
+   * config fields holding internal markers or `${{ secrets.* }}`
+   * references) to `fieldPath -> value` maps. Same least-privilege model:
+   * core reads the satellite's own persisted assignment. Optional for
+   * version-skew safety - an older core build simply lacks the method and
+   * the handler replies with an error.
+   */
+  resolveConfigSecrets?(input: {
+    satelliteId: string;
+    configId: string;
+  }): Promise<{
+    strategy: Record<string, string>;
+    collectors: Record<string, Record<string, string>>;
+  }>;
 }
 
 /**
@@ -400,6 +415,40 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           } catch (error) {
             this.sendMessage(ws, {
               type: "run_secrets",
+              requestId: parsed.requestId,
+              error: extractErrorMessage(error),
+            });
+          }
+          break;
+        }
+        case "request_config_secrets": {
+          // JIT config-secret delivery: resolve the `x-secret` fields of the
+          // satellite's OWN assignment (strategy + collector configs) and
+          // reply with field-path -> value maps. On any failure, reply with
+          // an error so the satellite fails the run clearly.
+          if (!this.secretSink?.resolveConfigSecrets) {
+            this.sendMessage(ws, {
+              type: "config_secrets",
+              requestId: parsed.requestId,
+              error:
+                "Config-secret delivery is not available on this core instance.",
+            });
+            break;
+          }
+          try {
+            const resolved = await this.secretSink.resolveConfigSecrets({
+              satelliteId: authenticatedSatellite.id,
+              configId: parsed.configId,
+            });
+            this.sendMessage(ws, {
+              type: "config_secrets",
+              requestId: parsed.requestId,
+              strategy: resolved.strategy,
+              collectors: resolved.collectors,
+            });
+          } catch (error) {
+            this.sendMessage(ws, {
+              type: "config_secrets",
               requestId: parsed.requestId,
               error: extractErrorMessage(error),
             });

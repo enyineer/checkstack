@@ -16,3 +16,4 @@ export * from "./procedure-builder";
 export * from "./error-utils";
 export * from "./sandbox-policy";
 export * from "./docs-links";
+export * from "./secret-field";

@@ -4,7 +4,10 @@ import type {
   TransportClient,
   RegisteredCollector,
 } from "@checkstack/backend-api";
-import { assertNoSecretTemplatableConflict } from "@checkstack/backend-api";
+import {
+  assertNoSecretTemplatableConflict,
+  validateSecretIds,
+} from "@checkstack/backend-api";
 import { rootLogger } from "../logger";
 
 /**
@@ -27,6 +30,12 @@ export class CoreCollectorRegistry {
     assertNoSecretTemplatableConflict({
       schema: collector.config.schema,
       schemaName: `collector:${qualifiedId}`,
+    });
+    // Load-time guard: every x-secret field must carry a stable, unique
+    // x-secret-id (configSecret), or its extracted secret would mis-key/orphan.
+    validateSecretIds({
+      schema: collector.config.schema,
+      label: `collector:${qualifiedId}`,
     });
     if (this.collectors.has(qualifiedId)) {
       rootLogger.warn(

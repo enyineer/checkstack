@@ -17,6 +17,9 @@
       "path": "../notification-common"
     },
     {
+      "path": "../secrets-common"
+    },
+    {
       "path": "../signal-common"
     }
   ]

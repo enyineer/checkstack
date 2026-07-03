@@ -76,9 +76,8 @@ const HealthCheckIDEPageContent = () => {
   // --- Data Fetching ---
 
   // Fetch all strategies (needed for both modes)
-  const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
-    {},
-  );
+  const { data: strategies = [], isSuccess: strategiesLoaded } =
+    healthCheckClient.getStrategies.useQuery({});
 
   // Fetch single configuration for edit mode.
   //
@@ -106,8 +105,11 @@ const HealthCheckIDEPageContent = () => {
   );
 
   // Fetch collectors for the active strategy
-  const { collectors: availableCollectors, loading: collectorsLoading } =
-    useCollectors(activeStrategyId ?? "");
+  const {
+    collectors: availableCollectors,
+    loading: collectorsLoading,
+    loaded: collectorsLoaded,
+  } = useCollectors(activeStrategyId ?? "");
 
   // Fetch systems for assignment (only in create mode)
   const { data: systemsData, isLoading: systemsLoading } =
@@ -298,6 +300,47 @@ const HealthCheckIDEPageContent = () => {
       });
     }
 
+    // An unregistered plugin's config reads back REDACTED to `{}` (no schema to
+    // know its secret fields), so saving would round-trip that empty object
+    // over the stored config and wipe it. Block save until the owning plugin is
+    // installed. The backend refuses the wipe too (it preserves the stored
+    // config), but surfacing it here tells the user WHY they cannot edit.
+    // Gate on the query having SUCCEEDED (not merely settled): on a fetch error
+    // React Query clears `isLoading` while `data` stays the `[]` default, which
+    // would falsely brand an installed plugin "not installed". `isSuccess` also
+    // fires for a legitimately empty list, so an edit where every strategy
+    // plugin is uninstalled still surfaces the message.
+    const strategyUnregistered =
+      isEditMode &&
+      !!activeStrategyId &&
+      strategiesLoaded &&
+      !activeStrategy;
+    if (strategyUnregistered) {
+      issues.push({
+        nodeId: "general",
+        message: `Strategy plugin "${activeStrategyId}" is not installed - this check cannot be edited until it is available`,
+      });
+    }
+    // Only flag individual collectors when the strategy itself is registered
+    // (an unregistered strategy already blocks save and leaves availableCollectors empty).
+    // Gate on the collectors query having SUCCEEDED, not merely settled: a
+    // transient getCollectors error clears loading while availableCollectors
+    // stays [], which would falsely brand every configured collector
+    // "not installed" and block save (same hazard the strategy gate avoids).
+    if (!strategyUnregistered && activeStrategy && collectorsLoaded) {
+      for (const entry of formState.collectors) {
+        const known = availableCollectors.some(
+          (c) => c.id === entry.collectorId,
+        );
+        if (!known) {
+          issues.push({
+            nodeId: `collector:${entry.id}`,
+            message: `Collector plugin "${entry.collectorId}" is not installed - this check cannot be edited until it is available`,
+          });
+        }
+      }
+    }
+
     for (const [entryId, isValid] of Object.entries(collectorsValidity)) {
       if (!isValid) {
         const collector = formState.collectors.find((c) => c.id === entryId);
@@ -319,6 +362,11 @@ const HealthCheckIDEPageContent = () => {
     strategyConfigValid,
     collectorsValidity,
     availableCollectors,
+    isEditMode,
+    activeStrategyId,
+    activeStrategy,
+    strategiesLoaded,
+    collectorsLoaded,
   ]);
 
   const isValid = validationIssues.length === 0;
@@ -542,6 +590,7 @@ const HealthCheckIDEPageContent = () => {
               availableCollectors={availableCollectors}
               collectorsLoading={collectorsLoading}
               isEditMode={isEditMode}
+              configuredSecrets={existingConfig?.configuredSecrets}
               configId={configId}
               onNameChange={(name) => updateField("name", name)}
               onIntervalChange={(interval) =>

@@ -85,6 +85,21 @@ export const HealthCheckConfigurationSchema = z.object({
   collectors: z.array(CollectorConfigEntrySchema).optional(),
   /** Whether this configuration is paused (execution skipped for all systems) */
   paused: z.boolean(),
+  /**
+   * READ-ONLY, populated only on REDACTED reads: which `x-secret` fields
+   * actually have a stored value, so the editor shows the "a secret is stored"
+   * hint / Clear affordance only where one truly exists (a redacted read
+   * returns blank for both stored-inline and never-set secrets, which are
+   * otherwise indistinguishable). `strategy` lists top-level strategy secret
+   * keys; `collectors` maps a collector entry id to its populated secret keys.
+   * Absent on writes and on non-redacted internal reads.
+   */
+  configuredSecrets: z
+    .object({
+      strategy: z.array(z.string()),
+      collectors: z.record(z.string(), z.array(z.string())),
+    })
+    .optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

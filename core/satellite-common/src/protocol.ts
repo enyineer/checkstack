@@ -138,6 +138,29 @@ const RequestRunSecretsMessageSchema = z.object({
 });
 
 /**
+ * Satellite → core: just-in-time delivery of an assignment's CONFIG secrets
+ * (`x-secret` fields of the strategy config and each collector's config),
+ * sent right before the satellite builds the strategy client for a run. The
+ * stored/relayed assignment carries only internal markers or
+ * `${{ secrets.* }}` references in those fields - never values. Core walks
+ * the satellite's OWN persisted assignment (the satellite does not get to
+ * choose which secrets), resolves each marker/reference, and replies with a
+ * `config_secrets` message mapping field paths to values (or an error).
+ *
+ * Like `request_run_secrets`, values ride only this authenticated channel,
+ * live in satellite memory for the run, and are never persisted.
+ */
+const RequestConfigSecretsMessageSchema = z.object({
+  type: z.literal("request_config_secrets"),
+  /** Correlation id for the reply. */
+  requestId: z.string(),
+  /** The assignment whose config secrets to resolve. */
+  configId: z.string(),
+  /** Opaque per-run id for audit/logging on the core side. */
+  runId: z.string(),
+});
+
+/**
  * Discriminated union of all messages that a satellite can send to the core.
  */
 export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
@@ -149,6 +172,7 @@ export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
   RequestScriptPackageManifestMessageSchema,
   RequestScriptPackageBlobMessageSchema,
   RequestRunSecretsMessageSchema,
+  RequestConfigSecretsMessageSchema,
 ]);
 
 export type SatelliteToCoreMessage = z.infer<
@@ -171,6 +195,9 @@ export type RequestScriptPackageBlobMessage = z.infer<
 >;
 export type RequestRunSecretsMessage = z.infer<
   typeof RequestRunSecretsMessageSchema
+>;
+export type RequestConfigSecretsMessage = z.infer<
+  typeof RequestConfigSecretsMessageSchema
 >;
 
 // =============================================================================
@@ -285,6 +312,27 @@ const RunSecretsMessageSchema = z.object({
 });
 
 /**
+ * Core → satellite reply to `request_config_secrets`: the resolved values of
+ * the assignment's `x-secret` config fields, keyed by field path (the same
+ * dot/`[i]` paths the schema walk produces). Fields holding legacy bare
+ * literals are omitted - the satellite uses the relayed value as-is. Held in
+ * satellite memory only for the lifetime of the run.
+ */
+const ConfigSecretsMessageSchema = z.object({
+  type: z.literal("config_secrets"),
+  /** Correlates with the originating `request_config_secrets`. */
+  requestId: z.string(),
+  /** Strategy-config secret values by field path. Present only on success. */
+  strategy: z.record(z.string(), z.string()).optional(),
+  /** Collector-config secret values: entry id → field path → value. */
+  collectors: z
+    .record(z.string(), z.record(z.string(), z.string()))
+    .optional(),
+  /** Set when resolution failed; the value maps are then absent. */
+  error: z.string().optional(),
+});
+
+/**
  * Discriminated union of all messages that the core can send to a satellite.
  */
 export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
@@ -297,6 +345,7 @@ export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
   ScriptPackageManifestMessageSchema,
   ScriptPackageBlobMessageSchema,
   RunSecretsMessageSchema,
+  ConfigSecretsMessageSchema,
 ]);
 
 export type CoreToSatelliteMessage = z.infer<
@@ -319,3 +368,4 @@ export type ScriptPackageBlobMessage = z.infer<
   typeof ScriptPackageBlobMessageSchema
 >;
 export type RunSecretsMessage = z.infer<typeof RunSecretsMessageSchema>;
+export type ConfigSecretsMessage = z.infer<typeof ConfigSecretsMessageSchema>;

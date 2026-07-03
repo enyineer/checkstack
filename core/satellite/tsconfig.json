@@ -15,10 +15,16 @@
       "path": "../common"
     },
     {
+      "path": "../healthcheck-common"
+    },
+    {
       "path": "../satellite-common"
     },
     {
       "path": "../script-packages-backend"
+    },
+    {
+      "path": "../secrets-common"
     }
   ]
 }

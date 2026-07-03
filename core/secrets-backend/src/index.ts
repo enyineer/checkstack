@@ -235,7 +235,22 @@ export {
   type SecretStore,
   type SecretResolutionResult,
 } from "./secret-resolver";
-export { walkSecretFields } from "./walk-secret-fields";
+export {
+  walkSecretFields,
+  type SecretFieldVisit,
+} from "./walk-secret-fields";
+export {
+  extractScopeSecrets,
+  inflateScopeSecrets,
+  collectScopeSecretValues,
+  redactSecretFields,
+  mergeSecretFields,
+  listPopulatedSecretKeys,
+  deleteScopeSecrets,
+  pruneScopeSecrets,
+  MissingSecretIdError,
+  type ConfigSecretChannel,
+} from "./config-secret-channel";
 export {
   createSecretResolverService,
   type SecretResolverService,

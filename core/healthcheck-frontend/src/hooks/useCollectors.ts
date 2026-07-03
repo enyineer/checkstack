@@ -4,6 +4,11 @@ import { CollectorDto, HealthCheckApi } from "@checkstack/healthcheck-common";
 interface UseCollectorsResult {
   collectors: CollectorDto[];
   loading: boolean;
+  /** True once the query has SUCCEEDED (distinct from merely settled): on a
+   * fetch error `loading` clears while `collectors` stays the `[]` default, so
+   * callers that brand configured collectors "not installed" must gate on this,
+   * not on `!loading`, to avoid a false positive on a transient error. */
+  loaded: boolean;
   error: Error | undefined;
   refetch: () => void;
 }
@@ -18,6 +23,7 @@ export function useCollectors(strategyId: string): UseCollectorsResult {
   const {
     data,
     isLoading: loading,
+    isSuccess: loaded,
     error: queryError,
     refetch,
   } = healthCheckClient.getCollectors.useQuery(
@@ -31,6 +37,7 @@ export function useCollectors(strategyId: string): UseCollectorsResult {
   return {
     collectors,
     loading,
+    loaded,
     error,
     refetch: () => void refetch(),
   };

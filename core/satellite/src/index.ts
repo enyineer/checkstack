@@ -14,6 +14,11 @@ import { SatelliteSandboxPolicyCache } from "./sandbox-policy-cache";
 import { Scheduler } from "./scheduler";
 import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
+import {
+  hasUnresolvedConfigSecrets,
+  assertConfigSecretsResolved,
+  applyConfigSecretValues,
+} from "./config-secrets";
 import { SatelliteScriptPackages } from "./satellite-script-packages";
 
 // =============================================================================
@@ -117,6 +122,19 @@ async function executeAssignment(
       collectorId: string;
       runId: string;
     }) => Promise<Record<string, string>>;
+    /**
+     * Request the assignment's resolved CONFIG secrets from core (JIT):
+     * `x-secret` strategy/collector config fields the relayed assignment
+     * carries only as markers / `${{ secrets.* }}` references. Throws on
+     * delivery/resolution failure so the run fails clearly.
+     */
+    requestConfigSecrets: (input: {
+      configId: string;
+      runId: string;
+    }) => Promise<{
+      strategy: Record<string, string>;
+      collectors: Record<string, Record<string, string>>;
+    }>;
   },
 ): Promise<ResultMessage> {
   const strategy = healthCheckRegistry.getStrategy(assignment.strategyId);
@@ -151,8 +169,56 @@ async function executeAssignment(
     | undefined;
 
   try {
+    // 0. JIT config-secret delivery: if any `x-secret` field of the strategy
+    // or a collector config still holds a marker / reference, fetch the
+    // resolved values from core and apply them onto in-memory copies. The
+    // persisted assignment keeps only the markers; legacy bare literals need
+    // no round-trip (and stay compatible with an older core).
+    let strategyConfig = assignment.config;
+    const collectorConfigOverrides = new Map<string, Record<string, unknown>>();
+    // Schema-free detection catches a marker/reference anywhere in the config -
+    // including inside a Zod union, which a schema walk missed.
+    const needsConfigSecrets =
+      hasUnresolvedConfigSecrets({ config: assignment.config }) ||
+      (assignment.collectors ?? []).some((entry) =>
+        hasUnresolvedConfigSecrets({ config: entry.config }),
+      );
+    if (needsConfigSecrets) {
+      const resolved = await deps.requestConfigSecrets({
+        configId: assignment.configId,
+        runId: crypto.randomUUID(),
+      });
+      strategyConfig = applyConfigSecretValues({
+        config: assignment.config,
+        values: resolved.strategy,
+      });
+      for (const entry of assignment.collectors ?? []) {
+        const values = resolved.collectors[entry.id];
+        if (values && Object.keys(values).length > 0) {
+          collectorConfigOverrides.set(
+            entry.id,
+            applyConfigSecretValues({ config: entry.config, values }),
+          );
+        }
+      }
+    }
+
+    // Fail CLOSED before the config is used: if any marker/reference survived
+    // resolution (core lacked a schema, a value was undeliverable), refuse the
+    // run rather than probe the target with the opaque marker as a credential.
+    assertConfigSecretsResolved({
+      config: strategyConfig,
+      label: `Health check ${assignment.configId} strategy`,
+    });
+    for (const entry of assignment.collectors ?? []) {
+      assertConfigSecretsResolved({
+        config: collectorConfigOverrides.get(entry.id) ?? entry.config,
+        label: `Health check ${assignment.configId} collector ${entry.id}`,
+      });
+    }
+
     // 1. Establish connection (measures connectivity + latency)
-    connectedClient = await strategy.createClient(assignment.config);
+    connectedClient = await strategy.createClient(strategyConfig);
     const connectionTimeMs = Math.round(performance.now() - start);
 
     // 2. Execute collectors if configured
@@ -189,7 +255,7 @@ async function executeAssignment(
           }
 
           const collectorResult = await registered.collector.execute({
-            config: collectorEntry.config,
+            config: collectorConfigOverrides.get(collectorEntry.id) ?? collectorEntry.config,
             client: connectedClient!.client,
             pluginId: assignment.strategyId,
             runContext,
@@ -344,6 +410,7 @@ const scheduler = new Scheduler({
     try {
       const result = await executeAssignment(assignment, {
         requestRunSecrets: (input) => client.requestRunSecrets(input),
+        requestConfigSecrets: (input) => client.requestConfigSecrets(input),
       });
       client.sendResult(result);
     } catch (error) {

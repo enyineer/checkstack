@@ -13,7 +13,7 @@ import {
   mergeCounter,
   mergeMinMax,
   z,
-  configString,
+  configSecret,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -44,7 +44,7 @@ export const rconConfigSchema = baseStrategyConfigSchema.extend({
     .max(65_535)
     .default(25_575)
     .describe("RCON port (25575 for Minecraft, 27015 for Source)"),
-  password: configString({ "x-secret": true }).describe("RCON password"),
+  password: configSecret({ id: "password" }).describe("RCON password"),
 });
 
 export type RconConfig = z.infer<typeof rconConfigSchema>;

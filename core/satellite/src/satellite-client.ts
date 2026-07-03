@@ -78,6 +78,18 @@ export class SatelliteClient {
       reject: (error: Error) => void;
     }
   >();
+  // Pending config-secret requests, keyed by requestId, resolved/rejected
+  // when the matching `config_secrets` reply arrives.
+  private readonly pendingConfigSecrets = new Map<
+    string,
+    {
+      resolve: (resolved: {
+        strategy: Record<string, string>;
+        collectors: Record<string, Record<string, string>>;
+      }) => void;
+      reject: (error: Error) => void;
+    }
+  >();
 
   constructor(config: SatelliteClientConfig) {
     this.config = config;
@@ -158,6 +170,49 @@ export class SatelliteClient {
         requestId,
         configId: input.configId,
         collectorId: input.collectorId,
+        runId: input.runId,
+      });
+    });
+  }
+
+  /**
+   * Request just-in-time CONFIG secrets for an assignment from core: the
+   * resolved values of `x-secret` strategy/collector config fields that the
+   * relayed assignment carries only as markers / references. Rejects on a
+   * resolution error or timeout so the run fails clearly rather than probing
+   * with a marker string as a credential. Values are held in memory only.
+   */
+  requestConfigSecrets(
+    input: { configId: string; runId: string },
+    timeoutMs = 30_000,
+  ): Promise<{
+    strategy: Record<string, string>;
+    collectors: Record<string, Record<string, string>>;
+  }> {
+    return new Promise((resolve, reject) => {
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pendingConfigSecrets.delete(requestId);
+        reject(
+          new Error(
+            `Config-secret delivery timed out for ${input.configId} (run ${input.runId})`,
+          ),
+        );
+      }, timeoutMs);
+      this.pendingConfigSecrets.set(requestId, {
+        resolve: (resolved) => {
+          clearTimeout(timer);
+          resolve(resolved);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      this.sendMessage({
+        type: "request_config_secrets",
+        requestId,
+        configId: input.configId,
         runId: input.runId,
       });
     });
@@ -331,6 +386,21 @@ export class SatelliteClient {
           );
         } else {
           pending.resolve(msg.env);
+        }
+        break;
+      }
+
+      case "config_secrets": {
+        const pending = this.pendingConfigSecrets.get(msg.requestId);
+        this.pendingConfigSecrets.delete(msg.requestId);
+        if (!pending) break;
+        if (msg.error === undefined) {
+          pending.resolve({
+            strategy: msg.strategy ?? {},
+            collectors: msg.collectors ?? {},
+          });
+        } else {
+          pending.reject(new Error(msg.error));
         }
         break;
       }

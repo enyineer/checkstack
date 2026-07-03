@@ -7,6 +7,10 @@ export {
   secretNameSchema,
   secretTemplateSchema,
   collectSecretNames,
+  isSecretReference,
+  configSecretMarker,
+  isConfigSecretMarker,
+  readConfigSecretMarkerId,
   type SecretName,
 } from "./secret-field";
 export {

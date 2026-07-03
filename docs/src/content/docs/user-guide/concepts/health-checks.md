@@ -157,6 +157,19 @@ as a metric and the assertions decide whether that counts as healthy. Only the
 probe failing to complete at all short-circuits to `unhealthy`. Each
 environment's runs roll up into its own [per-environment health](/checkstack/user-guide/concepts/environments/#per-environment-health) plus the system-wide status.
 
+## Secrets in check configuration
+
+Credential fields (passwords, tokens, private keys) are secret fields: the
+value you type is moved into the platform's encrypted secret store on save,
+and it is never sent back to the browser - reopening the editor shows a blank
+input, and leaving it blank keeps the stored value. To rotate a credential,
+type the new value and save.
+
+Instead of typing a value inline, you can reference a named secret from the
+Secrets page with `${{ secrets.NAME }}` - useful when several checks share
+one credential or when secrets are managed in Vault. References resolve at
+run time; runs fail clearly when the referenced secret is missing.
+
 ## Asserting on JSON response bodies
 
 Collectors that return a raw body (for example the HTTP strategy's Request

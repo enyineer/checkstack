@@ -13,7 +13,7 @@ import {
   mergeCounter,
   mergeMinMax,
   z,
-  configString,
+  configSecret,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -39,13 +39,13 @@ export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65_535).default(22).describe("SSH port"),
   username: z.string().describe("SSH username"),
-  password: configString({ "x-secret": true })
+  password: configSecret({ id: "password" })
     .describe("Password for authentication")
     .optional(),
-  privateKey: configString({ "x-secret": true })
+  privateKey: configSecret({ id: "privateKey" })
     .describe("Private key for authentication")
     .optional(),
-  passphrase: configString({ "x-secret": true })
+  passphrase: configSecret({ id: "passphrase" })
     .describe("Passphrase for private key")
     .optional(),
 });

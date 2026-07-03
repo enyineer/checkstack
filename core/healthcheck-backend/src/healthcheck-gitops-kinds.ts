@@ -146,14 +146,16 @@ export function buildHealthcheckKind(
       
       const strategy = matchStrategy.strategy;
 
-      // Resolve secrets using the strategy's typed schema.
-      // Only fields marked with configString({ "x-secret": true }) get resolved.
-      const { resolved: resolvedConfig } = await context.resolveSecretsBySchema(
-        {
-          value: spec.config,
-          schema: strategy.config.schema,
-        },
-      );
+      // Resolvability check ONLY: resolving `${{ secrets.* }}` references in
+      // `x-secret` fields surfaces a missing/undeclared secret as a clear
+      // apply-time error. The RESOLVED VALUES ARE DISCARDED - the ORIGINAL
+      // spec (references intact) is what gets validated and persisted, so a
+      // resolved secret never lands in the stored row. The executor resolves
+      // references just-in-time at run.
+      await context.resolveSecretsBySchema({
+        value: spec.config,
+        schema: strategy.config.schema,
+      });
 
       // Migrate-then-validate-strict: authored gitops YAML may be in an OLD
       // config shape, so run the migration chain (assume-v1-on-read) before
@@ -162,10 +164,11 @@ export function buildHealthcheckKind(
       // exact strict-validate path the `validateConfiguration` RPC uses, so the
       // two agree on what counts as valid. A strategy config is always a plain
       // object validated by the strategy's own schema, so narrowing the
-      // `unknown` result to the stored `Record` shape is safe.
+      // `unknown` result to the stored `Record` shape is safe. Secret fields
+      // hold reference strings here, which validate as ordinary strings.
       const strategyResult = await validateVersionedConfigStrict({
         config: strategy.config,
-        value: resolvedConfig,
+        value: spec.config,
         basePath: ["config"],
       });
       if (!strategyResult.ok) {
@@ -176,7 +179,7 @@ export function buildHealthcheckKind(
       const migratedConfig = strategyResult.value as Record<string, unknown>;
 
       // Resolve and validate collector configs using their registry schemas
-      const resolvedCollectors = spec.collectors
+      const validatedCollectors = spec.collectors
         ? await Promise.all(
             spec.collectors.map(async (c) => {
               // Look up collector using strictly the fully qualified ID
@@ -196,12 +199,13 @@ export function buildHealthcheckKind(
               }
               const registered = matchCollector;
 
-              // Resolve secrets using the collector's typed schema
-              const { resolved: resolvedCollectorConfig } =
-                await context.resolveSecretsBySchema({
-                  value: c.config,
-                  schema: registered.collector.config.schema,
-                });
+              // Resolvability check ONLY (see the strategy-config note): the
+              // resolved values are discarded and the ORIGINAL config (with
+              // references intact) is validated and persisted.
+              await context.resolveSecretsBySchema({
+                value: c.config,
+                schema: registered.collector.config.schema,
+              });
 
               // Migrate-then-validate-strict: authored gitops YAML may use an
               // OLD collector config shape. Run the migration chain before
@@ -213,7 +217,7 @@ export function buildHealthcheckKind(
               // `Record` shape is safe.
               const collectorResult = await validateVersionedConfigStrict({
                 config: registered.collector.config,
-                value: resolvedCollectorConfig,
+                value: c.config,
                 basePath: ["config"],
               });
               if (!collectorResult.ok) {
@@ -235,18 +239,25 @@ export function buildHealthcheckKind(
       const displayName = entity.metadata.title ?? entity.metadata.name;
 
       if (existingEntityId && !existingEntityId.startsWith("pending-")) {
-        await service.updateConfiguration(existingEntityId, {
-          name: displayName,
-          strategyId: spec.strategy,
-          config: migratedConfig,
-          intervalSeconds: spec.intervalSeconds,
-          collectors: resolvedCollectors?.map((c) => ({
-            id: c.collectorId,
-            collectorId: c.collectorId,
-            config: c.config,
-            assertions: c.assertions,
-          })),
-        });
+        await service.updateConfiguration(
+          existingEntityId,
+          {
+            name: displayName,
+            strategyId: spec.strategy,
+            config: migratedConfig,
+            intervalSeconds: spec.intervalSeconds,
+            collectors: validatedCollectors?.map((c) => ({
+              id: c.collectorId,
+              collectorId: c.collectorId,
+              config: c.config,
+              assertions: c.assertions,
+            })),
+          },
+          // GitOps is declarative: the authored YAML is the whole truth, so an
+          // omitted secret field means "not set" and must be removed, not
+          // silently restored from the stored row (keep-existing is UI-only).
+          { mergeSecrets: false },
+        );
         context.logger.info(
           `GitOps: updated Healthcheck "${displayName}" (id: ${existingEntityId})`,
         );
@@ -258,7 +269,7 @@ export function buildHealthcheckKind(
         strategyId: spec.strategy,
         config: migratedConfig,
         intervalSeconds: spec.intervalSeconds,
-        collectors: resolvedCollectors?.map((c) => ({
+        collectors: validatedCollectors?.map((c) => ({
           id: c.collectorId,
           collectorId: c.collectorId,
           config: c.config,

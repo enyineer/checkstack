@@ -3,6 +3,7 @@ import {
   HealthCheckRegistry,
   HealthCheckStrategy,
   assertNoSecretTemplatableConflict,
+  validateSecretIds,
 } from "@checkstack/backend-api";
 import { rootLogger } from "../logger";
 
@@ -36,6 +37,12 @@ export class CoreHealthCheckRegistry {
     assertNoSecretTemplatableConflict({
       schema: strategy.config.schema,
       schemaName: `strategy:${qualifiedId}`,
+    });
+    // Load-time guard: every x-secret field must carry a stable, unique
+    // x-secret-id (configSecret), or its extracted secret would mis-key/orphan.
+    validateSecretIds({
+      schema: strategy.config.schema,
+      label: `strategy:${qualifiedId}`,
     });
     if (this.strategies.has(qualifiedId)) {
       rootLogger.warn(

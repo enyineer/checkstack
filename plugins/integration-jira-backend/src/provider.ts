@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   Versioned,
   configString,
+  configSecret,
   type Migration,
 } from "@checkstack/backend-api";
 import type {
@@ -67,7 +68,7 @@ export const JiraConnectionConfigSchema = z
       .email()
       .optional()
       .describe("Jira user email"),
-    apiToken: configString({ "x-secret": true }).describe(
+    apiToken: configSecret({ id: "apiToken" }).describe(
       "API token or Personal Access Token",
     ),
   })

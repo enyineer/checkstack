@@ -47,6 +47,41 @@ export const secretTemplateSchema = z.string().regex(
 );
 
 /**
+ * Whether a string is (contains) a `${{ secrets.NAME }}` reference - a pointer
+ * to a named secret in the active backend, resolved at run time. The canonical
+ * check for the whole platform (the extraction channels and resolvers share
+ * it instead of each re-deriving the regex test).
+ */
+export function isSecretReference(value: string): boolean {
+  SECRET_TEMPLATE_REGEX.lastIndex = 0;
+  return SECRET_TEMPLATE_REGEX.test(value);
+}
+
+// ── Config-secret extraction markers ────────────────────────────────────────
+// A config-secret EXTRACTION channel (health-check strategy/collector configs,
+// integration connection configs) replaces an operator-typed INLINE secret with
+// an opaque MARKER `${prefix}${secretId}` in the stored config; the real value
+// lives in an internal secret keyed by the channel. The marker prefix is
+// per-channel (e.g. "__connref__:" for released integration connections), so
+// these primitives take it as an argument. `secretId` is the field's stable
+// `x-secret-id` - the marker never carries the field's name or position.
+
+/** Build a config-secret marker for a channel prefix + stable secret id. */
+export function configSecretMarker(prefix: string, secretId: string): string {
+  return `${prefix}${secretId}`;
+}
+
+/** Whether a value is a marker for the given channel prefix. */
+export function isConfigSecretMarker(prefix: string, value: string): boolean {
+  return value.startsWith(prefix);
+}
+
+/** The stable secret id embedded in a marker for the given channel prefix. */
+export function readConfigSecretMarkerId(prefix: string, marker: string): string {
+  return marker.slice(prefix.length);
+}
+
+/**
  * Recursively walks a value and collects all unique secret names
  * referenced via `${{ secrets.NAME }}` patterns in string values.
  *

@@ -18,8 +18,9 @@ import {
   scriptPackagesChangedHook,
   sandboxPolicyChangedHook,
 } from "@checkstack/script-packages-backend";
-import { secretResolverRef } from "@checkstack/secrets-backend";
+import { secretResolverRef, internalSecretsRef } from "@checkstack/secrets-backend";
 import { resolveSatelliteRunSecrets } from "./run-secret-resolver";
+import { resolveSatelliteConfigSecrets } from "./config-secret-resolver";
 import { SatelliteService } from "./service";
 import { createSatelliteRouter } from "./router";
 import { HeartbeatMonitor } from "./heartbeat-monitor";
@@ -118,6 +119,9 @@ export default createBackendPlugin({
         queueManager: coreServices.queueManager,
         wsRegistry: coreServices.wsRegistry,
         secretResolver: secretResolverRef,
+        internalSecrets: internalSecretsRef,
+        healthCheckRegistry: coreServices.healthCheckRegistry,
+        collectorRegistry: coreServices.collectorRegistry,
       },
       init: async ({ logger, database, rpc, signalService }) => {
         logger.debug("🛰️ Initializing Satellite Backend...");
@@ -175,6 +179,9 @@ export default createBackendPlugin({
         wsRegistry,
         rpcClient,
         secretResolver,
+        internalSecrets,
+        healthCheckRegistry,
+        collectorRegistry,
         onHook,
       }) => {
         const service = new SatelliteService(
@@ -278,6 +285,18 @@ export default createBackendPlugin({
                 getAssignmentsForSatellite: (id) =>
                   configRelay.getAssignmentsForSatellite(id),
                 resolver: secretResolver,
+              }),
+            // JIT config-secret delivery: resolve the `x-secret` fields of the
+            // satellite's own assignment (markers / references) to values.
+            resolveConfigSecrets: async ({ satelliteId, configId }) =>
+              resolveSatelliteConfigSecrets({
+                satelliteId,
+                configId,
+                getAssignmentsForSatellite: (id) =>
+                  configRelay.getAssignmentsForSatellite(id),
+                registry: healthCheckRegistry,
+                collectorRegistry,
+                deps: { internalSecrets, secretResolver },
               }),
           },
           {

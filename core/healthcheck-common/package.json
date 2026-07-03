@@ -12,10 +12,11 @@
     }
   },
   "dependencies": {
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
-    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
+    "@checkstack/secrets-common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "zod": "^4.2.1"
   },

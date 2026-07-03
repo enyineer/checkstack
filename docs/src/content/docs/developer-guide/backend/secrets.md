@@ -165,14 +165,85 @@ Some secrets back a specific feature rather than being user-managed named secret
 
 The script-package registry auth token is stored this way. The `script_package_registry_config.authSecretRef` column holds a stable marker (the internal secret name) once the token lives in the platform; a one-time, idempotent, parity-verified migration moves any legacy inline ciphertext into the internal store and only rewrites the column after the platform copy reads back identically (so the legacy value is never dropped prematurely). Resolution falls back to decrypting legacy ciphertext until the migration runs.
 
+## The three secret mechanisms (choose deliberately)
+
+A secret rides a plugin config in exactly ONE of three ways. Picking the wrong one is the single most common source of duplicated secret code, so choose by the question **"who reads this config, and where?"**
+
+| Mechanism | Declared with | At rest the field holds | Resolved by | Use when |
+| --- | --- | --- | --- | --- |
+| **ConfigService encryption** | `configString({ "x-secret": true })` on a `ConfigService`-stored schema | the value, AES-GCM encrypted IN PLACE | `ConfigService.get` (decrypts); `getRedacted` strips it | only the OWNING backend ever reads the config (auth providers, notification / queue / cache backends, the Vault backend's own auth credential) |
+| **Reference** | `configString({ "x-secret": true })` holding `${{ secrets.NAME }}` | a pointer to a platform-managed named secret | `secretResolverRef` against the ACTIVE backend (local or Vault) | the value should live in the central Secrets store / Vault and be shared and rotated independently (`secretEnv` env-mapping is this) |
+| **Extraction channel** | `configSecret({ id })` | an OPAQUE marker; the value moves to an internal secret keyed by `id` | the shared `ConfigSecretChannel` (`internalSecretsRef`, or a reference through `secretResolverRef`) | the config is RELAYED (to a satellite), PROJECTED (to AI tools), or DIFFED (gitops), so inline ciphertext would leak or break (health-check strategy / collector credentials, integration connection credentials) |
+
+The deciding question for extraction-vs-encryption is **"does anything other than the owning backend read this config?"** If the config is relayed, projected, or diffed, inline ciphertext is wrong, so EXTRACT. If only the owning backend decrypts it in place, ConfigService encryption is simpler and correct. Never re-implement extraction inside a plugin; bind the shared channel (below).
+
+> [!IMPORTANT]
+> `configString({ "x-secret": true })` and `configSecret({ id })` are NOT interchangeable. The first is mechanisms 1 and 2 (encrypt-in-place or `${{ secrets.* }}` reference). The second is mechanism 3 (extraction). Boot validation (`validateSecretIds`) rejects an `x-secret` field on an extraction-channel schema that lacks an `id`, so a health-check strategy / collector or integration provider MUST use `configSecret`.
+
+## Config-secret extraction channel (`configSecret`)
+
+The extraction channel is ONE shared, domain-agnostic service, `ConfigSecretChannel` in `@checkstack/secrets-backend`. Health-checks and integrations both BIND it to their own scope; neither re-implements the walk.
+
+### The primitive
+
+Declare an extraction-channel secret with `configSecret({ id })` (from `@checkstack/backend-api`). The `id` is a STABLE identifier that keys the internal secret independently of the field name or position, so renaming or reordering a field never orphans its value:
+
+```ts
+import { configSecret } from "@checkstack/backend-api";
+
+const strategyConfig = z.object({
+  host: z.string(),
+  // Extracted into an internal secret keyed by "password"; the stored config
+  // keeps only a marker. `id` must be non-empty and unique within the schema.
+  password: configSecret({ id: "password" }).optional(),
+});
+```
+
+The `id` MUST be non-empty, unique within a schema, and NOT nested inside a `z.array` (the internal-secret key has no element index, so array elements would collapse onto one stored value). `validateSecretIds({ schema, label })` enforces all three at plugin registration, so a misconfigured schema fails boot rather than mis-keying at run time.
+
+### Binding the channel to a scope
+
+A `ConfigSecretChannel` is `{ markerPrefix, keyParts(secretId) => string[] }`. The plugin supplies the marker prefix and the internal-secret key layout for its scope; the shared service does the rest:
+
+```ts
+import { extractScopeSecrets, inflateScopeSecrets } from "@checkstack/secrets-backend";
+
+const channel = {
+  markerPrefix: "__connref__:",
+  keyParts: (secretId) => ["connection", providerId, connectionId, secretId],
+};
+// Write path: extract inline values into internal secrets, leave markers.
+const { config: stored } = await extractScopeSecrets({ channel, schema, config, internalSecrets });
+// Run path: inflate markers / references back to values.
+const { config: live } = await inflateScopeSecrets({ channel, schema, config: stored, internalSecrets, secretResolver });
+```
+
+The shared service also provides `collectScopeSecretValues` (the `path -> value` map a satellite reply ships), `redactSecretFields` / `mergeSecretFields` / `listPopulatedSecretKeys` (read-path masking + editor merge), and the lifecycle pair `deleteScopeSecrets` / `pruneScopeSecrets`.
+
+> [!CAUTION]
+> Extract and inflate key the internal secret by the SCHEMA leaf's `id` (`getSecretId`), NEVER by an id parsed out of the marker string stored in the config. A forged marker in a stored config therefore cannot make the channel read another scope's secret.
+
+### Lifecycle: never orphan
+
+A stored marker is the ONLY index into its internal secret, so every write path that can drop a marker MUST clean up the value it pointed at:
+
+- **Delete** the whole scope (delete a connection / configuration): call `deleteScopeSecrets` on the stored config BEFORE removing it, so its markers are scanned and the internal secrets deleted.
+- **Update** a scope: call `pruneScopeSecrets(oldConfig, newConfig)` after re-extracting, so a secret whose field switched to a `${{ secrets.* }}` reference or was cleared is removed. A marker whose exact key still appears in the new config is kept (an in-place rotation reuses the same stable key).
+
+Both are schema-free (they scan markers by prefix) and idempotent, so they clean up even when the owning plugin is uninstalled.
+
+### Just-in-time delivery to satellites
+
+Health-check configs run on satellites, which must never persist a secret. The satellite relays only the marker / reference; just before a run it asks core (`request_config_secrets`), core resolves the scope's `x-secret` fields with `collectScopeSecretValues` and replies with a `path -> value` map, and the satellite applies it onto an in-memory config copy. It then fails CLOSED: if any marker or `${{ secrets.* }}` reference survives resolution, the run is refused rather than probing with a bogus credential. The detection is schema-free (it catches a secret nested in a Zod union that a schema walk would miss) and skips the `secretEnv` key, whose `${{ secrets.* }}` templates belong to the separate run-secrets channel and legitimately survive.
+
 ## Connection credentials through the unified channel
 
-Integration connection credentials resolve through the SAME secrets channel, so a credential can originate from Vault and a connection's credential resolution never drifts from a parallel code path. The provider's `connectionSchema` already marks credential fields `x-secret`; the shared `walkSecretFields` machinery (the same walk behind `resolveSecretsBySchema`) acts only on those fields. There are two entry forms:
+Integration connection credentials are one BINDING of the extraction channel above. The provider's `connectionSchema` marks each credential field with `configSecret({ id })` (id equal to the flat field name), and the connection store binds the channel to the `["connection", providerId, connectionId, secretId]` key under the `__connref__:` marker prefix. There are two entry forms:
 
 - **Reference form:** the field holds a `${{ secrets.NAME }}` template, resolved through the ACTIVE backend (local or Vault) via `secretResolverRef`. This is the "credential originates from Vault" capability.
 - **Inline form:** an operator-typed value is extracted into an internal secret on the local backend, and the stored config keeps only an internal-reference marker. It resolves via `internalSecretsRef`.
 
-`getConnectionWithCredentials` inflates both forms; `listConnections` / `getConnection` stay redacted (a reference shows the reference, an inline shows the redacted marker, never resolved plaintext). The `ConnectionStore` public API is unchanged, and `createConnection` / `updateConnection` return the redacted preview (never echo submitted credentials).
+`getConnectionWithCredentials` inflates both forms; `listConnections` / `getConnection` stay redacted (a reference shows the reference, an inline shows the redacted marker, never resolved plaintext). The `ConnectionStore` public API is unchanged, and `createConnection` / `updateConnection` return the redacted preview (never echo submitted credentials). `deleteConnection` deletes the extracted internal secrets before removing the config, and `updateConnection` prunes any orphaned by the change, so an inline credential never outlives its connection.
 
 A one-time, idempotent, parity-verified, REVERSIBLE migration (run in `afterPluginsReady`, once every provider's `connectionSchema` is registered) walks each existing connection, backs up its raw config to a backup `ConfigService` entry, extracts inline `x-secret` values into internal secrets, and rewrites the stored config to the reference form. It only rewrites a connection after inflating the rewritten config back and confirming it resolves to the SAME values as the original, so no live connection breaks and no value is dropped before its platform copy is proven identical. Connections already in reference form are skipped.
 

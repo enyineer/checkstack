@@ -7,6 +7,7 @@
  * Index pattern: integration_connection_index_{providerId} (tracks connection IDs)
  */
 import { z } from "zod";
+import { extractErrorMessage } from "@checkstack/common";
 import type {
   ConfigService,
   Logger,
@@ -20,6 +21,8 @@ import type {
 import {
   inflateConnectionCredentials,
   extractInlineCredentials,
+  deleteConnectionCredentials,
+  pruneConnectionCredentials,
   type ConnectionCredentialDeps,
 } from "./connection-credentials";
 import {
@@ -276,7 +279,12 @@ export function createConnectionStore(
   async function persistConnectionConfig(
     providerId: string,
     connectionId: string,
-    config: Record<string, unknown>
+    config: Record<string, unknown>,
+    // The raw PREVIOUS stored config (update path only). When given, any
+    // internal secret it extracted that the rewritten config no longer
+    // references is pruned, so switching a field from inline to a reference /
+    // clearing it never orphans the old credential.
+    previousConfig?: Record<string, unknown>
   ): Promise<void> {
     const provider = providerRegistry.getProvider(providerId);
     if (credentials && provider?.connectionSchema) {
@@ -288,18 +296,61 @@ export function createConnectionStore(
         internalSecrets: credentials.internalSecrets,
       });
       await setConnectionConfig(providerId, connectionId, rewritten);
+      if (previousConfig) {
+        await pruneConnectionCredentials({
+          providerId,
+          connectionId,
+          oldConfig: previousConfig,
+          newConfig: rewritten,
+          internalSecrets: credentials.internalSecrets,
+        });
+      }
       return;
     }
     await setConnectionConfig(providerId, connectionId, config);
   }
 
   /**
-   * Delete connection config and metadata.
+   * Delete connection config and metadata, plus any internal secrets its config
+   * extracted (scanned from the stored markers so they are not orphaned).
+   *
+   * Cleanup is BEST-EFFORT and must NEVER block the deletion itself: reading the
+   * stored config to find its markers goes through ConfigService (decrypt +
+   * schema.parse), which can throw if the decryption key rotated or the provider
+   * evolved its `connectionSchema` incompatibly. If it throws, we log and still
+   * remove the config + metadata rather than leaving an undeletable connection.
+   *
+   * NOTE: integration markers are ConfigService-encrypted at rest, so a raw-byte
+   * scan is impossible (unlike health-checks, which store plaintext JSONB); the
+   * markers can only be read via the current schema. A credential field DROPPED
+   * from the schema WITHOUT a migration therefore can't be scanned and its
+   * internal secret orphans - a known limitation, still strictly better than the
+   * prior behaviour of orphaning every secret on delete.
    */
   async function deleteConnectionData(
     providerId: string,
     connectionId: string
   ): Promise<void> {
+    if (credentials) {
+      try {
+        const raw = await getConnectionConfigRaw(providerId, connectionId);
+        if (raw) {
+          await deleteConnectionCredentials({
+            providerId,
+            connectionId,
+            config: raw,
+            internalSecrets: credentials.internalSecrets,
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          `Could not clean up internal secrets for connection ${connectionId} ` +
+            `(provider ${providerId}); proceeding with deletion. Some internal ` +
+            `secrets may be orphaned: ${extractErrorMessage(error)}`
+        );
+      }
+    }
+
     const configKey = getConnectionConfigKey(providerId, connectionId);
     await configService.delete(configKey);
 
@@ -477,7 +528,12 @@ export function createConnectionStore(
         : existingConfig;
 
       await setConnectionMetadata(providerId, connectionId, updatedMetadata);
-      await persistConnectionConfig(providerId, connectionId, updatedConfig);
+      await persistConnectionConfig(
+        providerId,
+        connectionId,
+        updatedConfig,
+        existingConfig
+      );
 
       logger.info(
         `Updated connection "${updatedMetadata.name}" (${connectionId})`
