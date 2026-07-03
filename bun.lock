@@ -242,7 +242,7 @@
     },
     "core/anomaly-frontend": {
       "name": "@checkstack/anomaly-frontend",
-      "version": "0.6.4",
+      "version": "0.6.5",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/catalog-common": "workspace:*",
@@ -1138,7 +1138,7 @@
     },
     "core/healthcheck-frontend": {
       "name": "@checkstack/healthcheck-frontend",
-      "version": "0.31.0",
+      "version": "0.32.0",
       "dependencies": {
         "@checkstack/anomaly-common": "workspace:*",
         "@checkstack/auth-frontend": "workspace:*",
@@ -1602,7 +1602,7 @@
     },
     "core/release": {
       "name": "@checkstack/release",
-      "version": "0.124.0",
+      "version": "0.125.0",
     },
     "core/satellite": {
       "name": "@checkstack/satellite",
@@ -1819,7 +1819,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.123.1",
+      "version": "0.124.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",
