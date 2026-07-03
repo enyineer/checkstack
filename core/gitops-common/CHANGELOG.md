@@ -1,5 +1,13 @@
 # @checkstack/gitops-common
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/secrets-common@0.3.0
+  - @checkstack/common@0.20.0
+
 ## 0.7.0
 
 ### Minor Changes

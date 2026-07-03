@@ -1,5 +1,29 @@
 # @checkstack/maintenance-backend
 
+## 1.8.4
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+- Updated dependencies [faf98f5]
+  - @checkstack/ai-backend@0.10.6
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/common@0.20.0
+  - @checkstack/automation-backend@0.10.8
+  - @checkstack/catalog-backend@1.6.6
+  - @checkstack/command-backend@0.2.18
+  - @checkstack/status-page-backend@0.4.5
+  - @checkstack/ai-common@0.6.4
+  - @checkstack/auth-common@0.12.1
+  - @checkstack/automation-common@0.9.1
+  - @checkstack/cache-api@0.3.17
+  - @checkstack/catalog-common@2.6.1
+  - @checkstack/maintenance-common@1.8.1
+  - @checkstack/notification-common@1.5.1
+  - @checkstack/signal-common@0.2.15
+  - @checkstack/status-page-common@0.5.1
+  - @checkstack/cache-utils@0.2.22
+
 ## 1.8.3
 
 ### Patch Changes

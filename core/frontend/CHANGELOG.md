@@ -1,5 +1,25 @@
 # @checkstack/frontend
 
+## 0.14.2
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+  - @checkstack/ui@1.23.0
+  - @checkstack/about-frontend@0.4.1
+  - @checkstack/announcement-frontend@0.7.2
+  - @checkstack/auth-frontend@0.11.2
+  - @checkstack/catalog-frontend@0.15.2
+  - @checkstack/command-frontend@0.5.4
+  - @checkstack/dependency-frontend@0.7.2
+  - @checkstack/frontend-api@0.13.1
+  - @checkstack/signal-common@0.2.15
+  - @checkstack/status-page-common@0.5.1
+  - @checkstack/status-page-frontend@0.5.2
+  - @checkstack/tips-frontend@0.4.7
+  - @checkstack/signal-frontend@0.3.3
+
 ## 0.14.1
 
 ### Patch Changes

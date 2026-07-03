@@ -1,5 +1,13 @@
 # @checkstack/script-packages-common
 
+## 0.3.9
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+  - @checkstack/signal-common@0.2.15
+
 ## 0.3.8
 
 ### Patch Changes

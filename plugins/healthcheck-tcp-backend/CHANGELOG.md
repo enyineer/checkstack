@@ -1,5 +1,14 @@
 # @checkstack/healthcheck-tcp-backend
 
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/backend-api@0.29.0
+  - @checkstack/common@0.20.0
+  - @checkstack/healthcheck-common@1.12.0
+
 ## 0.4.5
 
 ### Patch Changes

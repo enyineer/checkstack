@@ -1,5 +1,16 @@
 # @checkstack/gitops-frontend
 
+## 0.6.7
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+  - @checkstack/ui@1.23.0
+  - @checkstack/gitops-common@0.7.1
+  - @checkstack/frontend-api@0.13.1
+  - @checkstack/tips-frontend@0.4.7
+
 ## 0.6.6
 
 ### Patch Changes

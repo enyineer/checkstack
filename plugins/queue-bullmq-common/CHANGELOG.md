@@ -1,5 +1,12 @@
 # @checkstack/queue-bullmq-common
 
+## 0.1.25
+
+### Patch Changes
+
+- Updated dependencies [faf98f5]
+  - @checkstack/common@0.20.0
+
 ## 0.1.24
 
 ### Patch Changes

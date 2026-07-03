@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/cache-api",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "license": "Elastic-2.0",
   "checkstack": {
     "type": "tooling"
