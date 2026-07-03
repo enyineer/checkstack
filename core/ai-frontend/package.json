@@ -17,8 +17,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@checkstack/about-common": "workspace:*",
     "@checkstack/ai-common": "workspace:*",
+    "@checkstack/catalog-common": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/integration-common": "workspace:*",

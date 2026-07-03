@@ -36,7 +36,7 @@ Three tools are registered through `aiToolExtensionPoint` and offered to both th
 
 Recall is on-demand, which is the wrong fit for an always-apply preference (a writing-style rule the model should follow every turn, not look up). So a memory carries an `alwaysInject` flag: when set, it is prepended to the chat system prompt on every turn (and folded into the unattended agent's baseline), so it shapes generation directly rather than waiting to be recalled. The model proposes the value (true for style/tone/formatting/default preferences, false for facts), it is shown on the confirm card, and the operator can flip it later from the Memories UI (the `setMemoryAlwaysInject` mutation). Injection respects the same visibility rule and is bounded by a per-turn cap.
 
-A human can also view and delete memories from the **Assistant memory** settings page and from the **About Checkstack** page, which shows a permission-gated **Memories** button (contributed to the platform `AboutSectionsSlot`). The button opens a Sheet listing every memory the caller can see; it is hidden entirely, and fires no `listMemories` request, for users without `ai.memory.read`.
+A human can also view and delete memories from the **Assistant memory** settings page and from a system's detail page, which shows a permission-gated **Assistant Memories** button in the About sidebar (contributed to catalog's `SystemMetaSlot`). The button opens a Sheet listing that system's saved memories; it is hidden entirely, and fires no `listMemories` request, for users without `ai.memory.read`.
 
 ## Access and scoping
 

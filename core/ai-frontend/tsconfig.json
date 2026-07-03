@@ -5,10 +5,10 @@
   ],
   "references": [
     {
-      "path": "../about-common"
+      "path": "../ai-common"
     },
     {
-      "path": "../ai-common"
+      "path": "../catalog-common"
     },
     {
       "path": "../common"

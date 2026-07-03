@@ -86,9 +86,9 @@ export function AboutPage() {
       {/* Hero Section */}
       <AboutHero />
 
-      {/* Plugin-contributed sections (e.g. the assistant Memories sheet). Each
-          contribution gates itself, so the general About page stays ignorant of
-          any specific plugin. */}
+      {/* Plugin-contributed sections. Each contribution is self-contained and
+          gates itself, so the general About page stays ignorant of any specific
+          plugin. */}
       <ExtensionSlot slot={AboutSectionsSlot} />
 
       {/* License Section */}
