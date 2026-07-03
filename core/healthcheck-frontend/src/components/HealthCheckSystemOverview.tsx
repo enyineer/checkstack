@@ -12,19 +12,17 @@ import {
   CardHeader,
   CardTitle,
   Button,
-  cn,
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
 } from "@checkstack/ui";
-import { Heart, Layers } from "lucide-react";
-import { HealthCheckSparkline } from "./HealthCheckSparkline";
-import { HealthStatusPill } from "./HealthStatusPill";
+import { Heart, Archive } from "lucide-react";
 import {
-  countHealthy,
-  pausedToTone,
-  statusToLabel,
-  statusToTone,
-  toneStyles,
-  type StatusTone,
-} from "./healthcheckDisplay.logic";
+  HealthCheckOverviewRow,
+  type HealthCheckOverviewItem,
+} from "./HealthCheckOverviewRow";
+import { buildOverviewRows } from "./overviewRows.logic";
 // Lazy-loaded: the drawer pulls in the full chart stack (timeline, latency,
 // auto-chart tiles). This component is an eagerly-registered slot extension,
 // so a static import would ship all of that in the initial bundle. The drawer
@@ -34,10 +32,7 @@ const HealthCheckDrawer = lazy(() =>
   import("./HealthCheckDrawer").then((m) => ({ default: m.HealthCheckDrawer })),
 );
 
-import type {
-  StateThresholds,
-  HealthCheckStatus,
-} from "@checkstack/healthcheck-common";
+import type { HealthCheckStatus } from "@checkstack/healthcheck-common";
 
 type HealthFilter = "all" | "failing" | "healthy";
 
@@ -68,53 +63,6 @@ function matchesFilter(
 
 type SlotProps = SlotContext<typeof SystemDetailsSlot>;
 
-/**
- * Compact relative time formatter that prevents layout shift.
- * Returns fixed-width strings like "< 1m", "5m", "2h", "3d".
- */
-function formatCompactTime(date: Date | undefined): string {
-  if (!date) return "—";
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return "< 1m";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
-}
-
-interface HealthCheckOverviewItem {
-  configurationId: string;
-  strategyId: string;
-  name: string;
-  state: HealthCheckStatus;
-  paused: boolean;
-  intervalSeconds: number;
-  lastRunAt?: Date;
-  stateThresholds?: StateThresholds;
-  recentStatusHistory: HealthCheckStatus[];
-  /**
-   * The environment this row is scoped to. `null` for an env-less run; a
-   * concrete string for a per-env row. `undefined` (absent) for the
-   * rollup-only shape the overview used prior to per-env flattening —
-   * signals the row is not env-scoped and should render without an env
-   * pill.
-   */
-  environmentId?: string | null;
-  /**
-   * Human-readable env name for an env-scoped row. The overview fetches the
-   * system's `getSystemEnvironments` and resolves the env id → name here so
-   * each row carries a stable operator-facing label.
-   */
-  environmentName?: string;
-  /**
-   * Stable per-row key: the check id for env-less / single-env rows, or
-   * `${configurationId}::${environmentId}` for a per-(check, env) row.
-   */
-  rowKey: string;
-}
-
 export function HealthCheckSystemOverview(props: SlotProps) {
   const systemId = props.system.id;
   const healthCheckClient = usePluginClient(HealthCheckApi);
@@ -132,90 +80,41 @@ export function HealthCheckSystemOverview(props: SlotProps) {
       systemId,
     });
 
-  // Resolve env names for env-qualified rows. Same query the drawer already
-  // issues, so the resulting cache entry is shared when both surfaces mount.
-  // Disabled when there is no systemId (can't happen here, but defensively
-  // typed so React Query doesn't fetch in a unit test).
-  const { data: systemEnvironments = [] } =
+  // Environments CURRENTLY ASSIGNED to this system — the source of truth for
+  // which env slices are still live (orphan detection). Same query the drawer
+  // issues, so the cache entry is shared when both surfaces mount. Disabled
+  // when there is no systemId (can't happen here, but defensively typed so
+  // React Query doesn't fetch in a unit test).
+  const { data: assignedEnvironments = [], isLoading: assignedEnvsLoading } =
     catalogClient.getSystemEnvironments.useQuery(
       { systemId },
       { enabled: !!systemId },
     );
+  // ALL environments in the instance — used only to resolve display names, so a
+  // check for an environment that was UNASSIGNED (but still exists) shows the
+  // environment's name instead of its raw id. A truly DELETED environment isn't
+  // here and falls back to a "Removed environment" label in the row.
+  const { data: allEnvironments = [], isLoading: allEnvsLoading } =
+    catalogClient.listEnvironments.useQuery();
   const envNameById = React.useMemo(
-    () => new Map(systemEnvironments.map((e) => [e.id, e.name])),
-    [systemEnvironments],
+    () => new Map(allEnvironments.map((e) => [e.id, e.name])),
+    [allEnvironments],
   );
 
   // Transform API response to component format. Flatten into one row per
-  // (check, environment) when an assignment fans out to multiple envs —
-  // surfacing per-env outages the rollup intentionally hides in the aggregate
-  // view. Single-env / env-less assignments stay one row (the pre-flattening
-  // shape). Each row opens the same check-level drawer; the env context is
-  // just a label so the operator sees which environment this row's status
-  // is scoped to.
-  const overview: HealthCheckOverviewItem[] = React.useMemo(() => {
-    if (!overviewData) return [];
-    const rows: HealthCheckOverviewItem[] = [];
-    for (const check of overviewData.checks) {
-      const stateThresholds = check.stateThresholds;
-      const checkLastRunAt = check.recentRuns.at(-1)?.timestamp
-        ? new Date(check.recentRuns.at(-1)!.timestamp)
-        : undefined;
-      const checkRecentStatusHistory = check.recentRuns.map((r) => r.status);
-
-      const perEnv = check.perEnvironment;
-      if (!perEnv || perEnv.length <= 1) {
-        // Single-env / env-less: keep the historical single-row shape. The
-        // row is the rollup for this check (worst-wins across envs, which
-        // equals the per-env status when there's only one env).
-        rows.push({
-          rowKey: check.configurationId,
-          configurationId: check.configurationId,
-          strategyId: check.strategyId,
-          name: check.configurationName,
-          state: check.status,
-          paused: check.paused,
-          intervalSeconds: check.intervalSeconds,
-          lastRunAt: checkLastRunAt,
-          stateThresholds,
-          recentStatusHistory: checkRecentStatusHistory,
-        });
-        continue;
-      }
-      // Multi-env: one row per environment. Each row carries the env id +
-      // the resolved env name (rendered as a pill next to the check name),
-      // the per-env status, the per-env sparkline, and the per-env last
-      // run. `state` here is the per-env rollup, so the failing/healthy
-      // filter applies per env — one failing env shows up under "failing"
-      // while its healthy sibling doesn't. Clicking any env row opens the
-      // drawer for the whole check (the drawer still aggregates envs in
-      // its history table; this UI is the disambiguation surface).
-      for (const pe of perEnv) {
-        const environmentId = pe.environmentId;
-        const envName =
-          environmentId === null
-            ? undefined
-            : (envNameById.get(environmentId) ?? environmentId);
-        rows.push({
-          rowKey: `${check.configurationId}::${environmentId ?? "<none>"}`,
-          configurationId: check.configurationId,
-          strategyId: check.strategyId,
-          name: check.configurationName,
-          state: pe.status,
-          paused: check.paused,
-          intervalSeconds: check.intervalSeconds,
-          lastRunAt: pe.recentRuns.at(-1)?.timestamp
-            ? new Date(pe.recentRuns.at(-1)!.timestamp)
-            : undefined,
-          stateThresholds,
-          recentStatusHistory: pe.recentRuns.map((r) => r.status),
-          environmentId,
-          environmentName: envName,
-        });
-      }
-    }
-    return rows;
-  }, [overviewData, envNameById]);
+  // (check, environment), tagging leftover env slices as orphaned so they can
+  // be grouped under "Old checks". See buildOverviewRows for the rules.
+  const overview = React.useMemo(
+    () =>
+      overviewData
+        ? buildOverviewRows({
+            checks: overviewData.checks,
+            environmentIds: assignedEnvironments.map((e) => e.id),
+            envNameById,
+          })
+        : [],
+    [overviewData, envNameById, assignedEnvironments],
+  );
 
   const visible = React.useMemo(
     () =>
@@ -223,6 +122,17 @@ export function HealthCheckSystemOverview(props: SlotProps) {
         matchesFilter(item.state, filter, item.paused),
       ),
     [overview, filter],
+  );
+
+  // Partition into live checks and the "Old checks" group. Both respect the
+  // active health filter so a stale slice can't slip past it.
+  const currentRows = React.useMemo(
+    () => visible.filter((r) => !r.isOrphaned),
+    [visible],
+  );
+  const oldRows = React.useMemo(
+    () => visible.filter((r) => r.isOrphaned),
+    [visible],
   );
 
   const setFilter = (next: HealthFilter) => {
@@ -235,7 +145,10 @@ export function HealthCheckSystemOverview(props: SlotProps) {
     setSearchParams(params, { replace: true });
   };
 
-  if (initialLoading) {
+  // Wait for the environment data too: assigned envs decide orphan grouping and
+  // the full list decides display names, so rendering before they resolve would
+  // flash live checks into "Old checks" or mislabel envs as "Removed".
+  if (initialLoading || assignedEnvsLoading || allEnvsLoading) {
     return <LoadingSpinner />;
   }
 
@@ -279,105 +192,68 @@ export function HealthCheckSystemOverview(props: SlotProps) {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {visible.length === 0 ? (
+          {currentRows.length === 0 && oldRows.length === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-muted-foreground">
               No health checks match the{" "}
               <span className="font-medium">{filter}</span> filter.
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
-              {visible.map((item) => {
-                const tone = statusToTone({ status: item.state });
-                const historyLength = item.recentStatusHistory.length;
-                const healthyCount = countHealthy({
-                  history: item.recentStatusHistory,
-                });
-                // A paused check is dormant — render a "Paused" pill (unknown
-                // tone) instead of the run-evaluated status, since its stale
-                // runs are not a meaningful current verdict. The accent stripe
-                // and the healthy/total figure + sparkline still reflect the
-                // pre-pause history for context.
-                const displayTone = item.paused
-                  ? (pausedToTone({ paused: true }) as StatusTone)
-                  : tone;
-                const displayLabel = item.paused
-                  ? "Paused"
-                  : statusToLabel({ status: item.state });
-                // An env-scoped row carries the env name as a pill next to
-                // the check name. `null` is the env-less slice; `undefined`
-                // is the single-row rollup (no pill).
-                const envScoped =
-                  item.environmentId !== undefined && item.environmentId !== null;
-                const envLabel =
-                  item.environmentId === null
-                    ? "No environment"
-                    : (item.environmentName ?? item.environmentId ?? "");
-                return (
-                  <button
-                    key={item.rowKey}
-                    className="group relative flex w-full items-center gap-3 py-3 pl-5 pr-4 text-left transition-colors hover:bg-surface-inset"
-                    onClick={() => setSelectedCheck(item)}
-                  >
-                    {/* Status accent stripe: status by position + hue. */}
-                    <span
-                      className={cn(
-                        "absolute inset-y-0 left-0 w-1",
-                        toneStyles[displayTone].accent,
-                      )}
-                      aria-hidden
+            <>
+              {currentRows.length > 0 ? (
+                <div className="divide-y divide-border/60">
+                  {currentRows.map((item) => (
+                    <HealthCheckOverviewRow
+                      key={item.rowKey}
+                      item={item}
+                      onSelect={setSelectedCheck}
                     />
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No current health checks match the{" "}
+                  <span className="font-medium">{filter}</span> filter.
+                </div>
+              )}
 
-                    {/* Status pill + check name (with env pill when scoped) */}
-                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {item.name}
+              {/* Orphaned slices (removed environments, or env-less leftovers of
+                  a now-fanned-out check) are tucked into a collapsed group so
+                  they keep their history without cluttering the live list. */}
+              {oldRows.length > 0 && (
+                <Accordion type="single" collapsible>
+                  <AccordionItem
+                    value="old-checks"
+                    className="border-b-0 border-t border-border/60"
+                  >
+                    <AccordionTrigger className="px-5 py-3 text-xs font-medium text-muted-foreground hover:no-underline">
+                      <span className="flex items-center gap-2">
+                        <Archive className="h-3.5 w-3.5" />
+                        Old checks
+                        <span className="rounded-full bg-surface-inset px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                          {oldRows.length}
                         </span>
-                        {envScoped && (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/60 bg-surface-inset px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            <Layers className="h-2.5 w-2.5" />
-                            {envLabel}
-                          </span>
-                        )}
+                      </span>
+                    </AccordionTrigger>
+                    <AccordionContent className="p-0">
+                      <p className="px-5 pb-3 text-xs text-muted-foreground">
+                        These checks ran for environments that were removed, or
+                        before this system used environments. Their history is
+                        kept, but they no longer receive updates.
+                      </p>
+                      <div className="divide-y divide-border/60 border-t border-border/60">
+                        {oldRows.map((item) => (
+                          <HealthCheckOverviewRow
+                            key={item.rowKey}
+                            item={item}
+                            onSelect={setSelectedCheck}
+                          />
+                        ))}
                       </div>
-                      <HealthStatusPill
-                        tone={displayTone}
-                        label={displayLabel}
-                        className="self-start"
-                      />
-                    </div>
-
-                    {/* Recent-history hero figure */}
-                    {historyLength > 0 && (
-                      <div className="hidden shrink-0 text-right sm:block">
-                        <span className="text-lg font-semibold leading-none tabular-nums text-foreground">
-                          {healthyCount}/{historyLength}
-                        </span>
-                        <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                          healthy
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Sparkline */}
-                    {historyLength > 0 && (
-                      <div className="hidden shrink-0 md:block">
-                        <HealthCheckSparkline
-                          runs={item.recentStatusHistory.map((status) => ({
-                            status,
-                          }))}
-                        />
-                      </div>
-                    )}
-
-                    {/* Last run — compact fixed-width to prevent shift */}
-                    <span className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground md:block">
-                      {formatCompactTime(item.lastRunAt)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
+            </>
           )}
         </CardContent>
       </div>

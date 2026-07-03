@@ -24,11 +24,32 @@ import {
   toneStyles,
 } from "./healthcheckDisplay.logic";
 
-export const RunTimestamp: React.FC<{ timestamp: Date }> = ({ timestamp }) => (
-  <span title={format(new Date(timestamp), "PPpp")}>
-    {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
-  </span>
-);
+/**
+ * Stacks the absolute datetime (primary line) over the relative "x ago" string
+ * (muted, secondary) so the exact time is visible at a glance instead of hidden
+ * behind a hover tooltip. The full-precision timestamp stays on `title` for the
+ * seconds/timezone detail.
+ */
+export const RunTimestamp: React.FC<{
+  timestamp: Date;
+  align?: "start" | "end";
+}> = ({ timestamp, align = "start" }) => {
+  const date = new Date(timestamp);
+  return (
+    <span
+      className={cn(
+        "flex flex-col leading-tight",
+        align === "end" ? "items-end" : "items-start",
+      )}
+      title={format(date, "PPpp")}
+    >
+      <span className="tabular-nums text-foreground">{format(date, "PPp")}</span>
+      <span className="text-xs text-muted-foreground">
+        {formatDistanceToNow(date, { addSuffix: true })}
+      </span>
+    </span>
+  );
+};
 
 /** Neutral metadata chip on surface tokens; the table's signal hue is reserved
  * for the remote/satellite source so the data reads consistently. */
@@ -44,7 +65,11 @@ export const RunEnvironmentChip: React.FC<{
   environmentId ? (
     <span className={NEUTRAL_CHIP}>
       <Layers className="h-3 w-3" />
-      {label ?? environmentId}
+      {/* A run's environment id with no resolved name is an environment that no
+          longer exists (deleted from the catalog). Callers resolve names from
+          ALL environments, so an unresolved id here means "deleted", not merely
+          "unassigned" — read it as such rather than dumping the raw id. */}
+      {label ?? "Removed environment"}
     </span>
   ) : (
     <span className="text-xs text-muted-foreground">None</span>
@@ -315,8 +340,8 @@ export const HealthCheckRunsTable: React.FC<HealthCheckRunsTableProps> = ({
                 tone={tone}
                 label={statusToLabel({ status: run.status })}
               />
-              <span className="text-right text-xs text-muted-foreground">
-                <RunTimestamp timestamp={run.timestamp} />
+              <span className="text-xs text-muted-foreground">
+                <RunTimestamp timestamp={run.timestamp} align="end" />
               </span>
             </div>
             {showFilterColumns && (
