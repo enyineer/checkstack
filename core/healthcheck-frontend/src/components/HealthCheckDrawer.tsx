@@ -2,7 +2,6 @@ import React, { useState, useCallback } from "react";
 import { ExternalLink, Server } from "lucide-react";
 import { Satellite as SatelliteIcon } from "lucide-react";
 import {
-  CatalogApi,
   catalogAccess,
   catalogResourceTypes,
 } from "@checkstack/catalog-common";
@@ -61,6 +60,7 @@ import {
 } from "../auto-charts/baseline.logic";
 import { BaselineChipStack } from "../auto-charts/BaselineChips";
 import { useHealthCheckData } from "../hooks/useHealthCheckData";
+import { useEnvironmentLabels } from "../hooks/useEnvironmentLabels";
 import { AggregatedDataBanner } from "./AggregatedDataBanner";
 import { HealthCheckDiagramSlot } from "../slots";
 import {
@@ -137,15 +137,14 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
-  const catalogClient = usePluginClient(CatalogApi);
 
-  // Environments the system belongs to - resolves run.environmentId to a
-  // human-readable name in the run-history table (per-environment fan-out).
-  const { data: systemEnvironments = [] } =
-    catalogClient.getSystemEnvironments.useQuery(
-      { systemId },
-      { enabled: !!systemId },
-    );
+  // Resolve run.environmentId to a human-readable name in the run-history
+  // table. Uses ALL environments (not just those still assigned to the system)
+  // so runs for an unassigned environment show its name, not its raw id.
+  const {
+    environmentLabels,
+    isLoading: environmentLabelsLoading,
+  } = useEnvironmentLabels();
   const accessApi = useApi(accessApiRef);
   // Detailed run history is a MANAGER surface: global manage, a team grant on
   // THIS configuration, or manage access to THIS system (a system's owning
@@ -519,9 +518,9 @@ export const HealthCheckDrawer: React.FC<HealthCheckDrawerProps> = ({
 
               <HealthCheckRunsTable
                 runs={runs}
-                loading={historyLoading}
+                loading={historyLoading || environmentLabelsLoading}
                 emptyMessage={`No runs match the ${runsStatusFilter} filter.`}
-                environmentLabels={systemEnvironments}
+                environmentLabels={environmentLabels}
                 pagination={pagination}
                 selectedRunId={detailRunId}
                 onRowSelect={

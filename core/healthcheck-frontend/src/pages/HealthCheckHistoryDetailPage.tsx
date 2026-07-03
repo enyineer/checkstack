@@ -14,7 +14,7 @@ import {
   HealthCheckConfigDetailsSlot,
   DEFAULT_RETENTION_CONFIG,
 } from "@checkstack/healthcheck-common";
-import { catalogResourceTypes, CatalogApi } from "@checkstack/catalog-common";
+import { catalogResourceTypes } from "@checkstack/catalog-common";
 import { SatelliteApi } from "@checkstack/satellite-common";
 import { resolveRoute } from "@checkstack/common";
 import {
@@ -45,6 +45,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { History, MousePointerClick } from "lucide-react";
 import { type HealthCheckRunDetailed } from "../components/HealthCheckRunsTable";
 import { RunHistoryList } from "../components/RunHistoryList";
+import { useEnvironmentLabels } from "../hooks/useEnvironmentLabels";
 import { RunDetailPanel } from "../components/RunDetailPanel";
 import {
   StatusFilterPills,
@@ -70,7 +71,6 @@ const HealthCheckHistoryDetailPageContent = () => {
   const navigate = useNavigate();
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const satelliteClient = usePluginClient(SatelliteApi);
-  const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   const isMobile = useIsMobile();
   const { isLowPower } = usePerformance();
@@ -96,12 +96,13 @@ const HealthCheckHistoryDetailPageContent = () => {
   const { data: satellitesData } = satelliteClient.listSatellites.useQuery({});
   const satellites = satellitesData?.satellites ?? [];
 
-  // Environment names for the run rows (per-environment fan-out).
-  const { data: systemEnvironments = [] } =
-    catalogClient.getSystemEnvironments.useQuery(
-      { systemId: systemId! },
-      { enabled: !!systemId },
-    );
+  // Environment names for the run rows (per-environment fan-out). Uses ALL
+  // environments (not just those still assigned to the system) so a run for an
+  // unassigned environment shows its name instead of its raw id.
+  const {
+    environmentLabels,
+    isLoading: environmentLabelsLoading,
+  } = useEnvironmentLabels();
 
   // Fetch configurations to get strategyId
   const { data: configurations } = healthCheckClient.getConfigurations.useQuery(
@@ -345,9 +346,9 @@ const HealthCheckHistoryDetailPageContent = () => {
               selectedRunId={runId}
               onSelectRun={({ runId: nextRunId }) => selectRun(nextRunId)}
               onKeyNavigate={({ direction }) => handleAdjacent(direction)}
-              loading={isLoading}
+              loading={isLoading || environmentLabelsLoading}
               isStale={isStale}
-              environmentLabels={systemEnvironments}
+              environmentLabels={environmentLabels}
               emptyMessage={emptyMessage}
               className="min-h-0 flex-1 max-md:h-[60vh]"
             />
