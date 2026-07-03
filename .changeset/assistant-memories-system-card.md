@@ -1,6 +1,7 @@
 ---
 "@checkstack/ai-frontend": minor
 "@checkstack/ai-backend": patch
+"@checkstack/about-frontend": patch
 ---
 
 Move the assistant memory UI onto a system's About sidebar.
@@ -15,7 +16,8 @@ entirely - and fires no `listMemories` request - for users without
 
 The platform `AboutSectionsSlot` (`plugin.about.sections`) remains available as
 a general extension point for plugins to contribute self-gating section cards to
-the About page; it just no longer hosts the memory button.
+the About page; it just no longer hosts the memory button, and its About-page
+comment no longer references the memory feature.
 
 The `@checkstack/ai-backend` bundled docs index is regenerated to reflect the
 updated `ai/memory.md` and `frontend/extension-points.md` content.
