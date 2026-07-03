@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   Versioned,
   configString,
+  configSecret,
   configNumber,
   configBoolean,
 } from "@checkstack/backend-api";
@@ -58,7 +59,7 @@ export const OpenAiCompatibleConnectionSchema = z.object({
     .url()
     .default(OPENAI_COMPATIBLE_DEFAULT_BASE_URL)
     .describe("OpenAI-compatible base URL (e.g. https://api.openai.com/v1)"),
-  apiKey: configString({ "x-secret": true }).describe("API key"),
+  apiKey: configSecret({ id: "apiKey" }).describe("API key"),
   defaultModel: configString({})
     .min(1)
     .describe("Default model id (e.g. gpt-4o-mini)"),

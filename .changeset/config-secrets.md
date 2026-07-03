@@ -19,6 +19,7 @@
 "@checkstack/healthcheck-rcon-backend": minor
 "@checkstack/healthcheck-jenkins-backend": minor
 "@checkstack/backend": patch
+"@checkstack/ai-backend": patch
 "@checkstack/integration-jira-backend": patch
 "@checkstack/integration-teams-backend": patch
 "@checkstack/integration-webex-backend": patch
