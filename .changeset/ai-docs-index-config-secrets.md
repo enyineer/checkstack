@@ -2,6 +2,8 @@
 "@checkstack/ai-backend": patch
 ---
 
-Update the generated docs index for the new health-check config-secrets
-documentation (secret fields in the user guide's health-checks concept page
-and the accurate secret-field lifecycle in the strategies developer guide).
+Regenerate the assistant docs index for the config-secrets documentation: the
+"three secret mechanisms" distinction and the "Config-secret extraction channel
+(`configSecret`)" section in the secrets platform page, the updated strategy and
+integration-provider examples (`configSecret({ id })`), and the health-checks
+concept page.

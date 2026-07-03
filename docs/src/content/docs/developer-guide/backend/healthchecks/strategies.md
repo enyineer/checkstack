@@ -188,19 +188,22 @@ view from the legacy `connectionTimeMs`.
 
 ## Configuration Schema
 
-Define connection parameters by extending `baseStrategyConfigSchema`. This provides the required `timeout` field with a sensible default (30 seconds). Use `configString` and `configNumber` from `@checkstack/backend-api` for special field types:
+Define connection parameters by extending `baseStrategyConfigSchema`. This provides the required `timeout` field with a sensible default (30 seconds). Use `configNumber` for numeric fields and `configSecret({ id })` for credential fields (both from `@checkstack/backend-api`):
 
 ```typescript
-import { baseStrategyConfigSchema, configString, configNumber } from "@checkstack/backend-api";
+import { baseStrategyConfigSchema, configSecret, configNumber } from "@checkstack/backend-api";
 
 export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65535).default(22).describe("SSH port"),
   username: z.string().describe("SSH username"),
-  password: configString({ "x-secret": true })
+  // Credential fields use configSecret({ id }): the value is extracted into an
+  // internal secret keyed by the STABLE id, so renaming the field never orphans
+  // it. The id must be non-empty and unique within the schema.
+  password: configSecret({ id: "password" })
     .describe("Password for authentication")
     .optional(),
-  privateKey: configString({ "x-secret": true })
+  privateKey: configSecret({ id: "privateKey" })
     .describe("Private key for authentication")
     .optional(),
   // timeout is inherited from baseStrategyConfigSchema (default: 30s)
@@ -212,23 +215,58 @@ export const sshConfigSchema = baseStrategyConfigSchema.extend({
 
 ### Secret Fields
 
-Fields marked with `"x-secret": true` flow through the platform's one
-secrets channel; the strategy code itself always receives the real value in
-`createClient` and never has to care:
+Fields declared with `configSecret({ id })` flow through the platform's one
+config-secret extraction channel (see
+[Secrets platform](/checkstack/developer-guide/backend/secrets/#config-secret-extraction-channel-configsecret));
+the strategy code itself always receives the real value in `createClient` and
+never has to care:
 
 - **At rest**: an operator-typed inline value is EXTRACTED into the internal
   secret store (AES-GCM encrypted) on save; the stored configuration row
   holds only an opaque marker. A `${{ secrets.NAME }}` reference is stored
   as-is and resolves through the active secrets backend (local or Vault) at
   run time.
-- **Reads**: `getConfiguration` / `getConfigurations` (and the create/update
-  responses) strip `x-secret` fields entirely - values, references, and
-  markers never reach a browser or an AI model context. The editor renders a
-  blank secret input; leaving it blank on save keeps the stored value.
+- **Reads**: `getConfiguration` / `getConfigurations`, the
+  `createAndAssign` / create / update responses, and the AI `getConfigurations`
+  tool all strip inline secret VALUES and internal MARKERS - they never reach a
+  browser or an AI model context. A `${{ secrets.NAME }}` REFERENCE is kept
+  verbatim (it is a pointer, not a value), so the editor shows which named
+  secret a field is wired to.
+- **Editor**: an `x-secret` field whose value is stored server-side reads back
+  blank. A redacted read reports `configuredSecrets` (the fields that actually
+  hold a value), so in edit mode a populated field shows a "a secret is stored
+  - leave empty to keep it" hint (a never-set optional secret shows nothing).
+  Leaving it blank on save keeps the stored value; typing a new value replaces
+  it. An OPTIONAL stored secret also offers a **Clear** affordance that
+  positively removes the
+  stored value (it emits `SECRET_CLEAR_SENTINEL` from `@checkstack/common`,
+  which the update path honors as "clear" rather than "keep existing"). An
+  update deletes the internal secrets it orphans - a cleared or
+  declaratively-removed field, an inline secret swapped for a reference, or a
+  removed collector - so no encrypted value is left dangling. Deleting a check
+  (or removing a collector) removes its internal secrets too; cleanup is
+  schema-free, so it works even when the strategy or collector plugin has been
+  uninstalled - a secret is never orphaned.
+- **GitOps**: applies are DECLARATIVE - the authored YAML is the whole truth,
+  so an omitted `x-secret` field means "not set" and is removed, not restored
+  (`updateConfiguration({ mergeSecrets: false })`). Keep-existing is a UI-only
+  convenience. Author gitops secrets as `${{ secrets.NAME }}` references, which
+  persist as-is.
+- **Unregistered plugins**: if a strategy or collector plugin is uninstalled,
+  its config redacts to `{}` (fail-closed, no schema to know its secret
+  fields). The editor blocks saving such a check, and the backend preserves the
+  stored config rather than letting the round-tripped `{}` wipe it.
 - **Runs**: the core executor inflates markers/references to real values in
   memory just before `createClient`. A satellite receives assignments with
   markers only and fetches the values just-in-time over its authenticated
   WebSocket channel, per run, never persisting them.
+- **Concurrency**: an update serializes its read-modify-write-prune per config
+  id under a cluster-wide advisory lock, so two writers to the same check (e.g.
+  a UI edit racing a GitOps reconcile) cannot delete each other's just-written
+  secret. Secret fields nested in a discriminated/plain union or an
+  array-of-objects are redacted, merged, and extracted exactly like flat
+  fields, and each collector's secrets resolve through its own schema
+  independent of the strategy's.
 - Never logged.
 
 ## Result Schemas with Chart Metadata
@@ -305,7 +343,7 @@ import {
   HealthCheckRunForAggregation,
   Versioned,
   z,
-  configString,
+  configSecret,
   configNumber,
   mergeAverage,
   mergeRate,
@@ -330,8 +368,8 @@ export const sshConfigSchema = baseStrategyConfigSchema.extend({
   host: z.string().describe("SSH server hostname"),
   port: z.number().int().min(1).max(65535).default(22),
   username: z.string().describe("SSH username"),
-  password: configString({ "x-secret": true }).optional(),
-  privateKey: configString({ "x-secret": true }).optional(),
+  password: configSecret({ id: "password" }).optional(),
+  privateKey: configSecret({ id: "privateKey" }).optional(),
   // timeout inherited from baseStrategyConfigSchema (30s default)
 });
 

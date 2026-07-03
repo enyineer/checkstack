@@ -36,6 +36,18 @@ export interface HealthCheckConfiguration {
   intervalSeconds: number;
   collectors?: CollectorConfigEntry[];
   paused: boolean;
+  /**
+   * READ-ONLY, populated only on REDACTED reads: which `x-secret` fields
+   * actually have a stored value, so the editor shows the "a secret is stored"
+   * hint / Clear only where one exists (a redacted read returns blank for both
+   * stored-inline and never-set secrets). `strategy` lists top-level strategy
+   * secret keys; `collectors` maps a collector entry id to its populated keys.
+   * Absent on writes and on non-redacted internal reads.
+   */
+  configuredSecrets?: {
+    strategy: string[];
+    collectors: Record<string, string[]>;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

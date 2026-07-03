@@ -239,18 +239,25 @@ export function buildHealthcheckKind(
       const displayName = entity.metadata.title ?? entity.metadata.name;
 
       if (existingEntityId && !existingEntityId.startsWith("pending-")) {
-        await service.updateConfiguration(existingEntityId, {
-          name: displayName,
-          strategyId: spec.strategy,
-          config: migratedConfig,
-          intervalSeconds: spec.intervalSeconds,
-          collectors: validatedCollectors?.map((c) => ({
-            id: c.collectorId,
-            collectorId: c.collectorId,
-            config: c.config,
-            assertions: c.assertions,
-          })),
-        });
+        await service.updateConfiguration(
+          existingEntityId,
+          {
+            name: displayName,
+            strategyId: spec.strategy,
+            config: migratedConfig,
+            intervalSeconds: spec.intervalSeconds,
+            collectors: validatedCollectors?.map((c) => ({
+              id: c.collectorId,
+              collectorId: c.collectorId,
+              config: c.config,
+              assertions: c.assertions,
+            })),
+          },
+          // GitOps is declarative: the authored YAML is the whole truth, so an
+          // omitted secret field means "not set" and must be removed, not
+          // silently restored from the stored row (keep-existing is UI-only).
+          { mergeSecrets: false },
+        );
         context.logger.info(
           `GitOps: updated Healthcheck "${displayName}" (id: ${existingEntityId})`,
         );

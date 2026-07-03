@@ -12,6 +12,19 @@ export type { EditorType } from "@checkstack/common";
 export interface ConfigMeta {
   /** Mark as a secret field (password input, encrypted storage, redacted in UI) */
   "x-secret"?: boolean;
+  /**
+   * Stable, unique-within-schema identifier for a secret that is EXTRACTED into
+   * the internal secret store (the config-secret extraction channel used by
+   * health-check strategies/collectors and integration connections). The
+   * internal secret is keyed by this id, NOT by the field's name/position, so
+   * renaming or moving the field never strands the stored value.
+   *
+   * Set this via {@link configSecret} (which requires it) - NOT for the generic
+   * `configString({ "x-secret": true })` secrets that ConfigService encrypts
+   * in place or that resolve as `${{ secrets.NAME }}` references. See the
+   * "secret handling" architecture doc for which mechanism to use.
+   */
+  "x-secret-id"?: string;
   /** Mark as a color field (color picker input) */
   "x-color"?: boolean;
   /** Mark as hidden (auto-populated, not shown in forms) */
@@ -128,6 +141,15 @@ export function isSecretSchema(schema: z.ZodTypeAny): boolean {
 }
 
 /**
+ * The stable extraction id of a secret field, or `undefined` when the field is
+ * not an extraction-channel secret (a plain `configString({ "x-secret": true })`
+ * has none). Declared via {@link configSecret}.
+ */
+export function getSecretId(schema: z.ZodTypeAny): string | undefined {
+  return getConfigMeta(schema)?.["x-secret-id"];
+}
+
+/**
  * Check if a schema has color metadata.
  */
 export function isColorSchema(schema: z.ZodTypeAny): boolean {
@@ -191,6 +213,159 @@ export function configString(meta: ConfigMeta) {
   const schema = z.string();
   schema.register(configRegistry, meta);
   return schema;
+}
+
+/**
+ * Metadata for {@link configSecret}. Every field of {@link ConfigMeta} EXCEPT
+ * `x-secret`/`x-secret-id` (set for you), plus a REQUIRED stable `id`.
+ */
+export type ConfigSecretMeta = Omit<ConfigMeta, "x-secret" | "x-secret-id"> & {
+  /**
+   * Stable id for this secret's extracted value, UNIQUE within the enclosing
+   * config schema. Keep it stable across renames/moves - it is the internal
+   * secret's key. Uniqueness is enforced at plugin registration.
+   */
+  id: string;
+};
+
+/**
+ * Declare a secret string field that is EXTRACTED into the internal secret
+ * store (the config-secret extraction channel: health-check strategy/collector
+ * configs, integration connection configs). The extracted value is keyed by the
+ * required stable `id`, so renaming or moving the field never strands it.
+ *
+ * Use this - NOT `configString({ "x-secret": true })` - whenever a plugin
+ * accepts an INLINE secret that must be extracted, redacted on read, and
+ * resolved (inline value or `${{ secrets.NAME }}` reference) at run time. For a
+ * secret that ConfigService encrypts in place (singleton/admin config) keep
+ * plain `configString({ "x-secret": true })`. The `id` is required at compile
+ * time.
+ *
+ * @example
+ * ```typescript
+ * const schema = z.object({
+ *   password: configSecret({ id: "password" }).describe("SSH password"),
+ * });
+ * ```
+ */
+export function configSecret(meta: ConfigSecretMeta) {
+  const { id, ...rest } = meta;
+  const schema = z.string();
+  schema.register(configRegistry, {
+    ...rest,
+    "x-secret": true,
+    "x-secret-id": id,
+  });
+  return schema;
+}
+
+/**
+ * Assert every `x-secret` leaf in a config schema declares a NON-EMPTY,
+ * UNIQUE-within-the-schema `x-secret-id` (i.e. uses {@link configSecret}). Call
+ * at plugin registration so a misconfigured schema fails boot rather than
+ * silently mis-keying (or orphaning) an extraction-channel secret at run time.
+ * `label` names the schema in the error (e.g. the strategy/collector/provider
+ * id). Sibling registration guard to {@link assertNoSecretTemplatableConflict}.
+ */
+export function validateSecretIds({
+  schema,
+  label,
+}: {
+  schema: z.ZodTypeAny;
+  label: string;
+}): void {
+  // `seen` carries the ids declared on the path INTO the current node, so a
+  // secret collides with a sibling/ancestor secret but NOT with one in a
+  // parallel union branch (only one branch is ever populated at run time).
+  //
+  // `container` names an UNSUPPORTED enclosing composite (null = supported so
+  // far). A config secret must sit at a fixed field of a plain object (any depth,
+  // optionally inside a union); anything else is rejected at boot so it can never
+  // reach - and be silently skipped by - the run-time extraction walk
+  // (walkSecretFields). Two failure modes justify this:
+  //   - array / record / tuple / map: the internal-secret key is
+  //     keyParts(secretId) with NO element / dynamic-key index, so entries would
+  //     collapse onto one stored value (and walkSecretFields never descends
+  //     record/tuple/map at all).
+  //   - intersection (z.intersection / .and()): neither this guard nor
+  //     walkSecretFields descends it, so a secret inside would be persisted
+  //     PLAINTEXT. (Use .extend() - which yields a plain ZodObject - instead.)
+  // Rejecting a secret found under ANY of these keeps the boot guard and the
+  // extraction walk in lock-step.
+  const walk = (
+    node: z.ZodTypeAny,
+    seen: Set<string>,
+    container: string | null,
+  ): void => {
+    const s = unwrapSchema(node);
+    if (isSecretSchema(s)) {
+      const id = getSecretId(s);
+      if (!id) {
+        throw new Error(
+          `${label}: an x-secret field has no x-secret-id. Use configSecret({ id }).`,
+        );
+      }
+      if (container) {
+        throw new Error(
+          `${label}: x-secret-id "${id}" is nested inside ${container}. ` +
+            `Extraction-channel secrets must sit at a fixed field of a plain ` +
+            `object (optionally inside a union): the internal-secret key cannot ` +
+            `address array / record / tuple / map entries, and the extraction ` +
+            `walk does not descend an intersection, so the secret would collide ` +
+            `or be left plaintext at rest. Use z.object / .extend() and lift the ` +
+            `secret to a fixed field, or model repeated entries as separate scopes.`,
+        );
+      }
+      if (seen.has(id)) {
+        throw new Error(
+          `${label}: duplicate x-secret-id "${id}". Secret ids must be unique within a schema.`,
+        );
+      }
+      seen.add(id);
+      return;
+    }
+    if (s instanceof z.ZodObject) {
+      for (const field of Object.values(
+        s.shape as Record<string, z.ZodTypeAny>,
+      )) {
+        walk(field, seen, container);
+      }
+      return;
+    }
+    // Unsupported composites: descend so a secret nested inside is FOUND and
+    // rejected (the `.def` accessors are Zod-internal; cast matches the
+    // `.element` / `.options` / `.shape` casts used throughout this walk).
+    if (s instanceof z.ZodArray) {
+      walk(s.element as z.ZodTypeAny, seen, "an array");
+      return;
+    }
+    if (s instanceof z.ZodTuple) {
+      for (const item of s.def.items as z.ZodTypeAny[]) {
+        walk(item, seen, "a tuple");
+      }
+      return;
+    }
+    if (s instanceof z.ZodRecord || s instanceof z.ZodMap) {
+      walk(s.def.keyType as z.ZodTypeAny, seen, "a record / map");
+      walk(s.def.valueType as z.ZodTypeAny, seen, "a record / map");
+      return;
+    }
+    if (s instanceof z.ZodIntersection) {
+      // Both sides contribute fields to the same merged value; walkSecretFields
+      // does not descend either, so any secret here is unsupported.
+      walk(s.def.left as z.ZodTypeAny, seen, "an intersection (z.intersection / .and())");
+      walk(s.def.right as z.ZodTypeAny, seen, "an intersection (z.intersection / .and())");
+      return;
+    }
+    if (s instanceof z.ZodDiscriminatedUnion || s instanceof z.ZodUnion) {
+      // Fork per branch: each option sees the ancestor ids but is invisible to
+      // its sibling branches, so two branches may reuse an id without clashing.
+      for (const option of s.options as z.ZodTypeAny[]) {
+        walk(option, new Set(seen), container);
+      }
+    }
+  };
+  walk(schema, new Set<string>(), null);
 }
 
 /**

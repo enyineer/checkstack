@@ -257,6 +257,10 @@ export default createBackendPlugin({
         const configSecrets: HealthCheckSecretsDeps = {
           internalSecrets,
           secretResolver,
+          // Serializes concurrent updateConfiguration writes to the SAME config
+          // id so one writer's orphan-prune cannot delete a secret a concurrent
+          // writer just set (which would leave a dangling marker).
+          advisoryLock,
         };
         gitopsConfigSecrets = configSecrets;
 

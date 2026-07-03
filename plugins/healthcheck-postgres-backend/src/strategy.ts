@@ -14,6 +14,7 @@ import {
   mergeMinMax,
   z,
   configString,
+  configSecret,
   configNumber,
   configBoolean,
   type ConnectedClient,
@@ -52,7 +53,7 @@ export const postgresConfigSchema = baseStrategyConfigSchema.extend({
     .describe("PostgreSQL port"),
   database: configString({}).describe("Database name"),
   user: configString({}).describe("Database user"),
-  password: configString({ "x-secret": true }).describe("Database password"),
+  password: configSecret({ id: "password" }).describe("Database password"),
   ssl: configBoolean({}).default(false).describe("Use SSL connection"),
 });
 

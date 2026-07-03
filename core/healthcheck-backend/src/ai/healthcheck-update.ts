@@ -82,10 +82,14 @@ export function createHealthcheckUpdateTool(): RegisteredAiTool<
     }
     const merged = mergeConfig({ existing, body: input.body });
     // Deep-validate the merged result (throws with structured detail if invalid,
-    // including bad assertion fields/operators).
+    // including bad assertion fields/operators). Pass the id so the server
+    // restores stored secrets before validating - `existing.config` is
+    // redacted, so a kept `x-secret` field arrives blank and would otherwise
+    // fail a required-secret check even for a name-only edit.
     const { strategy } = await validateHealthcheckDraft({
       input: merged,
       rpcClient,
+      existingConfigurationId: input.id,
     });
     // before -> after diff over the updatable fields only (the existing config
     // also carries id/timestamps/paused that are not part of an update).

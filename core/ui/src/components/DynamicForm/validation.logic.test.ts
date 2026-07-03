@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { SECRET_CLEAR_SENTINEL } from "@checkstack/common";
 import {
   deriveClientFieldErrors,
   deriveServerFieldErrors,
@@ -176,6 +177,17 @@ describe("omitKeepExistingSecrets", () => {
       keepExistingSecretFields: [],
     });
     expect(result).toEqual(value);
+  });
+
+  it("keeps the CLEAR sentinel so an explicit clear reaches the backend (UX-6)", () => {
+    const result = omitKeepExistingSecrets({
+      schema: connectionSchema,
+      value: { apiKey: SECRET_CLEAR_SENTINEL, baseUrl: "https://x" },
+      keepExistingSecretFields: ["apiKey"],
+    });
+    // The sentinel is a positive "remove it" intent, not a blank keep-existing,
+    // so it must NOT be stripped.
+    expect(result.apiKey).toBe(SECRET_CLEAR_SENTINEL);
   });
 });
 

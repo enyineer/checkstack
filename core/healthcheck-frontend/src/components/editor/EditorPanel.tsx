@@ -33,6 +33,17 @@ interface EditorPanelProps {
   availableCollectors: CollectorDto[];
   collectorsLoading: boolean;
   isEditMode: boolean;
+  /**
+   * EDIT mode: which secret fields ACTUALLY have a stored value
+   * (`configuredSecrets` from the redacted read), so the editor shows the
+   * stored-secret hint / Clear only where one exists. `strategy` lists the
+   * strategy's populated secret keys; `collectors` maps a collector entry id to
+   * its populated keys.
+   */
+  configuredSecrets?: {
+    strategy: string[];
+    collectors: Record<string, string[]>;
+  };
   configId: string | undefined;
   onNameChange: (name: string) => void;
   onIntervalChange: (interval: number) => void;
@@ -91,6 +102,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   availableCollectors,
   collectorsLoading,
   isEditMode,
+  configuredSecrets,
   configId,
   onNameChange,
   onIntervalChange,
@@ -126,6 +138,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         <GeneralSection
           name={formState.name}
           isEditMode={isEditMode}
+          storedSecretKeys={configuredSecrets?.strategy}
           intervalSeconds={formState.intervalSeconds}
           strategyConfig={formState.strategyConfig}
           strategy={strategy}
@@ -225,6 +238,16 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           entry={entry}
           collectorDef={collectorDef}
           isEditMode={isEditMode}
+          // A signal that is PRESENT but lacks this entry means a collector
+          // added mid-edit (its fresh id is not in the stored map) -> nothing
+          // stored, so `[]` (blank required secrets stay required, no false
+          // "stored" hint). Only a wholly ABSENT signal (older backend) falls
+          // back to marking every schema secret keep-existing.
+          storedSecretKeys={
+            configuredSecrets
+              ? (configuredSecrets.collectors[entry.id] ?? [])
+              : undefined
+          }
           onConfigChange={(config) => onCollectorConfigChange(entryId, config)}
           onAssertionsChange={(assertions) =>
             onCollectorAssertionsChange(entryId, assertions)

@@ -1,5 +1,19 @@
 import { z } from "zod";
-import { isSecretSchema } from "@checkstack/backend-api";
+import { isSecretSchema, getSecretId } from "@checkstack/backend-api";
+
+/** The information the walk hands a visitor for each `x-secret` string leaf. */
+export interface SecretFieldVisit {
+  /** Dot/bracket walk path, for diagnostics (`"auth.password"`, `"hosts[0]"`). */
+  path: string;
+  /**
+   * The field's stable extraction id (`x-secret-id`), or `undefined` for a
+   * plain `configString({ "x-secret": true })`. Extraction-channel callers key
+   * the internal secret by this - never by `path`.
+   */
+  secretId: string | undefined;
+  /** The current string value at this leaf. */
+  value: string;
+}
 
 /**
  * Generic schema-driven walk over `x-secret`-annotated string fields.
@@ -20,7 +34,7 @@ import { isSecretSchema } from "@checkstack/backend-api";
 export async function walkSecretFields(params: {
   value: unknown;
   schema: z.ZodTypeAny;
-  visit: (input: { path: string; value: string }) => Promise<string>;
+  visit: (input: SecretFieldVisit) => Promise<string>;
 }): Promise<unknown> {
   return walk({
     value: params.value,
@@ -33,7 +47,7 @@ export async function walkSecretFields(params: {
 async function walk(params: {
   value: unknown;
   schema: z.ZodTypeAny;
-  visit: (input: { path: string; value: string }) => Promise<string>;
+  visit: (input: SecretFieldVisit) => Promise<string>;
   path: string;
 }): Promise<unknown> {
   const { value, visit, path } = params;
@@ -46,7 +60,11 @@ async function walk(params: {
   // x-secret string leaf: hand it to the visitor.
   if (isSecretSchema(schema)) {
     if (typeof value === "string") {
-      return visit({ path: path || "(root)", value });
+      return visit({
+        path: path || "(root)",
+        secretId: getSecretId(schema),
+        value,
+      });
     }
     return value;
   }
@@ -127,14 +145,21 @@ async function walk(params: {
 
 function unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
   let unwrapped = schema;
-  if (unwrapped instanceof z.ZodOptional) {
-    unwrapped = unwrapped.unwrap() as z.ZodTypeAny;
+  // Loop so multi-level wrappers (e.g. `.optional().default({})`,
+  // `.default().nullable()`) are fully peeled. A single fixed-order pass leaves
+  // an inner wrapper on some combos, which would make a secret-bearing CONTAINER
+  // (object/array/union) miss its `instanceof` check and skip extraction -
+  // leaving the inline secret plaintext at rest. Mirrors the looping unwrap in
+  // zod-config / config-secret-channel so all walkers agree on field identity.
+  for (;;) {
+    if (unwrapped instanceof z.ZodOptional || unwrapped instanceof z.ZodNullable) {
+      unwrapped = unwrapped.unwrap() as z.ZodTypeAny;
+      continue;
+    }
+    if (unwrapped instanceof z.ZodDefault) {
+      unwrapped = unwrapped.def.innerType as z.ZodTypeAny;
+      continue;
+    }
+    return unwrapped;
   }
-  if (unwrapped instanceof z.ZodDefault) {
-    unwrapped = unwrapped.def.innerType as z.ZodTypeAny;
-  }
-  if (unwrapped instanceof z.ZodNullable) {
-    unwrapped = unwrapped.unwrap() as z.ZodTypeAny;
-  }
-  return unwrapped;
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { z } from "zod";
-import { configString } from "@checkstack/backend-api";
+import { configSecret } from "@checkstack/backend-api";
 import type {
   SecretResolverService,
   InternalSecretsService,
@@ -8,6 +8,8 @@ import type {
 import {
   inflateConnectionCredentials,
   extractInlineCredentials,
+  deleteConnectionCredentials,
+  pruneConnectionCredentials,
   internalRefMarker,
   isInternalRefMarker,
   connectionSecretParts,
@@ -17,7 +19,7 @@ import {
 const connectionSchema = z.object({
   baseUrl: z.string(),
   email: z.string(),
-  apiToken: configString({ "x-secret": true }),
+  apiToken: configSecret({ id: "apiToken" }),
 });
 
 /** In-memory internal-secrets fake (the local store). */
@@ -79,7 +81,7 @@ describe("extractInlineCredentials", () => {
         connectionSecretParts({
           providerId: PROVIDER,
           connectionId: CONN,
-          fieldPath: "apiToken",
+          secretId: "apiToken",
         }).join("|"),
       ),
     ).toBe("tok-INLINE");
@@ -115,7 +117,7 @@ describe("inflateConnectionCredentials", () => {
   it("inflates an internal-ref marker (inline path) from the local store", async () => {
     const internal = fakeInternal();
     await internal.set({
-      parts: connectionSecretParts({ providerId: PROVIDER, connectionId: CONN, fieldPath: "apiToken" }),
+      parts: connectionSecretParts({ providerId: PROVIDER, connectionId: CONN, secretId: "apiToken" }),
       value: "tok-RESOLVED",
     });
     const { config, values } = await inflateConnectionCredentials({
@@ -176,5 +178,108 @@ describe("inflateConnectionCredentials", () => {
       deps: { internalSecrets: internal, secretResolver: fakeResolver({}) },
     });
     expect(config.apiToken).toBe("legacy-inline");
+  });
+});
+
+describe("deleteConnectionCredentials (no orphan on delete)", () => {
+  it("removes the extracted internal secret so deleting the connection leaves nothing behind", async () => {
+    const internal = fakeInternal();
+    const { config: stored } = await extractInlineCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "to-be-deleted" },
+      schema: connectionSchema,
+      internalSecrets: internal,
+    });
+    expect(internal.store.size).toBe(1);
+
+    await deleteConnectionCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: stored,
+      internalSecrets: internal,
+    });
+    expect(internal.store.size).toBe(0);
+  });
+
+  it("is a no-op for a reference-only config (nothing was extracted)", async () => {
+    const internal = fakeInternal();
+    await deleteConnectionCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "${{ secrets.jira }}" },
+      internalSecrets: internal,
+    });
+    expect(internal.store.size).toBe(0);
+  });
+});
+
+describe("pruneConnectionCredentials (no orphan on update)", () => {
+  it("prunes the old internal secret when a field switches from inline to a reference", async () => {
+    const internal = fakeInternal();
+    const { config: oldStored } = await extractInlineCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "old-inline" },
+      schema: connectionSchema,
+      internalSecrets: internal,
+    });
+    expect(internal.store.size).toBe(1);
+
+    // Operator replaces the inline value with a ${{ secrets.* }} reference.
+    const { config: newStored } = await extractInlineCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "${{ secrets.jira }}" },
+      schema: connectionSchema,
+      internalSecrets: internal,
+    });
+
+    const pruned = await pruneConnectionCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      oldConfig: oldStored,
+      newConfig: newStored,
+      internalSecrets: internal,
+    });
+    expect(pruned).toBe(1);
+    expect(internal.store.size).toBe(0);
+  });
+
+  it("keeps the secret when the inline value is merely rotated (same key)", async () => {
+    const internal = fakeInternal();
+    const { config: oldStored } = await extractInlineCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "v1" },
+      schema: connectionSchema,
+      internalSecrets: internal,
+    });
+    const { config: newStored } = await extractInlineCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      config: { baseUrl: "https://x", email: "a@b.c", apiToken: "v2" },
+      schema: connectionSchema,
+      internalSecrets: internal,
+    });
+    const pruned = await pruneConnectionCredentials({
+      providerId: PROVIDER,
+      connectionId: CONN,
+      oldConfig: oldStored,
+      newConfig: newStored,
+      internalSecrets: internal,
+    });
+    // Same stable key (id=apiToken): rotated in place, nothing to prune.
+    expect(pruned).toBe(0);
+    expect(internal.store.size).toBe(1);
+    expect(
+      internal.store.get(
+        connectionSecretParts({
+          providerId: PROVIDER,
+          connectionId: CONN,
+          secretId: "apiToken",
+        }).join("|"),
+      ),
+    ).toBe("v2");
   });
 });

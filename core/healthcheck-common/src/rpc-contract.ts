@@ -227,7 +227,17 @@ export const healthCheckContract = {
     // Global utility: validates a proposed config without persisting; no existing instance id to scope on.
     instanceAccess: { global: true },
   })
-    .input(ValidateConfigurationInputSchema)
+    // `existingConfigurationId` marks this as validating an UPDATE to a stored
+    // config: the handler restores that config's stored secrets into the
+    // proposed body before validating, so a blank/absent `x-secret` field
+    // (the reads are redacted) does not spuriously fail a required-secret
+    // check. Validation never returns the restored values. Omit it to
+    // validate a brand-new (create) draft, where blank secrets stay required.
+    .input(
+      ValidateConfigurationInputSchema.extend({
+        existingConfigurationId: z.string().optional(),
+      }),
+    )
     .output(ValidateConfigurationResultSchema),
 
   updateConfiguration: proc({

@@ -103,9 +103,17 @@ const UNASSIGNED_GUIDANCE =
 export async function validateHealthcheckDraft({
   input,
   rpcClient,
+  existingConfigurationId,
 }: {
   input: HealthcheckProposeInput;
   rpcClient: RpcClient;
+  /**
+   * When validating an UPDATE, the id of the config being edited. The server
+   * restores that config's stored secrets before validating, so a kept secret
+   * (redacted out of the read) does not fail a required-secret check. Omit for
+   * a create draft, where blank secrets stay required.
+   */
+  existingConfigurationId?: string;
 }): Promise<{ strategy: HealthCheckStrategyDto; collectors: CollectorDto[] }> {
   const healthcheckClient = rpcClient.forPlugin(HealthCheckApi);
 
@@ -116,6 +124,7 @@ export async function validateHealthcheckDraft({
     config: input.config,
     intervalSeconds: input.intervalSeconds,
     collectors: input.collectors,
+    ...(existingConfigurationId ? { existingConfigurationId } : {}),
   });
   if (!validation.valid) {
     throw new HealthcheckProposeValidationError(

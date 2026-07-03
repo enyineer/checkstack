@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { z } from "zod";
-import { configString } from "@checkstack/backend-api";
+import { configSecret } from "@checkstack/backend-api";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import type {
   Logger,
@@ -18,7 +18,7 @@ import { inflateConnectionCredentials } from "./connection-credentials";
 
 const schema = z.object({
   baseUrl: z.string(),
-  apiToken: configString({ "x-secret": true }),
+  apiToken: configSecret({ id: "apiToken" }),
 });
 
 function fakeInternal(): InternalSecretsService & { store: Map<string, string> } {

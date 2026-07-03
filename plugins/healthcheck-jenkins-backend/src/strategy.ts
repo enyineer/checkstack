@@ -11,6 +11,7 @@ import {
   mergeCounter,
   z,
   configString,
+  configSecret,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -46,7 +47,7 @@ export const jenkinsConfigSchema = baseStrategyConfigSchema.extend({
   username: configString({}).describe(
     "Jenkins username for API authentication",
   ),
-  apiToken: configString({ "x-secret": true }).describe(
+  apiToken: configSecret({ id: "apiToken" }).describe(
     "Jenkins API token (generate from User > Configure > API Token)",
   ),
 });

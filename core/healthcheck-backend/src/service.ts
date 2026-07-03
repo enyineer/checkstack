@@ -67,7 +67,10 @@ import {
   extractConfigurationSecrets,
   mergeConfigurationSecrets,
   deleteConfigurationSecrets,
+  pruneOrphanedConfigurationSecrets,
   redactSecretFields,
+  listPopulatedSecretKeys,
+  healthcheckConfigLockKey,
   type GetCollectorSchema,
   type HealthCheckSecretsDeps,
 } from "./config-secrets";
@@ -195,8 +198,14 @@ export class HealthCheckService {
     let configToStore = data.config;
     let collectorsToStore = data.collectors;
 
+    // Gate extraction on `this.secrets` alone, NOT on the strategy being
+    // registered: extractConfigurationSecrets handles an undefined strategy
+    // schema (passing the strategy config through untouched) while STILL
+    // extracting every registered collector's secrets. Gating on strategySchema
+    // would store a registered collector's inline secret as plaintext at rest
+    // when the strategy is unregistered - the leak updateConfiguration avoids.
     const strategySchema = this.getStrategySchema(data.strategyId);
-    if (this.secrets && strategySchema) {
+    if (this.secrets) {
       const extracted = await extractConfigurationSecrets({
         configurationId: id,
         strategySchema,
@@ -209,19 +218,31 @@ export class HealthCheckService {
       collectorsToStore = extracted.collectors;
     }
 
-    const [config] = await this.db
-      .insert(healthCheckConfigurations)
-      .values({
+    try {
+      const [config] = await this.db
+        .insert(healthCheckConfigurations)
+        .values({
+          id,
+          name: data.name,
+          strategyId: data.strategyId,
+          config: configToStore,
+          collectors: collectorsToStore ?? undefined,
+          intervalSeconds: data.intervalSeconds,
+          isTemplate: false, // Defaulting for now
+        })
+        .returning();
+      return this.mapConfig(config);
+    } catch (error) {
+      // The insert never committed, so the just-extracted internal secrets are
+      // now orphaned (a config id that owns no row). Delete them so a failed
+      // create leaves nothing dangling in the store.
+      await this.cleanupExtractedSecrets({
         id,
-        name: data.name,
-        strategyId: data.strategyId,
         config: configToStore,
-        collectors: collectorsToStore ?? undefined,
-        intervalSeconds: data.intervalSeconds,
-        isTemplate: false, // Defaulting for now
-      })
-      .returning();
-    return this.mapConfig(config);
+        collectors: collectorsToStore,
+      });
+      throw error;
+    }
   }
 
   async getConfiguration(
@@ -256,7 +277,29 @@ export class HealthCheckService {
       if (!schema) return { ...entry, config: {} };
       return { ...entry, config: redactSecretFields({ schema, config: entry.config }) };
     });
-    return { ...configuration, config, collectors };
+    // Tell the editor which secret fields ACTUALLY have a stored value (computed
+    // from the pre-redaction config), so a never-set optional secret does not
+    // show a misleading "a secret is stored" hint / Clear affordance.
+    const configuredSecrets = {
+      strategy: strategySchema
+        ? listPopulatedSecretKeys({
+            schema: strategySchema,
+            config: configuration.config,
+          })
+        : [],
+      collectors: Object.fromEntries(
+        (configuration.collectors ?? []).map((entry) => {
+          const schema = this.getCollectorSchema(entry.collectorId);
+          return [
+            entry.id,
+            schema
+              ? listPopulatedSecretKeys({ schema, config: entry.config })
+              : [],
+          ];
+        }),
+      ),
+    };
+    return { ...configuration, config, collectors, configuredSecrets };
   }
 
   async getConfigurationRedacted(
@@ -274,26 +317,76 @@ export class HealthCheckService {
   async updateConfiguration(
     id: string,
     data: UpdateHealthCheckConfiguration,
+    options?: {
+      /**
+       * Whether a blank/absent `x-secret` field means "keep the stored value"
+       * (the UI editor round-trips the REDACTED config, so this is `true` by
+       * default). GitOps is DECLARATIVE - the authored source is the whole
+       * truth, so an omitted secret field means "not set". Pass `false` there
+       * so absent secrets are removed rather than silently re-restored.
+       */
+      mergeSecrets?: boolean;
+    },
   ): Promise<HealthCheckConfiguration | undefined> {
-    let body = data;
+    const mergeSecrets = options?.mergeSecrets ?? true;
 
-    if (this.secrets && (data.config || data.collectors)) {
-      // The editor round-trips the REDACTED config, so blank/absent secrets
-      // mean "keep existing": restore them from the stored row BEFORE
-      // extraction (restored markers pass through extraction untouched).
-      const stored = await this.getConfiguration(id);
-      if (stored) {
-        const strategyId = data.strategyId ?? stored.strategyId;
-        const strategySchema = this.getStrategySchema(strategyId);
-        if (strategySchema) {
-          const merged = mergeConfigurationSecrets({
-            strategySchema,
-            incomingConfig: data.config ?? stored.config,
-            storedConfig: stored.config,
-            incomingCollectors: data.collectors,
-            storedCollectors: stored.collectors,
-            getCollectorSchema: this.getCollectorSchema,
+    const applyUpdate = async (): Promise<
+      HealthCheckConfiguration | undefined
+    > => {
+      let body = data;
+      // Deferred until AFTER the row is written: deletes internal secrets
+      // orphaned by this edit (a cleared / declaratively-removed field, an
+      // inline secret swapped for a reference, a removed collector). Post-write
+      // means a crash can never leave the row pointing at a marker whose secret
+      // we already deleted (a dangling marker fails closed at run time).
+      let pruneOrphans: (() => Promise<void>) | undefined;
+
+      if (this.secrets && (data.config || data.collectors)) {
+        // The editor round-trips the REDACTED config, so blank/absent secrets
+        // mean "keep existing": restore them from the stored row BEFORE
+        // extraction (restored markers pass through extraction untouched).
+        const stored = await this.getConfiguration(id);
+        if (stored) {
+          const strategyId = data.strategyId ?? stored.strategyId;
+          const strategySchema = this.getStrategySchema(strategyId);
+
+          // Preserve an UNREGISTERED collector entry's stored config: a read
+          // redacts it to `{}` (fail-closed), and the editor round-trips that
+          // back - never persist the `{}` over the stored config.
+          const storedById = new Map(
+            (stored.collectors ?? []).map((entry) => [entry.id, entry]),
+          );
+          const sanitizedCollectors = data.collectors?.map((entry) => {
+            if (this.getCollectorSchema(entry.collectorId)) return entry;
+            const storedEntry = storedById.get(entry.id);
+            return storedEntry
+              ? { ...entry, config: storedEntry.config }
+              : entry;
           });
+
+          // Strategy config: registered -> merge/extract (or wholesale for
+          // gitops); UNREGISTERED -> preserve the stored config (we have no
+          // schema to merge/extract/validate it). REGISTERED COLLECTORS are
+          // processed via their OWN schemas regardless of strategy
+          // registration, so a registered collector under an unregistered
+          // strategy still extracts its secrets (no plaintext-at-rest, no wipe).
+          const incomingStrategyConfig = strategySchema
+            ? (data.config ?? stored.config)
+            : stored.config;
+
+          // UI keeps existing secrets (blank = keep); GitOps applies the
+          // authored config wholesale so an omitted secret is genuinely removed.
+          const merged = mergeSecrets
+            ? mergeConfigurationSecrets({
+                strategySchema,
+                incomingConfig: incomingStrategyConfig,
+                storedConfig: stored.config,
+                incomingCollectors: sanitizedCollectors,
+                storedCollectors: stored.collectors,
+                getCollectorSchema: this.getCollectorSchema,
+              })
+            : { config: incomingStrategyConfig, collectors: sanitizedCollectors };
+
           const extracted = await extractConfigurationSecrets({
             configurationId: id,
             strategySchema,
@@ -307,43 +400,158 @@ export class HealthCheckService {
             ...(data.config ? { config: extracted.config } : {}),
             ...(data.collectors ? { collectors: extracted.collectors } : {}),
           };
+
+          // A partial update only changes provided fields, so the effective new
+          // state of an omitted field is the stored one (unchanged, no orphan).
+          const newConfig = data.config ? extracted.config : stored.config;
+          const newCollectors = data.collectors
+            ? extracted.collectors
+            : stored.collectors;
+          const secrets = this.secrets;
+          pruneOrphans = async () => {
+            await pruneOrphanedConfigurationSecrets({
+              configurationId: id,
+              oldConfig: stored.config,
+              newConfig,
+              oldCollectors: stored.collectors,
+              newCollectors,
+              internalSecrets: secrets.internalSecrets,
+            });
+          };
         }
       }
-    }
 
-    const [config] = await this.db
-      .update(healthCheckConfigurations)
-      .set({
-        ...body,
-        updatedAt: new Date(),
-      })
-      .where(eq(healthCheckConfigurations.id, id))
-      .returning();
-    return config ? this.mapConfig(config) : undefined;
+      const [config] = await this.db
+        .update(healthCheckConfigurations)
+        .set({
+          ...body,
+          updatedAt: new Date(),
+        })
+        .where(eq(healthCheckConfigurations.id, id))
+        .returning();
+
+      // The row now holds the new markers; delete the internal secrets this
+      // edit orphaned. Post-write so a dangling marker can never outlive its
+      // secret.
+      if (config) await pruneOrphans?.();
+
+      return config ? this.mapConfig(config) : undefined;
+    };
+
+    // Serialize the read-modify-write-prune per config id so a concurrent
+    // writer to the SAME id (e.g. a UI edit racing a GitOps reconcile across
+    // pods) cannot have its just-written secret deleted by this writer's stale
+    // orphan-prune, which would leave a dangling marker. Only needed on the
+    // secret-bearing path and only when a cluster-wide lock is wired.
+    const lock = this.secrets?.advisoryLock;
+    if (lock && (data.config || data.collectors)) {
+      return lock.withXactLock({
+        key: healthcheckConfigLockKey(id),
+        fn: applyUpdate,
+      });
+    }
+    return applyUpdate();
+  }
+
+  /**
+   * Restore a stored config's secrets into a proposed (redacted) config so it
+   * can be deep-validated as an UPDATE without spuriously failing a
+   * required-secret check. Mirrors the merge `updateConfiguration` does
+   * before persisting, so validate and apply agree; the restored values are
+   * used only for validation and never returned to the caller. Returns the
+   * proposed config unchanged when the id is unknown or secrets are not wired.
+   */
+  async restoreSecretsForValidation({
+    existingConfigurationId,
+    strategyId,
+    config,
+    collectors,
+  }: {
+    existingConfigurationId: string;
+    strategyId: string;
+    config: Record<string, unknown>;
+    collectors: CollectorConfigEntry[] | undefined;
+  }): Promise<{
+    config: Record<string, unknown>;
+    collectors: CollectorConfigEntry[] | undefined;
+  }> {
+    const strategySchema = this.getStrategySchema(strategyId);
+    const stored = await this.getConfiguration(existingConfigurationId);
+    if (!strategySchema || !stored) return { config, collectors };
+    return mergeConfigurationSecrets({
+      strategySchema,
+      incomingConfig: config,
+      storedConfig: stored.config,
+      incomingCollectors: collectors,
+      storedCollectors: stored.collectors,
+      getCollectorSchema: this.getCollectorSchema,
+    });
   }
 
   async deleteConfiguration(id: string): Promise<void> {
-    // Clean up the internal secrets the stored markers point at BEFORE the
-    // row disappears (the markers are the only index into them).
-    if (this.secrets) {
-      const stored = await this.getConfiguration(id);
-      const strategySchema = stored
-        ? this.getStrategySchema(stored.strategyId)
-        : undefined;
-      if (stored && strategySchema) {
-        await deleteConfigurationSecrets({
-          configurationId: id,
-          strategySchema,
-          config: stored.config,
-          collectors: stored.collectors,
-          getCollectorSchema: this.getCollectorSchema,
-          internalSecrets: this.secrets.internalSecrets,
-        });
+    const applyDelete = async (): Promise<void> => {
+      // Clean up the internal secrets the stored markers point at BEFORE the
+      // row disappears (the markers are the only index into them). Schema-free,
+      // so an uninstalled strategy/collector plugin does NOT leave its secrets
+      // orphaned - marker enumeration does not depend on the plugin being loaded.
+      if (this.secrets) {
+        const stored = await this.getConfiguration(id);
+        if (stored) {
+          await deleteConfigurationSecrets({
+            configurationId: id,
+            config: stored.config,
+            collectors: stored.collectors,
+            internalSecrets: this.secrets.internalSecrets,
+          });
+        }
       }
+      await this.db
+        .delete(healthCheckConfigurations)
+        .where(eq(healthCheckConfigurations.id, id));
+    };
+
+    // Serialize delete under the SAME per-config lock updateConfiguration uses,
+    // so a concurrent update on this id cannot interleave: a delete reading the
+    // pre-update row would clean up the OLD markers and drop the row while the
+    // update writes a fresh internal secret, orphaning it. Delete and update of
+    // one id must be mutually exclusive.
+    const lock = this.secrets?.advisoryLock;
+    if (lock) {
+      return lock.withXactLock({
+        key: healthcheckConfigLockKey(id),
+        fn: applyDelete,
+      });
     }
-    await this.db
-      .delete(healthCheckConfigurations)
-      .where(eq(healthCheckConfigurations.id, id));
+    return applyDelete();
+  }
+
+  /**
+   * Delete internal secrets extracted for a config whose row insert did NOT
+   * commit (a rolled-back create), so a failed create never orphans the
+   * secrets it extracted. Best-effort: swallows cleanup errors so the original
+   * insert error is the one surfaced.
+   */
+  private async cleanupExtractedSecrets({
+    id,
+    config,
+    collectors,
+  }: {
+    id: string;
+    config: Record<string, unknown>;
+    collectors: CollectorConfigEntry[] | undefined;
+  }): Promise<void> {
+    if (!this.secrets) return;
+    try {
+      await deleteConfigurationSecrets({
+        configurationId: id,
+        config,
+        collectors,
+        internalSecrets: this.secrets.internalSecrets,
+      });
+    } catch {
+      // Ignore: the create already failed; surfacing a cleanup error would mask
+      // the real cause. The orphan (if any) is a harmless encrypted blob.
+    }
   }
 
   async pauseConfiguration(id: string): Promise<void> {
@@ -468,32 +676,70 @@ export class HealthCheckService {
     const versionedThresholds: VersionedStateThresholds | undefined =
       stateThresholds_ ? stateThresholds.create(stateThresholds_) : undefined;
 
-    const created = await this.db.transaction(async (tx) => {
-      const [config] = await tx
-        .insert(healthCheckConfigurations)
-        .values({
-          name: configuration.name,
-          strategyId: configuration.strategyId,
-          config: configuration.config,
-          collectors: configuration.collectors ?? undefined,
-          intervalSeconds: configuration.intervalSeconds,
-          isTemplate: false,
-        })
-        .returning();
-
-      await tx.insert(systemHealthChecks).values({
-        systemId,
-        configurationId: config.id,
-        enabled,
-        stateThresholds: versionedThresholds,
-        satelliteIds: satelliteIds ?? undefined,
-        environmentIds: environmentIdsValue,
-        includeLocal,
-        notificationPolicy: notificationPolicy ?? undefined,
+    // Extract inline secrets into the encrypted internal store BEFORE insert -
+    // identical to createConfiguration. Without this, the first-check wizard
+    // and the AI propose tool (both createAndAssign callers) would persist
+    // credentials as plaintext. The id is generated up front so the internal
+    // secrets can be keyed by it.
+    const id = crypto.randomUUID();
+    let configToStore = configuration.config;
+    let collectorsToStore = configuration.collectors;
+    // Gate on `this.secrets` alone (see createConfiguration): gating on
+    // strategySchema would leave a registered collector's inline secret as
+    // plaintext at rest when the strategy is unregistered.
+    const strategySchema = this.getStrategySchema(configuration.strategyId);
+    if (this.secrets) {
+      const extracted = await extractConfigurationSecrets({
+        configurationId: id,
+        strategySchema,
+        config: configuration.config,
+        collectors: configuration.collectors,
+        getCollectorSchema: this.getCollectorSchema,
+        internalSecrets: this.secrets.internalSecrets,
       });
+      configToStore = extracted.config;
+      collectorsToStore = extracted.collectors;
+    }
 
-      return config;
-    });
+    let created: typeof healthCheckConfigurations.$inferSelect;
+    try {
+      created = await this.db.transaction(async (tx) => {
+        const [config] = await tx
+          .insert(healthCheckConfigurations)
+          .values({
+            id,
+            name: configuration.name,
+            strategyId: configuration.strategyId,
+            config: configToStore,
+            collectors: collectorsToStore ?? undefined,
+            intervalSeconds: configuration.intervalSeconds,
+            isTemplate: false,
+          })
+          .returning();
+
+        await tx.insert(systemHealthChecks).values({
+          systemId,
+          configurationId: config.id,
+          enabled,
+          stateThresholds: versionedThresholds,
+          satelliteIds: satelliteIds ?? undefined,
+          environmentIds: environmentIdsValue,
+          includeLocal,
+          notificationPolicy: notificationPolicy ?? undefined,
+        });
+
+        return config;
+      });
+    } catch (error) {
+      // The transaction rolled back, so no row owns the secrets we just
+      // extracted; delete them so a failed create-and-assign never orphans them.
+      await this.cleanupExtractedSecrets({
+        id,
+        config: configToStore,
+        collectors: collectorsToStore,
+      });
+      throw error;
+    }
 
     return this.mapConfig(created);
   }
@@ -623,6 +869,18 @@ export class HealthCheckService {
       .where(eq(systemHealthChecks.systemId, systemId));
 
     return Promise.all(rows.map((r) => this.mapConfig(r.config)));
+  }
+
+  /**
+   * System-scoped configuration list for UI reads - REDACTED, like
+   * `getConfigurationsRedacted`. Any `x-secret` field is stripped before the
+   * config leaves the backend.
+   */
+  async getSystemConfigurationsRedacted(
+    systemId: string,
+  ): Promise<HealthCheckConfiguration[]> {
+    const configurations = await this.getSystemConfigurations(systemId);
+    return configurations.map((c) => this.redactConfiguration(c));
   }
 
   /**

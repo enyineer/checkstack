@@ -10,7 +10,10 @@ import type { InternalSecretsService } from "@checkstack/secrets-backend";
 import type { CollectorConfigEntry } from "@checkstack/healthcheck-common";
 import { healthCheckConfigurations } from "./schema";
 import * as schema from "./schema";
-import { extractConfigurationSecrets } from "./config-secrets";
+import {
+  extractConfigurationSecrets,
+  healthcheckConfigLockKey,
+} from "./config-secrets";
 
 /**
  * One-time (idempotent) boot backfill: move inline `x-secret` values that
@@ -53,45 +56,66 @@ export async function backfillConfigSecrets({
     let migratedRows = 0;
     let movedValues = 0;
 
-    for (const row of rows) {
-      const strategySchema = registry.getStrategy(row.strategyId)?.config.schema;
-      if (!strategySchema) {
-        logger.warn(
-          `Config-secrets backfill: strategy ${row.strategyId} not registered, skipping configuration ${row.id}`,
-        );
-        continue;
-      }
+    for (const { id: rowId } of rows) {
+      // Serialize each row's read-modify-write under the SAME per-config lock
+      // updateConfiguration uses, and re-read the row INSIDE the lock. Without
+      // this the backfill could write back a pre-lock snapshot over a concurrent
+      // edit - resurrecting a just-rotated secret and reverting the edit.
+      await advisoryLock.withXactLock({
+        key: healthcheckConfigLockKey(rowId),
+        fn: async () => {
+          const [row] = await db
+            .select()
+            .from(healthCheckConfigurations)
+            .where(eq(healthCheckConfigurations.id, rowId));
+          if (!row) return; // deleted between the scan and the lock
 
-      try {
-        const collectors: CollectorConfigEntry[] | undefined =
-          row.collectors ?? undefined;
-        const extracted = await extractConfigurationSecrets({
-          configurationId: row.id,
-          strategySchema,
-          config: row.config as Record<string, unknown>,
-          collectors,
-          getCollectorSchema: (collectorId) =>
-            collectorRegistry.getCollector(collectorId)?.collector.config.schema,
-          internalSecrets,
-        });
-        if (extracted.extracted === 0) continue;
+          // An unregistered strategy has no schema: its own strategy-level
+          // legacy secrets stay as-is (pass-through, as before), but we still
+          // migrate every REGISTERED collector's inline secrets rather than
+          // skipping the whole row - leaving those plaintext would defeat the
+          // backfill. extractConfigurationSecrets handles the undefined schema.
+          const strategySchema =
+            registry.getStrategy(row.strategyId)?.config.schema;
+          if (!strategySchema) {
+            logger.warn(
+              `Config-secrets backfill: strategy ${row.strategyId} not registered; leaving its strategy config as-is and migrating collector secrets for configuration ${row.id}`,
+            );
+          }
 
-        await db
-          .update(healthCheckConfigurations)
-          .set({
-            config: extracted.config,
-            collectors: extracted.collectors,
-            updatedAt: new Date(),
-          })
-          .where(eq(healthCheckConfigurations.id, row.id));
-        migratedRows++;
-        movedValues += extracted.extracted;
-      } catch (error) {
-        logger.warn(
-          `Config-secrets backfill: failed for configuration ${row.id}, leaving as-is`,
-          error,
-        );
-      }
+          try {
+            const collectors: CollectorConfigEntry[] | undefined =
+              row.collectors ?? undefined;
+            const extracted = await extractConfigurationSecrets({
+              configurationId: row.id,
+              strategySchema,
+              config: row.config as Record<string, unknown>,
+              collectors,
+              getCollectorSchema: (collectorId) =>
+                collectorRegistry.getCollector(collectorId)?.collector.config
+                  .schema,
+              internalSecrets,
+            });
+            if (extracted.extracted === 0) return;
+
+            await db
+              .update(healthCheckConfigurations)
+              .set({
+                config: extracted.config,
+                collectors: extracted.collectors,
+                updatedAt: new Date(),
+              })
+              .where(eq(healthCheckConfigurations.id, row.id));
+            migratedRows++;
+            movedValues += extracted.extracted;
+          } catch (error) {
+            logger.warn(
+              `Config-secrets backfill: failed for configuration ${row.id}, leaving as-is`,
+              error,
+            );
+          }
+        },
+      });
     }
 
     if (migratedRows > 0) {

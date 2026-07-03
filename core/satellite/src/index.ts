@@ -16,6 +16,7 @@ import { loadStrategies } from "./strategy-loader";
 import { buildRunContext } from "./run-context";
 import {
   hasUnresolvedConfigSecrets,
+  assertConfigSecretsResolved,
   applyConfigSecretValues,
 } from "./config-secrets";
 import { SatelliteScriptPackages } from "./satellite-script-packages";
@@ -175,20 +176,13 @@ async function executeAssignment(
     // no round-trip (and stay compatible with an older core).
     let strategyConfig = assignment.config;
     const collectorConfigOverrides = new Map<string, Record<string, unknown>>();
+    // Schema-free detection catches a marker/reference anywhere in the config -
+    // including inside a Zod union, which a schema walk missed.
     const needsConfigSecrets =
-      hasUnresolvedConfigSecrets({
-        schema: strategy.config.schema,
-        config: assignment.config,
-      }) ||
-      (assignment.collectors ?? []).some((entry) => {
-        const registered = collectorRegistry.getCollector(entry.collectorId);
-        return registered
-          ? hasUnresolvedConfigSecrets({
-              schema: registered.collector.config.schema,
-              config: entry.config,
-            })
-          : false;
-      });
+      hasUnresolvedConfigSecrets({ config: assignment.config }) ||
+      (assignment.collectors ?? []).some((entry) =>
+        hasUnresolvedConfigSecrets({ config: entry.config }),
+      );
     if (needsConfigSecrets) {
       const resolved = await deps.requestConfigSecrets({
         configId: assignment.configId,
@@ -207,6 +201,20 @@ async function executeAssignment(
           );
         }
       }
+    }
+
+    // Fail CLOSED before the config is used: if any marker/reference survived
+    // resolution (core lacked a schema, a value was undeliverable), refuse the
+    // run rather than probe the target with the opaque marker as a credential.
+    assertConfigSecretsResolved({
+      config: strategyConfig,
+      label: `Health check ${assignment.configId} strategy`,
+    });
+    for (const entry of assignment.collectors ?? []) {
+      assertConfigSecretsResolved({
+        config: collectorConfigOverrides.get(entry.id) ?? entry.config,
+        label: `Health check ${assignment.configId} collector ${entry.id}`,
+      });
     }
 
     // 1. Establish connection (measures connectivity + latency)

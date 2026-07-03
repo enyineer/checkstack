@@ -1,66 +1,75 @@
-import { z } from "zod";
-import { isSecretSchema } from "@checkstack/backend-api";
 import { isUnresolvedConfigSecret } from "@checkstack/healthcheck-common";
 
 /**
- * Satellite-side half of the JIT config-secret channel: detect which
- * `x-secret` fields of a relayed assignment still hold an unresolved marker
- * or `${{ secrets.* }}` reference (core resolves those on request), and
- * apply the returned `fieldPath -> value` map onto a config copy just
- * before the run. Legacy bare literals need no round-trip.
+ * Satellite-side half of the JIT config-secret channel: detect which fields of
+ * a relayed assignment still hold an unresolved marker or `${{ secrets.* }}`
+ * reference (core resolves those on request), and apply the returned
+ * `path -> value` map onto a config copy just before the run. Legacy bare
+ * literals need no round-trip.
  */
-
-function unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema;
-  for (;;) {
-    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
-      current = current.unwrap() as z.ZodTypeAny;
-      continue;
-    }
-    if (current instanceof z.ZodDefault) {
-      current = current.def.innerType as z.ZodTypeAny;
-      continue;
-    }
-    return current;
-  }
-}
 
 /**
- * Whether any `x-secret` string field in `config` holds an unresolved
- * marker/reference. Mirrors the walk shape of the backend's
- * `walkSecretFields` (objects, arrays, wrapper unwrapping).
+ * Config keys whose subtree the config-secret scan must NOT descend into,
+ * because their `${{ secrets.* }}` templates belong to a DIFFERENT channel and
+ * legitimately survive config-secret resolution:
+ *
+ * - `secretEnv` - the `x-secret-env` env-mapping, resolved just-in-time over the
+ *   SEPARATE run-secrets channel (`request_run_secrets`) and injected as env,
+ *   never merged back into the config. `${{ secrets.NAME }}` is only ever
+ *   resolved in `x-secret` / `x-secret-env` fields (see render-templatable-config),
+ *   so a secretEnv reference that reaches this scan is NOT an unresolved config
+ *   secret - it is resolved elsewhere. Including it here made the fail-closed
+ *   assert throw on every satellite collector that declares a secretEnv.
+ */
+const CONFIG_SECRET_IGNORED_KEYS = new Set(["secretEnv"]);
+
+/**
+ * Whether any string leaf in `config` is an unresolved config-secret marker or
+ * `${{ secrets.* }}` reference. Deliberately SCHEMA-FREE: a marker only ever
+ * occupies an `x-secret` field (core put it there), and scanning raw JSON both
+ * avoids reproducing the backend's schema walk (which previously missed secrets
+ * nested in Zod unions) and needs no schema at all. The `secretEnv` subtree is
+ * skipped ({@link CONFIG_SECRET_IGNORED_KEYS}) because its references ride a
+ * separate channel; every OTHER `${{ secrets.* }}` / marker is a genuine
+ * `x-secret` config secret that must be resolved before the probe runs.
  */
 export function hasUnresolvedConfigSecrets({
-  schema,
   config,
 }: {
-  schema: z.ZodTypeAny;
   config: unknown;
 }): boolean {
-  const walk = (nodeSchema: z.ZodTypeAny, value: unknown): boolean => {
-    if (value === null || value === undefined) return false;
-    if (isSecretSchema(nodeSchema)) {
-      return typeof value === "string" && isUnresolvedConfigSecret(value);
-    }
-    const unwrapped = unwrapZod(nodeSchema);
-    if (
-      unwrapped instanceof z.ZodObject &&
-      typeof value === "object" &&
-      !Array.isArray(value)
-    ) {
-      const shape = unwrapped.shape as Record<string, z.ZodTypeAny>;
-      const record = value as Record<string, unknown>;
-      return Object.entries(shape).some(
-        ([key, fieldSchema]) => key in record && walk(fieldSchema, record[key]),
+  const walk = (node: unknown): boolean => {
+    if (typeof node === "string") return isUnresolvedConfigSecret(node);
+    if (Array.isArray(node)) return node.some((child) => walk(child));
+    if (node && typeof node === "object") {
+      return Object.entries(node).some(([key, child]) =>
+        CONFIG_SECRET_IGNORED_KEYS.has(key) ? false : walk(child),
       );
-    }
-    if (unwrapped instanceof z.ZodArray && Array.isArray(value)) {
-      const elementSchema = unwrapped.element as z.ZodTypeAny;
-      return value.some((item) => walk(elementSchema, item));
     }
     return false;
   };
-  return walk(schema, config);
+  return walk(config);
+}
+
+/**
+ * Fail CLOSED: throw if `config` still holds an unresolved marker/reference
+ * after JIT resolution. A leftover marker means core could not deliver the
+ * value (e.g. its schema was missing, or resolution was skipped) - running the
+ * probe with the opaque marker string as a credential must never happen.
+ */
+export function assertConfigSecretsResolved({
+  config,
+  label,
+}: {
+  config: unknown;
+  label: string;
+}): void {
+  if (hasUnresolvedConfigSecrets({ config })) {
+    throw new Error(
+      `${label}: a config secret could not be resolved (an unresolved ` +
+        `marker/reference remains); refusing to run with a bogus credential.`,
+    );
+  }
 }
 
 /**

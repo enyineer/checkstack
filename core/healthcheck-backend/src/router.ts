@@ -295,8 +295,24 @@ export const createHealthCheckRouter = (opts: {
         // `z.record(z.unknown())` on the input) is validated against each
         // registered schema, surfacing wrong types, missing required fields,
         // and unknown keys - not just missing-field presence.
+        //
+        // For an UPDATE (existingConfigurationId set), restore the stored
+        // config's secrets into the proposed body first: reads are redacted,
+        // so a kept secret arrives blank/absent and would otherwise fail a
+        // required-secret check even though the apply path would preserve it.
+        // The restored values are used ONLY to validate and never returned.
+        let toValidate = input;
+        if (input.existingConfigurationId) {
+          const restored = await service.restoreSecretsForValidation({
+            existingConfigurationId: input.existingConfigurationId,
+            strategyId: input.strategyId,
+            config: input.config,
+            collectors: input.collectors,
+          });
+          toValidate = { ...input, ...restored };
+        }
         const errors = await collectConfigurationIssues({
-          input,
+          input: toValidate,
           registry: context.healthCheckRegistry,
           collectorRegistry: context.collectorRegistry,
         });
@@ -394,7 +410,8 @@ export const createHealthCheckRouter = (opts: {
 
     getSystemConfigurations: os.getSystemConfigurations.handler(
       async ({ input }) => {
-        return service.getSystemConfigurations(input.systemId);
+        // Redacted like every other UI config read - x-secret fields stripped.
+        return service.getSystemConfigurationsRedacted(input.systemId);
       },
     ),
 
@@ -444,7 +461,9 @@ export const createHealthCheckRouter = (opts: {
         enabled: input.enabled,
         queueManager: context.queueManager,
       });
-      return configuration;
+      // The response goes back to the caller (wizard / AI tool): redact it
+      // like every other config read/write response.
+      return service.redactConfiguration(configuration);
     }),
 
     disassociateSystem: os.disassociateSystem.handler(async ({ input }) => {

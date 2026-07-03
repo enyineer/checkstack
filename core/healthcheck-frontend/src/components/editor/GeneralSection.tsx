@@ -14,6 +14,14 @@ interface GeneralSectionProps {
    * valid. CREATE mode leaves blank secrets genuinely required.
    */
   isEditMode: boolean;
+  /**
+   * EDIT mode: the strategy secret field keys that ACTUALLY have a stored value
+   * (`configuredSecrets.strategy` from the redacted read). Drives the
+   * keep-existing validation and the "a secret is stored" / Clear affordance so
+   * a never-set optional secret does not falsely claim one is stored. Falls
+   * back to every schema secret key when the signal is absent (older backend).
+   */
+  storedSecretKeys?: string[];
   onNameChange: (name: string) => void;
   onIntervalChange: (interval: number) => void;
   onStrategyConfigChange: (config: Record<string, unknown>) => void;
@@ -26,6 +34,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
   strategyConfig,
   strategy,
   isEditMode,
+  storedSecretKeys,
   onNameChange,
   onIntervalChange,
   onStrategyConfigChange,
@@ -98,7 +107,10 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
             onChange={onStrategyConfigChange}
             onValidChange={onStrategyConfigValidChange}
             keepExistingSecretFields={
-              isEditMode ? listSecretFieldKeys(strategy.configSchema) : []
+              isEditMode
+                ? (storedSecretKeys ??
+                  listSecretFieldKeys(strategy.configSchema))
+                : []
             }
           />
         </div>

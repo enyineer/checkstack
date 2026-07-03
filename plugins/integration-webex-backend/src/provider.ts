@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { configString, Versioned } from "@checkstack/backend-api";
+import { configSecret, Versioned } from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   GetConnectionOptionsParams,
@@ -38,7 +38,7 @@ export const WEBEX_RESOLVERS = {
 // ─── Connection schema ──────────────────────────────────────────────────
 
 export const WebexConnectionSchema = z.object({
-  botToken: configString({ "x-secret": true }).describe(
+  botToken: configSecret({ id: "botToken" }).describe(
     "Webex Bot Access Token from developer.webex.com",
   ),
 });

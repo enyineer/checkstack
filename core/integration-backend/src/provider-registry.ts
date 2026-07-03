@@ -1,5 +1,5 @@
 import type { PluginMetadata } from "@checkstack/common";
-import { toJsonSchema } from "@checkstack/backend-api";
+import { toJsonSchema, validateSecretIds } from "@checkstack/backend-api";
 import type {
   IntegrationProvider,
   RegisteredIntegrationProvider,
@@ -62,6 +62,13 @@ export function createIntegrationProviderRegistry(): IntegrationProviderRegistry
       providers.set(qualifiedId, registered);
 
       if (provider.connectionSchema) {
+        // Load-time guard: every x-secret credential field must carry a stable,
+        // unique x-secret-id (configSecret), or its extracted secret would
+        // mis-key/orphan on the connection scope.
+        validateSecretIds({
+          schema: provider.connectionSchema.schema,
+          label: `connection:${qualifiedId}`,
+        });
         const connectionJsonSchema = toJsonSchema(
           provider.connectionSchema.schema
         );

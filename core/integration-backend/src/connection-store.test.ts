@@ -5,7 +5,8 @@ import {
   type ConnectionStore,
 } from "./connection-store";
 import type { ConfigService, Logger } from "@checkstack/backend-api";
-import { Versioned, configString } from "@checkstack/backend-api";
+import { Versioned, configString, configSecret } from "@checkstack/backend-api";
+import type { InternalSecretsService } from "@checkstack/secrets-backend";
 import type { IntegrationProviderRegistry } from "./provider-registry";
 
 /**
@@ -386,6 +387,121 @@ describe("ConnectionStore", () => {
 
       const found = await connectionStore.getConnection(created.id);
       expect(found).toBeUndefined();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Delete resilience: credential cleanup is best-effort and never blocks
+  // deletion (regression for the round-2 finding that a failed config read made
+  // a connection undeletable).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("deleteConnection with credentials wired", () => {
+    // A credential schema on the extraction channel MUST use configSecret.
+    const credSchema = z.object({
+      baseUrl: configString({}).url(),
+      apiToken: configSecret({ id: "apiToken" }),
+    });
+
+    const isConfigKey = (k: string) =>
+      k.startsWith("integration_connection_") &&
+      !k.startsWith("integration_connection_meta_") &&
+      !k.startsWith("integration_connection_index_");
+
+    function buildCredStore() {
+      const storage = new Map<string, unknown>();
+      let failConfigRead = false;
+      const cfg = {
+        storage,
+        get: mock(async (key: string) => {
+          if (failConfigRead && isConfigKey(key)) {
+            throw new Error("decrypt failed");
+          }
+          return storage.get(key);
+        }),
+        getRedacted: mock(async (key: string) => storage.get(key)),
+        set: mock(
+          async (
+            key: string,
+            _s: z.ZodType<unknown>,
+            _v: number,
+            value: unknown
+          ) => {
+            storage.set(key, value);
+          }
+        ),
+        delete: mock(async (key: string) => {
+          storage.delete(key);
+        }),
+        list: mock(async () => [...storage.keys()]),
+      } as unknown as ConfigService & { storage: Map<string, unknown> };
+
+      const { registry, providers } = createMockProviderRegistry();
+      providers.set("test-plugin.jira", {
+        qualifiedId: "test-plugin.jira",
+        connectionSchema: new Versioned({ version: 1, schema: credSchema }),
+      });
+
+      const internalStore = new Map<string, string>();
+      const internalSecrets: InternalSecretsService = {
+        set: async ({ parts, value }) => {
+          internalStore.set(parts.join("|"), value);
+        },
+        get: async ({ parts }) => internalStore.get(parts.join("|")),
+        delete: async ({ parts }) => {
+          internalStore.delete(parts.join("|"));
+        },
+      };
+
+      const store = createConnectionStore({
+        configService: cfg,
+        providerRegistry: registry,
+        logger: mockLogger,
+        credentials: {
+          internalSecrets,
+          // Not exercised by create/delete.
+          secretResolver: {} as never,
+        },
+      });
+
+      return {
+        store,
+        storage,
+        internalStore,
+        setFailConfigRead: (v: boolean) => {
+          failConfigRead = v;
+        },
+      };
+    }
+
+    it("removes the extracted secret on a normal delete (no orphan)", async () => {
+      const { store, internalStore } = buildCredStore();
+      const created = await store.createConnection({
+        providerId: "test-plugin.jira",
+        name: "c",
+        config: { baseUrl: "https://x.atlassian.net", apiToken: "sekret" },
+      });
+      expect(internalStore.size).toBe(1);
+
+      expect(await store.deleteConnection(created.id)).toBe(true);
+      expect(internalStore.size).toBe(0);
+    });
+
+    it("still deletes config + metadata when the config read throws", async () => {
+      const { store, storage, setFailConfigRead } = buildCredStore();
+      const created = await store.createConnection({
+        providerId: "test-plugin.jira",
+        name: "c",
+        config: { baseUrl: "https://x.atlassian.net", apiToken: "sekret" },
+      });
+      const configKey = `integration_connection_test-plugin_jira_${created.id}`;
+      expect(storage.has(configKey)).toBe(true);
+
+      // The stored config can no longer be read (key rotation / schema drift).
+      setFailConfigRead(true);
+      // Deletion must not throw and must still remove the connection.
+      expect(await store.deleteConnection(created.id)).toBe(true);
+      expect(storage.has(configKey)).toBe(false);
     });
   });
 

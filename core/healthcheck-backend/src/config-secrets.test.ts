@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
-import { configString } from "@checkstack/backend-api";
+import { configSecret } from "@checkstack/backend-api";
+import { SECRET_CLEAR_SENTINEL } from "@checkstack/common";
 import {
   createMaskingContext,
   type InternalSecretsService,
@@ -14,6 +15,9 @@ import {
   mergeSecretFields,
   mergeConfigurationSecrets,
   deleteConfigurationSecrets,
+  pruneOrphanedConfigurationSecrets,
+  listPopulatedSecretKeys,
+  healthcheckSecretParts,
   healthcheckSecretMarker,
   isHealthcheckSecretMarker,
 } from "./config-secrets";
@@ -56,13 +60,13 @@ const fakeResolver: Pick<SecretResolverService, "resolveForRun"> = {
 const strategySchema = z.object({
   timeout: z.number().optional(),
   authUsername: z.string().optional(),
-  authPassword: configString({ "x-secret": true }).optional(),
-  authToken: configString({ "x-secret": true }).optional(),
+  authPassword: configSecret({ id: "authPassword" }).optional(),
+  authToken: configSecret({ id: "authToken" }).optional(),
 });
 
 const collectorSchema = z.object({
   url: z.string(),
-  apiKey: configString({ "x-secret": true }).optional(),
+  apiKey: configSecret({ id: "apiKey" }).optional(),
 });
 
 const CONFIG_ID = "cfg-1";
@@ -136,6 +140,76 @@ describe("extractConfigurationSecrets", () => {
     expect(result.extracted).toBe(0);
     expect(result.config.authPassword).toBe("");
   });
+
+  it("neutralizes a FORGED marker pointing at another field's secret", async () => {
+    const internalSecrets = fakeInternalSecrets();
+    // A privileged operator set authPassword; its secret lives in the store.
+    await internalSecrets.set({
+      parts: ["healthcheck", CONFIG_ID, "strategy", "authPassword"],
+      value: "admin-password",
+    });
+
+    // A lower-privileged editor types the literal marker for authPassword into
+    // the authToken field, hoping it inflates to the admin's password.
+    const forged = healthcheckSecretMarker("authPassword");
+    const result = await extractConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      strategySchema,
+      config: {
+        authPassword: healthcheckSecretMarker("authPassword"), // own marker: kept
+        authToken: forged, // forged marker in a DIFFERENT field: must be extracted
+      },
+      collectors: undefined,
+      getCollectorSchema: () => undefined,
+      internalSecrets,
+    });
+
+    // The forged value is extracted as a LITERAL into authToken's own slot,
+    // and the field becomes authToken's own marker - not a pass-through.
+    expect(result.config.authToken).toBe(healthcheckSecretMarker("authToken"));
+    expect(
+      internalSecrets.store.get(
+        internalSecretName("healthcheck", CONFIG_ID, "strategy", "authToken"),
+      ),
+    ).toBe(forged);
+    // authPassword's own marker passed through untouched; its secret intact.
+    expect(result.config.authPassword).toBe(
+      healthcheckSecretMarker("authPassword"),
+    );
+
+    // At inflate, authToken resolves to its OWN slot (the literal marker
+    // string), NEVER the admin password.
+    const { config } = await inflateConfigSecrets({
+      configurationId: CONFIG_ID,
+      scope: { kind: "strategy" },
+      schema: strategySchema,
+      config: result.config,
+      deps: { internalSecrets, secretResolver: fakeResolver },
+    });
+    expect(config.authToken).toBe(forged);
+    expect(config.authToken).not.toBe("admin-password");
+    expect(config.authPassword).toBe("admin-password");
+  });
+
+  it("a stored forged marker still cannot read another field's slot (inflate keys by own path)", async () => {
+    const internalSecrets = fakeInternalSecrets();
+    await internalSecrets.set({
+      parts: ["healthcheck", CONFIG_ID, "strategy", "authPassword"],
+      value: "admin-password",
+    });
+    // Simulate a forged marker that somehow reached storage in authToken.
+    await expect(
+      inflateConfigSecrets({
+        configurationId: CONFIG_ID,
+        scope: { kind: "strategy" },
+        schema: strategySchema,
+        config: { authToken: healthcheckSecretMarker("authPassword") },
+        deps: { internalSecrets, secretResolver: fakeResolver },
+      }),
+      // authToken has no own-slot secret, so it fails closed rather than
+      // leaking authPassword.
+    ).rejects.toThrow(/Internal secret for "authToken" not found/);
+  });
 });
 
 describe("inflateConfigSecrets", () => {
@@ -182,7 +256,7 @@ describe("inflateConfigSecrets", () => {
         config: { authPassword: healthcheckSecretMarker("authPassword") },
         deps: { internalSecrets: fakeInternalSecrets(), secretResolver: fakeResolver },
       }),
-    ).rejects.toThrow(/internal secret .* not found/);
+    ).rejects.toThrow(/Internal secret .* not found/);
   });
 
   it("scopes collector secrets by entry id", async () => {
@@ -203,7 +277,7 @@ describe("inflateConfigSecrets", () => {
 });
 
 describe("redactSecretFields", () => {
-  it("removes secret fields entirely, keeping everything else", () => {
+  it("strips inline secret markers but KEEPS references verbatim (UX-8)", () => {
     const redacted = redactSecretFields({
       schema: strategySchema,
       config: {
@@ -213,7 +287,13 @@ describe("redactSecretFields", () => {
         authToken: "${{ secrets.MY_TOKEN }}",
       },
     });
-    expect(redacted).toEqual({ timeout: 5000, authUsername: "alice" });
+    // The extracted-inline marker is stripped; the `${{ secrets.* }}` reference
+    // is a pointer (not a value) and stays so the editor shows the wiring.
+    expect(redacted).toEqual({
+      timeout: 5000,
+      authUsername: "alice",
+      authToken: "${{ secrets.MY_TOKEN }}",
+    });
   });
 
   it("recurses into arrays of objects", () => {
@@ -221,7 +301,7 @@ describe("redactSecretFields", () => {
       targets: z.array(
         z.object({
           host: z.string(),
-          password: configString({ "x-secret": true }),
+          password: configSecret({ id: "password" }),
         }),
       ),
     });
@@ -273,6 +353,20 @@ describe("mergeSecretFields", () => {
     });
     expect(merged.authPassword).toBe("");
     expect(merged.authToken).toBeUndefined();
+  });
+
+  it("removes the field on the CLEAR sentinel instead of keeping stored (UX-6)", () => {
+    const merged = mergeSecretFields({
+      schema: strategySchema,
+      incoming: { authUsername: "alice", authPassword: SECRET_CLEAR_SENTINEL },
+      stored,
+    });
+    // Explicit clear wins over keep-existing: the field resolves to undefined,
+    // so nothing is persisted (JSONB drops it) and no marker survives for the
+    // run path to inflate.
+    expect(merged.authPassword).toBeUndefined();
+    // Untouched stored secrets are still kept.
+    expect(merged.authToken).toBe("${{ secrets.MY_TOKEN }}");
   });
 });
 
@@ -330,7 +424,6 @@ describe("deleteConfigurationSecrets", () => {
 
     await deleteConfigurationSecrets({
       configurationId: CONFIG_ID,
-      strategySchema,
       config: { authPassword: healthcheckSecretMarker("authPassword") },
       collectors: [
         {
@@ -339,12 +432,332 @@ describe("deleteConfigurationSecrets", () => {
           config: { apiKey: healthcheckSecretMarker("apiKey"), url: "https://x" },
         },
       ],
-      getCollectorSchema: () => collectorSchema,
       internalSecrets,
     });
 
     expect(internalSecrets.store.size).toBe(1);
     expect([...internalSecrets.store.values()]).toEqual(["unrelated"]);
+  });
+
+  it("deletes secrets even when the strategy AND collector plugins are UNINSTALLED", async () => {
+    // Schema-free enumeration: a deleted check must not orphan secrets just
+    // because its plugins are no longer loaded.
+    const internalSecrets = fakeInternalSecrets();
+    await internalSecrets.set({
+      parts: ["healthcheck", CONFIG_ID, "strategy", "authPassword"],
+      value: "s3cret",
+    });
+    await internalSecrets.set({
+      parts: ["healthcheck", CONFIG_ID, "collector", "entry-1", "apiKey"],
+      value: "collector-key",
+    });
+
+    await deleteConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      config: { authPassword: healthcheckSecretMarker("authPassword") },
+      collectors: [
+        {
+          id: "entry-1",
+          collectorId: "gone.collector",
+          config: { apiKey: healthcheckSecretMarker("apiKey") },
+        },
+      ],
+      internalSecrets,
+    });
+
+    expect(internalSecrets.store.size).toBe(0);
+  });
+});
+
+describe("pruneOrphanedConfigurationSecrets", () => {
+  /** Seed the internal store with the strategy secrets used below. */
+  function seed() {
+    const internalSecrets = fakeInternalSecrets();
+    return internalSecrets;
+  }
+  const passwordParts = healthcheckSecretParts({
+    configurationId: CONFIG_ID,
+    scope: { kind: "strategy" },
+    secretId: "authPassword",
+  });
+  const tokenParts = healthcheckSecretParts({
+    configurationId: CONFIG_ID,
+    scope: { kind: "strategy" },
+    secretId: "authToken",
+  });
+
+  it("deletes a secret orphaned by a CLEARED/removed field (UX-6 / GitOps)", async () => {
+    const internalSecrets = seed();
+    await internalSecrets.set({ parts: passwordParts, value: "old-pw" });
+    await internalSecrets.set({ parts: tokenParts, value: "keep-token" });
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      // authPassword marker dropped; authToken marker retained.
+      oldConfig: {
+        authPassword: healthcheckSecretMarker("authPassword"),
+        authToken: healthcheckSecretMarker("authToken"),
+      },
+      newConfig: { authToken: healthcheckSecretMarker("authToken") },
+      oldCollectors: undefined,
+      newCollectors: undefined,
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(1);
+    expect(await internalSecrets.get({ parts: passwordParts })).toBeUndefined();
+    expect(await internalSecrets.get({ parts: tokenParts })).toBe("keep-token");
+  });
+
+  it("deletes the old inline secret when a field is swapped to a reference", async () => {
+    const internalSecrets = seed();
+    await internalSecrets.set({ parts: tokenParts, value: "old-inline" });
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: { authToken: healthcheckSecretMarker("authToken") },
+      newConfig: { authToken: "${{ secrets.MY_TOKEN }}" },
+      oldCollectors: undefined,
+      newCollectors: undefined,
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(1);
+    expect(await internalSecrets.get({ parts: tokenParts })).toBeUndefined();
+  });
+
+  it("keeps a secret that is still referenced (kept / re-typed)", async () => {
+    const internalSecrets = seed();
+    await internalSecrets.set({ parts: passwordParts, value: "still-here" });
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: { authPassword: healthcheckSecretMarker("authPassword") },
+      newConfig: { authPassword: healthcheckSecretMarker("authPassword") },
+      oldCollectors: undefined,
+      newCollectors: undefined,
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(0);
+    expect(await internalSecrets.get({ parts: passwordParts })).toBe("still-here");
+  });
+
+  it("deletes secrets of a REMOVED collector entry", async () => {
+    const internalSecrets = seed();
+    const entryParts = healthcheckSecretParts({
+      configurationId: CONFIG_ID,
+      scope: { kind: "collector", entryId: "entry-1" },
+      secretId: "apiKey",
+    });
+    await internalSecrets.set({ parts: entryParts, value: "collector-secret" });
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: {},
+      newConfig: {},
+      oldCollectors: [
+        {
+          id: "entry-1",
+          collectorId: "http.request",
+          config: { apiKey: healthcheckSecretMarker("apiKey"), url: "https://x" },
+        },
+      ],
+      newCollectors: [],
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(1);
+    expect(await internalSecrets.get({ parts: entryParts })).toBeUndefined();
+  });
+
+  it("KEEPS a strategy marker preserved verbatim when the new strategy is unregistered", async () => {
+    // Round-2 finding #3: switching to an unregistered strategy preserves the
+    // old markers in the row (no schema to enumerate them on the new side). The
+    // literal-presence check must recognize the retained marker and NOT delete
+    // its still-referenced secret.
+    const internalSecrets = seed();
+    await internalSecrets.set({ parts: passwordParts, value: "live" });
+    const marker = healthcheckSecretMarker("authPassword");
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: { authPassword: marker },
+      newConfig: { authPassword: marker }, // preserved verbatim (new strategy has no schema)
+      oldCollectors: undefined,
+      newCollectors: undefined,
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(0);
+    expect(await internalSecrets.get({ parts: passwordParts })).toBe("live");
+  });
+
+  it("KEEPS a preserved collector marker when the collector becomes unregistered", async () => {
+    const internalSecrets = seed();
+    const entryParts = healthcheckSecretParts({
+      configurationId: CONFIG_ID,
+      scope: { kind: "collector", entryId: "c1" },
+      secretId: "apiKey",
+    });
+    await internalSecrets.set({ parts: entryParts, value: "live" });
+    const marker = healthcheckSecretMarker("apiKey");
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: {},
+      newConfig: {},
+      // Old entry registered (schema enumerates the marker); new entry has the
+      // SAME preserved config but an unregistered collectorId.
+      oldCollectors: [
+        { id: "c1", collectorId: "http.request", config: { apiKey: marker, url: "https://x" } },
+      ],
+      newCollectors: [
+        { id: "c1", collectorId: "gone.collector", config: { apiKey: marker, url: "https://x" } },
+      ],
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(0);
+    expect(await internalSecrets.get({ parts: entryParts })).toBe("live");
+  });
+
+  it("prunes a cleared field whose marker string is a PREFIX of a kept sibling's marker", async () => {
+    // Round-3 re-review finding: a serialized-JSON substring presence check
+    // (`newText.includes(marker.value)`) false-positives when one x-secret
+    // field's walk-path is a prefix of a sibling's (e.g. `token`/`tokenSecret`),
+    // because `__hcsecret__:token` is a substring of `__hcsecret__:tokenSecret`.
+    // Clearing the shorter field must still delete its now-orphaned secret.
+    const internalSecrets = seed();
+    const tokenP = healthcheckSecretParts({
+      configurationId: CONFIG_ID,
+      scope: { kind: "strategy" },
+      secretId: "token",
+    });
+    const tokenSecretP = healthcheckSecretParts({
+      configurationId: CONFIG_ID,
+      scope: { kind: "strategy" },
+      secretId: "tokenSecret",
+    });
+    await internalSecrets.set({ parts: tokenP, value: "cleared-one" });
+    await internalSecrets.set({ parts: tokenSecretP, value: "kept-one" });
+
+    const deleted = await pruneOrphanedConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      oldConfig: {
+        token: healthcheckSecretMarker("token"),
+        tokenSecret: healthcheckSecretMarker("tokenSecret"),
+      },
+      // `token` cleared; `tokenSecret` kept. `tokenSecret`'s marker string
+      // literally contains `token`'s marker string.
+      newConfig: { tokenSecret: healthcheckSecretMarker("tokenSecret") },
+      oldCollectors: undefined,
+      newCollectors: undefined,
+      internalSecrets,
+    });
+
+    expect(deleted).toBe(1);
+    expect(await internalSecrets.get({ parts: tokenP })).toBeUndefined();
+    expect(await internalSecrets.get({ parts: tokenSecretP })).toBe("kept-one");
+  });
+});
+
+describe("listPopulatedSecretKeys", () => {
+  it("lists only secret keys that actually hold a stored value", () => {
+    const keys = listPopulatedSecretKeys({
+      schema: strategySchema,
+      config: {
+        authUsername: "alice",
+        authPassword: healthcheckSecretMarker("authPassword"), // inline stored
+        // authToken absent -> never set
+      },
+    });
+    expect(keys).toEqual(["authPassword"]);
+  });
+
+  it("counts a reference as populated but a blank/absent secret as not", () => {
+    expect(
+      listPopulatedSecretKeys({
+        schema: strategySchema,
+        config: { authToken: "${{ secrets.T }}" },
+      }),
+    ).toEqual(["authToken"]);
+    expect(
+      listPopulatedSecretKeys({
+        schema: strategySchema,
+        config: { authPassword: "" },
+      }),
+    ).toEqual([]);
+    expect(
+      listPopulatedSecretKeys({ schema: strategySchema, config: {} }),
+    ).toEqual([]);
+  });
+
+  it("ignores non-secret fields", () => {
+    expect(
+      listPopulatedSecretKeys({
+        schema: strategySchema,
+        config: { authUsername: "alice", timeout: 5 },
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("union-typed secret fields (redact + merge descend unions)", () => {
+  // An x-secret field nested inside a discriminated union - extract stores a
+  // marker here, so redact MUST strip it and merge MUST restore keep-existing.
+  const unionSchema = z.object({
+    auth: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("none") }),
+      z.object({
+        type: z.literal("basic"),
+        password: configSecret({ id: "password" }),
+      }),
+    ]),
+  });
+
+  it("redactSecretFields strips a secret inside a discriminated union", () => {
+    const redacted = redactSecretFields({
+      schema: unionSchema,
+      config: { auth: { type: "basic", password: healthcheckSecretMarker("auth.password") } },
+    });
+    expect(redacted).toEqual({ auth: { type: "basic" } });
+  });
+
+  it("redactSecretFields keeps a reference inside a union", () => {
+    const redacted = redactSecretFields({
+      schema: unionSchema,
+      config: { auth: { type: "basic", password: "${{ secrets.PW }}" } },
+    });
+    expect(redacted).toEqual({
+      auth: { type: "basic", password: "${{ secrets.PW }}" },
+    });
+  });
+
+  it("mergeSecretFields restores a blank secret inside a union (keep-existing)", () => {
+    const merged = mergeSecretFields({
+      schema: unionSchema,
+      incoming: { auth: { type: "basic", password: "" } },
+      stored: { auth: { type: "basic", password: healthcheckSecretMarker("auth.password") } },
+    });
+    expect((merged.auth as Record<string, unknown>).password).toBe(
+      healthcheckSecretMarker("auth.password"),
+    );
+  });
+
+  it("extractConfigurationSecrets extracts a secret inside a union", async () => {
+    const internalSecrets = fakeInternalSecrets();
+    const result = await extractConfigurationSecrets({
+      configurationId: CONFIG_ID,
+      strategySchema: unionSchema,
+      config: { auth: { type: "basic", password: "plain-pw" } },
+      collectors: undefined,
+      getCollectorSchema: () => undefined,
+      internalSecrets,
+    });
+    const auth = result.config.auth as Record<string, unknown>;
+    expect(isHealthcheckSecretMarker(auth.password as string)).toBe(true);
+    expect([...internalSecrets.store.values()]).toContain("plain-pw");
   });
 });
 

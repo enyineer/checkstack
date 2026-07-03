@@ -33,6 +33,14 @@ interface CollectorSectionProps {
    * valid. CREATE mode leaves blank secrets genuinely required.
    */
   isEditMode: boolean;
+  /**
+   * EDIT mode: this collector entry's secret field keys that ACTUALLY have a
+   * stored value (`configuredSecrets.collectors[entry.id]`). Drives
+   * keep-existing validation and the stored-secret hint / Clear so a never-set
+   * optional secret does not falsely claim one is stored. Falls back to every
+   * schema secret key when the signal is absent (older backend).
+   */
+  storedSecretKeys?: string[];
   onConfigChange: (config: Record<string, unknown>) => void;
   onAssertionsChange: (assertions: CollectorConfigEntry["assertions"]) => void;
   onValidChange: (isValid: boolean) => void;
@@ -58,6 +66,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   entry,
   collectorDef,
   isEditMode,
+  storedSecretKeys,
   onConfigChange,
   onAssertionsChange,
   onValidChange,
@@ -142,7 +151,10 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
                 keepExistingSecretFields={
-                  isEditMode ? listSecretFieldKeys(collectorDef.configSchema) : []
+                  isEditMode
+                    ? (storedSecretKeys ??
+                      listSecretFieldKeys(collectorDef.configSchema))
+                    : []
                 }
                 acquireTypes={acquireTypes}
                 acquireResetKey={acquireResetKey}

@@ -411,16 +411,20 @@ Some integrations (like Jira, Slack, GitHub) require pre-configured connections 
 
 ### Connection Schema
 
-Define a connection schema for storing API credentials:
+Define a connection schema for storing API credentials. Credential fields ride
+the config-secret extraction channel, so they MUST use `configSecret({ id })`
+(not `configString({ "x-secret": true })`) - a provider's `connectionSchema` is
+boot-validated and an `x-secret` field without a stable `id` fails registration:
 
 ```typescript
 import { z } from "zod";
-import { configString } from "@checkstack/backend-api";
+import { configString, configSecret } from "@checkstack/backend-api";
 
 export const MyServiceConnectionConfigSchema = z.object({
   baseUrl: configString({}).url().describe("Service API URL"),
   email: configString({}).email().describe("User email"),
-  apiToken: configString({ "x-secret": true }).describe("API token"),
+  // Extraction-channel credential: keyed by the stable id, never stored inline.
+  apiToken: configSecret({ id: "apiToken" }).describe("API token"),
 });
 
 export type MyServiceConnectionConfig = z.infer<typeof MyServiceConnectionConfigSchema>;

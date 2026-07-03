@@ -7,6 +7,7 @@ import {
   mergeCounter,
   z,
   configString,
+  configSecret,
   type InferAggregatedResult,
   type ConnectedClient,
   type TransportTimings,
@@ -74,14 +75,14 @@ export const httpHealthCheckConfigSchema = baseStrategyConfigSchema
     })
       .optional()
       .describe("Username for Basic authentication"),
-    authPassword: configString({
-      "x-secret": true,
+    authPassword: configSecret({
+      id: "authPassword",
       "x-hidden-when": { authType: ["none", "token", ""] },
     })
       .optional()
       .describe("Password for Basic authentication"),
-    authToken: configString({
-      "x-secret": true,
+    authToken: configSecret({
+      id: "authToken",
       "x-hidden-when": { authType: ["none", "basic", ""] },
     })
       .optional()
