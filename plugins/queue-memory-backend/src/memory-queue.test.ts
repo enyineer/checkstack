@@ -215,25 +215,38 @@ describe("InMemoryQueue Consumer Groups", () => {
       }
     });
 
-    it("should not retry beyond maxRetries", async () => {
-      let attempts = 0;
+    it(
+      "should not retry beyond maxRetries",
+      async () => {
+        let attempts = 0;
 
-      await queue.consume(
-        async () => {
-          attempts++;
-          throw new Error("Always fails");
-        },
-        { consumerGroup: "fail-group", maxRetries: 2 },
-      );
+        await queue.consume(
+          async () => {
+            attempts++;
+            throw new Error("Always fails");
+          },
+          { consumerGroup: "fail-group", maxRetries: 2 },
+        );
 
-      await queue.enqueue("test");
+        await queue.enqueue("test");
 
-      // Wait for all retries (with delayMultiplier=0.01: ~60ms total)
-      await new Promise((resolve) => setTimeout(resolve, 150));
+        // Poll instead of a fixed sleep: the retries take ~60ms nominally
+        // (delayMultiplier=0.01), but under full-suite load the event loop
+        // can starve the retry timers well past that.
+        const deadline = Date.now() + 5000;
+        while (attempts < 3 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
 
-      // Should try 3 times total (initial + 2 retries)
-      expect(attempts).toBe(3);
-    });
+        // Should try 3 times total (initial + 2 retries)...
+        expect(attempts).toBe(3);
+
+        // ...and never a 4th: give a would-be extra retry ample time to fire.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(attempts).toBe(3);
+      },
+      10_000,
+    );
   });
 
   describe("Mixed Patterns", () => {

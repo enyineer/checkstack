@@ -211,36 +211,43 @@ describe("InMemoryQueue Cron Scheduling", () => {
   });
 
   describe("MAX_TIMEOUT handling", () => {
-    it("should handle long delays by chunking timeouts", async () => {
-      queue = createTestQueue("test-max-timeout");
+    it(
+      "should handle long delays by chunking timeouts",
+      async () => {
+        queue = createTestQueue("test-max-timeout");
 
-      let executionCount = 0;
-      await queue.consume(
-        async () => {
-          executionCount++;
-        },
-        { consumerGroup: "test", maxRetries: 0 },
-      );
+        let executionCount = 0;
+        await queue.consume(
+          async () => {
+            executionCount++;
+          },
+          { consumerGroup: "test", maxRetries: 0 },
+        );
 
-      // Schedule monthly cron (1st of each month at midnight)
-      // Starting from Jan 18, next run is Feb 1 = ~14 days
-      await queue.scheduleRecurring("payload", {
-        jobId: "monthly-cron",
-        cronPattern: "0 0 1 * *",
-      });
+        // Schedule monthly cron (1st of each month at midnight)
+        // Starting from Jan 18, next run is Feb 1 = ~14 days
+        await queue.scheduleRecurring("payload", {
+          jobId: "monthly-cron",
+          cronPattern: "0 0 1 * *",
+        });
 
-      // Advance 10 days - should not have executed yet
-      jest.advanceTimersByTime(10 * 24 * 60 * 60 * 1000);
-      await Promise.resolve();
-      expect(executionCount).toBe(0);
+        // Advance 10 days - should not have executed yet
+        jest.advanceTimersByTime(10 * 24 * 60 * 60 * 1000);
+        await Promise.resolve();
+        expect(executionCount).toBe(0);
 
-      // Advance 5 more days to pass Feb 1 (total 15 days)
-      jest.advanceTimersByTime(5 * 24 * 60 * 60 * 1000);
-      await Promise.resolve();
+        // Advance 5 more days to pass Feb 1 (total 15 days)
+        jest.advanceTimersByTime(5 * 24 * 60 * 60 * 1000);
+        await Promise.resolve();
 
-      // Now it should have executed on Feb 1
-      expect(executionCount).toBeGreaterThanOrEqual(1);
-    });
+        // Now it should have executed on Feb 1
+        expect(executionCount).toBeGreaterThanOrEqual(1);
+      },
+      // Advancing 15 days of chunked fake timers walks a long chain of
+      // rescheduled timeouts; under full-suite load that legitimately
+      // exceeds the default 5s test timeout.
+      15_000,
+    );
 
     it("should chunk timeouts longer than MAX_TIMEOUT", async () => {
       // Note: Bun's setSystemTime and jest.advanceTimersByTime use
