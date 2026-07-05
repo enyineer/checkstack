@@ -1,0 +1,41 @@
+# Canonical read-only socket-proxy for the Checkstack Container health check.
+#
+# SINGLE SOURCE OF TRUTH. Do not copy this block into other compose files -
+# `include:` this file from your core or satellite compose instead, so the
+# hardening (read-only API, POST=0, internal-only network) is maintained in one
+# place. Full guide:
+# https://enyineer.github.io/checkstack/user-guide/guides/monitor-containers/
+#
+# Usage (in your core or satellite docker-compose.yml):
+#
+#   include:
+#     - socket-proxy.yml        # this file, copied next to your compose
+#   services:
+#     checkstack:               # or `satellite:`
+#       networks:
+#         - default             # your existing network (db / outbound / ports)
+#         - checkstack-internal # reach http://socket-proxy:2375
+#
+# Then set the Container check's Endpoint to http://socket-proxy:2375.
+
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    environment:
+      CONTAINERS: 1 # GET /containers/* (status, stats)
+      INFO: 1 # GET /info, /version
+      POST: 0 # read-only: blocks create/exec/kill. Do NOT change.
+    volumes:
+      # Docker. For Podman, mount the rootless socket instead, e.g.
+      #   - /run/user/1000/podman/podman.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    networks:
+      - checkstack-internal
+    restart: unless-stopped
+
+networks:
+  checkstack-internal:
+    internal: true # proxy port never reachable from host or internet

@@ -8,6 +8,12 @@ export const HealthCheckStrategyDtoSchema = z.object({
   displayName: z.string(),
   description: z.string().optional(),
   category: StrategyCategorySchema,
+  /**
+   * Optional Markdown operator setup guide, rendered as a collapsible "Setup
+   * guide" callout above the strategy config fields in the editor. Present only
+   * for strategies that need host-side setup (e.g. a container runtime proxy).
+   */
+  setupInstructions: z.string().optional(),
   configSchema: z.record(z.string(), z.unknown()),
   /** JSON Schema for per-run result metadata (with chart annotations) */
   resultSchema: z.record(z.string(), z.unknown()).optional(),

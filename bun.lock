@@ -2535,6 +2535,35 @@
         "typescript": "^5.0.0",
       },
     },
+    "plugins/healthcheck-container-backend": {
+      "name": "@checkstack/healthcheck-container-backend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/healthcheck-container-common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "plugins/healthcheck-container-common": {
+      "name": "@checkstack/healthcheck-container-common",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "plugins/healthcheck-dns-backend": {
       "name": "@checkstack/healthcheck-dns-backend",
       "version": "0.4.7",
@@ -3320,6 +3349,10 @@
     "@checkstack/healthcheck-backend": ["@checkstack/healthcheck-backend@workspace:core/healthcheck-backend"],
 
     "@checkstack/healthcheck-common": ["@checkstack/healthcheck-common@workspace:core/healthcheck-common"],
+
+    "@checkstack/healthcheck-container-backend": ["@checkstack/healthcheck-container-backend@workspace:plugins/healthcheck-container-backend"],
+
+    "@checkstack/healthcheck-container-common": ["@checkstack/healthcheck-container-common@workspace:plugins/healthcheck-container-common"],
 
     "@checkstack/healthcheck-dns-backend": ["@checkstack/healthcheck-dns-backend@workspace:plugins/healthcheck-dns-backend"],
 

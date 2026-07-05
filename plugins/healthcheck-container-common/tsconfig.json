@@ -1,0 +1,8 @@
+{
+  "extends": "@checkstack/tsconfig/base.json",
+  "references": [
+    {
+      "path": "../../core/common"
+    }
+  ]
+}

@@ -8,20 +8,9 @@ export * from "./strategy-category";
 export * from "./slots";
 
 // --- DTOs for API Responses ---
-
-/**
- * Represents a Health Check Strategy available in the system.
- */
-import type { StrategyCategory } from "./strategy-category";
-
-export interface HealthCheckStrategyDto {
-  id: string;
-  displayName: string;
-  description?: string;
-  category: StrategyCategory;
-  // schema is a JSON schema object derived from the Zod schema
-  configSchema: Record<string, unknown>;
-}
+//
+// `HealthCheckStrategyDto` and `CollectorDto` are the single source of truth in
+// `./schemas` (inferred from their Zod schemas) and re-exported above.
 
 import type { CollectorConfigEntry } from "./schemas";
 

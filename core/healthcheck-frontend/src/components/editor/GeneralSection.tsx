@@ -1,7 +1,13 @@
 import React from "react";
 import type { HealthCheckStrategyDto } from "@checkstack/healthcheck-common";
-import { Input, Label, DynamicForm, listSecretFieldKeys } from "@checkstack/ui";
-import { AlertTriangle } from "lucide-react";
+import {
+  Input,
+  Label,
+  DynamicForm,
+  Markdown,
+  listSecretFieldKeys,
+} from "@checkstack/ui";
+import { AlertTriangle, BookOpen } from "lucide-react";
 
 interface GeneralSectionProps {
   name: string;
@@ -91,6 +97,22 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* Setup guide (only strategies that need host-side setup provide this) */}
+      {strategy?.setupInstructions && (
+        <details className="rounded-md border border-border/60 bg-surface-inset">
+          <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-sm font-medium marker:content-['']">
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            Setup guide
+            <span className="ml-auto text-xs text-muted-foreground">
+              Read before you start
+            </span>
+          </summary>
+          <div className="border-t border-border/60 px-3 py-2 text-sm">
+            <Markdown>{strategy.setupInstructions}</Markdown>
+          </div>
+        </details>
+      )}
 
       {/* Strategy Config */}
       {strategy?.configSchema && (

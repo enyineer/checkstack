@@ -79,6 +79,16 @@ export interface HealthCheckStrategy<
   id: string;
   displayName: string;
   description?: string;
+  /** Strategy category for UI grouping in the picker */
+  category?: string;
+  /**
+   * Optional Markdown operator setup guide, rendered as a collapsible
+   * "Setup guide" callout above the strategy config fields in the editor.
+   * Use it for strategies that need host-side setup before the check can run
+   * (e.g. a container runtime that requires a read-only socket-proxy). Keep it
+   * concise and link to the full docs page.
+   */
+  setupInstructions?: string;
 
   /** Configuration schema with versioning */
   config: Versioned<TConfig>;

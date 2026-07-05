@@ -9,7 +9,7 @@ A health check is a scheduled probe that asks "is this system OK right now?" Hea
 
 A health check is made of:
 
-- A **strategy** that defines how to connect to the target (HTTP, SSH, PostgreSQL, Redis, DNS, Ping, TCP, TLS, ...).
+- A **strategy** that defines how to connect to the target (HTTP, SSH, PostgreSQL, Redis, DNS, Ping, TCP, TLS, Container, ...). To watch a Docker or Podman container that exposes no service of its own, see [Monitor containers](/checkstack/user-guide/guides/monitor-containers/).
 - A **configuration** that tells the strategy where and how to connect (URL, port, query, credentials).
 - An **interval** in seconds. Every interval the platform runs the check on every system it is attached to.
 - A set of **systems** it runs against. The same check definition can be reused for many systems; in the UI you assign it to systems individually, by group, or via templates.
