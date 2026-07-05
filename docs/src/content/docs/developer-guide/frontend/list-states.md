@@ -81,97 +81,40 @@ import { Skeleton } from "@checkstack/ui";
 </div>;
 ```
 
-## `ResponsiveTable` + `MobileCardList`
+## Tables: use `DataTable`
 
-Dual-layout primitive for tabular data that has to degrade on narrow
-viewports. `ResponsiveTable` renders the standard `Table` markup on
-`sm` and up; `MobileCardList` renders a stacked card layout below the
-`sm` breakpoint. Both wrappers swap purely in CSS via Tailwind's
-`hidden` / `sm:hidden` utilities - no JS media-query gating and no
-SSR/CSR mismatch risk.
+Every column table renders through the shared `DataTable` in
+`@checkstack/ui`. It owns the responsive dual layout (a real `<table>`
+on `sm` and up, stacked cards below when you pass `renderMobileCard`),
+click-to-sort headers, an optional global search box, and an opaque
+`bg-card` surface - so you no longer hand-compose `Table` primitives or
+wire a separate mobile branch. See
+[Data tables](/checkstack/developer-guide/frontend/data-table/) for the
+column contract and full API.
 
 ```tsx
-import {
-  ResponsiveTable,
-  MobileCardList,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-  Badge,
-} from "@checkstack/ui";
+import { DataTable, type DataTableColumn } from "@checkstack/ui";
 
-<>
-  <ResponsiveTable>
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="text-right">Latency</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.id}>
-            <TableCell>{row.name}</TableCell>
-            <TableCell><Badge>{row.status}</Badge></TableCell>
-            <TableCell className="text-right">{row.latency}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  </ResponsiveTable>
+const columns: DataTableColumn<Row>[] = [
+  {
+    id: "name",
+    header: "Name",
+    cell: (r) => <span className="font-medium">{r.name}</span>,
+    sortValue: (r) => r.name,
+    searchValue: (r) => r.name,
+  },
+  { id: "status", header: "Status", cell: (r) => <Badge>{r.status}</Badge>, sortValue: (r) => r.status },
+];
 
-  <MobileCardList>
-    {rows.map((row) => (
-      <div key={row.id} className="rounded-md border bg-card p-3">
-        <div className="flex justify-between">
-          <span className="font-medium">{row.name}</span>
-          <Badge>{row.status}</Badge>
-        </div>
-        <div className="text-xs text-muted-foreground">{row.latency}</div>
-      </div>
-    ))}
-  </MobileCardList>
-</>;
+<DataTable data={rows} columns={columns} getRowId={(r) => r.id} />;
 ```
 
-> [!TIP]
-> An earlier draft considered a context-driven `priority` prop on a
-> dedicated `ResponsiveTableHead`. That requires either cloning every
-> cell to inject a context attribute or maintaining a parallel index
-> from `TableHead` children to `TableCell` indices - both leak
-> coordination into the primitive. The `MobileCardList` companion is
-> deliberately the simpler, type-safe shape; callers decide which
-> fields show on mobile.
-
-### Sweeping a list page onto the dual layout
-
-The Phase 6 sweep retrofitted the highest-traffic configuration list
-tables - `HealthCheckList`, `SloConfigPage`, and the integration
-`DeliveryLogsPage` - onto this pattern. The transformation follows the
-same rhythm in every file and keeps the desktop table untouched:
-
-1. Wrap the existing `<Table>` chrome in a `<ResponsiveTable>` so it
-   only renders at `sm` and up.
-2. Add a sibling `<MobileCardList>` that re-iterates the same rows as
-   stacked cards. Surface the two highest-signal fields (typically the
-   resource name and a status badge) at the top of each card, push the
-   remaining columns into a muted secondary line, and keep the row's
-   action buttons in a right-aligned footer.
-3. Mirror the dual layout in the page's `Skeleton` placeholder - both
-   branches need a loading state, otherwise the page jumps on resolve.
-4. Reuse the existing per-row helpers (badges, action handlers,
-   provenance locks) across both branches so business rules can't drift
-   between desktop and mobile.
-
 > [!IMPORTANT]
-> Don't add columns to the mobile card that aren't on the desktop
-> table, and don't reorder desktop columns. The sweep is a presentation
-> change only - same data, two layouts.
+> Don't add columns to the mobile card that aren't in the table, and
+> don't reorder columns between the two. `renderMobileCard` is a
+> presentation of the same rows - same data, two layouts. Reuse the
+> per-row helpers (badges, action handlers, provenance locks) across
+> both branches so business rules can't drift.
 
 ## `toastSuccess` / `toastError`
 

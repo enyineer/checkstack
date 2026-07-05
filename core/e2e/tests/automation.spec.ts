@@ -289,7 +289,7 @@ test.describe("automations", () => {
     await page
       .getByRole("row")
       .filter({ hasText: AUTOMATION_NAME })
-      .getByRole("link", { name: "Runs" })
+      .getByRole("button", { name: "View runs" })
       .click();
 
     await expect(

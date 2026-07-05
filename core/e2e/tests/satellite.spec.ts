@@ -49,11 +49,6 @@ test.describe("satellites", () => {
       ),
     ).toBeVisible();
 
-    // The "Satellite Nodes" card is always present.
-    await expect(
-      page.getByText("Satellite Nodes", { exact: true }),
-    ).toBeVisible();
-
     // The header action button to register a satellite.
     await expect(
       page.getByRole("button", { name: "Create Satellite", exact: true }),

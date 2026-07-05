@@ -1,19 +1,14 @@
 import { useMemo, useState } from "react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Button,
   Card,
   Checkbox,
+  DataTable,
+  type DataTableColumn,
   EmptyState,
   ListEmptyState,
-  MobileCardList,
-  ResponsiveTable,
-  cn,
+  RowAction,
+  RowActions,
 } from "@checkstack/ui";
 import { ExtensionSlot, useApi, accessApiRef } from "@checkstack/frontend-api";
 import {
@@ -24,8 +19,9 @@ import {
   catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import {
-  useProvenanceLock,
+  useProvenanceLocks,
   GitOpsSourceBadge,
+  type ProvenanceLock,
 } from "@checkstack/gitops-frontend";
 import { Plus, Server, Edit, Trash2, X, Trash } from "lucide-react";
 import type { Environment, Group, System } from "../../api";
@@ -64,7 +60,9 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     onAddSystem,
     onBulkDeleteSystems,
     onAddToGroup,
+    onRemoveFromGroup,
     onAddToEnvironment,
+    onRemoveFromEnvironment,
   } = props;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -82,6 +80,10 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     accessRule: catalogAccess.system.manage,
     objectType: catalogResourceTypes.system,
   });
+  // One bulk provenance query for every row (instead of a per-row fan-out): the
+  // returned `getLock` is a plain lookup, so it can be called from column cell
+  // renderers which cannot call hooks.
+  const { getLock } = useProvenanceLocks();
 
   // Bulk assign/delete requires MANAGE on each SYSTEM, so only manageable
   // systems are selectable (global-manage users get all). Unmanageable rows
@@ -124,6 +126,110 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
       )}
     </div>
   );
+
+  const columns: DataTableColumn<System>[] = [
+    {
+      id: "select",
+      headClassName: "w-10",
+      header: (
+        <Checkbox
+          checked={allSelected}
+          onCheckedChange={toggleAll}
+          aria-label="Select all systems"
+        />
+      ),
+      cell: (system) => (
+        <Checkbox
+          checked={selected.has(system.id)}
+          disabled={!canAccess(system.id)}
+          onCheckedChange={() => toggle(system.id)}
+          aria-label={`Select ${system.name}`}
+        />
+      ),
+    },
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (system) => system.name,
+      cell: (system) => {
+        const { isLocked, provenance } = getLock({
+          kind: "System",
+          entityId: system.id,
+        });
+        return (
+          <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <p className="font-medium leading-snug text-foreground">
+                {system.name}
+              </p>
+              {system.description && (
+                <p className="truncate text-xs text-muted-foreground">
+                  {system.description}
+                </p>
+              )}
+            </div>
+            {isLocked && provenance && (
+              <GitOpsSourceBadge provenance={provenance} />
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "health",
+      header: "Health",
+      headClassName: "w-44",
+      cell: (system) => (
+        <div className="flex flex-wrap items-center gap-1">
+          <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
+        </div>
+      ),
+    },
+    {
+      id: "groups",
+      header: "Groups",
+      cell: (system) => (
+        <GroupChips
+          system={system}
+          canManage={canAccess(system.id)}
+          isLocked={getLock({ kind: "System", entityId: system.id }).isLocked}
+          allGroups={allGroups}
+          assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+          onAddToGroup={onAddToGroup}
+          onRemoveFromGroup={onRemoveFromGroup}
+        />
+      ),
+    },
+    {
+      id: "environments",
+      header: "Environments",
+      cell: (system) => (
+        <EnvChips
+          system={system}
+          canManage={canAccess(system.id)}
+          allEnvironments={allEnvironments}
+          assignedEnvIds={systemEnvMap.get(system.id) ?? []}
+          onAddToEnvironment={onAddToEnvironment}
+          onRemoveFromEnvironment={onRemoveFromEnvironment}
+        />
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-px text-right",
+      cellClassName: "text-right",
+      cell: (system) => (
+        <SystemActions
+          system={system}
+          canManage={canAccess(system.id)}
+          isLocked={getLock({ kind: "System", entityId: system.id }).isLocked}
+          onEdit={props.onEditSystem}
+          onDelete={props.onDeleteSystem}
+        />
+      ),
+    },
+  ];
 
   if (totalCount === 0) {
     return (
@@ -213,103 +319,46 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
         </div>
       )}
 
-      {systems.length === 0 ? (
-        <ListEmptyState
-          resource="systems"
-          description="No systems match the current search and filters."
-          actions={
-            <Button variant="outline" onClick={props.onClearFilters}>
-              Clear filters
-            </Button>
-          }
-        />
-      ) : (
-        <>
-          <ResponsiveTable className="rounded-lg border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={toggleAll}
-                      aria-label="Select all systems"
-                    />
-                  </TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="w-44">Health</TableHead>
-                  <TableHead>Groups</TableHead>
-                  <TableHead>Environments</TableHead>
-                  <TableHead className="w-px text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {systems.map((system) => (
-                  <SystemRow
-                    key={system.id}
-                    system={system}
-                    canManage={canAccess(system.id)}
-                    allGroups={allGroups}
-                    allEnvironments={allEnvironments}
-                    assignedGroupIds={systemGroupMap.get(system.id) ?? []}
-                    assignedEnvIds={systemEnvMap.get(system.id) ?? []}
-                    selected={selected.has(system.id)}
-                    onToggleSelected={() => toggle(system.id)}
-                    onEdit={props.onEditSystem}
-                    onDelete={props.onDeleteSystem}
-                    onAddToGroup={props.onAddToGroup}
-                    onRemoveFromGroup={props.onRemoveFromGroup}
-                    onAddToEnvironment={props.onAddToEnvironment}
-                    onRemoveFromEnvironment={props.onRemoveFromEnvironment}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </ResponsiveTable>
-
-          <MobileCardList>
-            {systems.map((system) => (
-              <SystemMobileCard
-                key={system.id}
-                system={system}
-                canManage={canAccess(system.id)}
-                allGroups={allGroups}
-                allEnvironments={allEnvironments}
-                assignedGroupIds={systemGroupMap.get(system.id) ?? []}
-                assignedEnvIds={systemEnvMap.get(system.id) ?? []}
-                selected={selected.has(system.id)}
-                onToggleSelected={() => toggle(system.id)}
-                onEdit={props.onEditSystem}
-                onDelete={props.onDeleteSystem}
-                onAddToGroup={props.onAddToGroup}
-                onRemoveFromGroup={props.onRemoveFromGroup}
-                onAddToEnvironment={props.onAddToEnvironment}
-                onRemoveFromEnvironment={props.onRemoveFromEnvironment}
-              />
-            ))}
-          </MobileCardList>
-        </>
-      )}
+      <DataTable
+        data={systems}
+        columns={columns}
+        getRowId={(system) => system.id}
+        searchable={false}
+        defaultSort={{ columnId: "name", direction: "asc" }}
+        getRowProps={(system) => ({ selected: selected.has(system.id) })}
+        noResultsState={
+          <ListEmptyState
+            resource="systems"
+            description="No systems match the current search and filters."
+            actions={
+              <Button variant="outline" onClick={props.onClearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
+        }
+        renderMobileCard={(system) => (
+          <SystemMobileCard
+            system={system}
+            canManage={canAccess(system.id)}
+            lock={getLock({ kind: "System", entityId: system.id })}
+            allGroups={allGroups}
+            allEnvironments={allEnvironments}
+            assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+            assignedEnvIds={systemEnvMap.get(system.id) ?? []}
+            selected={selected.has(system.id)}
+            onToggleSelected={() => toggle(system.id)}
+            onEdit={props.onEditSystem}
+            onDelete={props.onDeleteSystem}
+            onAddToGroup={onAddToGroup}
+            onRemoveFromGroup={onRemoveFromGroup}
+            onAddToEnvironment={onAddToEnvironment}
+            onRemoveFromEnvironment={onRemoveFromEnvironment}
+          />
+        )}
+      />
     </div>
   );
-}
-
-interface SystemRowProps {
-  system: System;
-  /** Whether the current user may manage (edit/delete) THIS system. */
-  canManage: boolean;
-  allGroups: Group[];
-  allEnvironments: Environment[];
-  assignedGroupIds: string[];
-  assignedEnvIds: string[];
-  selected: boolean;
-  onToggleSelected: () => void;
-  onEdit: (system: System) => void;
-  onDelete: (id: string) => void;
-  onAddToGroup: (systemId: string, groupId: string) => void;
-  onRemoveFromGroup: (groupId: string, systemId: string) => void;
-  onAddToEnvironment: (systemId: string, environmentId: string) => void;
-  onRemoveFromEnvironment: (systemId: string, environmentId: string) => void;
 }
 
 /**
@@ -351,142 +400,112 @@ function Chip({
   );
 }
 
-function SystemRow({
+/** Group membership chips + assign menu, shared by the desktop cell and mobile card. */
+function GroupChips({
   system,
   canManage,
+  isLocked,
   allGroups,
-  allEnvironments,
   assignedGroupIds,
-  assignedEnvIds,
-  selected,
-  onToggleSelected,
-  onEdit,
-  onDelete,
   onAddToGroup,
   onRemoveFromGroup,
-  onAddToEnvironment,
-  onRemoveFromEnvironment,
-}: SystemRowProps): React.ReactElement {
-  const { isLocked, provenance } = useProvenanceLock({
-    kind: "System",
-    entityId: system.id,
-  });
-
+}: {
+  system: System;
+  canManage: boolean;
+  isLocked: boolean;
+  allGroups: Group[];
+  assignedGroupIds: string[];
+  onAddToGroup: (systemId: string, groupId: string) => void;
+  onRemoveFromGroup: (groupId: string, systemId: string) => void;
+}): React.ReactElement {
   const assignedGroups = allGroups.filter((g) =>
     assignedGroupIds.includes(g.id),
   );
   const availableGroups = allGroups.filter(
     (g) => !assignedGroupIds.includes(g.id),
   );
+  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {assignedGroups.map((group) => (
+        <Chip
+          key={group.id}
+          label={group.name}
+          removeLabel={`Remove ${system.name} from ${group.name}`}
+          canRemove={canManage}
+          disabled={isLocked}
+          disabledTitle={lockTitle}
+          onRemove={() => onRemoveFromGroup(group.id, system.id)}
+        />
+      ))}
+      {canManage && (
+        <AssignMenu
+          disabled={isLocked || availableGroups.length === 0}
+          triggerLabel={lockTitle ?? `Add ${system.name} to a group`}
+          trigger={
+            <>
+              <Plus className="h-3 w-3" />
+              Group
+            </>
+          }
+          items={availableGroups.map((g) => ({ id: g.id, label: g.name }))}
+          emptyLabel="No more groups"
+          onSelect={(groupId) => onAddToGroup(system.id, groupId)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Environment membership chips + attach menu, shared by the desktop cell and mobile card. */
+function EnvChips({
+  system,
+  canManage,
+  allEnvironments,
+  assignedEnvIds,
+  onAddToEnvironment,
+  onRemoveFromEnvironment,
+}: {
+  system: System;
+  canManage: boolean;
+  allEnvironments: Environment[];
+  assignedEnvIds: string[];
+  onAddToEnvironment: (systemId: string, environmentId: string) => void;
+  onRemoveFromEnvironment: (systemId: string, environmentId: string) => void;
+}): React.ReactElement {
   const assignedEnvs = allEnvironments.filter((e) =>
     assignedEnvIds.includes(e.id),
   );
   const availableEnvs = allEnvironments.filter(
     (e) => !assignedEnvIds.includes(e.id),
   );
-  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
-
   return (
-    <TableRow data-state={selected ? "selected" : undefined}>
-      <TableCell>
-        <Checkbox
-          checked={selected}
-          disabled={!canManage}
-          onCheckedChange={onToggleSelected}
-          aria-label={`Select ${system.name}`}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {assignedEnvs.map((env) => (
+        <Chip
+          key={env.id}
+          label={env.name}
+          removeLabel={`Remove ${system.name} from ${env.name}`}
+          canRemove={canManage}
+          onRemove={() => onRemoveFromEnvironment(system.id, env.id)}
         />
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-2">
-          <div className="min-w-0">
-            <p className="font-medium leading-snug text-foreground">
-              {system.name}
-            </p>
-            {system.description && (
-              <p className="truncate text-xs text-muted-foreground">
-                {system.description}
-              </p>
-            )}
-          </div>
-          {isLocked && provenance && (
-            <GitOpsSourceBadge provenance={provenance} />
-          )}
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1">
-          <ExtensionSlot slot={SystemStateBadgesSlot} context={{ system }} />
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {assignedGroups.map((group) => (
-            <Chip
-              key={group.id}
-              label={group.name}
-              removeLabel={`Remove ${system.name} from ${group.name}`}
-              canRemove={canManage}
-              disabled={isLocked}
-              disabledTitle={lockTitle}
-              onRemove={() => onRemoveFromGroup(group.id, system.id)}
-            />
-          ))}
-          {canManage && (
-            <AssignMenu
-              disabled={isLocked || availableGroups.length === 0}
-              triggerLabel={lockTitle ?? `Add ${system.name} to a group`}
-              trigger={
-                <>
-                  <Plus className="h-3 w-3" />
-                  Group
-                </>
-              }
-              items={availableGroups.map((g) => ({ id: g.id, label: g.name }))}
-              emptyLabel="No more groups"
-              onSelect={(groupId) => onAddToGroup(system.id, groupId)}
-            />
-          )}
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {assignedEnvs.map((env) => (
-            <Chip
-              key={env.id}
-              label={env.name}
-              removeLabel={`Remove ${system.name} from ${env.name}`}
-              canRemove={canManage}
-              onRemove={() => onRemoveFromEnvironment(system.id, env.id)}
-            />
-          ))}
-          {canManage && (
-            <AssignMenu
-              disabled={availableEnvs.length === 0}
-              triggerLabel={`Attach ${system.name} to an environment`}
-              trigger={
-                <>
-                  <Plus className="h-3 w-3" />
-                  Environment
-                </>
-              }
-              items={availableEnvs.map((e) => ({ id: e.id, label: e.name }))}
-              emptyLabel="No more environments"
-              onSelect={(envId) => onAddToEnvironment(system.id, envId)}
-            />
-          )}
-        </div>
-      </TableCell>
-      <TableCell>
-        <SystemActions
-          system={system}
-          canManage={canManage}
-          isLocked={isLocked}
-          lockTitle={lockTitle}
-          onEdit={onEdit}
-          onDelete={onDelete}
+      ))}
+      {canManage && (
+        <AssignMenu
+          disabled={availableEnvs.length === 0}
+          triggerLabel={`Attach ${system.name} to an environment`}
+          trigger={
+            <>
+              <Plus className="h-3 w-3" />
+              Environment
+            </>
+          }
+          items={availableEnvs.map((e) => ({ id: e.id, label: e.name }))}
+          emptyLabel="No more environments"
+          onSelect={(envId) => onAddToEnvironment(system.id, envId)}
         />
-      </TableCell>
-    </TableRow>
+      )}
+    </div>
   );
 }
 
@@ -495,7 +514,6 @@ interface SystemActionsProps {
   /** Whether the current user may manage (edit/delete) this system. */
   canManage: boolean;
   isLocked: boolean;
-  lockTitle: string | undefined;
   onEdit: (system: System) => void;
   onDelete: (id: string) => void;
 }
@@ -505,51 +523,61 @@ function SystemActions({
   system,
   canManage,
   isLocked,
-  lockTitle,
   onEdit,
   onDelete,
 }: SystemActionsProps): React.ReactElement {
+  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
   return (
-    <div className="flex items-center justify-end gap-1">
+    <RowActions>
       <ExtensionSlot
         slot={CatalogSystemActionsSlot}
         context={{ systemId: system.id, systemName: system.name }}
       />
       {canManage && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+        <RowAction
+          icon={Edit}
+          label={`Edit ${system.name}`}
           disabled={isLocked}
           title={lockTitle}
-          aria-label={`Edit ${system.name}`}
           onClick={() => onEdit(system)}
-        >
-          <Edit className="h-3.5 w-3.5" />
-        </Button>
+        />
       )}
       {canManage && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90",
-          )}
+        <RowAction
+          icon={Trash2}
+          tone="destructive"
+          label={`Delete ${system.name}`}
           disabled={isLocked}
           title={lockTitle}
-          aria-label={`Delete ${system.name}`}
           onClick={() => onDelete(system.id)}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        />
       )}
-    </div>
+    </RowActions>
   );
+}
+
+interface SystemMobileCardProps {
+  system: System;
+  canManage: boolean;
+  lock: ProvenanceLock;
+  allGroups: Group[];
+  allEnvironments: Environment[];
+  assignedGroupIds: string[];
+  assignedEnvIds: string[];
+  selected: boolean;
+  onToggleSelected: () => void;
+  onEdit: (system: System) => void;
+  onDelete: (id: string) => void;
+  onAddToGroup: (systemId: string, groupId: string) => void;
+  onRemoveFromGroup: (groupId: string, systemId: string) => void;
+  onAddToEnvironment: (systemId: string, environmentId: string) => void;
+  onRemoveFromEnvironment: (systemId: string, environmentId: string) => void;
 }
 
 function SystemMobileCard({
   system,
   canManage,
+  lock,
   allGroups,
   allEnvironments,
   assignedGroupIds,
@@ -562,25 +590,8 @@ function SystemMobileCard({
   onRemoveFromGroup,
   onAddToEnvironment,
   onRemoveFromEnvironment,
-}: SystemRowProps): React.ReactElement {
-  const { isLocked, provenance } = useProvenanceLock({
-    kind: "System",
-    entityId: system.id,
-  });
-
-  const assignedGroups = allGroups.filter((g) =>
-    assignedGroupIds.includes(g.id),
-  );
-  const availableGroups = allGroups.filter(
-    (g) => !assignedGroupIds.includes(g.id),
-  );
-  const assignedEnvs = allEnvironments.filter((e) =>
-    assignedEnvIds.includes(e.id),
-  );
-  const availableEnvs = allEnvironments.filter(
-    (e) => !assignedEnvIds.includes(e.id),
-  );
-  const lockTitle = isLocked ? "Managed by GitOps" : undefined;
+}: SystemMobileCardProps): React.ReactElement {
+  const { isLocked, provenance } = lock;
 
   return (
     <Card className="p-3" data-state={selected ? "selected" : undefined}>
@@ -612,70 +623,32 @@ function SystemMobileCard({
       </div>
       <div className="mt-2">
         <p className="mb-1 text-xs text-muted-foreground">Groups</p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {assignedGroups.map((group) => (
-            <Chip
-              key={group.id}
-              label={group.name}
-              removeLabel={`Remove ${system.name} from ${group.name}`}
-              canRemove={canManage}
-              disabled={isLocked}
-              disabledTitle={lockTitle}
-              onRemove={() => onRemoveFromGroup(group.id, system.id)}
-            />
-          ))}
-          {canManage && (
-            <AssignMenu
-              disabled={isLocked || availableGroups.length === 0}
-              triggerLabel={lockTitle ?? `Add ${system.name} to a group`}
-              trigger={
-                <>
-                  <Plus className="h-3 w-3" />
-                  Group
-                </>
-              }
-              items={availableGroups.map((g) => ({ id: g.id, label: g.name }))}
-              emptyLabel="No more groups"
-              onSelect={(groupId) => onAddToGroup(system.id, groupId)}
-            />
-          )}
-        </div>
+        <GroupChips
+          system={system}
+          canManage={canManage}
+          isLocked={isLocked}
+          allGroups={allGroups}
+          assignedGroupIds={assignedGroupIds}
+          onAddToGroup={onAddToGroup}
+          onRemoveFromGroup={onRemoveFromGroup}
+        />
       </div>
       <div className="mt-2">
         <p className="mb-1 text-xs text-muted-foreground">Environments</p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {assignedEnvs.map((env) => (
-            <Chip
-              key={env.id}
-              label={env.name}
-              removeLabel={`Remove ${system.name} from ${env.name}`}
-              canRemove={canManage}
-              onRemove={() => onRemoveFromEnvironment(system.id, env.id)}
-            />
-          ))}
-          {canManage && (
-            <AssignMenu
-              disabled={availableEnvs.length === 0}
-              triggerLabel={`Attach ${system.name} to an environment`}
-              trigger={
-                <>
-                  <Plus className="h-3 w-3" />
-                  Environment
-                </>
-              }
-              items={availableEnvs.map((e) => ({ id: e.id, label: e.name }))}
-              emptyLabel="No more environments"
-              onSelect={(envId) => onAddToEnvironment(system.id, envId)}
-            />
-          )}
-        </div>
+        <EnvChips
+          system={system}
+          canManage={canManage}
+          allEnvironments={allEnvironments}
+          assignedEnvIds={assignedEnvIds}
+          onAddToEnvironment={onAddToEnvironment}
+          onRemoveFromEnvironment={onRemoveFromEnvironment}
+        />
       </div>
       <div className="mt-3 flex justify-end">
         <SystemActions
           system={system}
           canManage={canManage}
           isLocked={isLocked}
-          lockTitle={lockTitle}
           onEdit={onEdit}
           onDelete={onDelete}
         />

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { QueueApi, type JobStateDto } from "@checkstack/queue-common";
+import {
+  QueueApi,
+  type JobStateDto,
+  type JobSummaryDto,
+} from "@checkstack/queue-common";
 import {
   cn,
   Card,
@@ -10,16 +14,10 @@ import {
   CardTitle,
   InstanceScopeBanner,
   Pagination,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  DataTable,
+  type DataTableColumn,
   Tabs,
   TabPanel,
-  ResponsiveTable,
-  MobileCardList,
   EmptyState,
   QueryErrorState,
   formatRelativeTime,
@@ -117,101 +115,136 @@ const JobsTable = ({ state }: JobsTableProps) => {
         : page
       : Math.max(1, Math.ceil(data.total / PAGE_SIZE));
 
+  const columns: DataTableColumn<JobSummaryDto>[] = [
+    {
+      id: "id",
+      header: "Job ID",
+      headClassName: "w-[140px]",
+      cellClassName: "font-mono text-xs whitespace-nowrap",
+      cell: (job) => <span title={job.id}>{truncateMiddle(job.id)}</span>,
+    },
+    {
+      id: "queue",
+      header: "Queue",
+      sortValue: (job) => job.name ?? "",
+      cell: (job) => job.name ?? "—",
+    },
+    ...(showState
+      ? [
+          {
+            id: "state",
+            header: "State",
+            sortValue: (job) => (job.recurring ? "Recurring" : job.state),
+            cell: (job) => (
+              <JobStatePill label={job.recurring ? "Recurring" : job.state} />
+            ),
+          } satisfies DataTableColumn<JobSummaryDto>,
+        ]
+      : []),
+    {
+      id: "enqueued",
+      header: "Enqueued",
+      sortValue: (job) => job.enqueuedAt.getTime(),
+      cell: (job) => (
+        <span title={job.enqueuedAt.toString()}>
+          {formatRelative(job.enqueuedAt)}
+        </span>
+      ),
+    },
+    ...(showNextRun
+      ? [
+          {
+            id: "nextRun",
+            header: "Next run",
+            sortValue: (job) => job.nextRunAt?.getTime() ?? null,
+            cell: (job) => (
+              <span title={job.nextRunAt?.toString()}>
+                {formatCountdown(job.nextRunAt)}
+              </span>
+            ),
+          } satisfies DataTableColumn<JobSummaryDto>,
+        ]
+      : []),
+    ...(state === "active"
+      ? [
+          {
+            id: "runningFor",
+            header: "Running for",
+            sortValue: (job) =>
+              job.startedAt ? Date.now() - job.startedAt.getTime() : null,
+            cell: (job) => formatDuration(job.startedAt),
+          } satisfies DataTableColumn<JobSummaryDto>,
+        ]
+      : []),
+    ...(showFinished
+      ? [
+          {
+            id: "finished",
+            header: "Finished",
+            sortValue: (job) => job.finishedAt?.getTime() ?? null,
+            cell: (job) => (
+              <span title={job.finishedAt?.toString()}>
+                {formatRelative(job.finishedAt)}
+              </span>
+            ),
+          } satisfies DataTableColumn<JobSummaryDto>,
+          {
+            id: "duration",
+            header: "Duration",
+            sortValue: (job) =>
+              job.startedAt && job.finishedAt
+                ? job.finishedAt.getTime() - job.startedAt.getTime()
+                : null,
+            cell: (job) => formatDuration(job.startedAt, job.finishedAt),
+          } satisfies DataTableColumn<JobSummaryDto>,
+        ]
+      : []),
+    {
+      id: "attempts",
+      header: "Attempts",
+      headClassName: "text-right",
+      cellClassName: "text-right tabular-nums",
+      sortValue: (job) => job.attempts,
+      cell: (job) => (
+        <span
+          className={cn(
+            hasRetried(job.attempts) && "font-medium text-status-warn",
+          )}
+        >
+          {job.attempts}
+        </span>
+      ),
+    },
+    ...(showError
+      ? [
+          {
+            id: "error",
+            header: "Error",
+            cellClassName: "max-w-[280px] text-status-down",
+            cell: (job) => (
+              <span className="flex items-center gap-1.5" title={job.failedReason}>
+                <AlertTriangle
+                  className="h-3.5 w-3.5 shrink-0 text-status-down"
+                  aria-hidden
+                />
+                <span className="truncate">{job.failedReason ?? "—"}</span>
+              </span>
+            ),
+          } satisfies DataTableColumn<JobSummaryDto>,
+        ]
+      : []),
+  ];
+
   return (
     <div className="space-y-3">
-      <ResponsiveTable>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[140px]">Job ID</TableHead>
-              <TableHead>Queue</TableHead>
-              {showState && <TableHead>State</TableHead>}
-              <TableHead>Enqueued</TableHead>
-              {showNextRun && <TableHead>Next run</TableHead>}
-              {state === "active" && <TableHead>Running for</TableHead>}
-              {showFinished && <TableHead>Finished</TableHead>}
-              {showFinished && <TableHead>Duration</TableHead>}
-              <TableHead className="text-right">Attempts</TableHead>
-              {showError && <TableHead>Error</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.items.map((job) => (
-              <TableRow
-                key={job.id}
-                className="transition-colors hover:bg-surface-inset"
-              >
-                <TableCell
-                  className="font-mono text-xs whitespace-nowrap"
-                  title={job.id}
-                >
-                  {truncateMiddle(job.id)}
-                </TableCell>
-                <TableCell>{job.name ?? "—"}</TableCell>
-                {showState && (
-                  <TableCell>
-                    <JobStatePill
-                      label={job.recurring ? "Recurring" : job.state}
-                    />
-                  </TableCell>
-                )}
-                <TableCell title={job.enqueuedAt.toString()}>
-                  {formatRelative(job.enqueuedAt)}
-                </TableCell>
-                {showNextRun && (
-                  <TableCell title={job.nextRunAt?.toString()}>
-                    {formatCountdown(job.nextRunAt)}
-                  </TableCell>
-                )}
-                {state === "active" && (
-                  <TableCell>{formatDuration(job.startedAt)}</TableCell>
-                )}
-                {showFinished && (
-                  <TableCell title={job.finishedAt?.toString()}>
-                    {formatRelative(job.finishedAt)}
-                  </TableCell>
-                )}
-                {showFinished && (
-                  <TableCell>
-                    {formatDuration(job.startedAt, job.finishedAt)}
-                  </TableCell>
-                )}
-                <TableCell
-                  className={cn(
-                    "text-right tabular-nums",
-                    hasRetried(job.attempts) && "font-medium text-status-warn",
-                  )}
-                >
-                  {job.attempts}
-                </TableCell>
-                {showError && (
-                  <TableCell
-                    className="max-w-[280px] text-status-down"
-                    title={job.failedReason}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <AlertTriangle
-                        className="h-3.5 w-3.5 shrink-0 text-status-down"
-                        aria-hidden
-                      />
-                      <span className="truncate">
-                        {job.failedReason ?? "—"}
-                      </span>
-                    </span>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </ResponsiveTable>
-
-      <MobileCardList>
-        {data.items.map((job) => (
-          <div
-            key={job.id}
-            className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
-          >
+      {/* No own surface: the enclosing QueueRuntimePanel Card provides it. */}
+      <DataTable
+        data={data.items}
+        columns={columns}
+        getRowId={(job) => job.id}
+        surface={false}
+        renderMobileCard={(job) => (
+          <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
             {/* Accent stripe only on the down signal; color reserved for it. */}
             {showError && (
               <span
@@ -285,8 +318,8 @@ const JobsTable = ({ state }: JobsTableProps) => {
               )}
             </div>
           </div>
-        ))}
-      </MobileCardList>
+        )}
+      />
       <Pagination
         page={page}
         totalPages={totalPages}

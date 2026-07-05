@@ -5,13 +5,11 @@ import {
   CardHeaderRow,
   CardTitle,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  DataTable,
+  type DataTableColumn,
   Button,
+  RowActions,
+  RowAction,
   Badge,
   ConfirmationModal,
   useToast,
@@ -26,8 +24,6 @@ import {
   Label,
   Textarea,
   LoadingSpinner,
-  ResponsiveTable,
-  MobileCardList,
 } from "@checkstack/ui";
 import { Plus, Edit, Trash2, Users2, Crown, UserMinus } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
@@ -269,13 +265,68 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
   // A global manager OR a manager of THIS team may manage its members/managers
   // (matches the backend: membership/manager mutations require teams.read +
   // assertTeamManagementAccess). Create/delete team stay global-only.
+  const teamList = teams as Team[];
   const canManageThisTeam =
     canManageTeams ||
-    (teams.find((t) => t.id === selectedTeamId)?.isManager ?? false);
+    (teamList.find((t) => t.id === selectedTeamId)?.isManager ?? false);
 
   const formSaving =
     createTeamMutation.isPending || updateTeamMutation.isPending;
   const addingMember = addMemberMutation.isPending;
+
+  const columns: DataTableColumn<Team>[] = [
+    {
+      id: "team",
+      header: "Team",
+      sortValue: (team) => team.name,
+      searchValue: (team) => `${team.name} ${team.description ?? ""}`,
+      cell: (team) => (
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-foreground">
+            {team.name}
+          </span>
+          {team.description && (
+            <span className="text-xs text-muted-foreground">
+              {team.description}
+            </span>
+          )}
+          {team.isManager && <ManagerPill />}
+        </div>
+      ),
+    },
+    {
+      id: "members",
+      header: "Members",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      sortValue: (team) => team.memberCount,
+      cell: (team) => (
+        <>
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {team.memberCount}
+          </span>{" "}
+          <span className="text-xs text-muted-foreground">
+            member{team.memberCount === 1 ? "" : "s"}
+          </span>
+        </>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (team) => (
+        <TeamActions
+          team={team}
+          canManageTeams={canManageTeams}
+          onManage={openMembersDialog}
+          onEdit={handleEditTeam}
+          onDelete={setTeamToDelete}
+        />
+      ),
+    },
+  ];
 
   return (
     <>
@@ -297,106 +348,67 @@ export const TeamsTab: React.FC<TeamsTabProps> = ({
               <div className="flex justify-center py-8">
                 <LoadingSpinner />
               </div>
-            ) : (teams as Team[]).length === 0 ? (
-              <p className="text-muted-foreground">No teams found.</p>
             ) : (
-              <>
-                <ResponsiveTable className="rounded-md border bg-card">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Team</TableHead>
-                        <TableHead className="text-right">Members</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(teams as Team[]).map((team) => (
-                        <TableRow
-                          key={team.id}
-                          className="hover:bg-surface-inset transition-colors"
-                        >
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm font-semibold text-foreground">
-                                {team.name}
-                              </span>
-                              {team.description && (
-                                <span className="text-xs text-muted-foreground">
-                                  {team.description}
-                                </span>
-                              )}
-                              {team.isManager && <ManagerPill />}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <span className="text-sm font-semibold tabular-nums text-foreground">
+              <DataTable
+                data={teamList}
+                columns={columns}
+                getRowId={(team) => team.id}
+                searchPlaceholder="Search teams..."
+                defaultSort={{ columnId: "team", direction: "asc" }}
+                getRowProps={() => ({
+                  className: "hover:bg-surface-inset transition-colors",
+                })}
+                emptyState={
+                  <p className="text-muted-foreground">No teams found.</p>
+                }
+                noResultsState={
+                  <p className="text-muted-foreground">
+                    No teams match your search.
+                  </p>
+                }
+                renderMobileCard={(team) => (
+                  <div className="group">
+                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                      {team.isManager && (
+                        <span
+                          className="absolute inset-y-0 left-0 w-1 bg-status-ok"
+                          aria-hidden
+                        />
+                      )}
+                      <div className="flex items-start justify-between gap-3 pl-2">
+                        <div className="min-w-0">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-3xl font-bold leading-none tabular-nums text-foreground">
                               {team.memberCount}
-                            </span>{" "}
+                            </span>
                             <span className="text-xs text-muted-foreground">
                               member{team.memberCount === 1 ? "" : "s"}
                             </span>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <TeamActions
-                              team={team}
-                              canManageTeams={canManageTeams}
-                              onManage={openMembersDialog}
-                              onEdit={handleEditTeam}
-                              onDelete={setTeamToDelete}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ResponsiveTable>
-
-                <MobileCardList>
-                  {(teams as Team[]).map((team) => (
-                    <div key={team.id} className="group">
-                      <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                        {team.isManager && (
-                          <span
-                            className="absolute inset-y-0 left-0 w-1 bg-status-ok"
-                            aria-hidden
-                          />
-                        )}
-                        <div className="flex items-start justify-between gap-3 pl-2">
-                          <div className="min-w-0">
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-3xl font-bold leading-none tabular-nums text-foreground">
-                                {team.memberCount}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                member{team.memberCount === 1 ? "" : "s"}
-                              </span>
-                            </div>
-                            <p className="mt-2 truncate text-sm font-semibold text-foreground">
-                              {team.name}
-                            </p>
-                            {team.description && (
-                              <p className="truncate text-xs text-muted-foreground">
-                                {team.description}
-                              </p>
-                            )}
                           </div>
-                          {team.isManager && <ManagerPill />}
+                          <p className="mt-2 truncate text-sm font-semibold text-foreground">
+                            {team.name}
+                          </p>
+                          {team.description && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {team.description}
+                            </p>
+                          )}
                         </div>
-                        <div className="mt-3 flex justify-end pl-2">
-                          <TeamActions
-                            team={team}
-                            canManageTeams={canManageTeams}
-                            onManage={openMembersDialog}
-                            onEdit={handleEditTeam}
-                            onDelete={setTeamToDelete}
-                          />
-                        </div>
+                        {team.isManager && <ManagerPill />}
+                      </div>
+                      <div className="mt-3 pl-2">
+                        <TeamActions
+                          team={team}
+                          canManageTeams={canManageTeams}
+                          onManage={openMembersDialog}
+                          onEdit={handleEditTeam}
+                          onDelete={setTeamToDelete}
+                        />
                       </div>
                     </div>
-                  ))}
-                </MobileCardList>
-              </>
+                  </div>
+                )}
+              />
             )
           ) : (
             <p className="text-muted-foreground">
@@ -617,19 +629,16 @@ const TeamActions: React.FC<TeamActionsProps> = ({
   onEdit,
   onDelete,
 }) => (
-  <div className="flex justify-end gap-2">
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => onManage(team.id)}
+  <RowActions>
+    <RowAction
+      icon={Users2}
+      label={`Manage ${team.name} (members & creation rights)`}
       title="Manage team (members & creation rights)"
-      aria-label={`Manage ${team.name} (members & creation rights)`}
-    >
-      <Users2 className="h-4 w-4" />
-    </Button>
-    <Button
-      variant="ghost"
-      size="sm"
+      onClick={() => onManage(team.id)}
+    />
+    <RowAction
+      icon={Edit}
+      label={`Edit ${team.name}`}
       onClick={() => onEdit(team)}
       disabled={!team.isManager && !canManageTeams}
       title={
@@ -637,12 +646,11 @@ const TeamActions: React.FC<TeamActionsProps> = ({
           ? "You can only edit teams you manage"
           : "Edit team name & description"
       }
-    >
-      <Edit className="h-4 w-4" />
-    </Button>
-    <Button
-      variant="ghost"
-      size="sm"
+    />
+    <RowAction
+      icon={Trash2}
+      label={`Delete ${team.name}`}
+      tone="destructive"
       onClick={() => onDelete(team.id)}
       disabled={!canManageTeams}
       title={
@@ -650,8 +658,6 @@ const TeamActions: React.FC<TeamActionsProps> = ({
           ? "Delete team"
           : "Only a platform admin can delete teams"
       }
-    >
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  </div>
+    />
+  </RowActions>
 );

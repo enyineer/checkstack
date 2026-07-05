@@ -15,6 +15,8 @@ export {
   getIncidentSeverityAccentClass,
   presentIncidentStatus,
   presentIncidentSeverity,
+  incidentSeverityRank,
+  incidentStatusRank,
   type StatusTone,
 } from "./badges.logic";
 

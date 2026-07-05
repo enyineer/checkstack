@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   usePluginClient,
   useApi,
@@ -17,13 +17,16 @@ import {
   CardTitle,
   CardContent,
   Button,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   EmptyState,
   ConfirmationModal,
   Badge,
   useToast,
   toastError,
   formatDateTime,
-  usePerformance,
   cn,
   // Brand marks were removed from lucide v1; use the vendored ones.
   GithubIcon as Github,
@@ -31,7 +34,7 @@ import {
 } from "@checkstack/ui";
 import { Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
 import { ProviderEditor } from "./ProviderEditor";
-import { cardSurface, toneStyles } from "./statusTone";
+import { toneStyles } from "./statusTone";
 import { classifySyncHealth } from "./providerSyncHealth.logic";
 
 const formatInterval = (seconds: number) => {
@@ -49,8 +52,6 @@ export const ProviderList = () => {
   const client = usePluginClient(GitOpsApi);
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
-
-  const { isLowPower } = usePerformance();
 
   const { allowed: canManage } = accessApi.useAccess(
     gitopsAccess.provider.manage,
@@ -152,6 +153,157 @@ export const ProviderList = () => {
     }
   };
 
+  const providerRows = (providers ?? []).map((provider) => ({
+    provider,
+    health: classifySyncHealth({
+      lastSyncAt: provider.lastSyncAt,
+      lastSyncError: provider.lastSyncError,
+    }),
+  }));
+
+  type ProviderRow = (typeof providerRows)[number];
+
+  // Sync/edit/delete cluster, gated on manage, shared by the desktop row and
+  // the mobile card so the two stay in lock-step.
+  const renderActions = ({ provider }: ProviderRow): ReactNode =>
+    canManage ? (
+      <RowActions>
+        <RowAction
+          icon={RefreshCw}
+          label="Trigger sync"
+          onClick={() => syncMutation.mutate({ providerId: provider.id })}
+        />
+        <RowAction
+          icon={Pencil}
+          label="Edit provider"
+          onClick={() => {
+            setEditingProvider({
+              id: provider.id,
+              type: provider.type,
+              target: provider.target,
+              pathPattern: provider.pathPattern,
+              baseUrl: provider.baseUrl ?? undefined,
+              syncInterval: provider.syncInterval,
+              deletionPolicy: provider.deletionPolicy,
+            });
+            setIsEditorOpen(true);
+          }}
+        />
+        <RowAction
+          icon={Trash2}
+          label="Delete provider"
+          tone="destructive"
+          onClick={() =>
+            setConfirmModal({
+              isOpen: true,
+              providerId: provider.id,
+              providerTarget: provider.target,
+            })
+          }
+        />
+      </RowActions>
+    ) : null;
+
+  // Sync-health pill, shared by the desktop cell and the mobile card.
+  const renderSyncHealth = ({ health }: ProviderRow): ReactNode => (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
+        toneStyles[health.tone].pill,
+      )}
+    >
+      <span
+        className={cn("size-1.5 rounded-full", toneStyles[health.tone].dot)}
+        aria-hidden
+      />
+      {health.label}
+    </span>
+  );
+
+  const columns: DataTableColumn<ProviderRow>[] = [
+    {
+      id: "provider",
+      header: "Provider",
+      sortValue: ({ provider }) => provider.target,
+      searchValue: ({ provider }) => provider.target,
+      cell: ({ provider }) => (
+        <div className="flex min-w-0 items-center gap-2">
+          {provider.type === "github" ? (
+            <Github className="w-5 h-5 text-muted-foreground shrink-0" />
+          ) : (
+            <GitlabIcon className="w-5 h-5 text-muted-foreground shrink-0" />
+          )}
+          <span className="font-semibold text-foreground truncate">
+            {provider.target}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "path",
+      header: "Path pattern",
+      searchValue: ({ provider }) => provider.pathPattern,
+      cell: ({ provider }) => (
+        <span className="text-muted-foreground truncate">
+          {provider.pathPattern}
+        </span>
+      ),
+    },
+    {
+      id: "interval",
+      header: "Interval",
+      cell: ({ provider }) => (
+        <span className="tabular-nums text-muted-foreground">
+          every {formatInterval(provider.syncInterval)}
+        </span>
+      ),
+    },
+    {
+      id: "deletionPolicy",
+      header: "Deletion policy",
+      cell: ({ provider }) => (
+        <Badge
+          variant={
+            provider.deletionPolicy === "auto" ? "destructive" : "outline"
+          }
+        >
+          {provider.deletionPolicy}
+        </Badge>
+      ),
+    },
+    {
+      id: "syncHealth",
+      header: "Sync health",
+      sortValue: ({ health }) => health.label,
+      cell: (row) => renderSyncHealth(row),
+    },
+    {
+      id: "lastSync",
+      header: "Last sync",
+      sortValue: ({ provider }) =>
+        provider.lastSyncAt ? new Date(provider.lastSyncAt).getTime() : null,
+      cell: ({ provider }) => (
+        <div className="text-xs text-muted-foreground">
+          <div className="tabular-nums">
+            {formatLastSync(provider.lastSyncAt)}
+          </div>
+          {provider.lastSyncError && (
+            <div className="text-status-down truncate max-w-48">
+              {provider.lastSyncError}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-px text-right",
+      cellClassName: "text-right",
+      cell: (row) => renderActions(row),
+    },
+  ];
+
   return (
     <>
       <Card>
@@ -200,54 +352,32 @@ export const ProviderList = () => {
               }
             />
           ) : (
-            <div className="space-y-3">
-              {providers.map((provider) => {
-                const health = classifySyncHealth({
-                  lastSyncAt: provider.lastSyncAt,
-                  lastSyncError: provider.lastSyncError,
-                });
-                const tone = toneStyles[health.tone];
+            <DataTable
+              data={providerRows}
+              columns={columns}
+              getRowId={({ provider }) => provider.id}
+              searchPlaceholder="Search providers..."
+              defaultSort={{ columnId: "provider", direction: "asc" }}
+              renderMobileCard={(row) => {
+                const { provider } = row;
                 return (
-                <div
-                  key={provider.id}
-                  className={cn(
-                    cardSurface,
-                    "flex items-center justify-between p-4 transition-all",
-                    !isLowPower &&
-                      "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl",
-                  )}
-                >
-                  <span
-                    className={cn("absolute inset-y-0 left-0 w-1", tone.accent)}
-                    aria-hidden
-                  />
-                  <div className="flex items-center gap-3 min-w-0 pl-2">
-                    {provider.type === "github" ? (
-                      <Github className="w-5 h-5 text-muted-foreground shrink-0" />
-                    ) : (
-                      <GitlabIcon className="w-5 h-5 text-muted-foreground shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
+                  <Card className="p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {provider.type === "github" ? (
+                          <Github className="w-5 h-5 text-muted-foreground shrink-0" />
+                        ) : (
+                          <GitlabIcon className="w-5 h-5 text-muted-foreground shrink-0" />
+                        )}
                         <span className="font-semibold text-foreground truncate">
                           {provider.target}
                         </span>
-                        <span
-                          className={cn(
-                            "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                            tone.pill,
-                          )}
-                        >
-                          <span
-                            className={cn("size-1.5 rounded-full", tone.dot)}
-                            aria-hidden
-                          />
-                          {health.label}
-                        </span>
                       </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-                        <span className="truncate">{provider.pathPattern}</span>
-                        <span>·</span>
+                      {renderSyncHealth(row)}
+                    </div>
+                    <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+                      <div className="truncate">{provider.pathPattern}</div>
+                      <div className="flex items-center gap-2">
                         <span className="tabular-nums">
                           every {formatInterval(provider.syncInterval)}
                         </span>
@@ -262,73 +392,24 @@ export const ProviderList = () => {
                           {provider.deletionPolicy}
                         </Badge>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="text-right text-xs text-muted-foreground hidden md:block">
                       <div className="tabular-nums">
                         Last sync: {formatLastSync(provider.lastSyncAt)}
                       </div>
                       {provider.lastSyncError && (
-                        <div className="text-status-down truncate max-w-48">
+                        <div className="text-status-down truncate">
                           {provider.lastSyncError}
                         </div>
                       )}
                     </div>
-
                     {canManage && (
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            syncMutation.mutate({ providerId: provider.id })
-                          }
-                          title="Trigger sync"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setEditingProvider({
-                              id: provider.id,
-                              type: provider.type,
-                              target: provider.target,
-                              pathPattern: provider.pathPattern,
-                              baseUrl: provider.baseUrl ?? undefined,
-                              syncInterval: provider.syncInterval,
-                              deletionPolicy: provider.deletionPolicy,
-                            });
-                            setIsEditorOpen(true);
-                          }}
-                          title="Edit provider"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            setConfirmModal({
-                              isOpen: true,
-                              providerId: provider.id,
-                              providerTarget: provider.target,
-                            })
-                          }
-                          title="Delete provider"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                      <div className="mt-2 flex justify-end">
+                        {renderActions(row)}
                       </div>
                     )}
-                  </div>
-                </div>
+                  </Card>
                 );
-              })}
-            </div>
+              }}
+            />
           )}
         </CardContent>
       </Card>

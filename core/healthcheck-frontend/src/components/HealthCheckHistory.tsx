@@ -1,16 +1,11 @@
 import { usePluginClient, type SlotContext } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 import { SystemDetailsSlot } from "@checkstack/catalog-common";
+import type { HealthCheckRunPublic } from "@checkstack/healthcheck-common";
 import {
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
   Card,
+  DataTable,
+  type DataTableColumn,
   HealthBadge,
   LoadingSpinner,
 } from "@checkstack/ui";
@@ -22,6 +17,11 @@ interface Props extends SlotProps {
   configurationId?: string;
   limit?: number;
 }
+
+const formatRunTime = (timestamp?: Date | null): string =>
+  timestamp
+    ? formatDistanceToNow(new Date(timestamp), { addSuffix: true })
+    : "Unknown";
 
 export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
   const { system, configurationId, limit } = props as Props;
@@ -37,6 +37,23 @@ export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
 
   const history = data?.runs ?? [];
 
+  const columns: DataTableColumn<HealthCheckRunPublic>[] = [
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (run) => run.status,
+      cell: (run) => <HealthBadge status={run.status} />,
+    },
+    {
+      id: "time",
+      header: "Time",
+      cellClassName: "text-sm text-muted-foreground",
+      sortValue: (run) =>
+        run.timestamp ? new Date(run.timestamp).getTime() : undefined,
+      cell: (run) => formatRunTime(run.timestamp),
+    },
+  ];
+
   if (loading) return <LoadingSpinner />;
 
   if (history.length === 0) {
@@ -48,51 +65,20 @@ export const HealthCheckHistory: React.FC<SlotProps> = (props) => {
   }
 
   return (
-    <>
-      <ResponsiveTable className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Status</TableHead>
-              <TableHead>Time</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {history.map((run) => (
-              <TableRow key={run.id}>
-                <TableCell>
-                  <HealthBadge status={run.status} />
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {run.timestamp
-                    ? formatDistanceToNow(new Date(run.timestamp), {
-                        addSuffix: true,
-                      })
-                    : "Unknown"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </ResponsiveTable>
-
-      <MobileCardList>
-        {history.map((run) => (
-          <Card
-            key={run.id}
-            className="flex flex-row items-center justify-between gap-2 p-3"
-          >
-            <HealthBadge status={run.status} />
-            <span className="text-xs text-muted-foreground">
-              {run.timestamp
-                ? formatDistanceToNow(new Date(run.timestamp), {
-                    addSuffix: true,
-                  })
-                : "Unknown"}
-            </span>
-          </Card>
-        ))}
-      </MobileCardList>
-    </>
+    <DataTable
+      data={history}
+      columns={columns}
+      getRowId={(run) => run.id}
+      searchable={false}
+      defaultSort={{ columnId: "time", direction: "desc" }}
+      renderMobileCard={(run) => (
+        <Card className="flex flex-row items-center justify-between gap-2 p-3">
+          <HealthBadge status={run.status} />
+          <span className="text-xs text-muted-foreground">
+            {formatRunTime(run.timestamp)}
+          </span>
+        </Card>
+      )}
+    />
   );
 };

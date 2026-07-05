@@ -13,15 +13,16 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Button,
   Skeleton,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Card,
   cn,
 } from "@checkstack/ui";
 import { Trash2, Edit, Pause, Play } from "lucide-react";
-import { useProvenanceLock } from "@checkstack/gitops-frontend";
+import { useProvenanceLocks } from "@checkstack/gitops-frontend";
 import { HealthStatusPill } from "./HealthStatusPill";
 import { pausedToTone, toneStyles } from "./healthcheckDisplay.logic";
 
@@ -51,56 +52,90 @@ export const HealthCheckList: React.FC<HealthCheckListProps> = ({
     objectType: healthCheckResourceTypes.configuration,
     resourceIds: configurations.map((c) => c.id),
   });
+  // One bulk provenance query for every row; `getLock` is a plain lookup safe
+  // to call from column cell renderers (which cannot call hooks).
+  const { getLock } = useProvenanceLocks();
 
   const getStrategyName = (id: string) => {
     return strategies.find((s) => s.id === id)?.displayName || id;
   };
 
-  return (
-    <>
-      <ResponsiveTable className="rounded-md border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Strategy</TableHead>
-              <TableHead>Interval (s)</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {configurations.map((config) => (
-              <HealthCheckRow
-                key={config.id}
-                config={config}
-                strategyName={getStrategyName(config.strategyId)}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onPause={onPause}
-                onResume={onResume}
-                canManage={canAccess(config.id)}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </ResponsiveTable>
+  const columns: DataTableColumn<HealthCheckConfiguration>[] = [
+    {
+      id: "name",
+      header: "Name",
+      cellClassName: "font-medium",
+      sortValue: (config) => config.name,
+      cell: (config) => config.name,
+    },
+    {
+      id: "strategy",
+      header: "Strategy",
+      sortValue: (config) => getStrategyName(config.strategyId),
+      cell: (config) => getStrategyName(config.strategyId),
+    },
+    {
+      id: "interval",
+      header: "Interval (s)",
+      sortValue: (config) => config.intervalSeconds,
+      cell: (config) => config.intervalSeconds,
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (config) => (config.paused ? "Paused" : "Active"),
+      cell: (config) => (
+        <HealthStatusPill
+          tone={pausedToTone({ paused: config.paused })}
+          label={config.paused ? "Paused" : "Active"}
+        />
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (config) => (
+        <HealthCheckActionButtons
+          config={config}
+          isLocked={
+            getLock({ kind: "Healthcheck", entityId: config.id }).isLocked
+          }
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onPause={onPause}
+          onResume={onResume}
+          canManage={canAccess(config.id)}
+        />
+      ),
+    },
+  ];
 
-      <MobileCardList>
-        {configurations.map((config) => (
-          <HealthCheckMobileCard
-            key={config.id}
-            config={config}
-            strategyName={getStrategyName(config.strategyId)}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onPause={onPause}
-            onResume={onResume}
-            canManage={canAccess(config.id)}
-          />
-        ))}
-      </MobileCardList>
-    </>
+  return (
+    <DataTable
+      data={configurations}
+      columns={columns}
+      getRowId={(config) => config.id}
+      searchable={false}
+      getRowProps={(config) => ({
+        className: config.paused ? "opacity-60" : undefined,
+      })}
+      renderMobileCard={(config) => (
+        <HealthCheckMobileCard
+          config={config}
+          strategyName={getStrategyName(config.strategyId)}
+          isLocked={
+            getLock({ kind: "Healthcheck", entityId: config.id }).isLocked
+          }
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onPause={onPause}
+          onResume={onResume}
+          canManage={canAccess(config.id)}
+        />
+      )}
+    />
   );
 };
 
@@ -116,14 +151,14 @@ interface HealthCheckListSkeletonProps {
  * HealthCheckListSkeleton mirrors the shape of {@link HealthCheckList} so
  * the page doesn't jump on load. Renders the same table chrome with
  * `Skeleton` placeholders in each cell on desktop, and a stacked card
- * skeleton on mobile to mirror the {@link MobileCardList} layout.
+ * skeleton on mobile to mirror the {@link HealthCheckList} mobile cards.
  */
 export const HealthCheckListSkeleton: React.FC<
   HealthCheckListSkeletonProps
 > = ({ rows = 4 }) => {
   return (
     <>
-      <ResponsiveTable className="rounded-md border bg-card">
+      <div className="hidden rounded-md border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -150,19 +185,19 @@ export const HealthCheckListSkeleton: React.FC<
                   <Skeleton className="h-5 w-16 rounded-full" />
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Skeleton className="h-8 w-8" />
-                    <Skeleton className="h-8 w-8" />
-                    <Skeleton className="h-8 w-8" />
+                  <div className="flex justify-end gap-1">
+                    <Skeleton className="h-7 w-7" />
+                    <Skeleton className="h-7 w-7" />
+                    <Skeleton className="h-7 w-7" />
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      </ResponsiveTable>
+      </div>
 
-      <MobileCardList>
+      <div className="flex flex-col gap-2 sm:hidden">
         {Array.from({ length: rows }, (_, index) => (
           <Card key={index} className="p-3">
             <div className="flex items-center justify-between gap-2">
@@ -173,76 +208,22 @@ export const HealthCheckListSkeleton: React.FC<
               <Skeleton className="h-3 w-24" />
               <Skeleton className="h-3 w-12" />
             </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <Skeleton className="h-8 w-8" />
-              <Skeleton className="h-8 w-8" />
-              <Skeleton className="h-8 w-8" />
+            <div className="mt-3 flex justify-end gap-1">
+              <Skeleton className="h-7 w-7" />
+              <Skeleton className="h-7 w-7" />
+              <Skeleton className="h-7 w-7" />
             </div>
           </Card>
         ))}
-      </MobileCardList>
+      </div>
     </>
-  );
-};
-
-interface HealthCheckRowProps {
-  config: HealthCheckConfiguration;
-  strategyName: string;
-  onEdit: (config: HealthCheckConfiguration) => void;
-  onDelete: (id: string) => void;
-  onPause?: (id: string) => void;
-  onResume?: (id: string) => void;
-  canManage: boolean;
-}
-
-const HealthCheckRow: React.FC<HealthCheckRowProps> = ({
-  config,
-  strategyName,
-  onEdit,
-  onDelete,
-  onPause,
-  onResume,
-  canManage,
-}) => {
-  const { isLocked } = useProvenanceLock({
-    kind: "Healthcheck",
-    entityId: config.id,
-  });
-
-  return (
-    <TableRow
-      className={cn(
-        "transition-colors hover:bg-surface-inset",
-        config.paused && "opacity-60",
-      )}
-    >
-      <TableCell className="font-medium">{config.name}</TableCell>
-      <TableCell>{strategyName}</TableCell>
-      <TableCell>{config.intervalSeconds}</TableCell>
-      <TableCell>
-        <HealthStatusPill
-          tone={pausedToTone({ paused: config.paused })}
-          label={config.paused ? "Paused" : "Active"}
-        />
-      </TableCell>
-      <TableCell className="text-right">
-        <HealthCheckActionButtons
-          config={config}
-          isLocked={isLocked}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onPause={onPause}
-          onResume={onResume}
-          canManage={canManage}
-        />
-      </TableCell>
-    </TableRow>
   );
 };
 
 interface HealthCheckMobileCardProps {
   config: HealthCheckConfiguration;
   strategyName: string;
+  isLocked: boolean;
   onEdit: (config: HealthCheckConfiguration) => void;
   onDelete: (id: string) => void;
   onPause?: (id: string) => void;
@@ -253,17 +234,13 @@ interface HealthCheckMobileCardProps {
 const HealthCheckMobileCard: React.FC<HealthCheckMobileCardProps> = ({
   config,
   strategyName,
+  isLocked,
   onEdit,
   onDelete,
   onPause,
   onResume,
   canManage,
 }) => {
-  const { isLocked } = useProvenanceLock({
-    kind: "Healthcheck",
-    entityId: config.id,
-  });
-
   const tone = pausedToTone({ paused: config.paused });
   return (
     <div
@@ -323,56 +300,48 @@ const HealthCheckActionButtons: React.FC<HealthCheckActionButtonsProps> = ({
   onResume,
   canManage,
 }) => (
-  <div className="flex justify-end gap-2">
+  <RowActions>
     {canManage &&
       onPause &&
       onResume &&
       (config.paused ? (
-        <Button
-          variant="ghost"
-          size="icon"
+        <RowAction
+          icon={Play}
+          label="Resume"
           onClick={() => onResume(config.id)}
           title={isLocked ? "Managed by GitOps" : "Resume health check"}
           disabled={isLocked}
-        >
-          <Play className="h-4 w-4" />
-        </Button>
+        />
       ) : (
-        <Button
-          variant="ghost"
-          size="icon"
+        <RowAction
+          icon={Pause}
+          label="Pause"
           onClick={() => onPause(config.id)}
           title={isLocked ? "Managed by GitOps" : "Pause health check"}
           disabled={isLocked}
-        >
-          <Pause className="h-4 w-4" />
-        </Button>
+        />
       ))}
     {canManage && (
-      <Button
-        variant="ghost"
-        size="icon"
+      <RowAction
+        icon={Edit}
+        label="Edit configuration"
         onClick={() => onEdit(config)}
         title={
           isLocked
             ? "View configuration (Managed by GitOps)"
             : "Edit configuration"
         }
-      >
-        <Edit className="h-4 w-4" />
-      </Button>
+      />
     )}
     {canManage && (
-      <Button
-        variant="ghost"
-        size="icon"
-        className="text-destructive hover:text-destructive"
+      <RowAction
+        icon={Trash2}
+        label="Delete configuration"
+        tone="destructive"
         onClick={() => onDelete(config.id)}
         disabled={isLocked}
         title={isLocked ? "Managed by GitOps" : "Delete configuration"}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
+      />
     )}
-  </div>
+  </RowActions>
 );

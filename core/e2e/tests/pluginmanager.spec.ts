@@ -28,12 +28,9 @@ test.describe("plugin manager", () => {
       page.getByRole("heading", { name: "Plugins", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // The list card and its column headers prove the table rendered. Bundled
-    // platform plugins are always present on a fresh instance, so we expect the
-    // table (not the empty state).
-    await expect(
-      page.getByRole("heading", { name: "Installed Plugins" }),
-    ).toBeVisible();
+    // The table's column headers prove the list rendered. Bundled platform
+    // plugins are always present on a fresh instance, so we expect the table
+    // (not the empty state).
     await expect(
       page.getByRole("columnheader", { name: "Name" }),
     ).toBeVisible();

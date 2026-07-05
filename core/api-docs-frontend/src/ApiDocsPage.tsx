@@ -7,6 +7,8 @@ import {
   CardTitle,
   Badge,
   Button,
+  DataTable,
+  type DataTableColumn,
   PageLayout,
   cn,
   usePerformance,
@@ -411,6 +413,33 @@ function SchemaDisplay({
   return <span className="text-muted-foreground">unknown</span>;
 }
 
+const parameterColumns: DataTableColumn<ParameterObject>[] = [
+  {
+    id: "name",
+    header: "Name",
+    cellClassName: "font-mono align-top",
+    sortValue: (p) => p.name,
+    cell: (p) => (
+      <>
+        <span className="text-blue-600 dark:text-blue-400">{p.name}</span>
+        {p.required && <span className="text-red-500">*</span>}
+      </>
+    ),
+  },
+  {
+    id: "type",
+    header: "Type",
+    cellClassName: "font-mono align-top",
+    cell: (p) => <SchemaDisplay schema={p.schema} />,
+  },
+  {
+    id: "description",
+    header: "Description",
+    cellClassName: "text-muted-foreground align-top",
+    cell: (p) => p.description ?? "",
+  },
+];
+
 function ParametersTable({
   parameters,
 }: {
@@ -436,40 +465,12 @@ function ParametersTable({
         return (
           <div key={loc}>
             <h4 className="mb-2 text-sm font-medium">{sectionTitle[loc]}</h4>
-            <div className="overflow-x-auto rounded-md bg-surface-inset">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b border-border/50">
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Type</th>
-                    <th className="px-3 py-2 font-medium">Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((p) => (
-                    <tr
-                      key={`${p.in}:${p.name}`}
-                      className="align-top border-t border-border/30"
-                    >
-                      <td className="px-3 py-2 font-mono">
-                        <span className="text-blue-600 dark:text-blue-400">
-                          {p.name}
-                        </span>
-                        {p.required && (
-                          <span className="text-red-500">*</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono">
-                        <SchemaDisplay schema={p.schema} />
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {p.description ?? ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              data={items}
+              columns={parameterColumns}
+              getRowId={(p) => `${p.in}:${p.name}`}
+              searchable={false}
+            />
           </div>
         );
       })}

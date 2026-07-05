@@ -1,5 +1,5 @@
 import React from "react";
-import { Button, cn, formatRelativeTime } from "@checkstack/ui";
+import { RowActions, RowAction, cn, formatRelativeTime } from "@checkstack/ui";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 import { KeyRound, MapPin, Trash2 } from "lucide-react";
 import { GitOpsSourceBadge } from "@checkstack/gitops-frontend";
@@ -72,27 +72,22 @@ export const SatelliteMobileCard: React.FC<SatelliteMobileCardProps> = ({
         {lastSeen && <span>Last seen {lastSeen}</span>}
       </div>
 
-      <div className="mt-3 flex justify-end gap-1 pl-2">
-        <Button
-          variant="ghost"
-          size="sm"
+      <RowActions className="mt-3 pl-2">
+        <RowAction
+          icon={KeyRound}
+          label={`Reset token for ${satellite.name}`}
           title="Reset token"
-          aria-label={`Reset token for ${satellite.name}`}
           onClick={() => onRotate(satellite)}
-        >
-          <KeyRound className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
+        />
+        <RowAction
+          icon={Trash2}
+          tone="destructive"
+          label={`Delete ${satellite.name}`}
           disabled={lock.isLocked}
           title={lock.isLocked ? "Managed by GitOps" : "Delete satellite"}
-          aria-label={`Delete ${satellite.name}`}
           onClick={() => onDelete(satellite)}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" />
-        </Button>
-      </div>
+        />
+      </RowActions>
     </div>
   );
 };

@@ -1,4 +1,19 @@
-import { test, expect } from "@checkstack/test-utils-frontend/playwright";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+} from "@checkstack/test-utils-frontend/playwright";
+
+/**
+ * The left tab-rail entry ("Queue"), scoped to the tab-rail nav so it never
+ * collides with a same-named column-header sort button in the Queue runtime
+ * data table (the "Queue" column header is now a sortable button).
+ */
+const infraTab = (page: Page, name: string): Locator =>
+  page
+    .getByRole("navigation", { name: "Infrastructure settings" })
+    .getByRole("button", { name, exact: true });
 
 /**
  * Queue admin area E2E.
@@ -51,7 +66,7 @@ test.describe("Queue admin area", () => {
     // is a plain button whose accessible name is exactly "Queue" (label +
     // icon); `exact` keeps it from matching "Queue Runtime"/"Queue
     // Configuration" headings under substring rules.
-    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await infraTab(page, "Queue").click();
 
     // Runtime panel header (CardTitle -> <h3>).
     await expect(
@@ -75,7 +90,7 @@ test.describe("Queue admin area", () => {
     await expect(
       page.getByRole("heading", { name: "Infrastructure Settings" }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await infraTab(page, "Queue").click();
     await expect(
       page.getByRole("heading", { name: "Queue Runtime" }),
     ).toBeVisible();
@@ -101,7 +116,7 @@ test.describe("Queue admin area", () => {
     await expect(
       page.getByRole("heading", { name: "Infrastructure Settings" }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await infraTab(page, "Queue").click();
     await expect(
       page.getByRole("heading", { name: "Queue Runtime" }),
     ).toBeVisible();
@@ -141,7 +156,7 @@ test.describe("Queue admin area", () => {
     await expect(
       page.getByRole("heading", { name: "Infrastructure Settings" }),
     ).toBeVisible({ timeout: NAV_TIMEOUT });
-    await page.getByRole("button", { name: "Queue", exact: true }).click();
+    await infraTab(page, "Queue").click();
 
     // The Configuration sub-section is stacked below the runtime panel inside
     // the same Queue tab.

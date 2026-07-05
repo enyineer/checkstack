@@ -5,16 +5,12 @@ import {
   CardHeaderRow,
   CardTitle,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  DataTable,
+  type DataTableColumn,
   Button,
+  RowActions,
+  RowAction,
   ConfirmationModal,
-  ResponsiveTable,
-  MobileCardList,
   useToast,
   toastError,
 } from "@checkstack/ui";
@@ -119,6 +115,66 @@ export const RolesTab: React.FC<RolesTabProps> = ({
     deleteRoleMutation.mutate(roleToDelete);
   };
 
+  const columns: DataTableColumn<Role>[] = [
+    {
+      id: "role",
+      header: "Role",
+      sortValue: (role) => role.name,
+      searchValue: (role) => `${role.name} ${role.description ?? ""}`,
+      cell: (role) => {
+        const isUserRole = userRoleIds.includes(role.id);
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              {role.name}
+            </span>
+            {role.description && (
+              <span className="text-xs text-muted-foreground">
+                {role.description}
+              </span>
+            )}
+            <div className="flex gap-2 mt-1">
+              {role.isSystem && <RoleTag>System</RoleTag>}
+              {isUserRole && <RoleTag accent>Your Role</RoleTag>}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "accessRules",
+      header: "Access Rules",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      sortValue: (role) => role.accessRules?.length ?? 0,
+      cell: (role) => (
+        <>
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {role.accessRules?.length || 0}
+          </span>{" "}
+          <span className="text-xs text-muted-foreground">access rules</span>
+        </>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (role) => (
+        <RoleActions
+          role={role}
+          isUserRole={userRoleIds.includes(role.id)}
+          isSystem={role.isSystem}
+          canUpdateRoles={canUpdateRoles}
+          canDeleteRoles={canDeleteRoles}
+          onEdit={handleEditRole}
+          onDelete={setRoleToDelete}
+        />
+      ),
+    },
+  ];
+
   return (
     <>
       <Card>
@@ -135,129 +191,72 @@ export const RolesTab: React.FC<RolesTabProps> = ({
         </CardHeader>
         <CardContent>
           {canReadRoles ? (
-            roles.length === 0 ? (
-              <p className="text-muted-foreground">No roles found.</p>
-            ) : (
-              <>
-                <ResponsiveTable className="rounded-md border bg-card">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Role</TableHead>
-                        <TableHead className="text-right">Access Rules</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {roles.map((role) => {
-                        const isUserRole = userRoleIds.includes(role.id);
-                        const isSystem = role.isSystem;
-
-                        return (
-                          <TableRow
-                            key={role.id}
-                            className="hover:bg-surface-inset transition-colors"
-                          >
-                            <TableCell>
-                              <div className="flex flex-col gap-1">
-                                <span className="text-sm font-semibold text-foreground">
-                                  {role.name}
-                                </span>
-                                {role.description && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {role.description}
-                                  </span>
-                                )}
-                                <div className="flex gap-2 mt-1">
-                                  {isSystem && <RoleTag>System</RoleTag>}
-                                  {isUserRole && (
-                                    <RoleTag accent>Your Role</RoleTag>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="text-sm font-semibold tabular-nums text-foreground">
-                                {role.accessRules?.length || 0}
-                              </span>{" "}
-                              <span className="text-xs text-muted-foreground">
-                                access rules
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <RoleActions
-                                role={role}
-                                isUserRole={isUserRole}
-                                isSystem={isSystem}
-                                canUpdateRoles={canUpdateRoles}
-                                canDeleteRoles={canDeleteRoles}
-                                onEdit={handleEditRole}
-                                onDelete={setRoleToDelete}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </ResponsiveTable>
-
-                <MobileCardList>
-                  {roles.map((role) => {
-                    const isUserRole = userRoleIds.includes(role.id);
-                    const isSystem = role.isSystem;
-
-                    return (
-                      <div key={role.id} className="group">
-                        <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                          {isUserRole && (
-                            <span
-                              className="absolute inset-y-0 left-0 w-1 bg-primary/60"
-                              aria-hidden
-                            />
+            <DataTable
+              data={roles}
+              columns={columns}
+              getRowId={(role) => role.id}
+              searchPlaceholder="Search roles..."
+              defaultSort={{ columnId: "role", direction: "asc" }}
+              getRowProps={() => ({
+                className: "hover:bg-surface-inset transition-colors",
+              })}
+              emptyState={
+                <p className="text-muted-foreground">No roles found.</p>
+              }
+              noResultsState={
+                <p className="text-muted-foreground">
+                  No roles match your search.
+                </p>
+              }
+              renderMobileCard={(role) => {
+                const isUserRole = userRoleIds.includes(role.id);
+                return (
+                  <div className="group">
+                    <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                      {isUserRole && (
+                        <span
+                          className="absolute inset-y-0 left-0 w-1 bg-primary/60"
+                          aria-hidden
+                        />
+                      )}
+                      <div className="flex items-start justify-between gap-3 pl-2">
+                        <div className="min-w-0">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-3xl font-bold leading-none tabular-nums text-foreground">
+                              {role.accessRules?.length || 0}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              access rules
+                            </span>
+                          </div>
+                          <p className="mt-2 truncate text-sm font-semibold text-foreground">
+                            {role.name}
+                          </p>
+                          {role.description && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {role.description}
+                            </p>
                           )}
-                          <div className="flex items-start justify-between gap-3 pl-2">
-                            <div className="min-w-0">
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-3xl font-bold leading-none tabular-nums text-foreground">
-                                  {role.accessRules?.length || 0}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  access rules
-                                </span>
-                              </div>
-                              <p className="mt-2 truncate text-sm font-semibold text-foreground">
-                                {role.name}
-                              </p>
-                              {role.description && (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {role.description}
-                                </p>
-                              )}
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {isSystem && <RoleTag>System</RoleTag>}
-                                {isUserRole && (
-                                  <RoleTag accent>Your Role</RoleTag>
-                                )}
-                              </div>
-                            </div>
-                            <RoleActions
-                              role={role}
-                              isUserRole={isUserRole}
-                              isSystem={isSystem}
-                              canUpdateRoles={canUpdateRoles}
-                              canDeleteRoles={canDeleteRoles}
-                              onEdit={handleEditRole}
-                              onDelete={setRoleToDelete}
-                            />
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {role.isSystem && <RoleTag>System</RoleTag>}
+                            {isUserRole && <RoleTag accent>Your Role</RoleTag>}
                           </div>
                         </div>
+                        <RoleActions
+                          role={role}
+                          isUserRole={isUserRole}
+                          isSystem={role.isSystem}
+                          canUpdateRoles={canUpdateRoles}
+                          canDeleteRoles={canDeleteRoles}
+                          onEdit={handleEditRole}
+                          onDelete={setRoleToDelete}
+                        />
                       </div>
-                    );
-                  })}
-                </MobileCardList>
-              </>
-            )
+                    </div>
+                  </div>
+                );
+              }}
+            />
           ) : (
             <p className="text-muted-foreground">
               You don't have access to view roles.
@@ -329,22 +328,19 @@ const RoleActions: React.FC<RoleActionsProps> = ({
   onEdit,
   onDelete,
 }) => (
-  <div className="flex justify-end gap-2">
-    <Button
-      variant="ghost"
-      size="sm"
+  <RowActions>
+    <RowAction
+      icon={Edit}
+      label={`Edit ${role.name}`}
       onClick={() => onEdit(role)}
       disabled={!canUpdateRoles}
-    >
-      <Edit className="h-4 w-4" />
-    </Button>
-    <Button
-      variant="ghost"
-      size="sm"
+    />
+    <RowAction
+      icon={Trash2}
+      label={`Delete ${role.name}`}
+      tone="destructive"
       onClick={() => onDelete(role.id)}
       disabled={isSystem || isUserRole || !canDeleteRoles}
-    >
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  </div>
+    />
+  </RowActions>
 );

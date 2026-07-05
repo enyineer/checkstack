@@ -5,19 +5,15 @@ import {
   CardHeaderRow,
   CardTitle,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  DataTable,
+  type DataTableColumn,
   Button,
   Checkbox,
+  RowActions,
+  RowAction,
   Alert,
   AlertDescription,
   ConfirmationModal,
-  ResponsiveTable,
-  MobileCardList,
   useToast,
   toastError,
 } from "@checkstack/ui";
@@ -28,8 +24,10 @@ import type { AuthUser, Role, AuthStrategy } from "../api";
 import { CreateUserDialog } from "./CreateUserDialog";
 import { deriveInitial } from "./identity.logic";
 
+type UserRow = AuthUser & { roles: string[] };
+
 export interface UsersTabProps {
-  users: (AuthUser & { roles: string[] })[];
+  users: UserRow[];
   roles: Role[];
   strategies: AuthStrategy[];
   currentUserId?: string;
@@ -138,6 +136,59 @@ export const UsersTab: React.FC<UsersTabProps> = ({
     await onDataChange();
   };
 
+  const columns: DataTableColumn<UserRow>[] = [
+    {
+      id: "user",
+      header: "User",
+      sortValue: (user) => user.name || user.email,
+      searchValue: (user) => `${user.name ?? ""} ${user.email}`,
+      cell: (user) => (
+        <div className="flex items-center gap-3">
+          <span
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-inset text-xs font-semibold text-muted-foreground"
+            aria-hidden
+          >
+            {deriveInitial(user)}
+          </span>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm font-medium">{user.name || "N/A"}</span>
+            <span className="text-xs text-muted-foreground">{user.email}</span>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "roles",
+      header: "Roles",
+      cell: (user) => (
+        <RoleCheckboxes
+          user={user}
+          roles={roles}
+          canManageRoles={canManageRoles}
+          isSelf={currentUserId === user.id}
+          onToggleRole={handleToggleRole}
+        />
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (user) =>
+        canManageUsers && user.email !== "admin@checkstack.com" ? (
+          <RowActions>
+            <RowAction
+              icon={Trash2}
+              label={`Delete ${user.name || user.email}`}
+              tone="destructive"
+              onClick={() => setUserToDelete(user.id)}
+            />
+          </RowActions>
+        ) : null,
+    },
+  ];
+
   return (
     <>
       <Card>
@@ -161,120 +212,71 @@ export const UsersTab: React.FC<UsersTabProps> = ({
             </AlertDescription>
           </Alert>
           {canReadUsers ? (
-            users.length === 0 ? (
-              <p className="text-muted-foreground">No users found.</p>
-            ) : (
-              <>
-                <ResponsiveTable className="rounded-md border bg-card">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>User</TableHead>
-                        <TableHead>Roles</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {users.map((user) => (
-                        <TableRow
-                          key={user.id}
-                          className="hover:bg-surface-inset transition-colors"
+            <DataTable
+              data={users}
+              columns={columns}
+              getRowId={(user) => user.id}
+              searchPlaceholder="Search users..."
+              defaultSort={{ columnId: "user", direction: "asc" }}
+              getRowProps={() => ({
+                className: "hover:bg-surface-inset transition-colors",
+              })}
+              emptyState={
+                <p className="text-muted-foreground">No users found.</p>
+              }
+              noResultsState={
+                <p className="text-muted-foreground">
+                  No users match your search.
+                </p>
+              }
+              renderMobileCard={(user) => (
+                <div className="group">
+                  <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-inset text-xs font-semibold text-muted-foreground"
+                          aria-hidden
                         >
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <span
-                                className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-inset text-xs font-semibold text-muted-foreground"
-                                aria-hidden
-                              >
-                                {deriveInitial(user)}
-                              </span>
-                              <div className="flex min-w-0 flex-col">
-                                <span className="text-sm font-medium">
-                                  {user.name || "N/A"}
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {user.email}
-                                </span>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <RoleCheckboxes
-                              user={user}
-                              roles={roles}
-                              canManageRoles={canManageRoles}
-                              isSelf={currentUserId === user.id}
-                              onToggleRole={handleToggleRole}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {canManageUsers &&
-                              user.email !== "admin@checkstack.com" && (
-                                <Button
-                                  variant="destructive"
-                                  size="icon"
-                                  onClick={() => setUserToDelete(user.id)}
-                                >
-                                  <Trash2 size={16} />
-                                </Button>
-                              )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ResponsiveTable>
-
-                <MobileCardList>
-                  {users.map((user) => (
-                    <div key={user.id} className="group">
-                      <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span
-                              className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-inset text-xs font-semibold text-muted-foreground"
-                              aria-hidden
-                            >
-                              {deriveInitial(user)}
-                            </span>
-                            <div className="flex min-w-0 flex-col">
-                              <span className="truncate text-sm font-medium">
-                                {user.name || "N/A"}
-                              </span>
-                              <span className="truncate text-xs text-muted-foreground">
-                                {user.email}
-                              </span>
-                            </div>
-                          </div>
-                          {canManageUsers &&
-                            user.email !== "admin@checkstack.com" && (
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                onClick={() => setUserToDelete(user.id)}
-                              >
-                                <Trash2 size={16} />
-                              </Button>
-                            )}
-                        </div>
-                        <div className="mt-3 border-t border-border/60 pt-3">
-                          <p className="mb-2 text-xs font-medium text-muted-foreground">
-                            Roles
-                          </p>
-                          <RoleCheckboxes
-                            user={user}
-                            roles={roles}
-                            canManageRoles={canManageRoles}
-                            isSelf={currentUserId === user.id}
-                            onToggleRole={handleToggleRole}
-                          />
+                          {deriveInitial(user)}
+                        </span>
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate text-sm font-medium">
+                            {user.name || "N/A"}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {user.email}
+                          </span>
                         </div>
                       </div>
+                      {canManageUsers &&
+                        user.email !== "admin@checkstack.com" && (
+                          <RowActions>
+                            <RowAction
+                              icon={Trash2}
+                              label={`Delete ${user.name || user.email}`}
+                              tone="destructive"
+                              onClick={() => setUserToDelete(user.id)}
+                            />
+                          </RowActions>
+                        )}
                     </div>
-                  ))}
-                </MobileCardList>
-              </>
-            )
+                    <div className="mt-3 border-t border-border/60 pt-3">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">
+                        Roles
+                      </p>
+                      <RoleCheckboxes
+                        user={user}
+                        roles={roles}
+                        canManageRoles={canManageRoles}
+                        isSelf={currentUserId === user.id}
+                        onToggleRole={handleToggleRole}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            />
           ) : (
             <p className="text-muted-foreground">
               You don't have access to list users.
@@ -302,7 +304,7 @@ export const UsersTab: React.FC<UsersTabProps> = ({
 };
 
 interface RoleCheckboxesProps {
-  user: AuthUser & { roles: string[] };
+  user: UserRow;
   roles: Role[];
   canManageRoles: boolean;
   isSelf: boolean;

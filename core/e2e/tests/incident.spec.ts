@@ -215,7 +215,7 @@ test.describe("incidents", () => {
     await gotoSystemIncidentHistory(page);
 
     // Click the incident entry to open its detail page.
-    await page.getByRole("link", { name: new RegExp(INCIDENT_TITLE) }).click();
+    await page.getByRole("row", { name: new RegExp(INCIDENT_TITLE) }).click();
     await expect(page).toHaveURL(/\/incident\/[^/]+(\?|$)/, {
       timeout: NAV_TIMEOUT,
     });
@@ -240,7 +240,7 @@ test.describe("incidents", () => {
     // Re-derive the detail URL through the same navigation chain (each test gets
     // a fresh page, and detail URLs are id-based which we don't hardcode).
     await gotoSystemIncidentHistory(page);
-    await page.getByRole("link", { name: new RegExp(INCIDENT_TITLE) }).click();
+    await page.getByRole("row", { name: new RegExp(INCIDENT_TITLE) }).click();
 
     await expect(
       page.getByRole("heading", { name: INCIDENT_TITLE }),
