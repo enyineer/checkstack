@@ -8,29 +8,15 @@
  * code blocks, subtle borders.
  */
 
+/* Base ramp = DARK theme, matching Starlight's own dark-first `:root`. This
+ * file is injected UNLAYERED via `customCss`, so every token here beats
+ * Starlight's `@layer starlight.base` rules regardless of specificity. That is
+ * why the gray ramp / white / black MUST be split per theme below: a single
+ * unqualified `:root` (as this file previously had) would clobber Starlight's
+ * `:root[data-theme='light']` in light mode and leave the page background
+ * (`--sl-color-bg: var(--sl-color-black)`) and every gray surface dark. */
 :root {
-  /* Checkstack purple ramp (light mode) */
-  --sl-color-accent-low: #ede9fe;
-  --sl-color-accent: #7c3aed;
-  --sl-color-accent-high: #4c1d95;
-
-  --sl-color-white: #ffffff;
-  --sl-color-gray-1: #f4f4f5;
-  --sl-color-gray-2: #e4e4e7;
-  --sl-color-gray-3: #a1a1aa;
-  --sl-color-gray-4: #71717a;
-  --sl-color-gray-5: #52525b;
-  --sl-color-gray-6: #27272a;
-  --sl-color-gray-7: #18181b;
-  --sl-color-black: #09090b;
-
-  --sl-font: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, sans-serif;
-  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
-    Consolas, monospace;
-}
-
-:root[data-theme="dark"] {
+  /* Checkstack purple accent (dark mode) */
   --sl-color-accent-low: #2e1065;
   --sl-color-accent: #a78bfa;
   --sl-color-accent-high: #ede9fe;
@@ -44,6 +30,31 @@
   --sl-color-gray-6: #18181b;
   --sl-color-gray-7: #0e0e10;
   --sl-color-black: #09090b;
+
+  --sl-font: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+}
+
+/* Light theme: the inverted zinc ramp (dark text on light surfaces), mirroring
+ * how Starlight's own `[data-theme='light']` flips its ramp. Because this block
+ * is also unlayered, it wins over both the base `:root` above and Starlight's
+ * layered light rules, so the background and surfaces read light. */
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ede9fe;
+  --sl-color-accent: #7c3aed;
+  --sl-color-accent-high: #4c1d95;
+
+  --sl-color-white: #18181b;
+  --sl-color-gray-1: #27272a;
+  --sl-color-gray-2: #3f3f46;
+  --sl-color-gray-3: #52525b;
+  --sl-color-gray-4: #71717a;
+  --sl-color-gray-5: #d4d4d8;
+  --sl-color-gray-6: #e4e4e7;
+  --sl-color-gray-7: #f4f4f5;
+  --sl-color-black: #ffffff;
 }
 
 /* Slightly tighter heading rhythm and a subtle accent bar on H1, matching
