@@ -16,6 +16,7 @@
 "@checkstack/automation-frontend": minor
 "@checkstack/integration-frontend": minor
 "@checkstack/announcement-frontend": minor
+"@checkstack/infrastructure-frontend": minor
 ---
 
 Migrate every list table to the shared `DataTable`, so columns can now be
@@ -33,4 +34,6 @@ primitive, so every table's edit/delete/etc. look identical (a subtle ghost
 icon button; destructive tinted red, confirmatory tinted green, never a loud
 filled button). Redundant section headings that merely echoed the page title on
 single-table pages (Incidents, Maintenances, SLO Objectives, Installed Plugins,
-Satellite Nodes) were removed.
+Satellite Nodes) were removed. The Infrastructure Settings tab rail gained an
+accessible `Infrastructure settings` navigation label so its tab buttons stay
+distinguishable from the new sortable column-header buttons in each tab's table.

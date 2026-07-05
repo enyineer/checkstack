@@ -229,11 +229,10 @@ test.describe("Health checks (empty state)", () => {
     await expect(
       page.getByRole("heading", { name: "Run History" }),
     ).toBeVisible();
-    // Empty in-table message from HealthCheckRunsTable's default. Scope to the
-    // desktop table cell: the ResponsiveTable's display:none MobileCardList
-    // renders the same empty-state text, which would trip strict mode.
+    // Empty-state message from HealthCheckRunsTable's default. It now renders in
+    // the DataTable's empty-state Card (not a table cell), so match by text.
     await expect(
-      page.getByRole("cell", { name: "No health check runs found." }),
+      page.getByText("No health check runs found."),
     ).toBeVisible();
   });
 });
@@ -252,11 +251,6 @@ test.describe("Satellites (empty state)", () => {
       page.getByText(
         "Manage distributed satellite nodes for remote health check execution",
       ),
-    ).toBeVisible();
-
-    // The "Satellite Nodes" card is always present.
-    await expect(
-      page.getByText("Satellite Nodes", { exact: true }),
     ).toBeVisible();
 
     // The header action button to register a satellite.

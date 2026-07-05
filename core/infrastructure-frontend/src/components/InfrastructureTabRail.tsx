@@ -31,7 +31,10 @@ export const InfrastructureTabRail = ({
   onSelect,
 }: InfrastructureTabRailProps) => {
   return (
-    <nav className="flex w-52 shrink-0 flex-col gap-1 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-2 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+    <nav
+      aria-label="Infrastructure settings"
+      className="flex w-52 shrink-0 flex-col gap-1 rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-2 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
+    >
       {tabs.map(({ id, label, icon: Icon }) => {
         const isActive = id === activeTabId;
         return (

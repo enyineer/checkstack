@@ -1,4 +1,19 @@
-import { test, expect } from "@checkstack/test-utils-frontend/playwright";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+} from "@checkstack/test-utils-frontend/playwright";
+
+/**
+ * The left tab-rail entry ("Queue" / "Cache"), scoped to the tab-rail nav so it
+ * never collides with a same-named column-header sort button in the active
+ * tab's data table (e.g. the Queue runtime table's "Queue" column).
+ */
+const infraTab = (page: Page, name: string): Locator =>
+  page
+    .getByRole("navigation", { name: "Infrastructure settings" })
+    .getByRole("button", { name, exact: true });
 
 /**
  * Infrastructure Settings (queue / cache) E2E.
@@ -41,10 +56,10 @@ test.describe("infrastructure settings", () => {
 
     // Admin has all access, so every registered tab is present.
     await expect(
-      page.getByRole("button", { name: "Queue" }),
+      infraTab(page, "Queue"),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Cache" }),
+      infraTab(page, "Cache"),
     ).toBeVisible();
   });
 
@@ -57,7 +72,7 @@ test.describe("infrastructure settings", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     // Queue is the lowest-order tab (order 10), so it is the default active tab.
-    await page.getByRole("button", { name: "Queue" }).click();
+    await infraTab(page, "Queue").click();
 
     // Runtime panel header.
     await expect(
@@ -94,7 +109,7 @@ test.describe("infrastructure settings", () => {
       page.getByRole("heading", { name: "Infrastructure Settings" }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Queue" }).click();
+    await infraTab(page, "Queue").click();
     await expect(
       page.getByRole("heading", { name: "Queue Runtime" }),
     ).toBeVisible();
@@ -136,12 +151,12 @@ test.describe("infrastructure settings", () => {
 
     // Start on Queue, verify its content, then switch to Cache and verify the
     // Queue runtime content is gone (the tab body is swapped, not stacked).
-    await page.getByRole("button", { name: "Queue" }).click();
+    await infraTab(page, "Queue").click();
     await expect(
       page.getByRole("heading", { name: "Queue Runtime" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Cache" }).click();
+    await infraTab(page, "Cache").click();
     await expect(
       page.getByRole("heading", { name: "Queue Runtime" }),
     ).toHaveCount(0);
