@@ -13,25 +13,18 @@ import {
 import { Tip } from "@checkstack/tips-frontend";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Button,
   LoadingSpinner,
   EmptyState,
+  ListEmptyState,
   QueryErrorState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   useToast,
   ConfirmationModal,
   PageLayout,
-  ResponsiveTable,
-  MobileCardList,
   toastError,
   cn,
   formatRelativeTime,
@@ -87,6 +80,106 @@ const SatelliteListPageContent: React.FC = () => {
 
   const satelliteList = satellites?.satellites ?? [];
 
+  const columns: DataTableColumn<SatelliteWithStatus>[] = [
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (sat) => sat.name,
+      searchValue: (sat) => `${sat.name} ${sat.id}`,
+      cell: (sat) => {
+        const lock = getLock({ kind: "Satellite", entityId: sat.id });
+        return (
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "h-8 w-1 shrink-0 rounded-full",
+                sat.status === "online" ? "bg-status-ok" : "bg-status-down",
+              )}
+              aria-hidden
+            />
+            {lock.isLocked && lock.provenance && (
+              <GitOpsSourceBadge provenance={lock.provenance} />
+            )}
+            <div>
+              <p className="font-medium text-foreground">{sat.name}</p>
+              <p className="text-xs text-muted-foreground font-mono">
+                {sat.id}
+              </p>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "region",
+      header: "Region",
+      sortValue: (sat) => sat.region,
+      searchValue: (sat) => sat.region,
+      cell: (sat) => (
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5" />
+          {sat.region}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (sat) => sat.status,
+      searchValue: (sat) => sat.status,
+      cell: (sat) => {
+        const lastSeen = formatRelativeTime(sat.lastHeartbeatAt);
+        return (
+          <div className="flex flex-col gap-1">
+            <SatelliteStatusBadge status={sat.status} />
+            {lastSeen && (
+              <span className="text-xs text-muted-foreground">
+                Last seen {lastSeen}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "version",
+      header: "Version",
+      sortValue: (sat) => sat.version ?? "",
+      searchValue: (sat) => sat.version ?? "",
+      cell: (sat) => (
+        <span className="text-sm text-muted-foreground font-mono tabular-nums">
+          {sat.version ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-20",
+      cell: (sat) => {
+        const lock = getLock({ kind: "Satellite", entityId: sat.id });
+        return (
+          <RowActions>
+            <RowAction
+              icon={KeyRound}
+              label={`Reset token for ${sat.name}`}
+              title="Reset token"
+              onClick={() => setRotateTarget(sat)}
+            />
+            <RowAction
+              icon={Trash2}
+              tone="destructive"
+              label={`Delete ${sat.name}`}
+              disabled={lock.isLocked}
+              title={lock.isLocked ? "Managed by GitOps" : "Delete satellite"}
+              onClick={() => setDeleteTarget(sat)}
+            />
+          </RowActions>
+        );
+      },
+    },
+  ];
+
   return (
     <PageLayout
       title="Satellites"
@@ -114,168 +207,60 @@ const SatelliteListPageContent: React.FC = () => {
         <FleetSummaryStrip satellites={satelliteList} />
       )}
 
-      <Card className="border-border/70 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
-        <CardHeader className="border-b border-border bg-gradient-to-b from-surface-2 to-surface">
-          <div className="flex items-center gap-2">
-            <Satellite className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>Satellite Nodes</CardTitle>
+      <div>
+        {isLoading ? (
+          <div className="p-12 flex justify-center">
+            <LoadingSpinner />
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-12 flex justify-center">
-              <LoadingSpinner />
-            </div>
-          ) : satellitesQuery.isError ? (
-            <div className="p-4">
-              <QueryErrorState
-                error={satellitesQuery.error}
-                onRetry={() => void satellitesQuery.refetch()}
+        ) : satellitesQuery.isError ? (
+          <QueryErrorState
+            error={satellitesQuery.error}
+            onRetry={() => void satellitesQuery.refetch()}
+            resource="satellites"
+          />
+        ) : satelliteList.length === 0 ? (
+          <EmptyState
+            icon={<Satellite className="size-10" />}
+            title="No satellites yet"
+            description="A satellite is a small Checkstack agent you run somewhere else - another region, another VPC, a customer site - that executes health checks and reports results back to this server. You only need them if you want checks to run from a vantage point this server can't reach itself."
+            steps={[
+              "Create a satellite here to mint a registration token.",
+              "Deploy the satellite container or binary on the target machine using that token.",
+              "Once it's online, assign health checks to it on a per-check basis - TCP, HTTP, ping etc. all support satellite execution.",
+            ]}
+            actions={
+              canManage ? (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create satellite
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <DataTable
+            data={satelliteList}
+            columns={columns}
+            getRowId={(sat) => sat.id}
+            defaultSort={{ columnId: "name", direction: "asc" }}
+            searchPlaceholder="Search satellites..."
+            noResultsState={
+              <ListEmptyState
                 resource="satellites"
+                description="No satellites match the current search."
               />
-            </div>
-          ) : satelliteList.length === 0 ? (
-            <EmptyState
-              icon={<Satellite className="size-10" />}
-              title="No satellites yet"
-              description="A satellite is a small Checkstack agent you run somewhere else - another region, another VPC, a customer site - that executes health checks and reports results back to this server. You only need them if you want checks to run from a vantage point this server can't reach itself."
-              steps={[
-                "Create a satellite here to mint a registration token.",
-                "Deploy the satellite container or binary on the target machine using that token.",
-                "Once it's online, assign health checks to it on a per-check basis - TCP, HTTP, ping etc. all support satellite execution.",
-              ]}
-              actions={
-                canManage ? (
-                  <Button onClick={() => setCreateOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create satellite
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Region</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Version</TableHead>
-                      <TableHead className="w-20">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {satelliteList.map((sat) => {
-                      const lock = getLock({
-                        kind: "Satellite",
-                        entityId: sat.id,
-                      });
-                      const lastSeen = formatRelativeTime(
-                        sat.lastHeartbeatAt,
-                      );
-                      return (
-                        <TableRow
-                          key={sat.id}
-                          className="transition-colors hover:bg-surface-inset"
-                        >
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <span
-                                className={cn(
-                                  "h-8 w-1 shrink-0 rounded-full",
-                                  sat.status === "online"
-                                    ? "bg-status-ok"
-                                    : "bg-status-down",
-                                )}
-                                aria-hidden
-                              />
-                              {lock.isLocked && lock.provenance && (
-                                <GitOpsSourceBadge
-                                  provenance={lock.provenance}
-                                />
-                              )}
-                              <div>
-                                <p className="font-medium text-foreground">
-                                  {sat.name}
-                                </p>
-                                <p className="text-xs text-muted-foreground font-mono">
-                                  {sat.id}
-                                </p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                              <MapPin className="h-3.5 w-3.5" />
-                              {sat.region}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <SatelliteStatusBadge status={sat.status} />
-                              {lastSeen && (
-                                <span className="text-xs text-muted-foreground">
-                                  Last seen {lastSeen}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground font-mono tabular-nums">
-                              {sat.version ?? "—"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="Reset token"
-                                aria-label={`Reset token for ${sat.name}`}
-                                onClick={() => setRotateTarget(sat)}
-                              >
-                                <KeyRound className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={lock.isLocked}
-                                title={
-                                  lock.isLocked
-                                    ? "Managed by GitOps"
-                                    : "Delete satellite"
-                                }
-                                aria-label={`Delete ${sat.name}`}
-                                onClick={() => setDeleteTarget(sat)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-2">
-                {satelliteList.map((sat) => (
-                  <SatelliteMobileCard
-                    key={sat.id}
-                    satellite={sat}
-                    lock={getLock({ kind: "Satellite", entityId: sat.id })}
-                    onRotate={setRotateTarget}
-                    onDelete={setDeleteTarget}
-                  />
-                ))}
-              </MobileCardList>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            }
+            renderMobileCard={(sat) => (
+              <SatelliteMobileCard
+                satellite={sat}
+                lock={getLock({ kind: "Satellite", entityId: sat.id })}
+                onRotate={setRotateTarget}
+                onDelete={setDeleteTarget}
+              />
+            )}
+          />
+        )}
+      </div>
 
       <CreateSatelliteDialog
         open={createOpen}

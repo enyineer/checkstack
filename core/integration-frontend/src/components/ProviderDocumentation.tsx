@@ -1,10 +1,5 @@
 import { useState } from "react";
-import {
-  Button,
-  Badge,
-  MarkdownBlock,
-  MobileCardList,
-} from "@checkstack/ui";
+import { Button, Badge, MarkdownBlock } from "@checkstack/ui";
 import { ChevronDown, ChevronUp, ExternalLink, FileJson } from "lucide-react";
 import type { IntegrationProviderInfo } from "@checkstack/integration-common";
 
@@ -117,7 +112,7 @@ export const ProviderDocumentation = ({
                   </dl>
                 </div>
 
-                <MobileCardList className="gap-0 divide-y divide-border/60">
+                <div className="flex flex-col divide-y divide-border/60 sm:hidden">
                   {documentation.headers.map((header) => (
                     <div key={header.name} className="px-3 py-2">
                       <div className="break-all font-mono text-sm text-foreground">
@@ -128,7 +123,7 @@ export const ProviderDocumentation = ({
                       </div>
                     </div>
                   ))}
-                </MobileCardList>
+                </div>
               </div>
             </div>
           )}

@@ -19,23 +19,14 @@ import {
 import { Tip } from "@checkstack/tips-frontend";
 import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import {
-  Card,
-  CardHeader,
-  CardHeaderRow,
-  CardTitle,
-  CardContent,
   Button,
   LoadingSpinner,
   EmptyState,
   QueryErrorState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Select,
   SelectTrigger,
   SelectValue,
@@ -46,6 +37,7 @@ import {
   ConfirmationModal,
   PageLayout,
   toastError,
+  cn,
 } from "@checkstack/ui";
 import {
   Plus,
@@ -63,6 +55,7 @@ import {
   getMaintenanceStatusBadge,
   getMaintenanceStatusTone,
   getMaintenanceToneAccentClass,
+  maintenanceStatusRank,
 } from "../utils/badges";
 import {
   canComplete,
@@ -72,7 +65,6 @@ import {
   pruneSelection,
   summarizeBulkOutcome,
 } from "./maintenanceConfig.logic";
-import { cn } from "@checkstack/ui";
 
 const MaintenanceConfigPageContent: React.FC = () => {
   const maintenanceClient = usePluginClient(MaintenanceApi);
@@ -314,6 +306,120 @@ const MaintenanceConfigPageContent: React.FC = () => {
     void refetchMaintenances();
   };
 
+  const columns: DataTableColumn<MaintenanceWithSystems>[] = [
+    {
+      id: "select",
+      headClassName: "w-8",
+      header: "",
+      cellClassName: "pr-0",
+      cell: (maintenance) =>
+        canAccess(maintenance.id) ? (
+          <Checkbox
+            checked={selectedIds.has(maintenance.id)}
+            onCheckedChange={() => toggleOne(maintenance.id)}
+            aria-label={`Select maintenance ${maintenance.title}`}
+          />
+        ) : null,
+    },
+    {
+      id: "title",
+      header: "Title",
+      sortValue: (maintenance) => maintenance.title,
+      cell: (maintenance) => (
+        <div className="relative pl-3">
+          <span
+            className={cn(
+              "absolute inset-y-0 left-0 w-1 rounded-full",
+              getMaintenanceToneAccentClass(
+                getMaintenanceStatusTone(maintenance.status),
+              ),
+            )}
+            aria-hidden
+          />
+          <p className="font-medium">{maintenance.title}</p>
+          {maintenance.description && (
+            <p className="text-sm text-muted-foreground truncate max-w-xs">
+              {maintenance.description}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (maintenance) => maintenanceStatusRank[maintenance.status],
+      cell: (maintenance) => getMaintenanceStatusBadge(maintenance.status),
+    },
+    {
+      id: "systems",
+      header: "Systems",
+      cellClassName: "text-sm text-muted-foreground",
+      cell: (maintenance) =>
+        summarizeSystemNames({ systemIds: maintenance.systemIds, systems }),
+    },
+    {
+      id: "schedule",
+      header: "Schedule",
+      sortValue: (maintenance) => new Date(maintenance.startAt).getTime(),
+      cell: (maintenance) => (
+        <>
+          <MaintenanceScheduleHero
+            startAt={maintenance.startAt}
+            endAt={maintenance.endAt}
+          />
+          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              <span>
+                {format(new Date(maintenance.startAt), "MMM d, HH:mm")}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              <span>
+                {format(new Date(maintenance.endAt), "MMM d, HH:mm")}
+              </span>
+            </div>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-32",
+      cell: (maintenance) => (
+        <RowActions>
+          {canAccess(maintenance.id) && (
+            <RowAction
+              icon={Edit2}
+              label={`Edit ${maintenance.title}`}
+              onClick={() => handleEdit(maintenance)}
+            />
+          )}
+          {canAccess(maintenance.id) &&
+            canComplete({ status: maintenance.status }) && (
+              <RowAction
+                icon={CheckCircle2}
+                label={`Complete ${maintenance.title}`}
+                tone="success"
+                onClick={() => setCompleteId(maintenance.id)}
+              />
+            )}
+          {canAccess(maintenance.id) && (
+            <RowAction
+              icon={Trash2}
+              label={`Delete ${maintenance.title}`}
+              tone="destructive"
+              onClick={() => setDeleteId(maintenance.id)}
+            />
+          )}
+        </RowActions>
+      ),
+    },
+  ];
+
   return (
     <PageLayout
       title="Planned Maintenances"
@@ -337,334 +443,208 @@ const MaintenanceConfigPageContent: React.FC = () => {
         </Tip>
       }
     >
-      <Card>
-        <CardHeader className="border-b border-border">
-          <CardHeaderRow>
-            <div className="flex items-center gap-2">
-              <Wrench className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Maintenances</CardTitle>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-              <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={showCompleted}
-                  onChange={(e) => setShowCompleted(e.target.checked)}
-                  className="rounded border-border"
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
+        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={showCompleted}
+            onChange={(e) => setShowCompleted(e.target.checked)}
+            className="rounded border-border"
+          />
+          Show completed
+        </label>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as MaintenanceStatus | "all")}
+        >
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="scheduled">Scheduled</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center p-12">
+          <LoadingSpinner />
+        </div>
+      ) : maintenancesQuery.isError ? (
+        <QueryErrorState
+          error={maintenancesQuery.error}
+          onRetry={() => void maintenancesQuery.refetch()}
+          resource="maintenances"
+        />
+      ) : (
+        <>
+          {selectableIds.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-inset/60 px-4 py-2">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all maintenances"
                 />
-                Show completed
+                <span className="text-muted-foreground">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : "Select all"}
+                </span>
               </label>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) =>
-                  setStatusFilter(v as MaintenanceStatus | "all")
-                }
-              >
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="scheduled">Scheduled</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeaderRow>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-12 flex justify-center">
-              <LoadingSpinner />
-            </div>
-          ) : maintenancesQuery.isError ? (
-            <div className="p-4">
-              <QueryErrorState
-                error={maintenancesQuery.error}
-                onRetry={() => void maintenancesQuery.refetch()}
-                resource="maintenances"
-              />
-            </div>
-          ) : maintenances.length === 0 ? (
-            <EmptyState
-              icon={<Wrench className="size-10" />}
-              title="No planned maintenances"
-              description="A maintenance window tells Checkstack “this system is expected to be down or degraded” for a defined period. Failed health checks during the window are still recorded but are treated as expected - the system is flagged as “in maintenance” on the public status page, and notifications about it are suppressed."
-              steps={[
-                "Click “Create Maintenance” and pick the systems that will be affected.",
-                "Set a start time, end time, and a short summary your users will see.",
-                "Subscribers (groups, status page subscribers, integrations) are notified automatically when the window starts and ends.",
-              ]}
-              actions={
-                canManage ? (
-                  <Button onClick={handleCreate}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Schedule maintenance
+              {selectedIds.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkCompleteOpen(true)}
+                    disabled={completableSelected.length === 0}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
+                    Mass complete
                   </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              {selectableIds.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-inset/60 px-4 py-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="Select all maintenances"
-                    />
-                    <span className="text-muted-foreground">
-                      {selectedIds.size > 0
-                        ? `${selectedIds.size} selected`
-                        : "Select all"}
-                    </span>
-                  </label>
-                  {selectedIds.size > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkCompleteOpen(true)}
-                        disabled={completableSelected.length === 0}
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
-                        Mass complete
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkDeleteOpen(true)}
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Mass delete
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedIds(new Set())}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Mass delete
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
                 </div>
               )}
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8" aria-hidden />
-                      <TableHead>Title</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Systems</TableHead>
-                      <TableHead>Schedule</TableHead>
-                      <TableHead className="w-32">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {maintenances.map((m) => (
-                      <TableRow
-                        key={m.id}
-                        data-state={
-                          selectedIds.has(m.id) ? "selected" : undefined
-                        }
-                        className="hover:bg-surface-inset"
-                      >
-                        <TableCell className="pr-0">
-                          {canAccess(m.id) && (
-                            <Checkbox
-                              checked={selectedIds.has(m.id)}
-                              onCheckedChange={() => toggleOne(m.id)}
-                              aria-label={`Select maintenance ${m.title}`}
-                            />
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="relative pl-3">
-                            <span
-                              className={cn(
-                                "absolute inset-y-0 left-0 w-1 rounded-full",
-                                getMaintenanceToneAccentClass(
-                                  getMaintenanceStatusTone(m.status),
-                                ),
-                              )}
-                              aria-hidden
-                            />
-                            <p className="font-medium">{m.title}</p>
-                            {m.description && (
-                              <p className="text-sm text-muted-foreground truncate max-w-xs">
-                                {m.description}
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {getMaintenanceStatusBadge(m.status)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {summarizeSystemNames({ systemIds: m.systemIds, systems })}
-                        </TableCell>
-                        <TableCell>
-                          <MaintenanceScheduleHero
-                            startAt={m.startAt}
-                            endAt={m.endAt}
-                          />
-                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>
-                                {format(new Date(m.startAt), "MMM d, HH:mm")}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              <span>
-                                {format(new Date(m.endAt), "MMM d, HH:mm")}
-                              </span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {canAccess(m.id) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(m)}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {canAccess(m.id) && canComplete({ status: m.status }) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setCompleteId(m.id)}
-                              >
-                                <CheckCircle2 className="h-4 w-4 text-success" />
-                              </Button>
-                            )}
-                            {canAccess(m.id) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteId(m.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-4">
-                {maintenances.map((m) => (
-                  <div
-                    key={m.id}
-                    data-state={selectedIds.has(m.id) ? "selected" : undefined}
-                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
-                  >
-                    <span
-                        className={cn(
-                          "absolute inset-y-0 left-0 w-1",
-                          getMaintenanceToneAccentClass(
-                            getMaintenanceStatusTone(m.status),
-                          ),
-                        )}
-                        aria-hidden
-                      />
-                      <div className="flex items-start justify-between gap-2 pl-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {canAccess(m.id) && (
-                            <Checkbox
-                              checked={selectedIds.has(m.id)}
-                              onCheckedChange={() => toggleOne(m.id)}
-                              aria-label={`Select maintenance ${m.title}`}
-                            />
-                          )}
-                          <p className="min-w-0 truncate font-medium">
-                            {m.title}
-                          </p>
-                        </div>
-                        {getMaintenanceStatusBadge(m.status)}
-                      </div>
-                      {m.description && (
-                        <p className="mt-1 truncate pl-2 text-xs text-muted-foreground">
-                          {m.description}
-                        </p>
-                      )}
-                      <div className="mt-3 pl-2">
-                        <MaintenanceScheduleHero
-                          startAt={m.startAt}
-                          endAt={m.endAt}
-                        />
-                      </div>
-                      {m.systemIds.length > 0 && (
-                        <p className="mt-2 pl-2 text-xs text-muted-foreground">
-                          {summarizeSystemNames({
-                            systemIds: m.systemIds,
-                            systems,
-                          })}
-                        </p>
-                      )}
-                      <div className="mt-2 space-y-1 pl-2 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>
-                            {format(new Date(m.startAt), "MMM d, HH:mm")}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          <span>
-                            {format(new Date(m.endAt), "MMM d, HH:mm")}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex justify-end gap-2">
-                        {canAccess(m.id) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(m)}
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {canAccess(m.id) && canComplete({ status: m.status }) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setCompleteId(m.id)}
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-success" />
-                          </Button>
-                        )}
-                        {canAccess(m.id) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteId(m.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                ))}
-              </MobileCardList>
-            </>
+            </div>
           )}
-        </CardContent>
-      </Card>
+
+          <DataTable
+            data={maintenances}
+            columns={columns}
+            getRowId={(maintenance) => maintenance.id}
+            searchable={false}
+            getRowProps={(maintenance) => ({
+              selected: selectedIds.has(maintenance.id),
+              className: "hover:bg-surface-inset",
+            })}
+            emptyState={
+              <EmptyState
+                icon={<Wrench className="size-10" />}
+                title="No planned maintenances"
+                description="A maintenance window tells Checkstack “this system is expected to be down or degraded” for a defined period. Failed health checks during the window are still recorded but are treated as expected - the system is flagged as “in maintenance” on the public status page, and notifications about it are suppressed."
+                steps={[
+                  "Click “Create Maintenance” and pick the systems that will be affected.",
+                  "Set a start time, end time, and a short summary your users will see.",
+                  "Subscribers (groups, status page subscribers, integrations) are notified automatically when the window starts and ends.",
+                ]}
+                actions={
+                  canManage ? (
+                    <Button onClick={handleCreate}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Schedule maintenance
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+            renderMobileCard={(m) => (
+              <div
+                data-state={selectedIds.has(m.id) ? "selected" : undefined}
+                className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
+              >
+                <span
+                  className={cn(
+                    "absolute inset-y-0 left-0 w-1",
+                    getMaintenanceToneAccentClass(
+                      getMaintenanceStatusTone(m.status),
+                    ),
+                  )}
+                  aria-hidden
+                />
+                <div className="flex items-start justify-between gap-2 pl-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {canAccess(m.id) && (
+                      <Checkbox
+                        checked={selectedIds.has(m.id)}
+                        onCheckedChange={() => toggleOne(m.id)}
+                        aria-label={`Select maintenance ${m.title}`}
+                      />
+                    )}
+                    <p className="min-w-0 truncate font-medium">{m.title}</p>
+                  </div>
+                  {getMaintenanceStatusBadge(m.status)}
+                </div>
+                {m.description && (
+                  <p className="mt-1 truncate pl-2 text-xs text-muted-foreground">
+                    {m.description}
+                  </p>
+                )}
+                <div className="mt-3 pl-2">
+                  <MaintenanceScheduleHero
+                    startAt={m.startAt}
+                    endAt={m.endAt}
+                  />
+                </div>
+                {m.systemIds.length > 0 && (
+                  <p className="mt-2 pl-2 text-xs text-muted-foreground">
+                    {summarizeSystemNames({
+                      systemIds: m.systemIds,
+                      systems,
+                    })}
+                  </p>
+                )}
+                <div className="mt-2 space-y-1 pl-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>
+                      {format(new Date(m.startAt), "MMM d, HH:mm")}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    <span>{format(new Date(m.endAt), "MMM d, HH:mm")}</span>
+                  </div>
+                </div>
+                <RowActions className="mt-3">
+                  {canAccess(m.id) && (
+                    <RowAction
+                      icon={Edit2}
+                      label={`Edit ${m.title}`}
+                      onClick={() => handleEdit(m)}
+                    />
+                  )}
+                  {canAccess(m.id) && canComplete({ status: m.status }) && (
+                    <RowAction
+                      icon={CheckCircle2}
+                      label={`Complete ${m.title}`}
+                      tone="success"
+                      onClick={() => setCompleteId(m.id)}
+                    />
+                  )}
+                  {canAccess(m.id) && (
+                    <RowAction
+                      icon={Trash2}
+                      label={`Delete ${m.title}`}
+                      tone="destructive"
+                      onClick={() => setDeleteId(m.id)}
+                    />
+                  )}
+                </RowActions>
+              </div>
+            )}
+          />
+        </>
+      )}
 
       <MaintenanceEditor
         open={editorOpen}

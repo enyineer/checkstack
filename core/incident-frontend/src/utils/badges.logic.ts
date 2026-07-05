@@ -46,6 +46,30 @@ export const toneStyles: Record<
   },
 };
 
+/**
+ * Impact rank for incident severity: highest impact sorts first (lowest
+ * number), mirroring the severity badge/dot order. Derived from the raw enum
+ * so table sorting matches urgency instead of alphabetical order.
+ */
+export const incidentSeverityRank: Record<IncidentSeverity, number> = {
+  critical: 0,
+  major: 1,
+  minor: 2,
+};
+
+/**
+ * Lifecycle rank for incident status: active/open stages sort before resolved,
+ * following the incident lifecycle (investigating -> ... -> resolved). Derived
+ * from the raw enum so ascending sort surfaces the most urgent first.
+ */
+export const incidentStatusRank: Record<IncidentStatus, number> = {
+  investigating: 0,
+  identified: 1,
+  fixing: 2,
+  monitoring: 3,
+  resolved: 4,
+};
+
 /** Maps an incident status to its triad tone + human label. */
 export function presentIncidentStatus(status: IncidentStatus): {
   tone: StatusTone;

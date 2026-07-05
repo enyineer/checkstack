@@ -63,6 +63,18 @@ const StatusPill: React.FC<{ tone: StatusTone; label: string }> = ({
   );
 };
 
+/**
+ * Impact rank for maintenance status: active windows sort first, then upcoming,
+ * then finished. Derived from the raw enum so ascending table sort surfaces the
+ * live/soon windows before completed or cancelled ones.
+ */
+export const maintenanceStatusRank: Record<MaintenanceStatus, number> = {
+  in_progress: 0,
+  scheduled: 1,
+  completed: 2,
+  cancelled: 3,
+};
+
 /** Maps a maintenance status to its triad tone + human label. */
 function presentMaintenanceStatus(status: MaintenanceStatus): {
   tone: StatusTone;

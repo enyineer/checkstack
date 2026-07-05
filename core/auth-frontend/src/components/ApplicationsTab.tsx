@@ -5,14 +5,10 @@ import {
   CardHeaderRow,
   CardTitle,
   CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Button,
   Checkbox,
   Input,
@@ -169,6 +165,50 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
     regenerateSecretMutation.mutate(applicationToRegenerateSecret.id);
   };
 
+  const appList = applications as Application[];
+
+  const columns: DataTableColumn<Application>[] = [
+    {
+      id: "application",
+      header: "Application",
+      sortValue: (app) => app.name,
+      searchValue: (app) => `${app.name} ${app.description ?? ""}`,
+      cell: (app) => <ApplicationIdentity app={app} />,
+    },
+    {
+      id: "roles",
+      header: "Roles",
+      cell: (app) => (
+        <ApplicationRoles
+          app={app}
+          roles={roles}
+          canManageApplications={canManageApplications}
+          onToggleRole={handleToggleApplicationRole}
+        />
+      ),
+    },
+    {
+      id: "lastUsed",
+      header: "Last Used",
+      sortValue: (app) =>
+        app.lastUsedAt ? new Date(app.lastUsedAt).getTime() : null,
+      cell: (app) => <ApplicationLastUsed lastUsedAt={app.lastUsedAt} />,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (app) => (
+        <ApplicationActions
+          app={app}
+          onRegenerate={setApplicationToRegenerateSecret}
+          onDelete={setApplicationToDelete}
+        />
+      ),
+    },
+  ];
+
   return (
     <>
       <Card>
@@ -196,80 +236,47 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
             <div className="flex justify-center py-4">
               <LoadingSpinner />
             </div>
-          ) : (applications as Application[]).length === 0 ? (
-            <p className="text-muted-foreground">
-              No external applications configured yet.
-            </p>
           ) : (
-            <>
-              <ResponsiveTable className="rounded-md border bg-card">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Application</TableHead>
-                      <TableHead>Roles</TableHead>
-                      <TableHead>Last Used</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(applications as Application[]).map((app) => (
-                      <TableRow key={app.id}>
-                        <TableCell>
-                          <ApplicationIdentity app={app} />
-                        </TableCell>
-                        <TableCell>
-                          <ApplicationRoles
-                            app={app}
-                            roles={roles}
-                            canManageApplications={canManageApplications}
-                            onToggleRole={handleToggleApplicationRole}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <ApplicationLastUsed lastUsedAt={app.lastUsedAt} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <ApplicationActions
-                              app={app}
-                              onRegenerate={setApplicationToRegenerateSecret}
-                              onDelete={setApplicationToDelete}
-                            />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList>
-                {(applications as Application[]).map((app) => (
-                  <Card key={app.id} className="p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <ApplicationIdentity app={app} />
-                      <ApplicationLastUsed lastUsedAt={app.lastUsedAt} />
-                    </div>
-                    <div className="mt-3">
-                      <ApplicationRoles
-                        app={app}
-                        roles={roles}
-                        canManageApplications={canManageApplications}
-                        onToggleRole={handleToggleApplicationRole}
-                      />
-                    </div>
-                    <div className="mt-3 flex justify-end gap-2">
-                      <ApplicationActions
-                        app={app}
-                        onRegenerate={setApplicationToRegenerateSecret}
-                        onDelete={setApplicationToDelete}
-                      />
-                    </div>
-                  </Card>
-                ))}
-              </MobileCardList>
-            </>
+            <DataTable
+              data={appList}
+              columns={columns}
+              getRowId={(app) => app.id}
+              searchPlaceholder="Search applications..."
+              defaultSort={{ columnId: "application", direction: "asc" }}
+              emptyState={
+                <p className="text-muted-foreground">
+                  No external applications configured yet.
+                </p>
+              }
+              noResultsState={
+                <p className="text-muted-foreground">
+                  No applications match your search.
+                </p>
+              }
+              renderMobileCard={(app) => (
+                <Card className="p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <ApplicationIdentity app={app} />
+                    <ApplicationLastUsed lastUsedAt={app.lastUsedAt} />
+                  </div>
+                  <div className="mt-3">
+                    <ApplicationRoles
+                      app={app}
+                      roles={roles}
+                      canManageApplications={canManageApplications}
+                      onToggleRole={handleToggleApplicationRole}
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <ApplicationActions
+                      app={app}
+                      onRegenerate={setApplicationToRegenerateSecret}
+                      onDelete={setApplicationToDelete}
+                    />
+                  </div>
+                </Card>
+              )}
+            />
           )}
 
           {!canManageApplications && (
@@ -499,17 +506,18 @@ const ApplicationActions: React.FC<{
   onRegenerate: (target: { id: string; name: string }) => void;
   onDelete: (id: string) => void;
 }> = ({ app, onRegenerate, onDelete }) => (
-  <>
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => onRegenerate({ id: app.id, name: app.name })}
+  <RowActions>
+    <RowAction
+      icon={RotateCcw}
+      label={`Regenerate secret for ${app.name}`}
       title="Regenerate Secret"
-    >
-      <RotateCcw className="h-4 w-4" />
-    </Button>
-    <Button variant="ghost" size="sm" onClick={() => onDelete(app.id)}>
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  </>
+      onClick={() => onRegenerate({ id: app.id, name: app.name })}
+    />
+    <RowAction
+      icon={Trash2}
+      label={`Delete ${app.name}`}
+      tone="destructive"
+      onClick={() => onDelete(app.id)}
+    />
+  </RowActions>
 );

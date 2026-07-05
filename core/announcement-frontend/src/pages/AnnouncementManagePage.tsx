@@ -32,14 +32,10 @@ import {
   LoadingSpinner,
   EmptyState,
   QueryErrorState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Select,
   SelectTrigger,
   SelectValue,
@@ -558,6 +554,99 @@ const AnnouncementManageContent: React.FC = () => {
     void refetch();
   };
 
+  // Announcement order is operator-controlled (the up/down arrows), so the
+  // table is intentionally NOT sortable: sorting a column would desync the
+  // index-based reorder controls from the visible row order. A plain lookup
+  // from id to its position in the ordered list feeds each row's controls.
+  const indexById = new Map<string, number>();
+  for (const [index, a] of listedAnnouncements.entries()) {
+    indexById.set(a.id, index);
+  }
+
+  const columns: DataTableColumn<Announcement>[] = [
+    {
+      id: "title",
+      header: "Title",
+      cell: (a) => (
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              toneStyles[statusToTone(getAnnouncementStatus(a))].dot,
+            )}
+            aria-hidden
+          />
+          <p className="max-w-xs truncate font-medium text-foreground">
+            {a.title}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "severity",
+      header: "Severity",
+      cell: (a) => <SeverityBadge severity={a.severity} />,
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (a) => <StatusBadge announcement={a} />,
+    },
+    {
+      id: "display",
+      header: "Display",
+      cell: (a) => <DisplayModeIcon mode={a.displayMode} />,
+    },
+    {
+      id: "visibility",
+      header: "Visibility",
+      cell: (a) => <VisibilityIcon visibility={a.visibility} />,
+    },
+    {
+      id: "created",
+      header: "Created",
+      cell: (a) => (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          <span>
+            {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-40",
+      cell: (a) => {
+        const index = indexById.get(a.id) ?? 0;
+        return (
+          <div className="flex items-center gap-1">
+            <ReorderControls
+              index={index}
+              count={listedAnnouncements.length}
+              disabled={reorderDisabled}
+              onMove={(direction) => handleMove(index, direction)}
+            />
+            <RowActions>
+              <RowAction
+                icon={Edit2}
+                label="Edit announcement"
+                onClick={() => handleEdit(a)}
+              />
+              <RowAction
+                icon={Trash2}
+                label="Delete announcement"
+                tone="destructive"
+                onClick={() => setDeleteId(a.id)}
+              />
+            </RowActions>
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <PageLayout
       title="Announcement Management"
@@ -625,102 +714,18 @@ const AnnouncementManageContent: React.FC = () => {
               }
             />
           ) : (
-            <>
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Display</TableHead>
-                      <TableHead>Visibility</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="w-40">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {listedAnnouncements.map((a, index) => (
-                      <TableRow
-                        key={a.id}
-                        className="transition-colors hover:bg-surface-inset"
-                      >
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={cn(
-                                "size-1.5 shrink-0 rounded-full",
-                                toneStyles[
-                                  statusToTone(getAnnouncementStatus(a))
-                                ].dot,
-                              )}
-                              aria-hidden
-                            />
-                            <p className="max-w-xs truncate font-medium text-foreground">
-                              {a.title}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <SeverityBadge severity={a.severity} />
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge announcement={a} />
-                        </TableCell>
-                        <TableCell>
-                          <DisplayModeIcon mode={a.displayMode} />
-                        </TableCell>
-                        <TableCell>
-                          <VisibilityIcon visibility={a.visibility} />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            <span>
-                              {formatDistanceToNow(new Date(a.createdAt), {
-                                addSuffix: true,
-                              })}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <ReorderControls
-                              index={index}
-                              count={listedAnnouncements.length}
-                              disabled={reorderDisabled}
-                              onMove={(direction) => handleMove(index, direction)}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label="Edit announcement"
-                              onClick={() => handleEdit(a)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label="Delete announcement"
-                              onClick={() => setDeleteId(a.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-4">
-                {listedAnnouncements.map((a, index) => (
-                  <div
-                    key={a.id}
-                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
-                  >
+            <DataTable
+              data={listedAnnouncements}
+              columns={columns}
+              getRowId={(a) => a.id}
+              searchable={false}
+              getRowProps={() => ({
+                className: "transition-colors hover:bg-surface-inset",
+              })}
+              renderMobileCard={(a) => {
+                const index = indexById.get(a.id) ?? 0;
+                return (
+                  <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
                     <span
                       className={cn(
                         "absolute inset-y-0 left-0 w-1",
@@ -746,34 +751,31 @@ const AnnouncementManageContent: React.FC = () => {
                         })}
                       </span>
                     </div>
-                    <div className="mt-3 flex justify-end gap-1 pl-2">
+                    <div className="mt-3 flex items-center justify-end gap-1 pl-2">
                       <ReorderControls
                         index={index}
                         count={listedAnnouncements.length}
                         disabled={reorderDisabled}
                         onMove={(direction) => handleMove(index, direction)}
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Edit announcement"
-                        onClick={() => handleEdit(a)}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Delete announcement"
-                        onClick={() => setDeleteId(a.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <RowActions>
+                        <RowAction
+                          icon={Edit2}
+                          label="Edit announcement"
+                          onClick={() => handleEdit(a)}
+                        />
+                        <RowAction
+                          icon={Trash2}
+                          label="Delete announcement"
+                          tone="destructive"
+                          onClick={() => setDeleteId(a.id)}
+                        />
+                      </RowActions>
                     </div>
                   </div>
-                ))}
-              </MobileCardList>
-            </>
+                );
+              }}
+            />
           )}
         </CardContent>
       </Card>

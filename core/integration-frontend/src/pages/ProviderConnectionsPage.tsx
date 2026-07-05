@@ -26,14 +26,11 @@ import {
   DialogFooter,
   DynamicIcon,
   EmptyState,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  ResponsiveTable,
-  MobileCardList,
+  ListEmptyState,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   DynamicForm,
   Input,
   Label,
@@ -283,6 +280,50 @@ export const ProviderConnectionsPage = () => {
     setDeleteConfirmOpen(true);
   };
 
+  const columns: DataTableColumn<ProviderConnectionRedacted>[] = [
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (conn) => conn.name,
+      searchValue: (conn) => conn.name,
+      cell: (conn) => (
+        <div className="flex items-center gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
+            <DynamicIcon name={providerIcon} className="h-4 w-4" />
+          </span>
+          <span className="font-medium text-foreground">{conn.name}</span>
+        </div>
+      ),
+    },
+    {
+      id: "created",
+      header: "Created",
+      sortValue: (conn) => new Date(conn.createdAt).getTime(),
+      cellClassName: "text-xs text-muted-foreground",
+      cell: (conn) => new Date(conn.createdAt).toLocaleDateString(),
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (conn) => <ConnectionStatus testResult={testResults[conn.id]} />,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (conn) => (
+        <ConnectionActions
+          connection={conn}
+          isTesting={testingId === conn.id}
+          onTest={handleTest}
+          onEdit={openEditDialog}
+          onDelete={openDeleteConfirm}
+        />
+      ),
+    },
+  ];
+
   if (!providerId) {
     return (
       <PageLayout title="Error" icon={Settings2}>
@@ -358,123 +399,58 @@ export const ProviderConnectionsPage = () => {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
-          <div className="flex items-center gap-2 border-b border-border/60 p-[var(--d-pad)]">
-            <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
-              <DynamicIcon
-                name={providerIcon}
-                className="h-4 w-4"
-              />
-            </span>
-            <span className="text-sm font-semibold text-foreground">
-              Connections
-            </span>
-          </div>
+        <DataTable
+          data={connections}
+          columns={columns}
+          getRowId={(conn) => conn.id}
+          searchPlaceholder="Search connections..."
+          noResultsState={
+            <ListEmptyState
+              resource="connections"
+              description="No connections match your search."
+            />
+          }
+          renderMobileCard={(conn) => {
+            const testResult = testResults[conn.id];
+            const isTesting = testingId === conn.id;
+            const { tone } = presentConnectionStatus({ testResult });
+            const { accent } = connectionToneStyles({ tone });
 
-          <ResponsiveTable>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border/60">
-                  <TableHead>Name</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {connections.map((conn) => {
-                  const testResult = testResults[conn.id];
-                  const isTesting = testingId === conn.id;
-
-                  return (
-                    <TableRow
-                      key={conn.id}
-                      className="border-border/60 transition-colors hover:bg-surface-inset"
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
-                            <DynamicIcon
-                              name={providerIcon}
-                              className="h-4 w-4"
-                            />
-                          </span>
-                          <span className="font-medium text-foreground">
-                            {conn.name}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(conn.createdAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <ConnectionStatus testResult={testResult} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <ConnectionActions
-                          connection={conn}
-                          isTesting={isTesting}
-                          onTest={handleTest}
-                          onEdit={openEditDialog}
-                          onDelete={openDeleteConfirm}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </ResponsiveTable>
-
-          <MobileCardList className="p-[var(--d-pad)]">
-            {connections.map((conn) => {
-              const testResult = testResults[conn.id];
-              const isTesting = testingId === conn.id;
-              const { tone } = presentConnectionStatus({ testResult });
-              const { accent } = connectionToneStyles({ tone });
-
-              return (
-                <div
-                  key={conn.id}
-                  className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
-                >
-                  <span
-                    className={cn("absolute inset-y-0 left-0 w-1", accent)}
-                    aria-hidden
-                  />
-                  <div className="flex items-start justify-between gap-2 pl-2">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
-                        <DynamicIcon
-                          name={providerIcon}
-                          className="h-4 w-4"
-                        />
+            return (
+              <div className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+                <span
+                  className={cn("absolute inset-y-0 left-0 w-1", accent)}
+                  aria-hidden
+                />
+                <div className="flex items-start justify-between gap-2 pl-2">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-[calc(var(--d-card-r)-4px)] border border-border/60 bg-surface-inset text-primary">
+                      <DynamicIcon name={providerIcon} className="h-4 w-4" />
+                    </span>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium text-foreground">
+                        {conn.name}
                       </span>
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate font-medium text-foreground">
-                          {conn.name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(conn.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(conn.createdAt).toLocaleDateString()}
+                      </span>
                     </div>
-                    <ConnectionStatus testResult={testResult} />
                   </div>
-                  <div className="mt-3 flex justify-end pl-2">
-                    <ConnectionActions
-                      connection={conn}
-                      isTesting={isTesting}
-                      onTest={handleTest}
-                      onEdit={openEditDialog}
-                      onDelete={openDeleteConfirm}
-                    />
-                  </div>
+                  <ConnectionStatus testResult={testResult} />
                 </div>
-              );
-            })}
-          </MobileCardList>
-        </div>
+                <div className="mt-3 flex justify-end pl-2">
+                  <ConnectionActions
+                    connection={conn}
+                    isTesting={isTesting}
+                    onTest={handleTest}
+                    onEdit={openEditDialog}
+                    onDelete={openDeleteConfirm}
+                  />
+                </div>
+              </div>
+            );
+          }}
+        />
       )}
 
       {/* Create Dialog */}
@@ -634,20 +610,23 @@ const ConnectionActions = ({
   onEdit,
   onDelete,
 }: ConnectionActionsProps) => (
-  <div className="flex items-center justify-end gap-2">
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => onTest(connection.id)}
+  <RowActions>
+    <RowAction
+      icon={isTesting ? Spinner : TestTube2}
+      label={`Test ${connection.name}`}
       disabled={isTesting}
-    >
-      {isTesting ? <Spinner size="sm" /> : <TestTube2 className="h-4 w-4" />}
-    </Button>
-    <Button variant="ghost" size="sm" onClick={() => onEdit(connection)}>
-      <Settings2 className="h-4 w-4" />
-    </Button>
-    <Button variant="ghost" size="sm" onClick={() => onDelete(connection)}>
-      <Trash2 className="h-4 w-4 text-destructive" />
-    </Button>
-  </div>
+      onClick={() => onTest(connection.id)}
+    />
+    <RowAction
+      icon={Settings2}
+      label={`Edit ${connection.name}`}
+      onClick={() => onEdit(connection)}
+    />
+    <RowAction
+      icon={Trash2}
+      label={`Delete ${connection.name}`}
+      tone="destructive"
+      onClick={() => onDelete(connection)}
+    />
+  </RowActions>
 );

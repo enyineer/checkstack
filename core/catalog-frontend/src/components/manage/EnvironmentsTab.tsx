@@ -1,17 +1,13 @@
 import { useMemo } from "react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Button,
   Card,
+  DataTable,
+  type DataTableColumn,
   EmptyState,
   ListEmptyState,
-  MobileCardList,
-  ResponsiveTable,
+  RowAction,
+  RowActions,
 } from "@checkstack/ui";
 import { Plus, Boxes, Pencil, Trash2, X } from "lucide-react";
 import type { Environment, System } from "../../api";
@@ -71,6 +67,69 @@ export function EnvironmentsTab(
     </div>
   );
 
+  const columns: DataTableColumn<Environment>[] = [
+    {
+      id: "name",
+      header: "Name",
+      headClassName: "w-48",
+      cellClassName: "align-top",
+      sortValue: (environment) => environment.name,
+      cell: (environment) => (
+        <>
+          <div className="font-medium text-foreground">{environment.name}</div>
+          {environment.description && (
+            <div className="text-xs text-muted-foreground">
+              {environment.description}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      id: "systems",
+      header: "Systems",
+      cell: (environment) => {
+        const { members, available } = deriveEnvironmentMembers({
+          environment,
+          systemsById,
+          allSystems,
+        });
+        return (
+          <EnvironmentMembers
+            environment={environment}
+            members={members}
+            available={available}
+            onAddSystemToEnvironment={props.onAddSystemToEnvironment}
+            onRemoveSystemFromEnvironment={props.onRemoveSystemFromEnvironment}
+          />
+        );
+      },
+    },
+    {
+      id: "fields",
+      header: "Fields",
+      headClassName: "w-20",
+      cellClassName: "align-top text-sm text-muted-foreground",
+      sortValue: (environment) =>
+        Object.keys(environment.metadata ?? {}).length,
+      cell: (environment) => Object.keys(environment.metadata ?? {}).length,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-px text-right",
+      cellClassName: "align-top",
+      cell: (environment) =>
+        canManage ? (
+          <EnvironmentActions
+            environment={environment}
+            onEditEnvironment={props.onEditEnvironment}
+            onDeleteEnvironment={props.onDeleteEnvironment}
+          />
+        ) : null,
+    },
+  ];
+
   if (totalCount === 0) {
     return (
       <div>
@@ -95,94 +154,82 @@ export function EnvironmentsTab(
   return (
     <div>
       {header}
-      {environments.length === 0 ? (
-        <ListEmptyState
-          resource="environments"
-          description="No environments match the current search."
-          actions={
-            <Button variant="outline" onClick={props.onClearFilters}>
-              Clear filters
-            </Button>
-          }
-        />
-      ) : (
-        <>
-          <ResponsiveTable className="rounded-lg border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-48">Name</TableHead>
-                  <TableHead>Systems</TableHead>
-                  <TableHead className="w-20">Fields</TableHead>
-                  <TableHead className="w-px text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {environments.map((environment) => (
-                  <EnvironmentRow
-                    key={environment.id}
+      <DataTable
+        data={environments}
+        columns={columns}
+        getRowId={(environment) => environment.id}
+        searchable={false}
+        defaultSort={{ columnId: "name", direction: "asc" }}
+        noResultsState={
+          <ListEmptyState
+            resource="environments"
+            description="No environments match the current search."
+            actions={
+              <Button variant="outline" onClick={props.onClearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
+        }
+        renderMobileCard={(environment) => {
+          const { members, available, fieldCount } = deriveEnvironmentMembers({
+            environment,
+            systemsById,
+            allSystems,
+          });
+          return (
+            <Card className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium text-foreground">
+                    {environment.name}
+                  </div>
+                  {environment.description && (
+                    <div className="text-xs text-muted-foreground">
+                      {environment.description}
+                    </div>
+                  )}
+                </div>
+                {canManage && (
+                  <EnvironmentActions
                     environment={environment}
-                    canManage={canManage}
-                    systemsById={systemsById}
-                    allSystems={allSystems}
-                    onAddSystemToEnvironment={props.onAddSystemToEnvironment}
-                    onRemoveSystemFromEnvironment={
-                      props.onRemoveSystemFromEnvironment
-                    }
                     onEditEnvironment={props.onEditEnvironment}
                     onDeleteEnvironment={props.onDeleteEnvironment}
                   />
-                ))}
-              </TableBody>
-            </Table>
-          </ResponsiveTable>
-
-          <MobileCardList>
-            {environments.map((environment) => (
-              <EnvironmentMobileCard
-                key={environment.id}
-                environment={environment}
-                canManage={canManage}
-                systemsById={systemsById}
-                allSystems={allSystems}
-                onAddSystemToEnvironment={props.onAddSystemToEnvironment}
-                onRemoveSystemFromEnvironment={
-                  props.onRemoveSystemFromEnvironment
-                }
-                onEditEnvironment={props.onEditEnvironment}
-                onDeleteEnvironment={props.onDeleteEnvironment}
-              />
-            ))}
-          </MobileCardList>
-        </>
-      )}
+                )}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {fieldCount} {fieldCount === 1 ? "field" : "fields"}
+              </p>
+              <div className="mt-2">
+                <EnvironmentMembers
+                  environment={environment}
+                  members={members}
+                  available={available}
+                  onAddSystemToEnvironment={props.onAddSystemToEnvironment}
+                  onRemoveSystemFromEnvironment={
+                    props.onRemoveSystemFromEnvironment
+                  }
+                />
+              </div>
+            </Card>
+          );
+        }}
+      />
     </div>
   );
 }
 
-interface EnvironmentRowProps {
-  environment: Environment;
-  canManage: boolean;
-  systemsById: Map<string, System>;
-  allSystems: System[];
-  onAddSystemToEnvironment: (systemId: string, environmentId: string) => void;
-  onRemoveSystemFromEnvironment: (
-    systemId: string,
-    environmentId: string,
-  ) => void;
-  onEditEnvironment: (environment: Environment) => void;
-  onDeleteEnvironment: (id: string) => void;
-}
-
 /** Derive the member systems and the still-attachable systems for an env. */
-function useEnvironmentMembers({
+function deriveEnvironmentMembers({
   environment,
   systemsById,
   allSystems,
-}: Pick<
-  EnvironmentRowProps,
-  "environment" | "systemsById" | "allSystems"
->): { members: System[]; available: System[]; fieldCount: number } {
+}: {
+  environment: Environment;
+  systemsById: Map<string, System>;
+  allSystems: System[];
+}): { members: System[]; available: System[]; fieldCount: number } {
   const memberIds = environment.systemIds ?? [];
   const members = memberIds
     .map((id) => systemsById.get(id))
@@ -263,127 +310,18 @@ function EnvironmentActions({
   onDeleteEnvironment: (id: string) => void;
 }): React.ReactElement {
   return (
-    <div className="flex items-center justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 w-7 p-0"
-        aria-label={`Edit ${environment.name}`}
+    <RowActions>
+      <RowAction
+        icon={Pencil}
+        label={`Edit ${environment.name}`}
         onClick={() => onEditEnvironment(environment)}
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive/90"
-        aria-label={`Delete ${environment.name}`}
+      />
+      <RowAction
+        icon={Trash2}
+        tone="destructive"
+        label={`Delete ${environment.name}`}
         onClick={() => onDeleteEnvironment(environment.id)}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  );
-}
-
-function EnvironmentRow({
-  environment,
-  canManage,
-  systemsById,
-  allSystems,
-  onAddSystemToEnvironment,
-  onRemoveSystemFromEnvironment,
-  onEditEnvironment,
-  onDeleteEnvironment,
-}: EnvironmentRowProps): React.ReactElement {
-  const { members, available, fieldCount } = useEnvironmentMembers({
-    environment,
-    systemsById,
-    allSystems,
-  });
-
-  return (
-    <TableRow>
-      <TableCell className="align-top">
-        <div className="font-medium text-foreground">{environment.name}</div>
-        {environment.description && (
-          <div className="text-xs text-muted-foreground">
-            {environment.description}
-          </div>
-        )}
-      </TableCell>
-      <TableCell>
-        <EnvironmentMembers
-          environment={environment}
-          members={members}
-          available={available}
-          onAddSystemToEnvironment={onAddSystemToEnvironment}
-          onRemoveSystemFromEnvironment={onRemoveSystemFromEnvironment}
-        />
-      </TableCell>
-      <TableCell className="align-top text-sm text-muted-foreground">
-        {fieldCount}
-      </TableCell>
-      <TableCell className="align-top">
-        {canManage && (
-          <EnvironmentActions
-            environment={environment}
-            onEditEnvironment={onEditEnvironment}
-            onDeleteEnvironment={onDeleteEnvironment}
-          />
-        )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function EnvironmentMobileCard({
-  environment,
-  canManage,
-  systemsById,
-  allSystems,
-  onAddSystemToEnvironment,
-  onRemoveSystemFromEnvironment,
-  onEditEnvironment,
-  onDeleteEnvironment,
-}: EnvironmentRowProps): React.ReactElement {
-  const { members, available, fieldCount } = useEnvironmentMembers({
-    environment,
-    systemsById,
-    allSystems,
-  });
-
-  return (
-    <Card className="p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-medium text-foreground">{environment.name}</div>
-          {environment.description && (
-            <div className="text-xs text-muted-foreground">
-              {environment.description}
-            </div>
-          )}
-        </div>
-        {canManage && (
-          <EnvironmentActions
-            environment={environment}
-            onEditEnvironment={onEditEnvironment}
-            onDeleteEnvironment={onDeleteEnvironment}
-          />
-        )}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {fieldCount} {fieldCount === 1 ? "field" : "fields"}
-      </p>
-      <div className="mt-2">
-        <EnvironmentMembers
-          environment={environment}
-          members={members}
-          available={available}
-          onAddSystemToEnvironment={onAddSystemToEnvironment}
-          onRemoveSystemFromEnvironment={onRemoveSystemFromEnvironment}
-        />
-      </div>
-    </Card>
+      />
+    </RowActions>
   );
 }

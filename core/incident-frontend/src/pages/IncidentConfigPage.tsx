@@ -20,23 +20,14 @@ import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
-  Card,
-  CardHeader,
-  CardHeaderRow,
-  CardTitle,
-  CardContent,
   Button,
   LoadingSpinner,
   EmptyState,
   QueryErrorState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Select,
   SelectTrigger,
   SelectValue,
@@ -64,6 +55,8 @@ import {
   getIncidentStatusBadge,
   getIncidentSeverityBadge,
   getIncidentSeverityAccentClass,
+  incidentSeverityRank,
+  incidentStatusRank,
 } from "../utils/badges";
 import {
   canResolveIncident,
@@ -338,6 +331,122 @@ const IncidentConfigPageContent: React.FC = () => {
     return names.join(", ");
   };
 
+  const columns: DataTableColumn<IncidentWithSystems>[] = [
+    {
+      id: "select",
+      headClassName: "w-8",
+      header: "",
+      cellClassName: "pr-0",
+      cell: (incident) =>
+        canAccess(incident.id) ? (
+          <Checkbox
+            checked={selectedIds.has(incident.id)}
+            onCheckedChange={() => toggleOne(incident.id)}
+            aria-label={`Select incident ${incident.title}`}
+          />
+        ) : null,
+    },
+    {
+      id: "severity-dot",
+      headClassName: "w-6",
+      header: "",
+      cellClassName: "pr-0",
+      cell: (incident) => (
+        // Severity lead: scannable by hue + position.
+        <span
+          className={cn(
+            "block size-2.5 rounded-full",
+            getIncidentSeverityAccentClass(incident.severity),
+          )}
+          aria-hidden
+        />
+      ),
+    },
+    {
+      id: "title",
+      header: "Title",
+      sortValue: (incident) => incident.title,
+      cell: (incident) => (
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {incident.title}
+          </p>
+          {incident.description && (
+            <p className="text-xs text-muted-foreground truncate max-w-xs">
+              {incident.description}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "severity",
+      header: "Severity",
+      sortValue: (incident) => incidentSeverityRank[incident.severity],
+      cell: (incident) => getIncidentSeverityBadge(incident.severity),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (incident) => incidentStatusRank[incident.status],
+      cell: (incident) => getIncidentStatusBadge(incident.status),
+    },
+    {
+      id: "systems",
+      header: "Systems",
+      cellClassName: "text-sm text-muted-foreground",
+      cell: (incident) => getSystemNames(incident.systemIds),
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      sortValue: (incident) => new Date(incident.createdAt).getTime(),
+      cell: (incident) => (
+        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          <span className="tabular-nums">
+            {formatDistanceToNow(new Date(incident.createdAt), {
+              addSuffix: false,
+            })}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-32",
+      cell: (incident) => (
+        <RowActions>
+          {canAccess(incident.id) && (
+            <RowAction
+              icon={Edit2}
+              label={`Edit ${incident.title}`}
+              onClick={() => handleEdit(incident)}
+            />
+          )}
+          {canAccess(incident.id) &&
+            canResolveIncident({ status: incident.status }) && (
+              <RowAction
+                icon={CheckCircle2}
+                label={`Resolve ${incident.title}`}
+                tone="success"
+                onClick={() => setResolveId(incident.id)}
+              />
+            )}
+          {canAccess(incident.id) && (
+            <RowAction
+              icon={Trash2}
+              label={`Delete ${incident.title}`}
+              tone="destructive"
+              onClick={() => setDeleteId(incident.id)}
+            />
+          )}
+        </RowActions>
+      ),
+    },
+  ];
+
   return (
     <PageLayout
       title="Incident Management"
@@ -384,322 +493,203 @@ const IncidentConfigPageContent: React.FC = () => {
         }
       />
 
-      <Card>
-        <CardHeader className="border-b border-border">
-          <CardHeaderRow>
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Incidents</CardTitle>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-              <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={showResolved}
-                  onChange={(e) => setShowResolved(e.target.checked)}
-                  className="rounded border-border"
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 sm:gap-4">
+        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={showResolved}
+            onChange={(e) => setShowResolved(e.target.checked)}
+            className="rounded border-border"
+          />
+          Show resolved
+        </label>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as IncidentStatus | "all")}
+        >
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="investigating">Investigating</SelectItem>
+            <SelectItem value="identified">Identified</SelectItem>
+            <SelectItem value="fixing">Fixing</SelectItem>
+            <SelectItem value="monitoring">Monitoring</SelectItem>
+            <SelectItem value="resolved">Resolved</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center p-12">
+          <LoadingSpinner />
+        </div>
+      ) : incidentsQuery.isError ? (
+        <QueryErrorState
+          error={incidentsQuery.error}
+          onRetry={() => void incidentsQuery.refetch()}
+          resource="incidents"
+        />
+      ) : (
+        <>
+          {selectableIds.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-inset/60 px-4 py-2">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all incidents"
                 />
-                Show resolved
+                <span className="text-muted-foreground">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : "Select all"}
+                </span>
               </label>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) =>
-                  setStatusFilter(v as IncidentStatus | "all")
-                }
-              >
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="investigating">Investigating</SelectItem>
-                  <SelectItem value="identified">Identified</SelectItem>
-                  <SelectItem value="fixing">Fixing</SelectItem>
-                  <SelectItem value="monitoring">Monitoring</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeaderRow>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-12 flex justify-center">
-              <LoadingSpinner />
-            </div>
-          ) : incidentsQuery.isError ? (
-            <div className="p-4">
-              <QueryErrorState
-                error={incidentsQuery.error}
-                onRetry={() => void incidentsQuery.refetch()}
-                resource="incidents"
-              />
-            </div>
-          ) : incidents.length === 0 ? (
-            <EmptyState
-              icon={<AlertTriangle className="size-10" />}
-              title="No incidents found"
-              description="Incidents capture real, user-visible problems with the systems you monitor. They're created intentionally - Checkstack does not auto-open them from failed health checks, because not every failed check is a real outage. Open one by hand whenever something's actually broken so it shows up on the dashboard, on the status page, and reaches subscribers."
-              steps={[
-                "Adjust the filters above if you're looking for resolved or older incidents.",
-                "Click “Report Incident” to record an outage you've detected.",
-                "Linked systems and severity drive who gets notified - set them deliberately.",
-              ]}
-              actions={
-                canManage ? (
-                  <Button onClick={handleCreate}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Report incident manually
+              {selectedIds.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkResolveOpen(true)}
+                    disabled={resolvableSelected.length === 0}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
+                    Mass resolve
                   </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              {selectableIds.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-inset/60 px-4 py-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={toggleSelectAll}
-                      aria-label="Select all incidents"
-                    />
-                    <span className="text-muted-foreground">
-                      {selectedIds.size > 0
-                        ? `${selectedIds.size} selected`
-                        : "Select all"}
-                    </span>
-                  </label>
-                  {selectedIds.size > 0 && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkResolveOpen(true)}
-                        disabled={resolvableSelected.length === 0}
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
-                        Mass resolve
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkDeleteOpen(true)}
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Mass delete
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedIds(new Set())}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive/90"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Mass delete
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
                 </div>
               )}
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8" aria-hidden />
-                      <TableHead className="w-6" aria-hidden />
-                      <TableHead>Title</TableHead>
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Systems</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead className="w-32">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {incidents.map((i) => (
-                      <TableRow
-                        key={i.id}
-                        data-state={
-                          selectedIds.has(i.id) ? "selected" : undefined
-                        }
-                        className="hover:bg-surface-inset"
-                      >
-                        <TableCell className="pr-0">
-                          {canAccess(i.id) && (
-                            <Checkbox
-                              checked={selectedIds.has(i.id)}
-                              onCheckedChange={() => toggleOne(i.id)}
-                              aria-label={`Select incident ${i.title}`}
-                            />
-                          )}
-                        </TableCell>
-                        <TableCell className="pr-0">
-                          {/* Severity lead: scannable by hue + position. */}
-                          <span
-                            className={cn(
-                              "block size-2.5 rounded-full",
-                              getIncidentSeverityAccentClass(i.severity),
-                            )}
-                            aria-hidden
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">
-                              {i.title}
-                            </p>
-                            {i.description && (
-                              <p className="text-xs text-muted-foreground truncate max-w-xs">
-                                {i.description}
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {getIncidentSeverityBadge(i.severity)}
-                        </TableCell>
-                        <TableCell>
-                          {getIncidentStatusBadge(i.status)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {getSystemNames(i.systemIds)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            <span className="tabular-nums">
-                              {formatDistanceToNow(new Date(i.createdAt), {
-                                addSuffix: false,
-                              })}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {canAccess(i.id) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(i)}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {canAccess(i.id) && canResolveIncident({ status: i.status }) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setResolveId(i.id)}
-                              >
-                                <CheckCircle2 className="h-4 w-4 text-success" />
-                              </Button>
-                            )}
-                            {canAccess(i.id) && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteId(i.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-4">
-                {incidents.map((i) => (
-                  <div
-                    key={i.id}
-                    data-state={selectedIds.has(i.id) ? "selected" : undefined}
-                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
-                  >
-                    {/* Severity accent: multi-encoded by hue + position. */}
-                    <span
-                      className={cn(
-                        "absolute inset-y-0 left-0 w-1",
-                        getIncidentSeverityAccentClass(i.severity),
-                      )}
-                      aria-hidden
-                    />
-                    <div className="pl-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {canAccess(i.id) && (
-                            <Checkbox
-                              checked={selectedIds.has(i.id)}
-                              onCheckedChange={() => toggleOne(i.id)}
-                              aria-label={`Select incident ${i.title}`}
-                            />
-                          )}
-                          <p className="min-w-0 truncate font-semibold text-foreground">
-                            {i.title}
-                          </p>
-                        </div>
-                        {getIncidentStatusBadge(i.status)}
-                      </div>
-                      {i.description && (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {i.description}
-                        </p>
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {getIncidentSeverityBadge(i.severity)}
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          <span className="tabular-nums">
-                            {formatDistanceToNow(new Date(i.createdAt), {
-                              addSuffix: false,
-                            })}
-                          </span>
-                        </span>
-                      </div>
-                      {i.systemIds.length > 0 && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {getSystemNames(i.systemIds)}
-                        </p>
-                      )}
-                      <div className="mt-3 flex justify-end gap-2">
-                      {canAccess(i.id) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(i)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {canAccess(i.id) && canResolveIncident({ status: i.status }) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setResolveId(i.id)}
-                        >
-                          <CheckCircle2 className="h-4 w-4 text-success" />
-                        </Button>
-                      )}
-                      {canAccess(i.id) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(i.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </MobileCardList>
-            </>
+            </div>
           )}
-        </CardContent>
-      </Card>
+
+          <DataTable
+            data={incidents}
+            columns={columns}
+            getRowId={(incident) => incident.id}
+            searchable={false}
+            getRowProps={(incident) => ({
+              selected: selectedIds.has(incident.id),
+              className: "hover:bg-surface-inset",
+            })}
+            emptyState={
+              <EmptyState
+                icon={<AlertTriangle className="size-10" />}
+                title="No incidents found"
+                description="Incidents capture real, user-visible problems with the systems you monitor. They're created intentionally - Checkstack does not auto-open them from failed health checks, because not every failed check is a real outage. Open one by hand whenever something's actually broken so it shows up on the dashboard, on the status page, and reaches subscribers."
+                steps={[
+                  "Adjust the filters above if you're looking for resolved or older incidents.",
+                  "Click “Report Incident” to record an outage you've detected.",
+                  "Linked systems and severity drive who gets notified - set them deliberately.",
+                ]}
+                actions={
+                  canManage ? (
+                    <Button onClick={handleCreate}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Report incident manually
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+            renderMobileCard={(i) => (
+              <div
+                data-state={selectedIds.has(i.id) ? "selected" : undefined}
+                className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] data-[state=selected]:border-primary"
+              >
+                {/* Severity accent: multi-encoded by hue + position. */}
+                <span
+                  className={cn(
+                    "absolute inset-y-0 left-0 w-1",
+                    getIncidentSeverityAccentClass(i.severity),
+                  )}
+                  aria-hidden
+                />
+                <div className="pl-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {canAccess(i.id) && (
+                        <Checkbox
+                          checked={selectedIds.has(i.id)}
+                          onCheckedChange={() => toggleOne(i.id)}
+                          aria-label={`Select incident ${i.title}`}
+                        />
+                      )}
+                      <p className="min-w-0 truncate font-semibold text-foreground">
+                        {i.title}
+                      </p>
+                    </div>
+                    {getIncidentStatusBadge(i.status)}
+                  </div>
+                  {i.description && (
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {i.description}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {getIncidentSeverityBadge(i.severity)}
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span className="tabular-nums">
+                        {formatDistanceToNow(new Date(i.createdAt), {
+                          addSuffix: false,
+                        })}
+                      </span>
+                    </span>
+                  </div>
+                  {i.systemIds.length > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {getSystemNames(i.systemIds)}
+                    </p>
+                  )}
+                  <RowActions className="mt-3">
+                    {canAccess(i.id) && (
+                      <RowAction
+                        icon={Edit2}
+                        label={`Edit ${i.title}`}
+                        onClick={() => handleEdit(i)}
+                      />
+                    )}
+                    {canAccess(i.id) &&
+                      canResolveIncident({ status: i.status }) && (
+                        <RowAction
+                          icon={CheckCircle2}
+                          label={`Resolve ${i.title}`}
+                          tone="success"
+                          onClick={() => setResolveId(i.id)}
+                        />
+                      )}
+                    {canAccess(i.id) && (
+                      <RowAction
+                        icon={Trash2}
+                        label={`Delete ${i.title}`}
+                        tone="destructive"
+                        onClick={() => setDeleteId(i.id)}
+                      />
+                    )}
+                  </RowActions>
+                </div>
+              </div>
+            )}
+          />
+        </>
+      )}
 
       <IncidentEditor
         open={editorOpen}

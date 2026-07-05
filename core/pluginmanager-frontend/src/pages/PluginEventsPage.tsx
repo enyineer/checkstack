@@ -8,17 +8,10 @@ import {
 } from "lucide-react";
 import {
   PageLayout,
-  Card,
-  CardContent,
+  DataTable,
+  type DataTableColumn,
   EmptyState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
+  ListEmptyState,
   cn,
 } from "@checkstack/ui";
 import {
@@ -30,6 +23,7 @@ import {
 import {
   PluginManagerApi,
   pluginManagerAccess,
+  type InstallEvent,
   type InstallEventStatus,
 } from "@checkstack/pluginmanager-common";
 import {
@@ -85,6 +79,83 @@ const PluginEventsPageContent: React.FC = () => {
 
   const events = data?.events ?? [];
 
+  const columns: DataTableColumn<InstallEvent>[] = [
+    {
+      id: "accent",
+      header: "",
+      headClassName: "w-1 p-0",
+      cellClassName: "w-1 p-0",
+      cell: (e) => (
+        <span
+          className={cn(
+            "block h-full w-1",
+            EVENT_TONE_STYLES[eventTone({ status: e.status })].accent,
+          )}
+          aria-hidden
+        />
+      ),
+    },
+    {
+      id: "when",
+      header: "When",
+      cellClassName: "font-mono text-xs text-muted-foreground tabular-nums",
+      sortValue: (e) => new Date(e.createdAt).getTime(),
+      searchValue: (e) => new Date(e.createdAt).toLocaleString(),
+      cell: (e) => new Date(e.createdAt).toLocaleString(),
+    },
+    {
+      id: "plugin",
+      header: "Plugin",
+      cellClassName: "font-medium text-foreground",
+      sortValue: (e) => e.pluginName ?? "",
+      searchValue: (e) => e.pluginName ?? "",
+      cell: (e) => e.pluginName ?? "—",
+    },
+    {
+      id: "action",
+      header: "Action",
+      sortValue: (e) => e.action,
+      searchValue: (e) => e.action,
+      cell: (e) => e.action,
+    },
+    {
+      id: "phase",
+      header: "Phase",
+      sortValue: (e) => e.phase,
+      searchValue: (e) => e.phase,
+      cell: (e) => <code className="text-xs">{e.phase}</code>,
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (e) => e.status,
+      searchValue: (e) => e.status,
+      cell: (e) => <PluginEventStatus status={e.status} />,
+    },
+    {
+      id: "instance",
+      header: "Instance",
+      cellClassName: "text-xs text-muted-foreground",
+      sortValue: (e) => e.instanceId,
+      searchValue: (e) => e.instanceId,
+      cell: (e) => e.instanceId,
+    },
+    {
+      id: "error",
+      header: "Error",
+      cellClassName: "max-w-xs",
+      searchValue: (e) => e.error ?? "",
+      cell: (e) =>
+        e.error ? (
+          <span className="block truncate rounded bg-status-down/5 px-1.5 py-0.5 text-xs text-status-down">
+            {e.error}
+          </span>
+        ) : (
+          ""
+        ),
+    },
+  ];
+
   return (
     <PageLayout title="Plugin events" icon={History} allowed={allowed}>
       {events.length === 0 ? (
@@ -94,113 +165,53 @@ const PluginEventsPageContent: React.FC = () => {
           description="Whenever a plugin is installed, uninstalled, enabled, or fails to load, the lifecycle event lands here with phase, status and any error message. Useful for diagnosing why a freshly installed plugin didn't show up where you expected."
         />
       ) : (
-        <>
-          <ResponsiveTable>
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-1 p-0" />
-                      <TableHead>When</TableHead>
-                      <TableHead>Plugin</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Phase</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Instance</TableHead>
-                      <TableHead>Error</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {events.map((e) => {
-                      const tone = eventTone({ status: e.status });
-                      return (
-                        <TableRow
-                          key={e.id}
-                          className="transition-colors hover:bg-surface-inset"
-                        >
-                          <TableCell className="w-1 p-0">
-                            <span
-                              className={cn(
-                                "block h-full w-1",
-                                EVENT_TONE_STYLES[tone].accent,
-                              )}
-                              aria-hidden
-                            />
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground tabular-nums">
-                            {new Date(e.createdAt).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="font-medium text-foreground">
-                            {e.pluginName ?? "—"}
-                          </TableCell>
-                          <TableCell>{e.action}</TableCell>
-                          <TableCell>
-                            <code className="text-xs">{e.phase}</code>
-                          </TableCell>
-                          <TableCell>
-                            <PluginEventStatus status={e.status} />
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {e.instanceId}
-                          </TableCell>
-                          <TableCell className="max-w-xs">
-                            {e.error ? (
-                              <span className="block truncate rounded bg-status-down/5 px-1.5 py-0.5 text-xs text-status-down">
-                                {e.error}
-                              </span>
-                            ) : (
-                              ""
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </ResponsiveTable>
-
-          <MobileCardList>
-            {events.map((e) => {
-              const tone = eventTone({ status: e.status });
-              return (
-                <div key={e.id} className="group">
-                  <div className="relative flex flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                    <span
-                      className={cn(
-                        "absolute inset-y-0 left-0 w-1",
-                        EVENT_TONE_STYLES[tone].accent,
-                      )}
-                      aria-hidden
-                    />
-                    <div className="flex items-start justify-between gap-2 pl-2">
-                      <span className="font-medium text-foreground truncate">
-                        {e.pluginName ?? "—"}
-                      </span>
-                      <PluginEventStatus status={e.status} />
-                    </div>
-                    <div className="mt-1 pl-2 text-xs text-muted-foreground">
-                      {e.action} - <code className="text-xs">{e.phase}</code>
-                    </div>
-                    <div className="mt-1 pl-2 font-mono text-xs text-muted-foreground tabular-nums">
-                      {new Date(e.createdAt).toLocaleString()}
-                    </div>
-                    <div className="mt-1 pl-2 text-xs text-muted-foreground">
-                      Instance: {e.instanceId}
-                    </div>
-                    {e.error && (
-                      <div className="mt-2 ml-2 rounded bg-status-down/5 px-2 py-1 text-xs text-status-down break-words">
-                        {e.error}
-                      </div>
-                    )}
-                  </div>
+        <DataTable
+          data={events}
+          columns={columns}
+          getRowId={(e) => e.id}
+          defaultSort={{ columnId: "when", direction: "desc" }}
+          searchPlaceholder="Search events..."
+          noResultsState={
+            <ListEmptyState
+              resource="plugin events"
+              description="No plugin events match the current search."
+            />
+          }
+          renderMobileCard={(e) => {
+            const tone = eventTone({ status: e.status });
+            return (
+              <div className="relative flex flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
+                <span
+                  className={cn(
+                    "absolute inset-y-0 left-0 w-1",
+                    EVENT_TONE_STYLES[tone].accent,
+                  )}
+                  aria-hidden
+                />
+                <div className="flex items-start justify-between gap-2 pl-2">
+                  <span className="font-medium text-foreground truncate">
+                    {e.pluginName ?? "—"}
+                  </span>
+                  <PluginEventStatus status={e.status} />
                 </div>
-              );
-            })}
-          </MobileCardList>
-        </>
+                <div className="mt-1 pl-2 text-xs text-muted-foreground">
+                  {e.action} - <code className="text-xs">{e.phase}</code>
+                </div>
+                <div className="mt-1 pl-2 font-mono text-xs text-muted-foreground tabular-nums">
+                  {new Date(e.createdAt).toLocaleString()}
+                </div>
+                <div className="mt-1 pl-2 text-xs text-muted-foreground">
+                  Instance: {e.instanceId}
+                </div>
+                {e.error && (
+                  <div className="mt-2 ml-2 rounded bg-status-down/5 px-2 py-1 text-xs text-status-down break-words">
+                    {e.error}
+                  </div>
+                )}
+              </div>
+            );
+          }}
+        />
       )}
     </PageLayout>
   );

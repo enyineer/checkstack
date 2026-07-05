@@ -18,27 +18,21 @@ import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import { APP_DOC_SLUGS, docsPath } from "@checkstack/common";
 import {
   Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Button,
   Badge,
   LoadingSpinner,
   EmptyState,
+  ListEmptyState,
   QueryErrorState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   useToast,
   toastError,
   toastSuccess,
   ConfirmationModal,
   PageLayout,
-  ResponsiveTable,
-  MobileCardList,
 } from "@checkstack/ui";
 import { Plus, Target, Trash2, Edit2, ExternalLink } from "lucide-react";
 import { SloEditor } from "../components/SloEditor";
@@ -191,6 +185,70 @@ const SloConfigPageContent: React.FC = () => {
     return <Badge variant="success">Healthy</Badge>;
   };
 
+  const columns: DataTableColumn<(typeof objectives)[number]>[] = [
+    {
+      id: "system",
+      header: "System",
+      cellClassName: "font-medium",
+      sortValue: (item) => getSystemName(item.objective.systemId),
+      searchValue: (item) => getSystemName(item.objective.systemId),
+      cell: (item) => getSystemName(item.objective.systemId),
+    },
+    {
+      id: "target",
+      header: "Target",
+      sortValue: (item) => item.objective.target,
+      cell: (item) => `${item.objective.target}%`,
+    },
+    {
+      id: "window",
+      header: "Window",
+      sortValue: (item) => item.objective.windowDays,
+      cell: (item) => `${item.objective.windowDays}d`,
+    },
+    {
+      id: "exclusion",
+      header: "Exclusion Mode",
+      sortValue: (item) => item.objective.dependencyExclusion,
+      cell: (item) => getExclusionBadge(item.objective.dependencyExclusion),
+    },
+    {
+      id: "status",
+      header: "Status",
+      // Rank mirrors renderStatusBadge's priority (worst first) so sorting uses
+      // the raw status signal, not the badge label.
+      sortValue: (item) => {
+        const status = item.status;
+        if (status.isBreaching) return 0;
+        if (status.hasOpenDowntime) return 1;
+        if (status.errorBudgetRemainingPercent <= 20) return 2;
+        return 3;
+      },
+      cell: (item) => renderStatusBadge(item.status),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-24",
+      cell: (item) =>
+        canAccess(item.objective.id) ? (
+          <RowActions>
+            <RowAction
+              icon={Edit2}
+              label={`Edit SLO for ${getSystemName(item.objective.systemId)}`}
+              onClick={() => handleEdit(item.objective)}
+            />
+            <RowAction
+              icon={Trash2}
+              label={`Delete SLO for ${getSystemName(item.objective.systemId)}`}
+              tone="destructive"
+              onClick={() => setDeleteId(item.objective.id)}
+            />
+          </RowActions>
+        ) : null,
+    },
+  ];
+
   return (
     <PageLayout
       title="SLO Management"
@@ -236,27 +294,23 @@ const SloConfigPageContent: React.FC = () => {
         }
       />
 
-      <Card>
-        <CardHeader className="border-b border-border">
-          <div className="flex items-center gap-2">
-            <Target className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>Objectives</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-12 flex justify-center">
-              <LoadingSpinner />
-            </div>
-          ) : isError ? (
-            <div className="p-4">
-              <QueryErrorState
-                error={objectivesQuery.error}
-                onRetry={() => void objectivesQuery.refetch()}
-                resource="SLO objectives"
-              />
-            </div>
-          ) : objectives.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center p-12">
+          <LoadingSpinner />
+        </div>
+      ) : isError ? (
+        <QueryErrorState
+          error={objectivesQuery.error}
+          onRetry={() => void objectivesQuery.refetch()}
+          resource="SLO objectives"
+        />
+      ) : (
+        <DataTable
+          data={objectives}
+          columns={columns}
+          getRowId={(item) => item.objective.id}
+          searchPlaceholder="Search objectives..."
+          emptyState={
             <EmptyState
               icon={<Target className="size-10" />}
               title="No SLO objectives yet"
@@ -275,110 +329,47 @@ const SloConfigPageContent: React.FC = () => {
                 ) : undefined
               }
             />
-          ) : (
-            <>
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>System</TableHead>
-                      <TableHead>Target</TableHead>
-                      <TableHead>Window</TableHead>
-                      <TableHead>Exclusion Mode</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-24">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {objectives.map((item) => (
-                      <TableRow key={item.objective.id}>
-                        <TableCell className="font-medium">
-                          {getSystemName(item.objective.systemId)}
-                        </TableCell>
-                        <TableCell>{item.objective.target}%</TableCell>
-                        <TableCell>{item.objective.windowDays}d</TableCell>
-                        <TableCell>
-                          {getExclusionBadge(
-                            item.objective.dependencyExclusion,
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {renderStatusBadge(item.status)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {canAccess(item.objective.id) && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEdit(item.objective)}
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setDeleteId(item.objective.id)
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-3">
-                {objectives.map((item) => (
-                  <div
-                    key={item.objective.id}
-                    className="rounded-md border border-border bg-card p-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium truncate">
-                        {getSystemName(item.objective.systemId)}
-                      </span>
-                      {renderStatusBadge(item.status)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {item.objective.target}% &middot;{" "}
-                      {item.objective.windowDays}d window
-                    </div>
-                    <div className="mt-2">
-                      {getExclusionBadge(item.objective.dependencyExclusion)}
-                    </div>
-                    {canAccess(item.objective.id) && (
-                      <div className="mt-3 flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(item.objective)}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(item.objective.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </MobileCardList>
-            </>
+          }
+          noResultsState={
+            <ListEmptyState
+              resource="SLO objectives"
+              description="No objectives match your search."
+            />
+          }
+          renderMobileCard={(item) => (
+            <Card className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-medium truncate">
+                  {getSystemName(item.objective.systemId)}
+                </span>
+                {renderStatusBadge(item.status)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {item.objective.target}% &middot;{" "}
+                {item.objective.windowDays}d window
+              </div>
+              <div className="mt-2">
+                {getExclusionBadge(item.objective.dependencyExclusion)}
+              </div>
+              {canAccess(item.objective.id) && (
+                <RowActions className="mt-3">
+                  <RowAction
+                    icon={Edit2}
+                    label={`Edit SLO for ${getSystemName(item.objective.systemId)}`}
+                    onClick={() => handleEdit(item.objective)}
+                  />
+                  <RowAction
+                    icon={Trash2}
+                    label={`Delete SLO for ${getSystemName(item.objective.systemId)}`}
+                    tone="destructive"
+                    onClick={() => setDeleteId(item.objective.id)}
+                  />
+                </RowActions>
+              )}
+            </Card>
           )}
-        </CardContent>
-      </Card>
+        />
+      )}
 
       <SloEditor
         open={editorOpen}

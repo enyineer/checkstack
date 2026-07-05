@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Workflow, Plus, FlaskConical, Trash2 } from "lucide-react";
+import { Workflow, Plus, FlaskConical, Trash2, History } from "lucide-react";
 import {
   usePluginClient,
   accessApiRef,
@@ -24,14 +24,10 @@ import {
   Button,
   Badge,
   Toggle,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   LoadingSpinner,
   QueryErrorState,
   EmptyState,
@@ -186,56 +182,56 @@ const AutomationListContent: React.FC = () => {
   // All sections expanded by default so nothing is hidden on first load.
   const allGroupKeys = React.useMemo(() => groups.map((g) => g.key), [groups]);
 
-  const renderRow = (automation: Automation) => (
-    <TableRow
-      key={automation.id}
-      className="relative cursor-pointer transition-colors hover:bg-surface-inset"
-      onClick={() =>
-        navigate(
-          resolveRoute(automationRoutes.routes.edit, {
-            automationId: automation.id,
-          }),
-        )
-      }
-    >
-      <TableCell
-        onClick={(e) => e.stopPropagation()}
-        className="relative pl-4"
-      >
-        {/* Status accent: enabled/disabled by position + hue, not toggle alone. */}
-        <span
-          className={cn(
-            "absolute inset-y-0 left-0 w-1",
-            automationAccent(automation.status),
-          )}
-          aria-hidden
-        />
-        {canAccess(automation.id) ? (
-          <Toggle
-            checked={automation.status === "enabled"}
-            onCheckedChange={(enabled) =>
-              toggleMutation.mutate({
-                id: automation.id,
-                enabled,
-              })
-            }
-            aria-label={
-              automation.status === "enabled"
-                ? "Disable automation"
-                : "Enable automation"
-            }
+  const columns: DataTableColumn<Automation>[] = [
+    {
+      id: "status",
+      header: "",
+      headClassName: "w-8",
+      cellClassName: "relative pl-4",
+      cell: (automation) => (
+        <>
+          {/* Status accent: enabled/disabled by position + hue, not toggle alone. */}
+          <span
+            className={cn(
+              "absolute inset-y-0 left-0 w-1",
+              automationAccent(automation.status),
+            )}
+            aria-hidden
           />
-        ) : (
-          <Badge
-            variant={
-              automation.status === "enabled" ? "success" : "outline"
-            }
-          >
-            {automation.status}
-          </Badge>
-        )}
-      </TableCell>
-      <TableCell>
+          <div onClick={(e) => e.stopPropagation()}>
+            {canAccess(automation.id) ? (
+              <Toggle
+                checked={automation.status === "enabled"}
+                onCheckedChange={(enabled) =>
+                  toggleMutation.mutate({
+                    id: automation.id,
+                    enabled,
+                  })
+                }
+                aria-label={
+                  automation.status === "enabled"
+                    ? "Disable automation"
+                    : "Enable automation"
+                }
+              />
+            ) : (
+              <Badge
+                variant={
+                  automation.status === "enabled" ? "success" : "outline"
+                }
+              >
+                {automation.status}
+              </Badge>
+            )}
+          </div>
+        </>
+      ),
+    },
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (automation) => automation.name,
+      cell: (automation) => (
         <div className="flex flex-col gap-0.5">
           <span className="font-semibold text-foreground">
             {automation.name}
@@ -246,8 +242,12 @@ const AutomationListContent: React.FC = () => {
             </span>
           )}
         </div>
-      </TableCell>
-      <TableCell>
+      ),
+    },
+    {
+      id: "triggers",
+      header: "Triggers",
+      cell: (automation) => (
         <div className="flex flex-wrap gap-1">
           {automation.definition.triggers.slice(0, 3).map((trigger, index) => (
             <Badge
@@ -267,45 +267,62 @@ const AutomationListContent: React.FC = () => {
             </Badge>
           )}
         </div>
-      </TableCell>
-      <TableCell>
+      ),
+    },
+    {
+      id: "mode",
+      header: "Mode",
+      sortValue: (automation) => automation.definition.mode,
+      cell: (automation) => (
         <Badge variant="secondary" className="text-[10px]">
           {automation.definition.mode}
         </Badge>
-      </TableCell>
-      <TableCell>
+      ),
+    },
+    {
+      id: "updated",
+      header: "Updated",
+      sortValue: (automation) => new Date(automation.updatedAt).getTime(),
+      cell: (automation) => (
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(new Date(automation.updatedAt), {
             addSuffix: true,
           })}
         </span>
-      </TableCell>
-      <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
-        <div className="flex justify-end gap-1">
-          <Link
-            to={resolveRoute(automationRoutes.routes.runs, {
-              automationId: automation.id,
-            })}
-          >
-            <Button variant="ghost" size="sm">
-              Runs
-            </Button>
-          </Link>
-          {canAccess(automation.id) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:bg-destructive/10"
-              onClick={() => setDeleteId(automation.id)}
-              aria-label="Delete automation"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "w-24 text-right",
+      cellClassName: "text-right",
+      cell: (automation) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <RowActions>
+            <RowAction
+              icon={History}
+              label="View runs"
+              onClick={() =>
+                navigate(
+                  resolveRoute(automationRoutes.routes.runs, {
+                    automationId: automation.id,
+                  }),
+                )
+              }
+            />
+            {canAccess(automation.id) && (
+              <RowAction
+                icon={Trash2}
+                label="Delete automation"
+                tone="destructive"
+                onClick={() => setDeleteId(automation.id)}
+              />
+            )}
+          </RowActions>
         </div>
-      </TableCell>
-    </TableRow>
-  );
+      ),
+    },
+  ];
 
   const renderMobileCard = (automation: Automation) => (
     <div
@@ -391,30 +408,28 @@ const AutomationListContent: React.FC = () => {
           addSuffix: true,
         })}
       </div>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="mt-3 flex justify-end gap-1 pl-2"
-      >
-        <Link
-          to={resolveRoute(automationRoutes.routes.runs, {
-            automationId: automation.id,
-          })}
-        >
-          <Button variant="ghost" size="sm">
-            Runs
-          </Button>
-        </Link>
-        {canAccess(automation.id) && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-destructive hover:bg-destructive/10"
-            onClick={() => setDeleteId(automation.id)}
-            aria-label="Delete automation"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+      <div onClick={(e) => e.stopPropagation()} className="mt-3 pl-2">
+        <RowActions>
+          <RowAction
+            icon={History}
+            label="View runs"
+            onClick={() =>
+              navigate(
+                resolveRoute(automationRoutes.routes.runs, {
+                  automationId: automation.id,
+                }),
+              )
+            }
+          />
+          {canAccess(automation.id) && (
+            <RowAction
+              icon={Trash2}
+              label="Delete automation"
+              tone="destructive"
+              onClick={() => setDeleteId(automation.id)}
+            />
+          )}
+        </RowActions>
       </div>
     </div>
   );
@@ -516,32 +531,28 @@ const AutomationListContent: React.FC = () => {
                     </span>
                   </AccordionTrigger>
                   <AccordionContent className="px-0 pb-0">
-                    <ResponsiveTable>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-8" />
-                            <TableHead>Name</TableHead>
-                            <TableHead>Triggers</TableHead>
-                            <TableHead>Mode</TableHead>
-                            <TableHead>Updated</TableHead>
-                            <TableHead className="w-24 text-right">
-                              Actions
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {group.items.map((automation) =>
-                            renderRow(automation),
-                          )}
-                        </TableBody>
-                      </Table>
-                    </ResponsiveTable>
-                    <MobileCardList className="p-2">
-                      {group.items.map((automation) =>
-                        renderMobileCard(automation),
-                      )}
-                    </MobileCardList>
+                    <DataTable
+                      data={group.items}
+                      columns={columns}
+                      getRowId={(automation) => automation.id}
+                      searchable={false}
+                      // Nested inside the page's opaque Card, so the default
+                      // bg-card surface would create a panel-in-panel; the
+                      // enclosing Card already provides the opaque background.
+                      surface={false}
+                      onRowClick={(automation) =>
+                        navigate(
+                          resolveRoute(automationRoutes.routes.edit, {
+                            automationId: automation.id,
+                          }),
+                        )
+                      }
+                      getRowProps={() => ({
+                        className:
+                          "relative transition-colors hover:bg-surface-inset",
+                      })}
+                      renderMobileCard={renderMobileCard}
+                    />
                   </AccordionContent>
                 </AccordionItem>
               ))}

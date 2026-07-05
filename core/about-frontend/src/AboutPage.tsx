@@ -7,6 +7,8 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
+  DataTable,
+  type DataTableColumn,
   LoadingSpinner,
   cn,
 } from "@checkstack/ui";
@@ -52,6 +54,51 @@ function formatPluginName(name: string): string {
  */
 const PANEL_BASE =
   "relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
+
+const pluginColumns: DataTableColumn<PluginInfo>[] = [
+  {
+    id: "name",
+    header: "Plugin",
+    sortValue: (plugin) => plugin.name,
+    searchValue: (plugin) => `${formatPluginName(plugin.name)} ${plugin.name}`,
+    cell: (plugin) => (
+      <>
+        <span className="font-medium text-foreground">
+          {formatPluginName(plugin.name)}
+        </span>
+        <span className="block font-mono text-xs text-muted-foreground">
+          {plugin.name}
+        </span>
+      </>
+    ),
+  },
+  {
+    id: "type",
+    header: "Type",
+    cell: (plugin) => {
+      const chip = pluginTypeChipStyle(plugin.type);
+      return (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
+            chip.pill,
+          )}
+        >
+          <span aria-hidden className={cn("size-1.5 rounded-full", chip.dot)} />
+          {plugin.type}
+        </span>
+      );
+    },
+  },
+  {
+    id: "version",
+    header: "Version",
+    headClassName: "text-right",
+    cellClassName: "text-right font-mono tabular-nums text-foreground",
+    sortValue: (plugin) => plugin.version,
+    cell: (plugin) => plugin.version,
+  },
+];
 
 export function AboutPage() {
   const [aboutInfo, setAboutInfo] = useState<AboutInfo | undefined>();
@@ -231,63 +278,13 @@ export function AboutPage() {
                       {aboutInfo.plugins.length} loaded
                     </span>
                   </div>
-                  <div className="overflow-hidden rounded-[var(--d-card-r)] border border-border/60">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border/60 bg-surface-2">
-                          <th className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Plugin
-                          </th>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Type
-                          </th>
-                          <th className="px-4 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Version
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/60">
-                        {aboutInfo.plugins.map((plugin) => {
-                          const chip = pluginTypeChipStyle(plugin.type);
-                          return (
-                            <tr
-                              key={plugin.name}
-                              className="transition-colors hover:bg-surface-inset"
-                            >
-                              <td className="px-4 py-2.5">
-                                <span className="font-medium text-foreground">
-                                  {formatPluginName(plugin.name)}
-                                </span>
-                                <span className="block font-mono text-xs text-muted-foreground">
-                                  {plugin.name}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-                                    chip.pill,
-                                  )}
-                                >
-                                  <span
-                                    aria-hidden
-                                    className={cn(
-                                      "size-1.5 rounded-full",
-                                      chip.dot,
-                                    )}
-                                  />
-                                  {plugin.type}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-mono tabular-nums text-foreground">
-                                {plugin.version}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable
+                    data={aboutInfo.plugins}
+                    columns={pluginColumns}
+                    getRowId={(plugin) => plugin.name}
+                    searchPlaceholder="Search plugins..."
+                    defaultSort={{ columnId: "name", direction: "asc" }}
+                  />
                 </div>
               )}
             </div>

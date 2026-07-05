@@ -1,6 +1,6 @@
 import React from "react";
-import { Link, useParams } from "react-router-dom";
-import { History, ChevronLeft } from "lucide-react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { History, ChevronLeft, ArrowUpRight } from "lucide-react";
 import {
   usePluginClient,
   accessApiRef,
@@ -12,7 +12,7 @@ import {
   automationAccess,
   automationRoutes,
 } from "@checkstack/automation-common";
-import type { RunStatus } from "@checkstack/automation-common";
+import type { RunStatus, AutomationRun } from "@checkstack/automation-common";
 import {
   PageLayout,
   Card,
@@ -20,17 +20,13 @@ import {
   CardHeader,
   CardTitle,
   Button,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   LoadingSpinner,
   QueryErrorState,
   EmptyState,
-  ResponsiveTable,
-  MobileCardList,
 } from "@checkstack/ui";
 import { resolveRoute } from "@checkstack/common";
 import { formatDistanceToNow } from "date-fns";
@@ -45,6 +41,7 @@ import { formatDuration } from "./run-duration";
  */
 const RunsPageContent: React.FC = () => {
   const { automationId } = useParams<{ automationId: string }>();
+  const navigate = useNavigate();
   const client = usePluginClient(AutomationApi);
   const accessApi = useApi(accessApiRef);
   const { allowed, loading: accessLoading } = accessApi.useAccess(
@@ -72,6 +69,72 @@ const RunsPageContent: React.FC = () => {
   );
 
   const runs = runsQuery.data?.items ?? [];
+
+  const columns: DataTableColumn<AutomationRun>[] = [
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (run) => run.status,
+      cell: (run) => <RunStatusPill status={run.status} />,
+    },
+    {
+      id: "trigger",
+      header: "Trigger",
+      sortValue: (run) => run.triggerEventId || "manual",
+      cell: (run) => (
+        <code className="font-mono text-xs">
+          {run.triggerEventId || "manual"}
+        </code>
+      ),
+    },
+    {
+      id: "started",
+      header: "Started",
+      sortValue: (run) => new Date(run.startedAt).getTime(),
+      cell: (run) => (
+        <span className="text-xs text-muted-foreground">
+          {formatDistanceToNow(new Date(run.startedAt), { addSuffix: true })}
+        </span>
+      ),
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      sortValue: (run) =>
+        run.finishedAt
+          ? new Date(run.finishedAt).getTime() -
+            new Date(run.startedAt).getTime()
+          : undefined,
+      cell: (run) => (
+        <span className="text-xs text-muted-foreground">
+          {formatDuration(run.startedAt, run.finishedAt)}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      headClassName: "w-24 text-right",
+      cellClassName: "text-right",
+      cell: (run) =>
+        automationId ? (
+          <RowActions>
+            <RowAction
+              icon={ArrowUpRight}
+              label="Open run details"
+              onClick={() =>
+                navigate(
+                  resolveRoute(automationRoutes.routes.runDetail, {
+                    automationId,
+                    runId: run.id,
+                  }),
+                )
+              }
+            />
+          </RowActions>
+        ) : null,
+    },
+  ];
 
   return (
     <PageLayout
@@ -142,107 +205,52 @@ const RunsPageContent: React.FC = () => {
               description="Manually trigger the automation from the edit page to generate a run."
             />
           ) : (
-            <>
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Trigger</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead className="w-24 text-right" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {runs.map((run) => (
-                      <TableRow key={run.id}>
-                        <TableCell>
-                          <RunStatusPill status={run.status} />
-                        </TableCell>
-                        <TableCell>
-                          <code className="font-mono text-xs">
-                            {run.triggerEventId || "manual"}
-                          </code>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(run.startedAt), {
-                              addSuffix: true,
-                            })}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDuration(run.startedAt, run.finishedAt)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {automationId && (
-                            <Link
-                              to={resolveRoute(
-                                automationRoutes.routes.runDetail,
-                                {
-                                  automationId,
-                                  runId: run.id,
-                                },
-                              )}
-                            >
-                              <Button variant="ghost" size="sm">
-                                Open
-                              </Button>
-                            </Link>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
-
-              <MobileCardList className="p-4">
-                {runs.map((run) => (
-                  <div
-                    key={run.id}
-                    className="rounded-md border bg-surface p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <RunStatusPill status={run.status} />
-                      {automationId && (
-                        <Link
-                          to={resolveRoute(automationRoutes.routes.runDetail, {
-                            automationId,
-                            runId: run.id,
-                          })}
-                        >
-                          <Button variant="ghost" size="sm">
-                            Open
-                          </Button>
-                        </Link>
-                      )}
+            <DataTable
+              data={runs}
+              columns={columns}
+              getRowId={(run) => run.id}
+              searchable={false}
+              renderMobileCard={(run) => (
+                <div className="rounded-md border bg-surface p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <RunStatusPill status={run.status} />
+                    {automationId && (
+                      <RowActions>
+                        <RowAction
+                          icon={ArrowUpRight}
+                          label="Open run details"
+                          onClick={() =>
+                            navigate(
+                              resolveRoute(automationRoutes.routes.runDetail, {
+                                automationId,
+                                runId: run.id,
+                              }),
+                            )
+                          }
+                        />
+                      </RowActions>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <span>Trigger:</span>
+                      <code className="font-mono">
+                        {run.triggerEventId || "manual"}
+                      </code>
                     </div>
-                    <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <span>Trigger:</span>
-                        <code className="font-mono">
-                          {run.triggerEventId || "manual"}
-                        </code>
-                      </div>
-                      <div>
-                        Started{" "}
-                        {formatDistanceToNow(new Date(run.startedAt), {
-                          addSuffix: true,
-                        })}
-                      </div>
-                      <div>
-                        Duration:{" "}
-                        {formatDuration(run.startedAt, run.finishedAt)}
-                      </div>
+                    <div>
+                      Started{" "}
+                      {formatDistanceToNow(new Date(run.startedAt), {
+                        addSuffix: true,
+                      })}
+                    </div>
+                    <div>
+                      Duration: {formatDuration(run.startedAt, run.finishedAt)}
                     </div>
                   </div>
-                ))}
-              </MobileCardList>
-            </>
+                </div>
+              )}
+            />
           )}
         </CardContent>
       </Card>

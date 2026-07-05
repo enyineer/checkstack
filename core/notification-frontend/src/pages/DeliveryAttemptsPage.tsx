@@ -5,17 +5,11 @@ import {
   Button,
   Card,
   cn,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
+  DataTable,
+  type DataTableColumn,
   Alert,
   LoadingSpinner,
   EmptyState,
-  ResponsiveTable,
-  MobileCardList,
 } from "@checkstack/ui";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { NotificationApi } from "@checkstack/notification-common";
@@ -87,6 +81,58 @@ export const DeliveryAttemptsPage = () => {
   const total = data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const { successes, failures } = summarizeDeliveryAttempts({ attempts });
+
+  const columns: DataTableColumn<DeliveryAttempt>[] = [
+    {
+      id: "attemptedAt",
+      header: "Attempted at",
+      sortValue: (attempt) => new Date(attempt.attemptedAt).getTime(),
+      cellClassName: "relative whitespace-nowrap",
+      cell: (attempt) => (
+        <>
+          {attempt.status !== "success" && (
+            <span
+              className="absolute inset-y-0 left-0 w-0.5 bg-status-down"
+              aria-hidden
+            />
+          )}
+          {formatAttemptedAt(attempt.attemptedAt)}
+        </>
+      ),
+    },
+    {
+      id: "strategy",
+      header: "Strategy",
+      sortValue: (attempt) => attempt.strategyQualifiedId,
+      cellClassName: "font-mono text-xs",
+      cell: (attempt) => attempt.strategyQualifiedId,
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (attempt) => attempt.status,
+      cell: (attempt) => <StatusBadge status={attempt.status} />,
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      sortValue: (attempt) => attempt.durationMs,
+      cellClassName: "whitespace-nowrap text-muted-foreground",
+      cell: (attempt) => `${attempt.durationMs}ms`,
+    },
+    {
+      id: "error",
+      header: "Error",
+      cellClassName: "max-w-md text-xs text-muted-foreground",
+      cell: (attempt) => (
+        <span title={attempt.errorMessage ?? undefined}>
+          {attempt.errorMessage
+            ? truncate(attempt.errorMessage, ERROR_MESSAGE_MAX)
+            : "-"}
+        </span>
+      ),
+    },
+  ];
 
   // No client-side `isAdmin` gate: the `getDeliveryAttempts` procedure
   // is locked behind `notificationAccess.admin` at the contract layer
@@ -160,68 +206,21 @@ export const DeliveryAttemptsPage = () => {
               </div>
             </div>
 
-            <ResponsiveTable className="rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Attempted at</TableHead>
-                    <TableHead>Strategy</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Error</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {attempts.map((attempt) => {
-                    const isFailure = attempt.status !== "success";
-                    return (
-                      <TableRow
-                        key={attempt.id}
-                        className={cn(
-                          "transition-colors hover:bg-surface-inset",
-                          isFailure && "bg-status-down/5",
-                        )}
-                      >
-                        <TableCell
-                          className={cn(
-                            "whitespace-nowrap",
-                            isFailure && "border-l-2 border-l-status-down",
-                          )}
-                        >
-                          {formatAttemptedAt(attempt.attemptedAt)}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {attempt.strategyQualifiedId}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={attempt.status} />
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">
-                          {attempt.durationMs}ms
-                        </TableCell>
-                        <TableCell
-                          className="max-w-md text-xs text-muted-foreground"
-                          title={attempt.errorMessage ?? undefined}
-                        >
-                          {attempt.errorMessage
-                            ? truncate(attempt.errorMessage, ERROR_MESSAGE_MAX)
-                            : "-"}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </ResponsiveTable>
-
-            <MobileCardList>
-              {attempts.map((attempt) => {
+            <DataTable
+              data={attempts}
+              columns={columns}
+              getRowId={(attempt) => attempt.id}
+              searchable={false}
+              getRowProps={(attempt) => ({
+                className: cn(
+                  "transition-colors hover:bg-surface-inset",
+                  attempt.status !== "success" && "bg-status-down/5",
+                ),
+              })}
+              renderMobileCard={(attempt) => {
                 const isFailure = attempt.status !== "success";
                 return (
-                  <Card
-                    key={attempt.id}
-                    className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-3 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]"
-                  >
+                  <Card className="relative overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-3 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]">
                     <span
                       className={cn(
                         "absolute inset-y-0 left-0 w-1",
@@ -251,8 +250,8 @@ export const DeliveryAttemptsPage = () => {
                     </div>
                   </Card>
                 );
-              })}
-            </MobileCardList>
+              }}
+            />
           </>
         )}
 

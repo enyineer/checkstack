@@ -1,17 +1,11 @@
 import { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
-import { CacheApi } from "@checkstack/cache-common";
+import { CacheApi, type CacheEntrySummaryDto } from "@checkstack/cache-common";
 import {
   cn,
   Pagination,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  ResponsiveTable,
-  MobileCardList,
+  DataTable,
+  type DataTableColumn,
   formatBytes,
 } from "@checkstack/ui";
 import {
@@ -96,77 +90,73 @@ export const CacheEntriesTable = ({ sortBy }: { sortBy: SortBy }) => {
   const showSizeBar = sortBy === "biggest";
   const pageMaxBytes = maxByteSize({ entries: data.items });
 
+  const columns: DataTableColumn<CacheEntrySummaryDto>[] = [
+    {
+      id: "key",
+      header: "Key",
+      cellClassName: "whitespace-nowrap",
+      sortValue: (entry) => entry.key,
+      cell: (entry) => (
+        <span className={KEY_CHIP} title={entry.key}>
+          {truncateMiddle(entry.key)}
+        </span>
+      ),
+    },
+    {
+      id: "size",
+      header: "Size",
+      headClassName: "text-right",
+      cellClassName: "relative text-right tabular-nums",
+      sortValue: (entry) => entry.byteSize,
+      cell: (entry) => {
+        const barWidth = showSizeBar
+          ? sizeBarWidthPercent({
+              byteSize: entry.byteSize,
+              maxByteSize: pageMaxBytes,
+            })
+          : null;
+        return (
+          <>
+            {barWidth !== null && (
+              <span
+                className="absolute inset-y-1 right-0 rounded-sm bg-status-ok/15"
+                style={{ width: `${barWidth}%` }}
+                aria-hidden
+              />
+            )}
+            <span className="relative">{formatSize(entry.byteSize)}</span>
+          </>
+        );
+      },
+    },
+    {
+      id: "ttl",
+      header: "TTL",
+      headClassName: "text-right",
+      cellClassName: "text-right tabular-nums",
+      sortValue: (entry) => (entry.expiresAt ? entry.expiresAt.getTime() : null),
+      cell: (entry) => (
+        <span
+          className={ttlToneClass[classifyTtlUrgency({ expiresAt: entry.expiresAt })]}
+        >
+          {formatTtl(entry.expiresAt)}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3">
-      <ResponsiveTable>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Key
-              </TableHead>
-              <TableHead className="text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Size
-              </TableHead>
-              <TableHead className="text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                TTL
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.items.map((entry) => {
-              const ttlTone = classifyTtlUrgency({
-                expiresAt: entry.expiresAt,
-              });
-              const barWidth = showSizeBar
-                ? sizeBarWidthPercent({
-                    byteSize: entry.byteSize,
-                    maxByteSize: pageMaxBytes,
-                  })
-                : null;
-              return (
-                <TableRow
-                  key={entry.key}
-                  className="transition-colors hover:bg-surface-inset"
-                >
-                  <TableCell className="whitespace-nowrap" title={entry.key}>
-                    <span className={KEY_CHIP}>
-                      {truncateMiddle(entry.key)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="relative text-right tabular-nums">
-                    {barWidth !== null && (
-                      <span
-                        className="absolute inset-y-1 right-0 rounded-sm bg-status-ok/15"
-                        style={{ width: `${barWidth}%` }}
-                        aria-hidden
-                      />
-                    )}
-                    <span className="relative">{formatSize(entry.byteSize)}</span>
-                  </TableCell>
-                  <TableCell
-                    className={cn(
-                      "text-right tabular-nums",
-                      ttlToneClass[ttlTone],
-                    )}
-                  >
-                    {formatTtl(entry.expiresAt)}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </ResponsiveTable>
-
-      <MobileCardList>
-        {data.items.map((entry) => {
+      {/* No own surface: the enclosing CacheRuntimePanel Card provides it. */}
+      <DataTable
+        data={data.items}
+        columns={columns}
+        getRowId={(entry) => entry.key}
+        surface={false}
+        renderMobileCard={(entry) => {
           const ttlTone = classifyTtlUrgency({ expiresAt: entry.expiresAt });
           return (
-            <div
-              key={entry.key}
-              className="group rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-3 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5"
-            >
+            <div className="group rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-3 shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5">
               <div className="break-all" title={entry.key}>
                 <span className={KEY_CHIP}>{truncateMiddle(entry.key)}</span>
               </div>
@@ -195,8 +185,8 @@ export const CacheEntriesTable = ({ sortBy }: { sortBy: SortBy }) => {
               </div>
             </div>
           );
-        })}
-      </MobileCardList>
+        }}
+      />
       <Pagination
         page={page}
         totalPages={totalPages}

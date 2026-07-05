@@ -3,27 +3,19 @@ import { Link } from "react-router-dom";
 import { Puzzle, Trash2, Plus, History } from "lucide-react";
 import {
   PageLayout,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
   Button,
   EmptyState,
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
+  ListEmptyState,
+  DataTable,
+  type DataTableColumn,
+  RowActions,
+  RowAction,
   Checkbox,
   Label,
   ConfirmationModal,
   useToast,
   toastError,
   toastSuccess,
-  ResponsiveTable,
-  MobileCardList,
   cn,
 } from "@checkstack/ui";
 import {
@@ -130,6 +122,75 @@ const InstalledPluginsPageContent: React.FC = () => {
 
   const plugins = data?.plugins ?? [];
 
+  const columns: DataTableColumn<InstalledPlugin>[] = [
+    {
+      id: "name",
+      header: "Name",
+      sortValue: (p) => p.name,
+      searchValue: (p) => p.name,
+      cell: (p) => (
+        <span className="font-mono text-sm font-semibold text-foreground break-all">
+          {p.name}
+        </span>
+      ),
+    },
+    {
+      id: "version",
+      header: "Version",
+      sortValue: (p) => p.version,
+      searchValue: (p) => p.version,
+      cell: (p) => (
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          v{p.version || "—"}
+        </span>
+      ),
+    },
+    {
+      id: "type",
+      header: "Type",
+      sortValue: (p) => p.type,
+      searchValue: (p) => p.type,
+      cell: (p) => (
+        <span className="text-xs text-muted-foreground">{p.type}</span>
+      ),
+    },
+    {
+      id: "source",
+      header: "Source",
+      sortValue: (p) => presentPluginSource({ source: p.source }),
+      searchValue: (p) => presentPluginSource({ source: p.source }),
+      cell: (p) => (
+        <span className="text-xs text-muted-foreground">
+          {presentPluginSource({ source: p.source })}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (p) =>
+        presentPluginStatus({ isUninstallable: p.isUninstallable }).label,
+      cell: (p) => <PluginStatusPill isUninstallable={p.isUninstallable} />,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (p) =>
+        p.isUninstallable && uninstallAccess.allowed ? (
+          <RowActions>
+            <RowAction
+              icon={Trash2}
+              tone="destructive"
+              label={`Uninstall ${p.name}`}
+              onClick={() => setTarget(p)}
+            />
+          </RowActions>
+        ) : null,
+    },
+  ];
+
   return (
     <PageLayout
       title="Plugins"
@@ -137,148 +198,88 @@ const InstalledPluginsPageContent: React.FC = () => {
       actions={headerActions}
       allowed={view.allowed}
     >
-      <Card>
-        <CardHeader>
-          <CardTitle>Installed Plugins</CardTitle>
-          <CardDescription>
-            Plugins running on this Checkstack instance. Runtime-installed
-            plugins (npm, GitHub release, tarball upload) can be uninstalled
-            from this page; bundled platform plugins are read-only.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {plugins.length === 0 ? (
-            <EmptyState
-              icon={<Puzzle className="size-10" />}
-              title="No plugins discovered yet"
-              description="Almost everything in Checkstack is a plugin - health-check protocols, notification channels, integrations, even auth backends. New ones can be installed at runtime from npm, a GitHub release, or a tarball you upload."
-              steps={[
-                "Click “Install plugin” to add a runtime plugin (e.g. a custom notification channel).",
-                "Drop in a tarball, paste an npm package name, or point at a GitHub release.",
-                "Bundled platform plugins always show up here too - they're read-only and managed by the Checkstack release.",
-              ]}
-              actions={
-                <Button asChild>
-                  <Link to={installPath}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Install plugin
-                  </Link>
-                </Button>
-              }
-            />
-          ) : (
-            <>
-              <ResponsiveTable>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Version</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {plugins.map((p) => (
-                      <TableRow
-                        key={p.name}
-                        className="group transition-colors hover:bg-surface-inset"
-                      >
-                        <TableCell>
-                          <span className="font-mono text-sm font-semibold text-foreground break-all">
-                            {p.name}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                            v{p.version || "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">
-                            {p.type}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">
-                            {presentPluginSource({ source: p.source })}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <PluginStatusPill isUninstallable={p.isUninstallable} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {p.isUninstallable && uninstallAccess.allowed ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="opacity-70 transition-opacity group-hover:opacity-100"
-                              onClick={() => setTarget(p)}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Uninstall
-                            </Button>
-                          ) : undefined}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ResponsiveTable>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Plugins running on this Checkstack instance. Runtime-installed plugins
+        (npm, GitHub release, tarball upload) can be uninstalled from this page;
+        bundled platform plugins are read-only.
+      </p>
 
-              <MobileCardList>
-                {plugins.map((p) => {
-                  const { tone } = presentPluginStatus({
-                    isUninstallable: p.isUninstallable,
-                  });
-                  return (
-                    <div key={p.name} className="group">
-                      <div className="relative flex flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
-                        <span
-                          className={cn(
-                            "absolute inset-y-0 left-0 w-1",
-                            PLUGIN_TONE_STYLES[tone].accent,
-                          )}
-                          aria-hidden
+      {plugins.length === 0 ? (
+        <EmptyState
+          icon={<Puzzle className="size-10" />}
+          title="No plugins discovered yet"
+          description="Almost everything in Checkstack is a plugin - health-check protocols, notification channels, integrations, even auth backends. New ones can be installed at runtime from npm, a GitHub release, or a tarball you upload."
+          steps={[
+            "Click “Install plugin” to add a runtime plugin (e.g. a custom notification channel).",
+            "Drop in a tarball, paste an npm package name, or point at a GitHub release.",
+            "Bundled platform plugins always show up here too - they're read-only and managed by the Checkstack release.",
+          ]}
+          actions={
+            <Button asChild>
+              <Link to={installPath}>
+                <Plus className="w-4 h-4 mr-2" />
+                Install plugin
+              </Link>
+            </Button>
+          }
+        />
+      ) : (
+        <DataTable
+          data={plugins}
+          columns={columns}
+          getRowId={(p) => p.name}
+          defaultSort={{ columnId: "name", direction: "asc" }}
+          searchPlaceholder="Search plugins..."
+          getRowProps={() => ({ className: "group" })}
+          noResultsState={
+            <ListEmptyState
+              resource="plugins"
+              description="No plugins match the current search."
+            />
+          }
+          renderMobileCard={(p) => {
+            const { tone } = presentPluginStatus({
+              isUninstallable: p.isUninstallable,
+            });
+            return (
+              <div className="group">
+                <div className="relative flex flex-col overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-xl">
+                  <span
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-1",
+                      PLUGIN_TONE_STYLES[tone].accent,
+                    )}
+                    aria-hidden
+                  />
+                  <div className="flex items-start justify-between gap-2 pl-2">
+                    <span className="font-mono text-sm font-semibold text-foreground break-all">
+                      {p.name}
+                    </span>
+                    <PluginStatusPill isUninstallable={p.isUninstallable} />
+                  </div>
+                  <div className="mt-1 pl-2 text-xs text-muted-foreground">
+                    <span className="tabular-nums">v{p.version || "—"}</span>{" "}
+                    &middot; {p.type} &middot;{" "}
+                    {presentPluginSource({ source: p.source })}
+                  </div>
+                  {p.isUninstallable && uninstallAccess.allowed && (
+                    <div className="mt-3 border-t border-border/60 pt-3 pl-2">
+                      <RowActions>
+                        <RowAction
+                          icon={Trash2}
+                          tone="destructive"
+                          label={`Uninstall ${p.name}`}
+                          onClick={() => setTarget(p)}
                         />
-                        <div className="flex items-start justify-between gap-2 pl-2">
-                          <span className="font-mono text-sm font-semibold text-foreground break-all">
-                            {p.name}
-                          </span>
-                          <PluginStatusPill
-                            isUninstallable={p.isUninstallable}
-                          />
-                        </div>
-                        <div className="mt-1 pl-2 text-xs text-muted-foreground">
-                          <span className="tabular-nums">
-                            v{p.version || "—"}
-                          </span>{" "}
-                          &middot; {p.type} &middot;{" "}
-                          {presentPluginSource({ source: p.source })}
-                        </div>
-                        {p.isUninstallable && uninstallAccess.allowed && (
-                          <div className="mt-3 flex justify-end border-t border-border/60 pt-3 pl-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setTarget(p)}
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Uninstall
-                            </Button>
-                          </div>
-                        )}
-                      </div>
+                      </RowActions>
                     </div>
-                  );
-                })}
-              </MobileCardList>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                  )}
+                </div>
+              </div>
+            );
+          }}
+        />
+      )}
 
       <ConfirmationModal
         isOpen={!!target}
