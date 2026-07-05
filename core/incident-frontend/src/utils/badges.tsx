@@ -3,10 +3,12 @@ import { cn } from "@checkstack/ui";
 import type {
   IncidentStatus,
   IncidentSeverity,
+  IncidentHealthOverride,
 } from "@checkstack/incident-common";
 import {
   presentIncidentStatus,
   presentIncidentSeverity,
+  presentIncidentHealthOverride,
   toneStyles,
   type StatusTone,
 } from "./badges.logic";
@@ -62,5 +64,17 @@ export function getIncidentSeverityBadge(
   severity: IncidentSeverity,
 ): React.ReactNode {
   const { tone, label } = presentIncidentSeverity(severity);
+  return <StatusPill tone={tone} label={label} />;
+}
+
+/**
+ * Returns a styled status pill for an incident's health override (the status it
+ * forces onto its affected systems). Tinted like the health triad: degraded is
+ * warn, unhealthy is down.
+ */
+export function getIncidentHealthOverrideBadge(
+  healthOverride: IncidentHealthOverride,
+): React.ReactNode {
+  const { tone, label } = presentIncidentHealthOverride(healthOverride);
   return <StatusPill tone={tone} label={label} />;
 }

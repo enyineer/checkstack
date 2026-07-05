@@ -15,6 +15,7 @@ const baseIncident = (
   status: "investigating",
   severity: "critical",
   suppressNotifications: false,
+  healthOverride: null,
   createdAt: new Date("2026-06-01T10:00:00.000Z"),
   updatedAt: new Date("2026-06-01T10:00:00.000Z"),
   systemIds: ["sys-1"],

@@ -56,6 +56,7 @@ describe("incident.create tool", () => {
       status: "investigating",
       severity: input.severity,
       suppressNotifications: input.suppressNotifications,
+      healthOverride: null,
       systemIds: input.systemIds,
       createdAt: new Date(),
       updatedAt: new Date(),

@@ -181,6 +181,16 @@ as a metric and the assertions decide whether that counts as healthy. Only the
 probe failing to complete at all short-circuits to `unhealthy`. Each
 environment's runs roll up into its own [per-environment health](/checkstack/user-guide/concepts/environments/#per-environment-health) plus the system-wide status.
 
+A system's overall status is the **worst** status across all of its checks. One
+unhealthy check makes the whole system unhealthy, regardless of how many other
+checks are green. This same worst-wins rollup also folds in any **active
+incident that overrides the system's health** - so a system with only green
+checks can still read `degraded` or `unhealthy` because an operator forced it
+via an incident, for a problem no automated check can see. See
+[Override system health](/checkstack/user-guide/concepts/incidents/#override-system-health).
+Every surface that shows a system's derived health (the health badge,
+dashboards, the dependency map, status pages) reflects both inputs.
+
 ## Secrets in check configuration
 
 Credential fields (passwords, tokens, private keys) are secret fields: the

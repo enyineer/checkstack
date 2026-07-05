@@ -4,6 +4,7 @@ import {
   usePluginClient,
   accessApiRef,
   useApi,
+  useQueryClient,
   wrapInSuspense,
   ExtensionSlot,
 } from "@checkstack/frontend-api";
@@ -40,12 +41,14 @@ import {
   Server,
   Plus,
   ExternalLink,
+  HeartPulse,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { IncidentUpdateForm } from "../components/IncidentUpdateForm";
 import {
   getIncidentStatusBadge,
   getIncidentSeverityBadge,
+  getIncidentHealthOverrideBadge,
   getIncidentSeverityAccentClass,
 } from "../utils/badges";
 
@@ -56,6 +59,7 @@ const IncidentDetailPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
+  const queryClient = useQueryClient();
   const toast = useToast();
 
   const [showUpdateForm, setShowUpdateForm] = useState(false);
@@ -87,8 +91,16 @@ const IncidentDetailPageContent: React.FC = () => {
   const loading = incidentLoading || systemsLoading;
 
   // Resolve mutation
+  // Resolving (or a status change) lifts any health override this incident
+  // forced, which is healthcheck's derived data - a DIFFERENT plugin - so its
+  // queries need explicit invalidation (Pillar 2 of the query-invalidation rule).
+  const invalidateSystemHealth = () => {
+    void queryClient.invalidateQueries({ queryKey: [["healthcheck"]] });
+  };
+
   const resolveMutation = incidentClient.resolveIncident.useMutation({
     onSuccess: () => {
+      invalidateSystemHealth();
       toast.success("Incident resolved");
       void refetchIncident();
     },
@@ -98,6 +110,9 @@ const IncidentDetailPageContent: React.FC = () => {
   });
 
   const handleUpdateSuccess = () => {
+    // A posted update may carry a status change (e.g. to resolved), which lifts
+    // an override, so refresh derived system health too.
+    invalidateSystemHealth();
     setShowUpdateForm(false);
     void refetchIncident();
   };
@@ -245,6 +260,23 @@ const IncidentDetailPageContent: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {incident.healthOverride &&
+                incident.status !== "resolved" && (
+                  <div className="border-t border-border/60 pt-4">
+                    <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                      Health override
+                    </h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <HeartPulse className="h-4 w-4 text-muted-foreground" />
+                      {getIncidentHealthOverrideBadge(incident.healthOverride)}
+                      <span className="text-xs text-muted-foreground">
+                        Forced onto the affected systems while this incident is
+                        active.
+                      </span>
+                    </div>
+                  </div>
+                )}
 
               {incident.links.length > 0 && (
                 <div className="border-t border-border/60 pt-4">

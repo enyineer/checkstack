@@ -34,10 +34,36 @@ const SystemCheckStatusSchema = z.object({
   lastRunAt: z.date().optional(),
 });
 
+/**
+ * A non-health-check contributor that raised a system's derived status (via
+ * worst-wins). Currently only active incidents contribute an override; the
+ * shape is kept source-agnostic (`source`/`sourceId`) so health-common stays
+ * decoupled from the contributing plugin. When present, `status` is the exact
+ * status that contributor forced; the top-level `status` may still be worse if
+ * a health check reported something worse.
+ */
+const SystemHealthOverrideSchema = z.object({
+  status: HealthCheckStatusSchema,
+  /** Contributor kind, e.g. "incident". */
+  source: z.string(),
+  /** Human-readable reason, e.g. the incident title. */
+  reason: z.string(),
+  /** Opaque id of the contributing record, e.g. the incident id (for linking). */
+  sourceId: z.string().optional(),
+});
+export type SystemHealthOverride = z.infer<typeof SystemHealthOverrideSchema>;
+
 const SystemHealthStatusResponseSchema = z.object({
   status: HealthCheckStatusSchema,
   evaluatedAt: z.date(),
   checkStatuses: z.array(SystemCheckStatusSchema),
+  /**
+   * The worst active override contributing to `status`, or `null`/absent when
+   * no non-health-check contributor raised it. Surfaced so UIs can explain WHY
+   * a system reads unhealthy when its checks look fine (e.g. "Forced by
+   * incident: <title>").
+   */
+  override: SystemHealthOverrideSchema.nullable().optional(),
 });
 
 export type SystemHealthStatusResponse = z.infer<

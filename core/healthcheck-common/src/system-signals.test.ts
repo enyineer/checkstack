@@ -79,21 +79,93 @@ describe("deriveHealthcheckSignals", () => {
     expect(result.s2[0].href).toBe("/healthcheck/history/s2/c9");
   });
 
-  it("links to the assignments page (manage rule) when no specific check is failing", () => {
+  it("attributes an incident-forced status to the incident, not to failing checks", () => {
+    // The bulk RPC folds an active incident override into `status`, so a system
+    // can be unhealthy with every check green. The signal must say so honestly
+    // (no "0 of N checks failing") and link nowhere (the incident's own signal
+    // carries the link).
     const statuses: HealthcheckSignalStatuses = {
       s3: {
         status: "unhealthy",
         evaluatedAt: new Date(),
-        // Non-healthy aggregate with zero check rows: no failing check to link.
-        checkStatuses: [],
+        checkStatuses: [
+          { ...baseCheck, configurationId: "c1", status: "healthy" },
+          { ...baseCheck, configurationId: "c2", status: "healthy" },
+        ],
+        override: {
+          status: "unhealthy",
+          source: "incident",
+          reason: "License server revoked",
+          sourceId: "inc-1",
+        },
       },
     };
 
     const result = deriveHealthcheckSignals({ statuses });
 
-    expect(result.s3[0].href).toBe("/healthcheck/assignments/s3");
-    expect(result.s3[0].accessRule).toBe(healthCheckAccess.configuration.manage);
-    expect(result.s3[0].detail).toBeUndefined();
+    expect(result.s3).toHaveLength(1);
+    expect(result.s3[0].label).toBe("Unhealthy");
+    expect(result.s3[0].tone).toBe("error");
+    expect(result.s3[0].detail).toBe("Forced by incident: License server revoked");
+    expect(result.s3[0].href).toBeUndefined();
+    expect(result.s3[0].accessRule).toBeUndefined();
+  });
+
+  it("still reports the failing-check count when checks fail AND an incident overrides", () => {
+    const statuses: HealthcheckSignalStatuses = {
+      s4: {
+        status: "unhealthy",
+        evaluatedAt: new Date(),
+        checkStatuses: [
+          { ...baseCheck, configurationId: "c1", status: "degraded" },
+          { ...baseCheck, configurationId: "c2", status: "healthy" },
+        ],
+        override: {
+          status: "unhealthy",
+          source: "incident",
+          reason: "Vendor outage",
+          sourceId: "inc-2",
+        },
+      },
+    };
+
+    const result = deriveHealthcheckSignals({ statuses });
+
+    // Overall status (unhealthy, from the override) drives the label; the detail
+    // still surfaces the genuinely failing check rather than the incident.
+    expect(result.s4[0].label).toBe("Unhealthy");
+    expect(result.s4[0].detail).toBe("1 of 2 checks failing");
+    expect(result.s4[0].href).toBe("/healthcheck/history/s4/c1");
+  });
+
+  it("when a check is WORSE than the override, the check drives the signal", () => {
+    // Override forces only `degraded`, but a check is `unhealthy`. Worst-wins in
+    // the fold makes the overall status unhealthy, so the signal reads Unhealthy
+    // and attributes it to the failing check (not the incident): the incident's
+    // milder override never masks a genuinely worse check.
+    const statuses: HealthcheckSignalStatuses = {
+      s5: {
+        status: "unhealthy",
+        evaluatedAt: new Date(),
+        checkStatuses: [
+          { ...baseCheck, configurationId: "c1", status: "unhealthy" },
+          { ...baseCheck, configurationId: "c2", status: "healthy" },
+        ],
+        override: {
+          status: "degraded",
+          source: "incident",
+          reason: "Cosmetic incident",
+          sourceId: "inc-9",
+        },
+      },
+    };
+
+    const result = deriveHealthcheckSignals({ statuses });
+
+    expect(result.s5[0].label).toBe("Unhealthy");
+    expect(result.s5[0].tone).toBe("error");
+    expect(result.s5[0].detail).toBe("1 of 2 checks failing");
+    expect(result.s5[0].href).toBe("/healthcheck/history/s5/c1");
   });
 
   it("only includes problem systems when mixed with healthy ones", () => {
