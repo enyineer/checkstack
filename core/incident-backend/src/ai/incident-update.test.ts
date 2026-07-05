@@ -16,6 +16,7 @@ const existing: IncidentDetail = {
   status: "investigating",
   severity: "minor",
   suppressNotifications: false,
+  healthOverride: null,
   systemIds: ["sys1"],
   createdAt: new Date(),
   updatedAt: new Date(),

@@ -1,6 +1,7 @@
 import type {
   IncidentStatus,
   IncidentSeverity,
+  IncidentHealthOverride,
 } from "@checkstack/incident-common";
 
 /**
@@ -114,6 +115,26 @@ export function presentIncidentSeverity(severity: IncidentSeverity): {
     }
     default: {
       return { tone: "unknown", label: severity };
+    }
+  }
+}
+
+/** Maps an incident health override to its triad tone + human label. */
+export function presentIncidentHealthOverride(
+  healthOverride: IncidentHealthOverride,
+): {
+  tone: StatusTone;
+  label: string;
+} {
+  switch (healthOverride) {
+    case "unhealthy": {
+      return { tone: "down", label: "Unhealthy" };
+    }
+    case "degraded": {
+      return { tone: "warn", label: "Degraded" };
+    }
+    default: {
+      return { tone: "unknown", label: healthOverride };
     }
   }
 }

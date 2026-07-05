@@ -4,6 +4,7 @@ import {
   usePluginClient,
   accessApiRef,
   useApi,
+  useQueryClient,
   wrapInSuspense,
 } from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
@@ -90,8 +91,16 @@ const IncidentConfigPageContent: React.FC = () => {
   const incidentClient = usePluginClient(IncidentApi);
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
+
+  // Deleting or resolving incidents can lift a health override they forced,
+  // which is healthcheck's derived data (a different plugin) - invalidate it
+  // explicitly (Pillar 2 of the query-invalidation rule).
+  const invalidateSystemHealth = () => {
+    void queryClient.invalidateQueries({ queryKey: [["healthcheck"]] });
+  };
 
   // Create capability: gates the "Report Incident" action. A user who manages a
   // system (directly or via a team) may open an incident for it even without the
@@ -226,6 +235,7 @@ const IncidentConfigPageContent: React.FC = () => {
   // Mutations
   const deleteMutation = incidentClient.deleteIncident.useMutation({
     onSuccess: () => {
+      invalidateSystemHealth();
       toast.success("Incident deleted");
       void refetchIncidents();
       setDeleteId(undefined);
@@ -237,6 +247,7 @@ const IncidentConfigPageContent: React.FC = () => {
 
   const resolveMutation = incidentClient.resolveIncident.useMutation({
     onSuccess: () => {
+      invalidateSystemHealth();
       toast.success("Incident resolved");
       void refetchIncidents();
       setResolveId(undefined);
@@ -255,6 +266,7 @@ const IncidentConfigPageContent: React.FC = () => {
           successLabel: "deleted",
         }),
       );
+      invalidateSystemHealth();
       setSelectedIds(new Set());
       setBulkDeleteOpen(false);
       void refetchIncidents();
@@ -273,6 +285,7 @@ const IncidentConfigPageContent: React.FC = () => {
           successLabel: "resolved",
         }),
       );
+      invalidateSystemHealth();
       setSelectedIds(new Set());
       setBulkResolveOpen(false);
       void refetchIncidents();

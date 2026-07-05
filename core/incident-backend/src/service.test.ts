@@ -457,3 +457,92 @@ describe("IncidentService.createIncidentDedupedForSystem (M3)", () => {
     expect([a.reused, b.reused].filter(Boolean)).toHaveLength(1);
   });
 });
+
+/**
+ * Mock DB for the join query in `getActiveHealthOverrides`
+ * (`select().from().innerJoin().where()` resolving to a flat joined-row list).
+ * The status/override filtering is enforced by the real query builder, so the
+ * test supplies rows as the DB would AFTER filtering and asserts the mapping +
+ * per-system grouping into the RPC shape.
+ */
+function createJoinDb(rows: unknown[]) {
+  const select = mock(() => {
+    const whereResult = Promise.resolve(rows);
+    const innerJoin = mock(() => ({ where: mock(() => whereResult) }));
+    const from = mock(() => ({ innerJoin }));
+    return { from };
+  });
+  return { db: { select } as unknown };
+}
+
+describe("IncidentService.getActiveHealthOverrides", () => {
+  it("returns an empty record without querying when given no systems", async () => {
+    const { db } = createJoinDb([]);
+    const service = new IncidentService(db as never, makeFakeAdvisoryLock());
+    expect(await service.getActiveHealthOverrides([])).toEqual({});
+  });
+
+  it("groups active overrides by system and shapes each into { status, incidentId, incidentTitle }", async () => {
+    const { db } = createJoinDb([
+      {
+        systemId: "sys-1",
+        incidentId: "inc-1",
+        incidentTitle: "License server revoked",
+        healthOverride: "unhealthy",
+      },
+      {
+        systemId: "sys-1",
+        incidentId: "inc-2",
+        incidentTitle: "Slow logins",
+        healthOverride: "degraded",
+      },
+      {
+        systemId: "sys-2",
+        incidentId: "inc-3",
+        incidentTitle: "Vendor maintenance",
+        healthOverride: "degraded",
+      },
+    ]);
+    const service = new IncidentService(db as never, makeFakeAdvisoryLock());
+
+    const result = await service.getActiveHealthOverrides(["sys-1", "sys-2"]);
+
+    expect(result).toEqual({
+      "sys-1": [
+        {
+          status: "unhealthy",
+          incidentId: "inc-1",
+          incidentTitle: "License server revoked",
+        },
+        {
+          status: "degraded",
+          incidentId: "inc-2",
+          incidentTitle: "Slow logins",
+        },
+      ],
+      "sys-2": [
+        {
+          status: "degraded",
+          incidentId: "inc-3",
+          incidentTitle: "Vendor maintenance",
+        },
+      ],
+    });
+  });
+
+  it("omits systems with no active override", async () => {
+    const { db } = createJoinDb([
+      {
+        systemId: "sys-1",
+        incidentId: "inc-1",
+        incidentTitle: "Down",
+        healthOverride: "unhealthy",
+      },
+    ]);
+    const service = new IncidentService(db as never, makeFakeAdvisoryLock());
+
+    const result = await service.getActiveHealthOverrides(["sys-1", "sys-2"]);
+
+    expect(Object.keys(result)).toEqual(["sys-1"]);
+  });
+});

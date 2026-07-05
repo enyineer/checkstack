@@ -91,7 +91,17 @@ async function healthStatuses(
   const { statuses } = await ctx.rpcClient
     .forPlugin(HealthCheckApi)
     .getBulkSystemHealthStatus({ systemIds: ids });
-  return statuses;
+  // Project to ONLY the derived status. `getBulkSystemHealthStatus` folds active
+  // incident overrides into `status` (so the public page shows the forced
+  // status), but the response also carries `override.reason` = the incident
+  // TITLE. Status pages are public and incidents may be hidden, so we drop
+  // everything but the status here - the incident name must never reach a public
+  // widget DTO.
+  const projected: Record<string, { status: string } | undefined> = {};
+  for (const [systemId, value] of Object.entries(statuses)) {
+    projected[systemId] = value ? { status: value.status } : undefined;
+  }
+  return projected;
 }
 
 function publicStatus({

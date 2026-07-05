@@ -6,11 +6,15 @@ export {
 export {
   incidentContract,
   IncidentApi,
+  SystemHealthOverrideSchema,
+  type SystemHealthOverride,
   type IncidentContract,
 } from "./rpc-contract";
 export {
   IncidentStatusEnum,
   IncidentSeverityEnum,
+  IncidentHealthOverrideEnum,
+  type IncidentHealthOverride,
   IncidentSchema,
   IncidentWithSystemsSchema,
   IncidentUpdateSchema,

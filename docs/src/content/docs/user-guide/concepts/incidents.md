@@ -13,6 +13,7 @@ Each incident has:
 - A **status** that moves through the lifecycle below.
 - A **severity**: `minor`, `major`, or `critical`.
 - A list of **affected systems** (the catalog systems impacted by the disruption).
+- An optional **health override** that forces the affected systems' health status while the incident is active, covered below.
 - A timeline of **status updates** posted as the response progresses.
 - Optional **hotlinks** (Jira ticket, runbook, chat thread, ...).
 - A **suppress notifications** toggle, covered below.
@@ -66,6 +67,43 @@ Attach the catalog systems the incident covers. This drives two things:
 - It scopes notification silencing (covered next).
 
 You can attach systems when opening the incident or any time after.
+
+## Override system health
+
+Some things break in ways no automated check can see. A desktop app keeps
+running but will not open because its licences were revoked; a vendor portal
+answers health probes but returns wrong data; a physical device is unreachable
+by any collector. For these, an incident can **override the health status of its
+affected systems**.
+
+When you open or edit an incident, set **Override system health** to one of:
+
+- **No override** (the default): the incident does not touch derived health.
+- **Degraded**: force the affected systems to `degraded`.
+- **Unhealthy**: force the affected systems to `unhealthy`.
+
+The override is a deliberate choice you make; it is **not** derived from the
+incident's severity. While the incident is active, the chosen status is folded
+into each affected system's derived health and shows up on every health surface:
+the system health badge, dashboards, the dependency map, and status pages.
+
+> [!IMPORTANT]
+> The override participates in the same **worst-wins** rollup as the automated
+> health checks, so it can only make a system look *worse*, never better. If a
+> health check reports something worse than your override (you forced
+> `degraded` but a check is `unhealthy`), the worse status wins. Forcing
+> `healthy` is intentionally not offered - an incident cannot paper over a
+> genuinely failing check.
+
+The override is **active-only**: the moment you transition the incident to
+`resolved`, it lifts automatically and the systems fall back to whatever their
+health checks report. There is nothing to remember to switch back. A system with
+no health checks at all still honours the override, so this is the way to give a
+manually-monitored component a real status on your status page.
+
+Where a system reads worse because of an incident, the health badge explains why
+on hover (for example, "Unhealthy - forced by incident: License server
+revoked"), so the override is never a mystery.
 
 ## Suppress notifications
 
@@ -140,7 +178,7 @@ qualified (already resolved, deleted, or not yours to manage).
 | Where to go | What you do there |
 |-------------|-------------------|
 | **Incidents** (list) | See all incidents, filter by status, severity, or affected system. Select rows for mass resolve / mass delete. |
-| **Open Incident** | Create a new incident. Set title, description, severity, attach systems. |
+| **Open Incident** | Create a new incident. Set title, description, severity, attach systems, optionally override system health. |
 | **Incident detail** | Post updates, change status, edit affected systems, manage hotlinks. |
 | **System detail** | See the active incidents currently touching this system. |
 

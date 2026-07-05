@@ -21,6 +21,22 @@ export const IncidentSeverityEnum = z.enum(["minor", "major", "critical"]);
 export type IncidentSeverity = z.infer<typeof IncidentSeverityEnum>;
 
 /**
+ * Optional health status an incident forces onto its affected systems while the
+ * incident is active (not resolved). It is a DELIBERATE user choice, independent
+ * of the incident's `severity` - the operator picks how the components should
+ * read on every health surface, not a value derived from impact ranking.
+ *
+ * Deliberately a subset of the health-check status vocabulary
+ * (`healthy | degraded | unhealthy`): forcing a system to `healthy` via an
+ * incident makes no sense, so only the two "problem" states are offered. The
+ * override folds into the system's health via worst-wins alongside the
+ * automated checks (see `@checkstack/healthcheck-backend`), so a check reporting
+ * something worse always wins.
+ */
+export const IncidentHealthOverrideEnum = z.enum(["degraded", "unhealthy"]);
+export type IncidentHealthOverride = z.infer<typeof IncidentHealthOverrideEnum>;
+
+/**
  * Core incident entity schema
  */
 export const IncidentSchema = z.object({
@@ -30,6 +46,12 @@ export const IncidentSchema = z.object({
   status: IncidentStatusEnum,
   severity: IncidentSeverityEnum,
   suppressNotifications: z.boolean(),
+  /**
+   * Optional health status forced onto the incident's affected systems while it
+   * is active. `null` (the default) means the incident does not touch derived
+   * system health. See {@link IncidentHealthOverrideEnum}.
+   */
+  healthOverride: IncidentHealthOverrideEnum.nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -91,6 +113,11 @@ export const CreateIncidentInputSchema = z.object({
   description: z.string().optional(),
   severity: IncidentSeverityEnum,
   suppressNotifications: z.boolean().optional().default(false),
+  /**
+   * Optional health status to force onto the affected systems while the incident
+   * is active. Omit or pass `null` to leave derived system health untouched.
+   */
+  healthOverride: IncidentHealthOverrideEnum.nullable().optional(),
   systemIds: z.array(z.string()).min(1, "At least one system is required"),
   initialMessage: z
     .string()
@@ -114,6 +141,12 @@ export const UpdateIncidentInputSchema = z.object({
   description: z.string().nullable().optional(),
   severity: IncidentSeverityEnum.optional(),
   suppressNotifications: z.boolean().optional(),
+  /**
+   * Set to a status to force it, or `null` to clear a previously-set override.
+   * Omit to leave the current override unchanged (same nullable-optional
+   * clearing semantics as `description`).
+   */
+  healthOverride: IncidentHealthOverrideEnum.nullable().optional(),
   systemIds: z.array(z.string()).min(1).optional(),
 });
 export type UpdateIncidentInput = z.infer<typeof UpdateIncidentInputSchema>;

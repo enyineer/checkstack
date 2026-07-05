@@ -524,6 +524,35 @@ export default createBackendPlugin({
           logger,
           signalService,
           configSecrets,
+          // Fold active incident health overrides into the user-facing system
+          // health reads (worst-wins). Reuses the incident client already built
+          // above; maps the incident rows to the source-agnostic override shape
+          // the fold expects. Kept out of the shared deriver so SLO/AI/entity
+          // paths stay checks-only (see router.ts).
+          incidentHealthOverrideReader: {
+            getActiveOverrides: async (systemIds) => {
+              const { overrides } =
+                await incidentClient.getActiveHealthOverrides({ systemIds });
+              const mapped: Record<
+                string,
+                {
+                  status: "degraded" | "unhealthy";
+                  source: string;
+                  reason: string;
+                  sourceId?: string;
+                }[]
+              > = {};
+              for (const [systemId, list] of Object.entries(overrides)) {
+                mapped[systemId] = list.map((o) => ({
+                  status: o.status,
+                  source: "incident",
+                  reason: o.incidentTitle,
+                  sourceId: o.incidentId,
+                }));
+              }
+              return mapped;
+            },
+          },
           recomputeSystemRollupHealth: (systemId) =>
             recomputeSystemRollupHealth({
               systemId,

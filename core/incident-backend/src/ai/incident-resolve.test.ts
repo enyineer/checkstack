@@ -47,6 +47,7 @@ describe("incident.resolve tool", () => {
       status: "resolved",
       severity: "critical",
       suppressNotifications: false,
+      healthOverride: null,
       systemIds: ["sys1"],
       createdAt: new Date(),
       updatedAt: new Date(),

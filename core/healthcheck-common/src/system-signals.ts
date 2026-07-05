@@ -48,29 +48,35 @@ export function deriveHealthcheckSignals({
 
     const failing = status.checkStatuses.filter((c) => c.status !== "healthy");
     const failingCheck = failing[0];
-    // Both link targets gate on `configuration.manage`: detailed run history
-    // is a manager surface (globally or via a team grant). The signal's
-    // accessRule is a GLOBAL check, so team-scoped managers see text instead
-    // of a link here - they reach the same history via the Health Checks page.
-    const { href, accessRule } = failingCheck
-      ? {
-          href: resolveRoute(healthcheckRoutes.routes.historyDetail, {
-            systemId,
-            configurationId: failingCheck.configurationId,
-          }),
-          accessRule: healthCheckAccess.configuration.manage,
-        }
-      : {
-          href: resolveRoute(healthcheckRoutes.routes.assignments, {
-            systemId,
-          }),
-          accessRule: healthCheckAccess.configuration.manage,
-        };
+
+    // The label/tone reflect the system's OVERALL health (`status.status`), which
+    // already folds in any active incident override - so an operator who forced a
+    // system unhealthy sees it here even with every check green.
+    //
+    // The DETAIL explains the cause honestly instead of always claiming checks
+    // are failing: the failing-check count when any check is failing, otherwise
+    // the incident that forced the status (never a misleading "0 of N checks
+    // failing"). The deep link points at a failing check's run history when there
+    // is one; a purely override-driven signal has no check to link to, so it
+    // renders as plain text and the incident's own signal carries the link.
+    // The accessRule gates that link on `configuration.manage` (a manager
+    // surface); team-scoped managers without the global rule see plain text.
+    const href = failingCheck
+      ? resolveRoute(healthcheckRoutes.routes.historyDetail, {
+          systemId,
+          configurationId: failingCheck.configurationId,
+        })
+      : undefined;
+    const accessRule = failingCheck
+      ? healthCheckAccess.configuration.manage
+      : undefined;
 
     const detail =
-      status.checkStatuses.length > 0
+      failing.length > 0
         ? `${failing.length} of ${status.checkStatuses.length} checks failing`
-        : undefined;
+        : status.override
+          ? `Forced by incident: ${status.override.reason}`
+          : undefined;
 
     const signal: SystemSignal = {
       source: HEALTHCHECK_SIGNAL_SOURCE_ID,

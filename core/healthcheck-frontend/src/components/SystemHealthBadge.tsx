@@ -24,7 +24,6 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
   const badgeData = useSystemBadgeDataOptional();
 
   const providerData = badgeData?.getSystemBadgeData(system?.id ?? "");
-  const providerStatus = providerData?.health?.status;
 
   const { data: healthData } = healthCheckClient.getSystemHealthStatus.useQuery(
     { systemId: system?.id ?? "" },
@@ -34,13 +33,21 @@ export const SystemHealthBadge: React.FC<Props> = ({ system }) => {
     },
   );
 
-  const localStatus = healthData?.status;
-  const status = providerStatus ?? localStatus;
+  const health = providerData?.health ?? healthData;
+  const status = health?.status;
 
   if (!status || status === "healthy") return <></>;
+
+  const baseLabel = status === "unhealthy" ? "Unhealthy" : "Degraded";
+  // Explain WHY the system reads this way when an incident (not a health check)
+  // forced the status - surfaced on hover / to assistive tech via the label.
+  const label = health?.override
+    ? `${baseLabel} - forced by incident: ${health.override.reason}`
+    : baseLabel;
+
   return status === "unhealthy" ? (
-    <StatusBadge tone="error" icon={Activity} label="Unhealthy" />
+    <StatusBadge tone="error" icon={Activity} label={label} />
   ) : (
-    <StatusBadge tone="warn" icon={Activity} label="Degraded" />
+    <StatusBadge tone="warn" icon={Activity} label={label} />
   );
 };

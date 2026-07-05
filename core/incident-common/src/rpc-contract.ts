@@ -12,10 +12,23 @@ import {
   UpdateIncidentInputSchema,
   AddIncidentUpdateInputSchema,
   IncidentStatusEnum,
+  IncidentHealthOverrideEnum,
   BulkIncidentActionResultSchema,
   BulkIncidentIdsInputSchema,
   BulkResolveIncidentsInputSchema,
 } from "./schemas";
+
+/**
+ * One active incident forcing a health status onto a system. Returned by
+ * `getActiveHealthOverrides` and consumed by `@checkstack/healthcheck-backend`
+ * to fold incident overrides into a system's derived health (worst-wins).
+ */
+export const SystemHealthOverrideSchema = z.object({
+  status: IncidentHealthOverrideEnum,
+  incidentId: z.string(),
+  incidentTitle: z.string(),
+});
+export type SystemHealthOverride = z.infer<typeof SystemHealthOverrideSchema>;
 
 export const incidentContract = {
   /** List all incidents with optional filters */
@@ -242,6 +255,27 @@ export const incidentContract = {
   })
     .input(z.object({ systemId: z.string() }))
     .output(z.object({ suppressed: z.boolean() })),
+
+  /**
+   * Return, for each requested system, the health overrides contributed by its
+   * currently ACTIVE incidents (status != resolved, `healthOverride` set).
+   * Server-to-server read used by `@checkstack/healthcheck-backend` to fold
+   * incident overrides into a system's derived health via worst-wins. Systems
+   * with no active override are omitted from the record. Resolved incidents
+   * never appear, so an override auto-lifts the moment its incident resolves.
+   */
+  getActiveHealthOverrides: proc({
+    operationType: "query",
+    userType: "service",
+    access: [incidentAccess.incident.read],
+  })
+    .route({ method: "POST" })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        overrides: z.record(z.string(), z.array(SystemHealthOverrideSchema)),
+      }),
+    ),
 
   /**
    * Open an incident on behalf of another plugin (no user context).

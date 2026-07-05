@@ -39,6 +39,11 @@ import { CatalogApi } from "@checkstack/catalog-common";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
 import type { HealthCheckCache } from "./cache";
+import {
+  applySystemHealthOverrides,
+  type SystemHealthOverrideReader,
+} from "./system-health-override";
+import type { SystemHealthStatusResponse } from "@checkstack/healthcheck-common";
 
 /**
  * Creates the healthcheck router using contract-based implementation.
@@ -81,6 +86,17 @@ export const createHealthCheckRouter = (opts: {
    * router MUST receive it or writes would store inline secrets verbatim.
    */
   configSecrets?: HealthCheckSecretsDeps;
+  /**
+   * Reads active incident health overrides and folds them into the two
+   * user-facing system-health reads (single + bulk) via worst-wins, so a system
+   * shows the status an active incident forces even when its checks look fine.
+   * Applied OUTSIDE the status cache (always live, so an override lifts the
+   * instant its incident resolves) and ONLY in these RPC handlers - never in the
+   * shared `getSystemHealthStatus` deriver, whose other callers (SLO downtime,
+   * the AI signals scan, the persisted `health` entity) must stay checks-only.
+   * Optional so tests / no-incident deployments simply skip the fold.
+   */
+  incidentHealthOverrideReader?: SystemHealthOverrideReader;
 }) => {
   const {
     database,
@@ -94,6 +110,7 @@ export const createHealthCheckRouter = (opts: {
     logger,
     signalService,
     recomputeSystemRollupHealth,
+    incidentHealthOverrideReader,
   } = opts;
   // Create service instance once - shared across all handlers
   const service = new HealthCheckService(
@@ -104,6 +121,43 @@ export const createHealthCheckRouter = (opts: {
     catalogClient,
     opts.configSecrets,
   );
+
+  /**
+   * Fold active incident health overrides into a batch of checks-only system
+   * statuses via worst-wins. Reads overrides for all systems in ONE incident RPC
+   * (or none, when no reader is wired). Resilient by design: incidents are a
+   * best-effort enrichment of health, so if the read fails the checks-only
+   * statuses are returned unchanged rather than failing the whole health read.
+   */
+  const foldIncidentOverrides = async (
+    statuses: Record<string, SystemHealthStatusResponse>,
+  ): Promise<Record<string, SystemHealthStatusResponse>> => {
+    const systemIds = Object.keys(statuses);
+    if (!incidentHealthOverrideReader || systemIds.length === 0) {
+      return statuses;
+    }
+    let overridesBySystem: Awaited<
+      ReturnType<SystemHealthOverrideReader["getActiveOverrides"]>
+    >;
+    try {
+      overridesBySystem =
+        await incidentHealthOverrideReader.getActiveOverrides(systemIds);
+    } catch (error) {
+      logger.warn(
+        "Failed to read incident health overrides; returning checks-only status",
+        { error: extractErrorMessage(error) },
+      );
+      return statuses;
+    }
+    const folded: Record<string, SystemHealthStatusResponse> = {};
+    for (const [systemId, base] of Object.entries(statuses)) {
+      folded[systemId] = applySystemHealthOverrides({
+        base,
+        overrides: overridesBySystem[systemId] ?? [],
+      });
+    }
+    return folded;
+  };
 
   // Create contract implementer with context type AND auto auth middleware
   const os = implement(healthCheckContract)
@@ -622,9 +676,13 @@ export const createHealthCheckRouter = (opts: {
     ),
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
-        return cache.wrapSystemHealthStatus(input.systemId, () =>
+        const base = await cache.wrapSystemHealthStatus(input.systemId, () =>
           service.getSystemHealthStatus(input.systemId),
         );
+        const folded = await foldIncidentOverrides({
+          [input.systemId]: base,
+        });
+        return folded[input.systemId]!;
       },
     ),
 
@@ -634,10 +692,7 @@ export const createHealthCheckRouter = (opts: {
         // and invalidated by id on mutations, so dashboards with overlapping
         // (but non-identical) system sets share cache entries. See
         // ./cache.ts for the key/TTL/invalidation contract.
-        const statuses: Record<
-          string,
-          Awaited<ReturnType<typeof service.getSystemHealthStatus>>
-        > = {};
+        const statuses: Record<string, SystemHealthStatusResponse> = {};
         await Promise.all(
           input.systemIds.map(async (systemId) => {
             statuses[systemId] = await cache.wrapSystemHealthStatus(
@@ -646,7 +701,7 @@ export const createHealthCheckRouter = (opts: {
             );
           }),
         );
-        return { statuses };
+        return { statuses: await foldIncidentOverrides(statuses) };
       },
     ),
 

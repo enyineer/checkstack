@@ -29,6 +29,17 @@ export const incidentSeverityEnum = pgEnum("incident_severity", [
 ]);
 
 /**
+ * Optional health status an active incident forces onto its affected systems.
+ * A subset of the health-check status vocabulary (no "healthy" - forcing a
+ * system healthy via an incident makes no sense). Nullable column: `null` means
+ * the incident does not touch derived system health.
+ */
+export const incidentHealthOverrideEnum = pgEnum("incident_health_override", [
+  "degraded",
+  "unhealthy",
+]);
+
+/**
  * Main incidents table
  */
 export const incidents = pgTable("incidents", {
@@ -40,6 +51,7 @@ export const incidents = pgTable("incidents", {
   suppressNotifications: boolean("suppress_notifications")
     .default(false)
     .notNull(),
+  healthOverride: incidentHealthOverrideEnum("health_override"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

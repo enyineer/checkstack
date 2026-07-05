@@ -1,4 +1,4 @@
-import { eq, and, inArray, ne } from "drizzle-orm";
+import { eq, and, inArray, ne, isNotNull } from "drizzle-orm";
 import type { AdvisoryLockService, SafeDatabase } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
@@ -18,6 +18,7 @@ import type {
   AddIncidentUpdateInput,
   IncidentStatus,
   IncidentSeverity,
+  SystemHealthOverride,
 } from "@checkstack/incident-common";
 
 type Db = SafeDatabase<typeof schema>;
@@ -278,6 +279,50 @@ export class IncidentService {
   }
 
   /**
+   * For each requested system, the health overrides contributed by its ACTIVE
+   * incidents (status != resolved AND `healthOverride` set). Powers the
+   * healthcheck plugin's system-health derivation (worst-wins fold). Reads the
+   * authoritative `incidents` + `incident_systems` tables, so the answer is
+   * identical on every pod (state-and-scale rule). Systems with no active
+   * override are omitted; resolved incidents never appear, so an override
+   * auto-lifts the moment its incident resolves.
+   */
+  async getActiveHealthOverrides(
+    systemIds: string[],
+  ): Promise<Record<string, SystemHealthOverride[]>> {
+    if (systemIds.length === 0) return {};
+
+    const rows = await this.db
+      .select({
+        systemId: incidentSystems.systemId,
+        incidentId: incidents.id,
+        incidentTitle: incidents.title,
+        healthOverride: incidents.healthOverride,
+      })
+      .from(incidentSystems)
+      .innerJoin(incidents, eq(incidentSystems.incidentId, incidents.id))
+      .where(
+        and(
+          inArray(incidentSystems.systemId, systemIds),
+          ne(incidents.status, "resolved"),
+          isNotNull(incidents.healthOverride),
+        ),
+      );
+
+    const result: Record<string, SystemHealthOverride[]> = {};
+    for (const row of rows) {
+      // `healthOverride` is guaranteed non-null by the `isNotNull` predicate.
+      if (row.healthOverride === null) continue;
+      (result[row.systemId] ??= []).push({
+        status: row.healthOverride,
+        incidentId: row.incidentId,
+        incidentTitle: row.incidentTitle,
+      });
+    }
+    return result;
+  }
+
+  /**
    * Create a new incident.
    *
    * `id` may be supplied by the caller so the reactive `incident` entity can
@@ -302,6 +347,7 @@ export class IncidentService {
         status: "investigating",
         severity: input.severity,
         suppressNotifications: input.suppressNotifications ?? false,
+        healthOverride: input.healthOverride ?? null,
       });
 
       // Insert system associations
@@ -350,6 +396,10 @@ export class IncidentService {
     if (input.severity !== undefined) updateData.severity = input.severity;
     if (input.suppressNotifications !== undefined)
       updateData.suppressNotifications = input.suppressNotifications;
+    // `null` clears a previously-set override; `undefined` leaves it unchanged
+    // (same nullable-optional semantics as `description`).
+    if (input.healthOverride !== undefined)
+      updateData.healthOverride = input.healthOverride;
 
     // Atomic: the field update and the delete-then-reinsert of system links must
     // commit together. Without the transaction a failure after the delete left

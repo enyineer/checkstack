@@ -260,6 +260,18 @@ export function createRouter({
       },
     ),
 
+    getActiveHealthOverrides: os.getActiveHealthOverrides.handler(
+      async ({ input }) => {
+        // Deliberately un-cached: this feeds live system-health derivation, so
+        // an override must lift/apply the instant an incident is edited or
+        // resolved. It is a single indexed join (see service), not an N+1.
+        const overrides = await service.getActiveHealthOverrides(
+          input.systemIds,
+        );
+        return { overrides };
+      },
+    ),
+
     createIncident: os.createIncident.handler(async ({ input, context }) => {
       const userId =
         context.user && "id" in context.user ? context.user.id : undefined;

@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
+import {
+  usePluginClient,
+  useApi,
+  useQueryClient,
+  accessApiRef,
+} from "@checkstack/frontend-api";
 import { IncidentApi } from "../api";
 import type {
   IncidentWithSystems,
   IncidentSeverity,
+  IncidentHealthOverride,
   IncidentUpdate,
 } from "@checkstack/incident-common";
 import { incidentAccess } from "@checkstack/incident-common";
@@ -70,7 +76,16 @@ export const IncidentEditor: React.FC<Props> = ({
 }) => {
   const incidentClient = usePluginClient(IncidentApi);
   const accessApi = useApi(accessApiRef);
+  const queryClient = useQueryClient();
   const toast = useToast();
+
+  // An incident's health override feeds healthcheck's derived system health, a
+  // DIFFERENT plugin's data, so its queries must be invalidated explicitly on
+  // success (the mutation auto-invalidates only the incident plugin). See the
+  // frontend query-invalidation rule (Pillar 2).
+  const invalidateSystemHealth = () => {
+    void queryClient.invalidateQueries({ queryKey: [["healthcheck"]] });
+  };
 
   const { allowed: allowGlobal } = accessApi.useAccess(
     incidentAccess.incident.manage,
@@ -84,6 +99,11 @@ export const IncidentEditor: React.FC<Props> = ({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<IncidentSeverity>("major");
+  // Optional health override forced onto the affected systems. "none" is the
+  // sentinel for "do not touch derived health" (mapped to `null` on submit).
+  const [healthOverride, setHealthOverride] = useState<
+    IncidentHealthOverride | "none"
+  >("none");
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     new Set(),
   );
@@ -125,6 +145,7 @@ export const IncidentEditor: React.FC<Props> = ({
   // Mutations
   const createMutation = incidentClient.createIncident.useMutation({
     onSuccess: () => {
+      invalidateSystemHealth();
       toast.success("Incident created");
       onSave();
     },
@@ -140,6 +161,7 @@ export const IncidentEditor: React.FC<Props> = ({
 
   const updateMutation = incidentClient.updateIncident.useMutation({
     onSuccess: () => {
+      invalidateSystemHealth();
       toast.success("Incident updated");
       onSave();
     },
@@ -189,12 +211,14 @@ export const IncidentEditor: React.FC<Props> = ({
       setTitle(incident.title);
       setDescription(incident.description ?? "");
       setSeverity(incident.severity);
+      setHealthOverride(incident.healthOverride ?? "none");
       setSelectedSystemIds(new Set(incident.systemIds));
       setSuppressNotifications(incident.suppressNotifications);
     } else {
       setTitle("");
       setDescription("");
       setSeverity("major");
+      setHealthOverride("none");
       setSelectedSystemIds(new Set());
       setSuppressNotifications(false);
       setUpdates([]);
@@ -227,6 +251,7 @@ export const IncidentEditor: React.FC<Props> = ({
         title !== incident.title ||
         description !== (incident.description ?? "") ||
         severity !== incident.severity ||
+        healthOverride !== (incident.healthOverride ?? "none") ||
         suppressNotifications !== incident.suppressNotifications ||
         systemsChanged
       );
@@ -235,6 +260,7 @@ export const IncidentEditor: React.FC<Props> = ({
       title.trim() !== "" ||
       description.trim() !== "" ||
       severity !== "major" ||
+      healthOverride !== "none" ||
       suppressNotifications ||
       currentSystemIds.length > 0 ||
       ownerTeamId !== null
@@ -294,6 +320,7 @@ export const IncidentEditor: React.FC<Props> = ({
         title,
         description: description || undefined,
         severity,
+        healthOverride: healthOverride === "none" ? null : healthOverride,
         suppressNotifications,
         systemIds: [...selectedSystemIds],
       });
@@ -302,6 +329,7 @@ export const IncidentEditor: React.FC<Props> = ({
         title,
         description,
         severity,
+        healthOverride: healthOverride === "none" ? null : healthOverride,
         suppressNotifications,
         systemIds: [...selectedSystemIds],
         teamId: ownerTeamId ?? undefined,
@@ -411,6 +439,33 @@ export const IncidentEditor: React.FC<Props> = ({
               <FormError id="systems-error" className="text-xs">
                 {showError("systems")}
               </FormError>
+            </div>
+
+            {/* Health override — optionally force the affected systems' health */}
+            <div className="grid gap-2">
+              <Label id="health-override-label">Override system health</Label>
+              <Select
+                value={healthOverride}
+                onValueChange={(v) =>
+                  setHealthOverride(v as IncidentHealthOverride | "none")
+                }
+              >
+                <SelectTrigger aria-labelledby="health-override-label">
+                  <SelectValue placeholder="No override" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No override</SelectItem>
+                  <SelectItem value="degraded">Degraded</SelectItem>
+                  <SelectItem value="unhealthy">Unhealthy</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Forces the affected systems to this health status on every
+                surface (status pages, dashboards, dependency map) while this
+                incident is active, then lifts automatically when it is
+                resolved. A health check reporting a worse status still wins.
+                Use this for issues no automated check can detect.
+              </p>
             </div>
 
             {/* Notification Suppression Toggle */}
