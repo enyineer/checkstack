@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/dashboard-frontend",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

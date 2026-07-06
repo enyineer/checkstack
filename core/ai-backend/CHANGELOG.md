@@ -1,5 +1,31 @@
 # @checkstack/ai-backend
 
+## 0.10.8
+
+### Patch Changes
+
+- 390d9cf: Regenerate the docs search index to include the new "Monitor containers" guide,
+  the container health-check documentation, and the integration-lane note about
+  the Docker-backed socket-proxy test, so the AI assistant can surface the secure
+  socket-proxy setup and the Container strategy/collectors.
+- fc64fad: Regenerate the docs search index to reflect the updated dependency
+  documentation: scoping a dependency to a specific check and/or environment with
+  per-cell severity, the dependency-aware automatic map layout (layered
+  arrangement, center-on-box, reset layout), and the read-only up/downstream
+  dependency panel on system detail pages. This lets the AI assistant answer
+  questions about all of it.
+- 9d30324: Regenerate the AI docs search index for the incident health-override docs: the
+  Incidents concept page now documents "Override system health" and the Health
+  checks page notes that a system's worst-wins rollup folds in active incident
+  overrides.
+- b218e3e: Regenerate the bundled docs index to reflect the new "Data tables" frontend
+  guide and the updated list-states page (DataTable replaces the removed
+  ResponsiveTable/MobileCardList pattern).
+- Updated dependencies [390d9cf]
+  - @checkstack/backend-api@0.30.0
+  - @checkstack/integration-backend@0.7.2
+  - @checkstack/sdk@0.125.1
+
 ## 0.10.7
 
 ### Patch Changes

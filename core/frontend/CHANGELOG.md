@@ -1,5 +1,23 @@
 # @checkstack/frontend
 
+## 0.14.4
+
+### Patch Changes
+
+- Updated dependencies [fc64fad]
+- Updated dependencies [fc64fad]
+- Updated dependencies [b218e3e]
+- Updated dependencies [b218e3e]
+  - @checkstack/dependency-frontend@0.8.0
+  - @checkstack/catalog-frontend@0.16.0
+  - @checkstack/auth-frontend@0.12.0
+  - @checkstack/about-frontend@0.5.0
+  - @checkstack/announcement-frontend@0.8.0
+  - @checkstack/ui@1.25.0
+  - @checkstack/status-page-frontend@0.5.4
+  - @checkstack/tips-frontend@0.4.9
+  - @checkstack/command-frontend@0.5.6
+
 ## 0.14.3
 
 ### Patch Changes

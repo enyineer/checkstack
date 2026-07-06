@@ -1,5 +1,120 @@
 # @checkstack/healthcheck-frontend
 
+## 0.33.0
+
+### Minor Changes
+
+- 390d9cf: Add a **Container** health-check strategy for monitoring Docker and Podman
+  containers that expose no external service of their own. It reports container
+  existence, running state, healthcheck status, exit code, restart count, and
+  OOM-killed via the **Container Status** collector, and CPU/memory usage via the
+  **Container Stats** collector. Both collectors issue only read (GET) requests
+  against the runtime REST API.
+
+  The check runs wherever the executor runs: locally on the core instance (the
+  default) to watch containers that share a host with Checkstack, or on a
+  satellite pinned to another host.
+
+  Critically, Checkstack never touches the raw container socket. The strategy
+  talks the Docker Engine / Podman libpod API over either a unix socket path or an
+  `http(s)` endpoint, so operators point it at a **read-only socket-proxy**
+  (`lscr.io/linuxserver/socket-proxy` with `POST=0`) running next to whichever
+  Checkstack instance runs the check - core or a satellite - or at a rootless
+  Podman socket. The raw socket is mounted only into the proxy; even a compromised
+  instance can only read container state, never control the host. A stopped or missing container is a successful collection whose metrics
+  feed assertions (following the transport-failure-vs-metric rule) - only an
+  unreachable runtime endpoint fails the check. Container `exec` probes are
+  intentionally not offered because they would require write access to the socket.
+
+  To support in-product setup guidance, the health-check strategy contract gains
+  an optional `setupInstructions` (Markdown) field, surfaced in the DTO and
+  rendered as a collapsible "Setup guide" callout above the strategy config fields
+  in the editor. The Container strategy populates it with the secure proxy setup.
+
+  The hardened socket-proxy compose is maintained as a single canonical file
+  (`deploy/socket-proxy/docker-compose.yml`) that operators `include:` from their
+  core or satellite compose, so the read-only / `POST=0` / internal-network
+  hardening is defined in exactly one place; the docs and the in-product setup
+  guide reference it rather than duplicating the YAML.
+
+  Also removes a stale hand-written `HealthCheckStrategyDto` interface in
+  `@checkstack/healthcheck-common` that shadowed (and lagged behind) the
+  Zod-inferred DTO; the inferred type from `schemas.ts` is now the single source
+  of truth and correctly carries `resultSchema`, `aggregatedResultSchema`, and the
+  new `setupInstructions`.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback
+  that shaped this release.
+
+- 9d30324: Incidents can now optionally override the health status of their affected
+  systems. When creating or editing an incident you can pick "Override system
+  health" (Degraded or Unhealthy); while the incident is active (not resolved)
+  that status is folded into every affected system's derived health via
+  worst-wins, so it shows on every health surface (status pages, dashboards,
+  dependency map, catalog badges). A health check reporting a worse status still
+  wins, and the override lifts automatically when the incident resolves. This
+  covers components that no automated check can monitor (e.g. a running app whose
+  licenses were revoked so it won't open).
+
+  The override is a deliberate operator choice, independent of the incident's
+  severity. A new service-typed incident RPC `getActiveHealthOverrides` exposes
+  active overrides per system, which `@checkstack/healthcheck-backend` reads and
+  folds into `getSystemHealthStatus`. The system-health response gains an optional
+  `override` field naming the contributing incident so UIs can explain why a
+  system reads unhealthy when its checks look fine. The system health badge uses
+  it to show, on hover, when a status was forced by an incident.
+
+  The dashboard "problem system" signal attributes an override-forced status to
+  the incident ("Forced by incident: <title>") instead of misreporting
+  "0 of N checks failing", while a genuinely worse health check still drives the
+  signal and its detail. Public status pages reflect the forced status but never
+  carry the incident title (the widget DTOs project only the status), so an
+  override cannot leak the name of a hidden incident.
+
+  Behavior change: a system's derived health now reflects active incident
+  overrides in addition to its health checks. Adds a forward-only migration for
+  the new nullable `incidents.health_override` column.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback
+  that shaped this release.
+
+- b218e3e: Migrate every list table to the shared `DataTable`, so columns can now be
+  sorted by clicking their headers (name, status, severity, timestamps, counts,
+  ...) and tables that had no search gain a global search box. Tables render on
+  an opaque `bg-card` surface, fixing the previously transparent, hard-to-read
+  tables (e.g. Catalog Management). Existing per-page filters, bulk selection,
+  access gating, extension slots, provenance locks, row-click drawers, and
+  mobile card layouts are preserved. Incident/maintenance severity and status
+  sort by impact rank (most urgent first), not alphabetically. Server-paginated
+  tables keep server-side ordering and do not add a misleading page-local search.
+
+  Row action buttons are now standardized on the shared `RowActions`/`RowAction`
+  primitive, so every table's edit/delete/etc. look identical (a subtle ghost
+  icon button; destructive tinted red, confirmatory tinted green, never a loud
+  filled button). Redundant section headings that merely echoed the page title on
+  single-table pages (Incidents, Maintenances, SLO Objectives, Installed Plugins,
+  Satellite Nodes) were removed. The Infrastructure Settings tab rail gained an
+  accessible `Infrastructure settings` navigation label so its tab buttons stay
+  distinguishable from the new sortable column-header buttons in each tab's table.
+
+### Patch Changes
+
+- Updated dependencies [390d9cf]
+- Updated dependencies [fc64fad]
+- Updated dependencies [9d30324]
+- Updated dependencies [b218e3e]
+- Updated dependencies [b218e3e]
+  - @checkstack/healthcheck-common@1.14.0
+  - @checkstack/catalog-frontend@0.16.0
+  - @checkstack/auth-frontend@0.12.0
+  - @checkstack/gitops-frontend@0.7.0
+  - @checkstack/ui@1.25.0
+  - @checkstack/dashboard-frontend@0.10.4
+  - @checkstack/satellite-common@0.9.2
+  - @checkstack/tips-frontend@0.4.9
+  - @checkstack/script-packages-frontend@0.4.9
+  - @checkstack/secrets-frontend@0.3.8
+
 ## 0.32.0
 
 ### Minor Changes

@@ -1,5 +1,38 @@
 # @checkstack/maintenance-frontend
 
+## 0.13.0
+
+### Minor Changes
+
+- b218e3e: Migrate every list table to the shared `DataTable`, so columns can now be
+  sorted by clicking their headers (name, status, severity, timestamps, counts,
+  ...) and tables that had no search gain a global search box. Tables render on
+  an opaque `bg-card` surface, fixing the previously transparent, hard-to-read
+  tables (e.g. Catalog Management). Existing per-page filters, bulk selection,
+  access gating, extension slots, provenance locks, row-click drawers, and
+  mobile card layouts are preserved. Incident/maintenance severity and status
+  sort by impact rank (most urgent first), not alphabetically. Server-paginated
+  tables keep server-side ordering and do not add a misleading page-local search.
+
+  Row action buttons are now standardized on the shared `RowActions`/`RowAction`
+  primitive, so every table's edit/delete/etc. look identical (a subtle ghost
+  icon button; destructive tinted red, confirmatory tinted green, never a loud
+  filled button). Redundant section headings that merely echoed the page title on
+  single-table pages (Incidents, Maintenances, SLO Objectives, Installed Plugins,
+  Satellite Nodes) were removed. The Infrastructure Settings tab rail gained an
+  accessible `Infrastructure settings` navigation label so its tab buttons stay
+  distinguishable from the new sortable column-header buttons in each tab's table.
+
+### Patch Changes
+
+- Updated dependencies [b218e3e]
+- Updated dependencies [b218e3e]
+  - @checkstack/auth-frontend@0.12.0
+  - @checkstack/notification-frontend@0.8.0
+  - @checkstack/ui@1.25.0
+  - @checkstack/dashboard-frontend@0.10.4
+  - @checkstack/tips-frontend@0.4.9
+
 ## 0.12.3
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/api-docs-frontend",
-  "version": "0.4.7",
+  "version": "0.5.0",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [
