@@ -21,3 +21,6 @@ removed - their dual-layout role is now internal to `DataTable`. Migrate table
 call sites to `DataTable` (`renderMobileCard` replaces the paired
 `MobileCardList`). For non-table responsive lists, use plain
 `hidden sm:block` / `sm:hidden` wrappers.
+
+Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback
+(sortable, searchable list tables) that shaped this release.
