@@ -35,3 +35,6 @@ override cannot leak the name of a hidden incident.
 Behavior change: a system's derived health now reflects active incident
 overrides in addition to its health checks. Adds a forward-only migration for
 the new nullable `incidents.health_override` column.
+
+Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback
+that shaped this release.

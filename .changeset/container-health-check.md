@@ -45,3 +45,6 @@ Also removes a stale hand-written `HealthCheckStrategyDto` interface in
 Zod-inferred DTO; the inferred type from `schemas.ts` is now the single source
 of truth and correctly carries `resultSchema`, `aggregatedResultSchema`, and the
 new `setupInstructions`.
+
+Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback
+that shaped this release.
