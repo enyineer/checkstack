@@ -42,8 +42,17 @@ export const dependencies = pgTable(
 );
 
 /**
- * Optional health check rules for fine-grained dependency triggers.
- * When rules exist on a dependency, only specified checks trigger the impact.
+ * Dependency scope cells (kept table name for storage compatibility).
+ *
+ * Each row narrows an edge to a slice of the upstream (target) system and gives
+ * that slice its own severity:
+ * - `healthCheckId` = a target configuration id, or NULL for "any check".
+ * - `environmentId` = a target environment id, or NULL for "any environment".
+ * - `overrideImpactType` = severity applied when that slice is affected.
+ *
+ * When a dependency has ANY cells, only those slices are watched (they replace
+ * the whole-system watch). With NO cells, the edge watches the target's overall
+ * rollup at the edge's `impactType` (the default any-check/any-env behaviour).
  */
 export const dependencyHealthCheckRules = pgTable(
   "dependency_health_check_rules",
@@ -52,7 +61,10 @@ export const dependencyHealthCheckRules = pgTable(
     dependencyId: text("dependency_id")
       .notNull()
       .references(() => dependencies.id, { onDelete: "cascade" }),
-    healthCheckId: text("health_check_id").notNull(),
+    // Nullable: NULL = "any check" of the target system.
+    healthCheckId: text("health_check_id"),
+    // Nullable: NULL = "any environment" (the target's cross-env rollup).
+    environmentId: text("environment_id"),
     overrideImpactType: impactTypeEnum("override_impact_type").notNull(),
   },
 );

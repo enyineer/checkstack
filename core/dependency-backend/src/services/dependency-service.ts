@@ -110,13 +110,14 @@ export class DependencyService {
       label: input.label ?? null,
     });
 
-    // Create health check rules if provided
+    // Create scope cells if provided
     if (input.healthCheckRules && input.healthCheckRules.length > 0) {
       for (const rule of input.healthCheckRules) {
         await this.db.insert(dependencyHealthCheckRules).values({
           id: generateId(),
           dependencyId: id,
-          healthCheckId: rule.healthCheckId,
+          healthCheckId: rule.healthCheckId ?? null,
+          environmentId: rule.environmentId ?? null,
           overrideImpactType: rule.overrideImpactType,
         });
       }
@@ -164,7 +165,8 @@ export class DependencyService {
         await this.db.insert(dependencyHealthCheckRules).values({
           id: generateId(),
           dependencyId: input.id,
-          healthCheckId: rule.healthCheckId,
+          healthCheckId: rule.healthCheckId ?? null,
+          environmentId: rule.environmentId ?? null,
           overrideImpactType: rule.overrideImpactType,
         });
       }

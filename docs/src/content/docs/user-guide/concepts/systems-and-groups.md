@@ -58,14 +58,39 @@ Payment API  ---------->  Payment DB
    impactType: critical
 ```
 
-You can attach optional **per-health-check rules** to a dependency. By default the impact applies whenever the upstream system is unhealthy on any of its checks; with rules you can scope the impact to specific checks only. For example, "Payment API only goes degraded when Payment DB's TLS check fails, not when its replication-lag check fails."
+### Scoping a dependency (check / environment matrix)
 
-A dependency can also be marked **transitive** to let it cascade further down the chain.
+By default a dependency watches the upstream system's overall health: any failing check, in any environment, drives the impact at the edge's impact type. That is the behaviour when you configure nothing.
+
+For finer control you can add **scope cells** - a small matrix that narrows the dependency to specific slices of the upstream, each with its own severity. Each cell pins:
+
+- a **check** (a specific health check of the upstream, or "any check"), and
+- an **environment** (a specific environment of the upstream, or "any environment"), and
+- a **severity** (informational / degraded / critical) applied when that slice is affected.
+
+When a dependency has any cells, **only those slices are watched** (they replace the whole-system watch), and the worst result across cells wins. Examples:
+
+- "Payment API depends on Payment DB **only in `prod`**" - one cell: any check, environment `prod`, critical.
+- "Payment API only goes degraded when Payment DB's **TLS check in `prod`** fails" - one cell: check `TLS`, environment `prod`, degraded.
+- Mix cells with different severities: a `staging` outage is `degraded` while a `prod` outage is `critical`.
+
+Because each environment is evaluated on its own, a scoped dependency can catch an environment-specific outage that the upstream's overall status (worst-wins across environments) would otherwise hide.
+
+A dependency can also be marked **transitive** to let it cascade further down the chain. Transitive cascades currently use the upstream's overall status (per-environment cascades are not yet propagated across multiple hops).
 
 > [!IMPORTANT]
 > Dependencies do not auto-open incidents. They affect derived health state and which alerts get suppressed in cascades, nothing more. See [Incidents](/checkstack/user-guide/concepts/incidents/) for the human workflow.
 
 The dependency map lives under **Workspace -> Dependency Map**. Node positions are saved per user, so your layout follows you across devices. Each edge line is colored end-to-end by its impact type - sky for informational, amber for degraded, red for critical - matching the legend, so you can read an edge's impact from any point along the line and not just its arrowhead. Selecting an edge turns the whole line the primary color.
+
+The map arranges any box you have not placed yourself with an automatic layered layout: upstream systems sit to the right of the systems that depend on them, columns are ordered to minimise crossing edges, and systems with no dependencies are parked to the side. Boxes you have already positioned never move - new systems drop into the free space below your saved layout. Two toolbar controls build on this:
+
+- **Center on box** - select a system, then rebuild the layout around it, with everything it depends on fanning out to one side and everything that depends on it to the other. Useful when you only care about one central system.
+- **Reset layout** - re-arrange every box with the automatic layered layout, discarding your saved positions.
+
+### The dependency panel on a system
+
+Each system's detail page shows a **Dependencies** panel listing what the system depends on (upstream) and what depends on it (downstream). Every neighbour links to its own detail page and carries a live health dot and the edge's impact severity, so you can trace impact without opening the full map. The panel is visible to anyone allowed to read the system's dependencies: holders of the global dependency-map rule, or users who can manage the system through a team grant - the same gate that governs editing the system's edges on the map.
 
 > [!NOTE]
 > The full dependency map is gated by its own access rule and is only available to signed-in users (granted to them by default via their role). It cannot be granted to anonymous visitors: the map exposes the entire system topology, so its access rule is not usable by the anonymous role. Per-system dependency *warnings* (the badges and dashboard signals) stay public, so anonymous visitors still see when a system is affected by an upstream problem - they just do not get the full topology view.

@@ -41,9 +41,18 @@ import {
   cn,
   toastError,
 } from "@checkstack/ui";
-import { Maximize2, Save, RefreshCw, Trash2, GitBranch } from "lucide-react";
+import {
+  Maximize2,
+  Save,
+  RefreshCw,
+  Trash2,
+  GitBranch,
+  Network,
+  Crosshair,
+} from "lucide-react";
 import type { ImpactType } from "@checkstack/dependency-common";
 import { DependencyEdgeForm } from "./DependencyEdgeForm";
+import type { ScopeCell } from "./HealthCheckRulesEditor";
 import { useProvenanceLocks } from "@checkstack/gitops-frontend";
 
 import {
@@ -57,7 +66,13 @@ import {
   type DependencyEdgeData,
 } from "./canvas/DependencyEdge";
 import { extractErrorMessage } from "@checkstack/common";
-import { autoLayout } from "./dependencyDisplay.logic";
+import {
+  autoLayout,
+  centerLayout,
+  sugiyamaLayout,
+  type DependencyEdgeInput,
+  type NodePositionMap,
+} from "./dependencyDisplay.logic";
 
 const nodeTypes = { system: SystemNodeComponent };
 const edgeTypes = { dependency: DependencyEdgeComponent };
@@ -86,10 +101,13 @@ function DependencyMapContent() {
         targetSystemId: string;
         impactType: ImpactType;
         transitive: boolean;
-        healthCheckRules: { healthCheckId: string; overrideImpactType: ImpactType }[];
+        healthCheckRules: ScopeCell[];
       }
     | undefined
   >();
+
+  // The system a user clicked, used as the focus for "Center on box" layout.
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
 
   // Fetch systems
   const { data: systemsData, isLoading: systemsLoading } =
@@ -277,29 +295,29 @@ function DependencyMapContent() {
       );
     }
 
-    // Lookup maps for position resolution
-    const savedPositionMap = new Map(
-      savedPositions.map((p) => [p.systemId, { x: p.x, y: p.y }]),
-    );
-    const currentPositionMap = new Map<string, { x: number; y: number }>();
-    for (const node of nodesRef.current) {
-      currentPositionMap.set(node.id, node.position);
-    }
+    // In-memory positions (user dragged but hasn't saved) count as "placed" so
+    // autoLayout never moves them - alongside the persisted saved positions.
+    const placed = new Map<string, { x: number; y: number }>();
+    for (const p of savedPositions) placed.set(p.systemId, { x: p.x, y: p.y });
+    for (const node of nodesRef.current) placed.set(node.id, node.position);
 
-    // Auto-layout only for systems that have no saved and no in-memory position
-    const unpositioned = systemsData.systems
-      .map((s) => s.id)
-      .filter((id) => !savedPositionMap.has(id) && !currentPositionMap.has(id));
-    const fallbackPositions = autoLayout({
-      systemIds: unpositioned,
-      savedPositions: [],
+    // Edge-aware layout: keep every placed box, arrange only new ones (a tidy
+    // layered block in free space when some boxes are already placed).
+    const positionMap = autoLayout({
+      systemIds: systemsData.systems.map((s) => s.id),
+      savedPositions: [...placed].map(([systemId, p]) => ({
+        systemId,
+        x: p.x,
+        y: p.y,
+      })),
+      edges: deps.map((d) => ({
+        source: d.sourceSystemId,
+        target: d.targetSystemId,
+      })),
     });
 
     const newNodes: SystemNode[] = systemsData.systems.map((system) => {
-      const pos =
-        currentPositionMap.get(system.id) ??
-        savedPositionMap.get(system.id) ??
-        fallbackPositions.get(system.id) ?? { x: 0, y: 0 };
+      const pos = positionMap.get(system.id) ?? { x: 0, y: 0 };
 
       const warning = warnings[system.id];
 
@@ -410,6 +428,60 @@ function DependencyMapContent() {
     savePositions({ positions });
   }, [savePositions]);
 
+  // Dependency edges reduced to the (source, target) pairs the layout needs.
+  const layoutEdges = useMemo<DependencyEdgeInput[]>(
+    () =>
+      (depsData?.dependencies ?? []).map((d) => ({
+        source: d.sourceSystemId,
+        target: d.targetSystemId,
+      })),
+    [depsData],
+  );
+
+  // Apply a freshly computed layout to every node, persist it, and refit the
+  // viewport. Positions are read from the map (not the async node state) so the
+  // save reflects the new layout immediately.
+  const applyLayout = useCallback(
+    (positionMap: NodePositionMap) => {
+      setNodes((prev) =>
+        prev.map((node) => {
+          const pos = positionMap.get(node.id);
+          return pos ? { ...node, position: pos } : node;
+        }),
+      );
+      const positions: NodePosition[] = nodesRef.current.map((node) => {
+        const pos = positionMap.get(node.id) ?? node.position;
+        return {
+          systemId: node.id,
+          x: Math.round(pos.x),
+          y: Math.round(pos.y),
+        };
+      });
+      savePositions({ positions });
+      // Refit once React Flow has committed the new positions.
+      setTimeout(() => fitView({ padding: 0.3 }), 50);
+    },
+    [setNodes, savePositions, fitView],
+  );
+
+  // Reset layout: re-run the Sugiyama arrangement for ALL boxes, overriding any
+  // saved positions.
+  const handleResetLayout = useCallback(() => {
+    applyLayout(sugiyamaLayout({ systemIds, edges: layoutEdges }));
+  }, [applyLayout, systemIds, layoutEdges]);
+
+  // Center on box: rebuild the layout around the selected system.
+  const handleCenterOnSelection = useCallback(() => {
+    if (!selectedNodeId) return;
+    applyLayout(
+      centerLayout({
+        focusId: selectedNodeId,
+        systemIds,
+        edges: layoutEdges,
+      }),
+    );
+  }, [applyLayout, selectedNodeId, systemIds, layoutEdges]);
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -449,12 +521,17 @@ function DependencyMapContent() {
               healthCheckRules:
                 dep.healthCheckRules?.map((r) => ({
                   healthCheckId: r.healthCheckId,
+                  environmentId: r.environmentId,
                   overrideImpactType: r.overrideImpactType,
                 })) ?? [],
             });
           }
         }}
-        onPaneClick={() => setSelectedEdge(undefined)}
+        onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+        onPaneClick={() => {
+          setSelectedEdge(undefined);
+          setSelectedNodeId(undefined);
+        }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
@@ -524,6 +601,33 @@ function DependencyMapContent() {
           >
             <Maximize2 className="h-4 w-4 mr-1" />
             Fit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCenterOnSelection}
+            disabled={!selectedNodeId}
+            title={
+              selectedNodeId
+                ? `Rebuild the layout around ${
+                    systemNameMap.get(selectedNodeId) ?? "the selected system"
+                  }`
+                : "Select a system, then center the layout on it"
+            }
+            className={cn(isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm")}
+          >
+            <Crosshair className="h-4 w-4 mr-1" />
+            Center on box
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleResetLayout}
+            title="Re-arrange every box with the automatic layered layout"
+            className={cn(isLowPower ? "bg-card" : "bg-card/90 backdrop-blur-sm")}
+          >
+            <Network className="h-4 w-4 mr-1" />
+            Reset layout
           </Button>
         </Panel>
 

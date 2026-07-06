@@ -5,19 +5,36 @@ import type {
   ImpactType,
 } from "@checkstack/dependency-common";
 
+/** Per-health-check status within a slice (system rollup or one environment). */
+export type SliceCheckStatus = {
+  healthCheckId: string;
+  status: "healthy" | "degraded" | "unhealthy";
+};
+
+/**
+ * The health of one slice of a system: its rollup `status` plus optional
+ * per-check breakdown. Used both for the system's cross-environment rollup and
+ * for each individual environment.
+ */
+export interface SliceStatus {
+  status: "operational" | "degraded" | "down";
+  healthCheckStatuses?: SliceCheckStatus[];
+}
+
 /**
  * Upstream system status as reported by the platform.
+ *
+ * `status` / `healthCheckStatuses` are the CROSS-ENVIRONMENT rollup (what
+ * every consumer saw before per-environment scoping). `environments` adds each
+ * environment's own slice so a scope cell can read the exact `(check?, env?)`
+ * slice it targets - crucially, the per-env slice is NOT the worst-wins rollup,
+ * so a prod-only outage that the rollup hides is still visible here.
  */
-export interface SystemStatus {
+export interface SystemStatus extends SliceStatus {
   systemId: string;
   systemName: string;
-  /** Overall system status: operational, degraded, or down */
-  status: "operational" | "degraded" | "down";
-  /** Per-health-check statuses (for advanced rules) */
-  healthCheckStatuses?: Array<{
-    healthCheckId: string;
-    status: "healthy" | "degraded" | "unhealthy";
-  }>;
+  /** Per-environment slices, keyed by environment id (real ids only). */
+  environments?: Record<string, SliceStatus>;
 }
 
 /**
@@ -120,8 +137,8 @@ export class WarningEvaluationService {
       // Evaluate impact based on the dependency configuration
       const derivedState = this.evaluateDependencyImpact({
         dependency: dep,
-        upstreamStatus: effectiveStatus,
-        upstreamHealthChecks: upstreamStatus.healthCheckStatuses,
+        upstreamStatus,
+        effectiveOverallStatus: effectiveStatus,
       });
 
       if (derivedState) {
@@ -149,84 +166,113 @@ export class WarningEvaluationService {
   }
 
   /**
-   * Evaluate the impact of a single dependency based on upstream status.
-   * Returns the derived state, or undefined if no impact.
+   * Evaluate the impact of a single dependency.
+   *
+   * - With NO scope cells: watch the target's overall rollup at the edge's
+   *   `impactType` (the default any-check/any-env behaviour). `effectiveOverall`
+   *   already folds in any transitive promotion.
+   * - With scope cells: watch ONLY those `(check?, env?)` slices, each at its
+   *   own severity, worst-wins. The overall status is intentionally ignored so
+   *   an env/check-specific outage the rollup hides can still fire.
    */
   private evaluateDependencyImpact({
     dependency,
     upstreamStatus,
-    upstreamHealthChecks,
+    effectiveOverallStatus,
   }: {
     dependency: Dependency;
-    upstreamStatus: "operational" | "degraded" | "down";
-    upstreamHealthChecks?: Array<{
-      healthCheckId: string;
-      status: "healthy" | "degraded" | "unhealthy";
-    }>;
+    upstreamStatus: SystemStatus;
+    effectiveOverallStatus: "operational" | "degraded" | "down";
   }): DerivedState | undefined {
-    // If upstream is operational, no impact
-    if (upstreamStatus === "operational") {
+    const cells = dependency.healthCheckRules;
+    if (cells && cells.length > 0) {
+      return this.evaluateScopeCells({ cells, upstreamStatus });
+    }
+
+    // No cells: whole-system rollup at the edge severity.
+    if (effectiveOverallStatus === "operational") {
       return undefined;
     }
-
-    // If the dependency has health check rules, evaluate those instead
-    if (
-      dependency.healthCheckRules &&
-      dependency.healthCheckRules.length > 0 &&
-      upstreamHealthChecks
-    ) {
-      return this.evaluateHealthCheckRules({
-        rules: dependency.healthCheckRules,
-        healthCheckStatuses: upstreamHealthChecks,
-      });
-    }
-
-    // Apply the impact matrix based on overall status
     return this.applyImpactMatrix({
       impactType: dependency.impactType,
-      upstreamStatus,
+      upstreamStatus: effectiveOverallStatus,
     });
   }
 
   /**
-   * Evaluate health check rules for a dependency.
-   * Returns the worst derived state from matching rules, or undefined.
+   * Resolve each scope cell against the exact slice it targets and worst-wins
+   * across them. A cell whose slice is healthy, missing (system not in that
+   * environment / no runs), or otherwise operational simply does not
+   * contribute - it never errors.
    */
-  private evaluateHealthCheckRules({
-    rules,
-    healthCheckStatuses,
+  private evaluateScopeCells({
+    cells,
+    upstreamStatus,
   }: {
-    rules: NonNullable<Dependency["healthCheckRules"]>;
-    healthCheckStatuses: Array<{
-      healthCheckId: string;
-      status: "healthy" | "degraded" | "unhealthy";
-    }>;
+    cells: NonNullable<Dependency["healthCheckRules"]>;
+    upstreamStatus: SystemStatus;
   }): DerivedState | undefined {
     let worstState: DerivedState | undefined;
 
-    for (const rule of rules) {
-      const checkStatus = healthCheckStatuses.find(
-        (s) => s.healthCheckId === rule.healthCheckId,
-      );
-
-      // If the check is not found or is healthy, skip
-      if (!checkStatus || checkStatus.status === "healthy") continue;
-
-      // Map health check status to upstream status equivalent
-      const upstreamEquivalent =
-        checkStatus.status === "unhealthy" ? "down" : "degraded";
+    for (const cell of cells) {
+      const sliceStatus = this.resolveCellStatus({ cell, upstreamStatus });
+      if (sliceStatus === "operational") continue;
 
       const state = this.applyImpactMatrix({
-        impactType: rule.overrideImpactType,
-        upstreamStatus: upstreamEquivalent,
+        impactType: cell.overrideImpactType,
+        upstreamStatus: sliceStatus,
       });
-
-      if (state) {
-        worstState = this.worstState(worstState, state);
-      }
+      worstState = this.worstState(worstState, state);
     }
 
     return worstState;
+  }
+
+  /**
+   * Resolve the effective status of the slice a single cell targets.
+   *
+   * Cell shape → slice read:
+   * - `(check=null, env=null)` → the system's cross-env rollup status.
+   * - `(check=X,    env=null)` → check X in the cross-env per-check statuses.
+   * - `(check=null, env=E)`    → environment E's own rollup status.
+   * - `(check=X,    env=E)`    → check X within environment E's per-check statuses.
+   *
+   * A referenced environment/check with no data resolves to `operational`
+   * (non-contributing), never an error.
+   */
+  private resolveCellStatus({
+    cell,
+    upstreamStatus,
+  }: {
+    cell: NonNullable<Dependency["healthCheckRules"]>[number];
+    upstreamStatus: SystemStatus;
+  }): "operational" | "degraded" | "down" {
+    // Pick the slice: a specific environment, or the cross-env rollup.
+    // NOTE: a `null` environmentId means ANY env (the rollup) here - it is NOT
+    // the health-check domain's env-less slice. That translation is done when
+    // building `SystemStatus.environments` (real env ids only).
+    let slice: SliceStatus;
+    if (cell.environmentId === null) {
+      slice = upstreamStatus;
+    } else {
+      const env = upstreamStatus.environments?.[cell.environmentId];
+      if (!env) return "operational"; // system not in env / no data
+      slice = env;
+    }
+
+    // Any check in the slice → the slice's rollup status.
+    if (cell.healthCheckId === null) {
+      return slice.status;
+    }
+
+    // A specific check within the slice.
+    const checkStatus = slice.healthCheckStatuses?.find(
+      (s) => s.healthCheckId === cell.healthCheckId,
+    );
+    if (!checkStatus || checkStatus.status === "healthy") {
+      return "operational";
+    }
+    return checkStatus.status === "unhealthy" ? "down" : "degraded";
   }
 
   /**

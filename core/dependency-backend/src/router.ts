@@ -12,6 +12,7 @@ import {
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import type { DependencyService } from "./services/dependency-service";
+import { buildSystemStatuses } from "./services/fetch-system-statuses";
 import type {
   WarningEvaluationService,
   SystemStatus,
@@ -47,77 +48,19 @@ export function createRouter({
   getDependencyEntity?: () => EntityHandle<DependencyEdgeState> | undefined;
 }) {
   /**
-   * Fetch system statuses for warning evaluation using the bulk health status API.
-   * Combines catalog system names with health check status data.
+   * Fetch system statuses (incl. per-environment slices) for warning
+   * evaluation. Delegates to the shared builder so the router and the
+   * notification sidecar produce identical data.
    */
   async function fetchSystemStatuses(
     systemIds: string[],
   ): Promise<Map<string, SystemStatus>> {
-    const statuses = new Map<string, SystemStatus>();
-
-    // Get system names from catalog
-    const { systems } = await catalogClient.getSystems();
-    const systemMap = new Map(systems.map((s) => [s.id, s]));
-
-    // Bulk-fetch health statuses for all systems
-    try {
-      const { statuses: healthStatuses } =
-        await healthCheckClient.getBulkSystemHealthStatus({
-          systemIds,
-        });
-
-      for (const systemId of systemIds) {
-        const system = systemMap.get(systemId);
-        if (!system) continue;
-
-        const healthStatus = healthStatuses[systemId];
-
-        if (healthStatus) {
-          // Map from health check status to simplified system status
-          let overallStatus: "operational" | "degraded" | "down" =
-            "operational";
-          if (healthStatus.status === "unhealthy") {
-            overallStatus = "down";
-          } else if (healthStatus.status === "degraded") {
-            overallStatus = "degraded";
-          }
-
-          const checkStatuses = healthStatus.checkStatuses.map((cs) => ({
-            healthCheckId: cs.configurationId,
-            status: cs.status,
-          }));
-
-          statuses.set(systemId, {
-            systemId,
-            systemName: system.name,
-            status: overallStatus,
-            healthCheckStatuses: checkStatuses,
-          });
-        } else {
-          statuses.set(systemId, {
-            systemId,
-            systemName: system.name,
-            status: "operational",
-          });
-        }
-      }
-    } catch (error) {
-      logger.debug(
-        `Failed to bulk-fetch health statuses: ${String(error)}`,
-      );
-      // Fallback: default all systems to operational
-      for (const systemId of systemIds) {
-        const system = systemMap.get(systemId);
-        if (!system) continue;
-        statuses.set(systemId, {
-          systemId,
-          systemName: system.name,
-          status: "operational",
-        });
-      }
-    }
-
-    return statuses;
+    return buildSystemStatuses({
+      systemIds,
+      catalogClient,
+      healthCheckClient,
+      logger,
+    });
   }
 
   const os = implement(dependencyContract)
