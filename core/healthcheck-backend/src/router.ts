@@ -255,6 +255,7 @@ export const createHealthCheckRouter = (opts: {
         displayName: r.strategy.displayName,
         description: r.strategy.description,
         category: (r.strategy.category ?? "other") as StrategyCategory,
+        setupInstructions: r.strategy.setupInstructions,
         configSchema: toJsonSchema(r.strategy.config.schema),
         resultSchema: r.strategy.result
           ? toJsonSchemaWithChartMeta(r.strategy.result.schema)

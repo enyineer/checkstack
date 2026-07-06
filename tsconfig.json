@@ -340,6 +340,12 @@
       "path": "./plugins/collector-hardware-backend"
     },
     {
+      "path": "./plugins/healthcheck-container-backend"
+    },
+    {
+      "path": "./plugins/healthcheck-container-common"
+    },
+    {
       "path": "./plugins/healthcheck-dns-backend"
     },
     {

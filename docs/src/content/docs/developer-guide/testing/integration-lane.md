@@ -23,6 +23,8 @@ The default `bun test` never touches a real service. Integration suites are wrap
 
 The integration lane verifies our code against a real database and queue. It holds two kinds of test: a small, fixed set of external-runtime seam tests (advisory-lock connection affinity, atomic claim races, `ON CONFLICT` arms, BullMQ consumer-group exactly-once delivery, and BullMQ stalled-job redelivery), plus query-correctness tests that exercise risk-bearing SQL against real Postgres via `withTestDb()` (see [createMockDb versus withTestDb](#createmockdb-versus-withtestdb)). It is still not a dumping ground for ordinary branch-logic coverage - that belongs in the fast unit lane.
 
+A few `*.it.test.ts` suites need a real container runtime rather than Postgres/Redis. The container health check's `container-proxy.it.test.ts` stands up the real `lscr.io/linuxserver/socket-proxy` in front of the host Docker socket and drives the strategy through it, asserting both that reads work and that the read-only `POST=0` proxy blocks a write. It is gated on `CHECKSTACK_IT` **and** a live Docker daemon (`describe.skipIf(!process.env.CHECKSTACK_IT || !dockerAvailable)`), so it runs in the same `integration` CI job (whose `ubuntu-latest` runner has Docker) and skips cleanly anywhere Docker is absent.
+
 Files use the `*.it.test.ts` convention and are gated behind `CHECKSTACK_IT=1`. Bring up Postgres and Redis with the dev compose file, which now includes a Redis service alongside Postgres:
 
 ```bash
