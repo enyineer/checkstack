@@ -1,5 +1,17 @@
 # @checkstack/sdk
 
+## 0.125.1
+
+### Patch Changes
+
+- Updated dependencies [390d9cf]
+- Updated dependencies [fc64fad]
+- Updated dependencies [9d30324]
+  - @checkstack/healthcheck-common@1.14.0
+  - @checkstack/dependency-common@1.7.0
+  - @checkstack/incident-common@1.8.0
+  - @checkstack/satellite-common@0.9.2
+
 ## 0.123.1
 
 ### Patch Changes

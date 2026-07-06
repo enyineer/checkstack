@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/signal-backend",
-  "version": "0.3.19",
+  "version": "0.3.20",
   "license": "Elastic-2.0",
   "type": "module",
   "exports": {

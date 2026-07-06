@@ -1,5 +1,14 @@
 # @checkstack/announcement-backend
 
+## 0.5.5
+
+### Patch Changes
+
+- Updated dependencies [390d9cf]
+  - @checkstack/backend-api@0.30.0
+  - @checkstack/auth-backend@0.9.5
+  - @checkstack/command-backend@0.2.20
+
 ## 0.5.4
 
 ### Patch Changes

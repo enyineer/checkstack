@@ -1,5 +1,61 @@
 # @checkstack/dependency-backend
 
+## 1.6.0
+
+### Minor Changes
+
+- fc64fad: Dependencies can now be scoped to a specific environment and/or health check of
+  the upstream system, each with its own severity - a "matrix" of scope cells.
+
+  Previously a dependency watched the upstream's overall health (any check, any
+  environment) at the edge's impact type, with optional per-check rules. That
+  default is unchanged: with no scope cells configured, the dependency behaves
+  exactly as before. Now each cell pins a check (a specific configuration, or
+  "any"), an environment (a specific environment, or "any"), and a severity
+  (informational / degraded / critical). When a dependency has any cells, only
+  those slices are watched (they replace the whole-system watch) and the worst
+  result across cells wins. This lets you express, e.g., "System A depends on
+  System B only in `prod`", or "only when B's TLS check in `prod` fails", and lets
+  different cells carry different severities.
+
+  Because each environment is evaluated on its own slice, a scoped dependency
+  catches an environment-specific outage that the upstream's overall status
+  (worst-wins across environments) would otherwise hide. The dependency evaluator
+  now reads per-(check, environment) health via a new
+  `@checkstack/healthcheck-common` bulk contract `getBulkSystemHealthMatrix` (and
+  its `@checkstack/healthcheck-backend` implementation), which returns each
+  system's cross-environment rollup plus a per-environment slice. Incident
+  overrides still fold into the overall rollup, so incident-forced statuses keep
+  propagating through dependencies.
+
+  The scope-cell store gains a nullable `environment_id` column and makes
+  `health_check_id` nullable (forward-only migration; existing rows keep working
+  as "any check, any environment"). The dependency editor's per-check panel
+  becomes a scope-matrix editor with check + environment + severity rows.
+
+  Transitive (multi-hop) dependencies still cascade using the upstream's overall
+  status; per-environment cascades across multiple hops are not yet propagated.
+
+### Patch Changes
+
+- Updated dependencies [390d9cf]
+- Updated dependencies [390d9cf]
+- Updated dependencies [fc64fad]
+- Updated dependencies [fc64fad]
+- Updated dependencies [9d30324]
+- Updated dependencies [9d30324]
+- Updated dependencies [b218e3e]
+  - @checkstack/ai-backend@0.10.8
+  - @checkstack/backend-api@0.30.0
+  - @checkstack/healthcheck-common@1.14.0
+  - @checkstack/healthcheck-backend@1.17.0
+  - @checkstack/dependency-common@1.7.0
+  - @checkstack/incident-common@1.8.0
+  - @checkstack/automation-backend@0.10.10
+  - @checkstack/catalog-backend@1.6.8
+  - @checkstack/command-backend@0.2.20
+  - @checkstack/gitops-backend@0.5.20
+
 ## 1.5.18
 
 ### Patch Changes
