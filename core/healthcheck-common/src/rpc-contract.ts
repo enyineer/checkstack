@@ -722,6 +722,46 @@ export const healthCheckContract = {
       }),
     ),
 
+  getBulkSystemHealthMatrix: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+    instanceAccess: { recordKey: "statuses" },
+  })
+    .route({ method: "POST" })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        /**
+         * Per-(system, check, environment) health, keyed by systemId. Consumers
+         * that need to scope by environment (e.g. the dependency map) read the
+         * per-environment slices here rather than the cross-env rollup, since
+         * the rollup deliberately hides a single failing environment.
+         */
+        statuses: z.record(
+          z.string(),
+          z.object({
+            /** Cross-environment rollup (same as getSystemHealthStatus). */
+            status: HealthCheckStatusSchema,
+            /** Cross-environment per-check statuses. */
+            checkStatuses: z.array(SystemCheckStatusSchema),
+            /**
+             * Per-environment slices, keyed by environment id (real ids only;
+             * the env-less slice is folded into the rollup). Each carries that
+             * environment's own rollup status and per-check statuses.
+             */
+            environments: z.record(
+              z.string(),
+              z.object({
+                status: HealthCheckStatusSchema,
+                checkStatuses: z.array(SystemCheckStatusSchema),
+              }),
+            ),
+          }),
+        ),
+      }),
+    ),
+
   getSystemHealthOverview: proc({
     operationType: "query",
     userType: "public",

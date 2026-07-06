@@ -10,6 +10,7 @@ import {
 } from "@checkstack/dependency-common";
 import { SYSTEM_STATUS_CHANGED } from "@checkstack/healthcheck-common";
 import {
+  SystemDetailsSlot,
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemEditorSlot,
@@ -45,6 +46,16 @@ export default createFrontendPlugin({
     createSlotExtension(SystemDetailsTopSlot, {
       id: "dependency.system-details-top.alert",
       component: DependencyAlert,
+    }),
+    createSlotExtension(SystemDetailsSlot, {
+      id: "dependency.system-details.up-downstream",
+      // Read-only up/downstream list, gated to dependency-map readers and
+      // team managers of the system. Lazy-loaded to keep it off the initial
+      // bundle until a system detail page renders.
+      load: () =>
+        import("./components/SystemDependenciesPanel").then((m) => ({
+          default: m.SystemDependenciesPanel,
+        })),
     }),
     createSlotExtension(SystemEditorSlot, {
       id: "dependency.system-editor",

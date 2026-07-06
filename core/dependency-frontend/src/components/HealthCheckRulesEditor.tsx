@@ -1,30 +1,39 @@
 import React, { useState } from "react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { CatalogApi } from "@checkstack/catalog-common";
 import type { ImpactType } from "@checkstack/dependency-common";
 import { Button, Badge } from "@checkstack/ui";
-import { Plus, Trash2, ChevronDown, ChevronUp, Activity } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Filter } from "lucide-react";
 
-interface HealthCheckRule {
-  healthCheckId: string;
+/**
+ * A scope cell: which slice of the target this edge watches, at what severity.
+ * `null` on either axis means "any" (any check / any environment).
+ */
+export interface ScopeCell {
+  healthCheckId: string | null;
+  environmentId: string | null;
   overrideImpactType: ImpactType;
 }
 
 interface Props {
-  /** The upstream system ID to query health checks for */
+  /** The upstream (target) system ID to scope against. */
   targetSystemId: string;
-  /** Current rules */
-  rules: HealthCheckRule[];
-  /** Callback when rules change */
-  onChange: (rules: HealthCheckRule[]) => void;
-  /** Compact mode for tight layouts like the map edge editor */
+  /** Current scope cells. */
+  rules: ScopeCell[];
+  /** Callback when cells change. */
+  onChange: (rules: ScopeCell[]) => void;
+  /** Compact mode for tight layouts like the map edge editor. */
   compact?: boolean;
 }
 
+const ANY = "__any__";
+
 /**
- * Collapsible editor for health check rules on a dependency edge.
- * When rules are configured, the dependency only triggers for failures
- * of the specified health checks (with optional per-check impact override).
+ * Editor for a dependency's scope matrix. Each row pins the watched slice of
+ * the target to a specific check and/or environment (or "Any") and gives it a
+ * severity. With no rows, the dependency watches the target's overall health
+ * (any check, any environment) - the default behaviour.
  */
 export const HealthCheckRulesEditor: React.FC<Props> = ({
   targetSystemId,
@@ -34,50 +43,41 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
 }) => {
   const [expanded, setExpanded] = useState(rules.length > 0);
 
-  // Fetch health checks for the target (upstream) system
   const healthCheckClient = usePluginClient(HealthCheckApi);
+  const catalogClient = usePluginClient(CatalogApi);
+
   const { data: associations } =
     healthCheckClient.getSystemAssociations.useQuery(
       { systemId: targetSystemId },
       { enabled: !!targetSystemId },
     );
+  const { data: allEnvironments } = catalogClient.listEnvironments.useQuery({});
 
   const availableChecks = associations ?? [];
-
-  // Filter out already-added checks
-  const unusedChecks = availableChecks.filter(
-    (check) => !rules.some((r) => r.healthCheckId === check.configurationId),
+  // Only environments the target system actually belongs to are meaningful.
+  const availableEnvironments = (allEnvironments ?? []).filter((env) =>
+    env.systemIds.includes(targetSystemId),
   );
 
-  const handleAddRule = (configurationId: string) => {
+  const canScope =
+    availableChecks.length > 0 || availableEnvironments.length > 0;
+
+  const updateCell = (index: number, patch: Partial<ScopeCell>) => {
+    onChange(rules.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  };
+
+  const addCell = () => {
     onChange([
       ...rules,
-      { healthCheckId: configurationId, overrideImpactType: "critical" },
+      { healthCheckId: null, environmentId: null, overrideImpactType: "critical" },
     ]);
   };
 
-  const handleRemoveRule = (healthCheckId: string) => {
-    onChange(rules.filter((r) => r.healthCheckId !== healthCheckId));
+  const removeCell = (index: number) => {
+    onChange(rules.filter((_, i) => i !== index));
   };
 
-  const handleImpactChange = (
-    healthCheckId: string,
-    impactType: ImpactType,
-  ) => {
-    onChange(
-      rules.map((r) =>
-        r.healthCheckId === healthCheckId
-          ? { ...r, overrideImpactType: impactType }
-          : r,
-      ),
-    );
-  };
-
-  const getCheckName = (healthCheckId: string): string =>
-    availableChecks.find((c) => c.configurationId === healthCheckId)
-      ?.configurationName ?? healthCheckId;
-
-  if (availableChecks.length === 0) {
+  if (!canScope) {
     return;
   }
 
@@ -91,9 +91,9 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
           <span className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>
-            Health check rules
+            Scope (check / environment)
           </span>
           {rules.length > 0 && (
             <Badge variant="outline" className="text-xs h-5">
@@ -111,64 +111,28 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
       {expanded && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            When rules are configured, this dependency only triggers warnings
-            when the specified health checks fail. Each rule can override the
-            impact type.
+            Narrow this dependency to a specific check and/or environment of the
+            upstream system, each with its own severity. With no rows, it
+            watches any check in any environment.
           </p>
 
-          {/* Existing rules */}
-          {rules.map((rule) => (
+          {rules.map((cell, index) => (
             <div
-              key={rule.healthCheckId}
-              className="flex items-center gap-2 rounded border border-border bg-surface p-2"
+              key={index}
+              className="flex flex-wrap items-center gap-2 rounded border border-border bg-surface p-2"
             >
-              <span className="text-xs flex-1 truncate font-medium">
-                {getCheckName(rule.healthCheckId)}
-              </span>
               <select
-                className="text-xs rounded border border-input bg-surface-inset px-2 py-1"
-                value={rule.overrideImpactType}
+                aria-label="Health check"
+                className="text-xs rounded border border-input bg-surface-inset px-2 py-1 flex-1 min-w-24"
+                value={cell.healthCheckId ?? ANY}
                 onChange={(e) =>
-                  handleImpactChange(
-                    rule.healthCheckId,
-                    e.target.value as ImpactType,
-                  )
+                  updateCell(index, {
+                    healthCheckId: e.target.value === ANY ? null : e.target.value,
+                  })
                 }
               >
-                <option value="informational">Info</option>
-                <option value="degraded">Degraded</option>
-                <option value="critical">Critical</option>
-              </select>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={() => handleRemoveRule(rule.healthCheckId)}
-              >
-                <Trash2 className="h-3 w-3 text-destructive" />
-              </Button>
-            </div>
-          ))}
-
-          {/* Add new rule */}
-          {unusedChecks.length > 0 && (
-            <div className="flex items-center gap-2">
-              <select
-                id="add-hc-rule"
-                className="flex-1 text-xs rounded border border-input bg-surface px-2 py-1.5"
-                defaultValue=""
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAddRule(e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-              >
-                <option value="" disabled>
-                  Add health check...
-                </option>
-                {unusedChecks.map((check) => (
+                <option value={ANY}>Any check</option>
+                {availableChecks.map((check) => (
                   <option
                     key={check.configurationId}
                     value={check.configurationId}
@@ -177,14 +141,66 @@ export const HealthCheckRulesEditor: React.FC<Props> = ({
                   </option>
                 ))}
               </select>
-              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-          )}
 
-          {rules.length === 0 && unusedChecks.length > 0 && (
+              <select
+                aria-label="Environment"
+                className="text-xs rounded border border-input bg-surface-inset px-2 py-1 flex-1 min-w-24"
+                value={cell.environmentId ?? ANY}
+                onChange={(e) =>
+                  updateCell(index, {
+                    environmentId: e.target.value === ANY ? null : e.target.value,
+                  })
+                }
+              >
+                <option value={ANY}>Any environment</option>
+                {availableEnvironments.map((env) => (
+                  <option key={env.id} value={env.id}>
+                    {env.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Severity"
+                className="text-xs rounded border border-input bg-surface-inset px-2 py-1"
+                value={cell.overrideImpactType}
+                onChange={(e) =>
+                  updateCell(index, {
+                    overrideImpactType: e.target.value as ImpactType,
+                  })
+                }
+              >
+                <option value="informational">Info</option>
+                <option value="degraded">Degraded</option>
+                <option value="critical">Critical</option>
+              </select>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => removeCell(index)}
+              >
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </Button>
+            </div>
+          ))}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={addCell}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Add scope
+          </Button>
+
+          {rules.length === 0 && (
             <p className="text-xs text-muted-foreground/60 italic">
-              No rules configured - all health check failures trigger this
-              dependency.
+              No scopes - this dependency watches any check in any environment.
             </p>
           )}
         </div>

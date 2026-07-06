@@ -41,6 +41,7 @@ import {
   gte,
   lte,
   isNull,
+  isNotNull,
   inArray,
 } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
@@ -1339,6 +1340,98 @@ export class HealthCheckService {
       }),
     );
     return Object.fromEntries(entries);
+  }
+
+  /**
+   * Bulk per-(system, check, environment) health for the given systems.
+   *
+   * For each system returns the cross-environment rollup (status +
+   * checkStatuses, same as {@link getSystemHealthStatus}) PLUS a slice per
+   * environment the system has runs for. Consumers that scope by environment
+   * (the dependency map) must read the per-environment slice, because the
+   * rollup deliberately hides a single failing environment.
+   *
+   * Cost scales with the number of environments each system actually fans out
+   * to (`1 + #envs` status evaluations per system); systems with only env-less
+   * runs cost the same as a plain rollup read. Not on any per-run hot path.
+   */
+  async getBulkSystemHealthMatrix(systemIds: string[]): Promise<
+    Record<
+      string,
+      {
+        status: HealthCheckStatus;
+        checkStatuses: SystemHealthStatusResponse["checkStatuses"];
+        environments: Record<
+          string,
+          {
+            status: HealthCheckStatus;
+            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
+          }
+        >;
+      }
+    >
+  > {
+    const result: Record<
+      string,
+      {
+        status: HealthCheckStatus;
+        checkStatuses: SystemHealthStatusResponse["checkStatuses"];
+        environments: Record<
+          string,
+          {
+            status: HealthCheckStatus;
+            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
+          }
+        >;
+      }
+    > = {};
+
+    await Promise.all(
+      systemIds.map(async (systemId) => {
+        const overall = await this.getSystemHealthStatus(systemId);
+
+        // Environments this system actually has runs for (env-less excluded -
+        // it is folded into the rollup and never a real environment id).
+        const envRows = await this.db
+          .selectDistinct({ environmentId: healthCheckRuns.environmentId })
+          .from(healthCheckRuns)
+          .where(
+            and(
+              eq(healthCheckRuns.systemId, systemId),
+              isNotNull(healthCheckRuns.environmentId),
+            ),
+          );
+
+        const environments: Record<
+          string,
+          {
+            status: HealthCheckStatus;
+            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
+          }
+        > = {};
+        await Promise.all(
+          envRows.map(async ({ environmentId }) => {
+            if (!environmentId) return;
+            const envStatus = await this.getSystemHealthStatus(
+              systemId,
+              environmentId,
+            );
+            environments[environmentId] = {
+              status: envStatus.status,
+              checkStatuses: envStatus.checkStatuses,
+            };
+          }),
+        );
+
+        result[systemId] = {
+          status: overall.status,
+          checkStatuses: overall.checkStatuses,
+          environments,
+        };
+      }),
+    );
+
+    return result;
   }
 
   /**

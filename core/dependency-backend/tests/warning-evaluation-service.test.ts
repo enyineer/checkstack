@@ -333,6 +333,7 @@ describe("WarningEvaluationService", () => {
                 id: "rule-1",
                 dependencyId: "dep-1",
                 healthCheckId: "hc-1",
+                environmentId: null, // any environment
                 overrideImpactType: "critical", // overridden to critical for this check
               },
             ],
@@ -372,6 +373,7 @@ describe("WarningEvaluationService", () => {
                 id: "rule-1",
                 dependencyId: "dep-1",
                 healthCheckId: "hc-1",
+                environmentId: null, // any environment
                 overrideImpactType: "critical",
               },
             ],
