@@ -83,9 +83,22 @@ describe("validateContractInstanceAccess", () => {
         list: { instanceAccess: { listKey: "items" } },
         bulk: { instanceAccess: { recordKey: "statuses" } },
         create: { instanceAccess: { create: { idField: "id" } } },
+        typeUtil: { instanceAccess: { typeScoped: {} } },
+        typeUtilManage: { instanceAccess: { typeScoped: { action: "manage" } } },
       }),
     );
     expect(errors).toEqual([]);
+  });
+
+  it("rejects typeScoped combined with another mode", () => {
+    const errors = run(
+      fakeContract({
+        bad: { instanceAccess: { typeScoped: {}, idParam: "id" } },
+      }),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("multiple instanceAccess modes");
+    expect(errors[0]).toContain("typeScoped");
   });
 
   it("rejects an instanceAccess that names multiple modes", () => {

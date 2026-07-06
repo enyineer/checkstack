@@ -141,6 +141,26 @@ export interface InstanceAccessConfig {
       idParam: string;
     };
   };
+
+  /**
+   * Type-level capability gate for endpoints that have NO instance to scope on
+   * but ARE a dependency of a team-scopable surface: catalogs, editor utilities,
+   * "list the strategy/collector types" helpers. Authorizes the caller when they
+   * hold the rule's GLOBAL access rule OR ANY team grant of the rule's resource
+   * type - a `viewer`/`editor`/`owner` grant on any instance, OR a `creator`
+   * (create-capability) grant so a team member who may CREATE the type can open
+   * the authoring UI before they own a single instance.
+   *
+   * This is the correct mode for the "team manager needs a global-only utility
+   * endpoint" case (see `.claude/rules/rlac.md`): `global: true` would fail-open
+   * for global-rule holders yet 403 the team-scoped manager who legitimately
+   * needs it. Mutually exclusive with all the other modes and with `global`.
+   * `action` defaults to the access rule's own level (`read`/`manage`).
+   */
+  typeScoped?: {
+    /** Required capability level. Defaults to the access rule's own level. */
+    action?: "read" | "manage";
+  };
 }
 
 /**

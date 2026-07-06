@@ -926,11 +926,12 @@ export function validateContractInstanceAccess({
     if (ia.create) modes.push("create");
     if (ia.parentScope) modes.push("parentScope");
     if (ia.bulkManage) modes.push("bulkManage");
+    if (ia.typeScoped) modes.push("typeScoped");
 
     if (modes.length === 0) {
       validationErrors.push(
         `Plugin "${pluginId}" procedure "${procedureName}" declares an empty instanceAccess ` +
-          `(no global/idParam/listKey/recordKey/create/parentScope/bulkManage). Remove it, or set exactly one mode.`,
+          `(no global/idParam/listKey/recordKey/create/parentScope/bulkManage/typeScoped). Remove it, or set exactly one mode.`,
       );
       continue;
     }

@@ -1,7 +1,6 @@
 import type { AuthService, Logger } from "@checkstack/backend-api";
 import {
   parseSdkTypesPath,
-  scriptPackagesAccess,
   SDK_TYPES_PATH_PREFIX,
 } from "@checkstack/script-packages-common";
 import { extractErrorMessage } from "@checkstack/common";
@@ -56,16 +55,6 @@ interface SdkTypesFile {
   content: string;
 }
 
-/** Whether the authenticated user holds global `script-packages.read`. */
-function hasReadAccess(
-  user: Awaited<ReturnType<AuthService["authenticate"]>>,
-): boolean {
-  if (!user) return false;
-  if (user.type === "service") return true;
-  const rules = user.accessRules ?? [];
-  return rules.includes("*") || rules.includes(scriptPackagesAccess.read.id);
-}
-
 function jsonResponse(body: unknown, status: number): Response {
   return Response.json(body, { status });
 }
@@ -89,10 +78,11 @@ export function createSdkTypesHttpHandler({
       logger.error(`SDK-types auth failed: ${extractErrorMessage(error)}`);
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
+    // Authenticated-only: the SDK editor bundle is generic `@checkstack/sdk`
+    // TypeScript declarations (IntelliSense), not secrets. Any script author -
+    // including a team-scoped healthcheck manager without the separate
+    // `script-packages.read` global grant - needs it. Services are trusted.
     if (!user) return jsonResponse({ error: "Unauthorized" }, 401);
-    if (!hasReadAccess(user)) {
-      return jsonResponse({ error: "Forbidden" }, 403);
-    }
 
     // ─── Parse path ───────────────────────────────────────────────────────
     const pathname = new URL(req.url).pathname;

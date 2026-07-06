@@ -84,7 +84,10 @@ describe("createSdkTypesHttpHandler", () => {
     expect(res.status).toBe(401);
   });
 
-  test("authenticated without read access returns 403", async () => {
+  test("any authenticated user is allowed (no script-packages.read needed)", async () => {
+    // The SDK editor bundle is IntelliSense type data, not secrets. Any logged-in
+    // user - e.g. a team-scoped health-check manager authoring a script collector
+    // without the global script-packages.read grant - may fetch it.
     const noAccess: AuthUser = {
       type: "application",
       id: "app-2",
@@ -92,7 +95,7 @@ describe("createSdkTypesHttpHandler", () => {
       accessRules: [],
     };
     const res = await makeHandler(authStub(noAccess))(request(RELEASE_VERSION));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   test("a service user is trusted (200)", async () => {

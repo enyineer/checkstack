@@ -185,6 +185,12 @@ export const autoAuthMiddleware = os.middleware(
     const parentScopeRules = instanceRules.filter(
       (r) => r.instanceAccess?.parentScope,
     );
+    // Type-scoped rules gate a no-instance utility/catalog endpoint by ANY team
+    // grant of the type (or the global rule) - the correct gate for an endpoint
+    // a team-scoped manager needs but that has no id/list/record to scope on.
+    const typeScopedRules = instanceRules.filter(
+      (r) => r.instanceAccess?.typeScoped,
+    );
 
     // 1. Handle anonymous endpoints - no auth required, no access checks
     if (requiredUserType === "anonymous") {
@@ -299,6 +305,39 @@ export const autoAuthMiddleware = os.middleware(
             message: `Missing access: ${rule.qualifiedId}`,
           });
         }
+      }
+    }
+
+    // Type-scoped rules: authorize a no-instance utility/catalog endpoint when
+    // the caller holds the global rule OR ANY team grant of the rule's resource
+    // type (viewer/editor/owner on any instance, or a create-capability grant so
+    // a team member who may CREATE the type can open its authoring UI before
+    // owning an instance). No `next({})` here - this only THROWS on denial, so a
+    // procedure with other instance rules still runs their handlers below.
+    for (const rule of typeScopedRules) {
+      const hasGlobalAccess =
+        userAccessRules.includes("*") ||
+        userAccessRules.includes(rule.qualifiedId);
+      if (hasGlobalAccess) continue;
+      // A team grant requires a real (user/application) principal. Anonymous
+      // callers on a (mis)configured public typeScoped endpoint have none.
+      if (!userId || !userType) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Missing access: ${rule.qualifiedId}`,
+        });
+      }
+      const action = rule.instanceAccess?.typeScoped?.action ?? rule.level;
+      const { hasGrant } = await context.auth.hasAnyTypeGrant({
+        userId,
+        userType,
+        objectType: rule.qualifiedResourceType,
+        action,
+        includeCreator: true,
+      });
+      if (!hasGrant) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Missing access: ${rule.qualifiedId}`,
+        });
       }
     }
 

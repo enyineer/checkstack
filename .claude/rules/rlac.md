@@ -59,6 +59,24 @@ scoped elsewhere.
   PARENT (e.g. an incident "for" a `catalog.system`). The parent type must itself
   be team-scoped.
 - `{ global: true }` - the deliberate "this endpoint is NOT team-scoped" marker.
+  **Do NOT use it for a utility/catalog endpoint that a team-scoped manager
+  needs** (see `typeScoped`): `global: true` is enforced ONLY against the
+  caller's global rules, so a team-scoped manager with no global rule gets a 403
+  even though they can manage the actual resource. This is a real, easy-to-miss
+  bug (the healthcheck editor's `getStrategies`/`getCollectors` were gated this
+  way): the boot validator accepts `global: true` as a deliberate opt-out and
+  cannot tell it is actually a dependency of a team-scopable editor flow, and the
+  `check:manage-capabilities` guard only covers routes/nav, not the procedures a
+  page calls. So NO gate flags it - pick the mode by hand.
+- `typeScoped: { action? }` - a no-instance utility/catalog endpoint (list the
+  strategy/collector types, an editor helper, a sandboxed script test) that has
+  nothing to scope on but IS reached by a team-scoped manager. Authorizes when
+  the caller holds the global rule OR ANY team grant of the rule's resource type
+  - a `viewer`/`editor`/`owner` grant on any instance, OR a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. This is the correct fix whenever you
+  are tempted to reach for `global: true` on an endpoint a team manager needs.
+  `action` defaults to the access rule's own level.
 - `listKey`/`recordKey` - post-filter a list / single record by the caller's
   grants.
 - `bulkManage: { idsParam }` - a bulk WRITE (mass delete / mass resolve) over an

@@ -175,23 +175,39 @@ export class RelationTupleStore {
     objectType,
     userTeamIds,
     action,
+    includeCreator = false,
   }: {
     objectType: string;
     userTeamIds: string[];
     action: "read" | "manage";
+    /**
+     * Also count a type-level `creator` (create-capability) grant, and stop
+     * excluding the type object id. Used by the `typeScoped` gate so a team
+     * member who may CREATE the type is authorized for its authoring utilities
+     * before they own any concrete instance. Default false preserves the
+     * list/record post-filter semantics (a creator who owns nothing has nothing
+     * to list, so must not read as "has a grant" there).
+     */
+    includeCreator?: boolean;
   }): Promise<boolean> {
     if (userTeamIds.length === 0) return false;
-    const need = action === "read" ? READ_RELATIONS : MANAGE_RELATIONS;
+    const base = action === "read" ? READ_RELATIONS : MANAGE_RELATIONS;
+    const need = includeCreator ? [...base, "creator"] : [...base];
     const [row] = await this.db
       .select({ objectId: schema.relationTuple.objectId })
       .from(schema.relationTuple)
       .where(
         and(
           eq(schema.relationTuple.objectType, objectType),
-          ne(schema.relationTuple.objectId, TYPE_OBJECT_ID),
+          // Concrete-object grants (viewer/editor/owner) live on real ids; the
+          // `creator` grant lives on the type object id (`*`). Only exclude the
+          // type id when we are NOT counting creator grants.
+          includeCreator
+            ? undefined
+            : ne(schema.relationTuple.objectId, TYPE_OBJECT_ID),
           eq(schema.relationTuple.subjectType, "team"),
           inArray(schema.relationTuple.subjectId, userTeamIds),
-          inArray(schema.relationTuple.relation, [...need]),
+          inArray(schema.relationTuple.relation, need),
         ),
       )
       .limit(1);

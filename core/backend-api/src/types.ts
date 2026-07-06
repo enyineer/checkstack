@@ -107,6 +107,12 @@ export interface AuthService {
     userType: "user" | "application";
     objectType: string;
     action: "read" | "manage";
+    /**
+     * Also count a type-level `creator` (create-capability) grant. Used by the
+     * `typeScoped` instanceAccess gate so a team member who may CREATE the type
+     * is authorized for its authoring utilities before owning any instance.
+     */
+    includeCreator?: boolean;
   }): Promise<{ hasGrant: boolean }>;
   /**
    * Decide whether a caller may CREATE an object of `objectType` and which team

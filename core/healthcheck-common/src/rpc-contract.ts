@@ -156,16 +156,20 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: lists all strategy types, not scoped to any config or system.
-    instanceAccess: { global: true },
+    // Editor utility: lists all strategy types. No config/system instance to
+    // scope on, but a team-scoped healthcheck manager (a grant on any check, or
+    // create-capability) needs it to render the editor - so gate by ANY grant of
+    // the healthcheck type, not the global rule alone.
+    instanceAccess: { typeScoped: {} },
   }).output(z.array(HealthCheckStrategyDtoSchema)),
 
   getCollectors: proc({
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: lists collectors for a strategy type, not scoped to a config instance.
-    instanceAccess: { global: true },
+    // Editor utility: lists collectors for a strategy type. Same reasoning as
+    // getStrategies - reachable by any team-scoped healthcheck manager.
+    instanceAccess: { typeScoped: {} },
   })
     .input(z.object({ strategyId: z.string() }))
     .output(z.array(CollectorDtoSchema)),
@@ -184,8 +188,12 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
-    // Global utility: runs a sandboxed script test with no config/system instance to scope on.
-    instanceAccess: { global: true },
+    // Editor utility: runs a sandboxed script test with no config/system instance
+    // to scope on. Gated by MANAGE capability on the healthcheck type (a manage
+    // grant on any check, or create-capability), so a team-scoped manager can
+    // test a collector script without the global rule. Authoring a script is
+    // already the same privilege as running this test.
+    instanceAccess: { typeScoped: { action: "manage" } },
   })
     .input(CollectorScriptTestInputSchema)
     .output(CollectorScriptTestResultSchema),
