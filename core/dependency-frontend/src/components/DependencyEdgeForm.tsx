@@ -1,12 +1,7 @@
 import React from "react";
 import type { ImpactType } from "@checkstack/dependency-common";
 import { Label, Toggle } from "@checkstack/ui";
-import { HealthCheckRulesEditor } from "./HealthCheckRulesEditor";
-
-interface HealthCheckRule {
-  healthCheckId: string;
-  overrideImpactType: ImpactType;
-}
+import { HealthCheckRulesEditor, type ScopeCell } from "./HealthCheckRulesEditor";
 
 interface Props {
   /** Current impact type */
@@ -19,10 +14,10 @@ interface Props {
   onTransitiveChange: (transitive: boolean) => void;
   /** The upstream system ID — needed for health check rules lookup */
   targetSystemId: string;
-  /** Current health check rules */
-  healthCheckRules: HealthCheckRule[];
-  /** Callback when health check rules change */
-  onHealthCheckRulesChange: (rules: HealthCheckRule[]) => void;
+  /** Current scope cells */
+  healthCheckRules: ScopeCell[];
+  /** Callback when scope cells change */
+  onHealthCheckRulesChange: (rules: ScopeCell[]) => void;
   /** Compact mode for tight layouts (e.g. map edge editor panel) */
   compact?: boolean;
 }

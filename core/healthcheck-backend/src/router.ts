@@ -706,6 +706,37 @@ export const createHealthCheckRouter = (opts: {
       },
     ),
 
+    getBulkSystemHealthMatrix: os.getBulkSystemHealthMatrix.handler(
+      async ({ input }) => {
+        const matrix = await service.getBulkSystemHealthMatrix(input.systemIds);
+
+        // Fold active incident overrides into each system's OVERALL rollup, so
+        // an incident-forced status still propagates through dependencies (as
+        // it does via getBulkSystemHealthStatus). Per-environment slices track
+        // health-check status only - incidents force whole-system health, which
+        // any-environment (env=null) dependency cells read from this rollup.
+        const overallOnly: Record<string, SystemHealthStatusResponse> = {};
+        for (const [systemId, m] of Object.entries(matrix)) {
+          overallOnly[systemId] = {
+            status: m.status,
+            evaluatedAt: new Date(),
+            checkStatuses: m.checkStatuses,
+          };
+        }
+        const folded = await foldIncidentOverrides(overallOnly);
+
+        const statuses: Record<string, (typeof matrix)[string]> = {};
+        for (const [systemId, m] of Object.entries(matrix)) {
+          statuses[systemId] = {
+            status: folded[systemId]?.status ?? m.status,
+            checkStatuses: m.checkStatuses,
+            environments: m.environments,
+          };
+        }
+        return { statuses };
+      },
+    ),
+
     getSystemHealthOverview: os.getSystemHealthOverview.handler(
       async ({ input }) => {
         return service.getSystemHealthOverview(input.systemId);

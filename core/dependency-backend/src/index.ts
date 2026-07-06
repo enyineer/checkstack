@@ -28,6 +28,7 @@ import {
 import { DependencyService } from "./services/dependency-service";
 import { WarningEvaluationService } from "./services/warning-evaluation-service";
 import type { SystemStatus } from "./services/warning-evaluation-service";
+import { buildSystemStatuses } from "./services/fetch-system-statuses";
 import { createRouter } from "./router";
 import {
   createDependencyActions,
@@ -264,64 +265,18 @@ export default createBackendPlugin({
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
         /**
-         * Build system statuses for warning evaluation.
-         * This mirrors the fetchSystemStatuses function in the router.
+         * Build system statuses (incl. per-environment slices) for warning
+         * evaluation. Delegates to the shared builder used by the router.
          */
         async function fetchSystemStatuses(
           systemIds: string[],
         ): Promise<Map<string, SystemStatus>> {
-          const statuses = new Map<string, SystemStatus>();
-          const { systems } = await catalogClient.getSystems();
-          const systemMap = new Map(systems.map((s) => [s.id, s]));
-
-          try {
-            const { statuses: healthStatuses } =
-              await healthCheckClient.getBulkSystemHealthStatus({ systemIds });
-
-            for (const systemId of systemIds) {
-              const system = systemMap.get(systemId);
-              if (!system) continue;
-
-              const healthStatus = healthStatuses[systemId];
-              if (healthStatus) {
-                let overallStatus: "operational" | "degraded" | "down" =
-                  "operational";
-                if (healthStatus.status === "unhealthy") {
-                  overallStatus = "down";
-                } else if (healthStatus.status === "degraded") {
-                  overallStatus = "degraded";
-                }
-
-                statuses.set(systemId, {
-                  systemId,
-                  systemName: system.name,
-                  status: overallStatus,
-                  healthCheckStatuses: healthStatus.checkStatuses.map((cs) => ({
-                    healthCheckId: cs.configurationId,
-                    status: cs.status,
-                  })),
-                });
-              } else {
-                statuses.set(systemId, {
-                  systemId,
-                  systemName: system.name,
-                  status: "operational",
-                });
-              }
-            }
-          } catch {
-            for (const systemId of systemIds) {
-              const system = systemMap.get(systemId);
-              if (!system) continue;
-              statuses.set(systemId, {
-                systemId,
-                systemName: system.name,
-                status: "operational",
-              });
-            }
-          }
-
-          return statuses;
+          return buildSystemStatuses({
+            systemIds,
+            catalogClient,
+            healthCheckClient,
+            logger,
+          });
         }
 
         // Cross-plugin consumers now react to the reactive `catalog-system`

@@ -28,13 +28,31 @@ export type DerivedState = z.infer<typeof DerivedStateSchema>;
 // =============================================================================
 
 /**
- * Optional advanced rule linking a dependency to a specific health check.
- * When rules exist on a dependency, only specified checks trigger the impact.
+ * A dependency scope cell: which slice of the upstream (target) system this
+ * edge watches, and at what severity. Each cell is a `(healthCheckId?,
+ * environmentId?, severity)` tuple - the "matrix" that lets an edge depend on
+ * only a specific check and/or a specific environment of the target.
+ *
+ * - `healthCheckId` = a target configuration id, or `null` for "any check".
+ * - `environmentId` = a target environment id, or `null` for "any environment"
+ *   (the target's cross-environment rollup).
+ * - `overrideImpactType` = the severity applied when this slice is affected.
+ *
+ * When a dependency has ANY cells, ONLY those slices are watched (they replace
+ * the whole-system watch). With NO cells, the edge watches the target's overall
+ * rollup at the edge's own `impactType` - the default "depend on any check in
+ * any environment" behaviour.
+ *
+ * NOTE: kept named `HealthCheckRule` / `healthCheckRules` for wire and storage
+ * compatibility; conceptually it is a scope cell.
  */
 export const HealthCheckRuleSchema = z.object({
   id: z.string(),
   dependencyId: z.string(),
-  healthCheckId: z.string(),
+  /** Target configuration id, or `null` for "any check". */
+  healthCheckId: z.string().nullable(),
+  /** Target environment id, or `null` for "any environment" (rollup). */
+  environmentId: z.string().nullable(),
   overrideImpactType: ImpactTypeSchema,
 });
 export type HealthCheckRule = z.infer<typeof HealthCheckRuleSchema>;
@@ -92,10 +110,13 @@ export type DependencyWarning = z.infer<typeof DependencyWarningSchema>;
 // =============================================================================
 
 /**
- * Input for creating a health check rule within a dependency.
+ * Input for creating a dependency scope cell. Both scoping axes are optional
+ * and default to `null` ("any"), so an env-only cell omits `healthCheckId`, a
+ * check-only cell omits `environmentId`, and a cell can pin both.
  */
 export const CreateHealthCheckRuleInputSchema = z.object({
-  healthCheckId: z.string(),
+  healthCheckId: z.string().nullable().optional().default(null),
+  environmentId: z.string().nullable().optional().default(null),
   overrideImpactType: ImpactTypeSchema,
 });
 

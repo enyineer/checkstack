@@ -12,6 +12,7 @@ import {
   type ImpactType,
 } from "@checkstack/dependency-common";
 import { DependencyEdgeForm } from "./DependencyEdgeForm";
+import type { ScopeCell } from "./HealthCheckRulesEditor";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { resolveRoute } from "@checkstack/common";
 import {
@@ -96,7 +97,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     useState<ImpactType>("degraded");
   const [selectedTransitive, setSelectedTransitive] = useState(false);
   const [selectedHealthCheckRules, setSelectedHealthCheckRules] = useState<
-    { healthCheckId: string; overrideImpactType: ImpactType }[]
+    ScopeCell[]
   >([]);
 
   // Fetch dependencies for this system
@@ -168,7 +169,7 @@ export const DependencyEditor: React.FC<Props> = ({ systemId }) => {
     dep: Dependency;
     impactType: ImpactType;
     transitive: boolean;
-    healthCheckRules?: { healthCheckId: string; overrideImpactType: ImpactType }[];
+    healthCheckRules?: ScopeCell[];
   }) => {
     updateMutation.mutate({
       id: dep.id,
@@ -401,7 +402,7 @@ function DependencyRow({
     dep: Dependency;
     impactType: ImpactType;
     transitive: boolean;
-    healthCheckRules?: { healthCheckId: string; overrideImpactType: ImpactType }[];
+    healthCheckRules?: ScopeCell[];
   }) => void;
   isUpdating: boolean;
   /** When true, the source system of this edge is GitOps-managed. */
@@ -413,10 +414,11 @@ function DependencyRow({
   );
   const [editTransitive, setEditTransitive] = useState(dependency.transitive);
   const [editHealthCheckRules, setEditHealthCheckRules] = useState<
-    { healthCheckId: string; overrideImpactType: ImpactType }[]
+    ScopeCell[]
   >(
     dependency.healthCheckRules?.map((r) => ({
       healthCheckId: r.healthCheckId,
+      environmentId: r.environmentId,
       overrideImpactType: r.overrideImpactType,
     })) ?? [],
   );
@@ -542,7 +544,8 @@ function DependencyRow({
         {dependency.healthCheckRules &&
           dependency.healthCheckRules.length > 0 && (
             <Badge variant="outline" className="text-xs">
-              {dependency.healthCheckRules.length} rules
+              {dependency.healthCheckRules.length} scope
+              {dependency.healthCheckRules.length === 1 ? "" : "s"}
             </Badge>
           )}
         <Button

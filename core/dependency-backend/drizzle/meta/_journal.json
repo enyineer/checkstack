@@ -15,6 +15,13 @@
       "when": 1776463159555,
       "tag": "0001_cooing_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783333227665,
+      "tag": "0002_wakeful_celestials",
+      "breakpoints": true
     }
   ]
 }
