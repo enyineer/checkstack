@@ -153,12 +153,21 @@ until you opt in.
 Set `CHECKSTACK_METRICS_ENABLED=1` and start the backend. The host
 registers a global `MeterProvider` and a Prometheus exporter that runs
 its **own** HTTP server (separate from the app router), so metrics carry
-no app-auth surface:
+no app-auth surface.
+
+For local development, prefix the dev cockpit; the flag propagates to the
+backend it spawns:
+
+```bash
+CHECKSTACK_METRICS_ENABLED=1 bun run dev
+# then, from another shell, once it has cycled:
+curl -s http://127.0.0.1:9464/metrics | grep '^checkstack_'
+```
+
+Or run just the backend package directly (e.g. in a deployed process):
 
 ```bash
 CHECKSTACK_METRICS_ENABLED=1 bun run --filter '@checkstack/backend' start
-# then, from another shell:
-curl -s http://127.0.0.1:9464/metrics | grep '^checkstack_'
 ```
 
 | Env var                      | Default     | Meaning                                              |
