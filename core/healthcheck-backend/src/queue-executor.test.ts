@@ -6,6 +6,8 @@ import {
   type HealthCheckJobPayload,
 } from "./queue-executor";
 import type { HealthCheckCache } from "./cache";
+import { SuspectLane } from "./suspect-lane";
+import type { SlowCheckRuntime } from "./slow-check-config";
 
 const passthroughCache: HealthCheckCache = {
   wrapSystemHealthStatus: (_systemId, loader) => loader(),
@@ -215,6 +217,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -327,6 +330,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       // Execute a paused health check
@@ -464,6 +468,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
@@ -668,6 +673,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
@@ -860,6 +866,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
@@ -1223,6 +1230,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
@@ -1429,6 +1437,7 @@ describe("executeHealthCheckJob - structured assertion outcomes", () => {
       >[0]["incidentClient"],
       getEmitHook: () => undefined,
       cache: passthroughCache,
+      slowCheckRuntime: null,
     });
 
     if (capturedHandler) {
@@ -1474,5 +1483,214 @@ describe("executeHealthCheckJob - structured assertion outcomes", () => {
       passed: false,
       actual: "404",
     });
+  });
+});
+
+describe("executeHealthCheckJob - slow-check bulkhead wiring", () => {
+  function makeRuntime(lane: SuspectLane): SlowCheckRuntime {
+    return {
+      lane,
+      recentRunsLimit: 20,
+      classifierParams: {
+        consecutiveFailures: 3,
+        slowFraction: 0.8,
+        recoveryProbeEvery: 5,
+      },
+      safetyFactor: 1.5,
+      absoluteFloorMs: 1000,
+    };
+  }
+
+  const TIMEOUT = 5000;
+  const slowFail = () => ({
+    environment_id: null,
+    environmentId: null,
+    status: "unhealthy" as const,
+    latencyMs: TIMEOUT,
+    timestamp: new Date(),
+  });
+
+  /**
+   * Drive ONE env-less job with the slow-check bulkhead enabled and a
+   * configurable recent-run history + lane. Captures whether the collector
+   * executed and whether a durable run was inserted.
+   */
+  async function runWithBulkhead({
+    recentRuns,
+    slowCheckRuntime,
+  }: {
+    recentRuns: Array<{ environmentId: string | null; status: "healthy" | "unhealthy"; latencyMs: number | null; timestamp: Date }>;
+    slowCheckRuntime: SlowCheckRuntime;
+  }): Promise<{ collectorRan: boolean; runInserted: boolean }> {
+    const mockDb = createMockDb();
+    const mockRegistry = createMockRegistry();
+    const mockLogger = createMockLogger();
+    const mockQueueManager = createMockQueueManager();
+    const mockCatalogClient = createMockCatalogClient();
+    const mockMaintenanceClient = createMockMaintenanceClient();
+    const mockIncidentClient = createMockIncidentClient();
+    const mockSignalService = createMockSignalService();
+
+    (mockCatalogClient.getSystem as any) = mock(async () => ({ id: "system-1", name: "web-01" }));
+    (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => []);
+
+    // Select call order: #1 getSystemHealthStatus (rollup prev), #2 config,
+    // #3 fetchRecentRunsForSlice. Everything else falls through to default.
+    const defaultSelect = mockDb.select;
+    let selectCallCount = 0;
+    (mockDb.select as any) = mock((...args: unknown[]) => {
+      selectCallCount++;
+      if (selectCallCount === 2) {
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() =>
+                Promise.resolve([
+                  {
+                    configId: "config-1",
+                    configName: "Check",
+                    strategyId: "test-strategy",
+                    config: { timeout: TIMEOUT },
+                    collectors: [
+                      { id: "col-1", collectorId: "test-collector", config: {} },
+                    ],
+                    interval: 45,
+                    enabled: true,
+                    paused: false,
+                    includeLocal: true,
+                    satelliteIds: [],
+                    environmentIds: null,
+                  },
+                ]),
+              ),
+            })),
+          })),
+        };
+      }
+      if (selectCallCount === 3) {
+        return {
+          from: mock(() => ({
+            where: mock(() => ({
+              orderBy: mock(() => ({
+                limit: mock(() => Promise.resolve(recentRuns)),
+              })),
+            })),
+          })),
+        };
+      }
+      return (defaultSelect as (...a: unknown[]) => unknown)(...args);
+    });
+
+    let runInserted = false;
+    (mockDb.insert as any) = mock(() => ({
+      values: mock((vals: Record<string, unknown>) => {
+        if (vals && "status" in vals) runInserted = true;
+        return Promise.resolve();
+      }),
+    }));
+
+    let collectorRan = false;
+    const collectorExecute = mock(async () => {
+      collectorRan = true;
+      return { result: {} };
+    });
+    const mockCollectorRegistry = {
+      register: mock(() => {}),
+      getCollector: mock(() => ({
+        collector: {
+          id: "test-collector",
+          execute: collectorExecute,
+          config: new Versioned({ version: 1, schema: z.object({}) }),
+          mergeResult: mock(() => ({})),
+        },
+      })),
+      getCollectors: mock(() => []),
+    };
+
+    const queue = mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+    let capturedHandler:
+      | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+      | undefined;
+    (queue.consume as any) = mock(
+      async (handler: (job: { data: HealthCheckJobPayload }) => Promise<void>) => {
+        capturedHandler = handler;
+      },
+    );
+
+    await setupHealthCheckWorker({
+      db: mockDb as unknown as Parameters<typeof setupHealthCheckWorker>[0]["db"],
+      advisoryLock: mockAdvisoryLock,
+      registry: mockRegistry,
+      collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["collectorRegistry"],
+      logger: mockLogger,
+      queueManager: mockQueueManager,
+      signalService: mockSignalService,
+      catalogClient: mockCatalogClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["catalogClient"],
+      notificationClient: {
+        notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+      } as unknown as Parameters<typeof setupHealthCheckWorker>[0]["notificationClient"],
+      maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["maintenanceClient"],
+      incidentClient: mockIncidentClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["incidentClient"],
+      getEmitHook: () => undefined,
+      cache: passthroughCache,
+      slowCheckRuntime,
+    });
+
+    if (capturedHandler) {
+      await capturedHandler({
+        data: { configId: "config-1", systemId: "system-1", environmentId: null },
+      }).catch(() => {});
+    }
+
+    return { collectorRan, runInserted };
+  }
+
+  it("DEFERS a suspect slice when the lane is full — records nothing, never probes", async () => {
+    const lane = new SuspectLane(1);
+    lane.tryAdmit("other:slice:_"); // fill the only slot with a different slice
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [slowFail(), slowFail(), slowFail()],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    // Deferred BEFORE the probe: no collector execution, no durable run row.
+    expect(collectorRan).toBe(false);
+    expect(runInserted).toBe(false);
+  });
+
+  it("runs a suspect slice when the lane has room, and frees the slot after", async () => {
+    const lane = new SuspectLane(1);
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [slowFail(), slowFail(), slowFail()],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    expect(collectorRan).toBe(true);
+    expect(runInserted).toBe(true);
+    // The slot was released in the executor's finally.
+    expect(lane.active).toBe(0);
+  });
+
+  it("does NOT gate a healthy slice (no recent slow failures)", async () => {
+    const lane = new SuspectLane(1);
+    lane.tryAdmit("other:slice:_"); // lane full, but the slice is NOT suspect
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [
+        { environmentId: null, status: "healthy", latencyMs: 40, timestamp: new Date() },
+      ],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    // Healthy slices never touch the lane, so a full lane doesn't defer them.
+    expect(collectorRan).toBe(true);
+    expect(runInserted).toBe(true);
   });
 });

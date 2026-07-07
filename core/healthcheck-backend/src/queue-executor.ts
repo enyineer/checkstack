@@ -14,6 +14,7 @@ import {
   withScopedTransaction,
   healthcheckExecutionHistogram,
   healthcheckPhaseHistogram,
+  healthcheckDeferredCounter,
 } from "@checkstack/backend-api";
 import type { RunTimings } from "@checkstack/healthcheck-common";
 import { QueueManager } from "@checkstack/queue-api";
@@ -23,7 +24,7 @@ import {
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
@@ -58,6 +59,12 @@ import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type { HealthCheckCache } from "./cache";
+import {
+  resolveSlowCheckRuntime,
+  type SlowCheckRuntime,
+} from "./slow-check-config";
+import type { RecentRun } from "./slow-check-classifier";
+import { evaluateSlowCheckAdmission } from "./slow-check-admission";
 import {
   classifyTransition,
   shouldNotifyTransition,
@@ -99,6 +106,48 @@ function toHealthEntityView(state: AggregatedHealth): HealthEntityState {
       .length,
     totalChecks: state.checkStatuses.length,
   };
+}
+
+/**
+ * Read the most recent runs for ONE (config, system, environment) slice,
+ * newest-first, projected to the fields the slow-check classifier needs. Used
+ * only when the slow-check bulkhead is enabled; keyed on the SAME
+ * `environmentId` the job runs (an env-less job reads the `environment_id IS
+ * NULL` slice), so the classification reflects exactly this slice's streak.
+ */
+async function fetchRecentRunsForSlice(props: {
+  db: Db;
+  configId: string;
+  systemId: string;
+  environmentId: string | null;
+  limit: number;
+}): Promise<RecentRun[]> {
+  const { db, configId, systemId, environmentId, limit } = props;
+  const rows = await db
+    .select({
+      environmentId: healthCheckRuns.environmentId,
+      status: healthCheckRuns.status,
+      latencyMs: healthCheckRuns.latencyMs,
+      timestamp: healthCheckRuns.timestamp,
+    })
+    .from(healthCheckRuns)
+    .where(
+      and(
+        eq(healthCheckRuns.configurationId, configId),
+        eq(healthCheckRuns.systemId, systemId),
+        environmentId === null
+          ? isNull(healthCheckRuns.environmentId)
+          : eq(healthCheckRuns.environmentId, environmentId),
+      ),
+    )
+    .orderBy(desc(healthCheckRuns.timestamp))
+    .limit(limit);
+  return rows.map((r) => ({
+    environmentId: r.environmentId,
+    status: r.status,
+    latencyMs: r.latencyMs,
+    timestamp: r.timestamp,
+  }));
 }
 
 /** The known transport timing phase keys, in transport order. */
@@ -643,6 +692,12 @@ async function executeHealthCheckJob(props: {
    * without it, marker-bearing configs fail their runs clearly.
    */
   internalSecrets?: InternalSecretsService;
+  /**
+   * Slow-check bulkhead + adaptive-timeout runtime, resolved once at worker
+   * startup. `null`/`undefined` disables the feature: the classification read
+   * is skipped and the run executes exactly as before (full timeout, no lane).
+   */
+  slowCheckRuntime?: SlowCheckRuntime | null;
 }): Promise<void> {
   const {
     payload,
@@ -661,6 +716,7 @@ async function executeHealthCheckJob(props: {
     cache,
     secretResolver,
     internalSecrets,
+    slowCheckRuntime,
   } = props;
   const { configId, systemId } = payload;
 
@@ -683,6 +739,10 @@ async function executeHealthCheckJob(props: {
   // the executor has always taken first.
   const rollupPreviousState = await service.getSystemHealthStatus(systemId);
   const rollupPreviousStatus = rollupPreviousState.status;
+
+  // Slow-check lane admission (set when this run was admitted to the suspect
+  // lane); released in the outer finally so the slot frees on any exit path.
+  let laneKey: string | undefined;
 
   try {
     // Fetch configuration (including name for signals)
@@ -864,6 +924,56 @@ async function executeHealthCheckJob(props: {
           `Env ${targetEnvironmentId} no longer effective for ${configId}/${systemId}; skipping`,
         );
         return;
+      }
+    }
+
+    // ── Slow-check bulkhead + adaptive timeout ──────────────────────────────
+    // Classify THIS slice's recent runs. A slice whose last K runs were SLOW
+    // transport failures (held its slot ~the full timeout) is "suspect": it is
+    // admitted to a capped, pod-local lane (or DEFERRED this tick when the lane
+    // is full or a prior run of the same slice is still in flight — recording
+    // nothing so it can't pile up) and probed with a timeout shrunk toward its
+    // OWN healthy-latency baseline, so a stuck target frees its slot fast
+    // instead of pinning it for the full timeout. A healthy slice is untouched.
+    let effectiveTimeout = executionTimeout;
+    const sliceEnvironmentId = singleEnvironment?.id ?? null;
+    if (slowCheckRuntime) {
+      try {
+        const recentRuns = await fetchRecentRunsForSlice({
+          db,
+          configId,
+          systemId,
+          environmentId: sliceEnvironmentId,
+          limit: slowCheckRuntime.recentRunsLimit,
+        });
+        const decision = evaluateSlowCheckAdmission({
+          runtime: slowCheckRuntime,
+          recentRuns,
+          configId,
+          systemId,
+          environmentId: sliceEnvironmentId,
+          executionTimeoutMs: executionTimeout,
+        });
+        if (decision.kind === "defer") {
+          healthcheckDeferredCounter().add(1, { reason: decision.reason });
+          logger.debug(
+            `Deferred suspect health check ${configId}/${systemId}` +
+              (sliceEnvironmentId ? ` [${sliceEnvironmentId}]` : "") +
+              ` (${decision.reason}); recording nothing this tick`,
+          );
+          // Record nothing: the recurring job stays scheduled, so the next tick
+          // retries once the lane drains / the in-flight run finishes.
+          return;
+        }
+        effectiveTimeout = decision.effectiveTimeoutMs;
+        laneKey = decision.laneKey;
+      } catch (error) {
+        // Classification is best-effort: a read failure must never wedge the
+        // check. Fall back to the full timeout with no lane admission.
+        logger.warn(
+          `Slow-check classification failed for ${configId}/${systemId}; running at full timeout`,
+          error,
+        );
       }
     }
 
@@ -1165,9 +1275,9 @@ async function executeHealthCheckJob(props: {
           setTimeout(
             () =>
               reject(
-                new Error(`Execution timeout after ${executionTimeout}ms`),
+                new Error(`Execution timeout after ${effectiveTimeout}ms`),
               ),
-            executionTimeout,
+            effectiveTimeout,
           ),
         ),
       ]);
@@ -1637,6 +1747,11 @@ async function executeHealthCheckJob(props: {
     }
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
+  } finally {
+    // Release the suspect-lane slot (single-flight + capacity) on EVERY exit
+    // path — success, timeout, or a catastrophic throw — so a slow run frees
+    // its slot for the next tick. A no-op when this run was not admitted.
+    if (laneKey && slowCheckRuntime) slowCheckRuntime.lane.release(laneKey);
   }
 }
 
@@ -1657,6 +1772,12 @@ export async function setupHealthCheckWorker(props: {
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
   internalSecrets?: InternalSecretsService;
+  /**
+   * Slow-check bulkhead runtime. Omit to resolve it once from `process.env`
+   * (the production path); pass `null` to force the feature OFF (tests that
+   * don't exercise the bulkhead), or a concrete runtime to drive it.
+   */
+  slowCheckRuntime?: SlowCheckRuntime | null;
 }): Promise<void> {
   const {
     db,
@@ -1676,6 +1797,16 @@ export async function setupHealthCheckWorker(props: {
     secretResolver,
     internalSecrets,
   } = props;
+
+  // Resolve the slow-check runtime once at startup unless the caller supplied
+  // one (including an explicit `null` to disable it).
+  const slowCheckRuntime =
+    props.slowCheckRuntime === undefined
+      ? resolveSlowCheckRuntime(process.env)
+      : props.slowCheckRuntime;
+  if (slowCheckRuntime) {
+    logger.debug("🩺 Slow-check bulkhead + adaptive timeout enabled.");
+  }
 
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
@@ -1700,6 +1831,7 @@ export async function setupHealthCheckWorker(props: {
         cache,
         secretResolver,
         internalSecrets,
+        slowCheckRuntime,
       });
     },
     {
