@@ -13,6 +13,7 @@ import {
   DEFAULT_STATE_THRESHOLDS,
   DEFAULT_RETENTION_CONFIG,
   DEFAULT_NOTIFICATION_POLICY,
+  healthCheckAccess,
 } from "@checkstack/healthcheck-common";
 import type {
   StateThresholds,
@@ -121,6 +122,14 @@ const AssignmentIDEPageContent = () => {
     resourceIds: systemId ? [systemId] : [],
   });
   const canManage = systemId ? canManageSystem(systemId) : false;
+  // Platform notification defaults are an INSTANCE-WIDE write
+  // (`setPlatformNotificationDefaults` is deliberately `global: true`, not
+  // team-scoped), so the editor button is gated on the GLOBAL configuration
+  // manage rule. Without this, a team-scoped health-check manager (who can read
+  // the defaults but not write them) saw a button whose Save always 403'd.
+  const { allowed: canManageDefaults } = accessApi.useAccess(
+    healthCheckAccess.configuration.manage,
+  );
   // Any write surface is disabled when GitOps-locked OR the user cannot manage
   // the system.
   const readOnly = isLocked || !canManage;
@@ -769,14 +778,16 @@ const AssignmentIDEPageContent = () => {
       maxWidth="full"
       actions={
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPlatformDefaultsOpen(true)}
-          >
-            <Bell className="mr-2 h-4 w-4" />
-            Notification defaults
-          </Button>
+          {canManageDefaults && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPlatformDefaultsOpen(true)}
+            >
+              <Bell className="mr-2 h-4 w-4" />
+              Notification defaults
+            </Button>
+          )}
           {!readOnly && systemId && (
             <Button
               size="sm"

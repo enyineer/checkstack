@@ -49,10 +49,9 @@ export const StatusPagesListPage: React.FC = () => {
   );
   // Gate the create button on the platform create primitive (global-manage
   // holders and team-scoped creators both pass automatically).
-  const { allowed: canCreate } = accessApi.useCanCreate({
-    accessRule: statusPageAccess.page.manage,
-    objectType: statusPageResourceTypes.page,
-  });
+  const { allowed: canCreate } = accessApi.useProcedureAccess(
+    StatusPageApi.contract.createStatusPage,
+  );
 
   const listQuery = client.listStatusPages.useQuery({});
   const { data, isLoading, isError } = listQuery;

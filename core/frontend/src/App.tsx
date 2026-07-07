@@ -475,8 +475,8 @@ function AppWithApis() {
       .register(accessApiRef, {
         // Default to allow all if no auth plugin present (mirrors useAccess).
         useAccess: () => ({ loading: false, allowed: true }),
-        useCanCreate: () => ({ loading: false, allowed: true }),
         useCanAccessType: () => ({ loading: false, allowed: true }),
+        useSurfaceAccess: () => ({ loading: false, allowed: true }),
         useRouteAccess: () => ({ loading: false, allowed: true }),
         useResourceAccess: () => ({
           loading: false,
@@ -484,6 +484,7 @@ function AppWithApis() {
           canAccess: () => true,
         }),
         useIsAuthenticated: () => ({ loading: false, isAuthenticated: true }),
+        useProcedureAccess: () => ({ loading: false, allowed: true }),
       })
       // Safe default so the shell (sidebar's useAccessRules) can render BEFORE
       // the auth plugin loads; the plugin's factory overrides it on register.

@@ -1068,6 +1068,13 @@ export const authContract = {
         userType: z.enum(["user", "application"]),
         objectType: z.string(),
         action: z.enum(["read", "manage"]),
+        /**
+         * Also count a type-level `creator` grant (for the `typeScoped` gate, so
+         * a team member who may create the type is authorized before owning any
+         * instance). Optional; defaults to false to preserve the list/record
+         * post-filter semantics.
+         */
+        includeCreator: z.boolean().optional(),
       }),
     )
     .output(z.object({ hasGrant: z.boolean() })),

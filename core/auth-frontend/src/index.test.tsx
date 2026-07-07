@@ -1,6 +1,11 @@
 import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 import { AuthAccessApi } from "./lib/AuthAccessApi";
-import { resourceType, type AccessRule } from "@checkstack/common";
+import {
+  resourceType,
+  type AccessRule,
+  type InstanceAccessConfig,
+  type ProcedureWithMeta,
+} from "@checkstack/common";
 import { useAccessRules } from "./hooks/useAccessRules";
 import * as realUseAccessRules from "./hooks/useAccessRules";
 import * as realFrontendApi from "@checkstack/frontend-api";
@@ -38,8 +43,8 @@ let lastCanCreateQueryEnabled: boolean | undefined;
 let lastAccessibleQueryEnabled: boolean | undefined;
 let lastManageableTypesQueryEnabled: boolean | undefined;
 
-// Override only `usePluginClient` so `useCanCreate` / `useResourceAccess` read
-// from controllable query stubs; everything else stays real.
+// Override only `usePluginClient` so `useProcedureAccess` / `useResourceAccess`
+// read from controllable query stubs; everything else stays real.
 mock.module("@checkstack/frontend-api", () => ({
   ...realFrontendApiModule,
   usePluginClient: () => ({
@@ -97,6 +102,24 @@ const otherAccess: AccessRule = {
 // Typed resource-type constants for the capability hooks (no raw strings).
 const TEST_TYPE = resourceType({ pluginId: "test" }, "test");
 const CATALOG_SYSTEM_TYPE = resourceType({ pluginId: "catalog" }, "system");
+
+/**
+ * Build a contract-procedure stand-in gated on `testManageAccess` with the given
+ * `instanceAccess`, so `useProcedureAccess` derives the gate from it exactly as
+ * it would from a real contract procedure.
+ */
+function proc(instanceAccess: InstanceAccessConfig): ProcedureWithMeta {
+  return {
+    "~orpc": {
+      meta: {
+        userType: "authenticated",
+        operationType: "mutation",
+        access: [testManageAccess],
+        instanceAccess,
+      },
+    },
+  };
+}
 
 describe("AuthAccessApi", () => {
   let accessApi: AuthAccessApi;
@@ -202,7 +225,17 @@ describe("AuthAccessApi", () => {
     });
   });
 
-  describe("useCanCreate", () => {
+  describe("useProcedureAccess (create gate)", () => {
+    // A create procedure with no parent gate, and one gated on a parent system.
+    const createProc = proc({ create: { teamIdParam: "teamId", idField: "id" } });
+    const createForSystemProc = proc({
+      create: {
+        teamIdParam: "teamId",
+        idField: "id",
+        parent: { resourceType: "catalog.system", idParam: "systemId" },
+      },
+    });
+
     beforeEach(() => {
       canCreateQueryResult = { data: undefined, isLoading: false };
     });
@@ -215,12 +248,27 @@ describe("AuthAccessApi", () => {
       // Team query would say no — global must still win.
       canCreateQueryResult = { data: { allowed: false }, isLoading: false };
 
-      expect(
-        accessApi.useCanCreate({
-          accessRule: testManageAccess,
-          objectType: TEST_TYPE,
-        }),
-      ).toEqual({ loading: false, allowed: true });
+      expect(accessApi.useProcedureAccess(createProc)).toEqual({
+        loading: false,
+        allowed: true,
+      });
+    });
+
+    it("allows a global PARENT manager for a parent-gated create", () => {
+      // No global create rule and no team grant — but global manage on the
+      // PARENT type (catalog.system) must offer the create affordance, matching
+      // the backend's parent-gated create.
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: ["catalog.system.manage"],
+        loading: false,
+        isAuthenticated: true,
+      });
+      canCreateQueryResult = { data: { allowed: false }, isLoading: false };
+
+      expect(accessApi.useProcedureAccess(createForSystemProc)).toEqual({
+        loading: false,
+        allowed: true,
+      });
     });
 
     it("allows via a team grant when the global rule is absent", () => {
@@ -231,13 +279,10 @@ describe("AuthAccessApi", () => {
       });
       canCreateQueryResult = { data: { allowed: true }, isLoading: false };
 
-      expect(
-        accessApi.useCanCreate({
-          accessRule: testManageAccess,
-          objectType: TEST_TYPE,
-          parentType: CATALOG_SYSTEM_TYPE,
-        }),
-      ).toEqual({ loading: false, allowed: true });
+      expect(accessApi.useProcedureAccess(createForSystemProc)).toEqual({
+        loading: false,
+        allowed: true,
+      });
     });
 
     it("denies when neither the global rule nor a team grant applies", () => {
@@ -248,12 +293,10 @@ describe("AuthAccessApi", () => {
       });
       canCreateQueryResult = { data: { allowed: false }, isLoading: false };
 
-      expect(
-        accessApi.useCanCreate({
-          accessRule: testManageAccess,
-          objectType: TEST_TYPE,
-        }),
-      ).toEqual({ loading: false, allowed: false });
+      expect(accessApi.useProcedureAccess(createProc)).toEqual({
+        loading: false,
+        allowed: false,
+      });
     });
 
     it("reports loading while the global rule is still resolving", () => {
@@ -262,12 +305,10 @@ describe("AuthAccessApi", () => {
         loading: true,
       });
 
-      expect(
-        accessApi.useCanCreate({
-          accessRule: testManageAccess,
-          objectType: TEST_TYPE,
-        }),
-      ).toEqual({ loading: true, allowed: false });
+      expect(accessApi.useProcedureAccess(createProc)).toEqual({
+        loading: true,
+        allowed: false,
+      });
     });
   });
 
@@ -351,6 +392,64 @@ describe("AuthAccessApi", () => {
     });
   });
 
+  describe("useSurfaceAccess (derived from the contract procedure)", () => {
+    // A no-instance utility/list procedure gated on the manage rule: its
+    // `typeScoped` mode resolves the surface objectType (test.test) straight
+    // from the access rule, so the surface gate needs no hand-passed type.
+    const surfaceProc = proc({ typeScoped: {} });
+
+    beforeEach(() => {
+      manageableTypesQueryResult = { data: undefined, isLoading: false };
+    });
+
+    it("allows via the global rule (surface objectType derived from the proc)", () => {
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: ["test.test.manage"],
+        loading: false,
+      });
+      manageableTypesQueryResult = { data: { types: [] }, isLoading: false };
+
+      expect(accessApi.useSurfaceAccess(surfaceProc)).toEqual({
+        loading: false,
+        allowed: true,
+      });
+    });
+
+    it("allows when the team set contains the derived objectType", () => {
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: [],
+        loading: false,
+        isAuthenticated: true,
+      });
+      manageableTypesQueryResult = {
+        data: { types: [TEST_TYPE] },
+        isLoading: false,
+      };
+
+      expect(accessApi.useSurfaceAccess(surfaceProc)).toEqual({
+        loading: false,
+        allowed: true,
+      });
+    });
+
+    it("denies when neither the global rule nor the team set grants the type", () => {
+      (useAccessRules as ReturnType<typeof mock>).mockReturnValue({
+        accessRules: [],
+        loading: false,
+        isAuthenticated: true,
+      });
+      manageableTypesQueryResult = {
+        data: { types: ["some.other"] },
+        isLoading: false,
+      };
+
+      expect(accessApi.useSurfaceAccess(surfaceProc)).toEqual({
+        loading: false,
+        allowed: false,
+      });
+    });
+  });
+
   describe("useResourceAccess", () => {
     beforeEach(() => {
       accessibleQueryResult = { data: undefined, isLoading: false };
@@ -428,11 +527,10 @@ describe("AuthAccessApi", () => {
       });
     });
 
-    it("useCanCreate leaves the canCreate query disabled and denies", () => {
-      const result = accessApi.useCanCreate({
-        accessRule: testManageAccess,
-        objectType: TEST_TYPE,
-      });
+    it("useProcedureAccess (create) leaves the canCreate query disabled and denies", () => {
+      const result = accessApi.useProcedureAccess(
+        proc({ create: { teamIdParam: "teamId", idField: "id" } }),
+      );
 
       expect(lastCanCreateQueryEnabled).toBe(false);
       expect(result).toEqual({ loading: false, allowed: false });
@@ -490,11 +588,10 @@ describe("AuthAccessApi", () => {
       });
     });
 
-    it("useCanCreate enables the canCreate query", () => {
-      accessApi.useCanCreate({
-        accessRule: testManageAccess,
-        objectType: TEST_TYPE,
-      });
+    it("useProcedureAccess (create) enables the canCreate query", () => {
+      accessApi.useProcedureAccess(
+        proc({ create: { teamIdParam: "teamId", idField: "id" } }),
+      );
 
       expect(lastCanCreateQueryEnabled).toBe(true);
     });

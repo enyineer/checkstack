@@ -11,6 +11,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { automationContract } from "./rpc-contract";
+import { automationResourceTypes } from "./access";
 
 type ProcMeta = {
   instanceAccess?: {
@@ -19,6 +20,12 @@ type ProcMeta = {
     recordKey?: string;
     global?: boolean;
     create?: { teamIdParam?: string; idField?: string };
+    typeScoped?: { action?: string };
+    parentScope?: {
+      resourceType?: string;
+      action?: string;
+      idParam?: string;
+    };
   };
   userType?: string;
 };
@@ -103,43 +110,93 @@ describe("createAutomation instanceAccess.create", () => {
   });
 });
 
-// ─── Global / unscoped endpoints — explicitly marked global ───────────────────
+// ─── Run sub-resources — scoped by the PARENT automation ──────────────────────
 
-describe("endpoints explicitly marked global", () => {
+describe("run procs are parentScoped on the owning automation", () => {
   /**
-   * listRuns / getRun / cancelRun — runs are sub-resources; grants are keyed
-   * per-automation id, not per-run id. listRuns has an optional automationId
-   * filter (not always present), and there are no run-level grants in the
-   * grant store. Marked global; per-automation filtering is enforced upstream
-   * via the automation-level procs that guard access to the automation itself.
-   *
-   * listAutomationGroups — returns group labels, not automation instances.
-   * listAutomationTemplates — read-only catalogue, no per-automation grant.
-   * createAutomation — carries instanceAccess.create (see block above).
-   * validateDefinition / renderTemplate / testScript / getRunScopeForReplay —
-   *   stateless compute tools; no automation id required or reliable.
-   * listTriggers / listActions / listArtifactTypes — global registry reads.
-   * listMigrationFailures / acknowledgeMigrationFailure — admin-only,
-   *   keyed by migration-failure id, not automation id.
-   *
-   * Each now declares `instanceAccess: { global: true }` so the access
-   * intent is explicit rather than implied by an absent field.
+   * Runs are sub-resources: grants are keyed per-automation id, not per-run id.
+   * Each of these carries the owning `automationId` in its input, so the correct
+   * gate is `parentScope` on `automation.automation` - a team-scoped caller may
+   * touch a run iff they hold the matching grant on its automation. `read` for
+   * the read paths; `manage` for the cancel mutation. (A bare `global` here would
+   * wrongly exclude team-scoped managers who lack a global rule.)
    */
-  const global: Array<keyof typeof automationContract> = [
+  const readParentScoped: Array<keyof typeof automationContract> = [
+    "listRuns",
+    "getRun",
+    "getRunScopeForReplay",
+  ];
+
+  for (const procName of readParentScoped) {
+    test(`${procName} is parentScoped (read) on the automation via 'automationId'`, () => {
+      expect(metaFor(procName).instanceAccess).toEqual({
+        parentScope: {
+          resourceType: automationResourceTypes.automation,
+          action: "read",
+          idParam: "automationId",
+        },
+      });
+    });
+  }
+
+  test("cancelRun is parentScoped (manage) on the automation via 'automationId'", () => {
+    expect(metaFor("cancelRun").instanceAccess).toEqual({
+      parentScope: {
+        resourceType: automationResourceTypes.automation,
+        action: "manage",
+        idParam: "automationId",
+      },
+    });
+  });
+});
+
+// ─── No-instance utilities / catalogues — typeScoped ──────────────────────────
+
+describe("no-instance utility & catalogue procs are typeScoped", () => {
+  /**
+   * These have no reliable automation id to scope on but ARE reached by a
+   * team-scoped manager (registry reads for the editor, the stateless
+   * validate/render tools, template/group catalogues). `typeScoped` authorizes a
+   * caller holding the global rule OR ANY automation grant, so a team member can
+   * open the authoring UI before owning an instance - the correct fix over the
+   * old `global: true`, which excluded team-scoped callers.
+   */
+  const typeScoped: Array<keyof typeof automationContract> = [
     "listAutomationGroups",
     "listAutomationTemplates",
     "validateDefinition",
-    "listRuns",
-    "getRun",
-    "cancelRun",
     "listTriggers",
     "listActions",
     "listArtifactTypes",
+    "renderTemplate",
+  ];
+
+  for (const procName of typeScoped) {
+    test(`${procName} is marked instanceAccess.typeScoped`, () => {
+      expect(metaFor(procName).instanceAccess).toEqual({ typeScoped: {} });
+    });
+  }
+
+  test("testScript is typeScoped at the 'manage' action (it runs user script)", () => {
+    // Running an arbitrary script is a manage-level capability, so the utility
+    // gate requires a manage-level automation grant, not merely read.
+    expect(metaFor("testScript").instanceAccess).toEqual({
+      typeScoped: { action: "manage" },
+    });
+  });
+});
+
+// ─── Genuinely global (admin-only) endpoints ──────────────────────────────────
+
+describe("admin-only endpoints stay global", () => {
+  /**
+   * Migration-failure admin endpoints are keyed by migration-failure id, not
+   * automation id, and are not part of any team-scoped authoring flow, so they
+   * remain deliberately `global: true`.
+   */
+  const global: Array<keyof typeof automationContract> = [
     "listMigrationFailures",
     "acknowledgeMigrationFailure",
-    "testScript",
-    "getRunScopeForReplay",
-    "renderTemplate",
   ];
 
   for (const procName of global) {

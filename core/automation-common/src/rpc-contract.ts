@@ -5,7 +5,7 @@ import {
   PaginationInput,
   proc,
 } from "@checkstack/common";
-import { automationAccess } from "./access";
+import { automationAccess, automationResourceTypes } from "./access";
 import { pluginMetadata } from "./plugin-metadata";
 import { AutomationTemplateSchema } from "./templates";
 import {
@@ -71,8 +71,10 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Utility list — returns distinct group name strings, not scoped per automation.
-    instanceAccess: { global: true },
+    // Utility list — returns distinct group name strings, no automation instance
+    // to scope on. Reachable by any team-scoped automation manager editing their
+    // automation, so gate by ANY automation grant (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   }).output(z.object({ groups: z.array(z.string()) })),
 
   getAutomation: proc({
@@ -94,8 +96,10 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Static template catalogue — not scoped to any automation instance.
-    instanceAccess: { global: true },
+    // Static template catalogue — no automation instance to scope on. A team
+    // member who may CREATE automations opens the "new automation" picker, so
+    // gate by ANY automation grant (creator included) rather than the global rule.
+    instanceAccess: { typeScoped: {} },
   }).output(z.object({ items: z.array(AutomationTemplateSchema) })),
 
   createAutomation: proc({
@@ -150,8 +154,10 @@ export const automationContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Stateless validation utility — input is definition content, not an automation id.
-    instanceAccess: { global: true },
+    // Stateless validation utility — input is definition content, no automation
+    // id. A team-scoped automation manager validates a draft in the editor, so
+    // gate by ANY automation grant (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   })
     .input(ValidateDefinitionInputSchema)
     .output(ValidateDefinitionResultSchema),
@@ -175,9 +181,17 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // automationId filter is optional (cross-automation list); output items carry
-    // run ids, not automation ids — cannot scope by automation grant.
-    instanceAccess: { global: true },
+    // Scope by the PARENT automation: a team-scoped user may list a given
+    // automation's runs iff they can read that automation. When `automationId`
+    // is omitted (cross-automation "all runs" view) parentScope fails closed for
+    // team-scoped callers, so only a global-read holder sees every automation's runs.
+    instanceAccess: {
+      parentScope: {
+        resourceType: automationResourceTypes.automation,
+        action: "read",
+        idParam: "automationId",
+      },
+    },
   })
     .input(ListRunsInputSchema)
     .output(PaginatedResult(AutomationRunSchema)),
@@ -186,10 +200,19 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // input.id is a run id, not an automation id; grants are keyed by automation id.
-    instanceAccess: { global: true },
+    // Scope by the PARENT automation: the caller passes the owning `automationId`
+    // (always in the run-detail URL), and the handler additionally filters the
+    // run fetch by it, so a caller cannot read another automation's run by
+    // pairing its run id with an automationId they happen to hold a grant on.
+    instanceAccess: {
+      parentScope: {
+        resourceType: automationResourceTypes.automation,
+        action: "read",
+        idParam: "automationId",
+      },
+    },
   })
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), automationId: z.string() }))
     .output(
       z.object({
         run: AutomationRunSchema,
@@ -202,10 +225,19 @@ export const automationContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [automationAccess.manage],
-    // input.id is a run id, not an automation id; cannot scope by automation grant.
-    instanceAccess: { global: true },
+    // Scope by the PARENT automation (MANAGE): the caller passes the owning
+    // `automationId` and the handler filters the run fetch by it, so a caller
+    // cannot cancel another automation's run by pairing its run id with an
+    // automationId they hold a manage grant on.
+    instanceAccess: {
+      parentScope: {
+        resourceType: automationResourceTypes.automation,
+        action: "manage",
+        idParam: "automationId",
+      },
+    },
   })
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), automationId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   // ─── Registry introspection ────────────────────────────────────────────
@@ -214,24 +246,27 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Global registry listing — not scoped to any automation instance.
-    instanceAccess: { global: true },
+    // Registry catalogue — no automation instance to scope on. Shown in the
+    // editor, so gate by ANY automation grant (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   }).output(z.object({ items: z.array(TriggerInfoSchema) })),
 
   listActions: proc({
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Global registry listing — not scoped to any automation instance.
-    instanceAccess: { global: true },
+    // Registry catalogue — no automation instance to scope on. Shown in the
+    // editor, so gate by ANY automation grant (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   }).output(z.object({ items: z.array(ActionInfoSchema) })),
 
   listArtifactTypes: proc({
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Global registry listing — not scoped to any automation instance.
-    instanceAccess: { global: true },
+    // Registry catalogue — no automation instance to scope on. Shown in the
+    // editor, so gate by ANY automation grant (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   }).output(z.object({ items: z.array(ArtifactTypeInfoSchema) })),
 
   // ─── Subscription-migration failures ──────────────────────────────────
@@ -293,7 +328,10 @@ export const automationContract = {
     userType: "authenticated",
     access: [automationAccess.manage],
     // Stateless sandboxed code execution — not tied to a specific automation id.
-    instanceAccess: { global: true },
+    // A team-scoped automation manager tests a script in the editor; authoring +
+    // running a script is the same privilege, so gate by MANAGE capability on the
+    // automation type (typeScoped manage), not the global rule.
+    instanceAccess: { typeScoped: { action: "manage" } },
   })
     .input(ScriptTestInputSchema)
     .output(ScriptTestResultSchema),
@@ -308,8 +346,16 @@ export const automationContract = {
     operationType: "query",
     userType: "authenticated",
     access: [automationAccess.read],
-    // input.runId is a run id, not an automation id; cannot scope by automation grant.
-    instanceAccess: { global: true },
+    // Scope by the PARENT automation: the caller passes the owning `automationId`
+    // (the editor knows it) and the handler filters the run fetch by it, so a
+    // caller cannot read another automation's run scope via a run id it does not own.
+    instanceAccess: {
+      parentScope: {
+        resourceType: automationResourceTypes.automation,
+        action: "read",
+        idParam: "automationId",
+      },
+    },
   })
     .input(ReplayScopeInputSchema)
     .output(ReplayScopeResultSchema),
@@ -324,8 +370,10 @@ export const automationContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [automationAccess.read],
-    // Stateless template rendering utility — no automation id in input.
-    instanceAccess: { global: true },
+    // Stateless template rendering utility — no automation id in input. Used by
+    // the editor's inline preview + playground, so gate by ANY automation grant
+    // (typeScoped), not the global rule.
+    instanceAccess: { typeScoped: {} },
   })
     .input(
       z.object({

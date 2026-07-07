@@ -2,6 +2,7 @@ import {
   AccessRule,
   ClientDefinition,
   InferClient,
+  ProcedureWithMeta,
   ResourceType,
 } from "@checkstack/common";
 import { createApiRef } from "./api-ref";
@@ -45,34 +46,6 @@ export interface AccessApi {
    */
   useAccess(accessRule: AccessRule): { loading: boolean; allowed: boolean };
   /**
-   * Whether the current user may CREATE a resource of `objectType`, considering
-   * BOTH the global `accessRule` (RBAC) AND team-derived create capability
-   * (ReBAC). Use to gate create buttons / management pages so a team-scoped user
-   * — who holds no global manage rule but whose team may create the type, or
-   * manages a resource of `parentType` — still sees the action the backend would
-   * actually let them perform.
-   *
-   * `objectType` is the resource type string used in the backend contract's
-   * `instanceAccess` (e.g. `"incident.incident"`). `parentType` mirrors the
-   * contract's `instanceAccess.create.parent.resourceType` (e.g.
-   * `"catalog.system"`) when the type is created "for" a parent; omit it for
-   * top-level types gated purely by a per-type `creator` grant.
-   *
-   * @example
-   * ```tsx
-   * const { allowed } = accessApi.useCanCreate({
-   *   accessRule: incidentAccess.incident.manage,
-   *   objectType: "incident.incident",
-   *   parentType: "catalog.system",
-   * });
-   * ```
-   */
-  useCanCreate(params: {
-    accessRule: AccessRule;
-    objectType: ResourceType;
-    parentType?: ResourceType;
-  }): { loading: boolean; allowed: boolean };
-  /**
    * Management-surface gate: may the user reach a management page / nav entry for
    * this resource type at all? True when the user holds the global `accessRule`
    * (RBAC), OR a team of theirs can create or manage ANY object of `objectType`
@@ -80,16 +53,32 @@ export interface AccessApi {
    * type (e.g. managing a system lets you reach the incidents surface for it).
    *
    * Use this for the coarse "can they see this surface" decision - route guards,
-   * sidebar entries, and a management page's top-level `allowed`. Keep
-   * `useCanCreate` for the create BUTTON (a manager of an existing resource may
-   * see the page but not be allowed to create new ones) and `useResourceAccess`
-   * for per-row controls.
+   * sidebar entries, and a management page's top-level `allowed`. Use
+   * `useProcedureAccess` (or the fused `useGatedMutation`) for the create BUTTON
+   * (a manager of an existing resource may see the page but not be allowed to
+   * create new ones) and `useResourceAccess` for per-row controls.
    */
   useCanAccessType(params: {
     accessRule: AccessRule;
     objectType: ResourceType;
     parentType?: ResourceType;
   }): { loading: boolean; allowed: boolean };
+  /**
+   * Contract-derived coarse surface gate: same "can the user reach this
+   * management surface at all" decision as `useCanAccessType`, but the access
+   * rule + object type (+ parent type) are DERIVED from a REPRESENTATIVE
+   * procedure of the page instead of hand-passed - so they cannot drift from the
+   * contract. Pass any procedure of the page's primary type (e.g. its list or
+   * create proc); OR several calls for a multi-type page.
+   *
+   * @example
+   * ```tsx
+   * const { allowed } = accessApi.useSurfaceAccess(AutomationApi.contract.listAutomations);
+   * ```
+   */
+  useSurfaceAccess(
+    procedure: ProcedureWithMeta,
+  ): { loading: boolean; allowed: boolean };
   /**
    * Route/nav guard gate. Resolves visibility for a route that may declare an
    * `accessRule` and/or a `manageCapability`: allowed when the global rule is
@@ -155,6 +144,39 @@ export interface AccessApi {
    * ```
    */
   useIsAuthenticated(): { loading: boolean; isAuthenticated: boolean };
+  /**
+   * DERIVED gate: resolve the exact authorization a procedure requires straight
+   * from its contract metadata (`access` + `instanceAccess`), instead of the
+   * caller hand-picking which of the hooks above matches the backend mode.
+   *
+   * Pass the contract procedure (e.g. `AutomationApi.contract.updateAutomation`)
+   * and, for per-instance modes, the input about to be sent. The hook reads the
+   * declared mode and dispatches: `global` → `useAccess`, `idParam` →
+   * per-instance grant on the resolved id, `create` → create capability,
+   * `typeScoped` → global-or-any-team-grant, `listKey`/`recordKey`/`bulkManage`
+   * → open (server post-filters). `parentScope` (a for-parent read/write) is
+   * normalized to an `idParam`/`open` gate on the parent type + a reconstructed
+   * parent rule. Because the mode is derived, a call site can no longer gate on
+   * the wrong thing - the drift class the "global-only team-grant" audit
+   * surfaced.
+   *
+   * @example
+   * ```tsx
+   * // Per-instance edit gate - no hand-picked hook, no restated objectType:
+   * const { allowed } = accessApi.useProcedureAccess(
+   *   AutomationApi.contract.updateAutomation,
+   *   { id: automationId },
+   * );
+   * // Create gate:
+   * const { allowed } = accessApi.useProcedureAccess(
+   *   AutomationApi.contract.createAutomation,
+   * );
+   * ```
+   */
+  useProcedureAccess(
+    procedure: ProcedureWithMeta,
+    input?: unknown,
+  ): { loading: boolean; allowed: boolean };
 }
 
 export const accessApiRef = createApiRef<AccessApi>("core.access");

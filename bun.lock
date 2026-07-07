@@ -230,6 +230,7 @@
       "dependencies": {
         "@checkstack/catalog-common": "workspace:*",
         "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
         "@checkstack/notification-common": "workspace:*",
         "@checkstack/signal-common": "workspace:*",
         "zod": "^4.2.1",
@@ -1205,7 +1206,9 @@
         "@checkstack/test-utils-backend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/bun": "^1.0.0",
+        "@types/pg": "^8.20.0",
         "drizzle-kit": "^0.31.10",
+        "pg": "^8.21.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1382,7 +1385,9 @@
         "@checkstack/test-utils-backend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/bun": "^1.0.0",
+        "@types/pg": "^8.20.0",
         "drizzle-kit": "^0.31.10",
+        "pg": "^8.21.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1842,7 +1847,7 @@
     },
     "core/sdk": {
       "name": "@checkstack/sdk",
-      "version": "0.125.1",
+      "version": "0.126.0",
       "dependencies": {
         "@checkstack/announcement-common": "workspace:*",
         "@checkstack/anomaly-common": "workspace:*",

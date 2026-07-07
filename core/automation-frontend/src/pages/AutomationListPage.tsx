@@ -78,15 +78,20 @@ const AutomationListContent: React.FC = () => {
   const toast = useToast();
   const navigate = useNavigate();
 
-  const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
-    automationAccess.read,
-  );
+  // Surface gate: the GLOBAL read rule OR any team-derived grant on the
+  // automation type. A team-scoped creator/manager holds no global rule but must
+  // still reach the list (the backend `listAutomations` post-filters to their
+  // own automations via `listKey`), so they can find and open their automation.
+  const { allowed: canAccessSurface, loading: accessLoading } =
+    accessApi.useCanAccessType({
+      accessRule: automationAccess.read,
+      objectType: automationResourceTypes.automation,
+    });
   // Create/page gate: whether the user may create a new automation at all
   // (global manage rule OR team-derived create capability).
-  const { allowed: canCreate } = accessApi.useCanCreate({
-    accessRule: automationAccess.manage,
-    objectType: automationResourceTypes.automation,
-  });
+  const { allowed: canCreate } = accessApi.useProcedureAccess(
+    AutomationApi.contract.createAutomation,
+  );
 
   const [statusFilter, setStatusFilter] = React.useState<
     "all" | "enabled" | "disabled"
@@ -123,6 +128,11 @@ const AutomationListContent: React.FC = () => {
   // 2. onError rolls back from the snapshot, then surfaces a toast.
   // 3. onSettled invalidates so server truth settles in either branch.
   // 4. No success toast — the visible switch flip IS the feedback.
+  // Per-ROW mutation: one instance dispatched with each row's id, and every
+  // control is gated by `canAccess(automation.id)` below. There is no single id
+  // to fuse a gate onto, so this stays raw (the array-gated exception the rule
+  // documents).
+  // eslint-disable-next-line checkstack/prefer-gated-mutation -- per-row, gated via useResourceAccess().canAccess(id)
   const toggleMutation = client.toggleAutomation.useMutation<{
     previous: AutomationsQueryData | undefined;
   }>({
@@ -153,6 +163,10 @@ const AutomationListContent: React.FC = () => {
     },
   });
 
+  // Per-ROW mutation: dispatched with the row's id from the delete dialog, and
+  // every delete control is gated by `canAccess(automation.id)` below. No single
+  // id to fuse onto (the array-gated exception the rule documents).
+  // eslint-disable-next-line checkstack/prefer-gated-mutation -- per-row, gated via useResourceAccess().canAccess(id)
   const deleteMutation = client.deleteAutomation.useMutation({
     onSuccess: () => {
       toast.success("Automation deleted");
@@ -440,7 +454,7 @@ const AutomationListContent: React.FC = () => {
       subtitle="Trigger-driven workflows that react to platform events"
       icon={Workflow}
       loading={accessLoading}
-      allowed={canRead}
+      allowed={canAccessSurface}
       actions={
         <div className="flex items-center gap-2">
           <Link to={resolveRoute(automationRoutes.routes.playground)}>

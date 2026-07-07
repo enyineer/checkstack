@@ -425,7 +425,14 @@ export function createAutomationRouter(deps: RouterDeps) {
       const runRow = await db
         .select()
         .from(schema.automationRuns)
-        .where(eq(schema.automationRuns.id, input.id))
+        // Scope by automationId too: parentScope authorized `input.automationId`,
+        // so a run that does not belong to it must not be readable via this call.
+        .where(
+          and(
+            eq(schema.automationRuns.id, input.id),
+            eq(schema.automationRuns.automationId, input.automationId),
+          ),
+        )
         .limit(1);
       const run = runRow[0];
       if (!run) {
@@ -458,7 +465,14 @@ export function createAutomationRouter(deps: RouterDeps) {
       const runRow = await db
         .select()
         .from(schema.automationRuns)
-        .where(eq(schema.automationRuns.id, input.id))
+        // Scope by automationId too (parentScope authorized `input.automationId`),
+        // so a run outside it cannot be cancelled via a foreign automation grant.
+        .where(
+          and(
+            eq(schema.automationRuns.id, input.id),
+            eq(schema.automationRuns.automationId, input.automationId),
+          ),
+        )
         .limit(1);
       const run = runRow[0];
       if (!run) {
@@ -618,7 +632,14 @@ export function createAutomationRouter(deps: RouterDeps) {
       const runRow = await db
         .select()
         .from(schema.automationRuns)
-        .where(eq(schema.automationRuns.id, input.runId))
+        // Scope by automationId too (parentScope authorized `input.automationId`),
+        // so a foreign run's scope cannot be read via a run id it does not own.
+        .where(
+          and(
+            eq(schema.automationRuns.id, input.runId),
+            eq(schema.automationRuns.automationId, input.automationId),
+          ),
+        )
         .limit(1);
       const run = runRow[0];
       if (!run) {

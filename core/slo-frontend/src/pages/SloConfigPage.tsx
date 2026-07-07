@@ -67,11 +67,7 @@ const SloConfigPageContent: React.FC = () => {
   // Create capability: gates the create-objective action. Managing the target
   // system (the SLO's parent) is enough - matching the backend parent gate.
   const { allowed: canManage, loading: accessLoading } =
-    accessApi.useCanCreate({
-      accessRule: sloAccess.slo.manage,
-      objectType: sloResourceTypes.slo,
-      parentType: catalogResourceTypes.system,
-    });
+    accessApi.useProcedureAccess(SloApi.contract.createObjective);
   // Surface access: gates reaching this page (matches the route guard); also
   // true for a user who manages a system or an existing objective via a team.
   const { allowed: canAccessSurface, loading: surfaceLoading } =

@@ -9,7 +9,6 @@ import {
 } from "@checkstack/frontend-api";
 import {
   AutomationApi,
-  automationAccess,
   automationRoutes,
   type AutomationTemplate,
 } from "@checkstack/automation-common";
@@ -35,9 +34,13 @@ const AutomationTemplatePickerContent: React.FC = () => {
   const accessApi = useApi(accessApiRef);
   const navigate = useNavigate();
 
-  const { allowed: canManage, loading: accessLoading } = accessApi.useAccess(
-    automationAccess.manage,
-  );
+  // The "New automation" picker is a create surface. Gate on the create
+  // capability DERIVED from the create procedure's contract (its `create`
+  // instanceAccess): global manage rule OR a team-derived create/manage grant,
+  // so a team-scoped automation creator - whom the route's `manageCapability`
+  // already reveals this page to - is not blocked by a bare global-rule check.
+  const { allowed: canCreate, loading: accessLoading } =
+    accessApi.useProcedureAccess(AutomationApi.contract.createAutomation);
 
   const query = client.listAutomationTemplates.useQuery();
 
@@ -68,7 +71,7 @@ const AutomationTemplatePickerContent: React.FC = () => {
       subtitle="Start from a curated example or build your own from scratch"
       icon={Workflow}
       loading={accessLoading}
-      allowed={canManage}
+      allowed={canCreate}
     >
       <div className="space-y-6">
         <div className="relative flex flex-col gap-3 overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] sm:flex-row sm:items-center sm:justify-between">

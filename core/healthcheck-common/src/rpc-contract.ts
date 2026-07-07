@@ -156,16 +156,20 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: lists all strategy types, not scoped to any config or system.
-    instanceAccess: { global: true },
+    // Editor utility: lists all strategy types. No config/system instance to
+    // scope on, but a team-scoped healthcheck manager (a grant on any check, or
+    // create-capability) needs it to render the editor - so gate by ANY grant of
+    // the healthcheck type, not the global rule alone.
+    instanceAccess: { typeScoped: {} },
   }).output(z.array(HealthCheckStrategyDtoSchema)),
 
   getCollectors: proc({
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: lists collectors for a strategy type, not scoped to a config instance.
-    instanceAccess: { global: true },
+    // Editor utility: lists collectors for a strategy type. Same reasoning as
+    // getStrategies - reachable by any team-scoped healthcheck manager.
+    instanceAccess: { typeScoped: {} },
   })
     .input(z.object({ strategyId: z.string() }))
     .output(z.array(CollectorDtoSchema)),
@@ -184,8 +188,12 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
-    // Global utility: runs a sandboxed script test with no config/system instance to scope on.
-    instanceAccess: { global: true },
+    // Editor utility: runs a sandboxed script test with no config/system instance
+    // to scope on. Gated by MANAGE capability on the healthcheck type (a manage
+    // grant on any check, or create-capability), so a team-scoped manager can
+    // test a collector script without the global rule. Authoring a script is
+    // already the same privilege as running this test.
+    instanceAccess: { typeScoped: { action: "manage" } },
   })
     .input(CollectorScriptTestInputSchema)
     .output(CollectorScriptTestResultSchema),
@@ -250,8 +258,12 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
-    // Global utility: validates a proposed config without persisting; no existing instance id to scope on.
-    instanceAccess: { global: true },
+    // Editor utility: validates a proposed config without persisting; no existing
+    // instance id to scope on (`existingConfigurationId` is optional for create
+    // drafts). A team-scoped healthcheck manager validates in the editor, so gate
+    // by MANAGE capability on the healthcheck type (typeScoped manage), not the
+    // global rule. Mirror of the already-typeScoped testCollectorScript.
+    instanceAccess: { typeScoped: { action: "manage" } },
   })
     // `existingConfigurationId` marks this as validating an UPDATE to a stored
     // config: the handler restores that config's stored secrets into the
@@ -411,8 +423,13 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: platform-wide defaults are not scoped to any config or system instance.
-    instanceAccess: { global: true },
+    // Read-only platform default: fetched on every assignment-editor mount, which
+    // team-scoped healthcheck managers reach. Not sensitive (a fallback policy
+    // value), so gate by ANY healthcheck grant (typeScoped read), not the global
+    // rule. NOTE: the WRITE (setPlatformNotificationDefaults) stays `global: true`
+    // on purpose - it rewrites instance-wide defaults for every team, so a single
+    // team grant must NOT authorize it (that would be privilege escalation).
+    instanceAccess: { typeScoped: {} },
   }).output(NotificationPolicySchema),
 
   /**

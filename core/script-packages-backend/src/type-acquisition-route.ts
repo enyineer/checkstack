@@ -2,7 +2,6 @@ import path from "node:path";
 import type { AuthService, Logger } from "@checkstack/backend-api";
 import {
   parseTypeAcquisitionPath,
-  scriptPackagesAccess,
   TYPE_ACQUISITION_PATH_PREFIX,
   type PackageTypeClosure,
 } from "@checkstack/script-packages-common";
@@ -45,21 +44,6 @@ interface CreateTypeClosureHttpHandlerDeps {
   logger: Logger;
 }
 
-/**
- * Whether the authenticated user holds global `script-packages.read`.
- * Services are trusted; users/applications must carry the rule (or `*`).
- */
-function hasReadAccess(
-  user: Awaited<ReturnType<AuthService["authenticate"]>>,
-): boolean {
-  if (!user) return false;
-  if (user.type === "service") return true;
-  const rules = user.accessRules ?? [];
-  return (
-    rules.includes("*") || rules.includes(scriptPackagesAccess.read.id)
-  );
-}
-
 function jsonResponse(body: unknown, status: number): Response {
   return Response.json(body, { status });
 }
@@ -85,10 +69,11 @@ export function createTypeClosureHttpHandler({
       );
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
+    // Authenticated-only: a package's `.d.ts` closure is IntelliSense type data,
+    // not secrets. Any script author - including a team-scoped healthcheck
+    // manager without the `script-packages.read` global grant - needs it.
+    // Services are trusted.
     if (!user) return jsonResponse({ error: "Unauthorized" }, 401);
-    if (!hasReadAccess(user)) {
-      return jsonResponse({ error: "Forbidden" }, 403);
-    }
 
     // ─── Parse path ───────────────────────────────────────────────────────
     const pathname = new URL(req.url).pathname;

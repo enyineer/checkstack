@@ -160,6 +160,41 @@ const testContracts = {
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(z.object({ id: z.string() })),
 
+  // Type-scoped utility endpoint: no instance to scope on, gated by ANY grant of
+  // the resource type (or the global rule). READ level.
+  typeScopedReadEndpoint: proc({
+    userType: "authenticated",
+    operationType: "query",
+    access: [
+      accessPair(
+        "widget",
+        {
+          read: { description: "View widgets" },
+          manage: { description: "Manage widgets" },
+        },
+        { pluginId: "test" },
+      ).read,
+    ],
+    instanceAccess: { typeScoped: {} },
+  }).output(z.object({ items: z.array(z.string()) })),
+
+  // Type-scoped utility endpoint at MANAGE level (e.g. a sandboxed script test).
+  typeScopedManageEndpoint: proc({
+    userType: "authenticated",
+    operationType: "mutation",
+    access: [
+      accessPair(
+        "widget",
+        {
+          read: { description: "View widgets" },
+          manage: { description: "Manage widgets" },
+        },
+        { pluginId: "test" },
+      ).manage,
+    ],
+    instanceAccess: { typeScoped: { action: "manage" } },
+  }).output(z.object({ ok: z.boolean() })),
+
   // Bulk record endpoint sharing the same access rule as the single-resource
   // endpoint, but declaring `recordKey` scoping at the procedure level. Instance
   // config now lives ONLY on the procedure (rules never carry it), so a bulk and
@@ -610,6 +645,98 @@ describe("autoAuthMiddleware", () => {
           { context: contextWithoutAnonymousAccess },
         ),
       ).rejects.toThrow("Authentication required to access");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Type-scoped utility endpoints (typeScoped)
+  // ---------------------------------------------------------------------------
+
+  describe("type-scoped endpoints", () => {
+    it("allows a caller holding the global rule (no S2S call)", async () => {
+      const hasAnyTypeGrant = mock().mockResolvedValue({ hasGrant: false });
+      const ctx = {
+        ...mockContext,
+        user: {
+          type: "user" as const,
+          id: "u1",
+          accessRules: ["test-plugin.widget.read"],
+        },
+        auth: { ...mockContext.auth, hasAnyTypeGrant },
+      };
+      const procedure = implement(testContracts.typeScopedReadEndpoint)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(() => ({ items: ["a"] }));
+
+      const result = await call(procedure, {}, { context: ctx });
+      expect(result).toEqual({ items: ["a"] });
+      // Global holder must not incur the team-grant lookup.
+      expect(hasAnyTypeGrant).not.toHaveBeenCalled();
+    });
+
+    it("allows a team-scoped caller with ANY grant of the type (incl. creator)", async () => {
+      const hasAnyTypeGrant = mock().mockResolvedValue({ hasGrant: true });
+      const ctx = {
+        ...mockContext,
+        user: { type: "user" as const, id: "u1", accessRules: [] },
+        auth: { ...mockContext.auth, hasAnyTypeGrant },
+      };
+      const procedure = implement(testContracts.typeScopedReadEndpoint)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(() => ({ items: ["a"] }));
+
+      const result = await call(procedure, {}, { context: ctx });
+      expect(result).toEqual({ items: ["a"] });
+      expect(hasAnyTypeGrant).toHaveBeenCalledWith({
+        userId: "u1",
+        userType: "user",
+        objectType: "test-plugin.widget",
+        action: "read",
+        includeCreator: true,
+      });
+    });
+
+    it("denies a caller with neither the global rule nor any team grant", async () => {
+      const ctx = {
+        ...mockContext,
+        user: { type: "user" as const, id: "u1", accessRules: [] },
+        auth: {
+          ...mockContext.auth,
+          hasAnyTypeGrant: mock().mockResolvedValue({ hasGrant: false }),
+        },
+      };
+      const procedure = implement(testContracts.typeScopedReadEndpoint)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(() => ({ items: ["a"] }));
+
+      expect(call(procedure, {}, { context: ctx })).rejects.toThrow(
+        "Missing access",
+      );
+    });
+
+    it("checks the MANAGE grant for a manage-level typeScoped endpoint", async () => {
+      const hasAnyTypeGrant = mock().mockResolvedValue({ hasGrant: true });
+      const ctx = {
+        ...mockContext,
+        user: { type: "user" as const, id: "u1", accessRules: [] },
+        auth: { ...mockContext.auth, hasAnyTypeGrant },
+      };
+      const procedure = implement(testContracts.typeScopedManageEndpoint)
+        .$context<RpcContext>()
+        .use(autoAuthMiddleware)
+        .handler(() => ({ ok: true }));
+
+      await call(procedure, {}, { context: ctx });
+      expect(hasAnyTypeGrant).toHaveBeenCalledWith({
+        userId: "u1",
+        userType: "user",
+        objectType: "test-plugin.widget",
+        action: "manage",
+        includeCreator: true,
+      });
     });
   });
 

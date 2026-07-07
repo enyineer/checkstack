@@ -115,12 +115,11 @@ const RunDetailContent: React.FC = () => {
   const { allowed, loading: accessLoading } = accessApi.useAccess(
     automationAccess.read,
   );
-  const { allowed: canManage } = accessApi.useAccess(automationAccess.manage);
 
   const query = client.getRun.useQuery(
-    { id: runId ?? "" },
+    { id: runId ?? "", automationId: automationId ?? "" },
     {
-      enabled: Boolean(runId),
+      enabled: Boolean(runId) && Boolean(automationId),
       // Live runs only: poll every 2s while the run is `running`/`waiting` so a
       // user watching an execution sees steps progress without a manual reload.
       // Returning `false` on a terminal status stops the polling entirely.
@@ -137,7 +136,14 @@ const RunDetailContent: React.FC = () => {
     query.data?.run.status === "running" ||
     query.data?.run.status === "waiting";
 
-  const cancelMutation = client.cancelRun.useMutation();
+  // Fuse the cancel gate onto the mutation: `cancelRun` is `parentScope`d on the
+  // owning automation (MANAGE), so the verdict derives from THIS page's
+  // `automationId` - a team-scoped manager (grant on this automation, no global
+  // rule) can cancel their own run, which a bare `useAccess(manage)` on the
+  // global rule would wrongly hide.
+  const cancelMutation = client.cancelRun.useGatedMutation({
+    gateInput: automationId ? { automationId } : undefined,
+  });
 
   if (!automationId || !runId) {
     return (
@@ -178,14 +184,16 @@ const RunDetailContent: React.FC = () => {
               All runs
             </Button>
           </Link>
-          {canManage &&
+          {cancelMutation.allowed &&
             query.data &&
             (query.data.run.status === "running" ||
               query.data.run.status === "waiting") && (
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => cancelMutation.mutate({ id: runId })}
+                onClick={() =>
+                  cancelMutation.mutate({ id: runId, automationId })
+                }
                 disabled={cancelMutation.isPending}
               >
                 Cancel run

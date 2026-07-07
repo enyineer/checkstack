@@ -676,7 +676,7 @@ export function createRouter({
     }),
 
     removeLink: os.removeLink.handler(async ({ input }) => {
-      const incidentId = await service.removeLink(input.id);
+      const incidentId = await service.removeLink(input.id, input.incidentId);
       if (!incidentId) {
         return { success: false };
       }

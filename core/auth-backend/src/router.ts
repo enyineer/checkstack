@@ -2048,6 +2048,7 @@ export const createAuthRouter = (
       objectType: input.objectType,
       userTeamIds,
       action: input.action,
+      includeCreator: input.includeCreator,
     });
     return { hasGrant };
   });

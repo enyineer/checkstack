@@ -17,7 +17,6 @@ import {
   AutomationApi,
   automationAccess,
   automationRoutes,
-  automationResourceTypes,
   type AutomationDefinition,
 } from "@checkstack/automation-common";
 import {
@@ -116,9 +115,14 @@ const AutomationEditContent: React.FC = () => {
   const toast = useToast();
   const navigate = useNavigate();
 
-  const { allowed: canRead, loading: accessLoading } = accessApi.useAccess(
-    automationAccess.read,
-  );
+  // Surface gate: the caller may reach this create/edit page when they hold the
+  // GLOBAL read rule OR any team-derived grant on the automation type
+  // (create/manage). A team-scoped creator/manager holds no global rule but must
+  // still open the full flow; the mutation controls below stay gated on the
+  // per-instance manage grant (`canManageThisAutomation`) and the create
+  // capability (`canCreate`), and the backend enforces `create`/`idParam`.
+  const { allowed: canAccessSurface, loading: accessLoading } =
+    accessApi.useSurfaceAccess(AutomationApi.contract.listAutomations);
   // allowGlobal: the GLOBAL manage rule means the caller may create a resource
   // not scoped to any team. This feeds the TeamOwnershipPicker only.
   const { allowed: hasGlobalManageAccess } = accessApi.useAccess(
@@ -126,21 +130,10 @@ const AutomationEditContent: React.FC = () => {
   );
   const allowGlobal = hasGlobalManageAccess;
 
-  // Create/page gate (new automations): global manage rule OR team-derived
-  // create capability.
-  const { allowed: canCreate } = accessApi.useCanCreate({
-    accessRule: automationAccess.manage,
-    objectType: automationResourceTypes.automation,
-  });
-  // Per-resource manage gate (existing automations): grants to global-manage
-  // holders AND to team-scoped users with a per-object grant on THIS id.
-  const { canAccess } = accessApi.useResourceAccess({
-    accessRule: automationAccess.manage,
-    objectType: automationResourceTypes.automation,
-    resourceIds: !isNew && automationId ? [automationId] : [],
-  });
-  const canManageThisAutomation =
-    !isNew && automationId ? canAccess(automationId) : false;
+  // Create + per-instance manage gates are FUSED into the create/update
+  // mutations below (`useGatedMutation`), so the controls that call `mutate`
+  // read their own authorization from the same object - the gate can't drift
+  // from the call. See `createMutation` / `updateMutation`.
 
   // GitOps provenance lock: when this automation is declaratively managed,
   // disable manual edits + show a banner. `entityId` is the automation id
@@ -151,10 +144,8 @@ const AutomationEditContent: React.FC = () => {
     entityId: isNew ? undefined : automationId,
   });
 
-  // Effective edit permission: RLAC manage (create capability for new, per-
-  // resource access for existing) AND not GitOps-locked.
-  const canManage =
-    (isNew ? canCreate : canManageThisAutomation) && !isLocked;
+  // `canManage` is derived from the fused mutation gates below (create for new,
+  // update-idParam for existing) AND the GitOps lock - see after the mutations.
 
   const loadQuery = client.getAutomation.useQuery(
     { id: automationId ?? "" },
@@ -285,6 +276,9 @@ const AutomationEditContent: React.FC = () => {
     setTab(next);
   };
 
+  // Not gated: a sandboxed validation dry-run (typeScoped), not a resource
+  // write - nothing to fuse a per-instance verdict onto.
+  // eslint-disable-next-line checkstack/prefer-gated-mutation -- validation dry-run, not a gated write
   const validateMutation = client.validateDefinition.useMutation({
     onSuccess: (result) => {
       setValidationErrors(result.valid ? [] : result.errors);
@@ -296,6 +290,7 @@ const AutomationEditContent: React.FC = () => {
   // so its constant background runs don't flicker the Save button's
   // pending state. `mutateAsync` is stable across renders.
   const { mutateAsync: runLiveValidation } =
+    // eslint-disable-next-line checkstack/prefer-gated-mutation -- validation dry-run, not a gated write
     client.validateDefinition.useMutation();
 
   // Re-validate (debounced) on every edit in either tab, so invalid
@@ -335,7 +330,9 @@ const AutomationEditContent: React.FC = () => {
     return () => clearTimeout(handle);
   }, [tab, yamlText, definition, runLiveValidation]);
 
-  const createMutation = client.createAutomation.useMutation({
+  // Gate-fused create: `createMutation.allowed` is the create capability derived
+  // from `createAutomation`'s own contract - you cannot get `mutate` without it.
+  const createMutation = client.createAutomation.useGatedMutation({
     onSuccess: (data) => {
       // Saved: clear the dirty flag, then redirect on the next tick so the
       // unsaved-changes guard has committed `isDirty = false` and doesn't
@@ -358,7 +355,11 @@ const AutomationEditContent: React.FC = () => {
     },
   });
 
-  const updateMutation = client.updateAutomation.useMutation({
+  // Gate-fused update: `updateMutation.allowed` is the per-instance manage grant
+  // on THIS automation, derived from `updateAutomation`'s `idParam` contract and
+  // the id passed as `gateInput` - the same id `mutate` will send.
+  const updateMutation = client.updateAutomation.useGatedMutation({
+    gateInput: !isNew && automationId ? { id: automationId } : undefined,
     onSuccess: (data) => {
       setIsDirty(false);
       toast.success(`Saved ${data.name}`);
@@ -366,6 +367,14 @@ const AutomationEditContent: React.FC = () => {
     onError: (error) => toastError(toast, "Failed to save automation", error),
   });
 
+  // Effective edit permission, derived from the FUSED mutation gates (create for
+  // new, per-instance update for existing) AND not GitOps-locked.
+  const canManage =
+    (isNew ? createMutation.allowed : updateMutation.allowed) && !isLocked;
+
+  // Compound-gated: the "Run now" control is rendered only under `canManage`
+  // (itself the fused update gate), so its enablement is already contract-derived.
+  // eslint-disable-next-line checkstack/prefer-gated-mutation -- compound-gated by canManage (fused from updateAutomation)
   const manualRunMutation = client.manualRun.useMutation({
     onSuccess: (data) => {
       toast.success(`Manual run queued`);
@@ -539,7 +548,7 @@ const AutomationEditContent: React.FC = () => {
       subtitle={isNew ? "Wire a trigger to one or more actions" : undefined}
       icon={Workflow}
       loading={accessLoading || (!isNew && loadQuery.isLoading)}
-      allowed={canRead && (isNew ? canManage : true)}
+      allowed={canAccessSurface && (isNew ? canManage : true)}
       actions={
         <div className="flex items-center gap-2">
           <Link to={resolveRoute(automationRoutes.routes.list)}>

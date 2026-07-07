@@ -561,7 +561,10 @@ export const MaintenanceEditor: React.FC<Props> = ({
                       });
                     }}
                     onRemove={async (link) => {
-                      await removeLinkMutation.mutateAsync({ id: link.id });
+                      await removeLinkMutation.mutateAsync({
+                        id: link.id,
+                        maintenanceId: maintenance.id,
+                      });
                     }}
                   />
                 </div>

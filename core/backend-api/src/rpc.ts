@@ -105,6 +105,42 @@ export const os = baseOs.$context<RpcContext>();
 export type { ProcedureMetadata } from "@checkstack/common";
 
 // =============================================================================
+// RUNTIME GATING-DRIFT DETECTOR (dev/e2e only)
+// =============================================================================
+
+/**
+ * Belt-and-suspenders net for the "shown-but-denied" gating-drift class: when a
+ * real (authenticated) user is denied by the auth middleware, log it in dev/e2e
+ * so a UI that offered a control the backend rejects surfaces loudly during
+ * development and e2e runs (never in production - it is pure noise there, and a
+ * denied request is not itself an error).
+ *
+ * The frontend gate is advisory; the primary defenses are the contract-derived
+ * `useProcedureAccess` / gate-fused hooks (drift is structurally impossible on
+ * that path). This detector covers the residual: hand-rolled calls, dynamic
+ * dispatch, or a stale gate that slipped through. Drop `logGatingDrift(...)`
+ * before any other denial `throw` to widen coverage.
+ */
+function logGatingDrift(params: {
+  logger: Logger;
+  qualifiedId: string;
+  resource: string;
+  userId: string | undefined;
+  reason: string;
+}): void {
+  if (process.env.NODE_ENV === "production") return;
+  const { logger, qualifiedId, resource, userId, reason } = params;
+  // A real user denied here means the UI may have offered a control the backend
+  // rejects. If `resource` is team-scoped by some OTHER procedure, this is the
+  // exact "global-only team-grant" gap the audit chased.
+  logger.warn(
+    `[rlac-drift] denied "${qualifiedId}" for user ${userId ?? "?"} (${reason}). ` +
+      `If "${resource}" is team-scoped elsewhere, a global-only gate here can ` +
+      `lock out a legitimate team grant - verify the frontend gate matches the contract.`,
+  );
+}
+
+// =============================================================================
 // UNIFIED AUTH MIDDLEWARE
 // =============================================================================
 
@@ -184,6 +220,12 @@ export const autoAuthMiddleware = os.middleware(
     // (e.g. "you may see incidents for system X iff you may see system X").
     const parentScopeRules = instanceRules.filter(
       (r) => r.instanceAccess?.parentScope,
+    );
+    // Type-scoped rules gate a no-instance utility/catalog endpoint by ANY team
+    // grant of the type (or the global rule) - the correct gate for an endpoint
+    // a team-scoped manager needs but that has no id/list/record to scope on.
+    const typeScopedRules = instanceRules.filter(
+      (r) => r.instanceAccess?.typeScoped,
     );
 
     // 1. Handle anonymous endpoints - no auth required, no access checks
@@ -295,10 +337,56 @@ export const autoAuthMiddleware = os.middleware(
           userAccessRules.includes("*") ||
           userAccessRules.includes(rule.qualifiedId);
         if (!hasAccess) {
+          // Dev/e2e drift signal: a real user denied a GLOBAL-ONLY gate is the
+          // canonical "global-only team-grant" case (the rule may be team-scoped
+          // by another procedure, in which case this gate wrongly locks out the
+          // team grant). No-op in production.
+          if (userId) {
+            logGatingDrift({
+              logger: context.logger,
+              qualifiedId: rule.qualifiedId,
+              resource: rule.resource,
+              userId,
+              reason: "global-only rule, caller holds no matching global grant",
+            });
+          }
           throw new ORPCError("FORBIDDEN", {
             message: `Missing access: ${rule.qualifiedId}`,
           });
         }
+      }
+    }
+
+    // Type-scoped rules: authorize a no-instance utility/catalog endpoint when
+    // the caller holds the global rule OR ANY team grant of the rule's resource
+    // type (viewer/editor/owner on any instance, or a create-capability grant so
+    // a team member who may CREATE the type can open its authoring UI before
+    // owning an instance). No `next({})` here - this only THROWS on denial, so a
+    // procedure with other instance rules still runs their handlers below.
+    for (const rule of typeScopedRules) {
+      const hasGlobalAccess =
+        userAccessRules.includes("*") ||
+        userAccessRules.includes(rule.qualifiedId);
+      if (hasGlobalAccess) continue;
+      // A team grant requires a real (user/application) principal. Anonymous
+      // callers on a (mis)configured public typeScoped endpoint have none.
+      if (!userId || !userType) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Missing access: ${rule.qualifiedId}`,
+        });
+      }
+      const action = rule.instanceAccess?.typeScoped?.action ?? rule.level;
+      const { hasGrant } = await context.auth.hasAnyTypeGrant({
+        userId,
+        userType,
+        objectType: rule.qualifiedResourceType,
+        action,
+        includeCreator: true,
+      });
+      if (!hasGrant) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Missing access: ${rule.qualifiedId}`,
+        });
       }
     }
 

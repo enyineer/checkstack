@@ -185,15 +185,15 @@ export const incidentContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [incidentAccess.incident.manage],
-    // global:true — input carries only a LINK id (`incidentLinks.id`), not an
-    // incident id or system id. The owning incident id is only resolvable
-    // server-side after the lookup, so no pre-check can scope this to a resource.
-    // `idParam: "id"` would compare a link id against incident grants and always
-    // 403. The `incident.manage` access rule still gates this endpoint globally.
-    instanceAccess: { global: true },
+    // Object-scoped on the OWNING incident via `incidentId` (mirrors addLink),
+    // so a team-scoped incident manager may remove links on their own incident
+    // without the global rule. The handler additionally scopes the delete by
+    // `incidentId`, so a link id cannot be paired with a foreign incident the
+    // caller happens to manage.
+    instanceAccess: { idParam: "incidentId" },
   })
     .route({ method: "DELETE" })
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), incidentId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /** Delete an incident */

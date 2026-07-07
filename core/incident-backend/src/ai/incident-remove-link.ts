@@ -9,9 +9,10 @@ import {
 import type { AiProposalPreview } from "@checkstack/ai-common";
 import type { RegisteredAiTool } from "@checkstack/ai-backend";
 
-/** Input for `incident.removeLink`: the link id to remove. */
+/** Input for `incident.removeLink`: the link id to remove + its owning incident. */
 export const IncidentRemoveLinkInputSchema = z.object({
   id: z.string(),
+  incidentId: z.string(),
 });
 export type IncidentRemoveLinkInput = z.infer<
   typeof IncidentRemoveLinkInputSchema
@@ -45,15 +46,15 @@ export function createIncidentRemoveLinkTool(): RegisteredAiTool<
     rpcClient: RpcClient;
   }): Promise<AiProposalPreview<IncidentRemoveLinkInput>> => {
     return {
-      summary: `Remove link ${input.id} from its incident. This is permanent.`,
-      payload: { id: input.id },
+      summary: `Remove link ${input.id} from incident ${input.incidentId}. This is permanent.`,
+      payload: { id: input.id, incidentId: input.incidentId },
     };
   };
 
   return {
     name: "incident.removeLink",
     description:
-      "Remove a hotlink from an incident by link id. DESTRUCTIVE and irreversible. Never removes directly; a person must approve the confirmation. Find the link id by reading the incident's details first.",
+      "Remove a hotlink from an incident by link id and its owning incidentId. DESTRUCTIVE and irreversible. Never removes directly; a person must approve the confirmation. Find the link id and incidentId by reading the incident's details first.",
     effect: "destructive",
     input: IncidentRemoveLinkInputSchema,
     requiredAccessRules: [
@@ -62,7 +63,10 @@ export function createIncidentRemoveLinkTool(): RegisteredAiTool<
     dryRun,
     async execute({ input, rpcClient }) {
       const incidentClient = rpcClient.forPlugin(IncidentApi);
-      await incidentClient.removeLink({ id: input.id });
+      await incidentClient.removeLink({
+        id: input.id,
+        incidentId: input.incidentId,
+      });
       return { id: input.id, removed: true };
     },
   };

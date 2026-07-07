@@ -32,25 +32,25 @@ describe("incident.removeLink tool", () => {
     const rpcClient = fakeRpcClient({ removeLink });
     const tool = createIncidentRemoveLinkTool();
     const preview = await tool.dryRun!({
-      input: { id: "lnk1" },
+      input: { id: "lnk1", incidentId: "inc1" },
       principal,
       rpcClient,
     });
     expect(removeLink).not.toHaveBeenCalled();
     expect(preview.summary).toContain("permanent");
-    expect(preview.payload).toEqual({ id: "lnk1" });
+    expect(preview.payload).toEqual({ id: "lnk1", incidentId: "inc1" });
   });
 
-  test("execute (apply) removes via removeLink with {id}", async () => {
+  test("execute (apply) removes via removeLink with {id, incidentId}", async () => {
     const removeLink = mock(() => Promise.resolve({ success: true }));
     const rpcClient = fakeRpcClient({ removeLink });
     const tool = createIncidentRemoveLinkTool();
     const result = await tool.execute({
-      input: { id: "lnk1" },
+      input: { id: "lnk1", incidentId: "inc1" },
       principal,
       rpcClient,
     });
-    expect(removeLink).toHaveBeenCalledWith({ id: "lnk1" });
+    expect(removeLink).toHaveBeenCalledWith({ id: "lnk1", incidentId: "inc1" });
     expect(result).toEqual({ id: "lnk1", removed: true });
   });
 });

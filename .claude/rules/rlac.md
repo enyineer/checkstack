@@ -59,6 +59,24 @@ scoped elsewhere.
   PARENT (e.g. an incident "for" a `catalog.system`). The parent type must itself
   be team-scoped.
 - `{ global: true }` - the deliberate "this endpoint is NOT team-scoped" marker.
+  **Do NOT use it for a utility/catalog endpoint that a team-scoped manager
+  needs** (see `typeScoped`): `global: true` is enforced ONLY against the
+  caller's global rules, so a team-scoped manager with no global rule gets a 403
+  even though they can manage the actual resource. This is a real, easy-to-miss
+  bug (the healthcheck editor's `getStrategies`/`getCollectors` were gated this
+  way): the boot validator accepts `global: true` as a deliberate opt-out and
+  cannot tell it is actually a dependency of a team-scopable editor flow, and the
+  `check:manage-capabilities` guard only covers routes/nav, not the procedures a
+  page calls. So NO gate flags it - pick the mode by hand.
+- `typeScoped: { action? }` - a no-instance utility/catalog endpoint (list the
+  strategy/collector types, an editor helper, a sandboxed script test) that has
+  nothing to scope on but IS reached by a team-scoped manager. Authorizes when
+  the caller holds the global rule OR ANY team grant of the rule's resource type
+  - a `viewer`/`editor`/`owner` grant on any instance, OR a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. This is the correct fix whenever you
+  are tempted to reach for `global: true` on an endpoint a team manager needs.
+  `action` defaults to the access rule's own level.
 - `listKey`/`recordKey` - post-filter a list / single record by the caller's
   grants.
 - `bulkManage: { idsParam }` - a bulk WRITE (mass delete / mass resolve) over an
@@ -84,7 +102,15 @@ Use the `AccessApi` primitives (`@checkstack/frontend-api`), never a bare
   parentType?: catalogResourceTypes.system }`. The route guard and sidebar then
   reveal it to team-scoped users. `objectType` MUST be the type the route's
   `manage` rule resolves to (the CI guard checks this).
-- Create buttons/pages: `useCanCreate({ accessRule, objectType, parentType? })`.
+- Create/update buttons and pages: derive the gate from the CONTRACT, not by
+  hand-passing `accessRule`/`objectType`. Prefer the gate-fused client hooks
+  `client.createFoo.useGatedMutation(...)` / `client.updateFoo.useGatedMutation({
+  gateInput: { id } })` - the mutation cannot hand back `mutate` without the
+  `{ allowed, accessLoading }` verdict, so the button gate can never drift from
+  the call it guards. When you need a standalone verdict (no mutation to fuse
+  onto yet), use `accessApi.useProcedureAccess(FooApi.contract.createFoo)`; it
+  resolves the access rule, object type, and any `create.parent` parent type
+  from the procedure's `instanceAccess` metadata.
 - Per-row actions and remove chips: `useResourceAccess(...).canAccess(id)`.
 - Resource pickers (Affected Systems, SLO target, dependency source, ...): filter
   the options to `canAccess(id)` (or all when the user holds the global rule), so
@@ -98,11 +124,16 @@ allowAllOverride? })` returns `{ manageable, ... }` - the exact list to offer.
 rule that authorizes any instance (a global incident manager may reference any
 system). Used by the incident/maintenance/SLO pickers.
 
-Capability GATING of buttons/pages stays on the `accessApi` hooks
-(`useCanCreate` / `useCanAccessType`) and `PageLayout`'s `allowed` prop: pages
-consume the verdict compoundly (a `useEffect` dependency, a ternary between two
-empty states, a per-row predicate), which a wrapper component cannot express -
-so there is deliberately no gate-component sugar.
+Capability GATING of buttons/pages stays on the contract-derived verdict
+(`useGatedMutation` / `useProcedureAccess` for a single procedure,
+`useSurfaceAccess` / `useCanAccessType` for the coarse "can reach this surface"
+gate) and `PageLayout`'s `allowed` prop: pages consume the verdict compoundly (a
+`useEffect` dependency, a ternary between two empty states, a per-row predicate),
+which a wrapper component cannot express - so there is deliberately no
+gate-component sugar. The removed `useCanCreate` hook is replaced by
+`useProcedureAccess(FooApi.contract.createFoo)` (or the fused
+`useGatedMutation`), which derives the same verdict from the create procedure's
+contract instead of hand-passed args that can drift.
 
 ## Adding a new team-scoped resource - checklist
 

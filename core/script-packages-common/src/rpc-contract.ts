@@ -309,7 +309,13 @@ export const scriptPackagesContract = {
   getInstallState: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [scriptPackagesAccess.read],
+    // Authoring utility: the script-collector editor reads the install state to
+    // offer SDK IntelliSense. It exposes only the installed package inventory
+    // (names/versions/lockfile hash), no secrets, and is needed by any script
+    // author - including a team-scoped healthcheck manager who has no separate
+    // `script-packages.read` global grant. So gate on authentication only; the
+    // install/registry MANAGE endpoints stay restricted.
+    access: [],
   }).output(InstallStateSchema),
 
   /** Manifest for a given lockfile hash - used by reconcilers for delta diffing. */
