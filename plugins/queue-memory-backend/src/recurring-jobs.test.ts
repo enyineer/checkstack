@@ -211,6 +211,68 @@ describe("InMemoryQueue Recurring Jobs", () => {
     expect(updatedPayloads.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("honors startDelay: the first execution waits out the delay", async () => {
+    queue = createTestQueue("test-start-delay");
+
+    let executionCount = 0;
+    await queue.consume(
+      async () => {
+        executionCount++;
+      },
+      { consumerGroup: "test", maxRetries: 0 },
+    );
+
+    await queue.scheduleRecurring("payload", {
+      jobId: "delayed-start",
+      intervalSeconds: 1,
+      startDelay: 5, // 5s before the FIRST fire (contract: not immediate)
+    });
+
+    // Before the delay elapses, nothing has fired - the old behavior would have
+    // fired immediately at t=0 (startDelay was silently dropped).
+    await advanceAndDrain(4000);
+    expect(executionCount).toBe(0);
+
+    // Once the delay passes, the first execution lands.
+    await advanceAndDrain(2000); // t = 6s
+    expect(executionCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("anchors the recurrence to the delayed first fire (phase shift persists)", async () => {
+    queue = createTestQueue("test-start-delay-phase");
+
+    const fireTimes: number[] = [];
+    await queue.consume(
+      async () => {
+        fireTimes.push(Date.now());
+      },
+      { consumerGroup: "test", maxRetries: 0 },
+    );
+
+    const t0 = Date.now();
+    await queue.scheduleRecurring("payload", {
+      jobId: "delayed-phase",
+      intervalSeconds: 10,
+      startDelay: 3,
+    });
+
+    // Nothing before the 3s delay.
+    await advanceAndDrain(2500);
+    expect(fireTimes.length).toBe(0);
+
+    // First fire ~t0 + 3s (the phase boundary).
+    await advanceAndDrain(1000); // t = 3.5s
+    expect(fireTimes.length).toBe(1);
+    expect(fireTimes[0] - t0).toBeGreaterThanOrEqual(3000);
+
+    // Next fire one interval AFTER the delayed first fire (~t0 + 13s), i.e. the
+    // schedule keeps its phase offset instead of snapping to a boot-anchored
+    // grid - this is what de-clusters equal-interval checks.
+    await advanceAndDrain(10000); // t = 13.5s
+    expect(fireTimes.length).toBe(2);
+    expect(fireTimes[1] - fireTimes[0]).toBeGreaterThanOrEqual(9000);
+  });
+
   it("should cancel old interval and pending jobs when updating", async () => {
     queue = createTestQueue("test-update-cancels-old");
 

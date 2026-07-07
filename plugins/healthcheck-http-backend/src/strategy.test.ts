@@ -306,6 +306,78 @@ describe("HttpHealthCheckStrategy", () => {
     });
   });
 
+  describe("connect-timing probe sampling", () => {
+    it("probes at most once per origin within the TTL, reusing the sample for the connect/tls timing", async () => {
+      let clock = 1_000_000;
+      let probeCalls = 0;
+      const sampledStrategy = new HttpHealthCheckStrategy(loopbackLookup, {
+        probeFn: async () => {
+          probeCalls++;
+          return { connectMs: 7, tlsMs: 0 };
+        },
+        now: () => clock,
+        connectSampleTtlMs: 60_000,
+      });
+      const connectedClient = await sampledStrategy.createClient({
+        timeout: 5000,
+      });
+
+      // First run to this origin: probes once and reports its connect timing.
+      await connectedClient.client.exec({
+        url: localUrl("/text"),
+        method: "GET",
+      });
+      expect(probeCalls).toBe(1);
+      expect(connectedClient.timings?.connectMs).toBe(7);
+
+      // Second run within the TTL: no new probe, but the sample still populates
+      // the connect timing (the metric stays present while fetch reuses the
+      // connection - the whole point).
+      clock += 30_000;
+      await connectedClient.client.exec({
+        url: localUrl("/text"),
+        method: "GET",
+      });
+      expect(probeCalls).toBe(1);
+      expect(connectedClient.timings?.connectMs).toBe(7);
+
+      // Past the TTL: the sample is stale, so a fresh probe runs.
+      clock += 40_000; // 70s since the first sample
+      await connectedClient.client.exec({
+        url: localUrl("/text"),
+        method: "GET",
+      });
+      expect(probeCalls).toBe(2);
+
+      connectedClient.close();
+    });
+
+    it("shares the origin sample across separate clients from the same strategy", async () => {
+      let probeCalls = 0;
+      const sampledStrategy = new HttpHealthCheckStrategy(loopbackLookup, {
+        probeFn: async () => {
+          probeCalls++;
+          return { connectMs: 3, tlsMs: 0 };
+        },
+        now: () => 5_000_000,
+        connectSampleTtlMs: 60_000,
+      });
+
+      // A fresh client per run mirrors the executor (createClient per run); the
+      // cache lives on the strategy, so the second run reuses the first's sample.
+      const first = await sampledStrategy.createClient({ timeout: 5000 });
+      await first.client.exec({ url: localUrl("/text"), method: "GET" });
+      first.close();
+
+      const second = await sampledStrategy.createClient({ timeout: 5000 });
+      await second.client.exec({ url: localUrl("/text"), method: "GET" });
+      expect(second.timings?.connectMs).toBe(3);
+      second.close();
+
+      expect(probeCalls).toBe(1);
+    });
+  });
+
   describe("authentication", () => {
     it("sends no Authorization header by default (authType none)", async () => {
       const connectedClient = await localStrategy.createClient({

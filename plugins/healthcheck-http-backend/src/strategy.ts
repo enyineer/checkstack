@@ -20,7 +20,11 @@ import {
   healthResultSchema,
   StrategyCategory,
 } from "@checkstack/healthcheck-common";
-import { probeConnectTiming } from "./connect-probe";
+import {
+  probeConnectTiming,
+  type ConnectProbeOptions,
+  type ConnectProbeResult,
+} from "./connect-probe";
 import type {
   HttpTransportClient,
   HttpRequest,
@@ -229,14 +233,42 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
   category = StrategyCategory.NETWORKING;
 
   /**
-   * DNS resolver used by the SSRF guard. Defaults to the system resolver
-   * (`resolveAndValidateHost`'s built-in). Injectable so tests can drive the
-   * guard deterministically without real network DNS.
+   * Process-local per-origin TCP/TLS connect-timing samples.
+   *
+   * The real request goes through Bun's `fetch`, which pools and REUSES
+   * connections across runs (verified: warm reuse survives 20s+ idle gaps), so
+   * paying a fresh `node:tls` probe handshake on EVERY run is wasteful twice
+   * over: it mis-reports the reused request's real latency (the reused request
+   * pays ~no connect/TLS) and it doubles the connection count under a burst
+   * (fetch's connection + the probe's). Instead we probe at most once per origin
+   * per TTL and reuse the sample for the `connect`/`tls` timing + `wait`
+   * derivation in between. This is pod-local bookkeeping only (a timing hint,
+   * never a source of truth); a cold pod simply re-probes once per origin.
+   */
+  private readonly connectSamples = new Map<
+    string,
+    { connectMs?: number; tlsMs?: number; at: number }
+  >();
+
+  /**
+   * @param lookupFn DNS resolver used by the SSRF guard. Defaults to the system
+   *   resolver (`resolveAndValidateHost`'s built-in). Injectable so tests can
+   *   drive the guard deterministically without real network DNS.
+   * @param timingOptions Injectables for the connect-timing probe + its sample
+   *   cache (all optional; defaults are production-correct).
    */
   constructor(
     private readonly lookupFn?: (
       hostname: string,
     ) => Promise<Array<{ address: string; family: number }>>,
+    private readonly timingOptions: {
+      /** TCP/TLS probe. Defaults to the real `probeConnectTiming`. */
+      probeFn?: (options: ConnectProbeOptions) => Promise<ConnectProbeResult>;
+      /** Wall clock (ms) for sample aging. Defaults to `Date.now`. */
+      now?: () => number;
+      /** Per-origin connect/TLS sample TTL in ms. Defaults to 60_000. */
+      connectSampleTtlMs?: number;
+    } = {},
   ) {}
 
   config: Versioned<HttpHealthCheckConfig> = new Versioned({
@@ -341,6 +373,14 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
     ];
     const lookupFn = this.lookupFn;
 
+    // Connect-timing probe + its per-origin sample cache. Captured here (not via
+    // `this`) because `exec` below is an object-literal method whose `this` is
+    // the client, not the strategy.
+    const probeFn = this.timingOptions.probeFn ?? probeConnectTiming;
+    const nowMs = this.timingOptions.now ?? Date.now;
+    const sampleTtlMs = this.timingOptions.connectSampleTtlMs ?? 60_000;
+    const connectSamples = this.connectSamples;
+
     // Mutable per-run timings holder. `exec` writes the request's transport
     // phases here so the executor can lift them into `metadata.timings`.
     const timings: TransportTimings = {};
@@ -377,23 +417,35 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           });
           const dnsMs = Math.max(0, performance.now() - dnsStart);
           const isHttps = requestUrl.protocol === "https:";
+          const port =
+            requestUrl.port === ""
+              ? isHttps
+                ? 443
+                : 80
+              : Number(requestUrl.port);
 
           // Connect/TLS timing comes from a short-lived raw probe to the SAME
           // validated IP: Bun's `fetch` socket exposes no connect/handshake
-          // events, but raw net/tls sockets do. Best-effort, runs alongside the
-          // request, and never fails the check.
-          const probePromise = probeConnectTiming({
-            ip: target.ip,
-            port:
-              requestUrl.port === ""
-                ? isHttps
-                  ? 443
-                  : 80
-                : Number(requestUrl.port),
-            tls: isHttps,
-            servername: requestUrl.hostname,
-            timeoutMs,
-          });
+          // events, but raw net/tls sockets do. Because `fetch` REUSES pooled
+          // connections across runs, a fresh probe on every run would both
+          // mis-report the reused request's latency and double the connection
+          // count under a burst - so we probe at most once per origin per TTL and
+          // reuse the sample in between (see `connectSamples`). Best-effort, runs
+          // alongside the request, and never fails the check.
+          const originKey = `${requestUrl.protocol}//${requestUrl.hostname}:${port}`;
+          const cachedSample = connectSamples.get(originKey);
+          const sampleFresh =
+            cachedSample !== undefined &&
+            nowMs() - cachedSample.at < sampleTtlMs;
+          const probePromise = sampleFresh
+            ? undefined
+            : probeFn({
+                ip: target.ip,
+                port,
+                tls: isHttps,
+                servername: requestUrl.hostname,
+                timeoutMs,
+              });
 
           // `fetch` resolves at the response HEADERS (time-to-first-byte);
           // consuming the body is the transfer phase.
@@ -413,13 +465,30 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
 
           clearTimeout(timeoutId);
 
-          const probe = await probePromise;
+          // Resolve this run's connect/TLS sample: a fresh probe result when we
+          // ran one, otherwise the cached sample for this origin. A fresh probe
+          // refreshes the cache for subsequent runs within the TTL.
+          let sample: { connectMs?: number; tlsMs?: number };
+          if (probePromise) {
+            const probed = await probePromise;
+            connectSamples.set(originKey, {
+              connectMs: probed.connectMs,
+              tlsMs: probed.tlsMs,
+              at: nowMs(),
+            });
+            sample = probed;
+          } else {
+            sample = cachedSample
+              ? { connectMs: cachedSample.connectMs, tlsMs: cachedSample.tlsMs }
+              : {};
+          }
+
           // Server wait = time-to-first-byte minus the connection setup we could
           // measure. Clamped: the probe is a parallel connection, so on a warm
           // path its setup can exceed the request's ttfb.
           const waitMs = Math.max(
             0,
-            ttfbMs - ((probe.connectMs ?? 0) + (probe.tlsMs ?? 0)),
+            ttfbMs - ((sample.connectMs ?? 0) + (sample.tlsMs ?? 0)),
           );
 
           // Last-request-wins: reset then write this request's phases.
@@ -430,8 +499,9 @@ export class HttpHealthCheckStrategy implements HealthCheckStrategy<
           delete timings.transferMs;
           delete timings.processingMs;
           timings.dnsMs = dnsMs;
-          if (probe.connectMs !== undefined) timings.connectMs = probe.connectMs;
-          if (probe.tlsMs !== undefined) timings.tlsMs = probe.tlsMs;
+          if (sample.connectMs !== undefined)
+            timings.connectMs = sample.connectMs;
+          if (sample.tlsMs !== undefined) timings.tlsMs = sample.tlsMs;
           timings.waitMs = waitMs;
           timings.transferMs = transferMs;
 

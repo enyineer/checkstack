@@ -57,6 +57,7 @@ import { inflateConfigSecrets } from "./config-secrets";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
+import { computeScheduleJitterSeconds } from "./schedule-jitter";
 import type { HealthCheckCache } from "./cache";
 import {
   classifyTransition,
@@ -1770,6 +1771,17 @@ export async function bootstrapHealthChecks(props: {
         `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`,
       );
     }
+
+    // De-cluster the herd: offset each check's first fire by a stable fraction
+    // of its interval so a synchronized set (all new / all overdue at boot, same
+    // interval) spreads out instead of firing on one phase. The queue anchors
+    // the recurrence to the first fire, so this offset persists for the schedule
+    // (see schedule-jitter.ts). Deterministic in the check key -> stable slot
+    // across restarts.
+    startDelay += computeScheduleJitterSeconds({
+      key: lastRunKey,
+      intervalSeconds: check.interval,
+    });
 
     await scheduleHealthCheck({
       queueManager,
