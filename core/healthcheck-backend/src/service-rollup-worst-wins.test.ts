@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from "bun:test";
+import { withTransactionMock } from "@checkstack/test-utils-backend";
 import { HealthCheckService } from "./service";
 import { evaluateHealthStatus } from "./state-evaluator";
 
@@ -65,7 +66,7 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
     });
 
     let selectCallCount = 0;
-    return {
+    return withTransactionMock({
       select: mock(() => {
         selectCallCount += 1;
         if (selectCallCount === 1) return { from: mock(() => assocFrom) };
@@ -81,7 +82,7 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
       update: mock(() => ({ set: mock(() => ({ where: mock(() => Promise.resolve()) })) })),
       delete: mock(() => ({ where: mock(() => Promise.resolve()) })),
       execute: mock(() => Promise.resolve()),
-    };
+    });
   }
 
   it("the rollup reports unhealthy when ONE env is permanently unhealthy, the other healthy", async () => {
@@ -208,7 +209,7 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
     });
 
     let selectCallCount = 0;
-    const mockDb = {
+    const mockDb = withTransactionMock({
       select: mock(() => {
         selectCallCount += 1;
         if (selectCallCount === 1) return { from: mock(() => assocFrom) };
@@ -224,7 +225,7 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
       update: mock(() => ({ set: mock(() => ({ where: mock(() => Promise.resolve()) })) })),
       delete: mock(() => ({ where: mock(() => Promise.resolve()) })),
       execute: mock(() => Promise.resolve()),
-    };
+    });
 
     const service = new HealthCheckService(mockDb as never, {} as never, {} as never);
     const result = await service.getSystemHealthStatus("system-1", "prod");

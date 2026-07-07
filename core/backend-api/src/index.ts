@@ -5,6 +5,8 @@ export * from "./service-ref";
 export * from "./extension-point";
 export * from "./core-services";
 export * from "./plugin-system";
+export * from "./scoped-transaction";
+export * from "./instrumentation";
 export * from "./health-check";
 export * from "./base-strategy-config";
 export * from "./auth-strategy";

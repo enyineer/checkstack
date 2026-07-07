@@ -48,9 +48,18 @@ export const DashboardRecentActivitySection: React.FC = () => {
 
   useSignal(
     HEALTH_CHECK_RUN_COMPLETED,
-    ({ systemName, configurationName, status, latencyMs, environmentName }) => {
+    ({
+      systemId,
+      systemName,
+      configurationId,
+      configurationName,
+      environmentId,
+      environmentName,
+      status,
+      latencyMs,
+    }) => {
       const newEntry: TerminalEntry = {
-        id: `${configurationName}-${Date.now()}`,
+        id: `${systemId}:${configurationId}:${environmentId ?? "envless"}:${crypto.randomUUID()}`,
         timestamp: new Date(),
         content: buildRunActivityContent({
           systemName,

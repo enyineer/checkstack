@@ -1,4 +1,7 @@
-import type { SafeDatabase, CollectorRegistry } from "@checkstack/backend-api";
+import type {
+  ScopedQueryRunner,
+  CollectorRegistry,
+} from "@checkstack/backend-api";
 import {
   ASSERTIONS_AGG_KEY,
   AssertionOutcomeSchema,
@@ -11,7 +14,11 @@ import * as schema from "./schema";
 import { healthCheckAggregates } from "./schema";
 import { eq, and, sql } from "drizzle-orm";
 
-type Db = SafeDatabase<typeof schema>;
+// Accepts either the scoped database OR a transaction handle from it, so the
+// caller can compose the aggregate SELECT + UPSERT inside a single batching
+// transaction (one `SET LOCAL search_path` for the whole write group) — see
+// `withScopedTransaction`.
+type Db = ScopedQueryRunner<typeof schema>;
 
 /**
  * Get the hour bucket start time for a given timestamp.

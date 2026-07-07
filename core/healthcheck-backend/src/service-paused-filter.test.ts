@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { withTransactionMock } from "@checkstack/test-utils-backend";
 import { HealthCheckService } from "./service";
 
 /**
@@ -143,7 +144,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
 
       const mockDb = createMockDb();
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );
@@ -222,7 +223,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
       };
 
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );
@@ -239,7 +240,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
 
       const mockDb = createMockDb();
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );
@@ -265,7 +266,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
       };
 
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );
@@ -285,7 +286,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
       };
 
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );
@@ -376,7 +377,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
       };
 
       const service = new HealthCheckService(
-        mockDb as never,
+        withTransactionMock(mockDb) as never,
         {} as never,
         {} as never,
       );

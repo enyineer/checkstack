@@ -138,3 +138,83 @@ For correlation across HTTP boundaries (e.g. the frontend that
 triggered the request), the response echo lets the caller log the ID
 it actually got, which is then identical to the ID in the server
 logs.
+
+## Metrics (OpenTelemetry + Prometheus)
+
+Alongside structured logs, the backend can export **OpenTelemetry
+metrics** over a Prometheus endpoint so you can ground a performance
+investigation in real numbers instead of guesses. The whole layer is
+**off by default and free when off**: the instruments are OTel no-ops
+until a `MeterProvider` is registered, so the hot paths pay nothing
+until you opt in.
+
+### Enabling the exporter
+
+Set `CHECKSTACK_METRICS_ENABLED=1` and start the backend. The host
+registers a global `MeterProvider` and a Prometheus exporter that runs
+its **own** HTTP server (separate from the app router), so metrics carry
+no app-auth surface:
+
+```bash
+CHECKSTACK_METRICS_ENABLED=1 bun run --filter '@checkstack/backend' start
+# then, from another shell:
+curl -s http://127.0.0.1:9464/metrics | grep '^checkstack_'
+```
+
+| Env var                      | Default     | Meaning                                              |
+| ---------------------------- | ----------- | ---------------------------------------------------- |
+| `CHECKSTACK_METRICS_ENABLED` | _(unset)_   | Any non-empty value turns the exporter on.           |
+| `CHECKSTACK_METRICS_HOST`    | `127.0.0.1` | Bind host. Use `0.0.0.0` only behind a firewall.     |
+| `CHECKSTACK_METRICS_PORT`    | `9464`      | Port for the `/metrics` endpoint.                    |
+
+> [!CAUTION]
+> The exporter binds to `127.0.0.1` on purpose. Do not set
+> `CHECKSTACK_METRICS_HOST=0.0.0.0` unless the port is firewalled - the
+> endpoint is unauthenticated by design (it is meant to be scraped by a
+> co-located Prometheus / node exporter).
+
+### What is exported
+
+The instruments live in `@checkstack/backend-api`'s `instrumentation`
+module (lazy accessors that any plugin can record through) plus a few
+host-owned observable instruments:
+
+| Metric                                 | Kind      | Labels                | What it tells you                                             |
+| -------------------------------------- | --------- | --------------------- | ------------------------------------------------------------- |
+| `checkstack_db_transactions_total`     | counter   | `schema`              | Scoped-DB transactions opened per plugin schema.              |
+| `checkstack_db_queries_total`          | counter   | `schema`              | Standalone scoped queries (each wraps in its own tx).         |
+| `checkstack_healthcheck_execution_duration` | histogram | `status`         | End-to-end run latency by outcome.                            |
+| `checkstack_healthcheck_phase_duration`     | histogram | `phase`          | Per-phase timing (`connect`, `wait`, ...) from run timings.   |
+| `checkstack_queue_enqueued_total`      | counter   | `queue`               | Jobs enqueued per queue.                                      |
+| `checkstack_queue_processed_total`     | counter   | `queue`, `status`     | Jobs completed/failed per queue.                              |
+| `checkstack_db_pool_connections`       | gauge     | `pool`, `state`       | admin/lock pool `active`/`idle`/`waiting` counts.             |
+| `checkstack_runtime_event_loop_delay`  | histogram | -                     | setInterval drift = how long the JS thread was blocked.       |
+
+Two of these are the direct tests for the questions a slowdown raises:
+
+- **`db_transactions_total` minus `db_queries_total` per schema** is the
+  number of **batched** transactions. Batching an N+1 read fan-out into
+  one `withScopedTransaction` shows up here as transactions rising far
+  slower than the work done - the metric that proves the batching in
+  [drizzle-schema](/checkstack/developer-guide/backend/drizzle-schema/)
+  is actually taking effect in production.
+- **`healthcheck_phase_duration{phase="connect"}` vs `{phase="wait"}`**
+  separates "slow to establish the connection" from "slow server" - a
+  high `connect` p95 with a low `wait` points at connection
+  establishment (TLS/TCP), not the target being slow or the platform
+  being CPU-bound (which `event_loop_delay` measures independently).
+
+### Recording from a plugin
+
+Plugins do not wire anything up: import the accessor and record. It is a
+no-op until the host enables the exporter, so it is always safe to call:
+
+```ts
+import { queueEnqueuedCounter } from "@checkstack/backend-api";
+
+queueEnqueuedCounter().add(1, { queue: myQueue.name });
+```
+
+The scoped-DB proxy, the health-check queue executor, and the in-memory
+queue already record through these accessors, so DB, health-check, and
+queue metrics populate with no per-plugin work.

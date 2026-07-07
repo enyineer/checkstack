@@ -167,6 +167,44 @@ const [config] = await db
   .limit(1);
 ```
 
+## Batching queries with `withScopedTransaction`
+
+Because the scoped proxy wraps every standalone statement in its own
+transaction (it has to, so `SET LOCAL search_path` applies to that statement),
+a hot path that issues several queries in sequence pays the `BEGIN` /
+`SET LOCAL` / `COMMIT` round-trips once per query and checks a connection out
+that many times. On a `1 + N` read (a parent row then one row per child) or a
+write group (an `insert` then an `upsert`) that overhead multiplies.
+
+`withScopedTransaction` from `@checkstack/backend-api` runs several scoped
+queries under a SINGLE `SET LOCAL search_path` (one transaction), so the proxy
+pays those round-trips once for the whole batch:
+
+```typescript
+import { withScopedTransaction } from "@checkstack/backend-api";
+
+const status = await withScopedTransaction(db, async (tx) => {
+  const [parent] = await tx.select().from(parents).where(eq(parents.id, id));
+  const children = await tx
+    .select()
+    .from(kids)
+    .where(eq(kids.parentId, id));
+  return derive(parent, children); // one SET LOCAL, not two
+});
+```
+
+Queries inside the callback run on `tx`, NOT the outer `db`. When you pass `tx`
+to a helper that runs its own queries, type that helper's db parameter as
+`SafeDatabase<S> | ScopedTransaction<S>` (or the alias `ScopedQueryRunner<S>`)
+so it accepts either the scoped db (called standalone) or a transaction handle
+(composed inside a batch). Reach for this on measured hot paths; a single
+query does not need it.
+
+> [!NOTE]
+> The health-check executor uses this for `getSystemHealthStatus` (a `1 + N`
+> read run several times per check tick) and for its run-plus-aggregate write,
+> collapsing many per-tick proxy transactions into one each.
+
 ## Advisory locks
 
 Each plugin query runs through the scoped database proxy, which wraps every

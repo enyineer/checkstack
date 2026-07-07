@@ -12,6 +12,10 @@ import {
   JobState,
 } from "@checkstack/queue-api";
 import type { Logger } from "@checkstack/backend-api";
+import {
+  queueEnqueuedCounter,
+  queueProcessedCounter,
+} from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import { InMemoryQueueConfig } from "./plugin";
 import parser from "cron-parser";
@@ -206,6 +210,9 @@ export class InMemoryQueue<T> implements Queue<T> {
     } else {
       this.jobs.splice(insertIndex, 0, job);
     }
+
+    // Metrics (OTel no-op unless enabled).
+    queueEnqueuedCounter().add(1, { queue: this.name });
 
     // Trigger processing for all consumer groups (or schedule for later)
     if (!this.stopped) {
@@ -500,6 +507,7 @@ export class InMemoryQueue<T> implements Queue<T> {
     try {
       await consumer.handler(job);
       this.stats.completed++;
+      queueProcessedCounter().add(1, { queue: this.name, status: "completed" });
       this.pushHistory(this.completedHistory, {
         id: job.id,
         state: "completed",
@@ -542,6 +550,7 @@ export class InMemoryQueue<T> implements Queue<T> {
         });
       } else {
         this.stats.failed++;
+        queueProcessedCounter().add(1, { queue: this.name, status: "failed" });
         this.pushHistory(this.failedHistory, {
           id: job.id,
           state: "failed",

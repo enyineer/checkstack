@@ -11,6 +11,9 @@ import {
   type CollectorRunContext,
   type AdvisoryLockService,
   renderTemplatableConfig,
+  withScopedTransaction,
+  healthcheckExecutionHistogram,
+  healthcheckPhaseHistogram,
 } from "@checkstack/backend-api";
 import type { RunTimings } from "@checkstack/healthcheck-common";
 import { QueueManager } from "@checkstack/queue-api";
@@ -1101,31 +1104,38 @@ async function executeHealthCheckJob(props: {
         handle: getHealthEntity?.(),
         entityId: envEntityId,
         apply: async () => {
-          await db.insert(healthCheckRuns).values({
-            configurationId: configId,
-            systemId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            result: { ...result } as Record<string, unknown>,
-            sourceId: undefined,
-            sourceLabel: "Local",
-          });
+          // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+          // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+          // which also makes the run and its aggregate commit atomically.
+          await withScopedTransaction(db, async (tx) => {
+            await tx.insert(healthCheckRuns).values({
+              configurationId: configId,
+              systemId,
+              environmentId,
+              status: result.status,
+              latencyMs: result.latencyMs,
+              result: { ...result } as Record<string, unknown>,
+              sourceId: undefined,
+              sourceLabel: "Local",
+            });
 
-          await incrementHourlyAggregate({
-            db,
-            systemId,
-            configurationId: configId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            runTimestamp: new Date(),
-            result: { ...result } as Record<string, unknown>,
-            collectorRegistry,
-            sourceLabel: "Local",
+            await incrementHourlyAggregate({
+              db: tx,
+              systemId,
+              configurationId: configId,
+              environmentId,
+              status: result.status,
+              latencyMs: result.latencyMs,
+              runTimestamp: new Date(),
+              result: { ...result } as Record<string, unknown>,
+              collectorRegistry,
+              sourceLabel: "Local",
+            });
           });
 
           // Env-scoped view: the per-env entity reflects only this env's runs.
+          // Runs as its own batched read AFTER the write commits, so it sees
+          // the just-inserted run.
           newState = await service.getSystemHealthStatus(systemId, environmentId);
           return toHealthEntityView(newState);
         },
@@ -1212,6 +1222,21 @@ async function executeHealthCheckJob(props: {
     // undefined and the frontend falls back to the coarse connection split.
     const timings = extractRunTimings(connectedClient);
 
+    // Metrics (OTel no-ops unless enabled): the probe's total wall-clock and its
+    // network sub-phases. The `phase` breakdown is what tells "slow target"
+    // (`wait` grows) apart from "slow connection establishment" (`connect`/`tls`
+    // grow under a same-host stampede) apart from platform delay.
+    healthcheckExecutionHistogram().record(totalLatencyMs, { status });
+    if (timings) {
+      for (const [phase, value] of Object.entries(timings)) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+          healthcheckPhaseHistogram().record(value, {
+            phase: phase.replace(/Ms$/, ""),
+          });
+        }
+      }
+    }
+
     const result = {
       status: status as "healthy" | "unhealthy",
       latencyMs: totalLatencyMs,
@@ -1238,33 +1263,40 @@ async function executeHealthCheckJob(props: {
       handle: getHealthEntity?.(),
       entityId: envEntityId,
       apply: async () => {
-        // Store result (spread to convert structured type to plain record for jsonb)
-        await db.insert(healthCheckRuns).values({
-          configurationId: configId,
-          systemId,
-          environmentId,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          result: { ...result } as Record<string, unknown>,
-          sourceId: undefined,
-          sourceLabel: "Local",
-        });
+        // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+        // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+        // which also makes the run and its aggregate commit atomically.
+        await withScopedTransaction(db, async (tx) => {
+          // Store result (spread to convert structured type to plain record for jsonb)
+          await tx.insert(healthCheckRuns).values({
+            configurationId: configId,
+            systemId,
+            environmentId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            result: { ...result } as Record<string, unknown>,
+            sourceId: undefined,
+            sourceLabel: "Local",
+          });
 
-        // Trigger incremental hourly aggregation
-        await incrementHourlyAggregate({
-          db,
-          systemId,
-          configurationId: configId,
-          environmentId,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          runTimestamp: new Date(),
-          result: { ...result } as Record<string, unknown>,
-          collectorRegistry,
-          sourceLabel: "Local",
+          // Trigger incremental hourly aggregation
+          await incrementHourlyAggregate({
+            db: tx,
+            systemId,
+            configurationId: configId,
+            environmentId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            runTimestamp: new Date(),
+            result: { ...result } as Record<string, unknown>,
+            collectorRegistry,
+            sourceLabel: "Local",
+          });
         });
 
         // Env-scoped view: the per-env entity reflects only this env's runs.
+        // Runs as its own batched read AFTER the write commits, so it sees the
+        // just-inserted run.
         newState = await service.getSystemHealthStatus(systemId, environmentId);
         return toHealthEntityView(newState);
       },
@@ -1469,27 +1501,32 @@ async function executeHealthCheckJob(props: {
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
-        // Store failure (no latencyMs for failures)
-        await db.insert(healthCheckRuns).values({
-          configurationId: configId,
-          systemId,
-          status: "unhealthy",
-          result: { error: String(error) } as Record<string, unknown>,
-          sourceId: undefined,
-          sourceLabel: "Local",
-        });
+        // §perf: batch the failure run INSERT + aggregate SELECT/UPSERT under
+        // ONE `SET LOCAL search_path` transaction (3 scoped-db transactions →
+        // 1), which also makes them commit atomically.
+        await withScopedTransaction(db, async (tx) => {
+          // Store failure (no latencyMs for failures)
+          await tx.insert(healthCheckRuns).values({
+            configurationId: configId,
+            systemId,
+            status: "unhealthy",
+            result: { error: String(error) } as Record<string, unknown>,
+            sourceId: undefined,
+            sourceLabel: "Local",
+          });
 
-        // Trigger incremental hourly aggregation
-        await incrementHourlyAggregate({
-          db,
-          systemId,
-          configurationId: configId,
-          status: "unhealthy",
-          latencyMs: undefined,
-          runTimestamp: new Date(),
-          // No collector data for error cases
-          collectorRegistry,
-          sourceLabel: "Local",
+          // Trigger incremental hourly aggregation
+          await incrementHourlyAggregate({
+            db: tx,
+            systemId,
+            configurationId: configId,
+            status: "unhealthy",
+            latencyMs: undefined,
+            runTimestamp: new Date(),
+            // No collector data for error cases
+            collectorRegistry,
+            sourceLabel: "Local",
+          });
         });
 
         newState = await service.getSystemHealthStatus(systemId);
