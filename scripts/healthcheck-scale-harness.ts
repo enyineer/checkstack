@@ -225,9 +225,17 @@ async function runLoad(): Promise<void> {
   await createSchema();
 
   // Local echo server: /fast responds immediately, /slow?ms=X after X ms.
+  // Upper bound on the echo delay. The delay is derived from a request query
+  // param, so clamp it to a fixed ceiling (and reject NaN) before handing it to
+  // setTimeout - an unbounded, request-controlled timer is a resource-exhaustion
+  // vector even in a loopback-only harness.
+  const MAX_ECHO_DELAY_MS = 120_000;
   const echo = http.createServer((req, res) => {
     const requested = new URL(req.url ?? "/", "http://x").searchParams.get("ms");
-    const ms = requested === null ? 0 : Number(requested);
+    const parsed = requested === null ? 0 : Number(requested);
+    const ms = Number.isFinite(parsed)
+      ? Math.min(Math.max(parsed, 0), MAX_ECHO_DELAY_MS)
+      : 0;
     const send = (): void => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
