@@ -88,6 +88,27 @@ export function healthcheckPhaseHistogram(): Histogram {
   return healthcheckPhase;
 }
 
+let healthcheckDeferred: Counter | undefined;
+/**
+ * Suspect (slot-hogging) health-check env-runs deferred by the slow-check
+ * bulkhead instead of executed this tick. Attribute: `reason` -
+ * `lane_full` (the pod's suspect lane was at capacity) or `in_flight` (a prior
+ * run of the same (config, system, env) was still executing). A climbing
+ * `lane_full` under a correlated outage is the bulkhead protecting healthy
+ * checks from slot starvation; it is expected, not an error.
+ */
+export function healthcheckDeferredCounter(): Counter {
+  healthcheckDeferred ??= getMeter().createCounter(
+    "checkstack.healthcheck.deferred",
+    {
+      description:
+        "Suspect health-check env-runs deferred by the slow-check bulkhead (reason=lane_full|in_flight).",
+      unit: "{run}",
+    },
+  );
+  return healthcheckDeferred;
+}
+
 let queueEnqueued: Counter | undefined;
 /** Jobs enqueued. Attribute: `queue`. */
 export function queueEnqueuedCounter(): Counter {
