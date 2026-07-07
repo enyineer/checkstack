@@ -194,6 +194,7 @@ host-owned observable instruments:
 | `checkstack_db_queries_total`          | counter   | `schema`              | Standalone scoped queries (each wraps in its own tx).         |
 | `checkstack_healthcheck_execution_duration` | histogram | `status`         | End-to-end run latency by outcome.                            |
 | `checkstack_healthcheck_phase_duration`     | histogram | `phase`          | Per-phase timing (`connect`, `wait`, ...) from run timings.   |
+| `checkstack_healthcheck_deferred`      | counter   | `reason`              | Suspect env-runs skipped by the slow-check bulkhead (`lane_full`/`in_flight`). |
 | `checkstack_queue_enqueued_total`      | counter   | `queue`               | Jobs enqueued per queue.                                      |
 | `checkstack_queue_processed_total`     | counter   | `queue`, `status`     | Jobs completed/failed per queue.                              |
 | `checkstack_queue_jobs`                | gauge     | `state`               | Queue depth: `pending` backlog + `processing`, across queues. |
@@ -221,6 +222,13 @@ Two of these are the direct tests for the questions a slowdown raises:
   `db_pool_connections{pool="lock",state="waiting"}`: if `pending` grows
   while lock-waiting stays at 0, you are slot-bound (raise concurrency or
   stop slow checks starving healthy ones), not database-bound.
+- **`healthcheck_deferred{reason="lane_full"}`** is the slow-check
+  bulkhead engaging. During a correlated outage the suspect lane fills
+  and further suspect env-runs are deferred (recording nothing, freeing
+  the slot) so healthy checks keep draining - a rising `lane_full`
+  alongside a bounded `queue_jobs{state="pending"}` is the bulkhead
+  working as designed, not an error. See
+  [health-check execution](/checkstack/developer-guide/backend/healthchecks/execution/).
 
 ### Recording from a plugin
 
