@@ -118,6 +118,15 @@ export class InMemoryQueue<T> implements Queue<T> {
   private semaphore: Semaphore;
   private stopped = false;
   private processing = 0;
+  /**
+   * Jobs that have been claimed by `processNext` (and so removed from `jobs`)
+   * but are still BLOCKED on `semaphore.acquire()` waiting for a concurrency
+   * slot. Without this counter such jobs are invisible to `getStats()` - not in
+   * `jobs` (pending) and not yet counted in `processing` - so under saturation
+   * the reported backlog reads ~0 while hundreds of jobs are actually queued for
+   * a slot. They ARE pending (not executing), so `getStats().pending` adds them.
+   */
+  private awaitingSlot = 0;
   private stats = {
     completed: 0,
     failed: 0,
@@ -518,7 +527,9 @@ export class InMemoryQueue<T> implements Queue<T> {
     groupId: string,
     groupState: ConsumerGroupState<T>,
   ): Promise<void> {
+    this.awaitingSlot++;
     await this.semaphore.acquire();
+    this.awaitingSlot--;
     this.processing++;
     const startedAt = new Date();
     this.activeJobs.set(job.id, {
@@ -629,7 +640,7 @@ export class InMemoryQueue<T> implements Queue<T> {
 
   async getStats(): Promise<QueueStats> {
     return {
-      pending: this.jobs.length,
+      pending: this.jobs.length + this.awaitingSlot,
       processing: this.processing,
       completed: this.stats.completed,
       failed: this.stats.failed,

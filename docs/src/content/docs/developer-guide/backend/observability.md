@@ -196,6 +196,7 @@ host-owned observable instruments:
 | `checkstack_healthcheck_phase_duration`     | histogram | `phase`          | Per-phase timing (`connect`, `wait`, ...) from run timings.   |
 | `checkstack_queue_enqueued_total`      | counter   | `queue`               | Jobs enqueued per queue.                                      |
 | `checkstack_queue_processed_total`     | counter   | `queue`, `status`     | Jobs completed/failed per queue.                              |
+| `checkstack_queue_jobs`                | gauge     | `state`               | Queue depth: `pending` backlog + `processing`, across queues. |
 | `checkstack_db_pool_connections`       | gauge     | `pool`, `state`       | admin/lock pool `active`/`idle`/`waiting` counts.             |
 | `checkstack_runtime_event_loop_delay`  | histogram | -                     | setInterval drift = how long the JS thread was blocked.       |
 
@@ -212,6 +213,14 @@ Two of these are the direct tests for the questions a slowdown raises:
   high `connect` p95 with a low `wait` points at connection
   establishment (TLS/TCP), not the target being slow or the platform
   being CPU-bound (which `event_loop_delay` measures independently).
+- **`queue_jobs{state="pending"}`** is the scale signal. A bounded,
+  draining backlog means throughput keeps up; a `pending` that climbs
+  without draining means work arrives faster than the queue concurrency
+  can execute it - e.g. slow/timing-out health checks each pinning a
+  concurrency slot for the full timeout. Watch it against
+  `db_pool_connections{pool="lock",state="waiting"}`: if `pending` grows
+  while lock-waiting stays at 0, you are slot-bound (raise concurrency or
+  stop slow checks starving healthy ones), not database-bound.
 
 ### Recording from a plugin
 

@@ -82,7 +82,7 @@ import {
 } from "@checkstack/api-docs-common";
 
 import { cors } from "hono/cors";
-import { startMetrics } from "./instrumentation-sdk";
+import { startMetrics, registerQueueInstruments } from "./instrumentation-sdk";
 
 // Start OpenTelemetry metrics export FIRST (before plugins init / migrations),
 // so early queries are counted. No-op unless CHECKSTACK_METRICS_ENABLED is set;
@@ -672,6 +672,10 @@ const init = async () => {
     queueRegistry
   );
   pluginManager.registerService(coreServices.queueManager, queueManager);
+
+  // Backlog gauge: now that the QueueManager exists, expose queue pending/
+  // processing depth on the metrics endpoint (no-op unless metrics are enabled).
+  registerQueueInstruments({ queueManager });
 
   // 1.8. Register Cache Services
   rootLogger.debug("Registering cache services...");

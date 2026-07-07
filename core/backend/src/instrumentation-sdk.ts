@@ -2,6 +2,7 @@ import { metrics } from "@opentelemetry/api";
 import { MeterProvider } from "@opentelemetry/sdk-metrics";
 import { PrometheusExporter } from "@opentelemetry/exporter-prometheus";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import type { QueueManager } from "@checkstack/queue-api";
 import { adminPool, lockPool } from "./db";
 import { rootLogger } from "./logger";
 
@@ -110,4 +111,41 @@ function registerHostInstruments(): void {
   }, INTERVAL_MS);
   // Never keep the process alive just for sampling.
   lagTimer.unref?.();
+}
+
+/**
+ * Register the queue-backlog observable gauge. Must be called AFTER the
+ * QueueManager exists (startMetrics runs before plugins init, so it cannot wire
+ * this itself). No-op unless metrics are enabled.
+ *
+ * `pending` is THE scale signal: jobs enqueued but not yet processing. Bounded,
+ * draining `pending` means throughput keeps up; a `pending` that grows without
+ * draining means work arrives faster than `concurrency` can execute it - e.g.
+ * slow/timing-out health checks pinning their concurrency slots for the full
+ * timeout. `processing` is the count currently executing (bounded by the queue
+ * concurrency). Read on scrape via the aggregated stats: for BullMQ that
+ * reflects the shared Redis queue (every pod reports the same cluster-wide
+ * depth); for the in-memory queue it is this pod's own backlog.
+ */
+export function registerQueueInstruments(deps: {
+  queueManager: Pick<QueueManager, "getAggregatedStats">;
+}): void {
+  if (!provider) return;
+  const { queueManager } = deps;
+  const meter = metrics.getMeter(METER_NAME);
+
+  const jobs = meter.createObservableGauge("checkstack.queue.jobs", {
+    description:
+      "Queue jobs by state (pending backlog + processing), aggregated across all queues.",
+    unit: "{job}",
+  });
+  jobs.addCallback(async (result) => {
+    try {
+      const stats = await queueManager.getAggregatedStats();
+      result.observe(stats.pending, { state: "pending" });
+      result.observe(stats.processing, { state: "processing" });
+    } catch {
+      // Best-effort: a transient stats/Redis error just skips this scrape.
+    }
+  });
 }
