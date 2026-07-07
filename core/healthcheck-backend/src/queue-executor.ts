@@ -190,11 +190,38 @@ async function emitCheckCompletedHook({
 }
 
 /**
- * Payload for health check queue jobs
+ * Payload for health check queue jobs. Every job runs EXACTLY ONE environment
+ * slice - there is no in-job fan-out:
+ * - `environmentId: null` - the single ENV-LESS run of a system that has no
+ *   environments. Its write IS the system rollup, so it notifies directly.
+ * - `environmentId: <id>` - the run for that specific environment. The system
+ *   rollup is recomputed by the event-driven rollup consumer, not inline.
+ *
+ * The scheduling reconciler owns which (config, system, env) jobs exist; the
+ * `run_now` action enqueues one job per effective environment.
  */
 export interface HealthCheckJobPayload {
   configId: string;
   systemId: string;
+  environmentId: string | null;
+}
+
+/** Prefix every health-check recurring jobId shares (used for orphan scans). */
+export const HEALTH_CHECK_JOB_PREFIX = "healthcheck:";
+
+/**
+ * Build the recurring jobId for a check. The env-less form keeps the historical
+ * `healthcheck:${configId}:${systemId}` shape (so env-less systems' jobs are
+ * unchanged across the per-env migration); an env-scoped job appends the env id.
+ */
+export function encodeHealthCheckJobId(props: {
+  configId: string;
+  systemId: string;
+  environmentId: string | null;
+}): string {
+  const { configId, systemId, environmentId } = props;
+  const base = `${HEALTH_CHECK_JOB_PREFIX}${configId}:${systemId}`;
+  return environmentId === null ? base : `${base}:${environmentId}`;
 }
 
 /**
@@ -235,7 +262,11 @@ export async function scheduleHealthCheck(props: {
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
 
-  const jobId = `healthcheck:${payload.configId}:${payload.systemId}`;
+  const jobId = encodeHealthCheckJobId({
+    configId: payload.configId,
+    systemId: payload.systemId,
+    environmentId: payload.environmentId,
+  });
 
   logger?.debug(
     `Scheduling recurring health check ${jobId} with interval ${intervalSeconds}s, startDelay ${startDelay}s`,
@@ -721,13 +752,15 @@ async function executeHealthCheckJob(props: {
     // tables and is re-read every tick via the cross-plugin RPC, so every pod
     // resolves the same set (state-and-scale: no pod-local env state).
     let membership: Environment[] = [];
+    let catalogResolutionFailed = false;
     try {
       membership = await catalogClient.resolveSystemEnvironments({ systemId });
     } catch (error) {
-      // Fail-open: a catalog read failure must not wedge the check. Degrade
-      // to an env-less run (today's behavior) rather than skipping the tick.
+      // Fail-open: a catalog read failure must not wedge the check. We keep
+      // running the payload's env with degraded fields rather than skipping.
+      catalogResolutionFailed = true;
       logger.warn(
-        `Could not resolve environments for system ${systemId}, running env-less`,
+        `Could not resolve environments for system ${systemId}`,
         error,
       );
       // Observability: a `logger.warn` alone is easy to miss when a durable
@@ -751,36 +784,52 @@ async function executeHealthCheckJob(props: {
       environmentIds: configRow.environmentIds,
       membership,
     });
-    // `null` env => the single env-less run. Each entry => one run per env.
-    const runEnvironments: (EffectiveEnvironment | null)[] =
-      effectiveEnvs.length > 0 ? effectiveEnvs : [null];
 
-    // Execute one run per effective environment. Runs are independent (own
-    // status / latency / result) and persisted with their own
-    // `environmentId`. Phase 3b: each env-run mutates its OWN env-qualified
-    // `health` entity (`<systemId>::<environmentId>`, or the bare `<systemId>`
-    // for the env-less run) through a per-entity serializer; after the loop a
-    // single ROLLUP write for the bare `<systemId>` recomputes the worst-status
-    // rollup so system-level consumers keep firing off the unchanged id.
-    //
-    // Track whether ANY per-env run persisted (so the rollup write only runs
-    // when there is something to roll up — an all-failed loop still leaves the
-    // durable runs the per-env apply already wrote).
-    let anyEnvRunPersisted = false;
-    // Whether any PER-ENVIRONMENT notification was actually delivered this
-    // tick. The post-loop system-rollup notification describes the same
-    // underlying outage ("system unhealthy" vs. "system unhealthy in env X"),
-    // so when an environment already notified we suppress the rollup one to
-    // avoid the duplicate notification pair. We still record the rollup
-    // transition and broadcast SYSTEM_STATUS_CHANGED (SLO/dependency/frontend
-    // consumers depend on those) — only the redundant notification is dropped.
-    let anyEnvNotified = false;
-    // Whether this tick fans out into REAL environments (vs. the single
-    // env-less run). When env-less, the loop's lone write already targets the
-    // bare `<systemId>` entity — which IS the rollup — so no separate rollup
-    // write is needed. With real envs, the loop writes `<systemId>::<env>`
-    // entities and we recompute the bare-`<systemId>` rollup after the loop.
-    const isFannedOut = effectiveEnvs.length > 0;
+    // Select THE single environment this job runs (payload.environmentId). The
+    // reconciler owns which (config, system, env) jobs exist; here we only
+    // validate the payload's env against the CURRENT effective set so a stale
+    // job (env removed, or an env-less job for a system that has since gained
+    // envs) is skipped and the reconciler converges the set.
+    const targetEnvironmentId = payload.environmentId;
+    let singleEnvironment: EffectiveEnvironment | null;
+    if (targetEnvironmentId === null) {
+      // Env-less job: valid only while the system has no effective envs.
+      if (!catalogResolutionFailed && effectiveEnvs.length > 0) {
+        logger.debug(
+          `Env-less job for ${configId}/${systemId} is stale (system now has ${effectiveEnvs.length} env(s)); skipping`,
+        );
+        return;
+      }
+      singleEnvironment = null;
+    } else {
+      const found =
+        effectiveEnvs.find((env) => env.id === targetEnvironmentId) ?? null;
+      if (found) {
+        singleEnvironment = found;
+      } else if (catalogResolutionFailed) {
+        // Transient catalog failure: still run the probe, with degraded (empty)
+        // env fields rather than skipping the tick. The next tick recovers.
+        singleEnvironment = {
+          id: targetEnvironmentId,
+          name: targetEnvironmentId,
+          fields: {},
+        };
+      } else {
+        logger.debug(
+          `Env ${targetEnvironmentId} no longer effective for ${configId}/${systemId}; skipping`,
+        );
+        return;
+      }
+    }
+
+    // This job runs exactly this ONE env. `isFannedOut` is now a per-JOB
+    // property: an env-scoped run (`isFannedOut === true`) mutates the
+    // `<systemId>::<env>` entity and leaves the bare `<systemId>` ROLLUP to the
+    // event-driven rollup consumer; an env-less run mutates the bare entity
+    // (which IS the rollup) and so notifies + broadcasts SYSTEM_STATUS_CHANGED
+    // directly.
+    const runEnvironments: (EffectiveEnvironment | null)[] = [singleEnvironment];
+    const isFannedOut = targetEnvironmentId !== null;
     for (const environment of runEnvironments) {
       const environmentId = environment?.id ?? null;
       // The env-qualified entity id this run mutates. For the env-less run
@@ -1147,7 +1196,6 @@ async function executeHealthCheckJob(props: {
             error,
           ),
       });
-      anyEnvRunPersisted = true;
 
       logger.debug(
         `Health check ${configId} for system ${systemId} failed: ${finalError}`,
@@ -1182,7 +1230,7 @@ async function executeHealthCheckJob(props: {
           toStatus: newState.status,
         });
 
-        const envNotified = await notifyStateChange({
+        await notifyStateChange({
           notificationClient,
           systemId,
           systemName,
@@ -1197,7 +1245,6 @@ async function executeHealthCheckJob(props: {
           incidentClient,
           logger,
         });
-        anyEnvNotified = anyEnvNotified || envNotified;
       }
 
       // This environment's run is done (failed). Continue to the next
@@ -1305,7 +1352,6 @@ async function executeHealthCheckJob(props: {
       onError: (error) =>
         logger.warn(`Failed to mirror health entity for ${envEntityId}`, error),
     });
-    anyEnvRunPersisted = true;
 
     logger.debug(
       `Ran health check ${configId} for system ${systemId}: ${result.status}`,
@@ -1351,7 +1397,7 @@ async function executeHealthCheckJob(props: {
         toStatus: newState.status,
       });
 
-      const envNotified = await notifyStateChange({
+      await notifyStateChange({
         notificationClient,
         systemId,
         systemName,
@@ -1366,7 +1412,6 @@ async function executeHealthCheckJob(props: {
         incidentClient,
         logger,
       });
-      anyEnvNotified = anyEnvNotified || envNotified;
 
       // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
       // status, not a per-env status. When fanned out, the post-loop rollup
@@ -1398,90 +1443,14 @@ async function executeHealthCheckJob(props: {
     }
     } // end per-environment fan-out loop (for ... of runEnvironments)
 
-    // ── System rollup write (§7.4.3) ───────────────────────────────────────
-    // With real environments, the per-env writes mutated `<systemId>::<env>`
-    // entities; the bare `<systemId>` ROLLUP entity (the worst-status view
-    // every existing system-level consumer references) must now recompute so
-    // it diffs/emits its OWN `ENTITY_CHANGED`. The rollup `apply` does NO new
-    // durable insert (the runs are already persisted by the per-env writes) —
-    // it just recomputes + returns the all-runs rollup view so the framework
-    // diffs prev → next. Keyed on the bare `health:<systemId>` lock so it
-    // serializes against itself, independent of the per-env locks.
-    //
-    // Skipped when env-less (the loop's lone write already targeted the bare
-    // `<systemId>` entity = the rollup) or when nothing persisted (a fully
-    // isolated-failure loop left no new runs to roll up).
-    if (isFannedOut && anyEnvRunPersisted) {
-      const rollupEntityId = encodeHealthEntityId({ systemId });
-      let rollupState!: AggregatedHealth;
-      try {
-        await writeHealthEntity({
-          handle: getHealthEntity?.(),
-          entityId: rollupEntityId,
-          apply: async () => {
-            // No durable insert — recompute the all-runs (rollup) view.
-            rollupState = await service.getSystemHealthStatus(systemId);
-            return toHealthEntityView(rollupState);
-          },
-          serialize: makeHealthSerializer(rollupEntityId),
-          onError: (error) =>
-            logger.warn(
-              `Failed to mirror rollup health entity for ${systemId}`,
-              error,
-            ),
-        });
-
-        // Record the ROLLUP transition (environmentId = null) so system-level
-        // "in status since" reflects the aggregate, and notify on a real
-        // rollup status change so existing system-level notifications fire.
-        if (rollupState.status !== rollupPreviousStatus) {
-          await recordStateTransition({
-            db,
-            systemId,
-            configurationId: configId,
-            environmentId: null,
-            fromStatus: rollupPreviousStatus,
-            toStatus: rollupState.status,
-          });
-
-          // Deduplicate against the per-environment notifications: when an
-          // environment already notified this tick, the rollup notification
-          // ("system unhealthy") describes the same outage as the per-env one
-          // ("system unhealthy in env X") and would be a redundant second
-          // notification. Only fire the rollup notification when NO environment
-          // notified (e.g. every per-env delivery was suppressed/threw) so the
-          // user is never left entirely uninformed of a real status change.
-          if (shouldEmitRollupNotification({ anyEnvironmentNotified: anyEnvNotified })) {
-            await notifyStateChange({
-              notificationClient,
-              systemId,
-              systemName,
-              configurationId: configId,
-              previousStatus: rollupPreviousStatus,
-              newStatus: rollupState.status,
-              service,
-              catalogClient,
-              maintenanceClient,
-              incidentClient,
-              logger,
-            });
-          }
-
-          await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
-            systemId,
-            previousStatus: rollupPreviousStatus as HealthCheckStatus,
-            newStatus: rollupState.status,
-          });
-        }
-      } catch (rollupError) {
-        // The rollup is best-effort reactivity over already-durable runs; a
-        // failure must not wedge the (completed) per-env runs.
-        logger.error(
-          `Failed to write system rollup health for ${systemId}`,
-          rollupError,
-        );
-      }
-    }
+    // The system ROLLUP (bare `<systemId>` entity) for a fanned-out env-scoped
+    // run is recomputed ASYNCHRONOUSLY by the event-driven rollup consumer,
+    // which subscribes to per-env `health` entity changes and debounces per
+    // system (recordSystemRollupChange). Doing it inline per env-job would
+    // multiply the `health:<systemId>` advisory-lock load by the fan-out
+    // factor. An env-less run needs no separate rollup: its write above IS the
+    // bare `<systemId>` entity, and it already recorded its own transition,
+    // notification, and SYSTEM_STATUS_CHANGED signal.
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
