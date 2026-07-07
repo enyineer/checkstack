@@ -9,6 +9,9 @@
 "@checkstack/automation-frontend": minor
 "@checkstack/status-page-frontend": minor
 "@checkstack/maintenance-frontend": minor
+"@checkstack/frontend": patch
+"@checkstack/ui": patch
+"@checkstack/catalog-common": patch
 ---
 
 Derive frontend authorization gates from the RPC contract instead of hand-picking
@@ -49,3 +52,10 @@ hand-passed `objectType` / `parentType`. The remaining hooks (`useAccess`,
 are unchanged: they gate surfaces/rows/routes that are not tied to a single
 procedure. No gate became more restrictive; the create fix makes global
 parent-managers correctly see create controls they were wrongly denied.
+
+Patch-level adaptations to the `AccessApi` interface change (no behavior change of
+their own): the host app's fallback `AccessApi` stubs (`@checkstack/frontend`) and
+Storybook's mock (`@checkstack/ui`) drop `useCanCreate` and add the new
+`useProcedureAccess` / `useSurfaceAccess` members so they match the interface, and
+a `@checkstack/catalog-common` doc comment now names `useProcedureAccess` instead
+of the removed hook.
