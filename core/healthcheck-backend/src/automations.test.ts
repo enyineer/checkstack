@@ -10,6 +10,7 @@ import {
   assignmentArtifactType,
   checkFailedTrigger,
   createHealthCheckActions,
+  type HealthCheckActionDeps,
   healthCheckTriggers,
   systemDegradedTrigger,
   systemHealthChangedTrigger,
@@ -146,13 +147,18 @@ describe("assignmentArtifactType", () => {
 
 function makeService(args: {
   setAssignmentEnabledReturn?: boolean;
+  enqueueEnvironmentIds?: (string | null)[];
 }): HealthCheckService & { setMock: ReturnType<typeof mock> } {
   const setMock = mock(
     async (_sysId: string, _cfgId: string, _enabled: boolean) =>
       args.setAssignmentEnabledReturn ?? true,
   );
+  const resolveEnqueueEnvironmentIds = mock(
+    async () => args.enqueueEnvironmentIds ?? [null],
+  );
   return {
     setAssignmentEnabled: setMock,
+    resolveEnqueueEnvironmentIds,
     setMock,
   } as unknown as HealthCheckService & { setMock: ReturnType<typeof mock> };
 }
@@ -174,6 +180,11 @@ function makeQueueManager(): QueueEnqueueRecorder {
   return { queueManager, enqueueMock };
 }
 
+// The actions only need a catalog client shape for `run_now`, which delegates
+// environment resolution to the service mock, so a bare stub suffices.
+const catalogClientStub =
+  {} as unknown as HealthCheckActionDeps["catalogClient"];
+
 describe("healthcheck.run_now", () => {
   it("enqueues a one-off job and emits an enqueued=true artifact", async () => {
     const service = makeService({});
@@ -182,6 +193,7 @@ describe("healthcheck.run_now", () => {
     const [runNow] = createHealthCheckActions({
       service,
       queueManager,
+      catalogClient: catalogClientStub,
       emitHook: emitHook as never,
     });
 
@@ -198,9 +210,41 @@ describe("healthcheck.run_now", () => {
     expect(enqueueMock.mock.calls[0]![0]).toEqual({
       configId: "cfg-1",
       systemId: "sys-1",
+      environmentId: null,
     });
     // run_now doesn't mutate any DB row → no hook to emit.
     expect(emitHook).not.toHaveBeenCalled();
+  });
+
+  it("enqueues one job per effective environment slice", async () => {
+    const service = makeService({ enqueueEnvironmentIds: ["prod", "staging"] });
+    const { queueManager, enqueueMock } = makeQueueManager();
+    const emitHook = mock(async (_hook: unknown, _payload: unknown) => {});
+    const [runNow] = createHealthCheckActions({
+      service,
+      queueManager,
+      catalogClient: catalogClientStub,
+      emitHook: emitHook as never,
+    });
+
+    const result = await runNow!.execute({
+      ...ctxBase,
+      consumedArtifacts: {},
+      config: { systemId: "sys-1", configurationId: "cfg-1" } as never,
+    });
+
+    expect(result.success).toBe(true);
+    expect(enqueueMock).toHaveBeenCalledTimes(2);
+    expect(enqueueMock.mock.calls[0]![0]).toEqual({
+      configId: "cfg-1",
+      systemId: "sys-1",
+      environmentId: "prod",
+    });
+    expect(enqueueMock.mock.calls[1]![0]).toEqual({
+      configId: "cfg-1",
+      systemId: "sys-1",
+      environmentId: "staging",
+    });
   });
 });
 
@@ -212,6 +256,7 @@ describe("healthcheck.enable_assignment", () => {
     const [, enable] = createHealthCheckActions({
       service,
       queueManager,
+      catalogClient: catalogClientStub,
       emitHook: emitHook as never,
     });
 
@@ -236,6 +281,7 @@ describe("healthcheck.enable_assignment", () => {
     const [, enable] = createHealthCheckActions({
       service,
       queueManager,
+      catalogClient: catalogClientStub,
       emitHook: emitHook as never,
     });
 
@@ -260,6 +306,7 @@ describe("healthcheck.disable_assignment", () => {
     const [, , disable] = createHealthCheckActions({
       service,
       queueManager,
+      catalogClient: catalogClientStub,
       emitHook: emitHook as never,
     });
 

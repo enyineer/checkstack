@@ -52,6 +52,7 @@ import { parseHealthEntityId } from "./health-entity-id";
 import { stateThresholds } from "./state-thresholds-migrations";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
+import { resolveEffectiveEnvironments } from "./effective-environments";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type {
   HealthCheckRegistry,
@@ -263,6 +264,53 @@ export class HealthCheckService {
       .from(healthCheckConfigurations)
       .where(eq(healthCheckConfigurations.id, id));
     return config ? this.mapConfig(config) : undefined;
+  }
+
+  /**
+   * Resolve the per-environment slices a (system, config) assignment should
+   * enqueue for a ONE-OFF run (the `run_now` automation). Returns the list of
+   * environment ids to run, or `[null]` (a single env-less run) when the
+   * assignment has no effective environments. Mirrors the executor's fan-out
+   * resolution so a manual run covers exactly the same slices the recurring
+   * schedule does. Fail-open: a catalog resolution failure collapses to a
+   * single env-less run rather than enqueuing nothing.
+   */
+  async resolveEnqueueEnvironmentIds(props: {
+    systemId: string;
+    configurationId: string;
+    catalogClient: CatalogClient;
+    logger: Logger;
+  }): Promise<(string | null)[]> {
+    const { systemId, configurationId, catalogClient, logger } = props;
+    const [assignment] = await this.db
+      .select({ environmentIds: systemHealthChecks.environmentIds })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
+      );
+
+    let membership: Awaited<
+      ReturnType<CatalogClient["resolveSystemEnvironments"]>
+    > = [];
+    try {
+      membership = await catalogClient.resolveSystemEnvironments({ systemId });
+    } catch (error) {
+      logger.warn(
+        `run_now: could not resolve environments for system ${systemId}`,
+        error,
+      );
+    }
+
+    const effectiveEnvs = resolveEffectiveEnvironments({
+      environmentIds: assignment?.environmentIds,
+      membership,
+    });
+    return effectiveEnvs.length > 0
+      ? effectiveEnvs.map((env) => env.id)
+      : [null];
   }
 
   /**

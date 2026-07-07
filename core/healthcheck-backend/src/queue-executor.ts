@@ -23,7 +23,7 @@ import {
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, max } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
@@ -57,11 +57,9 @@ import { inflateConfigSecrets } from "./config-secrets";
 import { HealthCheckService } from "./service";
 import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
-import { computeScheduleJitterSeconds } from "./schedule-jitter";
 import type { HealthCheckCache } from "./cache";
 import {
   classifyTransition,
-  shouldEmitRollupNotification,
   shouldNotifyTransition,
 } from "./notification-policy";
 import { recordStateTransition } from "./state-transitions";
@@ -1666,128 +1664,3 @@ export async function setupHealthCheckWorker(props: {
   logger.debug("🎯 Health Check Worker subscribed to queue");
 }
 
-/**
- * Bootstrap health checks by enqueueing all enabled checks
- */
-export async function bootstrapHealthChecks(props: {
-  db: Db;
-  queueManager: QueueManager;
-  logger: Logger;
-}): Promise<void> {
-  const { db, queueManager, logger } = props;
-
-  // Get all enabled health checks
-  const enabledChecks = await db
-    .select({
-      systemId: systemHealthChecks.systemId,
-      configId: healthCheckConfigurations.id,
-      interval: healthCheckConfigurations.intervalSeconds,
-    })
-    .from(systemHealthChecks)
-    .innerJoin(
-      healthCheckConfigurations,
-      eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
-    )
-    .where(eq(systemHealthChecks.enabled, true));
-
-  // Get latest run timestamp for each system+config pair
-  // Using Drizzle's max() function for proper timestamp handling (no raw SQL)
-  const latestRuns = await db
-    .select({
-      systemId: healthCheckRuns.systemId,
-      configurationId: healthCheckRuns.configurationId,
-      maxTimestamp: max(healthCheckRuns.timestamp),
-    })
-    .from(healthCheckRuns)
-    .groupBy(healthCheckRuns.systemId, healthCheckRuns.configurationId);
-
-  // Create a lookup map for fast access
-  const lastRunMap = new Map<string, Date>();
-  for (const run of latestRuns) {
-    if (run.maxTimestamp) {
-      const key = `${run.systemId}:${run.configurationId}`;
-      lastRunMap.set(key, run.maxTimestamp);
-    }
-  }
-
-  logger.debug(`Bootstrapping ${enabledChecks.length} health checks`);
-
-  for (const check of enabledChecks) {
-    // Look up the last run from the map
-    const lastRunKey = `${check.systemId}:${check.configId}`;
-    const lastRun = lastRunMap.get(lastRunKey);
-
-    // Calculate delay for first run based on time since last run
-    let startDelay = 0;
-    if (lastRun) {
-      const elapsedSeconds = Math.floor(
-        (Date.now() - lastRun.getTime()) / 1000,
-      );
-      if (elapsedSeconds < check.interval) {
-        // Not overdue yet - schedule with remaining time
-        startDelay = check.interval - elapsedSeconds;
-      }
-      // Otherwise it's overdue - run immediately (startDelay = 0)
-      logger.debug(
-        `Health check ${check.configId}:${
-          check.systemId
-        } - lastRun: ${lastRun.toISOString()}, elapsed: ${elapsedSeconds}s, interval: ${
-          check.interval
-        }s, startDelay: ${startDelay}s`,
-      );
-    } else {
-      logger.debug(
-        `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`,
-      );
-    }
-
-    // De-cluster the herd: offset each check's first fire by a stable fraction
-    // of its interval so a synchronized set (all new / all overdue at boot, same
-    // interval) spreads out instead of firing on one phase. The queue anchors
-    // the recurrence to the first fire, so this offset persists for the schedule
-    // (see schedule-jitter.ts). Deterministic in the check key -> stable slot
-    // across restarts.
-    startDelay += computeScheduleJitterSeconds({
-      key: lastRunKey,
-      intervalSeconds: check.interval,
-    });
-
-    await scheduleHealthCheck({
-      queueManager,
-      payload: {
-        configId: check.configId,
-        systemId: check.systemId,
-      },
-      intervalSeconds: check.interval,
-      startDelay,
-      logger,
-    });
-  }
-
-  logger.debug(`✅ Bootstrapped ${enabledChecks.length} health checks`);
-
-  // Clean up orphaned jobs
-  const queue =
-    queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
-  const allRecurringJobs = await queue.listRecurringJobs();
-  const expectedJobIds = new Set(
-    enabledChecks.map(
-      (check) => `healthcheck:${check.configId}:${check.systemId}`,
-    ),
-  );
-
-  const orphanedJobs = allRecurringJobs.filter(
-    (jobId) => jobId.startsWith("healthcheck:") && !expectedJobIds.has(jobId),
-  );
-
-  for (const jobId of orphanedJobs) {
-    await queue.cancelRecurring(jobId);
-    logger.debug(`Removed orphaned job scheduler: ${jobId}`);
-  }
-
-  if (orphanedJobs.length > 0) {
-    logger.info(
-      `🧹 Cleaned up ${orphanedJobs.length} orphaned health check jobs`,
-    );
-  }
-}

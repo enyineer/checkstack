@@ -26,6 +26,8 @@
 import { z } from "zod";
 import { Versioned, type Hook } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
+import type { InferClient } from "@checkstack/common";
+import type { CatalogApi } from "@checkstack/catalog-common";
 import type {
   ActionDefinition,
   TriggerDefinition,
@@ -234,6 +236,7 @@ export const assignmentArtifactType = {
 export interface HealthCheckActionDeps {
   service: HealthCheckService;
   queueManager: QueueManager;
+  catalogClient: InferClient<typeof CatalogApi>;
   emitHook: <T>(hook: Hook<T>, payload: T) => Promise<void>;
 }
 
@@ -256,12 +259,25 @@ export function createHealthCheckActions(
       const queue = deps.queueManager.getQueue<HealthCheckJobPayload>(
         HEALTH_CHECK_QUEUE,
       );
-      await queue.enqueue({
-        configId: config.configurationId,
+      // Enqueue one one-off job per effective environment slice so a manual
+      // run covers exactly the same slices the recurring schedule does. An
+      // assignment with no effective environments enqueues a single env-less
+      // run (`environmentId: null`).
+      const environmentIds = await deps.service.resolveEnqueueEnvironmentIds({
         systemId: config.systemId,
+        configurationId: config.configurationId,
+        catalogClient: deps.catalogClient,
+        logger,
       });
+      for (const environmentId of environmentIds) {
+        await queue.enqueue({
+          configId: config.configurationId,
+          systemId: config.systemId,
+          environmentId,
+        });
+      }
       logger.info(
-        `Automation enqueued run for ${config.systemId}:${config.configurationId}`,
+        `Automation enqueued ${environmentIds.length} run(s) for ${config.systemId}:${config.configurationId}`,
       );
       return {
         success: true,

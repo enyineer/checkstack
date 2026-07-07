@@ -20,6 +20,15 @@ import { Versioned } from "@checkstack/backend-api";
  * System → healthchecks extension in isolation with mock services.
  */
 
+// The System extension's reconcile converges the per-env recurring jobs via
+// `reconcileHealthCheckJobs`. That path has its own dedicated tests
+// (schedule-reconciler.test.ts); here we stub it to a no-op so these tests can
+// focus on the association/disassociation logic without a full db+queue mock.
+const reconcileHealthCheckJobsMock = mock(async () => {});
+mock.module("./schedule-reconciler", () => ({
+  reconcileHealthCheckJobs: reconcileHealthCheckJobsMock,
+}));
+
 // ─── Mock Healthcheck Service ──────────────────────────────────────────────
 
 interface MockConfig {
@@ -232,6 +241,8 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
       getHealthCheckRegistry: () => mockHCRegistry as any,
       getCollectorRegistry: () => mockCollectorRegistry as any,
       getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
+      getDb: () => ({}) as any,
+      getCatalogClient: () => ({ resolveSystemEnvironments: async () => [] }) as any,
     };
     return buildHealthcheckKind(mockDeps);
   }
@@ -595,6 +606,8 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
       getHealthCheckRegistry: () => createMockHealthCheckRegistry() as never,
       getCollectorRegistry: () => createMockCollectorRegistry() as never,
       getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
+      getDb: () => ({}) as any,
+      getCatalogClient: () => ({ resolveSystemEnvironments: async () => [] }) as any,
     });
   }
 

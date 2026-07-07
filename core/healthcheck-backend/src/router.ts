@@ -213,21 +213,18 @@ export const createHealthCheckRouter = (opts: {
   }) => {
     await cache.invalidateSystem(args.systemId);
 
-    // If enabling the health check, schedule it immediately so it starts
-    // probing right away.
+    // If enabling the health check, reconcile this system's per-env recurring
+    // jobs immediately so it starts probing right away. A system-scoped
+    // reconcile only adds/updates (no orphan cleanup), so it needs no lock.
     if (args.enabled) {
-      const config = await service.getConfiguration(args.configurationId);
-      if (config) {
-        const { scheduleHealthCheck } = await import("./queue-executor");
-        await scheduleHealthCheck({
-          queueManager: args.queueManager,
-          payload: {
-            configId: config.id,
-            systemId: args.systemId,
-          },
-          intervalSeconds: config.intervalSeconds,
-        });
-      }
+      const { reconcileHealthCheckJobs } = await import("./schedule-reconciler");
+      await reconcileHealthCheckJobs({
+        db: database,
+        queueManager: args.queueManager,
+        catalogClient,
+        logger,
+        systemId: args.systemId,
+      });
     }
 
     // Notify subscribers (e.g., satellite-backend) that assignments changed.

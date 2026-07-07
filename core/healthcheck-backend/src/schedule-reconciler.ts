@@ -18,7 +18,7 @@
  * same plan. A full reconcile takes the `health:reconcile` advisory lock so only
  * one pod mutates the schedule at a time.
  */
-import { eq, and, max, desc } from "drizzle-orm";
+import { eq, and, max } from "drizzle-orm";
 import type { Logger, AdvisoryLockService } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { InferClient } from "@checkstack/common";
@@ -298,9 +298,7 @@ export async function reconcileHealthCheckJobs(props: {
   // A full reconcile mutates the whole schedule - serialize across pods. A
   // system-scoped reconcile only adds/updates that system's jobs (jobId-keyed,
   // idempotent), so it needs no cluster lock.
-  if (isFullReconcile && advisoryLock) {
-    await advisoryLock.withXactLock({ key: "health:reconcile", fn: run });
-  } else {
-    await run();
-  }
+  await (isFullReconcile && advisoryLock
+    ? advisoryLock.withXactLock({ key: "health:reconcile", fn: run })
+    : run());
 }

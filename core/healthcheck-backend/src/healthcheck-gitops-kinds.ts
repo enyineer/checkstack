@@ -25,7 +25,11 @@ import {
   enumField,
 } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
-import { scheduleHealthCheck } from "./queue-executor";
+import type { SafeDatabase } from "@checkstack/backend-api";
+import type { InferClient } from "@checkstack/common";
+import type { CatalogApi } from "@checkstack/catalog-common";
+import type * as schema from "./schema";
+import { reconcileHealthCheckJobs } from "./schedule-reconciler";
 
 /**
  * Lazy accessor functions — populated during init(), consumed during reconcile.
@@ -37,6 +41,8 @@ interface HealthcheckGitOpsKindsDeps {
   getHealthCheckRegistry: () => HealthCheckRegistry;
   getCollectorRegistry: () => CollectorRegistry;
   getQueueManager: () => QueueManager;
+  getDb: () => SafeDatabase<typeof schema>;
+  getCatalogClient: () => InferClient<typeof CatalogApi>;
 }
 
 // ─── Healthcheck Spec Schema ───────────────────────────────────────────────
@@ -382,18 +388,16 @@ export function buildSystemHealthcheckExtension(
           notificationPolicy,
         });
 
-        // Retrieve config to get the interval for scheduling
-        const config = await service.getConfiguration(configId);
-        if (config) {
-          await scheduleHealthCheck({
-            queueManager: deps.getQueueManager(),
-            payload: {
-              configId,
-              systemId: systemEntityId,
-            },
-            intervalSeconds: config.intervalSeconds,
-          });
-        }
+        // Reconcile this system's per-env recurring jobs so the new
+        // association starts probing right away (system-scoped: add/update
+        // only, orphan cleanup is owned by the periodic full reconcile).
+        await reconcileHealthCheckJobs({
+          db: deps.getDb(),
+          queueManager: deps.getQueueManager(),
+          catalogClient: deps.getCatalogClient(),
+          logger: context.logger,
+          systemId: systemEntityId,
+        });
 
         context.logger.info(
           `GitOps: associated ${entry.ref.kind} "${entry.ref.name}" (${configId}) with System "${entity.metadata.name}" and scheduled execution`,
