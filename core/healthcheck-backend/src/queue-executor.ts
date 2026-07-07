@@ -306,16 +306,45 @@ export async function recomputeSystemRollupHealth(args: {
   getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
   advisoryLock: AdvisoryLockService;
   logger: Logger;
-}): Promise<void> {
-  const { systemId, service, getHealthEntity, advisoryLock, logger } = args;
+  /**
+   * When provided, a real rollup status change (prev → next) also invalidates
+   * the per-system cache and broadcasts `SYSTEM_STATUS_CHANGED`, matching the
+   * system-level signal the pre-per-env inline rollup fired. Omit for the pure
+   * entity-only recompute (the framework's `ENTITY_CHANGED` still drives
+   * SLO/dependency/triggers regardless).
+   */
+  signalService?: SignalService;
+  cache?: HealthCheckCache;
+}): Promise<{ previousStatus: HealthCheckStatus; newStatus: HealthCheckStatus } | undefined> {
+  const {
+    systemId,
+    service,
+    getHealthEntity,
+    advisoryLock,
+    logger,
+    signalService,
+    cache,
+  } = args;
   const rollupEntityId = encodeHealthEntityId({ systemId });
   const makeHealthSerializer = createHealthEntitySerializer({ advisoryLock });
+  // The system-level signal + cache invalidation are only needed when a caller
+  // wants them (the rollup consumer). The framework snapshots its OWN prev
+  // inside `handle.mutate` for the authoritative `ENTITY_CHANGED`, so the
+  // pure entity-recompute path (pause/resume) skips the extra prev read.
+  const wantsSignal = signalService !== undefined || cache !== undefined;
   try {
+    let previousStatus: HealthCheckStatus | undefined;
+    if (wantsSignal) {
+      const previousState = await service.getSystemHealthStatus(systemId);
+      previousStatus = previousState.status;
+    }
+    let newStatus: HealthCheckStatus | undefined = previousStatus;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
         const rollupState = await service.getSystemHealthStatus(systemId);
+        newStatus = rollupState.status;
         return toHealthEntityView(rollupState);
       },
       serialize: makeHealthSerializer(rollupEntityId),
@@ -325,6 +354,23 @@ export async function recomputeSystemRollupHealth(args: {
           error,
         ),
     });
+
+    if (
+      wantsSignal &&
+      previousStatus !== undefined &&
+      newStatus !== undefined &&
+      newStatus !== previousStatus
+    ) {
+      await cache?.invalidateSystem(systemId);
+      await signalService?.broadcast(SYSTEM_STATUS_CHANGED, {
+        systemId,
+        previousStatus,
+        newStatus,
+      });
+    }
+    return previousStatus !== undefined && newStatus !== undefined
+      ? { previousStatus, newStatus }
+      : undefined;
   } catch (error) {
     // A recompute failure must never break the pause/resume RPC. The
     // durable tables still hold the authoritative runs; the next run tick
@@ -333,6 +379,7 @@ export async function recomputeSystemRollupHealth(args: {
       `Failed to recompute system rollup health for ${systemId}`,
       error,
     );
+    return undefined;
   }
 }
 
