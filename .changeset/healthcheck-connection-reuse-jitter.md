@@ -1,5 +1,6 @@
 ---
 "@checkstack/queue-memory-backend": patch
+"@checkstack/queue-bullmq-backend": patch
 "@checkstack/healthcheck-backend": patch
 "@checkstack/healthcheck-http-backend": patch
 ---
@@ -17,6 +18,14 @@ slow targets, CPU, or the database.
   first execution by `startDelay` and anchors the recurrence to that first fire,
   matching the queue contract and the BullMQ backend's intent. Jobs scheduled
   without `startDelay` are unchanged (first run is immediate).
+- **The BullMQ queue now honors `startDelay` in `scheduleRecurring` too.** It also
+  dropped `startDelay`, and its `every` scheduler captures the grid phase from
+  whenever `upsertJobScheduler` first runs - so a bootstrap loop scheduling many
+  equal-interval jobs at ~the same instant handed them all the same phase.
+  `scheduleRecurring` now pins the first fire to `now + startDelay` via the
+  scheduler's `startDate`, which shifts the whole recurrence, so the same jittered
+  `startDelay` de-clusters checks on the Redis backend identically to the
+  in-memory one. Cron schedules (absolute times) are unaffected.
 - **The health-check scheduler jitters each check's first fire** by a small,
   deterministic fraction of its interval (stable across restarts, keyed on the
   check). A synchronized set of checks now spreads across the interval instead of

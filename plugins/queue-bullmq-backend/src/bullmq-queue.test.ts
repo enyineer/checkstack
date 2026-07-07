@@ -29,6 +29,17 @@ interface CapturedWorkerOptions {
 
 const workerOptionsCalls: CapturedWorkerOptions[] = [];
 
+interface CapturedSchedulerCall {
+  jobSchedulerId: string;
+  repeat: {
+    every?: number;
+    pattern?: string;
+    startDate?: number | string | Date;
+  };
+}
+
+const schedulerCalls: CapturedSchedulerCall[] = [];
+
 class FakeWorker {
   constructor(
     _name: string,
@@ -48,6 +59,12 @@ class FakeQueue {
     public name: string,
     public opts: unknown,
   ) {}
+  async upsertJobScheduler(
+    jobSchedulerId: string,
+    repeat: CapturedSchedulerCall["repeat"],
+  ): Promise<void> {
+    schedulerCalls.push({ jobSchedulerId, repeat });
+  }
 }
 
 mock.module("bullmq", () => ({
@@ -100,5 +117,60 @@ describe("BullMQQueue worker durability tuning (§15.4)", () => {
       expect(opts.stalledInterval).toBe(30_000);
       expect(opts.maxStalledCount).toBe(1);
     }
+  });
+});
+
+describe("BullMQQueue recurring startDelay (herd de-clustering)", () => {
+  beforeEach(() => {
+    schedulerCalls.length = 0;
+  });
+
+  it("pins the first fire to now + startDelay via startDate on the every path", async () => {
+    const queue = new BullMQQueue<{ v: number }>("test-queue", config);
+
+    const before = Date.now();
+    await queue.scheduleRecurring(
+      { v: 1 },
+      { jobId: "check:a", intervalSeconds: 60, startDelay: 12 },
+    );
+    const after = Date.now();
+
+    expect(schedulerCalls).toHaveLength(1);
+    const { repeat } = schedulerCalls[0]!;
+    expect(repeat.every).toBe(60_000);
+    // startDate is a future ms timestamp ~ now + 12s (bracketed by the call).
+    expect(typeof repeat.startDate).toBe("number");
+    const startDate = repeat.startDate as number;
+    expect(startDate).toBeGreaterThanOrEqual(before + 12_000);
+    expect(startDate).toBeLessThanOrEqual(after + 12_000);
+  });
+
+  it("omits startDate when no startDelay is given (unchanged immediate first fire)", async () => {
+    const queue = new BullMQQueue<{ v: number }>("test-queue", config);
+
+    await queue.scheduleRecurring(
+      { v: 1 },
+      { jobId: "check:b", intervalSeconds: 30 },
+    );
+
+    expect(schedulerCalls).toHaveLength(1);
+    const { repeat } = schedulerCalls[0]!;
+    expect(repeat.every).toBe(30_000);
+    expect(repeat.startDate).toBeUndefined();
+  });
+
+  it("does not apply startDelay to a cron schedule", async () => {
+    const queue = new BullMQQueue<{ v: number }>("test-queue", config);
+
+    await queue.scheduleRecurring(
+      { v: 1 },
+      { jobId: "check:c", cronPattern: "0 * * * *", startDelay: 12 },
+    );
+
+    expect(schedulerCalls).toHaveLength(1);
+    const { repeat } = schedulerCalls[0]!;
+    expect(repeat.pattern).toBe("0 * * * *");
+    expect(repeat.every).toBeUndefined();
+    expect(repeat.startDate).toBeUndefined();
   });
 });
