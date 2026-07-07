@@ -16,6 +16,11 @@
  *   a `SLOW_FRAC` of them are unreachable (they abort at the timeout, pinning a
  *   concurrency slot for its full duration). Watch `pending` (backlog) grow while
  *   `lockWait` stays 0 - i.e. the first ceiling is slot saturation, not the DB.
+ *   Set `BULKHEAD=1` (optional `LANE_CAP`) to engage the real slow-check lane +
+ *   adaptive timeout (`evaluateSlowCheckAdmission`): a suspect system is admitted
+ *   to a capped lane or DEFERRED (recording nothing), so slot-hogging checks stop
+ *   starving the healthy ones and the backlog stays bounded. Compare the
+ *   `finalBacklog` of a `BULKHEAD=0` vs `BULKHEAD=1` run at the same load.
  *
  *   MODE=lockpool - the xact-lock ceiling. Fire M rollup writes (advisory
  *   xact-lock + scoped tx) at increasing concurrency K against the lock pool
@@ -51,6 +56,9 @@ import {
   registerQueueInstruments,
 } from "../core/backend/src/instrumentation-sdk.ts";
 import { computeScheduleJitterSeconds } from "../core/healthcheck-backend/src/schedule-jitter.ts";
+import { SuspectLane } from "../core/healthcheck-backend/src/suspect-lane.ts";
+import { evaluateSlowCheckAdmission } from "../core/healthcheck-backend/src/slow-check-admission.ts";
+import type { RecentRun } from "../core/healthcheck-backend/src/slow-check-classifier.ts";
 
 /**
  * The subset of a pooled pg client the harness uses. Declared locally rather
@@ -201,6 +209,15 @@ async function runLoad(): Promise<void> {
   const SLOW_FRAC = num("SLOW_FRAC", 0.2);
   const TIMEOUT = num("TIMEOUT", 5000);
   const DURATION = num("DURATION", 35);
+  // BULKHEAD=1 engages the real slow-check lane + adaptive timeout in the
+  // consume handler (via evaluateSlowCheckAdmission), so a suspect (repeatedly
+  // slow-failing) system is admitted to a capped lane or DEFERRED — freeing
+  // slots for healthy checks. LANE_CAP sizes the pod-local lane.
+  const BULKHEAD = num("BULKHEAD", 0) === 1;
+  const LANE_CAP = Math.max(1, num("LANE_CAP", 3));
+  const lane = new SuspectLane(LANE_CAP);
+  const recentBySystem = new Map<string, RecentRun[]>();
+  let deferrals = 0;
   process.env.CHECKSTACK_METRICS_ENABLED = "1";
   process.env.CHECKSTACK_METRICS_PORT =
     process.env.CHECKSTACK_METRICS_PORT ?? "19464";
@@ -254,24 +271,62 @@ async function runLoad(): Promise<void> {
 
   await queue.consume(
     async (job) => {
+      const sys = job.data.systemId;
+      let effectiveTimeout = TIMEOUT;
+      let laneKey: string | undefined;
+      if (BULKHEAD) {
+        const decision = evaluateSlowCheckAdmission({
+          runtime: {
+            lane,
+            recentRunsLimit: 20,
+            classifierParams: {
+              consecutiveFailures: 3,
+              slowFraction: 0.8,
+              recoveryProbeEvery: 5,
+            },
+            safetyFactor: 1.5,
+            absoluteFloorMs: 1000,
+          },
+          recentRuns: recentBySystem.get(sys) ?? [],
+          configId: "cfg",
+          systemId: sys,
+          environmentId: null,
+          executionTimeoutMs: TIMEOUT,
+        });
+        if (decision.kind === "defer") {
+          deferrals++; // record nothing — the slot is freed for healthy checks
+          return;
+        }
+        effectiveTimeout = decision.effectiveTimeoutMs;
+        laneKey = decision.laneKey;
+      }
       const t0 = performance.now();
-      const client = await strategy.createClient({ timeout: TIMEOUT });
+      let status: "healthy" | "unhealthy" = "healthy";
+      const client = await strategy.createClient({ timeout: effectiveTimeout });
       try {
         await client.client.exec({
           url: job.data.slow ? slowUrl : fastUrl,
           method: "GET",
-          timeout: TIMEOUT,
+          timeout: effectiveTimeout,
         });
       } catch {
         timeouts++; // aborted/timed out - a completed (failed) check; slot held
+        status = "unhealthy";
       } finally {
         client.close();
       }
-      await rollupWrite(job.data.systemId, 0);
+      await rollupWrite(sys, 0);
       const dt = performance.now() - t0;
       latencies.push(dt);
       completions++;
-      healthcheckExecutionHistogram().record(dt, { status: "healthy" });
+      if (BULKHEAD) {
+        const arr = recentBySystem.get(sys) ?? [];
+        arr.unshift({ environmentId: null, status, latencyMs: dt, timestamp: new Date() });
+        if (arr.length > 20) arr.pop();
+        recentBySystem.set(sys, arr);
+        if (laneKey) lane.release(laneKey);
+      }
+      healthcheckExecutionHistogram().record(dt, { status });
     },
     { consumerGroup: "harness", maxRetries: 0 },
   );
@@ -280,6 +335,23 @@ async function runLoad(): Promise<void> {
   for (let i = 0; i < N; i++) {
     const systemId = `sys-${i}`;
     const slow = i / N < SLOW_FRAC;
+    // Seed the slow systems' recent history as already slow-failing so the
+    // bulkhead classifies them suspect from the FIRST tick — the realistic
+    // "host was already down when this pod started" case. Without seeding,
+    // the in-memory history takes ~3 five-second runs (~15s+ under backlog) to
+    // warm up, which a short harness run never reaches; production has the
+    // durable history on tick one.
+    if (BULKHEAD && slow) {
+      recentBySystem.set(
+        systemId,
+        Array.from({ length: 3 }, () => ({
+          environmentId: null,
+          status: "unhealthy" as const,
+          latencyMs: TIMEOUT,
+          timestamp: new Date(),
+        })),
+      );
+    }
     const startDelay = computeScheduleJitterSeconds({
       key: systemId,
       intervalSeconds: INTERVAL,
@@ -291,7 +363,8 @@ async function runLoad(): Promise<void> {
   }
 
   console.log(
-    `MODE=load N=${N} interval=${INTERVAL}s conc=${CONC} slowFrac=${SLOW_FRAC} timeout=${TIMEOUT}ms duration=${DURATION}s`,
+    `MODE=load N=${N} interval=${INTERVAL}s conc=${CONC} slowFrac=${SLOW_FRAC} timeout=${TIMEOUT}ms duration=${DURATION}s ` +
+      `bulkhead=${BULKHEAD ? `on(cap=${LANE_CAP})` : "off"}`,
   );
   console.log(`offered load = ${(N / INTERVAL).toFixed(1)} checks/s`);
   console.log("t  pending processing lockWait admWait  done/s  p50  p99");
@@ -309,7 +382,8 @@ async function runLoad(): Promise<void> {
 
   const finalStats = await queue.getStats();
   console.log(
-    `\nSUMMARY: completions=${completions} timeouts=${timeouts} p50=${pct(latencies, 50)}ms p99=${pct(latencies, 99)}ms finalBacklog=${finalStats.pending}`,
+    `\nSUMMARY: completions=${completions} timeouts=${timeouts} deferrals=${deferrals} ` +
+      `p50=${pct(latencies, 50)}ms p99=${pct(latencies, 99)}ms finalBacklog=${finalStats.pending}`,
   );
 
   await queue.stop();
