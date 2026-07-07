@@ -27,7 +27,7 @@
 /** Default multiplier applied to the healthy-latency baseline. */
 export const DEFAULT_TIMEOUT_SAFETY_FACTOR = 1.5;
 /** Default absolute lower bound; the timeout is never shrunk below this. */
-export const DEFAULT_TIMEOUT_ABSOLUTE_FLOOR_MS = 1_000;
+export const DEFAULT_TIMEOUT_ABSOLUTE_FLOOR_MS = 1000;
 
 export interface AdaptiveTimeoutInput {
   /** The user-configured execution timeout (ms). The shrink never exceeds it. */
