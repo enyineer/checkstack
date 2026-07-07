@@ -32,6 +32,20 @@ const SystemCheckStatusSchema = z.object({
   status: HealthCheckStatusSchema,
   runsConsidered: z.number(),
   lastRunAt: z.date().optional(),
+  /**
+   * Number of environment slices this check CURRENTLY fans out to (worst-wins
+   * rollup only). A check with no environments (or opted out) is a single
+   * slice, so this is always >= 1. Dashboards sum this across checks to report
+   * the honest denominator: a 1-check/3-env system contributes 3, not 1. In a
+   * single-env (non-rollup) evaluation this is always 1.
+   */
+  sliceCount: z.number(),
+  /**
+   * How many of this check's {@link sliceCount} environment slices are
+   * currently non-healthy. Dashboards sum this across checks for the numerator
+   * of "X of Y checks failing".
+   */
+  failingSliceCount: z.number(),
 });
 
 /**
@@ -816,6 +830,15 @@ export const healthCheckContract = {
             status: HealthCheckStatusSchema,
             stateThresholds: StateThresholdsSchema.optional(),
             /**
+             * Timestamp of the most recent HEALTHY run across every environment
+             * of this assignment, or `undefined` when the check has never had a
+             * successful run. Computed independently of the (bounded) sparkline
+             * window, so it stays accurate even when a check has been failing
+             * for far longer than `recentRuns` covers — letting the UI show
+             * "healthy until <time>" / "failing since <time>" at a glance.
+             */
+            lastSuccessfulRunAt: z.date().optional(),
+            /**
              * Recent runs across all environments of this assignment, newest
              * first then chronologically reversed for sparkline display
              * (preserves the pre-multi-env contract;_safe_ for single-env
@@ -847,6 +870,13 @@ export const healthCheckContract = {
               z.object({
                 environmentId: z.string().nullable(),
                 status: HealthCheckStatusSchema,
+                /**
+                 * Most recent HEALTHY run for THIS environment slice, or
+                 * `undefined` when this environment has never succeeded.
+                 * Computed independently of the sparkline window so a per-env
+                 * row can show since when that specific environment degraded.
+                 */
+                lastSuccessfulRunAt: z.date().optional(),
                 recentRuns: z.array(
                   z.object({
                     id: z.string(),

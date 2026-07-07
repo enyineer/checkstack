@@ -20,6 +20,8 @@ const unhealthyStatuses: HealthcheckSignalStatuses = {
         configurationName: "Ping",
         status: "unhealthy",
         runsConsidered: 5,
+        sliceCount: 1,
+        failingSliceCount: 1,
       },
     ],
   },

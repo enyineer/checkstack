@@ -54,3 +54,29 @@ export function shouldNotifyTransition(
   if (kind === "deescalation" && policy.suppressDeEscalations) return false;
   return true;
 }
+
+/**
+ * Decide whether the system-ROLLUP notification should fire for a fanned-out
+ * system in a given tick.
+ *
+ * When a check fans out to environments, each environment that changes status
+ * emits its own notification ("system unhealthy in env X"). The post-loop
+ * rollup transition ("system unhealthy") then describes the SAME underlying
+ * outage, so firing it too produces the duplicate notification pair users see.
+ *
+ * The rollup change is always driven by the very environment(s) that already
+ * notified this tick, so the rollup notification is redundant whenever any
+ * environment notified. It is only emitted as a fallback when NO environment
+ * notified (e.g. every per-env delivery was suppressed or threw) so a real
+ * system status change never goes entirely unannounced.
+ *
+ * The rollup TRANSITION record and the `SYSTEM_STATUS_CHANGED` signal are
+ * emitted regardless — only the user-facing notification is deduplicated.
+ */
+export function shouldEmitRollupNotification({
+  anyEnvironmentNotified,
+}: {
+  anyEnvironmentNotified: boolean;
+}): boolean {
+  return !anyEnvironmentNotified;
+}

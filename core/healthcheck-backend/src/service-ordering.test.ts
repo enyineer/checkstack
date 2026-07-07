@@ -64,6 +64,10 @@ describe("HealthCheckService data ordering", () => {
     const whereMock = mock(() => ({
       orderBy: orderByMock,
       limit: mock(createLimitResult),
+      // getSystemHealthOverview's "last successful run" query terminates in
+      // `.where(...).groupBy(environmentId)` (a max-per-env aggregate). These
+      // ordering tests don't assert last-success, so return no groups.
+      groupBy: mock(() => Promise.resolve([])),
     }));
     const innerJoinMock = mock(() => ({
       where: mock(() => Promise.resolve([...mockAssociations])),

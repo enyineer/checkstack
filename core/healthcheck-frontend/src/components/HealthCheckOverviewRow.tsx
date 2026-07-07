@@ -24,6 +24,14 @@ export interface HealthCheckOverviewItem {
   paused: boolean;
   intervalSeconds: number;
   lastRunAt?: Date;
+  /**
+   * Timestamp of the most recent HEALTHY run for this row (check, or check+env
+   * when fanned out). Computed on the backend outside the sparkline window, so
+   * it stays accurate for long-failing checks. Absent when the row has never
+   * had a successful run. Surfaced (for non-healthy rows) so operators can see
+   * at a glance since when the slice has been degraded/unhealthy.
+   */
+  lastSuccessfulRunAt?: Date;
   stateThresholds?: StateThresholds;
   recentStatusHistory: HealthCheckStatus[];
   /**
@@ -69,6 +77,15 @@ export function formatCompactTime(date: Date | undefined): string {
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   return `${days}d`;
+}
+
+/**
+ * Compact "since when has this been failing" label derived from the last
+ * successful run. `undefined` timestamp means the row has never succeeded.
+ */
+export function formatLastHealthy(date: Date | undefined): string {
+  if (!date) return "Never healthy";
+  return `Healthy until ${formatCompactTime(date)} ago`;
 }
 
 /**
@@ -131,6 +148,22 @@ export const HealthCheckOverviewRow: React.FC<{
           label={displayLabel}
           className="self-start"
         />
+        {/* Since-when indicator: for a live, currently-unhealthy/degraded row,
+            surface when it was last healthy so operators see how long it has
+            been failing without opening the drawer. Hidden for healthy/paused
+            rows (nothing to explain) and for orphaned slices (no longer live). */}
+        {!item.paused && !item.isOrphaned && item.state !== "healthy" && (
+          <span
+            className="text-[11px] leading-none text-muted-foreground"
+            title={
+              item.lastSuccessfulRunAt
+                ? `Last healthy run: ${item.lastSuccessfulRunAt.toLocaleString()}`
+                : "No successful run recorded yet"
+            }
+          >
+            {formatLastHealthy(item.lastSuccessfulRunAt)}
+          </span>
+        )}
       </div>
 
       {/* Recent-history hero figure */}

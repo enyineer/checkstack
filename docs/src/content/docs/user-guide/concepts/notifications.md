@@ -17,6 +17,9 @@ In-app is always on. External delivery is opt-in per user, per strategy.
 > [!NOTE]
 > Most notifications collapse into a single in-app card when they share a "collapse key". For example, multiple health-state transitions for the same system (degraded -> unhealthy -> healthy) appear as one card you can expand, instead of three separate entries.
 
+> [!NOTE]
+> When a health check fans out across environments, a change in one environment sends one notification scoped to that environment ("... is unhealthy in environment X"). The overall system rollup describes the same outage, so it is not sent as a second, duplicate notification - you get one notification per affected environment, not one per environment plus a system-wide one. Systems without environments still get the single system-level notification. See [Monitor a service across staging and production](/checkstack/user-guide/guides/monitor-across-environments/).
+
 ## Who gets what: subscriptions
 
 The model is "subscribe by target". A **target** is a resource of a known kind (a system, a group, "globally"). A **subscription** says "this user wants to be notified about events of this kind for this target".

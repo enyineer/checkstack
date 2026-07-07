@@ -5,12 +5,33 @@ import {
   HEALTHCHECK_SIGNAL_SOURCE_ID,
   type HealthcheckSignalStatuses,
 } from "./system-signals";
+import type { HealthCheckStatus } from "./schemas";
 import { healthCheckAccess } from "./access";
 
-const baseCheck = {
+/**
+ * Build a check status. By default a check is a SINGLE slice (env-less or
+ * single-env), so `sliceCount` is 1 and it fails as a whole — matching the
+ * non-fanned behavior. Fan-out cases pass `sliceCount`/`failingSliceCount`
+ * explicitly to model a check spanning several environments.
+ */
+const mkCheck = ({
+  configurationId,
+  status,
+  sliceCount = 1,
+  failingSliceCount = status === "healthy" ? 0 : 1,
+}: {
+  configurationId: string;
+  status: HealthCheckStatus;
+  sliceCount?: number;
+  failingSliceCount?: number;
+}) => ({
+  configurationId,
   configurationName: "Ping",
   runsConsidered: 5,
-};
+  status,
+  sliceCount,
+  failingSliceCount,
+});
 
 describe("deriveHealthcheckSignals", () => {
   it("returns no signals for an empty status map", () => {
@@ -23,7 +44,7 @@ describe("deriveHealthcheckSignals", () => {
         status: "healthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "healthy" }),
         ],
       },
     };
@@ -36,8 +57,8 @@ describe("deriveHealthcheckSignals", () => {
         status: "unhealthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "unhealthy" },
-          { ...baseCheck, configurationId: "c2", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "unhealthy" }),
+          mkCheck({ configurationId: "c2", status: "healthy" }),
         ],
       },
     };
@@ -65,7 +86,7 @@ describe("deriveHealthcheckSignals", () => {
         status: "degraded",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c9", status: "degraded" },
+          mkCheck({ configurationId: "c9", status: "degraded" }),
         ],
       },
     };
@@ -89,8 +110,8 @@ describe("deriveHealthcheckSignals", () => {
         status: "unhealthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "healthy" },
-          { ...baseCheck, configurationId: "c2", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "healthy" }),
+          mkCheck({ configurationId: "c2", status: "healthy" }),
         ],
         override: {
           status: "unhealthy",
@@ -117,8 +138,8 @@ describe("deriveHealthcheckSignals", () => {
         status: "unhealthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "degraded" },
-          { ...baseCheck, configurationId: "c2", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "degraded" }),
+          mkCheck({ configurationId: "c2", status: "healthy" }),
         ],
         override: {
           status: "unhealthy",
@@ -148,8 +169,8 @@ describe("deriveHealthcheckSignals", () => {
         status: "unhealthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "unhealthy" },
-          { ...baseCheck, configurationId: "c2", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "unhealthy" }),
+          mkCheck({ configurationId: "c2", status: "healthy" }),
         ],
         override: {
           status: "degraded",
@@ -168,20 +189,88 @@ describe("deriveHealthcheckSignals", () => {
     expect(result.s5[0].href).toBe("/healthcheck/history/s5/c1");
   });
 
+  it("counts fanned-out environment slices, not checks (1 check / 3 envs, 1 failing)", () => {
+    // A single check fanning out to three environments with one env failing is
+    // "1 of 3", NOT "1 of 1". The check's rollup status is degraded/unhealthy
+    // but its denominator must reflect the environment fan-out.
+    const statuses: HealthcheckSignalStatuses = {
+      s1: {
+        status: "unhealthy",
+        evaluatedAt: new Date(),
+        checkStatuses: [
+          mkCheck({
+            configurationId: "c1",
+            status: "unhealthy",
+            sliceCount: 3,
+            failingSliceCount: 1,
+          }),
+        ],
+      },
+    };
+
+    const result = deriveHealthcheckSignals({ statuses });
+
+    expect(result.s1[0].detail).toBe("1 of 3 checks failing");
+    expect(result.s1[0].href).toBe("/healthcheck/history/s1/c1");
+  });
+
+  it("sums slices across checks (one 3-env check + one 1-env check, 1 failing = 1 of 4)", () => {
+    const statuses: HealthcheckSignalStatuses = {
+      s1: {
+        status: "unhealthy",
+        evaluatedAt: new Date(),
+        checkStatuses: [
+          mkCheck({
+            configurationId: "c1",
+            status: "unhealthy",
+            sliceCount: 3,
+            failingSliceCount: 1,
+          }),
+          mkCheck({ configurationId: "c2", status: "healthy" }), // 1 env, ok
+        ],
+      },
+    };
+
+    const result = deriveHealthcheckSignals({ statuses });
+
+    expect(result.s1[0].detail).toBe("1 of 4 checks failing");
+  });
+
+  it("counts multiple failing environments within one fanned-out check (2 of 3)", () => {
+    const statuses: HealthcheckSignalStatuses = {
+      s1: {
+        status: "unhealthy",
+        evaluatedAt: new Date(),
+        checkStatuses: [
+          mkCheck({
+            configurationId: "c1",
+            status: "unhealthy",
+            sliceCount: 3,
+            failingSliceCount: 2,
+          }),
+        ],
+      },
+    };
+
+    const result = deriveHealthcheckSignals({ statuses });
+
+    expect(result.s1[0].detail).toBe("2 of 3 checks failing");
+  });
+
   it("only includes problem systems when mixed with healthy ones", () => {
     const statuses: HealthcheckSignalStatuses = {
       healthy1: {
         status: "healthy",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c1", status: "healthy" },
+          mkCheck({ configurationId: "c1", status: "healthy" }),
         ],
       },
       bad1: {
         status: "degraded",
         evaluatedAt: new Date(),
         checkStatuses: [
-          { ...baseCheck, configurationId: "c2", status: "degraded" },
+          mkCheck({ configurationId: "c2", status: "degraded" }),
         ],
       },
     };
