@@ -307,7 +307,14 @@ describe("HttpHealthCheckStrategy", () => {
   });
 
   describe("connect-timing probe sampling", () => {
-    it("probes at most once per origin within the TTL, reusing the sample for the connect/tls timing", async () => {
+    // The probe refreshes the per-origin sample in the BACKGROUND (never on the
+    // request critical path), so `flush` lets the fire-and-forget probe resolve
+    // and populate the cache before the next assertion.
+    const flush = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+
+    it("probes at most once per origin within the TTL, caching the connect/tls timing for later runs", async () => {
       let clock = 1_000_000;
       let probeCalls = 0;
       const sampledStrategy = new HttpHealthCheckStrategy(loopbackLookup, {
@@ -322,17 +329,17 @@ describe("HttpHealthCheckStrategy", () => {
         timeout: 5000,
       });
 
-      // First run to this origin: probes once and reports its connect timing.
+      // First run to this origin: kicks off exactly one background probe.
       await connectedClient.client.exec({
         url: localUrl("/text"),
         method: "GET",
       });
       expect(probeCalls).toBe(1);
-      expect(connectedClient.timings?.connectMs).toBe(7);
+      await flush(); // let the background probe cache its sample
 
-      // Second run within the TTL: no new probe, but the sample still populates
-      // the connect timing (the metric stays present while fetch reuses the
-      // connection - the whole point).
+      // Second run within the TTL: no new probe, and the cached sample now
+      // populates the connect timing (metric stays present while fetch reuses
+      // the connection - the whole point).
       clock += 30_000;
       await connectedClient.client.exec({
         url: localUrl("/text"),
@@ -341,13 +348,52 @@ describe("HttpHealthCheckStrategy", () => {
       expect(probeCalls).toBe(1);
       expect(connectedClient.timings?.connectMs).toBe(7);
 
-      // Past the TTL: the sample is stale, so a fresh probe runs.
+      // Past the TTL: the sample is stale, so a fresh background probe runs.
       clock += 40_000; // 70s since the first sample
       await connectedClient.client.exec({
         url: localUrl("/text"),
         method: "GET",
       });
+      await flush();
       expect(probeCalls).toBe(2);
+
+      connectedClient.close();
+    });
+
+    it("never awaits the probe: a slow probe does not delay the check", async () => {
+      let probeResolved = false;
+      const sampledStrategy = new HttpHealthCheckStrategy(loopbackLookup, {
+        // A probe that never resolves during the test - if exec awaited it, the
+        // check would hang past its own timeout.
+        probeFn: () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              probeResolved = true;
+              resolve({ connectMs: 999, tlsMs: 999 });
+            }, 60_000);
+          }),
+        now: () => 1_000_000,
+        connectSampleTtlMs: 60_000,
+      });
+      const connectedClient = await sampledStrategy.createClient({
+        timeout: 5000,
+      });
+
+      const start = performance.now();
+      const result = await connectedClient.client.exec({
+        url: localUrl("/text"),
+        method: "GET",
+      });
+      const elapsed = performance.now() - start;
+
+      // The check completed on fetch speed, NOT blocked on the hung probe.
+      expect(result.statusCode).toBe(200);
+      expect(probeResolved).toBe(false);
+      expect(elapsed).toBeLessThan(4000);
+      // First run to the origin has no cached sample yet -> connect omitted, but
+      // wait/transfer are still present (the check itself is unaffected).
+      expect(connectedClient.timings?.connectMs).toBeUndefined();
+      expect(connectedClient.timings?.waitMs).toBeGreaterThanOrEqual(0);
 
       connectedClient.close();
     });
@@ -368,6 +414,7 @@ describe("HttpHealthCheckStrategy", () => {
       const first = await sampledStrategy.createClient({ timeout: 5000 });
       await first.client.exec({ url: localUrl("/text"), method: "GET" });
       first.close();
+      await flush(); // let the first run's background probe cache its sample
 
       const second = await sampledStrategy.createClient({ timeout: 5000 });
       await second.client.exec({ url: localUrl("/text"), method: "GET" });
