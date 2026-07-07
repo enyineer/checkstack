@@ -326,8 +326,10 @@ authenticated mirrors of the S2S `authorizeCreate` / `listAccessibleObjectIds`.
   -> { accessibleIds: string[] }
 ```
 
-Prefer the frontend hooks (`useCanCreate` / `useResourceAccess`, see
-[Frontend access gating](/checkstack/developer-guide/frontend/access-gating/))
+Prefer the contract-derived frontend gates - the gate-fused client hooks
+(`useGatedMutation` / `useGatedQuery`), `useProcedureAccess`, `useSurfaceAccess`,
+and `useResourceAccess` for per-row arrays (see
+[Frontend access gating](/checkstack/developer-guide/frontend/access-gating/)) -
 over calling these procedures directly.
 
 #### S2S procedures (`userType: "service"`)

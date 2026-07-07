@@ -452,13 +452,31 @@ export class MaintenanceService {
    * invalidate the right cache entry, or undefined if the link did not
    * exist.
    */
-  async removeLink(id: string): Promise<string | undefined> {
+  async removeLink(
+    id: string,
+    maintenanceId: string,
+  ): Promise<string | undefined> {
+    // Scope by maintenanceId: the caller is authorized (idParam) against THIS
+    // maintenance, so a link belonging to a different maintenance must not be
+    // removable by pairing its link id with a maintenance the caller manages.
     const [existing] = await this.db
       .select()
       .from(maintenanceLinks)
-      .where(eq(maintenanceLinks.id, id));
+      .where(
+        and(
+          eq(maintenanceLinks.id, id),
+          eq(maintenanceLinks.maintenanceId, maintenanceId),
+        ),
+      );
     if (!existing) return undefined;
-    await this.db.delete(maintenanceLinks).where(eq(maintenanceLinks.id, id));
+    await this.db
+      .delete(maintenanceLinks)
+      .where(
+        and(
+          eq(maintenanceLinks.id, id),
+          eq(maintenanceLinks.maintenanceId, maintenanceId),
+        ),
+      );
     return existing.maintenanceId;
   }
 

@@ -25,6 +25,7 @@ import {
 } from "@checkstack/gitops-frontend";
 import { Plus, Server, Edit, Trash2, X, Trash } from "lucide-react";
 import type { Environment, Group, System } from "../../api";
+import { CatalogApi } from "../../api";
 import { AssignMenu } from "./AssignMenu";
 
 export interface SystemsTabProps {
@@ -76,10 +77,9 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
   // Creating a NEW system needs create capability (global rule or a team
   // `creator` grant) - distinct from managing an existing one. A user who only
   // manages existing systems reaches this page but must not see "Add System".
-  const { allowed: canCreate } = accessApi.useCanCreate({
-    accessRule: catalogAccess.system.manage,
-    objectType: catalogResourceTypes.system,
-  });
+  const { allowed: canCreate } = accessApi.useProcedureAccess(
+    CatalogApi.contract.createSystem,
+  );
   // One bulk provenance query for every row (instead of a per-row fan-out): the
   // returned `getLock` is a plain lookup, so it can be called from column cell
   // renderers which cannot call hooks.

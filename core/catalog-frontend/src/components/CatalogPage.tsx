@@ -37,10 +37,9 @@ const CatalogPageContent: React.FC = () => {
   const catalogClient = usePluginClient(CatalogApi);
   const accessApi = useApi(accessApiRef);
   // Create capability: gates the empty-state "Add your first system" action.
-  const { allowed: canManage } = accessApi.useCanCreate({
-    accessRule: catalogAccess.system.manage,
-    objectType: catalogResourceTypes.system,
-  });
+  const { allowed: canManage } = accessApi.useProcedureAccess(
+    CatalogApi.contract.createSystem,
+  );
   // Surface access: gates the "Manage catalog" link. A user who can manage an
   // existing system (via a team) should reach the management page to edit it,
   // even without create capability.

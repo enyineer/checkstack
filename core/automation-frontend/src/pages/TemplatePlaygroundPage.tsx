@@ -74,6 +74,11 @@ const TemplatePlaygroundContent: React.FC = () => {
     | null
   >(null);
 
+  // Stateless `typeScoped` render utility (no automation id in input): the gate
+  // is "any automation grant", already enforced at the page surface, and there
+  // is no resource instance to fuse a per-call gate onto. Stays raw (the
+  // utility/no-instance exception the rule documents).
+  // eslint-disable-next-line checkstack/prefer-gated-mutation -- typeScoped utility, no resource id to gate on; surface-gated
   const renderMutation = client.renderTemplate.useMutation({
     onSuccess: (data) => {
       if (data.success) {

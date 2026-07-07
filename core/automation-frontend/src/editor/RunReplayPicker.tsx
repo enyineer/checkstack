@@ -45,7 +45,7 @@ export const RunReplayPicker: React.FC<RunReplayPickerProps> = ({
   );
 
   const replayQuery = client.getRunScopeForReplay.useQuery(
-    { runId: selectedRunId ?? "" },
+    { runId: selectedRunId ?? "", automationId },
     { enabled: Boolean(selectedRunId), gcTime: 0 },
   );
 

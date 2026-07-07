@@ -1,5 +1,7 @@
 import { createClientDefinition, proc } from "@checkstack/common";
 import { z } from "zod";
+import { catalogResourceTypes } from "@checkstack/catalog-common";
+import { healthCheckResourceTypes } from "@checkstack/healthcheck-common";
 import { pluginMetadata } from "./plugin-metadata";
 import { AnomalyStateSchema, AnomalySettingsSchema, PartialAnomalySettingsSchema, AnomalyKindSchema } from "./schema";
 import { anomalyAccess } from "./access";
@@ -145,8 +147,17 @@ export const anomalyContract = {
     operationType: "query",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
-    // Config templates are shared (no systemId in input); no per-system scope possible.
-    instanceAccess: { global: true },
+    // The anomaly config is a child of a health-check configuration. Authorize
+    // by a READ grant on that configuration (`healthcheck.healthcheck`) so a
+    // team-scoped health-check manager can load the anomaly panel in the editor
+    // without holding the global anomaly rule (anomaly_feed is not team-scoped).
+    instanceAccess: {
+      parentScope: {
+        resourceType: healthCheckResourceTypes.configuration,
+        action: "read",
+        idParam: "configurationId",
+      },
+    },
   })
     .input(z.object({
       configurationId: z.string(),
@@ -157,8 +168,16 @@ export const anomalyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
-    // Config templates are shared (no systemId in input); no per-system scope possible.
-    instanceAccess: { global: true },
+    // Writing the anomaly config requires MANAGE on the owning health-check
+    // configuration (`healthcheck.healthcheck`); a team-scoped manager of that
+    // check may edit its anomaly defaults without the global anomaly rule.
+    instanceAccess: {
+      parentScope: {
+        resourceType: healthCheckResourceTypes.configuration,
+        action: "manage",
+        idParam: "configurationId",
+      },
+    },
   })
     .route({ method: "PATCH" })
     .input(z.object({
@@ -171,7 +190,17 @@ export const anomalyContract = {
     operationType: "query",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
-    instanceAccess: { idParam: "systemId" },
+    // The per-assignment override belongs to a catalog system. Authorize by a
+    // READ grant on that system (`catalog.system`) - keyed on the actual
+    // team-scoped type - so a team-scoped system manager can load the panel.
+    // (`idParam` on the non-team-scoped `anomaly_feed` was effectively global.)
+    instanceAccess: {
+      parentScope: {
+        resourceType: catalogResourceTypes.system,
+        action: "read",
+        idParam: "systemId",
+      },
+    },
   })
     .input(z.object({
       systemId: z.string(),
@@ -183,7 +212,16 @@ export const anomalyContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [anomalyAccess.feed.manage],
-    instanceAccess: { idParam: "systemId" },
+    // Writing the per-assignment override requires MANAGE on the owning catalog
+    // system, so a team-scoped system manager may edit anomaly exceptions for
+    // their own system without the global anomaly rule.
+    instanceAccess: {
+      parentScope: {
+        resourceType: catalogResourceTypes.system,
+        action: "manage",
+        idParam: "systemId",
+      },
+    },
   })
     .route({ method: "PATCH" })
     .input(z.object({

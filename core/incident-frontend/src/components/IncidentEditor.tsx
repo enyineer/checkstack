@@ -582,7 +582,10 @@ export const IncidentEditor: React.FC<Props> = ({
                   });
                 }}
                 onRemove={async (link) => {
-                  await removeLinkMutation.mutateAsync({ id: link.id });
+                  await removeLinkMutation.mutateAsync({
+                    id: link.id,
+                    incidentId: incident.id,
+                  });
                 }}
               />
             </div>

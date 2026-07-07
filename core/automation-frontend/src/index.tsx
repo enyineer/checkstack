@@ -51,6 +51,9 @@ export default createFrontendPlugin({
         })),
       title: "Automations",
       accessRule: automationAccess.read,
+      // Team-scoped: a team with any automation grant may reach the list; the
+      // backend `listAutomations` post-filters it to their own automations.
+      manageCapability: { objectType: automationResourceTypes.automation },
       nav: { group: "Automation", icon: Workflow },
     },
     {
@@ -83,6 +86,9 @@ export default createFrontendPlugin({
         })),
       title: "Edit automation",
       accessRule: automationAccess.read,
+      // Team-scoped: a team manager of an automation may reach its edit page
+      // (the page + backend enforce the per-instance manage grant).
+      manageCapability: { objectType: automationResourceTypes.automation },
     },
     {
       route: automationRoutes.routes.runs,

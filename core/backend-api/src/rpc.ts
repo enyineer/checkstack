@@ -105,6 +105,42 @@ export const os = baseOs.$context<RpcContext>();
 export type { ProcedureMetadata } from "@checkstack/common";
 
 // =============================================================================
+// RUNTIME GATING-DRIFT DETECTOR (dev/e2e only)
+// =============================================================================
+
+/**
+ * Belt-and-suspenders net for the "shown-but-denied" gating-drift class: when a
+ * real (authenticated) user is denied by the auth middleware, log it in dev/e2e
+ * so a UI that offered a control the backend rejects surfaces loudly during
+ * development and e2e runs (never in production - it is pure noise there, and a
+ * denied request is not itself an error).
+ *
+ * The frontend gate is advisory; the primary defenses are the contract-derived
+ * `useProcedureAccess` / gate-fused hooks (drift is structurally impossible on
+ * that path). This detector covers the residual: hand-rolled calls, dynamic
+ * dispatch, or a stale gate that slipped through. Drop `logGatingDrift(...)`
+ * before any other denial `throw` to widen coverage.
+ */
+function logGatingDrift(params: {
+  logger: Logger;
+  qualifiedId: string;
+  resource: string;
+  userId: string | undefined;
+  reason: string;
+}): void {
+  if (process.env.NODE_ENV === "production") return;
+  const { logger, qualifiedId, resource, userId, reason } = params;
+  // A real user denied here means the UI may have offered a control the backend
+  // rejects. If `resource` is team-scoped by some OTHER procedure, this is the
+  // exact "global-only team-grant" gap the audit chased.
+  logger.warn(
+    `[rlac-drift] denied "${qualifiedId}" for user ${userId ?? "?"} (${reason}). ` +
+      `If "${resource}" is team-scoped elsewhere, a global-only gate here can ` +
+      `lock out a legitimate team grant - verify the frontend gate matches the contract.`,
+  );
+}
+
+// =============================================================================
 // UNIFIED AUTH MIDDLEWARE
 // =============================================================================
 
@@ -301,6 +337,19 @@ export const autoAuthMiddleware = os.middleware(
           userAccessRules.includes("*") ||
           userAccessRules.includes(rule.qualifiedId);
         if (!hasAccess) {
+          // Dev/e2e drift signal: a real user denied a GLOBAL-ONLY gate is the
+          // canonical "global-only team-grant" case (the rule may be team-scoped
+          // by another procedure, in which case this gate wrongly locks out the
+          // team grant). No-op in production.
+          if (userId) {
+            logGatingDrift({
+              logger: context.logger,
+              qualifiedId: rule.qualifiedId,
+              resource: rule.resource,
+              userId,
+              reason: "global-only rule, caller holds no matching global grant",
+            });
+          }
           throw new ORPCError("FORBIDDEN", {
             message: `Missing access: ${rule.qualifiedId}`,
           });

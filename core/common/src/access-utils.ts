@@ -266,8 +266,8 @@ export function qualifyAccessRuleId(
 /**
  * A plugin-qualified resource type id, e.g. `"catalog.system"` - the key under
  * which a resource's relation-tuple grants are stored, and the value the
- * team-capability APIs (`useCanCreate`, `useCanAccessType`, `useResourceAccess`,
- * a route's `manageCapability`) expect.
+ * team-capability APIs (`useProcedureAccess`, `useCanAccessType`,
+ * `useResourceAccess`, a route's `manageCapability`) expect.
  *
  * Nominal on purpose: a plain string is NOT assignable here, so capability call
  * sites must reference an exported constant (built via {@link resourceType})

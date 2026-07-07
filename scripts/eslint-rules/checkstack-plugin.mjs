@@ -13,6 +13,7 @@ import { noEslintDisableAny } from "./no-eslint-disable-any.mjs";
 import { noUnmanagedEntityState } from "./no-unmanaged-entity-state.mjs";
 import { noPodLocalEntityState } from "./no-pod-local-entity-state.mjs";
 import { noUnguardedAnimation } from "./no-unguarded-animation.mjs";
+import { preferGatedMutation } from "./prefer-gated-mutation.mjs";
 
 export default {
   rules: {
@@ -25,5 +26,6 @@ export default {
     "no-unmanaged-entity-state": noUnmanagedEntityState,
     "no-pod-local-entity-state": noPodLocalEntityState,
     "no-unguarded-animation": noUnguardedAnimation,
+    "prefer-gated-mutation": preferGatedMutation,
   },
 };

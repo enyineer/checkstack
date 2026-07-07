@@ -69,8 +69,8 @@ function PublicRoot() {
         .register(loggerApiRef, new ConsoleLoggerApi())
         .register(accessApiRef, {
           useAccess: () => ({ loading: false, allowed: true }),
-          useCanCreate: () => ({ loading: false, allowed: true }),
           useCanAccessType: () => ({ loading: false, allowed: true }),
+          useSurfaceAccess: () => ({ loading: false, allowed: true }),
           useRouteAccess: () => ({ loading: false, allowed: true }),
           useResourceAccess: () => ({
             loading: false,
@@ -81,6 +81,7 @@ function PublicRoot() {
             loading: false,
             isAuthenticated: false,
           }),
+          useProcedureAccess: () => ({ loading: false, allowed: true }),
         })
         .registerFactory(fetchApiRef, () => new CoreFetchApi(baseUrl))
         .registerFactory(rpcApiRef, () => new CoreRpcApi(baseUrl))

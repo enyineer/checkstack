@@ -105,11 +105,12 @@ describe("incident contract system-scoped / unresolvable procs", () => {
     expect(ps?.recordKey).toBe("incidents");
   });
 
-  // removeLink's input `id` is the LINK id (not the incident or system id), so
-  // no middleware pre-check can resolve a grant; it is explicitly global (the
-  // incident.manage rule still gates it).
-  test("removeLink is explicitly global (link id is not a scopable resource id)", () => {
-    expect(instanceAccessFor("removeLink")?.global).toBe(true);
+  // removeLink is object-scoped on the OWNING incident via `incidentId` (mirrors
+  // addLink), so a team-scoped incident manager may remove links on their own
+  // incident without the global rule. The handler additionally scopes the delete
+  // by `incidentId`, so a link id cannot be paired with a foreign incident.
+  test("removeLink is object-scoped on the owning incident via 'incidentId'", () => {
+    expect(instanceAccessFor("removeLink")).toEqual({ idParam: "incidentId" });
   });
 });
 

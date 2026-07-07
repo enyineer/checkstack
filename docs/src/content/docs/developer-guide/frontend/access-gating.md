@@ -8,27 +8,94 @@ Checkstack authorises actions with two layers: global RBAC access rules
 system, or create a whole type). The backend enforces both. Your frontend must
 gate its buttons on both too, or a team-scoped user either sees an action the
 backend will reject, or - worse - never sees an action the backend would have
-allowed. The `accessApi` (from `@checkstack/frontend-api`, resolved with
-`useApi(accessApiRef)`) exposes three hooks for this. Pick the one that matches
-what you are gating.
+allowed.
 
-## Which hook to use
+The backend contract already declares, per procedure, BOTH the access rule
+(`access`) AND how it is instance-scoped (`instanceAccess`). So the correct
+frontend gate is a pure function of the procedure you are about to call - you do
+NOT hand-pick a check and restate the object type. **Derive the gate from the
+procedure.** The `accessApi` (from `@checkstack/frontend-api`, resolved with
+`useApi(accessApiRef)`) plus the gate-fused client hooks give you this.
 
-- `useAccess(rule)` - a plain global RBAC check. Use it for actions that are
-  NOT resource-scoped (settings pages, global toggles).
-- `useCanCreate({ accessRule, objectType, parentType? })` - "may the user create
-  this type?" Use it for create/add/new buttons.
-- `useCanAccessType({ accessRule, objectType, parentType? })` - "may the user
-  reach the management SURFACE for this type at all?" True for create-capable
-  users AND for users who manage any existing object of the type (or its parent).
-  Use it for a route's `manageCapability`, and for a management page's top-level
-  `allowed` gate, so a user who manages an existing resource can open the page to
-  edit it even without create capability.
+## Prefer gate-fused hooks: the gate IS the call
+
+The strongest pattern welds authorization to the call, so the two can never
+drift. The plugin client's mutation/query hooks have gate-fused variants that
+derive the verdict from the SAME procedure and input the call uses, and return it
+as `{ allowed, accessLoading }` on the result. You cannot get `mutate` without
+the verdict.
+
+```tsx
+const client = usePluginClient(AutomationApi);
+
+// The control reads its own enablement from the same object it calls `mutate` on.
+// `gateInput` carries the id the gate needs (the same id `mutate` will send);
+// omit it for create/global gates.
+const update = client.updateAutomation.useGatedMutation({
+  gateInput: { id: automationId },
+  onSuccess: () => toast.success("Saved"),
+});
+
+{update.allowed && (
+  <Button onClick={() => update.mutate(fullInput)}>Save</Button>
+)}
+```
+
+`useGatedQuery(input)` is the query counterpart: it derives the gate from the
+same `input` and keeps the query disabled until the caller is authorized (no
+guaranteed-403 fetch).
+
+## Derive a standalone gate: `useProcedureAccess`
+
+When the gate is not one-to-one with a mutation you own (a page-level decision, a
+compound `disabled`, a `useEffect` dependency), derive it directly from the
+contract procedure - still no hand-picked check, no restated object type:
+
+```tsx
+const { allowed, loading } = accessApi.useProcedureAccess(
+  AutomationApi.contract.updateAutomation,
+  { id: automationId }, // input for per-instance (idParam) gates; omit for create/global
+);
+```
+
+`useProcedureAccess` reads the procedure's declared `instanceAccess` and
+dispatches to the right check automatically: `global` -> the global rule;
+`idParam` -> a per-instance grant on the resolved id; `create` -> create
+capability (incl. global-or-team manage on a `create.parent`); `typeScoped` ->
+global-or-any-team-grant of the type; `parentScope` -> the parent grant;
+`listKey`/`recordKey`/`bulkManage` -> open (the server post-filters). Because the
+mode is derived, a call site can no longer gate on the wrong thing.
+
+## Coarse surface gate: `useSurfaceAccess`
+
+For the "can the user reach this management surface at all" decision (a page's
+top-level `allowed`), derive it from a REPRESENTATIVE procedure of the page
+instead of hand-passing the object type:
+
+```tsx
+// True for global-rule holders AND for a team that can create/manage-any of the
+// type - derived from the contract, so it can't drift from `objectType`.
+const { allowed, loading } = accessApi.useSurfaceAccess(
+  AutomationApi.contract.listAutomations,
+);
+```
+
+## The remaining hooks (non-procedure gates)
+
+Some gates are genuinely not tied to a single procedure call - keep these:
+
+- `useAccess(rule)` - a plain global RBAC check. Use it for actions that are NOT
+  resource-scoped (settings pages, global toggles), and for the
+  `TeamOwnershipPicker`'s `allowGlobal` flag (see below).
 - `useResourceAccess({ accessRule, objectType, resourceIds, action? })` - "which
-  of these specific resources may the user act on?" Use it for per-row and
-  detail-page edit / delete / manage controls, and to filter resource pickers.
+  of these specific resources may the user act on?" Use it for per-ROW controls
+  (one predicate over an ARRAY of ids, which the single-input gate hooks can't
+  express) and to filter resource pickers.
+- `useCanAccessType({ accessRule, objectType, parentType? })` - the string-typed
+  surface gate `useSurfaceAccess` wraps. Prefer `useSurfaceAccess` at call sites;
+  a route's `manageCapability` uses the same semantics.
 
-All four OR the global rule with team-derived grants, so a user holding the
+All of these OR the global rule with team-derived grants, so a user holding the
 global manage rule always sees everything.
 
 For anonymous callers the team-derived path is skipped entirely: the backing
@@ -64,24 +131,32 @@ for top-level types.
 
 ## Gate a create button and its page
 
-`useCanCreate` returns `{ loading, allowed }`, so it is a drop-in replacement for
-the `useAccess` you already gate the page on.
+Gate a create button on the create procedure - either its fused mutation, or
+`useProcedureAccess` on the create proc. Both derive the create capability
+(global manage OR a team `creator` grant OR global-or-team manage on a
+`create.parent`) straight from the contract; there is no hand-passed object type
+or parent type to drift.
 
 ```tsx
-import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { incidentAccess } from "@checkstack/incident-common";
+import { useApi, accessApiRef, usePluginClient } from "@checkstack/frontend-api";
+import { IncidentApi } from "@checkstack/incident-common";
 
 const accessApi = useApi(accessApiRef);
+const client = usePluginClient(IncidentApi);
 
-const { allowed: canManage, loading } = accessApi.useCanCreate({
-  accessRule: incidentAccess.incident.manage,
-  objectType: "incident.incident",
-  parentType: "catalog.system", // a user managing a system may open one for it
+// Fused: the create mutation carries its own verdict.
+const create = client.createIncident.useGatedMutation({
+  onSuccess: () => toast.success("Incident opened"),
 });
 
+// Or, if you only need the verdict (no mutation here):
+const { allowed: canCreate, loading } = accessApi.useProcedureAccess(
+  IncidentApi.contract.createIncident,
+);
+
 return (
-  <PageLayout allowed={canManage} loading={loading} actions={
-    canManage ? <Button onClick={openEditor}>Report incident</Button> : undefined
+  <PageLayout allowed={create.allowed} loading={loading} actions={
+    create.allowed ? <Button onClick={openEditor}>Report incident</Button> : undefined
   }>
     {/* ... */}
   </PageLayout>
@@ -180,8 +255,9 @@ team - resolved once via `myManageableTypes`.
 }
 ```
 
-Gate the page's own `PageLayout allowed` on `useCanAccessType` with the same
-`objectType`/`parentType` so it agrees with the route guard.
+Gate the page's own `PageLayout allowed` on `useSurfaceAccess` (pass a
+representative procedure of the page) so it agrees with the route guard without
+restating the object type.
 
 ## Filter resource pickers to what the backend accepts
 
@@ -227,8 +303,23 @@ on `useResourceAccess(...).canAccess(id)` instead.
 Editors that let a global admin create a resource owned by a chosen team (via
 `TeamOwnershipPicker`'s `allowGlobal`) should keep using `useAccess(rule)` for
 that specific flag: only a true global-manage holder may create a globally-owned
-resource, whereas `useCanCreate` is also true for team-scoped creators. Gate the
-picker's `allowGlobal` on `useAccess`, and the button/page on `useCanCreate`.
+resource, whereas the derived create gate is also true for team-scoped creators.
+Gate the picker's `allowGlobal` on `useAccess`, and the button/page on the create
+procedure's fused mutation (`useGatedMutation`) or `useProcedureAccess`.
+
+## Enforcement: keep fusion the default
+
+Two nets back up the derived model:
+
+- A `checkstack/prefer-gated-mutation` lint rule nudges a raw
+  `client.X.useMutation()` toward the fused `useGatedMutation` so authorization is
+  welded to the call by default. Raw mutations are the deliberate exception -
+  a global/admin action, or a per-ROW mutation gated as an array via
+  `useResourceAccess` (one mutation instance, many rows, no single id to fuse).
+  Suppress those with an `eslint-disable-next-line` carrying the reason.
+- A dev/e2e-only runtime drift detector in `autoAuthMiddleware` logs when a real
+  user is denied a global-only gate - the "shown-but-denied" signal for a UI that
+  offered a control the backend rejects. It is a no-op in production.
 
 For the backend contract these hooks mirror, see
 [Teams and access control](/checkstack/developer-guide/backend/teams/).

@@ -19,6 +19,13 @@ export default tseslint.config(
       // the preview instance's own script-packages cache). Git-ignored runtime
       // output, same rationale as `.data`.
       ".dev/**",
+      // Local git worktrees (e.g. Agent `isolation: worktree`, manual
+      // `git worktree add` under `.claude/worktrees/`). Each is a SEPARATE
+      // branch's full checkout that happens to live under the repo root; linting
+      // it here lints another branch's source, which is meaningless. Git-ignored
+      // local artifact, same rationale as `.dev/**`. CI checks out a single
+      // branch, so these never exist there.
+      ".claude/worktrees/**",
       "**/drizzle/**",
       "**/public/vendor/**",
       "**/*.test.ts*",
@@ -202,6 +209,20 @@ export default tseslint.config(
           additionalGuardIdentifiers: [],
         },
       ],
+    },
+  },
+  // Gate-fusion nudge (PROTOTYPE scope): prefer `.useGatedMutation()` over raw
+  // `.useMutation()` so authorization is fused into the call and cannot drift.
+  // Scoped to the automation pages where the gate-fused hooks are wired as a
+  // demonstration; widen once the pattern is adopted repo-wide. Severity is
+  // intentionally `warn` and MUST NOT be escalated to `error`: a syntactic rule
+  // cannot tell a fusable single-instance mutation from a legitimately-ungated
+  // one (global/admin action, or a per-row mutation gated as an array), so it
+  // informs rather than blocks (see .claude/rules/code-style-guide.md).
+  {
+    files: ["core/automation-frontend/src/pages/**/*.{ts,tsx}"],
+    rules: {
+      "checkstack/prefer-gated-mutation": "warn",
     },
   },
   // Frontend packages: ban console.* to enforce proper error handling

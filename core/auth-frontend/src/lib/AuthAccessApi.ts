@@ -3,7 +3,9 @@ import { AuthApi } from "@checkstack/auth-common";
 import { useAccessRules } from "../hooks/useAccessRules";
 import {
   isAccessRuleSatisfied,
+  resolveProcedureGate,
   type AccessRule,
+  type ProcedureWithMeta,
   type ResourceType,
 } from "@checkstack/common";
 
@@ -47,47 +49,17 @@ export class AuthAccessApi implements AccessApi {
     };
   }
 
-  useCanCreate({
-    accessRule,
-    objectType,
-    parentType,
-  }: {
-    accessRule: AccessRule;
-    objectType: ResourceType;
-    parentType?: ResourceType;
-  }): { loading: boolean; allowed: boolean } {
-    // Global RBAC path. If the user holds the manage rule, we're done — no need
-    // to hit the team-capability query.
-    const global = this.useAccess(accessRule);
-
-    // Team-derived (ReBAC) path: resolved server-side against the caller's team
-    // `creator`/parent-manage grants. Only fetched when the global path hasn't
-    // already granted access, so most (admin/global) callers pay no extra round
-    // trip. Anonymous callers never fetch: the procedure is authenticated-only
-    // (a guest holds no team grants), so calling it would just 401.
-    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
-    const { isAuthenticated } = useAccessRules();
-    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
-    const authClient = usePluginClient(AuthApi);
-    const { data, isLoading } = authClient.canCreate.useQuery(
-      { objectType, parentType },
-      { enabled: !global.loading && !global.allowed && isAuthenticated },
-    );
-
-    if (global.allowed) return { loading: false, allowed: true };
-    if (global.loading) return { loading: true, allowed: false };
-    return { loading: isLoading, allowed: data?.allowed ?? false };
-  }
-
-  useCanAccessType({
-    accessRule,
-    objectType,
-    parentType,
-  }: {
-    accessRule: AccessRule;
-    objectType: ResourceType;
-    parentType?: ResourceType;
-  }): { loading: boolean; allowed: boolean } {
+  /**
+   * Shared surface-gate resolver (string-typed): the caller holds the global
+   * `accessRule`, OR a team of theirs can create/manage-any object of
+   * `objectType` (or `parentType`). Backs both `useCanAccessType` and the
+   * contract-derived `useSurfaceAccess`.
+   */
+  private useTypeSurface(
+    accessRule: AccessRule,
+    objectType: string,
+    parentType?: string,
+  ): { loading: boolean; allowed: boolean } {
     // Global RBAC path grants the surface outright.
     const global = this.useAccess(accessRule);
 
@@ -111,6 +83,29 @@ export class AuthAccessApi implements AccessApi {
       types.has(objectType) ||
       (parentType !== undefined && types.has(parentType));
     return { loading: isLoading, allowed };
+  }
+
+  useCanAccessType({
+    accessRule,
+    objectType,
+    parentType,
+  }: {
+    accessRule: AccessRule;
+    objectType: ResourceType;
+    parentType?: ResourceType;
+  }): { loading: boolean; allowed: boolean } {
+    return this.useTypeSurface(accessRule, objectType, parentType);
+  }
+
+  useSurfaceAccess(
+    procedure: ProcedureWithMeta,
+  ): { loading: boolean; allowed: boolean } {
+    // Derive the surface gate from a REPRESENTATIVE procedure of the page: its
+    // access rule + the resource type (and parent type) it touches, straight
+    // from the contract. No hand-passed objectType/parentType to drift. Compose
+    // by OR-ing several `useSurfaceAccess` calls for a multi-type page.
+    const gate = resolveProcedureGate({ procedure });
+    return this.useTypeSurface(gate.accessRule, gate.objectType, gate.parentType);
   }
 
   useRouteAccess({
@@ -237,5 +232,95 @@ export class AuthAccessApi implements AccessApi {
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const { loading, isAuthenticated } = useAccessRules();
     return { loading, isAuthenticated };
+  }
+
+  useProcedureAccess(
+    procedure: ProcedureWithMeta,
+    input?: unknown,
+  ): { loading: boolean; allowed: boolean } {
+    // The gate the backend will actually enforce, derived (not hand-picked)
+    // from the procedure's contract metadata. Pure + synchronous, so it never
+    // affects the hook count below.
+    const gate = resolveProcedureGate({ procedure, input });
+
+    // Every hook is called UNCONDITIONALLY (stable hook count across renders,
+    // like `useRouteAccess`); each team-derived query is gated to its own mode
+    // via `enabled`, so exactly the relevant one fetches - and only when the
+    // global RBAC path hasn't already granted access. Anonymous callers never
+    // fetch: these procedures are authenticated-only.
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const rulesState = useAccessRules();
+    const { accessRules, loading: rulesLoading, isAuthenticated } = rulesState;
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const authClient = usePluginClient(AuthApi);
+
+    // The global-RBAC check runs against the gate's access rule (for a
+    // parentScope gate that is the reconstructed PARENT rule). For a
+    // `create.parent` gate we ALSO OR in global manage on the parent type, so a
+    // global parent-manager is offered the create affordance (mirrors the
+    // backend's parent-gated create).
+    const globalAllowed =
+      isAccessRuleSatisfied(accessRules, gate.accessRule) ||
+      (gate.parentAccessRule !== undefined &&
+        isAccessRuleSatisfied(accessRules, gate.parentAccessRule));
+    const teamEnabled = !rulesLoading && !globalAllowed && isAuthenticated;
+
+    const createQuery = authClient.canCreate.useQuery(
+      { objectType: gate.objectType, parentType: gate.parentType },
+      { enabled: teamEnabled && gate.kind === "create" },
+    );
+    const typesQuery = authClient.myManageableTypes.useQuery(
+      {},
+      { enabled: teamEnabled && gate.kind === "typeScoped" },
+    );
+    const idResourceIds = gate.resourceId ? [gate.resourceId] : [];
+    const idQuery = authClient.listMyAccessibleResources.useQuery(
+      {
+        objectType: gate.objectType,
+        resourceIds: idResourceIds,
+        action: gate.action,
+      },
+      {
+        enabled:
+          teamEnabled && gate.kind === "idParam" && idResourceIds.length > 0,
+      },
+    );
+
+    // Post-filtered surfaces (list/record/bulk, and the parentScope recordKey
+    // variant) have no pre-gate: the server returns the caller's authorized
+    // subset.
+    if (gate.kind === "open") return { loading: false, allowed: true };
+    if (rulesLoading) return { loading: true, allowed: false };
+    if (globalAllowed) return { loading: false, allowed: true };
+
+    switch (gate.kind) {
+      case "global": {
+        return { loading: false, allowed: false };
+      }
+      case "create": {
+        return {
+          loading: createQuery.isLoading,
+          allowed: createQuery.data?.allowed ?? false,
+        };
+      }
+      case "typeScoped": {
+        const types = new Set(typesQuery.data?.types);
+        const allowed =
+          types.has(gate.objectType) ||
+          (gate.parentType !== undefined && types.has(gate.parentType));
+        return { loading: typesQuery.isLoading, allowed };
+      }
+      case "idParam": {
+        if (!gate.resourceId) return { loading: false, allowed: false };
+        const accessible = new Set(idQuery.data?.accessibleIds);
+        return {
+          loading: idQuery.isLoading,
+          allowed: accessible.has(gate.resourceId),
+        };
+      }
+      default: {
+        return { loading: false, allowed: false };
+      }
+    }
   }
 }

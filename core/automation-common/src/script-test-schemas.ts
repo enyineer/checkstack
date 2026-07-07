@@ -75,6 +75,9 @@ export type ScriptTestResultDto = z.infer<typeof ScriptTestResultSchema>;
  */
 export const ReplayScopeInputSchema = z.object({
   runId: z.string(),
+  // Owning automation id — used to authorize the read (parentScope) and to scope
+  // the run fetch so a run id cannot be paired with a foreign automation.
+  automationId: z.string(),
   actionPath: z.string().optional(),
 });
 export type ReplayScopeInputDto = z.infer<typeof ReplayScopeInputSchema>;

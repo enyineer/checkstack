@@ -102,10 +102,9 @@ const HealthCheckConfigPageContent = () => {
       objectType: healthCheckResourceTypes.configuration,
     });
   const accessLoading = readLoading || surfaceLoading;
-  const { allowed: canManage } = accessApi.useCanCreate({
-    accessRule: healthCheckAccess.configuration.manage,
-    objectType: healthCheckResourceTypes.configuration,
-  });
+  const { allowed: canManage } = accessApi.useProcedureAccess(
+    HealthCheckApi.contract.createConfiguration,
+  );
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);

@@ -77,11 +77,7 @@ const MaintenanceConfigPageContent: React.FC = () => {
   // a system (directly or via a team) may schedule maintenance for it even
   // without the global `maintenance.manage` rule; the backend authorizes that.
   const { allowed: canManage, loading: accessLoading } =
-    accessApi.useCanCreate({
-      accessRule: maintenanceAccess.maintenance.manage,
-      objectType: maintenanceResourceTypes.maintenance,
-      parentType: catalogResourceTypes.system,
-    });
+    accessApi.useProcedureAccess(MaintenanceApi.contract.createMaintenance);
   // Surface access: gates reaching this page (matches the route guard), and is
   // also true for a user who manages an existing maintenance via a team.
   const { allowed: canAccessSurface, loading: surfaceLoading } =

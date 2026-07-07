@@ -106,11 +106,7 @@ const IncidentConfigPageContent: React.FC = () => {
   // system (directly or via a team) may open an incident for it even without the
   // global `incident.manage` rule, and the backend authorizes exactly that.
   const { allowed: canManage, loading: accessLoading } =
-    accessApi.useCanCreate({
-      accessRule: incidentAccess.incident.manage,
-      objectType: incidentResourceTypes.incident,
-      parentType: catalogResourceTypes.system,
-    });
+    accessApi.useProcedureAccess(IncidentApi.contract.createIncident);
   // Surface access: gates reaching this page (matches the route guard). Also
   // true for a user who manages an existing incident via a team but cannot
   // create new ones - they still need to open the page to manage theirs.

@@ -554,13 +554,22 @@ export class IncidentService {
    * invalidate the right cache entry, or undefined if the link did not
    * exist.
    */
-  async removeLink(id: string): Promise<string | undefined> {
+  async removeLink(id: string, incidentId: string): Promise<string | undefined> {
+    // Scope by incidentId: the caller is authorized (idParam) against THIS
+    // incident, so a link belonging to a different incident must not be
+    // removable by pairing its link id with an incident the caller manages.
     const [existing] = await this.db
       .select()
       .from(incidentLinks)
-      .where(eq(incidentLinks.id, id));
+      .where(
+        and(eq(incidentLinks.id, id), eq(incidentLinks.incidentId, incidentId)),
+      );
     if (!existing) return undefined;
-    await this.db.delete(incidentLinks).where(eq(incidentLinks.id, id));
+    await this.db
+      .delete(incidentLinks)
+      .where(
+        and(eq(incidentLinks.id, id), eq(incidentLinks.incidentId, incidentId)),
+      );
     return existing.incidentId;
   }
 

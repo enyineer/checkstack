@@ -175,13 +175,15 @@ export const maintenanceContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [maintenanceAccess.maintenance.manage],
-    // GLOBAL: `id` is the LINK id, not the maintenance id. There is no
-    // maintenanceId or systemId in the input to scope on without a breaking
-    // schema change. `global: true` preserves current behavior safely.
-    instanceAccess: { global: true },
+    // Object-scoped on the OWNING maintenance via `maintenanceId` (mirrors
+    // addLink), so a team-scoped maintenance manager may remove links on their
+    // own maintenance without the global rule. The handler additionally scopes
+    // the delete by `maintenanceId`, so a link id cannot be paired with a foreign
+    // maintenance the caller happens to manage.
+    instanceAccess: { idParam: "maintenanceId" },
   })
     .route({ method: "DELETE" })
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), maintenanceId: z.string() }))
     .output(z.object({ success: z.boolean() })),
 
   /** Delete a maintenance */

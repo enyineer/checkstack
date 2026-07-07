@@ -131,11 +131,13 @@ describe("maintenance contract team-scoping instanceAccess wiring", () => {
     });
   });
 
-  describe("removeLink is intentionally NOT object-scoped (link id != maintenance id)", () => {
-    test('instanceAccess.global = true (link id cannot be scoped to maintenance id without breaking schema change)', () => {
+  describe("removeLink is object-scoped on the owning maintenance", () => {
+    test("instanceAccess.idParam = 'maintenanceId' (mirrors addLink; team managers can remove their own links)", () => {
+      // The delete carries the owning `maintenanceId`, so a team-scoped
+      // maintenance manager may remove links on their own maintenance without a
+      // global rule; the handler additionally scopes the delete by that id.
       const ia = instanceAccessFor("removeLink");
-      expect(ia).toBeDefined();
-      expect(ia?.global).toBe(true);
+      expect(ia).toEqual({ idParam: "maintenanceId" });
     });
   });
 

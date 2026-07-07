@@ -13,6 +13,7 @@ export * from "./transport-client";
 export * from "./json-schema";
 export * from "./chart-types";
 export * from "./procedure-builder";
+export * from "./procedure-gate";
 export * from "./error-utils";
 export * from "./sandbox-policy";
 export * from "./docs-links";

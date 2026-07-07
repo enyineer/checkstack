@@ -258,8 +258,12 @@ export const healthCheckContract = {
     operationType: "mutation",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.manage],
-    // Global utility: validates a proposed config without persisting; no existing instance id to scope on.
-    instanceAccess: { global: true },
+    // Editor utility: validates a proposed config without persisting; no existing
+    // instance id to scope on (`existingConfigurationId` is optional for create
+    // drafts). A team-scoped healthcheck manager validates in the editor, so gate
+    // by MANAGE capability on the healthcheck type (typeScoped manage), not the
+    // global rule. Mirror of the already-typeScoped testCollectorScript.
+    instanceAccess: { typeScoped: { action: "manage" } },
   })
     // `existingConfigurationId` marks this as validating an UPDATE to a stored
     // config: the handler restores that config's stored secrets into the
@@ -419,8 +423,13 @@ export const healthCheckContract = {
     operationType: "query",
     userType: "authenticated",
     access: [healthCheckAccess.configuration.read],
-    // Global utility: platform-wide defaults are not scoped to any config or system instance.
-    instanceAccess: { global: true },
+    // Read-only platform default: fetched on every assignment-editor mount, which
+    // team-scoped healthcheck managers reach. Not sensitive (a fallback policy
+    // value), so gate by ANY healthcheck grant (typeScoped read), not the global
+    // rule. NOTE: the WRITE (setPlatformNotificationDefaults) stays `global: true`
+    // on purpose - it rewrites instance-wide defaults for every team, so a single
+    // team grant must NOT authorize it (that would be privilege escalation).
+    instanceAccess: { typeScoped: {} },
   }).output(NotificationPolicySchema),
 
   /**

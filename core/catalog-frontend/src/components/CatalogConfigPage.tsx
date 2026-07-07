@@ -67,10 +67,7 @@ export const CatalogConfigPage = () => {
   // Create capability: gates the "Add System" action and the ?action=create
   // deep-link. A team-scoped user needs a `creator` grant to create systems.
   const { allowed: canManage, loading: accessLoading } =
-    accessApi.useCanCreate({
-      accessRule: catalogAccess.system.manage,
-      objectType: catalogResourceTypes.system,
-    });
+    accessApi.useProcedureAccess(CatalogApi.contract.createSystem);
   // Surface access: gates reaching this management page at all. A user who can
   // MANAGE an existing system (via a team) should be able to open it to edit
   // that system, even without create capability - matching the route guard.

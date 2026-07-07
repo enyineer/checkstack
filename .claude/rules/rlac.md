@@ -102,7 +102,15 @@ Use the `AccessApi` primitives (`@checkstack/frontend-api`), never a bare
   parentType?: catalogResourceTypes.system }`. The route guard and sidebar then
   reveal it to team-scoped users. `objectType` MUST be the type the route's
   `manage` rule resolves to (the CI guard checks this).
-- Create buttons/pages: `useCanCreate({ accessRule, objectType, parentType? })`.
+- Create/update buttons and pages: derive the gate from the CONTRACT, not by
+  hand-passing `accessRule`/`objectType`. Prefer the gate-fused client hooks
+  `client.createFoo.useGatedMutation(...)` / `client.updateFoo.useGatedMutation({
+  gateInput: { id } })` - the mutation cannot hand back `mutate` without the
+  `{ allowed, accessLoading }` verdict, so the button gate can never drift from
+  the call it guards. When you need a standalone verdict (no mutation to fuse
+  onto yet), use `accessApi.useProcedureAccess(FooApi.contract.createFoo)`; it
+  resolves the access rule, object type, and any `create.parent` parent type
+  from the procedure's `instanceAccess` metadata.
 - Per-row actions and remove chips: `useResourceAccess(...).canAccess(id)`.
 - Resource pickers (Affected Systems, SLO target, dependency source, ...): filter
   the options to `canAccess(id)` (or all when the user holds the global rule), so
@@ -116,11 +124,16 @@ allowAllOverride? })` returns `{ manageable, ... }` - the exact list to offer.
 rule that authorizes any instance (a global incident manager may reference any
 system). Used by the incident/maintenance/SLO pickers.
 
-Capability GATING of buttons/pages stays on the `accessApi` hooks
-(`useCanCreate` / `useCanAccessType`) and `PageLayout`'s `allowed` prop: pages
-consume the verdict compoundly (a `useEffect` dependency, a ternary between two
-empty states, a per-row predicate), which a wrapper component cannot express -
-so there is deliberately no gate-component sugar.
+Capability GATING of buttons/pages stays on the contract-derived verdict
+(`useGatedMutation` / `useProcedureAccess` for a single procedure,
+`useSurfaceAccess` / `useCanAccessType` for the coarse "can reach this surface"
+gate) and `PageLayout`'s `allowed` prop: pages consume the verdict compoundly (a
+`useEffect` dependency, a ternary between two empty states, a per-row predicate),
+which a wrapper component cannot express - so there is deliberately no
+gate-component sugar. The removed `useCanCreate` hook is replaced by
+`useProcedureAccess(FooApi.contract.createFoo)` (or the fused
+`useGatedMutation`), which derives the same verdict from the create procedure's
+contract instead of hand-passed args that can drift.
 
 ## Adding a new team-scoped resource - checklist
 

@@ -719,7 +719,11 @@ describe("Automation Router", () => {
     it("404s when the run does not exist", async () => {
       h.db.select.mockReturnValueOnce(fluentSelect([]) as never);
       await expect(
-        call(h.router.cancelRun, { id: "missing" }, { context: h.context }),
+        call(
+          h.router.cancelRun,
+          { id: "missing", automationId: "a1" },
+          { context: h.context },
+        ),
       ).rejects.toThrow(/not found/i);
     });
 
@@ -742,7 +746,7 @@ describe("Automation Router", () => {
       );
       const res = await call(
         h.router.cancelRun,
-        { id: "r1" },
+        { id: "r1", automationId: "a1" },
         { context: h.context },
       );
       expect(res.success).toBe(true);
@@ -770,7 +774,7 @@ describe("Automation Router", () => {
       );
       const res = await call(
         h.router.cancelRun,
-        { id: "r1" },
+        { id: "r1", automationId: "a1" },
         { context: h.context },
       );
       expect(res.success).toBe(true);
@@ -898,7 +902,7 @@ describe("Automation Router", () => {
 
       const res = await call(
         h.router.getRunScopeForReplay,
-        { runId: "run-1" },
+        { runId: "run-1", automationId: "a1" },
         { context: h.context },
       );
 
@@ -927,7 +931,7 @@ describe("Automation Router", () => {
 
       const res = await call(
         h.router.getRunScopeForReplay,
-        { runId: "run-2" },
+        { runId: "run-2", automationId: "a1" },
         { context: h.context },
       );
       expect(res.scopeSnapshotAvailable).toBe(false);
@@ -939,7 +943,7 @@ describe("Automation Router", () => {
       await expect(
         call(
           h.router.getRunScopeForReplay,
-          { runId: "missing" },
+          { runId: "missing", automationId: "a1" },
           { context: h.context },
         ),
       ).rejects.toThrow(/not found/i);
