@@ -101,6 +101,34 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
     expect(result.checkStatuses).toHaveLength(1);
     expect(result.checkStatuses[0].status).toBe("unhealthy");
     expect(result.checkStatuses[0].runsConsidered).toBe(pool.length);
+    // Fan-out accounting: two environment slices (prod + staging), one failing.
+    expect(result.checkStatuses[0].sliceCount).toBe(2);
+    expect(result.checkStatuses[0].failingSliceCount).toBe(1);
+  });
+
+  it("counts every failing environment slice for the fan-out denominator (3 envs, 2 failing)", () => {
+    // Three envs of one check: prod + eu unhealthy, staging healthy. The rollup
+    // is unhealthy, and the fan-out accounting must report sliceCount 3 with
+    // failingSliceCount 2 so the dashboard can render "2 of 3 checks failing".
+    const pool: {
+      status: "healthy" | "unhealthy";
+      timestamp: Date;
+      environmentId: string;
+    }[] = [];
+    for (let i = 0; i < 5; i++) {
+      pool.push({ status: "unhealthy", timestamp: new Date(2025, 0, 1, 0, 0, i), environmentId: "prod" });
+      pool.push({ status: "unhealthy", timestamp: new Date(2025, 0, 1, 0, 0, i, 250), environmentId: "eu" });
+      pool.push({ status: "healthy", timestamp: new Date(2025, 0, 1, 0, 0, i, 500), environmentId: "staging" });
+    }
+    const runsDesc = pool.toReversed();
+    const mockDb = createMockDb(runsDesc as never);
+    const service = new HealthCheckService(mockDb as never, {} as never, {} as never);
+
+    return service.getSystemHealthStatus("system-1").then((result) => {
+      expect(result.status).toBe("unhealthy");
+      expect(result.checkStatuses[0].sliceCount).toBe(3);
+      expect(result.checkStatuses[0].failingSliceCount).toBe(2);
+    });
   });
 
   it("flattening the same mixed pool through the evaluator (the pre-fix derivation) would have returned `healthy`", async () => {
@@ -201,5 +229,9 @@ describe("HealthCheckService - system rollup worst-wins across environments", ()
     const service = new HealthCheckService(mockDb as never, {} as never, {} as never);
     const result = await service.getSystemHealthStatus("system-1", "prod");
     expect(result.status).toBe("unhealthy");
+    // A single-env evaluation is always one slice; failing here since prod is
+    // unhealthy.
+    expect(result.checkStatuses[0].sliceCount).toBe(1);
+    expect(result.checkStatuses[0].failingSliceCount).toBe(1);
   });
 });

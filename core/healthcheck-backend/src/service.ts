@@ -43,6 +43,7 @@ import {
   isNull,
   isNotNull,
   inArray,
+  max,
 } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { evaluateHealthStatus } from "./state-evaluator";
@@ -107,6 +108,10 @@ interface SystemCheckStatus {
   status: HealthCheckStatus;
   runsConsidered: number;
   lastRunAt?: Date;
+  /** Environment slices this check currently fans out to (>= 1). */
+  sliceCount: number;
+  /** How many of {@link sliceCount} slices are currently non-healthy. */
+  failingSliceCount: number;
 }
 
 interface SystemHealthStatusResponse {
@@ -1094,6 +1099,12 @@ export class HealthCheckService {
       let status: HealthCheckStatus;
       let runsConsidered: number;
       let lastRunAt: Date | undefined;
+      // Fan-out accounting for the honest "X of Y checks failing" denominator:
+      // how many environment slices this check currently spans, and how many
+      // are non-healthy. A non-fanned (single-env / env-less) check is one
+      // slice. Populated in both branches so the DTO field is always present.
+      let sliceCount = 1;
+      let failingSliceCount = 0;
 
       if (environmentId === undefined) {
         // System rollup: evaluate the threshold window PER ENVIRONMENT within
@@ -1140,13 +1151,21 @@ export class HealthCheckService {
         status = "healthy";
         runsConsidered = runs.length;
         lastRunAt = runs[0]?.timestamp;
+        // Each env group is a slice. A check that has runs against N envs
+        // currently fans out to N; before it has ever run it is still one
+        // logical slice (byEnv empty => keep the default 1).
+        sliceCount = Math.max(byEnv.size, 1);
+        failingSliceCount = 0;
         for (const envRuns of byEnv.values()) {
           const envStatus = evaluateHealthStatus({ runs: envRuns, thresholds });
+          // Count EVERY failing slice (don't break early): the failing count
+          // feeds the dashboard numerator, so all non-healthy envs must tally.
+          if (envStatus !== "healthy") {
+            failingSliceCount++;
+          }
           if (envStatus === "unhealthy") {
             status = "unhealthy";
-            break; // worst: stop
-          }
-          if (envStatus === "degraded" && status === "healthy") {
+          } else if (envStatus === "degraded" && status === "healthy") {
             status = "degraded";
           }
         }
@@ -1173,6 +1192,9 @@ export class HealthCheckService {
         status = evaluateHealthStatus({ runs, thresholds });
         runsConsidered = runs.length;
         lastRunAt = runs[0]?.timestamp;
+        // Single-slice evaluation: this env either counts as failing or not.
+        sliceCount = 1;
+        failingSliceCount = status === "healthy" ? 0 : 1;
       }
 
       checkStatuses.push({
@@ -1181,6 +1203,8 @@ export class HealthCheckService {
         status,
         runsConsidered,
         lastRunAt,
+        sliceCount,
+        failingSliceCount,
       });
     }
 
@@ -1488,6 +1512,39 @@ export class HealthCheckService {
         thresholds = await stateThresholds.parse(assoc.stateThresholds);
       }
 
+      // Most recent HEALTHY run per environment, computed OUTSIDE the bounded
+      // sparkline window so "last successful run" stays correct even when a
+      // check has been failing for far longer than the last 25 runs. One
+      // grouped aggregate query per check (env-less = the `null` group). The
+      // (system_id, configuration_id, environment_id, timestamp) index makes
+      // this a cheap max-per-group scan.
+      const lastHealthyRows = await this.db
+        .select({
+          environmentId: healthCheckRuns.environmentId,
+          lastSuccessAt: max(healthCheckRuns.timestamp),
+        })
+        .from(healthCheckRuns)
+        .where(
+          and(
+            eq(healthCheckRuns.systemId, systemId),
+            eq(healthCheckRuns.configurationId, assoc.configurationId),
+            eq(healthCheckRuns.status, "healthy"),
+          ),
+        )
+        .groupBy(healthCheckRuns.environmentId);
+      const lastHealthyByEnv = new Map<string | null, Date>();
+      let checkLastSuccessfulRunAt: Date | undefined;
+      for (const row of lastHealthyRows) {
+        if (!row.lastSuccessAt) continue;
+        lastHealthyByEnv.set(row.environmentId ?? null, row.lastSuccessAt);
+        if (
+          !checkLastSuccessfulRunAt ||
+          row.lastSuccessAt > checkLastSuccessfulRunAt
+        ) {
+          checkLastSuccessfulRunAt = row.lastSuccessAt;
+        }
+      }
+
       // Group the fetched runs by environmentId (null = env-less slice). We
       // query each env's slice separately below to evaluate it on its own
       // monotonic run window and worst-wins across envs — this is the same
@@ -1497,6 +1554,7 @@ export class HealthCheckService {
       const perEnvironment: {
         environmentId: string | null;
         status: HealthCheckStatus;
+        lastSuccessfulRunAt?: Date;
         recentRuns: { id: string; status: HealthCheckStatus; timestamp: Date }[];
       }[] = [];
 
@@ -1552,6 +1610,7 @@ export class HealthCheckService {
         perEnvironment.push({
           environmentId: envId,
           status: envStatus,
+          lastSuccessfulRunAt: lastHealthyByEnv.get(envId),
           recentRuns: envRuns.toReversed().map((r) => ({
             id: r.id,
             status: r.status,
@@ -1581,6 +1640,7 @@ export class HealthCheckService {
         paused: assoc.paused,
         status,
         stateThresholds: thresholds,
+        lastSuccessfulRunAt: checkLastSuccessfulRunAt,
         recentRuns: chronologicalRuns.map((r) => ({
           id: r.id,
           status: r.status,

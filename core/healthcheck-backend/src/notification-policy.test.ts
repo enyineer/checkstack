@@ -5,6 +5,7 @@ import type {
 } from "@checkstack/healthcheck-common";
 import {
   classifyTransition,
+  shouldEmitRollupNotification,
   shouldNotifyTransition,
   type TransitionKind,
 } from "./notification-policy";
@@ -76,6 +77,24 @@ describe("shouldNotifyTransition", () => {
 
   it("suppresses de-escalations when the policy opts in", () => {
     expect(shouldNotifyTransition("deescalation", on)).toBe(false);
+  });
+});
+
+describe("shouldEmitRollupNotification", () => {
+  // Regression guard for the duplicate-notification bug: a fanned-out system
+  // whose environment goes unhealthy notified once per env ("... in env X").
+  // The rollup notification ("... is unhealthy") describes the same outage, so
+  // it must be suppressed whenever an environment already notified this tick.
+  it("suppresses the rollup notification when an environment already notified", () => {
+    expect(
+      shouldEmitRollupNotification({ anyEnvironmentNotified: true }),
+    ).toBe(false);
+  });
+
+  it("emits the rollup notification as a fallback when no environment notified", () => {
+    expect(
+      shouldEmitRollupNotification({ anyEnvironmentNotified: false }),
+    ).toBe(true);
   });
 });
 

@@ -18,6 +18,7 @@ export interface OverviewRunLike {
 export interface OverviewPerEnvLike {
   environmentId: string | null;
   status: HealthCheckStatus;
+  lastSuccessfulRunAt?: Date | string;
   recentRuns: OverviewRunLike[];
 }
 
@@ -29,6 +30,7 @@ export interface OverviewCheckLike {
   paused: boolean;
   intervalSeconds: number;
   stateThresholds?: StateThresholds;
+  lastSuccessfulRunAt?: Date | string;
   recentRuns: OverviewRunLike[];
   perEnvironment?: OverviewPerEnvLike[];
 }
@@ -36,6 +38,10 @@ export interface OverviewCheckLike {
 function lastRunAt(runs: OverviewRunLike[]): Date | undefined {
   const last = runs.at(-1)?.timestamp;
   return last ? new Date(last) : undefined;
+}
+
+function toDate(value: Date | string | undefined): Date | undefined {
+  return value ? new Date(value) : undefined;
 }
 
 /**
@@ -111,6 +117,7 @@ export function buildOverviewRows({
         paused: check.paused,
         intervalSeconds: check.intervalSeconds,
         lastRunAt: lastRunAt(check.recentRuns),
+        lastSuccessfulRunAt: toDate(check.lastSuccessfulRunAt),
         stateThresholds,
         recentStatusHistory: check.recentRuns.map((r) => r.status),
         environmentId: orphaned ? environmentId : undefined,
@@ -143,6 +150,7 @@ export function buildOverviewRows({
         paused: check.paused,
         intervalSeconds: check.intervalSeconds,
         lastRunAt: lastRunAt(pe.recentRuns),
+        lastSuccessfulRunAt: toDate(pe.lastSuccessfulRunAt),
         stateThresholds,
         recentStatusHistory: pe.recentRuns.map((r) => r.status),
         environmentId,

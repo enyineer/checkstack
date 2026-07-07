@@ -57,6 +57,7 @@ import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type { HealthCheckCache } from "./cache";
 import {
   classifyTransition,
+  shouldEmitRollupNotification,
   shouldNotifyTransition,
 } from "./notification-policy";
 import { recordStateTransition } from "./state-transitions";
@@ -323,6 +324,13 @@ export async function recomputeSystemRollupHealth(args: {
  * Policy is resolved per-assignment (per system+configuration) — the
  * just-ran check is the one driving any aggregate transition in this
  * execution, so its policy is the authoritative one.
+ *
+ * Returns `true` when a subscriber notification was actually delivered, and
+ * `false` when it was skipped (no-op transition, policy/maintenance/incident
+ * suppression) or the delivery threw. Callers use this to deduplicate the
+ * system-rollup notification against the per-environment ones fired in the
+ * same tick: when any environment already notified, the rollup notification
+ * (which describes the same underlying outage) is redundant and suppressed.
  */
 async function notifyStateChange(props: {
   systemId: string;
@@ -351,7 +359,7 @@ async function notifyStateChange(props: {
   maintenanceClient: MaintenanceClient;
   incidentClient: IncidentClient;
   logger: Logger;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     systemId,
     systemName,
@@ -373,7 +381,7 @@ async function notifyStateChange(props: {
 
   const transition = classifyTransition(previousStatus, newStatus);
   if (transition === "none") {
-    return;
+    return false;
   }
 
   // Per-assignment notification policy. Failure to load defaults to
@@ -396,7 +404,7 @@ async function notifyStateChange(props: {
     logger.debug(
       `Skipping notification for ${systemId}: ${transition} suppressed by policy`,
     );
-    return;
+    return false;
   }
 
   // Check if notifications should be suppressed due to active maintenance
@@ -407,7 +415,7 @@ async function notifyStateChange(props: {
       logger.debug(
         `Skipping notification for ${systemId}: active maintenance with suppression enabled`,
       );
-      return;
+      return false;
     }
   } catch (error) {
     // Log but continue with notification - suppression check failure shouldn't block notifications
@@ -425,7 +433,7 @@ async function notifyStateChange(props: {
       logger.debug(
         `Skipping notification for ${systemId}: active incident with suppression enabled`,
       );
-      return;
+      return false;
     }
   } catch (error) {
     // Log but continue with notification - suppression check failure shouldn't block notifications
@@ -502,12 +510,16 @@ async function notifyStateChange(props: {
     logger.debug(
       `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`,
     );
+    return true;
   } catch (error) {
-    // Log but don't fail the operation - notifications are best-effort
+    // Log but don't fail the operation - notifications are best-effort. A
+    // delivery that threw did NOT inform the user, so report `false` and let
+    // the caller's rollup fallback still fire.
     logger.warn(
       `Failed to notify subscribers for health state change on system ${systemId}:`,
       error,
     );
+    return false;
   }
 }
 
@@ -751,6 +763,14 @@ async function executeHealthCheckJob(props: {
     // when there is something to roll up — an all-failed loop still leaves the
     // durable runs the per-env apply already wrote).
     let anyEnvRunPersisted = false;
+    // Whether any PER-ENVIRONMENT notification was actually delivered this
+    // tick. The post-loop system-rollup notification describes the same
+    // underlying outage ("system unhealthy" vs. "system unhealthy in env X"),
+    // so when an environment already notified we suppress the rollup one to
+    // avoid the duplicate notification pair. We still record the rollup
+    // transition and broadcast SYSTEM_STATUS_CHANGED (SLO/dependency/frontend
+    // consumers depend on those) — only the redundant notification is dropped.
+    let anyEnvNotified = false;
     // Whether this tick fans out into REAL environments (vs. the single
     // env-less run). When env-less, the loop's lone write already targets the
     // bare `<systemId>` entity — which IS the rollup — so no separate rollup
@@ -1151,7 +1171,7 @@ async function executeHealthCheckJob(props: {
           toStatus: newState.status,
         });
 
-        await notifyStateChange({
+        const envNotified = await notifyStateChange({
           notificationClient,
           systemId,
           systemName,
@@ -1166,6 +1186,7 @@ async function executeHealthCheckJob(props: {
           incidentClient,
           logger,
         });
+        anyEnvNotified = anyEnvNotified || envNotified;
       }
 
       // This environment's run is done (failed). Continue to the next
@@ -1297,7 +1318,7 @@ async function executeHealthCheckJob(props: {
         toStatus: newState.status,
       });
 
-      await notifyStateChange({
+      const envNotified = await notifyStateChange({
         notificationClient,
         systemId,
         systemName,
@@ -1312,6 +1333,7 @@ async function executeHealthCheckJob(props: {
         incidentClient,
         logger,
       });
+      anyEnvNotified = anyEnvNotified || envNotified;
 
       // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
       // status, not a per-env status. When fanned out, the post-loop rollup
@@ -1389,19 +1411,28 @@ async function executeHealthCheckJob(props: {
             toStatus: rollupState.status,
           });
 
-          await notifyStateChange({
-            notificationClient,
-            systemId,
-            systemName,
-            configurationId: configId,
-            previousStatus: rollupPreviousStatus,
-            newStatus: rollupState.status,
-            service,
-            catalogClient,
-            maintenanceClient,
-            incidentClient,
-            logger,
-          });
+          // Deduplicate against the per-environment notifications: when an
+          // environment already notified this tick, the rollup notification
+          // ("system unhealthy") describes the same outage as the per-env one
+          // ("system unhealthy in env X") and would be a redundant second
+          // notification. Only fire the rollup notification when NO environment
+          // notified (e.g. every per-env delivery was suppressed/threw) so the
+          // user is never left entirely uninformed of a real status change.
+          if (shouldEmitRollupNotification({ anyEnvironmentNotified: anyEnvNotified })) {
+            await notifyStateChange({
+              notificationClient,
+              systemId,
+              systemName,
+              configurationId: configId,
+              previousStatus: rollupPreviousStatus,
+              newStatus: rollupState.status,
+              service,
+              catalogClient,
+              maintenanceClient,
+              incidentClient,
+              logger,
+            });
+          }
 
           await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
             systemId,

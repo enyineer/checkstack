@@ -340,7 +340,13 @@ describe("HealthCheckService - paused configuration filtering", () => {
 
       const runsLimit = mock(() => Promise.resolve(emptyRuns));
       const runsOrderBy = mock(() => ({ limit: runsLimit }));
-      const runsWhere = mock(() => ({ orderBy: runsOrderBy, limit: runsLimit }));
+      // getSystemHealthOverview also runs a `.where(...).groupBy(env)` aggregate
+      // for the last-successful-run stamp; return no groups here.
+      const runsWhere = mock(() => ({
+        orderBy: runsOrderBy,
+        limit: runsLimit,
+        groupBy: mock(() => Promise.resolve([])),
+      }));
       const runsFrom = Object.assign(Promise.resolve(emptyRuns), {
         where: runsWhere,
         orderBy: runsOrderBy,

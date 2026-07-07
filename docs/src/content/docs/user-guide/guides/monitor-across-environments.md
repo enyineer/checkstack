@@ -110,6 +110,15 @@ After the first run, open the system's health check drawer:
 
 - The runs table shows one row per environment per tick. The **Environment** column identifies which environment each row belongs to.
 - Run history groups by environment so you can compare staging and production latency and failure rates independently.
+- The system overview shows one row per **(check, environment)** for a fanned-out check. A row that is degraded or unhealthy shows when it was **last healthy** (for example "Healthy until 2h ago"), so you can see at a glance since when that environment has been failing without opening the drawer.
+
+### How the fan-out is counted on the dashboard
+
+The dashboard problem card counts **environment slices**, not checks. A single check that fans out to three environments where one environment is failing reads **"1 of 3 checks failing"**, not "1 of 1". A system with a three-environment check plus a single-environment check, with one environment failing, reads **"1 of 4 checks failing"**. An env-less check counts as one slice, so a system with no environments reads exactly as before.
+
+### One notification per environment outage
+
+When a fanned-out environment changes health, you get a single notification scoped to that environment (for example "... is unhealthy in environment **production**"). The system rollup ("... is unhealthy") describes the same outage, so it is **not** sent as a second, duplicate notification - the per-environment notification already tells you which environment is affected. The rollup notification is still sent for a system with no environments, and the rollup status change is still recorded and still drives automations (see section 6).
 
 ---
 

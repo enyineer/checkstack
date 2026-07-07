@@ -180,3 +180,59 @@ describe("buildOverviewRows – orphan detection", () => {
     expect(rows[0].isOrphaned).toBe(false);
   });
 });
+
+describe("buildOverviewRows – last successful run", () => {
+  const success = "2026-07-01T09:00:00.000Z";
+
+  it("threads the check-level last successful run onto a single rollup row", () => {
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          status: "unhealthy",
+          lastSuccessfulRunAt: success,
+          perEnvironment: [
+            { environmentId: null, status: "unhealthy", recentRuns: [run("unhealthy")] },
+          ],
+        }),
+      ],
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].lastSuccessfulRunAt).toEqual(new Date(success));
+  });
+
+  it("threads each environment's own last successful run onto per-env rows", () => {
+    const prodSuccess = "2026-07-02T08:00:00.000Z";
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          status: "unhealthy",
+          perEnvironment: [
+            {
+              environmentId: "env-prod",
+              status: "unhealthy",
+              lastSuccessfulRunAt: prodSuccess,
+              recentRuns: [run("unhealthy")],
+            },
+            {
+              // Never succeeded → no timestamp → row shows "Never healthy".
+              environmentId: "env-staging",
+              status: "unhealthy",
+              recentRuns: [run("unhealthy")],
+            },
+          ],
+        }),
+      ],
+      environmentIds: ["env-prod", "env-staging"],
+      envNameById: new Map([
+        ["env-prod", "Production"],
+        ["env-staging", "Staging"],
+      ]),
+    });
+    const prod = rows.find((r) => r.environmentId === "env-prod");
+    const staging = rows.find((r) => r.environmentId === "env-staging");
+    expect(prod?.lastSuccessfulRunAt).toEqual(new Date(prodSuccess));
+    expect(staging?.lastSuccessfulRunAt).toBeUndefined();
+  });
+});

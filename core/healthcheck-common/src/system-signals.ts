@@ -46,8 +46,22 @@ export function deriveHealthcheckSignals({
   for (const [systemId, status] of Object.entries(statuses)) {
     if (!status || status.status === "healthy") continue;
 
-    const failing = status.checkStatuses.filter((c) => c.status !== "healthy");
-    const failingCheck = failing[0];
+    const failingCheck = status.checkStatuses.find(
+      (c) => c.status !== "healthy",
+    );
+
+    // Count over (check × environment) SLICES, not checks: a single check that
+    // fans out to three environments and fails in one is "1 of 3 failing", not
+    // "1 of 1". `sliceCount` is >= 1 per check (env-less counts as one slice),
+    // so a non-fanned system reads exactly as before.
+    const failingSlices = status.checkStatuses.reduce(
+      (sum, c) => sum + c.failingSliceCount,
+      0,
+    );
+    const totalSlices = status.checkStatuses.reduce(
+      (sum, c) => sum + c.sliceCount,
+      0,
+    );
 
     // The label/tone reflect the system's OVERALL health (`status.status`), which
     // already folds in any active incident override - so an operator who forced a
@@ -72,8 +86,8 @@ export function deriveHealthcheckSignals({
       : undefined;
 
     const detail =
-      failing.length > 0
-        ? `${failing.length} of ${status.checkStatuses.length} checks failing`
+      failingSlices > 0
+        ? `${failingSlices} of ${totalSlices} checks failing`
         : status.override
           ? `Forced by incident: ${status.override.reason}`
           : undefined;
