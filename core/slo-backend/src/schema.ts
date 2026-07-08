@@ -5,6 +5,7 @@ import {
   doublePrecision,
   integer,
   json,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 // =============================================================================
@@ -24,6 +25,9 @@ export const sloObjectives = pgTable("slo_objectives", {
   windowDays: integer("window_days").notNull(),
   dependencyExclusion: text("dependency_exclusion").notNull().default("strict"),
   excludedDependencyIds: json("excluded_dependency_ids").$type<string[]>(),
+  excludeMaintenanceWindows: boolean("exclude_maintenance_windows")
+    .notNull()
+    .default(false),
   burnRateWarningPercent: doublePrecision("burn_rate_warning_percent")
     .notNull()
     .default(50),

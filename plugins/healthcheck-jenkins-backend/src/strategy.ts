@@ -40,10 +40,13 @@ import { extractErrorMessage } from "@checkstack/common";
  * Provides connectivity settings for the Jenkins API.
  */
 export const jenkinsConfigSchema = baseStrategyConfigSchema.extend({
-  baseUrl: z
-    .string()
-    .url()
-    .describe("Jenkins server URL (e.g., https://jenkins.example.com)"),
+  // Templatable: supports `{{ environment.baseUrl }}` so one config covers N
+  // environments. The `.url()` validation moves to POST-RENDER (see
+  // `createClient`) because the stored value `{{ environment.baseUrl }}` is not
+  // itself a valid URL.
+  baseUrl: configString({ "x-templatable": true }).describe(
+    "Jenkins server URL (e.g., https://jenkins.example.com). Supports templating, e.g. {{ environment.baseUrl }}",
+  ),
   username: configString({}).describe(
     "Jenkins username for API authentication",
   ),
@@ -51,6 +54,16 @@ export const jenkinsConfigSchema = baseStrategyConfigSchema.extend({
     "Jenkins API token (generate from User > Configure > API Token)",
   ),
 });
+
+/**
+ * Post-render validator for the Jenkins `baseUrl`. The stored value is a plain
+ * templatable string (no `.url()`); the executor renders `{{ environment.* }}`
+ * per environment, then this re-validates the CONCRETE rendered URL. A bad
+ * render (e.g. an empty environment yielding a relative path) surfaces as a
+ * clear config error - transport-failure semantics - instead of a confusing
+ * fetch failure.
+ */
+const renderedUrlSchema = z.string().url();
 
 export type JenkinsConfig = z.infer<typeof jenkinsConfigSchema>;
 
@@ -163,7 +176,20 @@ export class JenkinsHealthCheckStrategy implements HealthCheckStrategy<
     config: JenkinsConfig,
   ): Promise<ConnectedClient<JenkinsTransportClient>> {
     const validatedConfig = this.config.validate(config);
-    const baseUrl = validatedConfig.baseUrl.replace(/\/$/, ""); // Remove trailing slash
+
+    // Post-render guard: `baseUrl` is a templatable string, so `.url()` cannot
+    // run at store time. The executor has already rendered `{{ environment.* }}`
+    // into `config.baseUrl`; validate the CONCRETE rendered URL here so a bad
+    // render fails clearly instead of attempting a request against a
+    // non-URL/relative path.
+    const renderedUrl = renderedUrlSchema.safeParse(validatedConfig.baseUrl);
+    if (!renderedUrl.success) {
+      throw new Error(
+        `Rendered baseUrl is invalid: ${JSON.stringify(validatedConfig.baseUrl)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+    const baseUrl = renderedUrl.data.replace(/\/$/, ""); // Remove trailing slash
 
     // Create Basic Auth header
     const authHeader = `Basic ${Buffer.from(

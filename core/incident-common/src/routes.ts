@@ -24,6 +24,10 @@ import { createRoutes } from "@checkstack/common";
  * ```
  */
 export const incidentRoutes = createRoutes("incident", {
+  // Public, read-gated overview of incidents. Anonymous holds `incident.read`
+  // by default, so this is reachable logged-out (unlike `config`, which is
+  // manage-gated). Registered as nav so the sidebar shows it to everyone.
+  overview: "/",
   config: "/config",
   detail: "/:incidentId",
   systemHistory: "/system/:systemId/incidents",

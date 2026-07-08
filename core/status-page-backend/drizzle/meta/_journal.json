@@ -15,6 +15,34 @@
       "when": 1781160447268,
       "tag": "0001_youthful_krista_starr",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783499260423,
+      "tag": "0002_puzzling_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783501096036,
+      "tag": "0003_glorious_changeling",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783505183320,
+      "tag": "0004_freezing_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783506017462,
+      "tag": "0005_worried_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }

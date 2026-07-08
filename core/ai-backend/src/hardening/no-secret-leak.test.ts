@@ -219,9 +219,15 @@ describe("no-secret-leak: the message WRITE PATH enforces the guarantee (canary)
     });
     const updateWhere = mock(() => Promise.resolve([]));
     const set = mock(() => ({ where: updateWhere }));
-    const db = {
+    const db: {
+      insert: ReturnType<typeof mock>;
+      update: ReturnType<typeof mock>;
+      transaction: (cb: (tx: unknown) => unknown) => unknown;
+    } = {
       insert: mock(() => ({ values })),
       update: mock(() => ({ set })),
+      // Scoped-db contract: appendMessage batches insert+bump in one tx.
+      transaction: (cb) => cb(db),
     };
     return { store: createAiConversationStore({ db: db as never }), captured };
   }

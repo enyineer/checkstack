@@ -192,6 +192,70 @@ describe("notifyAffectedSystems (maintenance)", () => {
     });
   });
 
+  describe("update message in body", () => {
+    it("appends the escaped update message as a blockquote", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "DB Upgrade",
+        systemIds: ["sys-1"],
+        action: "updated",
+        updateMessage: "Patch applied, verifying replicas.",
+      });
+
+      const call = (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [{ body?: string }]
+      )[0];
+      expect(call?.body).toContain(
+        "\n\n> Patch applied, verifying replicas",
+      );
+    });
+
+    it("truncates an over-long message to a bounded length", async () => {
+      const longMessage = "a".repeat(1000);
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "DB Upgrade",
+        systemIds: ["sys-1"],
+        action: "updated",
+        updateMessage: longMessage,
+      });
+
+      const call = (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [{ body?: string }]
+      )[0];
+      const blockquoteLine = (call?.body ?? "").split("\n\n> ")[1] ?? "";
+      expect(blockquoteLine.endsWith("...")).toBe(true);
+      // 500 chars + the "..." indicator.
+      expect(blockquoteLine.length).toBeLessThanOrEqual(503);
+    });
+
+    it("omits the blockquote entirely when no message is provided", async () => {
+      await notifyAffectedSystems({
+        catalogClient: mockCatalogClient as never,
+        notificationClient: mockNotificationClient as never,
+        logger: mockLogger as never,
+        maintenanceId: "maint-1",
+        maintenanceTitle: "DB Upgrade",
+        systemIds: ["sys-1"],
+        action: "created",
+      });
+
+      const call = (
+        mockNotificationClient.notifyForSubscription.mock
+          .calls[0] as unknown as [{ body?: string }]
+      )[0];
+      expect(call?.body).not.toContain("\n\n>");
+    });
+  });
+
   describe("error handling", () => {
     it("logs a warning but does not throw when the notify call fails", async () => {
       mockNotificationClient.notifyForSubscription.mockRejectedValue(

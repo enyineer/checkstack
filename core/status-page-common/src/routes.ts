@@ -21,4 +21,6 @@ export const statusPageRoutes = createRoutes("statuspage", {
  */
 export const statusPublicRoutes = createRoutes("statuspage", {
   page: "/view/:slug",
+  incident: "/view/:slug/incident/:id",
+  maintenance: "/view/:slug/maintenance/:id",
 });

@@ -1393,6 +1393,57 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     );
   });
 
+  // ─── Batching regression: set-based existing-anomaly read ─────────────
+  //
+  // The existing 'spike' rows are pre-loaded ONCE for the whole
+  // (system, config, env) slice before the field loop, then looked up per
+  // field in memory. The number of anomalies-table SELECTs must NOT scale with
+  // the field count — it is exactly one regardless of how many fields the run
+  // carries. `_anomalyWheres` records one entry per anomalies SELECT.
+
+  test("issues exactly ONE anomalies SELECT regardless of field count", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    // Two numeric fields, both with baselines, both anomalous: responseTimeMs
+    // (lower-is-better, above) and availability (higher-is-better, below).
+    const rtKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.responseTimeMs`;
+    const availKey = `baseline:${configurationId}:${systemId}:<none>:collectors.http.request.availability`;
+    const cache = createMockCache(
+      new Map([
+        [rtKey, baseline],
+        [availKey, createBaseline({ mean: 99, stdDev: 1 })],
+      ]),
+    );
+    const db = createMockDb();
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: {
+        "uuid-1": {
+          _collectorId: "http.request",
+          responseTimeMs: 200, // anomalous (above)
+          availability: 50, // anomalous (below)
+        },
+      },
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+    });
+
+    // Both fields inserted a suspicious anomaly...
+    expect(db._insertCalls.length).toBe(2);
+    // ...but the existing-row read was a SINGLE set-based SELECT, not one per
+    // field. This is the N+1 fix: it does not scale with field count.
+    expect(db._anomalyWheres.length).toBe(1);
+    // The single SELECT scopes to the 'spike' kind and this env slice.
+    expect(serializeCondition(db._anomalyWheres[0])).toContain("kind = spike");
+    expect(serializeCondition(db._anomalyWheres[0])).toContain(
+      "environment_id is null",
+    );
+  });
+
   test("env-less confirmation uses the pre-feature two-segment collapse key", async () => {
     const baseline = createBaseline({ mean: 100, stdDev: 10 });
     const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));

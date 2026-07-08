@@ -13,6 +13,8 @@ import { createAnnouncementRouter } from "./router";
 import { createAnnouncementCache, type AnnouncementCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { registerSearchProvider } from "@checkstack/command-backend";
+import { statusWidgetTypeExtensionPoint } from "@checkstack/status-page-backend";
+import { registerAnnouncementStatusWidgets } from "./status-page-widget";
 import type { SafeDatabase } from "@checkstack/backend-api";
 
 export default createBackendPlugin({
@@ -21,6 +23,13 @@ export default createBackendPlugin({
   register(env) {
     // Register access rules
     env.registerAccessRules(announcementAccessRules);
+
+    // Status-page "Announcements" widget, owned by announcement-backend (it
+    // owns announcements + their public-safe projection). Buffered behind the
+    // status-page extension point - status-page never depends on announcement.
+    registerAnnouncementStatusWidgets(
+      env.getExtensionPoint(statusWidgetTypeExtensionPoint),
+    );
 
     let announcementCache: AnnouncementCache | undefined;
 

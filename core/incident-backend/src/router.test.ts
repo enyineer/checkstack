@@ -25,6 +25,7 @@ interface FakeIncident {
   status: string;
   severity: string;
   suppressNotifications: boolean;
+  healthOverride: string | null;
   systemIds: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +40,7 @@ function makeIncident(id: string, status = "investigating"): FakeIncident {
     status,
     severity: "major",
     suppressNotifications: false,
+    healthOverride: null,
     systemIds: ["sys-1"],
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
@@ -97,7 +99,13 @@ function buildRouter() {
     >[0]["cache"],
   });
 
-  return { router, deleteIncident, resolveIncident, invalidateForMutation };
+  return {
+    router,
+    deleteIncident,
+    resolveIncident,
+    invalidateForMutation,
+    notifyForSubscription,
+  };
 }
 
 /** Team-scoped context: no global rule; only `granted` ids are grant-covered. */
@@ -151,6 +159,27 @@ describe("incident router bulkDeleteIncidents", () => {
 
     expect(results.every((r) => r.status === "forbidden")).toBe(true);
     expect(deleteIncident).not.toHaveBeenCalled();
+  });
+});
+
+describe("incident router resolveIncident notification", () => {
+  it("carries the resolution note into the subscriber notification body", async () => {
+    const { router, notifyForSubscription } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    await call(
+      router.resolveIncident,
+      { id: "inc-ok", message: "Root cause fixed and services restored" },
+      { context: ctx },
+    );
+
+    expect(notifyForSubscription).toHaveBeenCalledTimes(1);
+    const payload = (
+      notifyForSubscription.mock.calls[0] as unknown[] | undefined
+    )?.[0] as { body?: string } | undefined;
+    expect(payload?.body).toContain("has been resolved");
+    // The operator's resolution note must reach subscribers, not be dropped.
+    expect(payload?.body).toContain("Root cause fixed and services restored");
   });
 });
 

@@ -12,7 +12,10 @@ import type {
   IncidentHealthOverride,
   IncidentUpdate,
 } from "@checkstack/incident-common";
-import { incidentAccess } from "@checkstack/incident-common";
+import {
+  incidentAccess,
+  IncidentVisibilityEnum,
+} from "@checkstack/incident-common";
 import type { System } from "@checkstack/catalog-common";
 import {
   catalogAccess,
@@ -36,18 +39,16 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
-  StatusUpdateTimeline,
   LinksEditor,
   toastError,
-  Spinner,
   FormError,
   ConfirmationModal,
   SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
-import { Plus, MessageSquare, AlertCircle } from "lucide-react";
-import { IncidentUpdateForm } from "./IncidentUpdateForm";
-import { getIncidentStatusBadge } from "../utils/badges";
+import { IncidentUpdatesSection } from "./IncidentUpdatesSection";
+import { VisibilityBadge } from "../utils/visibilityBadge";
+import { INCIDENT_VISIBILITY_OPTIONS } from "../utils/visibilityOptions";
 import {
   TeamAccessEditor,
   TeamOwnershipPicker,
@@ -123,10 +124,9 @@ export const IncidentEditor: React.FC<Props> = ({
     allowAllOverride: allowGlobal,
   });
 
-  // Status update fields
+  // Status updates seeded from the detail query and handed to the shared
+  // IncidentUpdatesSection, which owns the add / edit / delete affordances.
   const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
-  const [loadingUpdates, _setLoadingUpdates] = useState(false);
-  const [showUpdateForm, setShowUpdateForm] = useState(false);
 
   // Inline validation: a per-field error map is the single source of truth for
   // both the inline FormError messages and submit-validity. Errors are only
@@ -179,6 +179,15 @@ export const IncidentEditor: React.FC<Props> = ({
     },
   });
 
+  const updateLinkMutation = incidentClient.updateLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to update link", error);
+    },
+  });
+
   const removeLinkMutation = incidentClient.removeLink.useMutation({
     onSuccess: () => {
       void refetchDetail();
@@ -222,7 +231,6 @@ export const IncidentEditor: React.FC<Props> = ({
       setSelectedSystemIds(new Set());
       setSuppressNotifications(false);
       setUpdates([]);
-      setShowUpdateForm(false);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
@@ -338,11 +346,13 @@ export const IncidentEditor: React.FC<Props> = ({
   };
 
   const handleUpdateSuccess = () => {
+    // An update may carry a status change that lifts/applies a health override
+    // (healthcheck's derived data), so invalidate it too (Pillar 2).
+    invalidateSystemHealth();
     if (incident) {
       void refetchDetail();
     }
-    setShowUpdateForm(false);
-    // Notify parent to refresh list (status may have changed)
+    // Notify parent to refresh list (status may have changed).
     onSave();
   };
 
@@ -510,57 +520,20 @@ export const IncidentEditor: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Status Updates Section - Only show when editing */}
+          {/* Status Updates Section - Only show when editing. Uses the SAME
+              shared section the detail page renders, so add/edit/delete
+              (including editing the published time + edit history) behave
+              identically in both surfaces. */}
           {incident && (
             <div className="border-t pt-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-base font-medium">
-                    Status Updates
-                  </Label>
-                </div>
-                {!showUpdateForm && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowUpdateForm(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Update
-                  </Button>
-                )}
-              </div>
-
-              {/* Add Update Form */}
-              {showUpdateForm && (
-                <div className="mb-4">
-                  <IncidentUpdateForm
-                    incidentId={incident.id}
-                    onSuccess={handleUpdateSuccess}
-                    onCancel={() => setShowUpdateForm(false)}
-                  />
-                </div>
-              )}
-
-              {/* Updates List */}
-              {loadingUpdates ? (
-                <div className="flex justify-center py-4">
-                  <Spinner size="lg" className="text-muted-foreground" />
-                </div>
-              ) : updates.length === 0 ? (
-                <div className="flex flex-col items-center py-6 text-muted-foreground">
-                  <AlertCircle className="h-8 w-8 mb-2" />
-                  <p className="text-sm">No status updates yet</p>
-                </div>
-              ) : (
-                <StatusUpdateTimeline
-                  updates={updates}
-                  renderStatusBadge={getIncidentStatusBadge}
-                  showTimeline={false}
-                  maxHeight="max-h-48"
-                />
-              )}
+              <IncidentUpdatesSection
+                incidentId={incident.id}
+                currentStatus={incident.status}
+                updates={updates}
+                onChanged={handleUpdateSuccess}
+                showTimeline={false}
+                maxHeight="max-h-48"
+              />
             </div>
           )}
 
@@ -571,14 +544,35 @@ export const IncidentEditor: React.FC<Props> = ({
                 title="Hotlinks"
                 description="Attach Jira tickets, runbooks, dashboards, or any URL relevant to this incident."
                 links={incidentDetail?.links ?? []}
+                visibility={{
+                  options: INCIDENT_VISIBILITY_OPTIONS,
+                  default: "public",
+                  renderBadge: (v) => <VisibilityBadge visibility={v} />,
+                }}
                 busy={
-                  addLinkMutation.isPending || removeLinkMutation.isPending
+                  addLinkMutation.isPending ||
+                  updateLinkMutation.isPending ||
+                  removeLinkMutation.isPending
                 }
-                onAdd={async ({ label, url }) => {
+                onAdd={async ({ label, url, visibility }) => {
                   await addLinkMutation.mutateAsync({
                     incidentId: incident.id,
                     label,
                     url,
+                    visibility: IncidentVisibilityEnum.parse(
+                      visibility ?? "public",
+                    ),
+                  });
+                }}
+                onEdit={async ({ id, label, url, visibility }) => {
+                  await updateLinkMutation.mutateAsync({
+                    id,
+                    incidentId: incident.id,
+                    label,
+                    url,
+                    visibility: visibility
+                      ? IncidentVisibilityEnum.parse(visibility)
+                      : undefined,
                   });
                 }}
                 onRemove={async (link) => {

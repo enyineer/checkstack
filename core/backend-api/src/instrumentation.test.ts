@@ -2,6 +2,8 @@ import { describe, it, expect } from "bun:test";
 import {
   dbTransactionsCounter,
   dbQueriesCounter,
+  dbQueryDurationHistogram,
+  dbTransactionDurationHistogram,
   healthcheckExecutionHistogram,
   healthcheckPhaseHistogram,
   queueEnqueuedCounter,
@@ -21,6 +23,10 @@ describe("platform instrumentation accessors", () => {
   it("memoize each instrument (same instance across calls)", () => {
     expect(dbTransactionsCounter()).toBe(dbTransactionsCounter());
     expect(dbQueriesCounter()).toBe(dbQueriesCounter());
+    expect(dbQueryDurationHistogram()).toBe(dbQueryDurationHistogram());
+    expect(dbTransactionDurationHistogram()).toBe(
+      dbTransactionDurationHistogram(),
+    );
     expect(healthcheckExecutionHistogram()).toBe(healthcheckExecutionHistogram());
     expect(healthcheckPhaseHistogram()).toBe(healthcheckPhaseHistogram());
     expect(queueEnqueuedCounter()).toBe(queueEnqueuedCounter());
@@ -31,6 +37,11 @@ describe("platform instrumentation accessors", () => {
     expect(() => {
       dbTransactionsCounter().add(1, { schema: "plugin_test" });
       dbQueriesCounter().add(1, { schema: "plugin_test" });
+      dbQueryDurationHistogram().record(12, {
+        schema: "plugin_test",
+        operation: "select",
+      });
+      dbTransactionDurationHistogram().record(34, { schema: "plugin_test" });
       healthcheckExecutionHistogram().record(123, { status: "healthy" });
       healthcheckPhaseHistogram().record(45, { phase: "connect" });
       queueEnqueuedCounter().add(1, { queue: "health-checks" });

@@ -17,6 +17,8 @@
     "@checkstack/backend-api": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
+    "@checkstack/notification-backend": "workspace:*",
+    "@checkstack/notification-common": "workspace:*",
     "@checkstack/status-page-common": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
@@ -29,7 +31,9 @@
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",
     "@types/bun": "^1.0.0",
+    "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
+    "pg": "^8.21.0",
     "typescript": "^5.0.0"
   }
 }

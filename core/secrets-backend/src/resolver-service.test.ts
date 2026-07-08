@@ -65,7 +65,7 @@ describe("SecretResolverService.resolveForRun", () => {
     ).rejects.toThrow("Secret not found: absent");
   });
 
-  it("resolves each distinct secret once even when reused", async () => {
+  it("resolves each distinct secret once even when reused (resolve fallback)", async () => {
     let calls = 0;
     const counting: SecretStore = {
       resolve: async (name) => {
@@ -83,5 +83,36 @@ describe("SecretResolverService.resolveForRun", () => {
     });
     // "same" + "other" → 2 distinct resolutions despite 3 references.
     expect(calls).toBe(2);
+  });
+
+  it("uses resolveMany once for the whole batch when the store provides it", async () => {
+    let manyCalls = 0;
+    let singleCalls = 0;
+    const batching: SecretStore = {
+      resolve: async (name) => {
+        singleCalls++;
+        return `val-${name}`;
+      },
+      resolveMany: async (names) => {
+        manyCalls++;
+        return new Map(names.map((name) => [name, `val-${name}`]));
+      },
+    };
+    const service = createSecretResolverService({ secretStore: batching });
+    const { env } = await service.resolveForRun({
+      secretEnv: {
+        A: "${{ secrets.same }}",
+        B: "${{ secrets.same }}",
+        C: "${{ secrets.other }}",
+      },
+    });
+    // One batch call, never the per-name single resolve.
+    expect(manyCalls).toBe(1);
+    expect(singleCalls).toBe(0);
+    expect(env).toEqual({
+      A: "val-same",
+      B: "val-same",
+      C: "val-other",
+    });
   });
 });

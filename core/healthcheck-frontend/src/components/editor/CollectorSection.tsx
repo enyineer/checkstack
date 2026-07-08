@@ -9,6 +9,7 @@ import {
   Label,
   healthcheckScriptContext,
   listSecretFieldKeys,
+  type TemplateCompletionProvider,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import {
@@ -60,6 +61,12 @@ interface CollectorSectionProps {
    * `undefined` when no environment is selected (preview line stays hidden).
    */
   templatePreviewContext?: Record<string, unknown>;
+  /**
+   * `{{ … }}` autocomplete provider seeded with the fixed
+   * `environment.* / check.* / system.*` namespace. Wired to templatable
+   * collector fields only.
+   */
+  templateCompletionProvider?: TemplateCompletionProvider;
 }
 
 export const CollectorSection: React.FC<CollectorSectionProps> = ({
@@ -75,6 +82,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   previewEnvironmentId,
   onPreviewEnvironmentChange,
   templatePreviewContext,
+  templateCompletionProvider,
 }) => {
   const scriptTestRenderer = React.useMemo(
     () => createCollectorScriptTestRenderer(entry.config),
@@ -148,6 +156,11 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 onValidChange={onValidChange}
                 templatePreviewContext={templatePreviewContext}
                 {...ctx}
+                // After `ctx`: the fixed `environment.*/check.*/system.*`
+                // completion is wired ONLY to `x-templatable` collector fields
+                // (e.g. the HTTP url), leaving script fields to `ctx`.
+                templateCompletionProvider={templateCompletionProvider}
+                templatableFieldsOnly
                 scriptTestRenderer={scriptTestRenderer}
                 secretNames={secretNames}
                 keepExistingSecretFields={

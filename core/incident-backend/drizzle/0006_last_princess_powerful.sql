@@ -1,0 +1,1 @@
+ALTER TABLE "incident_updates" ADD COLUMN "edit_history" jsonb DEFAULT '[]'::jsonb NOT NULL;

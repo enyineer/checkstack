@@ -498,8 +498,19 @@ export const SystemDetailsSlot = createSlot<{ system: System }>(
 export const CatalogSystemActionsSlot = createSlot<{
   systemId: string;
   systemName: string;
+  // Every system id currently visible in this row's list. A filler that shows
+  // per-system data can bulk-fetch for the whole visible set in ONE deduped
+  // request keyed on this array, instead of one request per row (an N+1). Every
+  // row receives the same ids, so identical-input queries collapse to one call.
+  visibleSystemIds: string[];
 }>("plugin.catalog.system-actions");
 ```
+
+> [!TIP]
+> Use `visibleSystemIds` for any per-system data a per-row action needs (for
+> example the health-check count badge). Fetch a bulk endpoint keyed on the whole
+> array from each row; because every row passes the same ids, the queries dedupe
+> to a single request rather than fanning out one request per system.
 
 ##### `CatalogBrowseHealthSlot` (bulk health rollup)
 
@@ -541,6 +552,68 @@ createSlotExtension(CatalogBrowseHealthSlot, {
     import("./CatalogBrowseHealthFiller").then((m) => ({
       default: m.CatalogBrowseHealthFiller,
     })),
+});
+```
+
+##### `CatalogBrowseDataBoundarySlot` (bulk data for per-row contributions)
+
+The catalog browse view mounts small contributions on every system row and group
+header - state badges (`SystemStateBadgesSlot`), a notification bell, and so on.
+Rendered naively, each one fetches its own data, so a catalog with N systems
+issues O(N) requests on open (an N+1). This slot removes that without coupling
+catalog to any provider: catalog only **renders** the boundary, and a provider
+plugin **fills** it with a component that wraps the whole browse tree in a
+bulk-data provider.
+
+```typescript
+export interface CatalogBrowseDataBoundarySlotContext {
+  systemIds: string[]; // every system id currently rendered in the browse view
+  groupIds: string[]; // every real group id rendered (excludes the ungrouped section)
+}
+
+export const CatalogBrowseDataBoundarySlot =
+  createSlot<CatalogBrowseDataBoundarySlotContext>(
+    "plugin.catalog.browse-data-boundary",
+  );
+```
+
+Contract rules:
+
+- A filler is an **eager** component that receives the context plus React
+  `children` (type `children` as optional so the component stays assignable to
+  the slot context, which does not declare it) and MUST render `children`
+  **exactly once** inside its provider. The per-row contributions inside then
+  read bulk data from that provider's React context and issue no per-row request.
+- catalog-frontend folds **every** registered filler around the tree, so multiple
+  providers nest and the tree still renders exactly once. Nesting order between
+  fillers is irrelevant (each provides its own context).
+- When no filler is installed, the boundary renders the tree unchanged and each
+  contribution falls back to its own fetch - catalog stays fully functional.
+- Keep the filler a pure data provider (no visible output of its own).
+
+Example filler (dashboard-frontend wraps its existing bulk badge-data provider):
+
+```tsx
+import { createSlotExtension } from "@checkstack/frontend-api";
+import { CatalogBrowseDataBoundarySlot } from "@checkstack/catalog-common";
+import { SystemBadgeDataProvider } from "@checkstack/dashboard-frontend";
+
+const CatalogBrowseBadgeDataFiller = ({
+  systemIds,
+  children,
+}: {
+  systemIds: string[];
+  groupIds: string[];
+  children?: React.ReactNode;
+}) => (
+  <SystemBadgeDataProvider systemIds={systemIds}>
+    {children}
+  </SystemBadgeDataProvider>
+);
+
+createSlotExtension(CatalogBrowseDataBoundarySlot, {
+  id: "my-plugin.catalog.browse-boundary",
+  component: CatalogBrowseBadgeDataFiller, // eager, NOT lazy `load`
 });
 ```
 
@@ -717,7 +790,7 @@ export default createFrontendPlugin({
     }),
     createSlotExtension(CatalogSystemActionsSlot, {
       id: "myplugin.system-actions",
-      component: MySystemAction, // Must accept { systemId: string; systemName: string }
+      component: MySystemAction, // Must accept { systemId; systemName; visibleSystemIds }
     }),
   ],
 });
@@ -730,7 +803,7 @@ import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
 
 // Props inferred directly from the slot definition - no manual interface needed!
 type Props = SlotContext<typeof CatalogSystemActionsSlot>;
-// Equivalent to: { systemId: string; systemName: string }
+// Equivalent to: { systemId: string; systemName: string; visibleSystemIds: string[] }
 
 export const MySystemAction: React.FC<Props> = ({ systemId, systemName }) => {
   // Full type safety - no casting, no unknown!

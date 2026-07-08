@@ -1,8 +1,11 @@
 import {
   FrontendPlugin,
   DashboardSlot,
+  createSlotExtension,
 } from "@checkstack/frontend-api";
+import { CatalogBrowseDataBoundarySlot } from "@checkstack/catalog-common";
 import { pluginMetadata } from "./pluginMetadata";
+import { CatalogBrowseBadgeDataFiller } from "./components/CatalogBrowseBadgeDataFiller";
 
 export const dashboardPlugin: FrontendPlugin = {
   metadata: pluginMetadata,
@@ -37,6 +40,15 @@ export const dashboardPlugin: FrontendPlugin = {
             m.DashboardRecentActivitySection as React.ComponentType<unknown>,
         })),
     },
+    // Eager filler for catalog's browse-view data boundary: wraps the whole
+    // browse tree in SystemBadgeDataProvider so the per-row health / incident /
+    // maintenance badges read bulk data from context instead of fetching per row
+    // (fixes the browse N+1). Eager (not lazy) so the provider is in place before
+    // the first row renders and no badge falls back to its singular RPC.
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "dashboard.catalog.browse-badge-data",
+      component: CatalogBrowseBadgeDataFiller,
+    }),
   ],
 };
 

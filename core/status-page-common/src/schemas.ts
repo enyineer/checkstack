@@ -101,6 +101,24 @@ export const CustomDomainInfoSchema = z.object({
 });
 export type CustomDomainInfo = z.infer<typeof CustomDomainInfoSchema>;
 
+/** Default per-page cap on NEW email subscribers accepted per rolling hour. */
+export const DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA = 50;
+/** Sane ceiling an admin may raise the per-page hourly new-subscriber quota to. */
+export const EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX = 5000;
+/**
+ * Per-page hourly quota on NEW email subscribers: a positive integer, capped at a
+ * sane ceiling. Stored as null to mean "use the platform default"
+ * ({@link DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA}), so existing pages are
+ * unchanged. Setting it LOW simply tightens the cap (fewer verification emails
+ * accepted per rolling hour); it never disables the per-(page,email) cooldown and
+ * never rejects <= 0 (the schema forbids that).
+ */
+export const EmailSubscribersHourlyQuotaSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX);
+
 /** Full admin-facing status page (the builder's working copy). */
 export const StatusPageSchema = z.object({
   id: z.string(),
@@ -114,6 +132,16 @@ export const StatusPageSchema = z.object({
   publishedAt: z.string().nullable(),
   /** Custom domain config, or null when the page is served only at /status/<slug>. */
   customDomain: CustomDomainInfoSchema.nullable(),
+  /** Per-page opt-in for anonymous email subscriptions (default off). */
+  emailSubscriptionsEnabled: z.boolean(),
+  /** Per-page hourly cap on NEW email subscribers; null uses the default. */
+  emailSubscribersHourlyQuota: EmailSubscribersHourlyQuotaSchema.nullable(),
+  /**
+   * Whether new subscribers must confirm their email (double opt-in) before
+   * receiving updates. Default true; when false, new subscribers are active
+   * immediately without a verification email.
+   */
+  emailVerificationRequired: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -132,6 +160,28 @@ export const StatusPageSummarySchema = z.object({
   updatedAt: z.string(),
 });
 export type StatusPageSummary = z.infer<typeof StatusPageSummarySchema>;
+
+// ===========================================================================
+// Email subscribers (anonymous double-opt-in to incident updates)
+// ===========================================================================
+
+/** A subscriber email address (trimmed, lowercased by the backend). */
+export const SubscriberEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("Enter a valid email address")
+  .max(254);
+
+/** Admin-facing subscriber row (never exposes the raw tokens). */
+export const StatusPageSubscriberSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  verified: z.boolean(),
+  createdAt: z.string(),
+  verifiedAt: z.string().nullable(),
+});
+export type StatusPageSubscriber = z.infer<typeof StatusPageSubscriberSchema>;
 
 // ===========================================================================
 // Public output (the ONLY shape the public surface ever receives)
@@ -179,6 +229,11 @@ export const PublishedStatusPageSchema = z.object({
    * Empty for built-in-only pages. The public bundle loads exactly these.
    */
   rendererRemotes: z.array(RendererRemoteSchema).default([]),
+  /**
+   * Whether the page accepts anonymous email subscriptions. The public bundle
+   * only renders the subscribe form when true (the endpoints also fail closed).
+   */
+  emailSubscriptionsEnabled: z.boolean().default(false),
   /** When the resolver assembled this snapshot (drives client cache hints). */
   generatedAt: z.string(),
 });

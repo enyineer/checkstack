@@ -110,6 +110,13 @@
     --status-down-foreground: 0 0% 100%;
     --status-unknown: 240 5% 58%;
     --status-unknown-foreground: 0 0% 100%;
+    /* Informational (blue) tone: a fifth hue OUTSIDE the ok/warn/down ladder,
+       for states that are neither good, bad, nor unknown (e.g. an incident in
+       "monitoring"). Blue reads as distinct from the amber/vermilion warn/down
+       under deuteranopia/protanopia. L 45 keeps text-status-info readable on the
+       light card background; always paired with a glyph + label. */
+    --status-info: 214 90% 45%;
+    --status-info-foreground: 0 0% 100%;
 
     /* Low-contrast chart gridline (data-ink discipline). */
     --grid-line: 240 14% 88%;
@@ -245,6 +252,10 @@
     --status-down-foreground: 0 0% 100%;
     --status-unknown: 240 6% 50%;
     --status-unknown-foreground: 0 0% 100%;
+    /* Info (blue) tone, dark theme: lifted to L 62 so text-status-info clears
+       contrast on the dark card surface, mirroring the triad's dark lift. */
+    --status-info: 210 90% 62%;
+    --status-info-foreground: 0 0% 0%;
 
     /* Low-contrast chart gridline - dark. */
     --grid-line: 240 14% 22%;

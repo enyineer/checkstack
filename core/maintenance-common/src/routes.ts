@@ -25,6 +25,10 @@ import { createRoutes } from "@checkstack/common";
  * ```
  */
 export const maintenanceRoutes = createRoutes("maintenance", {
+  // Public, read-gated overview of maintenances. Anonymous holds
+  // `maintenance.read` by default, so this is reachable logged-out (unlike
+  // `config`, which is manage-gated). Registered as nav for everyone.
+  overview: "/",
   config: "/config",
   systemHistory: "/system/:systemId/history",
   detail: "/:maintenanceId",

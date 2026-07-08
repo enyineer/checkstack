@@ -100,6 +100,86 @@ describe("TlsHealthCheckStrategy", () => {
       connectedClient.close();
     });
 
+    it("connects with a concrete (already-rendered) host", async () => {
+      // The executor renders `{{ environment.host }}` upstream, so createClient
+      // always sees a concrete value; verify it is forwarded to the TLS connect.
+      const mockClient = createMockClient();
+      const strategy = new TlsHealthCheckStrategy(mockClient);
+
+      const connectedClient = await strategy.createClient({
+        host: "rendered.example.com",
+        port: 443,
+        timeout: 5000,
+        minDaysUntilExpiry: 7,
+        rejectUnauthorized: true,
+      });
+
+      expect(mockClient.connect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "rendered.example.com",
+          servername: "rendered.example.com",
+        }),
+      );
+
+      connectedClient.close();
+    });
+
+    it("throws when the rendered host is empty (transport failure)", async () => {
+      // An env-less run renders `{{ environment.host }}` to "". A required target
+      // that renders empty is a config error, not a silent empty connection.
+      const mockClient = createMockClient();
+      const strategy = new TlsHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "",
+          port: 443,
+          timeout: 5000,
+          minDaysUntilExpiry: 7,
+          rejectUnauthorized: true,
+        }),
+      ).rejects.toThrow("Rendered host is empty");
+
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
+
+    it("throws when the rendered host is whitespace-only", async () => {
+      const mockClient = createMockClient();
+      const strategy = new TlsHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "   ",
+          port: 443,
+          timeout: 5000,
+          minDaysUntilExpiry: 7,
+          rejectUnauthorized: true,
+        }),
+      ).rejects.toThrow("Rendered host is empty");
+
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
+
+    it("falls back to host for an empty rendered SNI servername", async () => {
+      const mockClient = createMockClient();
+      const strategy = new TlsHealthCheckStrategy(mockClient);
+
+      const connectedClient = await strategy.createClient({
+        host: "rendered.example.com",
+        port: 443,
+        timeout: 5000,
+        minDaysUntilExpiry: 7,
+        rejectUnauthorized: true,
+        servername: "",
+      });
+
+      expect(mockClient.connect).toHaveBeenCalledWith(
+        expect.objectContaining({ servername: "rendered.example.com" }),
+      );
+
+      connectedClient.close();
+    });
+
     it("should throw for connection error during client creation", async () => {
       const strategy = new TlsHealthCheckStrategy(
         createMockClient({ error: new Error("Connection refused") }),

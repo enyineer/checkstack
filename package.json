@@ -22,6 +22,7 @@
     "generate:docs-index": "bun run scripts/generate-docs-index.ts",
     "generate:docs-index:check": "bun run scripts/generate-docs-index.ts --check",
     "check:manage-capabilities": "bun run scripts/check-manage-capabilities.ts",
+    "profile:analyze": "bun run core/scripts/src/profiling/analyze-metrics.ts",
     "lint": "bun run lint:code",
     "lint:code": "eslint .",
     "test": "bun run scripts/run-tests.ts",
@@ -75,7 +76,8 @@
     "ws": "^8.21.0",
     "minimatch": "^10.2.5",
     "postcss-selector-parser": "^7.1.4",
-    "undici": "^7.28.0"
+    "undici": "^7.28.0",
+    "@astrojs/markdown-remark": "^7.2.0"
   },
   "resolutions": {
     "drizzle-orm": "^0.45.0",
@@ -89,6 +91,7 @@
     "ws": "^8.21.0",
     "minimatch": "^10.2.5",
     "postcss-selector-parser": "^7.1.4",
-    "undici": "^7.28.0"
+    "undici": "^7.28.0",
+    "@astrojs/markdown-remark": "^7.2.0"
   }
 }

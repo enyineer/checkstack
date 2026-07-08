@@ -16,6 +16,7 @@ import { SystemsSection } from "./SystemsSection";
 import { TeamAccessEditor, TeamOwnershipPicker } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import type { Environment } from "@checkstack/catalog-frontend";
+import type { TemplateCompletionProvider } from "@checkstack/ui";
 
 // =============================================================================
 // TYPES
@@ -82,6 +83,12 @@ interface EditorPanelProps {
    */
   templatePreviewContext?: Record<string, unknown>;
   /**
+   * `{{ … }}` autocomplete provider seeded with the fixed
+   * `environment.* / check.* / system.*` namespace, shared by the strategy and
+   * collector config forms. Wired to `x-templatable` fields only.
+   */
+  templateCompletionProvider?: TemplateCompletionProvider;
+  /**
    * Owning-team selection for create mode. `null` means global (no team).
    * Only used when `!isEditMode` — ignored in edit mode.
    */
@@ -123,6 +130,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   previewEnvironmentId = null,
   onPreviewEnvironmentChange,
   templatePreviewContext,
+  templateCompletionProvider,
   ownerTeamId = null,
   onOwnerTeamIdChange,
   ownerTeamError = null,
@@ -142,6 +150,13 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           intervalSeconds={formState.intervalSeconds}
           strategyConfig={formState.strategyConfig}
           strategy={strategy}
+          previewEnvironments={previewEnvironments}
+          previewEnvironmentId={previewEnvironmentId}
+          onPreviewEnvironmentChange={(id) =>
+            onPreviewEnvironmentChange?.(id)
+          }
+          templatePreviewContext={templatePreviewContext}
+          templateCompletionProvider={templateCompletionProvider}
           onNameChange={onNameChange}
           onIntervalChange={onIntervalChange}
           onStrategyConfigChange={onStrategyConfigChange}
@@ -260,6 +275,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
             onPreviewEnvironmentChange?.(id)
           }
           templatePreviewContext={templatePreviewContext}
+          templateCompletionProvider={templateCompletionProvider}
         />
       </div>
     );

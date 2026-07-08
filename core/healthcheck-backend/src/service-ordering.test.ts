@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { InferSelectModel } from "drizzle-orm";
+import { withTransactionMock } from "@checkstack/test-utils-backend";
 import { HealthCheckService } from "./service";
 import {
   healthCheckRuns,
@@ -78,10 +79,13 @@ describe("HealthCheckService data ordering", () => {
       orderBy: orderByMock,
     }));
 
-    return {
+    // getSystemHealthOverview batches its reads in ONE scoped transaction, so
+    // the mock must expose `.transaction(cb)` (runs `cb` against the same mock
+    // db). getHistory/getDetailedHistory run standalone and ignore it.
+    return withTransactionMock({
       select: mock(() => ({ from: fromMock })),
       $count: mock(() => Promise.resolve(mockRuns.length)),
-    };
+    });
   }
 
   beforeEach(() => {

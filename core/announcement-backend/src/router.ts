@@ -12,6 +12,7 @@ import {
   type RealUser,
 } from "@checkstack/backend-api";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import { eq, and, or, lte, gte, isNull, asc, inArray, sql } from "drizzle-orm";
 import type { AnnouncementCache } from "./cache";
@@ -67,48 +68,56 @@ export function createAnnouncementRouter(
         return cache.wrapActive({ userId, includeDismissed }, async () => {
           const now = new Date();
 
-          // Base query: active announcements within their time window
-          const rows = await db
-            .select()
-            .from(schema.announcements)
-            .where(
-              and(
-                eq(schema.announcements.active, true),
-                or(
-                  isNull(schema.announcements.startsAt),
-                  lte(schema.announcements.startsAt, now),
+          // Active announcements + (for an authenticated caller) their
+          // dismissals share ONE scoped transaction: a single SET LOCAL
+          // search_path instead of two, with only in-memory filtering between.
+          let announcements = await withScopedTransaction(db, async (tx) => {
+            // Base query: active announcements within their time window
+            const rows = await tx
+              .select()
+              .from(schema.announcements)
+              .where(
+                and(
+                  eq(schema.announcements.active, true),
+                  or(
+                    isNull(schema.announcements.startsAt),
+                    lte(schema.announcements.startsAt, now),
+                  ),
+                  or(
+                    isNull(schema.announcements.expiresAt),
+                    gte(schema.announcements.expiresAt, now),
+                  ),
                 ),
-                or(
-                  isNull(schema.announcements.expiresAt),
-                  gte(schema.announcements.expiresAt, now),
-                ),
-              ),
-            )
-            // Stable, operator-controlled order. createdAt + id break ties so
-            // the sequence never shifts when an announcement is merely updated.
-            .orderBy(
-              asc(schema.announcements.sortOrder),
-              asc(schema.announcements.createdAt),
-              asc(schema.announcements.id),
-            );
+              )
+              // Stable, operator-controlled order. createdAt + id break ties so
+              // the sequence never shifts when an announcement is merely updated.
+              .orderBy(
+                asc(schema.announcements.sortOrder),
+                asc(schema.announcements.createdAt),
+                asc(schema.announcements.id),
+              );
 
-          let announcements = rows.map((row) => toAnnouncement(row));
+            let mapped = rows.map((row) => toAnnouncement(row));
 
-          // If the caller is authenticated, filter out their dismissed announcements
-          // (unless includeDismissed is explicitly requested, e.g. for dashboard)
-          if (!includeDismissed && userId !== undefined) {
-            const dismissals = await db
-              .select({ announcementId: schema.announcementDismissals.announcementId })
-              .from(schema.announcementDismissals)
-              .where(eq(schema.announcementDismissals.userId, userId));
+            // If the caller is authenticated, filter out their dismissed
+            // announcements (unless includeDismissed is explicitly requested,
+            // e.g. for dashboard)
+            if (!includeDismissed && userId !== undefined) {
+              const dismissals = await tx
+                .select({
+                  announcementId: schema.announcementDismissals.announcementId,
+                })
+                .from(schema.announcementDismissals)
+                .where(eq(schema.announcementDismissals.userId, userId));
 
-            const dismissedIds = new Set(
-              dismissals.map((d) => d.announcementId),
-            );
-            announcements = announcements.filter(
-              (a) => !dismissedIds.has(a.id),
-            );
-          }
+              const dismissedIds = new Set(
+                dismissals.map((d) => d.announcementId),
+              );
+              mapped = mapped.filter((a) => !dismissedIds.has(a.id));
+            }
+
+            return mapped;
+          });
 
           // Filter visibility for unauthenticated users
           if (userId === undefined) {
@@ -129,28 +138,33 @@ export function createAnnouncementRouter(
       async ({ input, context }) => {
         const userId = (context.user as RealUser).id;
 
-        // Verify the announcement exists
-        const existing = await db
-          .select({ id: schema.announcements.id })
-          .from(schema.announcements)
-          .where(eq(schema.announcements.id, input.announcementId))
-          .limit(1);
+        // Existence check + idempotent dismissal upsert share ONE scoped
+        // transaction (single SET LOCAL search_path). A NOT_FOUND throw rolls
+        // back with nothing written.
+        await withScopedTransaction(db, async (tx) => {
+          // Verify the announcement exists
+          const existing = await tx
+            .select({ id: schema.announcements.id })
+            .from(schema.announcements)
+            .where(eq(schema.announcements.id, input.announcementId))
+            .limit(1);
 
-        if (existing.length === 0) {
-          throw new ORPCError("NOT_FOUND", {
-            message: "Announcement not found",
-          });
-        }
+          if (existing.length === 0) {
+            throw new ORPCError("NOT_FOUND", {
+              message: "Announcement not found",
+            });
+          }
 
-        // Upsert dismissal (idempotent)
-        await db
-          .insert(schema.announcementDismissals)
-          .values({
-            announcementId: input.announcementId,
-            userId,
-            dismissedAt: new Date(),
-          })
-          .onConflictDoNothing();
+          // Upsert dismissal (idempotent)
+          await tx
+            .insert(schema.announcementDismissals)
+            .values({
+              announcementId: input.announcementId,
+              userId,
+              dismissedAt: new Date(),
+            })
+            .onConflictDoNothing();
+        });
 
         // Drop only this user's cache — other users' dismissals are unaffected.
         await cache.invalidateUserActive(userId);
@@ -185,34 +199,40 @@ export function createAnnouncementRouter(
         const id = crypto.randomUUID();
         const now = new Date();
 
-        // Append new announcements at the end of the operator's ordering.
-        const [maxRow] = await db
-          .select({
-            maxOrder: sql<
-              number | null
-            >`max(${schema.announcements.sortOrder})`,
-          })
-          .from(schema.announcements);
-        const nextSortOrder = (maxRow?.maxOrder ?? -1) + 1;
+        // Append new announcements at the end of the operator's ordering. The
+        // max(sortOrder) read + the insert share ONE scoped transaction: a
+        // single SET LOCAL search_path, and the read-then-insert race on
+        // sortOrder is closed by construction.
+        const row = await withScopedTransaction(db, async (tx) => {
+          const [maxRow] = await tx
+            .select({
+              maxOrder: sql<
+                number | null
+              >`max(${schema.announcements.sortOrder})`,
+            })
+            .from(schema.announcements);
+          const nextSortOrder = (maxRow?.maxOrder ?? -1) + 1;
 
-        const [row] = await db
-          .insert(schema.announcements)
-          .values({
-            id,
-            title: input.title,
-            message: input.message,
-            severity: input.severity,
-            visibility: input.visibility,
-            displayMode: input.displayMode,
-            active: input.active ?? true,
-            sortOrder: nextSortOrder,
-            startsAt: input.startsAt ?? undefined,
-            expiresAt: input.expiresAt ?? undefined,
-            createdBy: userId,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning();
+          const [inserted] = await tx
+            .insert(schema.announcements)
+            .values({
+              id,
+              title: input.title,
+              message: input.message,
+              severity: input.severity,
+              visibility: input.visibility,
+              displayMode: input.displayMode,
+              active: input.active ?? true,
+              sortOrder: nextSortOrder,
+              startsAt: input.startsAt ?? undefined,
+              expiresAt: input.expiresAt ?? undefined,
+              createdBy: userId,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning();
+          return inserted;
+        });
 
         const announcement = toAnnouncement(row);
 

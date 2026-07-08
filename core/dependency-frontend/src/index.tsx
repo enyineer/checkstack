@@ -15,9 +15,11 @@ import {
   SystemStateBadgesSlot,
   SystemEditorSlot,
   SystemSignalsSlot,
+  CatalogBrowseDataBoundarySlot,
 } from "@checkstack/catalog-common";
 import { DependencyBadge } from "./components/DependencyBadge";
 import { DependencyAlert } from "./components/DependencyAlert";
+import { CatalogBrowseDependencyDataFiller } from "./components/CatalogBrowseDependencyDataFiller";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -42,6 +44,15 @@ export default createFrontendPlugin({
     createSlotExtension(SystemStateBadgesSlot, {
       id: "dependency.system-state-badge",
       component: DependencyBadge,
+    }),
+    // Eager filler for catalog's browse-view data boundary: wraps the whole
+    // browse tree in DependencyBadgeDataProvider so the per-row DependencyBadge
+    // reads bulk dependency warnings from context instead of fetching per row
+    // (fixes the browse N+1). Eager (not lazy) so the provider is in place
+    // before the first row renders and no badge falls back to its singular RPC.
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "dependency.catalog.browse-dependency-data",
+      component: CatalogBrowseDependencyDataFiller,
     }),
     createSlotExtension(SystemDetailsTopSlot, {
       id: "dependency.system-details-top.alert",

@@ -3,17 +3,25 @@ import { useParams } from "react-router-dom";
 import {
   EmptyState,
   LoadingSpinner,
+  Input,
+  Button,
   cn,
   formatRelativeTime,
   usePerformance,
 } from "@checkstack/ui";
-import { FileQuestion, Inbox } from "lucide-react";
+import { FileQuestion, Inbox, Mail, CheckCircle2 } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import {
   StatusPageApi,
   type OverallStatusSummary,
 } from "@checkstack/status-page-common";
-import { BlockRenderer, useStatusWidgetRenderers, STATUS } from "../renderers";
+import {
+  BlockRenderer,
+  useStatusWidgetRenderers,
+  STATUS,
+  StatusDetailLinkContext,
+  type BuildDetailHref,
+} from "../renderers";
 import { useLoadRendererRemotes } from "../remote-renderers";
 
 /**
@@ -111,13 +119,96 @@ const FreshnessLine: React.FC<{
 };
 
 /**
+ * Anonymous email-subscription form + double-opt-in / unsubscribe handling. On
+ * mount it acts on a `?verify=` / `?unsubscribe=` token in the REAL browser URL
+ * (the public bundle's router is in-memory, so query state lives on
+ * `location.search`). The subscribe call ALWAYS resolves ok server-side, so the
+ * UI never reveals whether an address was already subscribed.
+ */
+const SubscribeSection: React.FC<{ slug: string }> = ({ slug }) => {
+  const client = usePluginClient(StatusPageApi);
+  const [email, setEmail] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const subscribeMutation = client.subscribeToStatusPage.useMutation();
+  const verifyMutation = client.verifyStatusPageSubscription.useMutation();
+  const unsubscribeMutation = client.unsubscribeFromStatusPage.useMutation();
+
+  // Act on a verify / unsubscribe token present in the page URL, once.
+  useEffect(() => {
+    const params = new URLSearchParams(globalThis.location?.search ?? "");
+    const verify = params.get("verify");
+    const unsubscribe = params.get("unsubscribe");
+    if (verify) {
+      void verifyMutation
+        .mutateAsync({ token: verify })
+        .then(() => setNotice("Your subscription is confirmed."))
+        .catch(() => setNotice("Your subscription is confirmed."));
+    } else if (unsubscribe) {
+      void unsubscribeMutation
+        .mutateAsync({ token: unsubscribe })
+        .then(() => setNotice("You have been unsubscribed."))
+        .catch(() => setNotice("You have been unsubscribed."));
+    }
+    // Run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    try {
+      await subscribeMutation.mutateAsync({ slug, email: email.trim() });
+    } catch {
+      // Fall through to the same neutral confirmation (no enumeration).
+    }
+    setEmail("");
+    setNotice(
+      "Check your inbox for a confirmation link to finish subscribing.",
+    );
+  };
+
+  return (
+    <section className="mt-10 rounded-[var(--d-card-r)] border border-border bg-surface p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Mail className="size-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Subscribe to updates</h3>
+      </div>
+      {notice ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-status-ok" />
+          {notice}
+        </p>
+      ) : (
+        <form onSubmit={onSubscribe} className="flex gap-2">
+          <Input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            aria-label="Email address"
+          />
+          <Button type="submit" disabled={subscribeMutation.isPending}>
+            Subscribe
+          </Button>
+        </form>
+      )}
+    </section>
+  );
+};
+
+/**
  * The PUBLIC status page view. Renders ENTIRELY from the single
  * `getPublishedStatusPage` response — it makes no other data call, so it can
  * only ever show what the publisher placed on the page. Takes `slug` as a prop
  * so it can be driven by the in-app standalone route (slug from the URL) OR by
  * the separate custom-domain public bundle (slug from `/api/config`).
  */
-export const PublicStatusPageView: React.FC<{ slug: string }> = ({ slug }) => {
+export const PublicStatusPageView: React.FC<{
+  slug: string;
+  /** Builds detail-page hrefs for incident/maintenance items; omit to disable. */
+  buildDetailHref?: BuildDetailHref;
+}> = ({ slug, buildDetailHref }) => {
   const client = usePluginClient(StatusPageApi);
   const renderers = useStatusWidgetRenderers();
   const loadRendererRemotes = useLoadRendererRemotes();
@@ -204,16 +295,20 @@ export const PublicStatusPageView: React.FC<{ slug: string }> = ({ slug }) => {
               description="This status page has no content yet."
             />
           ) : (
-            <div className="space-y-5">
-              {data.blocks.map((block) => (
-                <BlockRenderer
-                  key={block.id}
-                  block={block}
-                  renderers={renderers}
-                />
-              ))}
-            </div>
+            <StatusDetailLinkContext.Provider value={buildDetailHref ?? null}>
+              <div className="space-y-5">
+                {data.blocks.map((block) => (
+                  <BlockRenderer
+                    key={block.id}
+                    block={block}
+                    renderers={renderers}
+                  />
+                ))}
+              </div>
+            </StatusDetailLinkContext.Provider>
           )}
+
+          {data.emailSubscriptionsEnabled && <SubscribeSection slug={slug} />}
 
           <footer className="mt-16 flex flex-col items-center gap-1 border-t border-border pt-6 text-center text-xs text-muted-foreground">
             <span>

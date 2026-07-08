@@ -60,11 +60,22 @@ function buildRouter() {
   const getMaintenance = mock(async (id: string) =>
     PRESENT.has(id) ? makeMaintenance(id) : undefined,
   );
+  const addUpdate = mock(
+    async (input: { maintenanceId: string; message: string }) => ({
+      id: "upd-1",
+      maintenanceId: input.maintenanceId,
+      message: input.message,
+      visibility: "public",
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      editedAt: null,
+    }),
+  );
 
   const service = {
     getMaintenance,
     deleteMaintenance,
     closeMaintenance,
+    addUpdate,
   } as unknown as Parameters<typeof createRouter>[0]["service"];
 
   // Fake entity handle: run apply directly (mirrors withEntityWrite's no-handle
@@ -80,6 +91,7 @@ function buildRouter() {
 
   const broadcast = mock(async () => {});
   const invalidateForMutation = mock(async () => {});
+  const notifyForSubscription = mock(async () => {});
 
   const router = createRouter({
     service,
@@ -90,7 +102,7 @@ function buildRouter() {
       getSystem: mock(async () => undefined),
     } as unknown as Parameters<typeof createRouter>[0]["catalogClient"],
     notificationClient: {
-      notifyForSubscription: mock(async () => {}),
+      notifyForSubscription,
     } as unknown as Parameters<typeof createRouter>[0]["notificationClient"],
     authClient: {
       getUserById: mock(async () => undefined),
@@ -102,7 +114,13 @@ function buildRouter() {
     entityHandle,
   });
 
-  return { router, deleteMaintenance, closeMaintenance };
+  return {
+    router,
+    deleteMaintenance,
+    closeMaintenance,
+    addUpdate,
+    notifyForSubscription,
+  };
 }
 
 function teamScopedContext(granted: string[]): RpcContext {
@@ -166,5 +184,75 @@ describe("maintenance router bulkCloseMaintenances (mass resolve == complete)", 
     const closedIds = closeMaintenance.mock.calls.map((c) => c[0]);
     expect(closedIds).not.toContain("m-forbidden");
     expect(closedIds).toContain("m-ok");
+  });
+});
+
+describe("maintenance router addUpdate notification", () => {
+  it("carries the latest update text into the subscriber notification body", async () => {
+    const { router, notifyForSubscription } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    await call(
+      router.addUpdate,
+      {
+        maintenanceId: "m-ok",
+        message: "Patch applied, verifying replicas",
+        visibility: "public",
+      },
+      { context: ctx },
+    );
+
+    // A message-only (no status change) PUBLIC update still notifies, mirroring
+    // the incident router, so the latest update text reaches subscribers.
+    expect(notifyForSubscription).toHaveBeenCalledTimes(1);
+    const payload = (
+      notifyForSubscription.mock.calls[0] as unknown[] | undefined
+    )?.[0] as { body?: string } | undefined;
+    expect(payload?.body).toContain("has been updated");
+    expect(payload?.body).toContain(
+      "\n\n> Patch applied, verifying replicas",
+    );
+  });
+
+  it("escapes markdown/HTML in the update text so markup cannot be injected", async () => {
+    const { router, notifyForSubscription } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    await call(
+      router.addUpdate,
+      {
+        maintenanceId: "m-ok",
+        message: "See [here](http://evil) **now** & <script>",
+        visibility: "public",
+      },
+      { context: ctx },
+    );
+
+    const payload = (
+      notifyForSubscription.mock.calls[0] as unknown[] | undefined
+    )?.[0] as { body?: string } | undefined;
+    expect(payload?.body).not.toContain("[here](http://evil)");
+    expect(payload?.body).not.toContain("**now**");
+    expect(payload?.body).toContain("\\[here\\]");
+    expect(payload?.body).toContain("&lt;script");
+    expect(payload?.body).toContain("&amp;");
+  });
+
+  it("does NOT notify subscribers (and never leaks text) for an internal-only update", async () => {
+    const { router, notifyForSubscription } = buildRouter();
+    const ctx = teamScopedContext(["m-ok"]);
+
+    await call(
+      router.addUpdate,
+      {
+        maintenanceId: "m-ok",
+        message: "operator note: rolling back on the quiet",
+        visibility: "internal",
+      },
+      { context: ctx },
+    );
+
+    // An internal operator note must never reach system subscribers.
+    expect(notifyForSubscription).not.toHaveBeenCalled();
   });
 });

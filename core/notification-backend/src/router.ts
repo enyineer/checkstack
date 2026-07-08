@@ -158,6 +158,12 @@ export interface NotificationRouterDeps {
   getDispatchHookSink?: () =>
     | import("./delivery-attempts").DispatchAttemptHookSink
     | undefined;
+  /**
+   * External-audience sinks (e.g. status-page email subscribers). Read lazily so
+   * a plugin can contribute a sink after this router is built. Invoked ONCE per
+   * `notifyForSubscription`, fire-and-forget, alongside the auth-user fan-out.
+   */
+  getAudienceSinks?: () => import("./audience").NotificationAudienceSink[];
 }
 
 export const createNotificationRouter = ({
@@ -171,6 +177,7 @@ export const createNotificationRouter = ({
   getDispatchHookSink = () => {
     return;
   },
+  getAudienceSinks = () => [],
 }: NotificationRouterDeps) => {
   // Create strategy service for config management
   const strategyService: StrategyService = createStrategyService({
@@ -180,49 +187,103 @@ export const createNotificationRouter = ({
   });
 
   /**
+   * The RECIPIENT-INDEPENDENT strategy config, resolved once per strategy and
+   * reused for every recipient in a dispatch. `strategyConfig`/`layoutConfig`
+   * are keyed only by strategyId, so they never change between recipients.
+   */
+  interface PreparedStrategyConfig {
+    strategyConfig: unknown;
+    layoutConfig: unknown;
+  }
+
+  type RegisteredStrategy = ReturnType<
+    NotificationStrategyRegistry["getStrategies"]
+  >[number];
+
+  /**
+   * Preload the RECIPIENT-INDEPENDENT strategy config (meta enabled flag,
+   * strategy config, layout config) ONCE per strategy. None of these three
+   * reads depends on the recipient, so hoisting them out of the per-recipient
+   * dispatch loop turns `R × S × 3` config SELECTs into `S × 3` (fetched once
+   * here and reused for every recipient). Only strategies that are BOTH
+   * enabled AND configured are returned — those are the only ones the
+   * per-recipient loop can dispatch to, so a disabled/unconfigured strategy is
+   * skipped once here instead of re-checked for every recipient.
+   *
+   * NOTE: these reads go through `strategyService` -> `ConfigService`, which
+   * owns its own scoped-db connection and exposes no transaction handle, so
+   * they cannot be threaded through a single `withScopedTransaction` here.
+   * Hoisting them out of the per-recipient loop is the batching win.
+   */
+  const preloadStrategyConfigs = async (
+    strategies: ReadonlyArray<RegisteredStrategy>,
+  ): Promise<Map<string, PreparedStrategyConfig>> => {
+    const byStrategyId = new Map<string, PreparedStrategyConfig>();
+    for (const strategy of strategies) {
+      const meta = await strategyService.getStrategyMeta(strategy.qualifiedId);
+      if (!meta.enabled) {
+        logger.debug(
+          `[external-delivery] Strategy ${strategy.qualifiedId} is disabled, skipping`,
+        );
+        continue;
+      }
+
+      const strategyConfig = await strategyService.getStrategyConfig(
+        strategy.qualifiedId,
+      );
+      if (!strategyConfig) {
+        logger.debug(
+          `[external-delivery] No strategyConfig for ${strategy.qualifiedId}, skipping`,
+        );
+        continue;
+      }
+
+      const layoutConfig = await strategyService.getLayoutConfig(
+        strategy.qualifiedId,
+      );
+      byStrategyId.set(strategy.qualifiedId, { strategyConfig, layoutConfig });
+    }
+    return byStrategyId;
+  };
+
+  /**
    * Helper: Send notification to all enabled external channels for a user.
    * Silently skips channels that aren't configured or fail.
+   *
+   * The recipient-independent strategy config (`preparedConfigs`) and the
+   * fully-qualified URLs (`qualifiedAction`/`qualifiedSubjects`) are computed
+   * ONCE by the caller before the recipient loop and passed in, so this
+   * per-recipient function only issues the reads that genuinely vary by
+   * recipient (the user record + that user's per-strategy preference).
    */
-  const sendToExternalChannels = async (
-    userId: string,
-    notificationId: string,
+  const sendToExternalChannels = async ({
+    userId,
+    notificationId,
+    notification,
+    preparedConfigs,
+    qualifiedAction,
+    qualifiedSubjects,
+  }: {
+    userId: string;
+    notificationId: string;
     notification: {
       title: string;
       body?: string;
       importance: string;
-      action?: { label: string; url: string };
-      subjects?: NotificationPayload["subjects"];
-    }
-  ): Promise<void> => {
+    };
+    preparedConfigs: Map<string, PreparedStrategyConfig>;
+    qualifiedAction: NotificationPayload["action"];
+    qualifiedSubjects: NotificationPayload["subjects"];
+  }): Promise<void> => {
     const authClient = rpcApi.forPlugin(AuthApi);
 
     // Get user info
     const user = await authClient.getUserById({ userId });
     if (!user) return;
 
-    // Get all enabled strategies
+    // Iterate registered strategies in their canonical order; the preloaded
+    // map decides (once, recipient-independently) which are dispatchable.
     const strategies = strategyRegistry.getStrategies();
-
-    // Fully-qualify the primary action link AND every affected-subject deep
-    // link against the instance's configured base URL, once for all strategies.
-    // External channels (email, Slack, Teams, ...) render a bare
-    // "/catalog/systems/..." path as a broken link, so they need an absolute
-    // URL. The in-app read path deliberately keeps relative links (the SPA
-    // router resolves them); only this external-delivery branch qualifies.
-    // When BASE_URL is unset we still deliver (links stay relative) rather than
-    // dropping the notification entirely.
-    const baseUrl = process.env.BASE_URL;
-    if (!baseUrl) {
-      logger.warn(
-        "[external-delivery] BASE_URL is not configured; external notification links will be delivered as relative paths and may not resolve in email/chat channels"
-      );
-    }
-    const { action: qualifiedAction, subjects: qualifiedSubjects } =
-      qualifyNotificationUrls({
-        baseUrl,
-        action: notification.action,
-        subjects: notification.subjects,
-      });
 
     for (const strategy of strategies) {
       try {
@@ -230,15 +291,13 @@ export const createNotificationRouter = ({
           `[external-delivery] Checking strategy ${strategy.qualifiedId}...`
         );
 
-        const meta = await strategyService.getStrategyMeta(
-          strategy.qualifiedId
-        );
-        if (!meta.enabled) {
-          logger.debug(
-            `[external-delivery] Strategy ${strategy.qualifiedId} is disabled, skipping`
-          );
+        // Recipient-independent config, resolved once by the caller. Absence
+        // means the strategy is disabled or unconfigured (logged in preload).
+        const prepared = preparedConfigs.get(strategy.qualifiedId);
+        if (!prepared) {
           continue;
         }
+        const { strategyConfig, layoutConfig } = prepared;
 
         // Check user preference - skip if user disabled this channel
         const pref = await strategyService.getUserPreference(
@@ -273,23 +332,7 @@ export const createNotificationRouter = ({
           continue;
         }
 
-        // Get strategy config
-        const strategyConfig = await strategyService.getStrategyConfig(
-          strategy.qualifiedId
-        );
-        if (!strategyConfig) {
-          logger.debug(
-            `[external-delivery] No strategyConfig for ${strategy.qualifiedId}, skipping`
-          );
-          continue;
-        }
-
-        // Get optional configs
-        const layoutConfig = await strategyService.getLayoutConfig(
-          strategy.qualifiedId
-        );
-
-        // Build payload with fully-qualified URLs (computed once above).
+        // Build payload with fully-qualified URLs (computed once by caller).
         const payload: NotificationPayload = {
           title: notification.title,
           body: notification.body,
@@ -348,6 +391,58 @@ export const createNotificationRouter = ({
         );
       }
     }
+  };
+
+  /**
+   * Fan a `notifyForSubscription` out to the registered EXTERNAL-audience sinks
+   * (e.g. status-page email subscribers) exactly once. Fire-and-forget per sink
+   * with contained errors so a sink failure never affects the auth-user path.
+   *
+   * The event carries only the CONCRETE affected systems; a group-scoped sink
+   * expands catalog groups against its own live source at send time. The
+   * platform never expands groups here (that would be a second, drift-prone copy
+   * of catalog membership alongside the widget's live `getGroups`).
+   */
+  const dispatchToAudienceSinks = async ({
+    spec,
+    input,
+  }: {
+    spec: typeof schema.subscriptionSpecs.$inferSelect;
+    input: {
+      title: string;
+      body: string;
+      importance?: "info" | "warning" | "critical";
+      resourceKeys: string[];
+      subjects?: NotificationPayload["subjects"];
+      action?: { label: string; url: string };
+    };
+  }): Promise<void> => {
+    const sinks = getAudienceSinks();
+    if (sinks.length === 0) return;
+    // Affected concrete systems: prefer `catalog.system` subjects, else the
+    // spec's resourceKeys (incident/maintenance pass the systemIds as keys).
+    const subjectSystemIds = (input.subjects ?? [])
+      .filter((s) => s.kind === "catalog.system")
+      .map((s) => s.id);
+    const systemIds =
+      subjectSystemIds.length > 0 ? subjectSystemIds : input.resourceKeys;
+    const event = {
+      title: input.title,
+      body: input.body,
+      importance: input.importance ?? ("info" as const),
+      systemIds,
+      sourcePluginId: spec.ownerPlugin,
+      ...(input.action?.url ? { link: input.action.url } : {}),
+    };
+    await Promise.all(
+      sinks.map(async (sink) => {
+        try {
+          await sink.deliver(event);
+        } catch (error) {
+          logger.error("[audience] sink delivery failed:", error);
+        }
+      }),
+    );
   };
 
   // Create contract implementer with context type AND auto auth middleware
@@ -1182,6 +1277,12 @@ export const createNotificationRouter = ({
           });
         }
 
+        // External-audience fan-out (e.g. status-page email subscribers). Runs
+        // ONCE per notification, independent of the auth-user recipient set below
+        // (so it still fires when there are zero in-app subscribers). Errors are
+        // contained inside the sinks; awaited here for deterministic ordering.
+        await dispatchToAudienceSinks({ spec, input });
+
         // Primary group ids — one per resourceKey.
         const primaryGroupIds = input.resourceKeys.map((rk) =>
           deriveGroupId({
@@ -1265,24 +1366,53 @@ export const createNotificationRouter = ({
         const notificationIdByUser = new Map(
           inserted.map((n) => [n.userId, n.id]),
         );
-        for (const userId of recipients) {
-          const notificationId = notificationIdByUser.get(userId);
-          if (!notificationId) {
-            // Insert returned nothing for this user — should not happen
-            // (recipients drive the insert), but guard anyway so we
-            // never record an attempt with a fabricated id.
-            logger.error(
-              `[external-delivery] No notification row for user ${userId}, skipping external send`,
+
+        // Resolve the RECIPIENT-INDEPENDENT dispatch inputs exactly ONCE for
+        // the whole fan-out, then reuse them for every recipient:
+        //   1. Per-strategy meta/config/layout (see `preloadStrategyConfigs`).
+        //   2. The fully-qualified action + subject deep links.
+        // External channels (email, Slack, Teams, ...) render a bare
+        // "/catalog/systems/..." path as a broken link, so they need an
+        // absolute URL. The in-app read path keeps relative links; only this
+        // external-delivery branch qualifies. When BASE_URL is unset we still
+        // deliver (links stay relative) rather than dropping the notification.
+        const preparedConfigs = await preloadStrategyConfigs(
+          strategyRegistry.getStrategies(),
+        );
+        if (preparedConfigs.size > 0) {
+          const baseUrl = process.env.BASE_URL;
+          if (!baseUrl) {
+            logger.warn(
+              "[external-delivery] BASE_URL is not configured; external notification links will be delivered as relative paths and may not resolve in email/chat channels",
             );
-            continue;
           }
-          void sendToExternalChannels(userId, notificationId, {
-            title,
-            body,
-            importance: importance ?? "info",
-            action,
-            subjects,
-          });
+          const { action: qualifiedAction, subjects: qualifiedSubjects } =
+            qualifyNotificationUrls({ baseUrl, action, subjects });
+
+          for (const userId of recipients) {
+            const notificationId = notificationIdByUser.get(userId);
+            if (!notificationId) {
+              // Insert returned nothing for this user — should not happen
+              // (recipients drive the insert), but guard anyway so we
+              // never record an attempt with a fabricated id.
+              logger.error(
+                `[external-delivery] No notification row for user ${userId}, skipping external send`,
+              );
+              continue;
+            }
+            void sendToExternalChannels({
+              userId,
+              notificationId,
+              notification: {
+                title,
+                body,
+                importance: importance ?? "info",
+              },
+              preparedConfigs,
+              qualifiedAction,
+              qualifiedSubjects,
+            });
+          }
         }
         return { notifiedCount: recipients.length };
       },
@@ -1427,6 +1557,93 @@ export const createNotificationRouter = ({
 
       const deliveredCount = results.filter((r) => r.success).length;
 
+      return { deliveredCount, results };
+    }),
+
+    // Send an email to a RAW address (no auth account). Delivers via every
+    // enabled EMAIL strategy (contactResolution "auth-email", e.g. SMTP),
+    // passing `to` directly as the contact and a synthetic (accountless) user.
+    // A mandatory unsubscribe link is appended to the markdown body.
+    sendRawEmail: os.sendRawEmail.handler(async ({ input }) => {
+      const emailStrategies = strategyRegistry
+        .getStrategies()
+        .filter((s) => s.contactResolution.type === "auth-email");
+
+      const results: Array<{
+        strategyId: string;
+        success: boolean;
+        error?: string;
+      }> = [];
+
+      // Markdown body + the mandatory unsubscribe footer (the strategy wraps
+      // this in the configured email layout and renders a plain-text fallback).
+      const body =
+        `${input.body}\n\n---\n\n` +
+        `You are receiving this because you subscribed to status updates. ` +
+        `[Unsubscribe](${input.unsubscribeUrl}).`;
+
+      for (const strategy of emailStrategies) {
+        const meta = await strategyService.getStrategyMeta(strategy.qualifiedId);
+        if (!meta.enabled) continue;
+
+        const strategyConfig = await strategyService.getStrategyConfig(
+          strategy.qualifiedId,
+        );
+        if (!strategyConfig) {
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: false,
+            error: "Strategy not configured",
+          });
+          continue;
+        }
+
+        const layoutConfig = await strategyService.getLayoutConfig(
+          strategy.qualifiedId,
+        );
+        // No auth account -> no stored per-user config; validate an empty one
+        // against the strategy's schema so defaults are applied.
+        const userConfig = await resolveStrategyUserConfig({
+          userConfigSchema: strategy.userConfig,
+          storedUserConfig: undefined,
+        });
+
+        const payload: NotificationPayload = {
+          title: input.subject,
+          body,
+          importance: input.importance ?? "info",
+          action: { label: "Unsubscribe", url: input.unsubscribeUrl },
+          type: "transactional",
+        };
+
+        const sendContext: NotificationSendContext<unknown, unknown, unknown> = {
+          // Synthetic, accountless recipient identity.
+          user: { userId: "", email: input.to },
+          contact: input.to,
+          notification: payload,
+          strategyConfig,
+          userConfig,
+          layoutConfig,
+          logger,
+        };
+
+        try {
+          const result = await strategy.send(sendContext);
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: result.success,
+            error: result.error,
+          });
+        } catch (error) {
+          results.push({
+            strategyId: strategy.qualifiedId,
+            success: false,
+            error: extractErrorMessage(error, "Unknown error"),
+          });
+        }
+      }
+
+      const deliveredCount = results.filter((r) => r.success).length;
       return { deliveredCount, results };
     }),
 

@@ -1,6 +1,7 @@
 import {
   Versioned,
   z,
+  configString,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -29,10 +30,14 @@ const commandConfigSchema = z.object({
     .enum(["PING", "INFO", "GET"])
     .default("PING")
     .describe("Redis command to execute"),
-  args: z
-    .string()
+  // Templatable: supports `{{ environment.* }}` so one config covers N
+  // environments. Optional and legitimately variable, so there is no non-empty
+  // post-render guard - an absent/empty arg is a valid Redis command shape.
+  args: configString({ "x-templatable": true })
     .optional()
-    .describe("Command argument (section for INFO, key for GET)"),
+    .describe(
+      "Command argument (section for INFO, key for GET). Supports templating, e.g. {{ environment.key }}",
+    ),
 });
 
 export type CommandConfig = z.infer<typeof commandConfigSchema>;

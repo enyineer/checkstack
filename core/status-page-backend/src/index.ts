@@ -15,10 +15,13 @@ import {
 } from "@checkstack/status-page-common";
 import { resolveRoute } from "@checkstack/common";
 import { registerSearchProvider } from "@checkstack/command-backend";
+import { notificationAudienceExtensionPoint } from "@checkstack/notification-backend";
 import * as schema from "./schema";
 import { statusPages } from "./schema";
 import { createStatusPageRouter } from "./router";
 import { StatusPageService } from "./service";
+import { SubscriberService } from "./subscriber-service";
+import { createNotificationSubscriberMailer } from "./subscriber-mailer";
 import { systemTxtResolver } from "./custom-domain";
 import {
   createWidgetTypeRegistry,
@@ -74,24 +77,84 @@ export default createBackendPlugin({
         });
         const internalUrl =
           process.env.INTERNAL_URL || "http://localhost:3000";
-        const router = createStatusPageRouter({ service, internalUrl });
+        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        // Anonymous email subscribers (opt-in per page). Emails go out via the
+        // notification-backend `sendRawEmail` primitive using the trusted
+        // service client.
+        const subscriberService = new SubscriberService({
+          db,
+          logger,
+          mailer: createNotificationSubscriberMailer({ rpcClient, logger }),
+          baseUrl,
+          registry,
+          rpcClient,
+        });
+        const router = createStatusPageRouter({
+          service,
+          subscriberService,
+          internalUrl,
+        });
         rpc.registerRouter(router, statusPageContract);
+
+        // Contribute an EXTERNAL-audience sink so every notification funnelled
+        // through notification-backend's `notifyForSubscription` (incident /
+        // maintenance / health) also reaches this page's email subscribers -
+        // scoped AT SEND TIME to the systems each page currently surfaces
+        // (the privacy boundary). The domain plugins stay unchanged; the
+        // dependency flows status-page -> notification-backend (both platform).
+        env
+          .getExtensionPoint(notificationAudienceExtensionPoint)
+          .registerAudienceSink(
+            {
+              deliver: async (audienceEvent) => {
+                await subscriberService.notifyForSystems({
+                  title: audienceEvent.title,
+                  body: audienceEvent.body,
+                  systemIds: audienceEvent.systemIds,
+                  ...(audienceEvent.link ? { link: audienceEvent.link } : {}),
+                });
+              },
+            },
+            pluginMetadata,
+          );
 
         // Contribute the public-host resolver so a published page with a
         // verified custom domain is served on that host. The platform locks the
         // host down to exactly the public read endpoint below (+ /api/config).
-        const publicApiPath = `/api/${pluginMetadata.pluginId}/getPublishedStatusPage`;
+        const apiBase = `/api/${pluginMetadata.pluginId}`;
+        // The public read endpoints allow-listed on a custom-domain host: the
+        // page itself plus the two public-safe detail endpoints (incident /
+        // maintenance) the detail pages call. Everything else stays 404'd.
+        const allowedApiPaths = [
+          `${apiBase}/getPublishedStatusPage`,
+          `${apiBase}/getPublishedIncident`,
+          `${apiBase}/getPublishedMaintenance`,
+        ];
         env
           .getExtensionPoint(publicHostResolverExtensionPoint)
           .registerResolver(
             {
               resolve: async (host) => {
                 const found = await service.resolveByHost(host);
-                if (!found) return null;
+                if (found) {
+                  return {
+                    pluginId: pluginMetadata.pluginId,
+                    bootstrap: { kind: "status-page", slug: found.slug },
+                    allowedApiPaths,
+                  };
+                }
+                // The host is a CONFIGURED custom domain that is not currently
+                // servable (unverified, unpublished, or non-public). Still claim
+                // it so the platform serves the lean public "not available"
+                // bundle instead of falling through to the admin SPA (whose
+                // cross-origin /api/config probe CORS-blocks). We leak nothing:
+                // no slug, only that this domain has no live status page.
+                const configured = await service.isConfiguredDomain(host);
+                if (!configured) return null;
                 return {
                   pluginId: pluginMetadata.pluginId,
-                  bootstrap: { kind: "status-page", slug: found.slug },
-                  allowedApiPaths: [publicApiPath],
+                  bootstrap: { kind: "status-page", unavailable: true },
+                  allowedApiPaths,
                 };
               },
             },

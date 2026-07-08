@@ -216,6 +216,47 @@ describe.skipIf(!isIntegrationEnabled())("SloService (real Postgres)", () => {
     });
   });
 
+  describe("updateObjective (returning-folded reload)", () => {
+    it("returns the freshly-updated objective, matching a subsequent read", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      const updated = await service.updateObjective({
+        input: {
+          id: objectiveId,
+          target: 99.5,
+          windowDays: 7,
+          excludeMaintenanceWindows: true,
+          burnRateThresholds: {
+            warningPercent: 40,
+            criticalPercent: 70,
+            fastBurnMultiplier: 6,
+          },
+        },
+      });
+
+      // The value from the `.returning()` fold must equal an independent read.
+      const reread = await service.getObjective({ id: objectiveId });
+      expect(updated).toEqual(reread);
+      // And it reflects the write, not the pre-update row.
+      expect(updated?.target).toBe(99.5);
+      expect(updated?.windowDays).toBe(7);
+      expect(updated?.excludeMaintenanceWindows).toBe(true);
+      expect(updated?.burnRateThresholds).toEqual({
+        warningPercent: 40,
+        criticalPercent: 70,
+        fastBurnMultiplier: 6,
+      });
+    });
+
+    it("returns undefined for a missing objective (no row updated)", async () => {
+      const result = await service.updateObjective({
+        input: { id: crypto.randomUUID(), target: 99 },
+      });
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe("closeDowntimeEvent endTime", () => {
     it("closes at an explicit recovery time, recording the real duration", async () => {
       const systemId = `sys-${crypto.randomUUID()}`;

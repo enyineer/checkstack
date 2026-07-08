@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { SloEngine } from "./slo-engine";
 import type { SloService } from "./service";
+import { aggregateWindowedDowntime } from "./downtime-window";
 import type { SloObjective, SloDowntimeEvent } from "@checkstack/slo-common";
 
 // =============================================================================
@@ -35,6 +36,7 @@ function createObjective(
     windowDays: 30,
     dependencyExclusion: "self-only",
     excludedDependencyIds: undefined,
+    excludeMaintenanceWindows: false,
     burnRateThresholds: {
       warningPercent: 50,
       criticalPercent: 80,
@@ -918,5 +920,138 @@ describe("SloEngine", () => {
 
       expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
     });
+  });
+});
+
+// =============================================================================
+// Maintenance-window exclusion (engine wiring)
+//
+// These exercise the REAL path computeStatus -> maintenance resolver ->
+// getDowntimeForWindow(maintenanceWindows) -> aggregateWindowedDowntime. The
+// service stub's getDowntimeForWindow runs the actual interval math over a
+// single fixed 60-minute closed outage ending at the window end (`now`), so the
+// assertions reflect production behavior rather than a hand-mocked number.
+//
+// The budget window is TRAILING, so the regression these guard is: a COMPLETED
+// maintenance overlapping the window is still subtracted (not just active ones),
+// a CANCELLED one is not, and the consumed value does not jump as a window moves
+// scheduled -> completed (monotonic).
+// =============================================================================
+describe("SloEngine maintenance-window exclusion", () => {
+  const MINUTE = 60 * 1000;
+
+  // A service whose getDowntimeForWindow honors the maintenanceWindows arg by
+  // running the real aggregation over one 60-minute closed outage ending at the
+  // window end. No open events, so the outage is counted from history.
+  function createMaintenanceAwareService(): SloService {
+    return {
+      getOpenDowntimeEventsForObjective: mock(() => Promise.resolve([])),
+      getDowntimeForWindow: mock(
+        (args: {
+          windowStart: Date;
+          windowEnd: Date;
+          maintenanceWindows?: Array<{ startAt: Date; endAt: Date }>;
+        }) =>
+          Promise.resolve(
+            aggregateWindowedDowntime({
+              events: [
+                {
+                  startTime: new Date(args.windowEnd.getTime() - 60 * MINUTE),
+                  endTime: args.windowEnd,
+                  attributionType: "self",
+                  upstreamSystemId: null,
+                  upstreamSystemName: null,
+                },
+              ],
+              windowStart: args.windowStart,
+              windowEnd: args.windowEnd,
+              now: args.windowEnd,
+              maintenanceWindows: args.maintenanceWindows,
+            }),
+          ),
+      ),
+    } as unknown as SloService;
+  }
+
+  function buildEngine() {
+    const engine = new SloEngine({
+      service: createMaintenanceAwareService(),
+      signalService: createMockSignalService() as never,
+      logger: createMockLogger() as never,
+    });
+    return engine;
+  }
+
+  // A maintenance window covering the FIRST 30 of the outage's 60 minutes,
+  // reported with the given status. `to` is the budget window end (`now`).
+  const halfCoveringWindow =
+    (status: string) =>
+    async ({ to }: { systemId: string; from: Date; to: Date }) => [
+      {
+        startAt: new Date(to.getTime() - 60 * MINUTE),
+        endAt: new Date(to.getTime() - 30 * MINUTE),
+        status,
+      },
+    ];
+
+  it("counts the full outage when exclusion is OFF", async () => {
+    const engine = buildEngine();
+    engine.setMaintenanceWindowsResolver(halfCoveringWindow("completed"));
+    const objective = createObjective({
+      dependencyExclusion: "strict",
+      excludeMaintenanceWindows: false,
+    });
+    const status = await engine.computeStatus({ objective });
+    expect(status.errorBudgetConsumedMinutes).toBeCloseTo(60, 5);
+  });
+
+  it("subtracts a COMPLETED maintenance window overlapping the trailing budget window", async () => {
+    const engine = buildEngine();
+    engine.setMaintenanceWindowsResolver(halfCoveringWindow("completed"));
+    const objective = createObjective({
+      dependencyExclusion: "strict",
+      excludeMaintenanceWindows: true,
+    });
+    const status = await engine.computeStatus({ objective });
+    // 60 minutes of outage minus the 30 minutes under maintenance.
+    expect(status.errorBudgetConsumedMinutes).toBeCloseTo(30, 5);
+  });
+
+  it("does NOT subtract a CANCELLED maintenance window", async () => {
+    const engine = buildEngine();
+    engine.setMaintenanceWindowsResolver(halfCoveringWindow("cancelled"));
+    const objective = createObjective({
+      dependencyExclusion: "strict",
+      excludeMaintenanceWindows: true,
+    });
+    const status = await engine.computeStatus({ objective });
+    expect(status.errorBudgetConsumedMinutes).toBeCloseTo(60, 5);
+  });
+
+  it("keeps consumed budget stable (monotonic) across scheduled -> completed", async () => {
+    const objective = createObjective({
+      dependencyExclusion: "strict",
+      excludeMaintenanceWindows: true,
+    });
+
+    const scheduledEngine = buildEngine();
+    scheduledEngine.setMaintenanceWindowsResolver(
+      halfCoveringWindow("scheduled"),
+    );
+    const scheduled = await scheduledEngine.computeStatus({ objective });
+
+    const completedEngine = buildEngine();
+    completedEngine.setMaintenanceWindowsResolver(
+      halfCoveringWindow("completed"),
+    );
+    const completed = await completedEngine.computeStatus({ objective });
+
+    // The same window is subtracted regardless of its (non-cancelled) status,
+    // so the number does not jump when the window transitions to completed.
+    expect(completed.errorBudgetConsumedMinutes).toBeCloseTo(
+      scheduled.errorBudgetConsumedMinutes,
+      5,
+    );
+    expect(completed.errorBudgetConsumedMinutes).toBeCloseTo(30, 5);
   });
 });

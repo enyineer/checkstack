@@ -50,6 +50,7 @@ describe("incident.addLink tool", () => {
       incidentId: input.incidentId,
       label: input.label ?? null,
       url: input.url,
+      visibility: "public" as const,
       createdAt: new Date(),
     };
     const addLink = mock(() => Promise.resolve(created));

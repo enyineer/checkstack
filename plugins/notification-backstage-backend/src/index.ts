@@ -8,6 +8,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   renderSubjectsAsMarkdown,
+  validateWebhookUrl,
 } from "@checkstack/notification-backend";
 import { z } from "zod";
 import { pluginMetadata } from "./plugin-metadata";
@@ -225,6 +226,17 @@ const backstageStrategy: NotificationStrategy<
       "",
     )}/api/notifications/notifications`;
 
+    // SSRF guard: `baseUrl` is a configured arbitrary host. Reject it up front if
+    // it resolves to an internal/reserved address, and refuse redirects below so
+    // the server cannot 3xx us at an internal host past this pre-flight.
+    const validation = await validateWebhookUrl({ url });
+    if (!validation.ok) {
+      logger?.warn?.(
+        `Blocked Backstage delivery to ${url}: ${validation.error}`,
+      );
+      return { success: false, error: validation.error };
+    }
+
     try {
       logger?.debug?.("Sending notification to Backstage", {
         url,
@@ -239,6 +251,7 @@ const backstageStrategy: NotificationStrategy<
           Authorization: `Bearer ${strategyConfig.token}`,
         },
         body: JSON.stringify(payload),
+        redirect: "error",
       });
 
       if (!response.ok) {
@@ -306,6 +319,11 @@ export default createBackendPlugin({
  * public API surface.
  * @internal
  */
-export { backstageConfigSchemaV1, userConfigSchemaV1, mapImportanceToSeverity };
+export {
+  backstageConfigSchemaV1,
+  userConfigSchemaV1,
+  mapImportanceToSeverity,
+  backstageStrategy,
+};
 /** @internal */
 export type { BackstageConfig, BackstageUserConfig };

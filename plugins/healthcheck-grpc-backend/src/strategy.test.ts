@@ -36,6 +36,51 @@ describe("GrpcHealthCheckStrategy", () => {
 
       connectedClient.close();
     });
+
+    it("dials a concrete (already-rendered) host", async () => {
+      // The executor renders `{{ environment.host }}` upstream, so createClient
+      // always sees a concrete value; verify it reaches the gRPC client.
+      const mockClient = createMockClient();
+      const strategy = new GrpcHealthCheckStrategy(mockClient);
+
+      const connectedClient = await strategy.createClient({
+        host: "rendered.example.com",
+        port: 50051,
+        timeout: 5000,
+      });
+
+      await connectedClient.client.exec({ service: "" });
+
+      expect(mockClient.check).toHaveBeenCalledWith(
+        expect.objectContaining({ host: "rendered.example.com" }),
+      );
+
+      connectedClient.close();
+    });
+
+    it("throws when the rendered host is empty (transport failure)", async () => {
+      // An env-less run renders `{{ environment.host }}` to "". A required target
+      // that renders empty is a config error, not a silent empty dial.
+      const mockClient = createMockClient();
+      const strategy = new GrpcHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({ host: "", port: 50051, timeout: 5000 }),
+      ).rejects.toThrow("Rendered host is empty");
+
+      expect(mockClient.check).not.toHaveBeenCalled();
+    });
+
+    it("throws when the rendered host is whitespace-only", async () => {
+      const mockClient = createMockClient();
+      const strategy = new GrpcHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({ host: "   ", port: 50051, timeout: 5000 }),
+      ).rejects.toThrow("Rendered host is empty");
+
+      expect(mockClient.check).not.toHaveBeenCalled();
+    });
   });
 
   describe("client.exec (health check action)", () => {

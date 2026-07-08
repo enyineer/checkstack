@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import { evaluateDrift } from "./drift-evaluator";
+import { evaluateDrift, loadExistingDriftRows } from "./drift-evaluator";
 import * as schema from "./schema";
 import {
   STABLE_DRIFT_RESOLUTION_RUN_COUNT,
@@ -613,6 +613,114 @@ describe("evaluateDrift", () => {
       const where = serializeCondition(db._anomalyWheres[0]);
       expect(where).toContain("environment_id is null");
       expect(where).not.toContain("environment_id =");
+    });
+  });
+
+  // ─── Batching regression: preloaded existing-drift-row map ────────────
+  //
+  // The baseline analyzer preloads all existing 'drift' rows for a
+  // (system, config, env) slice set-based, then threads the map into
+  // evaluateDrift. When the map is supplied, evaluateDrift MUST look the row up
+  // in memory and issue NO per-field SELECT against `anomalies`. This is the
+  // N+1 fix; `_anomalyWheres` records one entry per anomalies SELECT.
+  describe("batching: preloaded existing-drift-row map", () => {
+    test("uses the map and issues NO per-field anomalies SELECT", async () => {
+      // The db is seeded with a DIFFERENT row than the map; if the code queried
+      // the db it would use that row. The map row must win.
+      const db = createMockDb({
+        existingAnomaly: {
+          id: "db-row",
+          state: "suspicious",
+          suspiciousRunCount: 99,
+          confirmationThreshold: 2,
+        },
+      });
+      const preloaded = new Map([
+        [
+          baseProps.fieldPath,
+          {
+            id: "map-row",
+            state: "suspicious",
+            suspiciousRunCount: 1,
+            confirmationThreshold: 3,
+          },
+        ],
+      ]);
+
+      await evaluateDrift({
+        ...baseProps,
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+        existingDriftRows: preloaded as never,
+      });
+
+      // No SELECT against `anomalies` was issued — the row came from the map.
+      expect(db._anomalyWheres.length).toBe(0);
+      // The MAP row drove the update (count 1 → 2, threshold 3 so not promoted),
+      // NOT the db-seeded row (which would have promoted at threshold 2).
+      expect(db._updateCalls.length).toBe(1);
+      expect(db._updateCalls[0].suspiciousRunCount).toBe(2);
+      expect(db._updateCalls[0].state).toBeUndefined();
+    });
+
+    test("a fieldPath absent from the map is treated as no existing row", async () => {
+      const db = createMockDb({
+        existingAnomaly: {
+          id: "db-row",
+          state: "anomaly",
+          suspiciousRunCount: 5,
+          confirmationThreshold: 2,
+        },
+      });
+      // Empty map → get(fieldPath) undefined → insert path, still no db query.
+      await evaluateDrift({
+        ...baseProps,
+        baseline: driftingBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: createMockNotificationClient() as never,
+        logger: createMockLogger() as never,
+        existingDriftRows: new Map() as never,
+      });
+
+      expect(db._anomalyWheres.length).toBe(0);
+      expect(db._insertCalls.length).toBe(1);
+    });
+  });
+
+  // ─── loadExistingDriftRows: the set-based preloader ───────────────────
+  describe("loadExistingDriftRows", () => {
+    test("issues one drift-scoped SELECT and keys the map by fieldPath", async () => {
+      const row = {
+        id: "drift-1",
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "anomaly",
+      };
+      const db = createMockDb({ existingAnomaly: row });
+
+      const map = await loadExistingDriftRows({
+        db: db as never,
+        systemId: "sys-1",
+        configurationId: "config-1",
+        environmentId: "env-prod",
+      });
+
+      // Exactly one SELECT, scoped to kind 'drift' and this environment.
+      expect(db._anomalyWheres.length).toBe(1);
+      const where = serializeCondition(db._anomalyWheres[0]);
+      expect(where).toContain("kind = drift");
+      expect(where).toContain("environment_id = env-prod");
+      // The row is indexed by its fieldPath.
+      expect(map.get("collectors.http.request.responseTimeMs")).toMatchObject({
+        id: "drift-1",
+      });
     });
   });
 });

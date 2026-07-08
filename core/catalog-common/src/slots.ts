@@ -40,6 +40,14 @@ export const SystemDetailsSlot = createSlot<{ system: System }>(
  * Slot for adding actions to the catalog system configuration page.
  * Extensions receive the system ID and name.
  *
+ * `visibleSystemIds` is every system id currently rendered in the list this row
+ * belongs to (just `[systemId]` on a single-system surface). A filler that shows
+ * per-system data (e.g. an assigned-health-check count) can bulk-fetch for the
+ * whole visible set in ONE request keyed on that array, instead of one request
+ * per row: every row receives the same ids, so identical-input queries dedupe.
+ * This mirrors how {@link CatalogBrowseHealthSlot} and {@link SystemSignalsSlot}
+ * pass `systemIds` for bulk-fetching.
+ *
  * @example
  * // In your plugin
  * import { CatalogSystemActionsSlot } from "@checkstack/catalog-common";
@@ -47,12 +55,20 @@ export const SystemDetailsSlot = createSlot<{ system: System }>(
  * extensions: [{
  *   id: "my-plugin.system-actions",
  *   slotId: CatalogSystemActionsSlot.id,
- *   component: ({ systemId, systemName }) => <MyAction systemId={systemId} />,
+ *   component: ({ systemId, visibleSystemIds }) => (
+ *     <MyAction systemId={systemId} visibleSystemIds={visibleSystemIds} />
+ *   ),
  * }]
  */
 export const CatalogSystemActionsSlot = createSlot<{
   systemId: string;
   systemName: string;
+  /**
+   * Every system id currently visible in this row's list. Lets a filler
+   * bulk-fetch per-system data for the whole visible set in one deduped request
+   * rather than an N+1 fan-out. On a single-system surface this is `[systemId]`.
+   */
+  visibleSystemIds: string[];
 }>("plugin.catalog.system-actions");
 
 /**
@@ -297,4 +313,60 @@ export const SystemSignalsSlot = createSlot<SystemSignalsSlotContext>(
 export const SystemEditorSlot = createSlot<{ systemId: string }>(
   "plugin.catalog.system-editor"
 );
+
+/**
+ * Context passed to a {@link CatalogBrowseDataBoundarySlot} filler.
+ *
+ * - `systemIds` — every system id currently rendered in the browse view.
+ * - `groupIds` — every real group id currently rendered (excluding the
+ *   ungrouped pseudo-section), so a filler that also serves group-level surfaces
+ *   (e.g. a group's notification bell) can bulk-fetch for groups too.
+ *
+ * A filler renders its bulk-data PROVIDER around the boundary's `children` (the
+ * whole browse tree), so every per-row/per-group component inside can read the
+ * bulk data from the provider's context instead of fetching its own. Children
+ * are supplied by the catalog-frontend boundary component, not by the filler.
+ */
+export interface CatalogBrowseDataBoundarySlotContext {
+  systemIds: string[];
+  groupIds: string[];
+}
+
+/**
+ * Optional platform contract for eliminating the catalog browse view's per-row
+ * N+1 fetches WITHOUT coupling catalog to any data provider.
+ *
+ * Every system row and group header mounts small contributions (state badges via
+ * {@link SystemStateBadgesSlot}, a notification bell, ...) that would each fetch
+ * their own data — one request per row. A plugin FILLS this slot with a
+ * component that WRAPS the boundary's `children` (the entire browse tree) in a
+ * bulk-data PROVIDER keyed on the whole visible `systemIds`/`groupIds` set; the
+ * per-row contributions inside then read from that provider's React context and
+ * issue no per-row request. catalog-frontend only renders the boundary (folding
+ * every registered filler around the tree, so multiple providers nest and the
+ * tree renders exactly once); all cross-plugin coupling lives on the filler
+ * side, so catalog gains no dependency on any provider plugin. When no filler is
+ * installed the boundary renders the tree as-is and each contribution falls back
+ * to its own fetch — catalog stays fully functional.
+ *
+ * The filler component receives {@link CatalogBrowseDataBoundarySlotContext}
+ * plus React `children` (typed optional so it stays assignable to the slot
+ * context) and MUST render `children` exactly once inside its provider.
+ *
+ * @example
+ * // In a data-provider plugin (e.g. dashboard-frontend)
+ * import { CatalogBrowseDataBoundarySlot } from "@checkstack/catalog-common";
+ *
+ * extensions: [{
+ *   id: "my-plugin.catalog-browse-boundary",
+ *   slotId: CatalogBrowseDataBoundarySlot.id,
+ *   component: ({ systemIds, children }) => (
+ *     <MyBulkDataProvider systemIds={systemIds}>{children}</MyBulkDataProvider>
+ *   ),
+ * }]
+ */
+export const CatalogBrowseDataBoundarySlot =
+  createSlot<CatalogBrowseDataBoundarySlotContext>(
+    "plugin.catalog.browse-data-boundary"
+  );
 

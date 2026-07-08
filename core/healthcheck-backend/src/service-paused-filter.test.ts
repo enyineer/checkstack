@@ -93,6 +93,12 @@ describe("HealthCheckService - paused configuration filtering", () => {
       })),
     });
 
+    // Distinct env keys query (rollup): resolves to no env slices for these
+    // fixtures (runs are empty), so the rollup has nothing to evaluate.
+    const distinctFrom = Object.assign(Promise.resolve([]), {
+      where: mock(() => Promise.resolve([])),
+    });
+
     let selectCallCount = 0;
     return {
       select: mock(() => {
@@ -104,6 +110,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
         }
         return { from: mock(() => runsFrom) };
       }),
+      selectDistinct: mock(() => ({ from: mock(() => distinctFrom) })),
       insert: mock(() => ({
         values: mock(() => ({
           onConflictDoUpdate: mock(() => Promise.resolve()),
@@ -199,6 +206,11 @@ describe("HealthCheckService - paused configuration filtering", () => {
         orderBy: runsOrderBy,
       });
 
+      // Distinct env keys: a single env-less (null) slice for this env-less check.
+      const distinctFrom = Object.assign(Promise.resolve([]), {
+        where: mock(() => Promise.resolve([{ environmentId: null }])),
+      });
+
       let selectCallCount = 0;
       const mockDb = {
         select: mock(() => {
@@ -208,6 +220,7 @@ describe("HealthCheckService - paused configuration filtering", () => {
           }
           return { from: mock(() => runsFrom) };
         }),
+        selectDistinct: mock(() => ({ from: mock(() => distinctFrom) })),
         insert: mock(() => ({
           values: mock(() => ({
             onConflictDoUpdate: mock(() => Promise.resolve()),

@@ -1,9 +1,43 @@
-import { describe, it, expect, spyOn } from "bun:test";
+import { describe, it, expect, spyOn, mock } from "bun:test";
+import type { Logger } from "@checkstack/backend-api";
+import type { NotificationSendContext } from "@checkstack/backend-api";
 import {
   discordConfigSchemaV1,
   discordUserConfigSchema,
   buildDiscordEmbed,
+  discordStrategy,
 } from "./index";
+
+function makeLogger(): Logger {
+  return {
+    info: mock(() => {}),
+    error: mock(() => {}),
+    warn: mock(() => {}),
+    debug: mock(() => {}),
+  };
+}
+
+function makeContext(
+  webhookUrl: string,
+): NotificationSendContext<
+  Record<string, never>,
+  { webhookUrl: string }
+> {
+  return {
+    user: { userId: "u1" },
+    contact: webhookUrl,
+    notification: {
+      title: "Alert",
+      body: "body",
+      importance: "info",
+      type: "test",
+    },
+    strategyConfig: {},
+    userConfig: { webhookUrl },
+    layoutConfig: undefined,
+    logger: makeLogger(),
+  };
+}
 
 /**
  * Unit tests for the Discord Notification Strategy.
@@ -181,6 +215,56 @@ describe("Discord Notification Strategy", () => {
         expect(response.status).toBe(404);
       } finally {
         mockFetch.mockRestore();
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SSRF hardening (user-supplied webhook URL)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("SSRF hardening", () => {
+    it("rejects a webhook URL that resolves to a blocked host before dispatch", async () => {
+      const fetchSpy = spyOn(globalThis, "fetch");
+      try {
+        const result = await discordStrategy.send(
+          makeContext("http://169.254.169.254/latest/meta-data"),
+        );
+        expect(result.success).toBe(false);
+        // The SSRF pre-flight must fail closed: no request is ever dispatched.
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("refuses redirects so a 302 to a blocked host is not followed", async () => {
+      let targetHit = false;
+      const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+        _url: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        // Emulate real fetch semantics under `redirect: "error"`: a 3xx rejects
+        // rather than being followed. (End-to-end proof with a real server lives
+        // in notification-backend's post-json.test.ts.)
+        if (init?.redirect === "error") {
+          throw new TypeError("unexpected redirect");
+        }
+        targetHit = true;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch);
+      try {
+        // A public IP literal passes the pre-flight (no DNS, not in a denied
+        // range), so the request is dispatched with redirect refusal.
+        const result = await discordStrategy.send(
+          makeContext("https://93.184.216.34/hook"),
+        );
+        expect(result.success).toBe(false);
+        expect(targetHit).toBe(false);
+        const init = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+        expect(init?.redirect).toBe("error");
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });

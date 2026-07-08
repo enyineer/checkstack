@@ -9,7 +9,6 @@ import {
 } from "@checkstack/catalog-common";
 import { type SignalService } from "@checkstack/signal-common";
 import { EntityService } from "./services/entity-service";
-import { diffSystemEnvironments } from "./services/environment-membership";
 import { isUniqueViolation } from "./services/pg-errors";
 import type { SafeDatabase, Logger } from "@checkstack/backend-api";
 import * as schema from "./schema";
@@ -186,14 +185,10 @@ export const createCatalogRouter = ({
 
   // Implement each contract method
   const getEntities = os.getEntities.handler(async () =>
-    cache.wrapEntities(async () => {
-      const systems = await entityService.getSystems();
-      const groups = await entityService.getGroups();
-      return {
-        systems,
-        groups,
-      };
-    }),
+    // Systems + groups (with memberships) read under ONE scoped transaction
+    // instead of getSystems() + getGroups() issuing 3 standalone scoped
+    // queries back-to-back. Output shape is unchanged.
+    cache.wrapEntities(async () => entityService.getEntitiesTopology()),
   );
 
   const getSystems = os.getSystems.handler(async () =>
@@ -552,6 +547,17 @@ export const createCatalogRouter = ({
     return { success: true };
   });
 
+  const reorderGroups = os.reorderGroups.handler(async ({ input }) => {
+    await entityService.reorderGroups(input.orderedIds);
+    await cache.invalidateTopology();
+    await broadcastChanged({
+      entity: "group",
+      action: "updated",
+      id: input.orderedIds[0] ?? "",
+    });
+    return { success: true };
+  });
+
   const addSystemToGroup = os.addSystemToGroup.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("System", input.systemId);
     await entityService.addSystemToGroup(input);
@@ -720,6 +726,23 @@ export const createCatalogRouter = ({
     return result;
   });
 
+  const updateSystemLink = os.updateSystemLink.handler(async ({ input }) => {
+    await enforceNotGitOpsLocked("System", input.systemId);
+    // Scoped to both the link id AND its parent systemId so a manager of
+    // `systemId` cannot edit a link belonging to a different system.
+    const updated = await entityService.updateLink({
+      linkId: input.id,
+      systemId: input.systemId,
+      label: input.label,
+      url: input.url,
+    });
+    if (!updated) {
+      throw new ORPCError("NOT_FOUND", { message: "Link not found" });
+    }
+    await cache.invalidateLinks(input.systemId);
+    return updated;
+  });
+
   const removeSystemLink = os.removeSystemLink.handler(async ({ input }) => {
     await enforceNotGitOpsLocked("System", input.systemId);
     // Scoped to both the link id AND its parent systemId so a manager of
@@ -823,25 +846,12 @@ export const createCatalogRouter = ({
   const setSystemEnvironments = os.setSystemEnvironments.handler(
     async ({ input }) => {
       await enforceNotGitOpsLocked("System", input.systemId);
-      const current = await entityService.getEnvironmentsForSystem(
-        input.systemId,
-      );
-      const { toAdd, toRemove } = diffSystemEnvironments({
-        current: current.map((row) => row.environmentId),
-        desired: input.environmentIds,
+      // Read current memberships, diff, and apply the adds/removes atomically
+      // in ONE scoped transaction (see EntityService.setSystemEnvironments).
+      await entityService.setSystemEnvironments({
+        systemId: input.systemId,
+        environmentIds: input.environmentIds,
       });
-      for (const environmentId of toAdd) {
-        await entityService.addSystemToEnvironment({
-          environmentId,
-          systemId: input.systemId,
-        });
-      }
-      for (const environmentId of toRemove) {
-        await entityService.removeSystemFromEnvironment({
-          environmentId,
-          systemId: input.systemId,
-        });
-      }
       await broadcastChanged({
         entity: "membership",
         action: "updated",
@@ -853,26 +863,15 @@ export const createCatalogRouter = ({
 
   const getSystemEnvironments = os.getSystemEnvironments.handler(
     async ({ input }) => {
-      const memberships = await entityService.getEnvironmentsForSystem(
-        input.systemId,
-      );
-      const environments = await entityService.getEnvironmentsByIds(
-        memberships.map((m) => m.environmentId),
-      );
-      return environments;
+      // Memberships + environment records under ONE scoped transaction.
+      return entityService.getEnvironmentsForSystemPopulated(input.systemId);
     },
   );
 
   // Service-grade cross-plugin reads (healthcheck fan-out resolution).
   const resolveSystemEnvironments = os.resolveSystemEnvironments.handler(
     async ({ input }) => {
-      const memberships = await entityService.getEnvironmentsForSystem(
-        input.systemId,
-      );
-      const environments = await entityService.getEnvironmentsByIds(
-        memberships.map((m) => m.environmentId),
-      );
-      return environments;
+      return entityService.getEnvironmentsForSystemPopulated(input.systemId);
     },
   );
 
@@ -900,10 +899,12 @@ export const createCatalogRouter = ({
     removeSystemContact,
     getSystemLinks,
     addSystemLink,
+    updateSystemLink,
     removeSystemLink,
     createGroup,
     updateGroup,
     deleteGroup,
+    reorderGroups,
     addSystemToGroup,
     removeSystemFromGroup,
     getViews,

@@ -24,6 +24,10 @@ import { eq } from "drizzle-orm";
 
 import * as schema from "./schema";
 import { createNotificationRouter } from "./router";
+import {
+  createNotificationAudienceRegistry,
+  notificationAudienceExtensionPoint,
+} from "./audience";
 import { createNotificationCache } from "./cache";
 import { authHooks } from "@checkstack/auth-backend";
 import { createOAuthCallbackHandler } from "./oauth-callback-handler";
@@ -79,6 +83,16 @@ export {
 } from "@checkstack/notification-common";
 export { postJson } from "./post-json";
 export type { PostJsonOptions, PostJsonResult } from "./post-json";
+export { validateWebhookUrl, WEBHOOK_EGRESS_DENY_CIDRS } from "./egress";
+export type { WebhookUrlValidation } from "./egress";
+
+// External-audience fan-out (status-page email subscribers, ...).
+export { notificationAudienceExtensionPoint } from "./audience";
+export type {
+  NotificationAudienceEvent,
+  NotificationAudienceSink,
+  NotificationAudienceExtensionPoint,
+} from "./audience";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Registry Implementation
@@ -180,6 +194,11 @@ export default createBackendPlugin({
     // Create the strategy registry
     const strategyRegistry = createNotificationStrategyRegistry();
 
+    // External-audience sink registry (e.g. status-page email subscribers). A
+    // plugin contributes a sink via `notificationAudienceExtensionPoint`; the
+    // dispatch path invokes them once per `notifyForSubscription`.
+    const audienceRegistry = createNotificationAudienceRegistry();
+
     // Register static access rules
     env.registerAccessRules(notificationAccessRules);
 
@@ -189,6 +208,10 @@ export default createBackendPlugin({
         strategyRegistry.register(strategy, metadata);
       },
     });
+    env.registerExtensionPoint(
+      notificationAudienceExtensionPoint,
+      audienceRegistry.extensionPoint,
+    );
 
     // ─── Automation Platform: triggers + artifact type ─────────────────
     const automationTriggers = env.getExtensionPoint(
@@ -254,6 +277,7 @@ export default createBackendPlugin({
           logger,
           cache,
           getDispatchHookSink: () => dispatchHookSinkRef.current,
+          getAudienceSinks: () => audienceRegistry.list(),
         });
         rpc.registerRouter(router, notificationContract);
 

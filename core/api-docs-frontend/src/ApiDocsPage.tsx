@@ -30,68 +30,13 @@ import {
   isExternallyAccessible,
 } from "./apiDocsStatus.logic";
 import { accessToneStyles } from "./apiDocsTone";
-
-interface OpenApiSpec {
-  info: {
-    title: string;
-    version: string;
-    description?: string;
-  };
-  paths: Record<string, Record<string, OperationObject>>;
-  components?: {
-    schemas?: Record<string, SchemaObject>;
-  };
-}
-
-interface ParameterObject {
-  name: string;
-  in: "query" | "path" | "header" | "cookie";
-  required?: boolean;
-  description?: string;
-  schema?: SchemaObject;
-}
-
-interface OperationObject {
-  summary?: string;
-  description?: string;
-  operationId?: string;
-  tags?: string[];
-  parameters?: ParameterObject[];
-  requestBody?: {
-    content?: {
-      "application/json"?: {
-        schema?: SchemaObject;
-      };
-    };
-  };
-  responses?: Record<
-    string,
-    {
-      description?: string;
-      content?: Record<string, { schema?: SchemaObject }>;
-    }
-  >;
-  "x-orpc-meta"?: {
-    userType?: string;
-    accessRules?: string[];
-  };
-}
-
-interface SchemaObject {
-  type?: string | string[];
-  properties?: Record<string, SchemaObject>;
-  items?: SchemaObject;
-  required?: string[];
-  description?: string;
-  enum?: (string | number | boolean | null)[];
-  format?: string;
-  nullable?: boolean;
-  $ref?: string;
-  additionalProperties?: SchemaObject | boolean;
-  oneOf?: SchemaObject[];
-  anyOf?: SchemaObject[];
-  allOf?: SchemaObject[];
-}
+import {
+  generateFetchExample,
+  type OpenApiSpec,
+  type OperationObject,
+  type ParameterObject,
+  type SchemaObject,
+} from "./apiDocsFetchExample";
 
 /**
  * Pick the access-status icon for a userType. The glyph distinguishes the four
@@ -153,47 +98,6 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
     </Button>
   );
-}
-
-function generateFetchExample(
-  path: string,
-  method: string,
-  operation: OperationObject,
-): string {
-  const baseUrl = "http://localhost:3000";
-  const upperMethod = method.toUpperCase();
-  const hasBody = operation.requestBody?.content?.["application/json"]?.schema;
-
-  const queryParams =
-    operation.parameters?.filter((p) => p.in === "query") ?? [];
-  const queryString =
-    queryParams.length > 0
-      ? "?" +
-        queryParams
-          .map((p) => `${p.name}=<${p.required ? "required" : "optional"}>`)
-          .join("&")
-      : "";
-
-  const includeContentType = hasBody;
-  let example = `const response = await fetch("${baseUrl}${path}${queryString}", {
-  method: "${upperMethod}",
-  headers: {
-${includeContentType ? '    "Content-Type": "application/json",\n' : ""}    "Authorization": "Bearer ck_<application-id>_<secret>"
-  }`;
-
-  if (hasBody) {
-    example += `,
-  body: JSON.stringify({
-    // Request body - see schema above
-  })`;
-  }
-
-  example += `
-});
-
-const data = await response.json();`;
-
-  return example;
 }
 
 const SchemasContext = createContext<Record<string, SchemaObject>>({});
@@ -482,10 +386,12 @@ function EndpointCard({
   path,
   method,
   operation,
+  spec,
 }: {
   path: string;
   method: string;
   operation: OperationObject;
+  spec: OpenApiSpec;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const meta = operation["x-orpc-meta"];
@@ -618,11 +524,11 @@ function EndpointCard({
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-medium">Fetch Example</h4>
               <CopyButton
-                text={generateFetchExample(path, method, operation)}
+                text={generateFetchExample({ path, method, operation, spec })}
               />
             </div>
             <pre className="p-3 overflow-x-auto text-sm rounded-md bg-surface-inset">
-              <code>{generateFetchExample(path, method, operation)}</code>
+              <code>{generateFetchExample({ path, method, operation, spec })}</code>
             </pre>
           </div>
           </CardContent>
@@ -843,6 +749,7 @@ export function ApiDocsPage() {
                     path={path}
                     method={method}
                     operation={operation}
+                    spec={spec}
                   />
                 ))}
               </div>

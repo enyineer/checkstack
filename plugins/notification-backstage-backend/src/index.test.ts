@@ -1,9 +1,43 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn, mock } from "bun:test";
+import type { Logger } from "@checkstack/backend-api";
 import {
   backstageConfigSchemaV1,
   userConfigSchemaV1,
   mapImportanceToSeverity,
+  backstageStrategy,
 } from "./index";
+
+function makeLogger(): Logger {
+  return {
+    info: mock(() => {}),
+    error: mock(() => {}),
+    warn: mock(() => {}),
+    debug: mock(() => {}),
+  };
+}
+
+type BackstageSendContext = Parameters<typeof backstageStrategy.send>[0];
+
+function makeContext(baseUrl: string): BackstageSendContext {
+  return {
+    user: { userId: "u1", email: "u1@example.com" },
+    contact: "user:default/u1",
+    notification: {
+      title: "Alert",
+      body: "body",
+      importance: "info",
+      type: "test",
+    },
+    strategyConfig: {
+      baseUrl,
+      token: "tok",
+      defaultEntityPrefix: "user:default/",
+    },
+    userConfig: { entityRef: "user:default/u1" },
+    layoutConfig: undefined,
+    logger: makeLogger(),
+  };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Config Schema Tests
@@ -143,5 +177,49 @@ describe("backstageStrategy.send", () => {
     const baseUrl = "https://backstage.example.com/";
     const normalizedUrl = baseUrl.replace(/\/$/, "");
     expect(normalizedUrl).toBe("https://backstage.example.com");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SSRF hardening (configured base URL)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Backstage SSRF hardening", () => {
+  it("rejects a baseUrl that resolves to a blocked host before dispatch", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const result = await backstageStrategy.send(
+        makeContext("http://169.254.169.254"),
+      );
+      expect(result.success).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("refuses redirects so a 302 to a blocked host is not followed", async () => {
+    let targetHit = false;
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+      _url: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      if (init?.redirect === "error") {
+        throw new TypeError("unexpected redirect");
+      }
+      targetHit = true;
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch);
+    try {
+      const result = await backstageStrategy.send(
+        makeContext("https://93.184.216.34"),
+      );
+      expect(result.success).toBe(false);
+      expect(targetHit).toBe(false);
+      const init = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+      expect(init?.redirect).toBe("error");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

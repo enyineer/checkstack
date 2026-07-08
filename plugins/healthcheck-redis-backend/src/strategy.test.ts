@@ -75,6 +75,40 @@ describe("RedisHealthCheckStrategy", () => {
         }),
       ).rejects.toThrow("Connection refused");
     });
+
+    it("should connect with a concrete rendered host", async () => {
+      const mockClient = createMockClient();
+      const strategy = new RedisHealthCheckStrategy(mockClient);
+
+      const connectedClient = await strategy.createClient({
+        host: "redis.prod.example.com",
+        port: 6379,
+        timeout: 5000,
+      });
+
+      expect(mockClient.connect).toHaveBeenCalledWith(
+        expect.objectContaining({ host: "redis.prod.example.com" }),
+      );
+
+      connectedClient.close();
+    });
+
+    // A required templatable `host` that renders to empty (e.g.
+    // `{{ environment.host }}` with no environment) is a config error - it must
+    // fail as a transport failure, never attempt an empty connection.
+    it("should throw when the rendered host is empty", async () => {
+      const mockClient = createMockClient();
+      const strategy = new RedisHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "   ",
+          port: 6379,
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/Rendered host is empty/);
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
   });
 
   describe("client.exec", () => {

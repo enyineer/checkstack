@@ -6,6 +6,7 @@ import {
   IncidentsDtoSchema,
   toPublicUpdate,
   selectEvents,
+  resolveEventFeedScope,
   type InternalUpdate,
   type PublicUpdate,
 } from "@checkstack/status-page-common";
@@ -16,6 +17,40 @@ import type {
 } from "@checkstack/status-page-backend";
 
 const SYSTEM_TYPE = "catalog.system";
+const GROUP_TYPE = "catalog.group";
+
+/** Current membership of every catalog group, fetched once per page resolve. */
+async function groupMembers(
+  ctx: WidgetResolveContext,
+): Promise<Map<string, string[]>> {
+  const groups = await ctx.cache("catalog.groups", async () => {
+    const all = await ctx.rpcClient.forPlugin(CatalogApi).getGroups();
+    return all.map((g) => ({ id: g.id, systemIds: g.systemIds }));
+  });
+  return new Map(groups.map((g) => [g.id, g.systemIds] as const));
+}
+
+/**
+ * The CURRENT effective set of catalog system ids this incidents config
+ * surfaces: `(systemIds ∪ members(groupIds)) − excludedSystemIds`, expanded from
+ * the SAME live catalog source (`groupMembers` via `getGroups`) the DTO resolve
+ * uses. Shared by `resolvePublic` (what the widget shows) and
+ * `resolveScopedSystems` (what the subscriber fan-out is allowed to email about)
+ * so the two can NEVER diverge. Empty when nothing is bound (fail closed).
+ */
+async function effectiveScope(
+  config: unknown,
+  ctx: WidgetResolveContext,
+): Promise<Set<string>> {
+  const c = IncidentsConfigSchema.parse(config);
+  if (c.systemIds.length === 0 && c.groupIds.length === 0) return new Set();
+  return resolveEventFeedScope({
+    systemIds: c.systemIds,
+    groupIds: c.groupIds,
+    excludedSystemIds: c.excludedSystemIds,
+    groupMembers: c.groupIds.length > 0 ? await groupMembers(ctx) : new Map(),
+  });
+}
 
 function iso(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : String(value);
@@ -24,6 +59,10 @@ function iso(value: string | Date): string {
 /** Newest `max` updates, most-recent first (the current progress at the top). */
 function latestUpdates(updates: InternalUpdate[], max: number): PublicUpdate[] {
   return updates
+    // The public status page is anonymous: only `public`-visibility updates may
+    // appear. `logged_in` / `internal` updates are filtered out here so they
+    // never reach the unauthenticated projection (Item 3/5).
+    .filter((u) => u.visibility === "public")
     .toSorted(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
@@ -56,23 +95,31 @@ const incidents: WidgetTypeDefinition = {
   binding: "systems",
   configSchema: IncidentsConfigSchema,
   dtoSchema: IncidentsDtoSchema,
-  boundResources: (config) =>
-    IncidentsConfigSchema.parse(config).systemIds.map((id) => ({
-      resourceType: SYSTEM_TYPE,
-      resourceId: id,
-    })),
+  boundResources: (config) => {
+    const c = IncidentsConfigSchema.parse(config);
+    return [
+      ...c.systemIds.map((id) => ({ resourceType: SYSTEM_TYPE, resourceId: id })),
+      ...c.groupIds.map((id) => ({ resourceType: GROUP_TYPE, resourceId: id })),
+    ];
+  },
   assertBindingsReadable: async ({ userClient, config }) => {
+    const c = IncidentsConfigSchema.parse(config);
     await assertCatalogResourcesReadable({
       client: userClient.forPlugin(CatalogApi),
-      systemIds: IncidentsConfigSchema.parse(config).systemIds,
+      systemIds: c.systemIds,
+      groupIds: c.groupIds,
     });
   },
+  // Send-time scoping for the subscriber fan-out uses the SAME expansion as the
+  // DTO resolve, so a page never emails about a system its widget does not show.
+  resolveScopedSystems: ({ config, ctx }) => effectiveScope(config, ctx),
   async resolvePublic({ config, ctx }) {
     const c = IncidentsConfigSchema.parse(config);
-    const bound = new Set(c.systemIds);
-    // FAIL CLOSED: no systems bound -> nothing the operator chose to expose.
-    // Never fall back to "all incidents" (that would be a trusted-service read
-    // of every incident on the platform).
+    // FAIL CLOSED with NO read when nothing is bound: never fall back to "all
+    // incidents" (that would be a trusted-service read of every incident). The
+    // effective scope is resolved at read time (shared with resolveScopedSystems)
+    // so group members added later are included.
+    const bound = await effectiveScope(c, ctx);
     if (bound.size === 0) return IncidentsDtoSchema.parse({ incidents: [] });
     const inc = ctx.rpcClient.forPlugin(IncidentApi);
     const { incidents: all } = await inc.listIncidents({
@@ -90,35 +137,43 @@ const incidents: WidgetTypeDefinition = {
       now: Date.now(),
     });
     // Only label BOUND systems; an unbound co-affected system must not leak.
+    // A per-system PUBLIC label override wins over the raw catalog name (same
+    // override path as the system-health widget), so the public detail page never
+    // leaks an internal name inconsistently with the rest of the page.
     const names = await labelsFor(ctx, [...bound]);
-    const items = await Promise.allSettled(
-      [...active, ...past].map(async (i) => {
-        // showUpdates=false also skips the per-item detail fetch (perf).
-        const detail = c.showUpdates ? await inc.getIncident({ id: i.id }) : null;
-        const updates = latestUpdates(
-          (detail?.updates ?? []) as InternalUpdate[],
-          c.maxUpdates,
-        );
-        const resolved = i.status === "resolved";
-        return {
-          id: i.id,
-          title: i.title,
-          status: i.status,
-          severity: i.severity,
-          systems: i.systemIds
-            .map((id) => names.get(id))
-            .filter((l): l is string => l !== undefined),
-          startedAt: iso(i.createdAt),
-          ...(resolved ? { resolvedAt: iso(i.updatedAt) } : {}),
-          updates,
-        };
-      }),
-    );
-    return IncidentsDtoSchema.parse({
-      incidents: items
-        .filter((r) => r.status === "fulfilled")
-        .map((r) => r.value),
+    const labelOf = (id: string): string | undefined =>
+      bound.has(id) ? (c.systemLabels[id] ?? names.get(id) ?? id) : undefined;
+    const selected = [...active, ...past];
+    // ONE bulk fetch of every selected incident's update timeline, instead of
+    // an N+1 fan-out of `getIncident` per row. showUpdates=false still skips
+    // the fetch entirely (perf). Each incident's updates are keyed by its id.
+    const bulkUpdates = c.showUpdates
+      ? await inc.getBulkIncidentUpdates({
+          incidentIds: selected.map((i) => i.id),
+        })
+      : undefined;
+    const updatesByIncident: Record<string, InternalUpdate[]> =
+      bulkUpdates?.updates ?? {};
+    const items = selected.map((i) => {
+      const updates = latestUpdates(
+        updatesByIncident[i.id] ?? [],
+        c.maxUpdates,
+      );
+      const resolved = i.status === "resolved";
+      return {
+        id: i.id,
+        title: i.title,
+        status: i.status,
+        severity: i.severity,
+        systems: i.systemIds
+          .map((id) => labelOf(id))
+          .filter((l): l is string => l !== undefined),
+        startedAt: iso(i.createdAt),
+        ...(resolved ? { resolvedAt: iso(i.updatedAt) } : {}),
+        updates,
+      };
     });
+    return IncidentsDtoSchema.parse({ incidents: items });
   },
 };
 

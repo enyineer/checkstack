@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "./schema";
 
 /**
@@ -269,39 +270,44 @@ export async function resolveInheritedGroups(opts: {
 }): Promise<InheritedGroup[]> {
   const { db, spec, resourceKey } = opts;
 
-  const parents = await db
-    .select()
-    .from(schema.notificationResourceParents)
-    .where(
-      and(
-        eq(
-          schema.notificationResourceParents.childTargetTypeId,
-          spec.targetTypeId,
+  // Two data-dependent reads (parents, then the parent specs those parents
+  // key) with only a pure in-memory `mapInheritedGroups` step between them:
+  // one scoped transaction pays a single SET LOCAL search_path.
+  return withScopedTransaction(db, async (tx) => {
+    const parents = await tx
+      .select()
+      .from(schema.notificationResourceParents)
+      .where(
+        and(
+          eq(
+            schema.notificationResourceParents.childTargetTypeId,
+            spec.targetTypeId,
+          ),
+          eq(schema.notificationResourceParents.childResourceKey, resourceKey),
         ),
-        eq(schema.notificationResourceParents.childResourceKey, resourceKey),
-      ),
-    );
+      );
 
-  if (parents.length === 0) return [];
+    if (parents.length === 0) return [];
 
-  const parentTargetTypeIds = [
-    ...new Set(parents.map((p) => p.parentTargetTypeId)),
-  ];
+    const parentTargetTypeIds = [
+      ...new Set(parents.map((p) => p.parentTargetTypeId)),
+    ];
 
-  const parentSpecs = await db
-    .select()
-    .from(schema.subscriptionSpecs)
-    .where(
-      and(
-        eq(schema.subscriptionSpecs.ownerPlugin, spec.ownerPlugin),
-        inArray(schema.subscriptionSpecs.targetTypeId, parentTargetTypeIds),
-      ),
-    );
+    const parentSpecs = await tx
+      .select()
+      .from(schema.subscriptionSpecs)
+      .where(
+        and(
+          eq(schema.subscriptionSpecs.ownerPlugin, spec.ownerPlugin),
+          inArray(schema.subscriptionSpecs.targetTypeId, parentTargetTypeIds),
+        ),
+      );
 
-  return mapInheritedGroups({
-    ownerPlugin: spec.ownerPlugin,
-    parents,
-    parentSpecs,
+    return mapInheritedGroups({
+      ownerPlugin: spec.ownerPlugin,
+      parents,
+      parentSpecs,
+    });
   });
 }
 

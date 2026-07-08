@@ -23,12 +23,25 @@ export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [
     {
+      // Public, read-gated overview. Anonymous holds `maintenance.read` by
+      // default, so this nav shows logged-out (Item 6). Managing/editing stays
+      // on the separate manage-gated config route below.
+      route: maintenanceRoutes.routes.overview,
+      load: () =>
+        import("./pages/MaintenanceOverviewPage").then((m) => ({
+          default: m.MaintenanceOverviewPage,
+        })),
+      title: "Maintenances",
+      accessRule: maintenanceAccess.maintenance.read,
+      nav: { group: "Reliability", icon: Wrench, isVisible: () => true },
+    },
+    {
       route: maintenanceRoutes.routes.config,
       load: () =>
         import("./pages/MaintenanceConfigPage").then((m) => ({
           default: m.MaintenanceConfigPage,
         })),
-      title: "Maintenances",
+      title: "Manage Maintenances",
       accessRule: maintenanceAccess.maintenance.manage,
       // Team-scoped: managing a system unlocks the maintenance surface for it.
       manageCapability: {

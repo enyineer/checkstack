@@ -25,6 +25,15 @@ export interface PostJsonOptions {
   /** Request timeout. Defaults to 10s, matching the platform-wide default. */
   timeoutMs?: number;
   /**
+   * How `fetch` treats an HTTP redirect. Defaults to `"follow"` (the fetch
+   * default) for trusted, admin-configured service endpoints. For a
+   * USER-SUPPLIED destination (e.g. the generic webhook channel), pass
+   * `"error"` so any 3xx fails closed - otherwise an attacker-controlled
+   * receiver can `302 Location:` the request at an internal/metadata host that
+   * the pre-flight SSRF guard never got to validate.
+   */
+  redirect?: "follow" | "error" | "manual";
+  /**
    * Short, human-readable service label used to build log messages and the
    * returned error string. Example: `"Discord"`, `"Slack webhook"`.
    */
@@ -50,6 +59,7 @@ export async function postJson(
     body,
     headers = {},
     timeoutMs = 10_000,
+    redirect = "follow",
     serviceName,
     logger,
   } = options;
@@ -59,6 +69,7 @@ export async function postJson(
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
+      redirect,
       signal: AbortSignal.timeout(timeoutMs),
     });
 

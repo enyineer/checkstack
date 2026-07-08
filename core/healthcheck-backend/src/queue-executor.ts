@@ -35,20 +35,17 @@ import {
 } from "@checkstack/healthcheck-common";
 import {
   CatalogApi,
-  catalogRoutes,
-  createSystemSubject,
   type Environment,
 } from "@checkstack/catalog-common";
 import {
   resolveEffectiveEnvironments,
   type EffectiveEnvironment,
 } from "./effective-environments";
-import { systemHealthCollapseKey } from "@checkstack/healthcheck-common";
+import { buildHealthTransitionNotification } from "./health-notification-content";
 import { MaintenanceApi } from "@checkstack/maintenance-common";
 import { IncidentApi } from "@checkstack/incident-common";
 import { NotificationApi } from "@checkstack/notification-common";
-import { healthcheckSystemSubscription } from "@checkstack/healthcheck-common";
-import { resolveRoute, type InferClient, extractErrorMessage} from "@checkstack/common";
+import { type InferClient, extractErrorMessage} from "@checkstack/common";
 import { secretEnvMappingSchema } from "@checkstack/secrets-common";
 import type {
   SecretResolverService,
@@ -465,6 +462,13 @@ async function notifyStateChange(props: {
   systemId: string;
   systemName: string;
   configurationId: string;
+  /**
+   * Human-readable name of the health check whose run drove this transition.
+   * Named in the body and surfaced as a `healthcheck.healthcheck` subject so
+   * subscribers see WHICH check failed, not just which system. Best-effort:
+   * falls back to the `configurationId` when the name could not be resolved.
+   */
+  configurationName?: string;
   previousStatus: HealthCheckStatus;
   newStatus: HealthCheckStatus;
   /**
@@ -493,6 +497,7 @@ async function notifyStateChange(props: {
     systemId,
     systemName,
     configurationId,
+    configurationName,
     previousStatus,
     newStatus,
     environmentId,
@@ -505,8 +510,9 @@ async function notifyStateChange(props: {
     logger,
   } = props;
 
-  const envScoped = typeof environmentId === "string";
-  const envSuffix = envScoped && environmentName ? ` (${environmentName})` : "";
+  // The check that just ran is the one driving this aggregate transition, so
+  // its name is the authoritative check to blame. Fall back to the id.
+  const checkName = configurationName ?? configurationId;
 
   const transition = classifyTransition(previousStatus, newStatus);
   if (transition === "none") {
@@ -572,70 +578,24 @@ async function notifyStateChange(props: {
     );
   }
 
-  let title: string;
-  let body: string;
-  let importance: "info" | "warning" | "critical";
-
-  if (transition === "recovery") {
-    title = `System health restored${envSuffix}: ${systemName}`;
-    body = envScoped
-      ? `Health checks for **${systemName}** in environment **${environmentName ?? environmentId}** are now passing. The system has returned to normal operation in that environment.`
-      : `All health checks for **${systemName}** are now passing. The system has returned to normal operation.`;
-    importance = "info";
-  } else if (newStatus === "unhealthy") {
-    title = `System health critical${envSuffix}: ${systemName}`;
-    body = envScoped
-      ? `Health checks indicate **${systemName}** is unhealthy in environment **${environmentName ?? environmentId}** and may be down in that environment.`
-      : `Health checks indicate **${systemName}** is unhealthy and may be down.`;
-    importance = "critical";
-  } else {
-    // degraded — either an escalation from healthy or a partial recovery
-    title = `System health degraded${envSuffix}: ${systemName}`;
-    body = envScoped
-      ? `Some health checks for **${systemName}** in environment **${environmentName ?? environmentId}** are failing. That environment may be experiencing issues.`
-      : `Some health checks for **${systemName}** are failing. The system may be experiencing issues.`;
-    importance = "warning";
-  }
-
-  const systemDetailPath = resolveRoute(catalogRoutes.routes.systemDetail, {
-    systemId,
-  });
-  // Recovery lands on the default (all) view; failing transitions deep-link
-  // operators into the failing-checks filter so they can debug immediately.
-  const actionUrl =
-    transition === "recovery"
-      ? systemDetailPath
-      : `${systemDetailPath}?filter=failing`;
-  const actionLabel =
-    transition === "recovery" ? "View System" : "View failing checks";
-
   void catalogClient; // parents are resolved server-side via stored target edges
 
   try {
-    await notificationClient.notifyForSubscription({
-      specId: healthcheckSystemSubscription.specId,
-      resourceKeys: [systemId],
-      title,
-      body,
-      importance,
-      action: { label: actionLabel, url: actionUrl },
-      // Env-qualified collapse key so two failing envs of one system generate
-      // two independent notification cards (one per env) instead of merging
-      // -> operators see all env outages. The system-rollup transition
-      // (`environmentId === null`/undefined) keys on the bare systemId and
-      // therefore reuses the pre-existing single-card identity.
-      collapseKey: envScoped
-        ? systemHealthCollapseKey(systemId, environmentId)
-        : systemHealthCollapseKey(systemId),
-      subjects: [
-        createSystemSubject({
-          id: systemId,
-          name: systemName,
-          url: systemDetailPath,
-          status: newStatus,
-        }),
-      ],
-    });
+    // Content (title/body/subjects/collapseKey) is built by a pure, unit-tested
+    // helper so the wording - which now NAMES the failing check and pushes a
+    // `healthcheck.healthcheck` subject - can be verified without the executor.
+    await notificationClient.notifyForSubscription(
+      buildHealthTransitionNotification({
+        transition,
+        systemId,
+        systemName,
+        configurationId,
+        checkName,
+        newStatus,
+        environmentId,
+        environmentName,
+      }),
+    );
     logger.debug(
       `Notified subscribers: ${previousStatus} → ${newStatus} for system ${systemId}`,
     );
@@ -1390,6 +1350,7 @@ async function executeHealthCheckJob(props: {
           systemId,
           systemName,
           configurationId: configId,
+          configurationName: configRow.configName,
           previousStatus,
           newStatus: newState.status,
           environmentId,
@@ -1557,6 +1518,7 @@ async function executeHealthCheckJob(props: {
         systemId,
         systemName,
         configurationId: configId,
+        configurationName: configRow.configName,
         previousStatus,
         newStatus: newState.status,
         environmentId,
@@ -1723,6 +1685,7 @@ async function executeHealthCheckJob(props: {
         systemId,
         systemName,
         configurationId: configId,
+        configurationName: configName,
         previousStatus,
         newStatus: newState.status,
         service,

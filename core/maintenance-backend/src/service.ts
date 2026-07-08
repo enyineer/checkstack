@@ -1,5 +1,9 @@
-import { eq, and, or, ne, inArray } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { eq, and, or, ne, inArray, desc, isNotNull, lte, gte } from "drizzle-orm";
+import { withScopedTransaction } from "@checkstack/backend-api";
+import type {
+  SafeDatabase,
+  ScopedQueryRunner,
+} from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   maintenances,
@@ -13,20 +17,83 @@ import type {
   MaintenanceUpdate,
   MaintenanceLink,
   AddMaintenanceLinkInput,
+  UpdateMaintenanceLinkInput,
   CreateMaintenanceInput,
   UpdateMaintenanceInput,
   AddMaintenanceUpdateInput,
+  EditMaintenanceUpdateInput,
   MaintenanceStatus,
+  MaintenanceUpdateEditSnapshot,
 } from "@checkstack/maintenance-common";
 
 type Db = SafeDatabase<typeof schema>;
+
+/** The transaction handle drizzle hands to `db.transaction(async (tx) => ...)`. */
+type MaintenanceTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 function generateId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * Derive a maintenance's header status from its timeline: the `statusChange` of
+ * the MOST RECENT status-bearing update (message-only updates are ignored), so
+ * the header always follows the newest update that actually declared a status.
+ * Returns undefined when no update carries a status. Runs on the passed `tx` so
+ * an edit/delete re-derivation is atomic with the write that triggered it.
+ * Centralized so `editUpdate` and `deleteUpdate` can never diverge on how
+ * "current status" is resolved.
+ */
+async function deriveStatusFromTimeline(
+  tx: MaintenanceTx,
+  maintenanceId: string,
+): Promise<MaintenanceStatus | undefined> {
+  const [latest] = await tx
+    .select({ statusChange: maintenanceUpdates.statusChange })
+    .from(maintenanceUpdates)
+    .where(
+      and(
+        eq(maintenanceUpdates.maintenanceId, maintenanceId),
+        isNotNull(maintenanceUpdates.statusChange),
+      ),
+    )
+    .orderBy(desc(maintenanceUpdates.createdAt), desc(maintenanceUpdates.id))
+    .limit(1);
+  return latest?.statusChange ?? undefined;
+}
+
 export class MaintenanceService {
   constructor(private db: Db) {}
+
+  /**
+   * Read the system associations for a set of maintenance ids in ONE set-based
+   * `inArray` query and group them by maintenanceId. Runs on the passed runner
+   * (the scoped db OR a batching `tx`), so callers that already hold a
+   * transaction reuse its single `SET LOCAL search_path`. Replaces the former
+   * per-row N+1 loop used by the list/for-system reads.
+   */
+  private async getSystemsByMaintenance(
+    runner: ScopedQueryRunner<typeof schema>,
+    maintenanceIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const byMaintenance = new Map<string, string[]>();
+    if (maintenanceIds.length === 0) return byMaintenance;
+
+    const systemRows = await runner
+      .select({
+        maintenanceId: maintenanceSystems.maintenanceId,
+        systemId: maintenanceSystems.systemId,
+      })
+      .from(maintenanceSystems)
+      .where(inArray(maintenanceSystems.maintenanceId, maintenanceIds));
+
+    for (const r of systemRows) {
+      const list = byMaintenance.get(r.maintenanceId);
+      if (list) list.push(r.systemId);
+      else byMaintenance.set(r.maintenanceId, [r.systemId]);
+    }
+    return byMaintenance;
+  }
 
   /**
    * List maintenances with optional filters
@@ -36,8 +103,6 @@ export class MaintenanceService {
     systemId?: string;
     includeCompleted?: boolean;
   }): Promise<MaintenanceWithSystems[]> {
-    let maintenanceRows;
-
     // Mirrors the incident plugin's `includeResolved`: an explicit `status`
     // filter wins; otherwise completed maintenances are hidden unless
     // `includeCompleted` is set, so the default list shows only active /
@@ -48,82 +113,128 @@ export class MaintenanceService {
         ? undefined
         : ne(maintenances.status, "completed");
 
-    if (filters?.systemId) {
-      // Filter by system - need to join
-      const systemMaintenanceIds = await this.db
-        .select({ maintenanceId: maintenanceSystems.maintenanceId })
-        .from(maintenanceSystems)
-        .where(eq(maintenanceSystems.systemId, filters.systemId));
+    // One SET LOCAL for the whole read fan-out. System associations are fetched
+    // in a SINGLE set-based `inArray` query and grouped in JS, instead of the
+    // former per-row N+1 loop (mirrors `getManyEntityStates`).
+    return withScopedTransaction(this.db, async (tx) => {
+      let maintenanceRows;
 
-      const ids = systemMaintenanceIds.map((r) => r.maintenanceId);
-      if (ids.length === 0) return [];
+      if (filters?.systemId) {
+        // Filter by system - need to join
+        const systemMaintenanceIds = await tx
+          .select({ maintenanceId: maintenanceSystems.maintenanceId })
+          .from(maintenanceSystems)
+          .where(eq(maintenanceSystems.systemId, filters.systemId));
 
-      maintenanceRows = await this.db
-        .select()
-        .from(maintenances)
-        .where(and(inArray(maintenances.id, ids), statusFilter));
-    } else {
-      maintenanceRows = await this.db
-        .select()
-        .from(maintenances)
-        .where(statusFilter);
-    }
+        const ids = systemMaintenanceIds.map((r) => r.maintenanceId);
+        if (ids.length === 0) return [];
 
-    // Fetch all system associations
-    const result: MaintenanceWithSystems[] = [];
-    for (const m of maintenanceRows) {
-      const systems = await this.db
-        .select({ systemId: maintenanceSystems.systemId })
-        .from(maintenanceSystems)
-        .where(eq(maintenanceSystems.maintenanceId, m.id));
+        maintenanceRows = await tx
+          .select()
+          .from(maintenances)
+          .where(and(inArray(maintenances.id, ids), statusFilter));
+      } else {
+        maintenanceRows = await tx
+          .select()
+          .from(maintenances)
+          .where(statusFilter);
+      }
 
-      result.push({
+      if (maintenanceRows.length === 0) return [];
+
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        maintenanceRows.map((m) => m.id),
+      );
+
+      return maintenanceRows.map((m) => ({
         ...m,
         description: m.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
-
-    return result;
+        systemIds: systemsByMaintenance.get(m.id) ?? [],
+      }));
+    });
   }
 
   /**
    * Get single maintenance with full details
    */
   async getMaintenance(id: string): Promise<MaintenanceDetail | undefined> {
-    const [maintenance] = await this.db
-      .select()
-      .from(maintenances)
-      .where(eq(maintenances.id, id));
+    // Batch the 4 sequential reads (maintenance -> systems -> updates -> links)
+    // behind a single `SET LOCAL search_path`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [maintenance] = await tx
+        .select()
+        .from(maintenances)
+        .where(eq(maintenances.id, id));
 
-    if (!maintenance) return undefined;
+      if (!maintenance) return;
 
-    const systems = await this.db
-      .select({ systemId: maintenanceSystems.systemId })
-      .from(maintenanceSystems)
-      .where(eq(maintenanceSystems.maintenanceId, id));
+      const systems = await tx
+        .select({ systemId: maintenanceSystems.systemId })
+        .from(maintenanceSystems)
+        .where(eq(maintenanceSystems.maintenanceId, id));
 
-    const updates = await this.db
-      .select()
-      .from(maintenanceUpdates)
-      .where(eq(maintenanceUpdates.maintenanceId, id));
+      const updates = await tx
+        .select()
+        .from(maintenanceUpdates)
+        .where(eq(maintenanceUpdates.maintenanceId, id));
 
-    const links = await this.db
-      .select()
-      .from(maintenanceLinks)
-      .where(eq(maintenanceLinks.maintenanceId, id));
+      const links = await tx
+        .select()
+        .from(maintenanceLinks)
+        .where(eq(maintenanceLinks.maintenanceId, id));
 
-    return {
-      ...maintenance,
-      description: maintenance.description ?? undefined,
-      systemIds: systems.map((s) => s.systemId),
-      updates: updates.map((u) => ({
+      return {
+        ...maintenance,
+        description: maintenance.description ?? undefined,
+        systemIds: systems.map((s) => s.systemId),
+        updates: updates.map((u) => ({
+          ...u,
+          statusChange: u.statusChange ?? undefined,
+          editedAt: u.editedAt ?? undefined,
+          editHistory: u.editHistory ?? [],
+          createdBy: u.createdBy ?? undefined,
+        })),
+        links,
+      };
+    });
+  }
+
+  /**
+   * Bulk read of each maintenance's FULL update timeline (all visibilities),
+   * keyed by maintenance id, in ONE set-based `inArray` query grouped in JS -
+   * instead of an N+1 fan-out of {@link getMaintenance} the status-page widget
+   * used purely for `.updates`. Returns the same raw update shape
+   * `getMaintenance` produces; the ROUTER applies audience filtering + name
+   * resolution on top, so no visibility policy lives here. Maintenances with no
+   * updates are omitted.
+   */
+  async getBulkMaintenanceUpdates(
+    maintenanceIds: string[],
+  ): Promise<Record<string, MaintenanceUpdate[]>> {
+    if (maintenanceIds.length === 0) return {};
+
+    const rows = await withScopedTransaction(this.db, (tx) =>
+      tx
+        .select()
+        .from(maintenanceUpdates)
+        .where(inArray(maintenanceUpdates.maintenanceId, maintenanceIds)),
+    );
+
+    const out: Record<string, MaintenanceUpdate[]> = {};
+    for (const u of rows) {
+      const mapped: MaintenanceUpdate = {
         ...u,
         statusChange: u.statusChange ?? undefined,
+        editedAt: u.editedAt ?? undefined,
+        editHistory: u.editHistory ?? [],
         createdBy: u.createdBy ?? undefined,
-      })),
-      links,
-    };
+      };
+      const list = out[u.maintenanceId];
+      if (list) list.push(mapped);
+      else out[u.maintenanceId] = [mapped];
+    }
+    return out;
   }
 
   /**
@@ -132,47 +243,44 @@ export class MaintenanceService {
   async getMaintenancesForSystem(
     systemId: string,
   ): Promise<MaintenanceWithSystems[]> {
-    const _now = new Date();
+    return withScopedTransaction(this.db, async (tx) => {
+      // Get maintenance IDs for this system
+      const systemMaintenances = await tx
+        .select({ maintenanceId: maintenanceSystems.maintenanceId })
+        .from(maintenanceSystems)
+        .where(eq(maintenanceSystems.systemId, systemId));
 
-    // Get maintenance IDs for this system
-    const systemMaintenances = await this.db
-      .select({ maintenanceId: maintenanceSystems.maintenanceId })
-      .from(maintenanceSystems)
-      .where(eq(maintenanceSystems.systemId, systemId));
+      const ids = systemMaintenances.map((r) => r.maintenanceId);
+      if (ids.length === 0) return [];
 
-    const ids = systemMaintenances.map((r) => r.maintenanceId);
-    if (ids.length === 0) return [];
-
-    // Get only scheduled or in_progress maintenances ending in the future
-    const rows = await this.db
-      .select()
-      .from(maintenances)
-      .where(
-        and(
-          inArray(maintenances.id, ids),
-          or(
-            eq(maintenances.status, "scheduled"),
-            eq(maintenances.status, "in_progress"),
+      // Get only scheduled or in_progress maintenances ending in the future
+      const rows = await tx
+        .select()
+        .from(maintenances)
+        .where(
+          and(
+            inArray(maintenances.id, ids),
+            or(
+              eq(maintenances.status, "scheduled"),
+              eq(maintenances.status, "in_progress"),
+            ),
           ),
-        ),
+        );
+      if (rows.length === 0) return [];
+
+      // Fetch the full system membership for all matched maintenances in ONE
+      // set-based query (was a per-row N+1 loop).
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        rows.map((m) => m.id),
       );
 
-    // Fetch system IDs for each
-    const result: MaintenanceWithSystems[] = [];
-    for (const m of rows) {
-      const systems = await this.db
-        .select({ systemId: maintenanceSystems.systemId })
-        .from(maintenanceSystems)
-        .where(eq(maintenanceSystems.maintenanceId, m.id));
-
-      result.push({
+      return rows.map((m) => ({
         ...m,
         description: m.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
-
-    return result;
+        systemIds: systemsByMaintenance.get(m.id) ?? [],
+      }));
+    });
   }
 
   /**
@@ -200,51 +308,43 @@ export class MaintenanceService {
   > {
     if (ids.length === 0) return {};
 
-    const rows = await this.db
-      .select({
-        id: maintenances.id,
-        status: maintenances.status,
-        startAt: maintenances.startAt,
-        endAt: maintenances.endAt,
-      })
-      .from(maintenances)
-      .where(inArray(maintenances.id, [...ids]));
-    if (rows.length === 0) return {};
+    // Batch the maintenances read + junction read behind a single `SET LOCAL`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .select({
+          id: maintenances.id,
+          status: maintenances.status,
+          startAt: maintenances.startAt,
+          endAt: maintenances.endAt,
+        })
+        .from(maintenances)
+        .where(inArray(maintenances.id, [...ids]));
+      if (rows.length === 0) return {};
 
-    const presentIds = rows.map((r) => r.id);
-    const systemRows = await this.db
-      .select({
-        maintenanceId: maintenanceSystems.maintenanceId,
-        systemId: maintenanceSystems.systemId,
-      })
-      .from(maintenanceSystems)
-      .where(inArray(maintenanceSystems.maintenanceId, presentIds));
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        rows.map((r) => r.id),
+      );
 
-    const systemsByMaintenance = new Map<string, string[]>();
-    for (const r of systemRows) {
-      const list = systemsByMaintenance.get(r.maintenanceId);
-      if (list) list.push(r.systemId);
-      else systemsByMaintenance.set(r.maintenanceId, [r.systemId]);
-    }
-
-    const out: Record<
-      string,
-      {
-        status: MaintenanceStatus;
-        systemIds: string[];
-        startAt: string;
-        endAt: string;
+      const out: Record<
+        string,
+        {
+          status: MaintenanceStatus;
+          systemIds: string[];
+          startAt: string;
+          endAt: string;
+        }
+      > = {};
+      for (const row of rows) {
+        out[row.id] = {
+          status: row.status,
+          systemIds: systemsByMaintenance.get(row.id) ?? [],
+          startAt: row.startAt.toISOString(),
+          endAt: row.endAt.toISOString(),
+        };
       }
-    > = {};
-    for (const row of rows) {
-      out[row.id] = {
-        status: row.status,
-        systemIds: systemsByMaintenance.get(row.id) ?? [],
-        startAt: row.startAt.toISOString(),
-        endAt: row.endAt.toISOString(),
-      };
-    }
-    return out;
+      return out;
+    });
   }
 
   /**
@@ -347,8 +447,9 @@ export class MaintenanceService {
     const id = generateId();
 
     // Atomic: the status flip and the timeline entry that records it must commit
-    // together (status/timeline divergence otherwise).
-    await this.db.transaction(async (tx) => {
+    // together (status/timeline divergence otherwise). The inserted row is
+    // returned via `.returning()`, removing the former post-commit re-select.
+    const update = await this.db.transaction(async (tx) => {
       // If status change is provided, update the maintenance status
       if (input.statusChange) {
         await tx
@@ -357,25 +458,197 @@ export class MaintenanceService {
           .where(eq(maintenances.id, input.maintenanceId));
       }
 
-      await tx.insert(maintenanceUpdates).values({
-        id,
-        maintenanceId: input.maintenanceId,
-        message: input.message,
-        statusChange: input.statusChange,
-        createdBy: userId,
-      });
+      const [inserted] = await tx
+        .insert(maintenanceUpdates)
+        .values({
+          id,
+          maintenanceId: input.maintenanceId,
+          message: input.message,
+          statusChange: input.statusChange,
+          visibility: input.visibility ?? "public",
+          createdBy: userId,
+        })
+        .returning();
+      return inserted;
     });
-
-    const [update] = await this.db
-      .select()
-      .from(maintenanceUpdates)
-      .where(eq(maintenanceUpdates.id, id));
 
     return {
       ...update,
       statusChange: update.statusChange ?? undefined,
+      editedAt: update.editedAt ?? undefined,
+      editHistory: update.editHistory ?? [],
       createdBy: update.createdBy ?? undefined,
     };
+  }
+
+  /**
+   * Edit a published update in place. Scoped by `maintenanceId` (mirrors
+   * `removeLink`). Only the provided fields change. When any field actually
+   * changes, the CURRENT values are archived into `editHistory` (oldest first)
+   * and `editedAt` is stamped, so the timeline can show a GitHub-style history
+   * of edits. A no-op edit (nothing changed) neither archives a snapshot nor
+   * marks the update "edited".
+   *
+   * When the edit touches `statusChange` OR re-times the update (`createdAt`),
+   * the maintenance's own `status` is re-derived from the most recent
+   * status-bearing update (see {@link deriveStatusFromTimeline}) so the header
+   * and timeline never diverge - including the edge case where the latest row is
+   * message-only and the header must follow an earlier status-bearing update,
+   * and the case where re-timing changes which update is latest.
+   */
+  async editUpdate(
+    input: EditMaintenanceUpdateInput,
+  ): Promise<MaintenanceUpdate | undefined> {
+    const [existing] = await this.db
+      .select()
+      .from(maintenanceUpdates)
+      .where(
+        and(
+          eq(maintenanceUpdates.id, input.id),
+          eq(maintenanceUpdates.maintenanceId, input.maintenanceId),
+        ),
+      );
+    if (!existing) return undefined;
+
+    // Only fields that actually differ count as a change; the edit form always
+    // re-sends message/status/visibility, so a bare save must not manufacture a
+    // spurious "edited" marker or history entry.
+    const messageChanged =
+      input.message !== undefined && input.message !== existing.message;
+    const statusChanged =
+      input.statusChange !== undefined &&
+      (input.statusChange ?? null) !== (existing.statusChange ?? null);
+    const visibilityChanged =
+      input.visibility !== undefined && input.visibility !== existing.visibility;
+    const createdAtChanged =
+      input.createdAt !== undefined &&
+      input.createdAt.getTime() !== existing.createdAt.getTime();
+    const contentChanged =
+      messageChanged || statusChanged || visibilityChanged || createdAtChanged;
+
+    const now = new Date();
+    const updateData: Partial<typeof maintenanceUpdates.$inferInsert> = {};
+    if (input.message !== undefined) updateData.message = input.message;
+    if (input.statusChange !== undefined)
+      updateData.statusChange = input.statusChange;
+    if (input.visibility !== undefined)
+      updateData.visibility = input.visibility;
+    if (input.createdAt !== undefined) updateData.createdAt = input.createdAt;
+
+    if (contentChanged) {
+      updateData.editedAt = now;
+      // Archive the pre-edit version (oldest first). Timestamps are ISO strings
+      // so the jsonb payload round-trips through JSON cleanly.
+      const snapshot: MaintenanceUpdateEditSnapshot = {
+        message: existing.message,
+        statusChange: existing.statusChange ?? undefined,
+        visibility: existing.visibility,
+        createdAt: existing.createdAt.toISOString(),
+        editedAt: now.toISOString(),
+      };
+      updateData.editHistory = [...(existing.editHistory ?? []), snapshot];
+    }
+
+    // Nothing provided to change: return the current row untouched (a bare
+    // `.set({})` would throw), leaving `editedAt`/`editHistory` as they were.
+    if (Object.keys(updateData).length === 0) {
+      return {
+        ...existing,
+        statusChange: existing.statusChange ?? undefined,
+        editedAt: existing.editedAt ?? undefined,
+        editHistory: existing.editHistory ?? [],
+        createdBy: existing.createdBy ?? undefined,
+      };
+    }
+
+    const update = await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(maintenanceUpdates)
+        .set(updateData)
+        .where(
+          and(
+            eq(maintenanceUpdates.id, input.id),
+            eq(maintenanceUpdates.maintenanceId, input.maintenanceId),
+          ),
+        )
+        .returning();
+
+      // Re-derive the header from the most recent status-bearing update
+      // whenever the edit touched a status OR re-timed the update. This handles
+      // editing a non-latest update (header keeps the newest status), the
+      // message-only latest edge case (header follows the prior status-bearing
+      // update), AND a re-time that changes which update is latest.
+      if (input.statusChange !== undefined || createdAtChanged) {
+        const derived = await deriveStatusFromTimeline(tx, input.maintenanceId);
+        if (derived) {
+          await tx
+            .update(maintenances)
+            .set({ status: derived, updatedAt: new Date() })
+            .where(eq(maintenances.id, input.maintenanceId));
+        }
+      }
+      return updated;
+    });
+
+    return {
+      ...update,
+      statusChange: update.statusChange ?? undefined,
+      editedAt: update.editedAt ?? undefined,
+      editHistory: update.editHistory ?? [],
+      createdBy: update.createdBy ?? undefined,
+    };
+  }
+
+  /**
+   * Delete a published update. Scoped by `maintenanceId` (mirrors `removeLink`).
+   * Returns the parent maintenanceId so the caller can invalidate caches, or
+   * undefined if the update did not exist under that maintenance.
+   *
+   * When the deleted update CARRIED a status, the maintenance's `status` is
+   * re-derived from the remaining timeline in the SAME transaction (see
+   * {@link deriveStatusFromTimeline}) so deleting the latest status-bearing
+   * update never leaves the header pinned to a now-gone status. A message-only
+   * delete can never change the derived status, so it skips the re-derivation.
+   * If no status-bearing update remains, the status is left intact (deletion is
+   * irreversible; we never null a status the header still needs).
+   */
+  async deleteUpdate(
+    id: string,
+    maintenanceId: string,
+  ): Promise<string | undefined> {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(maintenanceUpdates)
+        .where(
+          and(
+            eq(maintenanceUpdates.id, id),
+            eq(maintenanceUpdates.maintenanceId, maintenanceId),
+          ),
+        );
+      if (!existing) return;
+
+      await tx
+        .delete(maintenanceUpdates)
+        .where(
+          and(
+            eq(maintenanceUpdates.id, id),
+            eq(maintenanceUpdates.maintenanceId, maintenanceId),
+          ),
+        );
+
+      if (existing.statusChange !== null) {
+        const derived = await deriveStatusFromTimeline(tx, maintenanceId);
+        if (derived) {
+          await tx
+            .update(maintenances)
+            .set({ status: derived, updatedAt: new Date() })
+            .where(eq(maintenances.id, maintenanceId));
+        }
+      }
+
+      return existing.maintenanceId;
+    });
   }
 
   /**
@@ -434,16 +707,59 @@ export class MaintenanceService {
    */
   async addLink(input: AddMaintenanceLinkInput): Promise<MaintenanceLink> {
     const id = generateId();
-    await this.db.insert(maintenanceLinks).values({
-      id,
-      maintenanceId: input.maintenanceId,
-      label: input.label,
-      url: input.url,
-    });
+    // `.returning()` yields the inserted row directly, removing the former
+    // standalone re-select (one query instead of two).
     const [row] = await this.db
+      .insert(maintenanceLinks)
+      .values({
+        id,
+        maintenanceId: input.maintenanceId,
+        label: input.label,
+        url: input.url,
+        visibility: input.visibility ?? "public",
+      })
+      .returning();
+    return row;
+  }
+
+  /**
+   * Edit a hotlink in place. Scoped by `maintenanceId` (anti-spoof, mirrors
+   * `removeLink`): a link belonging to a different maintenance cannot be edited
+   * by pairing its id with a maintenance the caller manages. Only the provided
+   * fields change; returns the updated row, or undefined if the pair did not
+   * match.
+   */
+  async updateLink(
+    input: UpdateMaintenanceLinkInput,
+  ): Promise<MaintenanceLink | undefined> {
+    const [existing] = await this.db
       .select()
       .from(maintenanceLinks)
-      .where(eq(maintenanceLinks.id, id));
+      .where(
+        and(
+          eq(maintenanceLinks.id, input.id),
+          eq(maintenanceLinks.maintenanceId, input.maintenanceId),
+        ),
+      );
+    if (!existing) return undefined;
+
+    const updateData: Partial<typeof maintenanceLinks.$inferInsert> = {};
+    if (input.label !== undefined) updateData.label = input.label;
+    if (input.url !== undefined) updateData.url = input.url;
+    if (input.visibility !== undefined)
+      updateData.visibility = input.visibility;
+    if (Object.keys(updateData).length === 0) return existing;
+
+    const [row] = await this.db
+      .update(maintenanceLinks)
+      .set(updateData)
+      .where(
+        and(
+          eq(maintenanceLinks.id, input.id),
+          eq(maintenanceLinks.maintenanceId, input.maintenanceId),
+        ),
+      )
+      .returning();
     return row;
   }
 
@@ -571,42 +887,113 @@ export class MaintenanceService {
   async getActiveMaintenancesBySystem(): Promise<
     Record<string, MaintenanceWithSystems[]>
   > {
-    const activeRows = await this.db
-      .select()
-      .from(maintenances)
-      .where(eq(maintenances.status, "in_progress"));
-    if (activeRows.length === 0) return {};
+    // Batch the active-windows read + junction read behind one `SET LOCAL`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const activeRows = await tx
+        .select()
+        .from(maintenances)
+        .where(eq(maintenances.status, "in_progress"));
+      if (activeRows.length === 0) return {};
 
-    const activeIds = activeRows.map((m) => m.id);
-    const systemRows = await this.db
-      .select({
-        maintenanceId: maintenanceSystems.maintenanceId,
-        systemId: maintenanceSystems.systemId,
-      })
-      .from(maintenanceSystems)
-      .where(inArray(maintenanceSystems.maintenanceId, activeIds));
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        activeRows.map((m) => m.id),
+      );
 
-    const systemsByMaintenance = new Map<string, string[]>();
-    for (const r of systemRows) {
-      const list = systemsByMaintenance.get(r.maintenanceId);
-      if (list) list.push(r.systemId);
-      else systemsByMaintenance.set(r.maintenanceId, [r.systemId]);
-    }
-
-    const result: Record<string, MaintenanceWithSystems[]> = {};
-    for (const m of activeRows) {
-      const systemIds = systemsByMaintenance.get(m.id) ?? [];
-      const withSystems: MaintenanceWithSystems = {
-        ...m,
-        description: m.description ?? undefined,
-        systemIds,
-      };
-      for (const systemId of systemIds) {
-        (result[systemId] ??= []).push(withSystems);
+      const result: Record<string, MaintenanceWithSystems[]> = {};
+      for (const m of activeRows) {
+        const systemIds = systemsByMaintenance.get(m.id) ?? [];
+        const withSystems: MaintenanceWithSystems = {
+          ...m,
+          description: m.description ?? undefined,
+          systemIds,
+        };
+        for (const systemId of systemIds) {
+          (result[systemId] ??= []).push(withSystems);
+        }
       }
-    }
 
-    return result;
+      return result;
+    });
+  }
+
+  /**
+   * Read maintenance windows that OVERLAP `[from, to]` for the given systems,
+   * INCLUDING already-completed windows and EXCLUDING only `cancelled` ones.
+   *
+   * Backs the SLO error-budget maintenance exclusion, whose budget window is
+   * TRAILING (e.g. the last 30 days): a planned maintenance that has since
+   * transitioned to `completed` must still be subtracted, so the active-only
+   * filter used by {@link getMaintenancesForSystem} is wrong here. Because
+   * every non-cancelled status is returned by pure time overlap, the subtracted
+   * amount is stable (monotonic) as a window moves `scheduled -> in_progress ->
+   * completed`. Overlap test: `startAt <= to AND endAt >= from`. Reads the
+   * shared, durable tables so the answer is identical on every pod. Returns one
+   * entry per requested system that has at least one overlapping window.
+   */
+  async getMaintenanceWindowsForRange({
+    systemIds,
+    from,
+    to,
+  }: {
+    systemIds: string[];
+    from: Date;
+    to: Date;
+  }): Promise<Record<string, MaintenanceWithSystems[]>> {
+    if (systemIds.length === 0) return {};
+
+    // Batch the 3 sequential reads (requested membership -> overlapping windows
+    // -> full membership) behind a single `SET LOCAL search_path`.
+    return withScopedTransaction(this.db, async (tx) => {
+      // Maintenance ids attached to any of the requested systems.
+      const requestedSystemRows = await tx
+        .select({ maintenanceId: maintenanceSystems.maintenanceId })
+        .from(maintenanceSystems)
+        .where(inArray(maintenanceSystems.systemId, systemIds));
+      if (requestedSystemRows.length === 0) return {};
+
+      const candidateIds = [
+        ...new Set(requestedSystemRows.map((r) => r.maintenanceId)),
+      ];
+
+      // Non-cancelled windows whose [startAt, endAt] overlaps [from, to].
+      const rows = await tx
+        .select()
+        .from(maintenances)
+        .where(
+          and(
+            inArray(maintenances.id, candidateIds),
+            ne(maintenances.status, "cancelled"),
+            lte(maintenances.startAt, to),
+            gte(maintenances.endAt, from),
+          ),
+        );
+      if (rows.length === 0) return {};
+
+      // Full system membership for the overlapping windows (accurate systemIds).
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        rows.map((m) => m.id),
+      );
+
+      const requested = new Set(systemIds);
+      const result: Record<string, MaintenanceWithSystems[]> = {};
+      for (const m of rows) {
+        const affectedSystems = systemsByMaintenance.get(m.id) ?? [];
+        const withSystems: MaintenanceWithSystems = {
+          ...m,
+          description: m.description ?? undefined,
+          systemIds: affectedSystems,
+        };
+        // Group only under the systems the caller asked about.
+        for (const systemId of affectedSystems) {
+          if (!requested.has(systemId)) continue;
+          (result[systemId] ??= []).push(withSystems);
+        }
+      }
+
+      return result;
+    });
   }
 
   /**
@@ -616,36 +1003,30 @@ export class MaintenanceService {
   async getMaintenancesToStart(): Promise<MaintenanceWithSystems[]> {
     const now = new Date();
 
-    const rows = await this.db
-      .select()
-      .from(maintenances)
-      .where(
-        and(
-          eq(maintenances.status, "scheduled"),
-          // startAt is in the past or now
-          // Using SQL comparison - startAt <= now
-        ),
+    // One SET LOCAL for the read fan-out. System associations are fetched in a
+    // SINGLE set-based `inArray` query and grouped in JS via
+    // `getSystemsByMaintenance`, instead of the former per-row N+1 loop.
+    return withScopedTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(maintenances)
+        .where(eq(maintenances.status, "scheduled"));
+
+      // Filter in JS since Drizzle SQL comparison can be tricky with dates
+      const startable = rows.filter((m) => m.startAt <= now);
+      if (startable.length === 0) return [];
+
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        startable.map((m) => m.id),
       );
 
-    // Filter in JS since Drizzle SQL comparison can be tricky with dates
-    const startable = rows.filter((m) => m.startAt <= now);
-
-    // Fetch system IDs for each
-    const result: MaintenanceWithSystems[] = [];
-    for (const m of startable) {
-      const systems = await this.db
-        .select({ systemId: maintenanceSystems.systemId })
-        .from(maintenanceSystems)
-        .where(eq(maintenanceSystems.maintenanceId, m.id));
-
-      result.push({
+      return startable.map((m) => ({
         ...m,
         description: m.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
-
-    return result;
+        systemIds: systemsByMaintenance.get(m.id) ?? [],
+      }));
+    });
   }
 
   /**
@@ -655,30 +1036,30 @@ export class MaintenanceService {
   async getMaintenancesToComplete(): Promise<MaintenanceWithSystems[]> {
     const now = new Date();
 
-    const rows = await this.db
-      .select()
-      .from(maintenances)
-      .where(eq(maintenances.status, "in_progress"));
+    // One SET LOCAL for the read fan-out. System associations are fetched in a
+    // SINGLE set-based `inArray` query and grouped in JS via
+    // `getSystemsByMaintenance`, instead of the former per-row N+1 loop.
+    return withScopedTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(maintenances)
+        .where(eq(maintenances.status, "in_progress"));
 
-    // Filter in JS for those that have ended
-    const completable = rows.filter((m) => m.endAt <= now);
+      // Filter in JS for those that have ended
+      const completable = rows.filter((m) => m.endAt <= now);
+      if (completable.length === 0) return [];
 
-    // Fetch system IDs for each
-    const result: MaintenanceWithSystems[] = [];
-    for (const m of completable) {
-      const systems = await this.db
-        .select({ systemId: maintenanceSystems.systemId })
-        .from(maintenanceSystems)
-        .where(eq(maintenanceSystems.maintenanceId, m.id));
+      const systemsByMaintenance = await this.getSystemsByMaintenance(
+        tx,
+        completable.map((m) => m.id),
+      );
 
-      result.push({
+      return completable.map((m) => ({
         ...m,
         description: m.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
-
-    return result;
+        systemIds: systemsByMaintenance.get(m.id) ?? [],
+      }));
+    });
   }
 
   /**
@@ -697,19 +1078,23 @@ export class MaintenanceService {
 
     if (!existing) return undefined;
 
-    // Update the maintenance status
-    await this.db
-      .update(maintenances)
-      .set({ status: newStatus, updatedAt: new Date() })
-      .where(eq(maintenances.id, id));
+    // Atomic: the status flip and the timeline entry that records it commit
+    // together (status/timeline divergence otherwise), under a single
+    // `SET LOCAL search_path`.
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(maintenances)
+        .set({ status: newStatus, updatedAt: new Date() })
+        .where(eq(maintenances.id, id));
 
-    // Add update entry (no user - system-generated)
-    await this.db.insert(maintenanceUpdates).values({
-      id: generateId(),
-      maintenanceId: id,
-      message,
-      statusChange: newStatus,
-      createdBy: undefined, // System-generated, no user
+      // Add update entry (no user - system-generated)
+      await tx.insert(maintenanceUpdates).values({
+        id: generateId(),
+        maintenanceId: id,
+        message,
+        statusChange: newStatus,
+        createdBy: undefined, // System-generated, no user
+      });
     });
 
     return (await this.getMaintenance(id))!;

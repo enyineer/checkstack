@@ -134,6 +134,15 @@ export interface DynamicFormProps {
    */
   templateCompletionProvider?: TemplateCompletionProvider;
   /**
+   * When `true`, the `templateCompletionProvider` is wired ONLY to plain
+   * single-line string fields explicitly marked `x-templatable`; every other
+   * string field stays a bare `Input`. Use this when only SOME fields accept
+   * `{{ … }}` (e.g. the health-check editor, where a host is templatable but a
+   * free-text label is not). Defaults to `false`, i.e. the provider applies to
+   * every string field (the automation editor, where all config is templatable).
+   */
+  templatableFieldsOnly?: boolean;
+  /**
    * Optional TypeScript declarations to inject into Monaco for `typescript`
    * or `javascript` editor-type fields. Typically built from a schema via
    * `generateTypeDefinitions()` so users get autocomplete + type errors
@@ -236,6 +245,12 @@ export interface FormFieldProps {
   optionsResolvers?: Record<string, OptionsResolver>;
   templateProperties?: TemplateProperty[];
   templateCompletionProvider?: TemplateCompletionProvider;
+  /**
+   * When `true`, only fields marked `x-templatable` get the
+   * `templateCompletionProvider` wired in; other string fields stay plain.
+   * See {@link DynamicFormProps.templatableFieldsOnly}.
+   */
+  templatableFieldsOnly?: boolean;
   typeDefinitions?: string;
   shellEnvVars?: ShellEnvVar[];
   starterTemplates?: EditorStarterTemplates;

@@ -70,8 +70,16 @@ function createProgrammableSelectDb(resultsByCall: unknown[][]) {
     return { from };
   });
 
+  // Read-batching methods (getManyEntityStates, listOpenIncidentsBySystem, ...)
+  // now run their reads inside `withScopedTransaction` -> `db.transaction(fn)`.
+  // The tx exposes the SAME `select` mock so the per-invocation call counter is
+  // shared and `getCallCount()` still reflects total queries issued.
+  const transaction = mock((fn: (tx: { select: typeof select }) => unknown) =>
+    Promise.resolve(fn({ select })),
+  );
+
   return {
-    db: { select } as unknown,
+    db: { select, transaction } as unknown,
     select,
     getCallCount: () => callIndex,
   };
@@ -224,6 +232,232 @@ describe("IncidentService.getManyEntityStates (plugin-backed entity read)", () =
       severity: "critical",
       systemIds: [],
     });
+  });
+});
+
+describe("IncidentService.getIncident (batched detail read)", () => {
+  const createdAt = new Date("2026-06-01T10:00:00.000Z");
+  const updatedAt = new Date("2026-06-01T10:05:00.000Z");
+
+  it("assembles the detail from incident + systems + updates + links (4 queries, one tx)", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st: the incident row.
+      [
+        {
+          id: "inc-1",
+          title: "DB down",
+          description: null,
+          status: "investigating",
+          severity: "critical",
+          suppressNotifications: false,
+          healthOverride: null,
+          createdAt,
+          updatedAt,
+        },
+      ],
+      // 2nd: system associations.
+      [{ systemId: "sys-a" }, { systemId: "sys-b" }],
+      // 3rd: the full (unfiltered) timeline.
+      [
+        {
+          id: "u1",
+          incidentId: "inc-1",
+          message: "looking",
+          statusChange: "investigating",
+          visibility: "public",
+          createdAt,
+          editedAt: null,
+          createdBy: null,
+        },
+      ],
+      // 4th: hotlinks.
+      [
+        {
+          id: "lnk-1",
+          incidentId: "inc-1",
+          label: "Runbook",
+          url: "https://a",
+          visibility: "public",
+          createdAt,
+        },
+      ],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+
+    const out = await service.getIncident("inc-1");
+
+    expect(out?.systemIds).toEqual(["sys-a", "sys-b"]);
+    // null description normalized to undefined, nullable update fields too.
+    expect(out?.description).toBeUndefined();
+    expect(out?.updates).toEqual([
+      {
+        id: "u1",
+        incidentId: "inc-1",
+        message: "looking",
+        statusChange: "investigating",
+        visibility: "public",
+        createdAt,
+        editedAt: undefined,
+        editHistory: [],
+        createdBy: undefined,
+      },
+    ]);
+    expect(out?.links.map((l) => l.id)).toEqual(["lnk-1"]);
+    // Exactly the 4 reads (no per-row fan-out), all issued on the tx.
+    expect(dbHelper.getCallCount()).toBe(4);
+  });
+
+  it("returns undefined after a single query when the incident is absent", async () => {
+    const dbHelper = createProgrammableSelectDb([[]]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+    expect(await service.getIncident("ghost")).toBeUndefined();
+    // The systems/updates/links reads are skipped once the incident is missing.
+    expect(dbHelper.getCallCount()).toBe(1);
+  });
+});
+
+describe("IncidentService.listIncidents (set-based system grouping)", () => {
+  const createdAt = new Date("2026-06-01T10:00:00.000Z");
+  const updatedAt = new Date("2026-06-01T10:05:00.000Z");
+  const incidentRow = (id: string, description: string | null) => ({
+    id,
+    title: id,
+    description,
+    status: "investigating" as const,
+    severity: "major" as const,
+    suppressNotifications: false,
+    healthOverride: null,
+    createdAt,
+    updatedAt,
+  });
+
+  it("fetches all system associations in ONE junction query (no N+1) and groups them", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st: the incidents matching the status filter.
+      [incidentRow("inc-1", null), incidentRow("inc-2", "elevated latency")],
+      // 2nd (and ONLY): a single inArray junction read for BOTH incidents.
+      [
+        { incidentId: "inc-1", systemId: "sys-a" },
+        { incidentId: "inc-1", systemId: "sys-b" },
+        { incidentId: "inc-2", systemId: "sys-c" },
+      ],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+
+    const out = await service.listIncidents({ includeResolved: true });
+
+    expect(out.map((i) => i.id)).toEqual(["inc-1", "inc-2"]);
+    expect(out[0].systemIds).toEqual(["sys-a", "sys-b"]);
+    expect(out[1].systemIds).toEqual(["sys-c"]);
+    expect(out[0].description).toBeUndefined();
+    expect(out[1].description).toBe("elevated latency");
+    // 1 incidents read + exactly 1 junction read, regardless of row count.
+    expect(dbHelper.getCallCount()).toBe(2);
+  });
+
+  it("skips the junction query when no incidents match", async () => {
+    const dbHelper = createProgrammableSelectDb([[]]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+    expect(await service.listIncidents()).toEqual([]);
+    expect(dbHelper.getCallCount()).toBe(1);
+  });
+
+  it("resolves the system's incident ids first when filtering by systemId (3 queries total)", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st: incident ids attached to the system.
+      [{ incidentId: "inc-1" }],
+      // 2nd: the incidents themselves (status-filtered).
+      [incidentRow("inc-1", null)],
+      // 3rd: the single junction grouping read.
+      [{ incidentId: "inc-1", systemId: "sys-a" }],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+
+    const out = await service.listIncidents({ systemId: "sys-a" });
+
+    expect(out.map((i) => i.id)).toEqual(["inc-1"]);
+    expect(out[0].systemIds).toEqual(["sys-a"]);
+    expect(dbHelper.getCallCount()).toBe(3);
+  });
+});
+
+describe("IncidentService.getIncidentsForSystem (set-based system grouping)", () => {
+  const createdAt = new Date("2026-06-01T10:00:00.000Z");
+  const updatedAt = new Date("2026-06-01T10:05:00.000Z");
+
+  it("groups memberships from ONE junction query after resolving the system's incidents", async () => {
+    const dbHelper = createProgrammableSelectDb([
+      // 1st: incident ids attached to the system.
+      [{ incidentId: "inc-1" }, { incidentId: "inc-2" }],
+      // 2nd: non-resolved incidents for those ids.
+      [
+        {
+          id: "inc-1",
+          title: "A",
+          description: null,
+          status: "investigating",
+          severity: "major",
+          suppressNotifications: false,
+          healthOverride: null,
+          createdAt,
+          updatedAt,
+        },
+        {
+          id: "inc-2",
+          title: "B",
+          description: null,
+          status: "monitoring",
+          severity: "minor",
+          suppressNotifications: false,
+          healthOverride: null,
+          createdAt,
+          updatedAt,
+        },
+      ],
+      // 3rd (and ONLY) junction read for BOTH incidents' full membership.
+      [
+        { incidentId: "inc-1", systemId: "sys-a" },
+        { incidentId: "inc-1", systemId: "sys-b" },
+        { incidentId: "inc-2", systemId: "sys-a" },
+      ],
+    ]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+
+    const out = await service.getIncidentsForSystem("sys-a");
+
+    expect(out.map((i) => i.id)).toEqual(["inc-1", "inc-2"]);
+    // Each incident carries its FULL membership, not just the queried system.
+    expect(out[0].systemIds).toEqual(["sys-a", "sys-b"]);
+    expect(out[1].systemIds).toEqual(["sys-a"]);
+    expect(dbHelper.getCallCount()).toBe(3);
+  });
+
+  it("returns [] without a junction query when the system has no incidents", async () => {
+    const dbHelper = createProgrammableSelectDb([[]]);
+    const service = new IncidentService(
+      dbHelper.db as never,
+      makeFakeAdvisoryLock(),
+    );
+    expect(await service.getIncidentsForSystem("sys-x")).toEqual([]);
+    expect(dbHelper.getCallCount()).toBe(1);
   });
 });
 

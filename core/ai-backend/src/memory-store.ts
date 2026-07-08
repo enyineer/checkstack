@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, or, type SQL } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import type { SafeDatabase, ScopedQueryRunner } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import type { AiMemoryRow } from "./schema";
 import { tokenize } from "./tools/rank-docs";
@@ -188,39 +189,47 @@ function manageAuthority(ownerId: string, manageableSystemIds: string[]): SQL {
   ) as SQL;
 }
 
-export function createAiMemoryStore({ db }: { db: AiDatabase }): AiMemoryStore {
-  async function findDuplicate({
-    ownerId,
-    scope,
-    systemId,
-    recallHint,
-  }: DuplicateQuery): Promise<AiMemoryRow | undefined> {
-    // user dedup is within the owner; system dedup is within the system (shared).
-    const candidates = await db
-      .select()
-      .from(schema.aiMemory)
-      .where(
-        scope === "system" && systemId
-          ? and(
-              eq(schema.aiMemory.scope, "system"),
-              eq(schema.aiMemory.systemId, systemId),
-            )
-          : and(
-              eq(schema.aiMemory.scope, "user"),
-              eq(schema.aiMemory.ownerId, ownerId),
-            ),
-      );
-    let best: AiMemoryRow | undefined;
-    let bestScore = 0;
-    for (const row of candidates) {
-      const sim = recallHintSimilarity(recallHint, row.recallHint);
-      if (sim >= DEDUP_THRESHOLD && sim > bestScore) {
-        best = row;
-        bestScore = sim;
-      }
+/**
+ * Runs the dedup select on whichever handle is given — the scoped db when
+ * called standalone (dry-run preview) or the batching `tx` inside
+ * `saveOrUpdate`, so the select + upsert share one SET LOCAL search_path.
+ */
+async function findDuplicateOn(
+  runner: ScopedQueryRunner<typeof schema>,
+  { ownerId, scope, systemId, recallHint }: DuplicateQuery,
+): Promise<AiMemoryRow | undefined> {
+  // user dedup is within the owner; system dedup is within the system (shared).
+  const candidates = await runner
+    .select()
+    .from(schema.aiMemory)
+    .where(
+      scope === "system" && systemId
+        ? and(
+            eq(schema.aiMemory.scope, "system"),
+            eq(schema.aiMemory.systemId, systemId),
+          )
+        : and(
+            eq(schema.aiMemory.scope, "user"),
+            eq(schema.aiMemory.ownerId, ownerId),
+          ),
+    );
+  let best: AiMemoryRow | undefined;
+  let bestScore = 0;
+  for (const row of candidates) {
+    const sim = recallHintSimilarity(recallHint, row.recallHint);
+    if (sim >= DEDUP_THRESHOLD && sim > bestScore) {
+      best = row;
+      bestScore = sim;
     }
-    return best;
   }
+  return best;
+}
+
+export function createAiMemoryStore({ db }: { db: AiDatabase }): AiMemoryStore {
+  // Standalone dedup preview (`findDuplicate` on the interface) runs on the
+  // scoped db directly.
+  const findDuplicate = (args: DuplicateQuery): Promise<AiMemoryRow | undefined> =>
+    findDuplicateOn(db, args);
 
   return {
     findDuplicate,
@@ -228,36 +237,41 @@ export function createAiMemoryStore({ db }: { db: AiDatabase }): AiMemoryStore {
     async saveOrUpdate(input) {
       const recallHint = scrubText(input.recallHint);
       const content = scrubText(input.content);
-      const existing = await findDuplicate(input);
-      if (existing) {
-        const [row] = await db
-          .update(schema.aiMemory)
-          .set({
+      // Dedup select + the update/insert share ONE scoped transaction: a single
+      // SET LOCAL search_path, and the read the write depends on runs on the
+      // same handle.
+      return withScopedTransaction(db, async (tx) => {
+        const existing = await findDuplicateOn(tx, input);
+        if (existing) {
+          const [row] = await tx
+            .update(schema.aiMemory)
+            .set({
+              recallHint,
+              content,
+              tags: input.tags,
+              alwaysInject: input.alwaysInject ?? false,
+              sourceConversationId: input.sourceConversationId,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.aiMemory.id, existing.id))
+            .returning();
+          return { row, updated: true };
+        }
+        const [row] = await tx
+          .insert(schema.aiMemory)
+          .values({
+            ownerId: input.ownerId,
+            scope: input.scope,
+            systemId: input.scope === "system" ? input.systemId : null,
             recallHint,
             content,
             tags: input.tags,
             alwaysInject: input.alwaysInject ?? false,
             sourceConversationId: input.sourceConversationId,
-            updatedAt: new Date(),
           })
-          .where(eq(schema.aiMemory.id, existing.id))
           .returning();
-        return { row, updated: true };
-      }
-      const [row] = await db
-        .insert(schema.aiMemory)
-        .values({
-          ownerId: input.ownerId,
-          scope: input.scope,
-          systemId: input.scope === "system" ? input.systemId : null,
-          recallHint,
-          content,
-          tags: input.tags,
-          alwaysInject: input.alwaysInject ?? false,
-          sourceConversationId: input.sourceConversationId,
-        })
-        .returning();
-      return { row, updated: false };
+        return { row, updated: false };
+      });
     },
 
     async search({ ownerId, readableSystemIds, query, limit = 10 }) {

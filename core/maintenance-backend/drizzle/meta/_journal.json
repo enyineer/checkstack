@@ -29,6 +29,20 @@
       "when": 1780649383036,
       "tag": "0003_cold_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783499014915,
+      "tag": "0004_productive_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783535514879,
+      "tag": "0005_lucky_tempest",
+      "breakpoints": true
     }
   ]
 }

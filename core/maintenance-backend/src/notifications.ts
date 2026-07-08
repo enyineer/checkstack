@@ -7,6 +7,7 @@ import type { Logger } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import { resolveRoute } from "@checkstack/common";
 import type { NotificationApi } from "@checkstack/notification-common";
+import { buildUpdateMessageSuffix } from "@checkstack/notification-common";
 import {
   maintenanceRoutes,
   maintenanceCollapseKey,
@@ -22,6 +23,13 @@ export async function notifyAffectedSystems(props: {
   systemIds: string[];
   systemNames?: Map<string, string>;
   action: "created" | "updated" | "started" | "completed";
+  /**
+   * The latest maintenance update's free-text message. When present it is
+   * escaped, single-lined, truncated, and appended to the notification body as
+   * a blockquote so subscribers see WHAT changed, not just that something did.
+   * User-supplied, so it is always sanitized before it reaches a markdown body.
+   */
+  updateMessage?: string;
 }): Promise<void> {
   const {
     notificationClient,
@@ -31,6 +39,7 @@ export async function notifyAffectedSystems(props: {
     systemIds,
     systemNames,
     action,
+    updateMessage,
   } = props;
   void props.catalogClient;
 
@@ -55,12 +64,14 @@ export async function notifyAffectedSystems(props: {
     }),
   );
 
+  const messageSuffix = buildUpdateMessageSuffix({ message: updateMessage });
+
   try {
     await notificationClient.notifyForSubscription({
       specId: maintenanceSystemSubscription.specId,
       resourceKeys: uniqueSystemIds,
       title: `Maintenance ${actionText}: ${maintenanceTitle}`,
-      body: `Maintenance **"${maintenanceTitle}"** has been ${actionText}.`,
+      body: `Maintenance **"${maintenanceTitle}"** has been ${actionText}.${messageSuffix}`,
       importance: "info",
       action: { label: "View Maintenance", url: maintenanceDetailPath },
       collapseKey: maintenanceCollapseKey(maintenanceId),

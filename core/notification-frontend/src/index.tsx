@@ -1,13 +1,16 @@
 import {
   createFrontendPlugin,
+  createSlotExtension,
   NavbarRightSlot,
 } from "@checkstack/frontend-api";
 import {
   notificationRoutes,
   pluginMetadata,
 } from "@checkstack/notification-common";
+import { CatalogBrowseDataBoundarySlot } from "@checkstack/catalog-common";
 import { Bell } from "lucide-react";
 import { NotificationBell } from "./components/NotificationBell";
+import { BulkSubscriptionStatusProvider } from "./components/BulkSubscriptionStatusProvider";
 
 // Plugin-extensible kind registry — domain frontends call `registerSubjectKind`
 // at module load to bind their kinds (e.g., "catalog.system") to icon + label.
@@ -31,6 +34,12 @@ export {
   getSubscriptionSubControls,
   type SubscriptionSubControlsComponent,
 } from "./components/SubscriptionSubControlsRegistry";
+export {
+  BulkSubscriptionStatusProvider,
+  useBulkSubscriptionStatusOptional,
+  type BulkSubscriptionStatusContextValue,
+  type BulkSubscriptionStatusProviderProps,
+} from "./components/BulkSubscriptionStatusProvider";
 
 export const notificationPlugin = createFrontendPlugin({
   metadata: pluginMetadata,
@@ -60,6 +69,21 @@ export const notificationPlugin = createFrontendPlugin({
       },
     },
     {
+      route: notificationRoutes.routes.subscriptions,
+      load: () =>
+        import("./pages/NotificationSubscriptionsPage").then((m) => ({
+          default: m.NotificationSubscriptionsPage,
+        })),
+      nav: {
+        group: "Settings",
+        icon: Bell,
+        label: "Your Subscriptions",
+        // Subscriptions are per-user, so the surface is meaningless to
+        // anonymous users - mirror the settings page's authenticated-only gate.
+        isVisible: ({ isAuthenticated }) => isAuthenticated,
+      },
+    },
+    {
       route: notificationRoutes.routes.deliveryAttempts,
       load: () =>
         import("./pages/DeliveryAttemptsPage").then((m) => ({
@@ -73,5 +97,15 @@ export const notificationPlugin = createFrontendPlugin({
       slot: NavbarRightSlot,
       component: NotificationBell,
     },
+    // Fills catalog's browse-view data boundary: wraps the whole browse tree in
+    // the bulk subscription-status provider so every system row's / group
+    // header's collapsed notification bell reads its subscribed state from ONE
+    // shared query instead of firing its own per-bell request (fixes the N+1).
+    // Eager so the provider is in place before the first bell renders and no
+    // bell falls back to its singular query.
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "notification.catalog.browse-subscription-status",
+      component: BulkSubscriptionStatusProvider,
+    }),
   ],
 });

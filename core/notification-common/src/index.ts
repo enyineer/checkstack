@@ -4,6 +4,7 @@ export * from "./rpc-contract";
 export * from "./signals";
 export * from "./plugin-metadata";
 export * from "./builders";
+export * from "./update-message";
 export * from "./subject-render";
 export * from "./notification-urls";
 export * from "./targets";

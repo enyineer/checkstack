@@ -44,21 +44,39 @@ import { extractErrorMessage } from "@checkstack/common";
  * Configuration schema for PostgreSQL health checks.
  */
 export const postgresConfigSchema = baseStrategyConfigSchema.extend({
-  host: configString({}).describe("PostgreSQL server hostname"),
+  // Templatable connection fields: support `{{ environment.host }}` etc. so one
+  // config covers N environments. Presence is enforced POST-RENDER in
+  // `createClient`. `password` stays a secret (never templatable).
+  host: configString({ "x-templatable": true }).describe(
+    "PostgreSQL server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: configNumber({})
     .int()
     .min(1)
     .max(65_535)
     .default(5432)
     .describe("PostgreSQL port"),
-  database: configString({}).describe("Database name"),
-  user: configString({}).describe("Database user"),
+  database: configString({ "x-templatable": true }).describe(
+    "Database name. Supports templating, e.g. {{ environment.database }}",
+  ),
+  user: configString({ "x-templatable": true }).describe(
+    "Database user. Supports templating, e.g. {{ environment.user }}",
+  ),
   password: configSecret({ id: "password" }).describe("Database password"),
   ssl: configBoolean({}).default(false).describe("Use SSL connection"),
 });
 
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
 export type PostgresConfigInput = z.input<typeof postgresConfigSchema>;
+
+/**
+ * Post-render validator for required connection fields. The stored values are
+ * plain templatable strings, so presence cannot be checked at store time; the
+ * executor renders `{{ environment.* }}` per environment, then this rejects a
+ * render that collapsed to empty/whitespace. An empty host/database/user is a
+ * config error that prevents the probe - transport-failure semantics.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -263,12 +281,35 @@ export class PostgresHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<PostgresTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: the connection fields are templatable strings, so their
+    // presence cannot be checked at store time. The executor has already
+    // rendered `{{ environment.* }}`; reject a render that collapsed to empty so
+    // the run fails clearly instead of attempting an empty connection.
+    const rendered = z
+      .object({
+        host: renderedRequiredSchema,
+        database: renderedRequiredSchema,
+        user: renderedRequiredSchema,
+      })
+      .safeParse({
+        host: validatedConfig.host,
+        database: validatedConfig.database,
+        user: validatedConfig.user,
+      });
+    if (!rendered.success) {
+      throw new Error(
+        `Rendered PostgreSQL connection fields are empty ` +
+          `(host/database/user). Check the {{ environment.* }} templating ` +
+          `for this environment.`,
+      );
+    }
+
     const connectStart = performance.now();
     const connection = await this.dbClient.connect({
-      host: validatedConfig.host,
+      host: rendered.data.host,
       port: validatedConfig.port,
-      database: validatedConfig.database,
-      user: validatedConfig.user,
+      database: rendered.data.database,
+      user: rendered.data.user,
       password: validatedConfig.password,
       ssl: validatedConfig.ssl ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: validatedConfig.timeout,

@@ -1,6 +1,7 @@
 import {
   Versioned,
   z,
+  configString,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -24,15 +25,37 @@ import type { DnsTransportClient } from "./transport-client";
 // ============================================================================
 
 const lookupConfigSchema = z.object({
-  hostname: z.string().min(1).describe("Hostname to resolve"),
+  // Templatable: supports `{{ environment.hostname }}` so one config covers N
+  // environments. Presence is enforced POST-RENDER in `execute` (an empty
+  // render must not silently resolve nothing and look healthy).
+  hostname: configString({ "x-templatable": true })
+    .min(1)
+    .describe(
+      "Hostname to resolve. Supports templating, e.g. {{ environment.hostname }}",
+    ),
   recordType: z
     .enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"])
     .default("A")
     .describe("DNS record type"),
-  nameserver: z.string().optional().describe("Custom nameserver (optional)"),
+  // Templatable: an empty render falls back to the system default resolver.
+  nameserver: configString({ "x-templatable": true })
+    .optional()
+    .describe(
+      "Custom nameserver (optional). Supports templating, e.g. {{ environment.nameserver }}",
+    ),
 });
 
 export type LookupConfig = z.infer<typeof lookupConfigSchema>;
+
+/**
+ * Post-render validator for the required `hostname`. The stored value is a
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace. An empty hostname is a config error that
+ * prevents the probe from running - transport-failure semantics - not a
+ * "healthy" empty resolution.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -150,8 +173,27 @@ export class LookupCollector implements CollectorStrategy<
   }): Promise<CollectorResult<LookupResult>> {
     const startTime = Date.now();
 
+    // Post-render guard: `hostname` is a templatable string, so `.min(1)` cannot
+    // meaningfully run at store time against a template. The executor has already
+    // rendered `{{ environment.* }}` into `config.hostname`; reject a render that
+    // collapsed to empty so the run fails clearly as a transport/config error
+    // instead of returning a "healthy" empty resolution.
+    const hostname = renderedRequiredSchema.safeParse(config.hostname);
+    if (!hostname.success) {
+      return {
+        result: {
+          values: [],
+          recordCount: 0,
+          resolutionTimeMs: Date.now() - startTime,
+        },
+        error:
+          `Rendered hostname is empty: ${JSON.stringify(config.hostname)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      };
+    }
+
     const response = await client.exec({
-      hostname: config.hostname,
+      hostname: hostname.data,
       recordType: config.recordType,
     });
 

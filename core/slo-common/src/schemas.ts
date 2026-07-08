@@ -73,6 +73,12 @@ export const SloObjectiveSchema = z.object({
   windowDays: z.number().int().positive(),
   dependencyExclusion: DependencyExclusionModeSchema,
   excludedDependencyIds: z.array(z.string()).optional(),
+  /**
+   * When true, downtime that overlaps a planned maintenance window on the
+   * system is subtracted from the error budget. Defaults to false so existing
+   * SLO numbers are preserved until a user opts in.
+   */
+  excludeMaintenanceWindows: z.boolean(),
   burnRateThresholds: BurnRateThresholdsSchema,
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -221,6 +227,11 @@ export const CreateSloObjectiveInputSchema = z.object({
     "strict",
   ),
   excludedDependencyIds: z.array(z.string()).optional().default([]),
+  /**
+   * Exclude planned maintenance windows from the error budget. Defaults to
+   * false to preserve existing SLO numbers for callers that omit it.
+   */
+  excludeMaintenanceWindows: z.boolean().optional().default(false),
   burnRateThresholds: BurnRateThresholdsSchema.optional().default({
     warningPercent: 50,
     criticalPercent: 80,
@@ -242,6 +253,7 @@ export const UpdateSloObjectiveInputSchema = z.object({
   windowDays: SloWindowDaysSchema.optional(),
   dependencyExclusion: DependencyExclusionModeSchema.optional(),
   excludedDependencyIds: z.array(z.string()).optional(),
+  excludeMaintenanceWindows: z.boolean().optional(),
   burnRateThresholds: BurnRateThresholdsSchema.optional(),
 });
 export type UpdateSloObjectiveInput = z.infer<

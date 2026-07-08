@@ -16,6 +16,11 @@ import {
   type WidgetTypeDescriptor,
   deriveOverallStatus,
   type CustomDomainInfo,
+  BUILTIN_WIDGET_IDS,
+  IncidentsDtoSchema,
+  MaintenanceDtoSchema,
+  type IncidentDtoItem,
+  type MaintenanceDtoItem,
 } from "@checkstack/status-page-common";
 import * as schema from "./schema";
 import { statusPages, type StatusPageRow } from "./schema";
@@ -71,6 +76,9 @@ function rowToPage(row: StatusPageRow): StatusPage {
     published: row.publishedLayout !== null,
     publishedAt: iso(row.publishedAt),
     customDomain: rowToCustomDomain(row),
+    emailSubscriptionsEnabled: row.emailSubscriptionsEnabled,
+    emailSubscribersHourlyQuota: row.emailSubscribersHourlyQuota,
+    emailVerificationRequired: row.emailVerificationRequired,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -157,6 +165,9 @@ export class StatusPageService {
     visibility?: StatusPageVisibility;
     theme?: StatusPageTheme;
     draftLayout?: StatusPageLayout;
+    emailSubscriptionsEnabled?: boolean;
+    emailSubscribersHourlyQuota?: number | null;
+    emailVerificationRequired?: boolean;
   }): Promise<StatusPage> {
     await this.requireRow(input.id);
     if (input.slug !== undefined) await this.assertSlugFree(input.slug, input.id);
@@ -166,6 +177,16 @@ export class StatusPageService {
     if (input.visibility !== undefined) set.visibility = input.visibility;
     if (input.theme !== undefined) set.theme = input.theme;
     if (input.draftLayout !== undefined) set.draftLayout = input.draftLayout;
+    if (input.emailSubscriptionsEnabled !== undefined) {
+      set.emailSubscriptionsEnabled = input.emailSubscriptionsEnabled;
+    }
+    if (input.emailSubscribersHourlyQuota !== undefined) {
+      // null resets to the platform default; a positive int sets the cap.
+      set.emailSubscribersHourlyQuota = input.emailSubscribersHourlyQuota;
+    }
+    if (input.emailVerificationRequired !== undefined) {
+      set.emailVerificationRequired = input.emailVerificationRequired;
+    }
     const [row] = await this.deps.db
       .update(statusPages)
       .set(set)
@@ -271,11 +292,29 @@ export class StatusPageService {
     return { slug: row.slug };
   }
 
+  /**
+   * True when `host` is a CONFIGURED custom domain (some page claims it),
+   * regardless of whether it is currently SERVABLE (verified + published +
+   * public). Lets the platform serve a dedicated "not available" public page for
+   * a known-but-not-live domain instead of falling through to the admin SPA.
+   * Leaks only yes/no for the exact queried host - never the slug or page state.
+   */
+  async isConfiguredDomain(host: string): Promise<boolean> {
+    const normalized = host.trim().toLowerCase();
+    if (normalized.length === 0) return false;
+    const [row] = await this.deps.db
+      .select({ id: statusPages.id })
+      .from(statusPages)
+      .where(eq(statusPages.customDomain, normalized))
+      .limit(1);
+    return row !== undefined;
+  }
+
   async setCustomDomain(input: {
     id: string;
     domain: string;
   }): Promise<StatusPage> {
-    await this.requireRow(input.id);
+    const existing = await this.requireRow(input.id);
     const domain = input.domain.trim().toLowerCase();
     const reserved = reservedDomainReason({
       domain,
@@ -292,17 +331,24 @@ export class StatusPageService {
         message: `The domain "${domain}" is already used by another status page.`,
       });
     }
-    // New domain (or re-set) starts unverified with a fresh token, so it does
-    // not route until ownership is proven via verifyCustomDomain.
-    const token = `cs-verify-${crypto.randomUUID()}`;
+    // No-op re-save of the SAME domain must NOT reset a proven verification (a
+    // verified domain may be serving live visitors). Only a genuine domain
+    // CHANGE issues a fresh token + clears verification, so the new host does not
+    // route until ownership is re-proven via verifyCustomDomain.
+    const domainChanged = existing.customDomain !== domain;
+    const set: Partial<StatusPageRow> = {
+      customDomain: domain,
+      updatedAt: new Date(),
+    };
+    if (domainChanged || !existing.customDomainToken) {
+      set.customDomainToken = `cs-verify-${crypto.randomUUID()}`;
+    }
+    if (domainChanged) {
+      set.customDomainVerifiedAt = null;
+    }
     const [row] = await this.deps.db
       .update(statusPages)
-      .set({
-        customDomain: domain,
-        customDomainToken: token,
-        customDomainVerifiedAt: null,
-        updatedAt: new Date(),
-      })
+      .set(set)
       .where(eq(statusPages.id, input.id))
       .returning();
     return rowToPage(row);
@@ -493,7 +539,58 @@ export class StatusPageService {
         widgetTypeId,
         packageName,
       })),
+      emailSubscriptionsEnabled: row.emailSubscriptionsEnabled,
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Public-safe detail for a single incident on a published page. GATED against
+   * enumeration / IDOR: the incident is returned ONLY if the page for `slug`
+   * actually surfaces it through an incidents widget. We reuse `resolvePublished`
+   * (same published + visibility checks) and return the widget's own
+   * already-allow-listed DTO item, so no internal field (`createdBy`, ...) can
+   * leak and status-page-backend never reaches into the incident domain. Returns
+   * null when the page does not exist / is not visible / does not expose the id.
+   */
+  async resolvePublishedIncident(input: {
+    slug: string;
+    id: string;
+    isAuthenticated: boolean;
+  }): Promise<IncidentDtoItem | null> {
+    const page = await this.resolvePublished({
+      slug: input.slug,
+      isAuthenticated: input.isAuthenticated,
+    });
+    if (!page) return null;
+    for (const block of page.blocks) {
+      if (block.type !== BUILTIN_WIDGET_IDS.incidents) continue;
+      const parsed = IncidentsDtoSchema.safeParse(block.data);
+      if (!parsed.success) continue;
+      const match = parsed.data.incidents.find((i) => i.id === input.id);
+      if (match) return match;
+    }
+    return null;
+  }
+
+  /** Public-safe detail for a single maintenance. See resolvePublishedIncident. */
+  async resolvePublishedMaintenance(input: {
+    slug: string;
+    id: string;
+    isAuthenticated: boolean;
+  }): Promise<MaintenanceDtoItem | null> {
+    const page = await this.resolvePublished({
+      slug: input.slug,
+      isAuthenticated: input.isAuthenticated,
+    });
+    if (!page) return null;
+    for (const block of page.blocks) {
+      if (block.type !== BUILTIN_WIDGET_IDS.maintenance) continue;
+      const parsed = MaintenanceDtoSchema.safeParse(block.data);
+      if (!parsed.success) continue;
+      const match = parsed.data.maintenances.find((m) => m.id === input.id);
+      if (match) return match;
+    }
+    return null;
   }
 }

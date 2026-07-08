@@ -50,6 +50,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../maintenance-common"
+    },
+    {
       "path": "../queue-api"
     },
     {

@@ -35,6 +35,7 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
+  Toggle,
 } from "@checkstack/ui";
 import {
   validateSloForm,
@@ -56,6 +57,7 @@ const DEFAULTS = {
   target: "99.9",
   windowDays: "30",
   dependencyExclusion: "strict" as DependencyExclusionMode,
+  excludeMaintenanceWindows: false,
   warningPercent: "50",
   criticalPercent: "80",
 };
@@ -95,6 +97,8 @@ export const SloEditor: React.FC<Props> = ({
   const [windowDays, setWindowDays] = useState(DEFAULTS.windowDays);
   const [dependencyExclusion, setDependencyExclusion] =
     useState<DependencyExclusionMode>(DEFAULTS.dependencyExclusion);
+  const [excludeMaintenanceWindows, setExcludeMaintenanceWindows] =
+    useState<boolean>(DEFAULTS.excludeMaintenanceWindows);
   const [warningPercent, setWarningPercent] = useState(DEFAULTS.warningPercent);
   const [criticalPercent, setCriticalPercent] = useState(
     DEFAULTS.criticalPercent,
@@ -120,6 +124,7 @@ export const SloEditor: React.FC<Props> = ({
         target: String(objective.target),
         windowDays: String(objective.windowDays),
         dependencyExclusion: objective.dependencyExclusion,
+        excludeMaintenanceWindows: objective.excludeMaintenanceWindows,
         warningPercent: String(objective.burnRateThresholds.warningPercent),
         criticalPercent: String(objective.burnRateThresholds.criticalPercent),
         healthCheckConfigurationId:
@@ -140,6 +145,7 @@ export const SloEditor: React.FC<Props> = ({
     target !== initialSnapshot.target ||
     windowDays !== initialSnapshot.windowDays ||
     dependencyExclusion !== initialSnapshot.dependencyExclusion ||
+    excludeMaintenanceWindows !== initialSnapshot.excludeMaintenanceWindows ||
     warningPercent !== initialSnapshot.warningPercent ||
     criticalPercent !== initialSnapshot.criticalPercent ||
     healthCheckConfigurationId !== initialSnapshot.healthCheckConfigurationId ||
@@ -161,6 +167,7 @@ export const SloEditor: React.FC<Props> = ({
     setTarget(initialSnapshot.target);
     setWindowDays(initialSnapshot.windowDays);
     setDependencyExclusion(initialSnapshot.dependencyExclusion);
+    setExcludeMaintenanceWindows(initialSnapshot.excludeMaintenanceWindows);
     setWarningPercent(initialSnapshot.warningPercent);
     setCriticalPercent(initialSnapshot.criticalPercent);
     setHealthCheckConfigurationId(initialSnapshot.healthCheckConfigurationId);
@@ -252,6 +259,7 @@ export const SloEditor: React.FC<Props> = ({
         target: targetNum,
         windowDays: windowNum,
         dependencyExclusion,
+        excludeMaintenanceWindows,
         burnRateThresholds: {
           warningPercent: warningNum,
           criticalPercent: criticalNum,
@@ -265,6 +273,7 @@ export const SloEditor: React.FC<Props> = ({
         target: targetNum,
         windowDays: windowNum,
         dependencyExclusion,
+        excludeMaintenanceWindows,
         burnRateThresholds: {
           warningPercent: warningNum,
           criticalPercent: criticalNum,
@@ -493,6 +502,23 @@ export const SloEditor: React.FC<Props> = ({
                   {dependencyExclusion === "strict"
                     ? "All downtime counts against the error budget, regardless of cause."
                     : "Only self-caused downtime counts. When an upstream dependency is also down, that time is excluded."}
+                </p>
+              </div>
+
+              {/* Exclude planned maintenance windows */}
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Exclude planned maintenance</Label>
+                  <Toggle
+                    checked={excludeMaintenanceWindows}
+                    onCheckedChange={setExcludeMaintenanceWindows}
+                    aria-label="Exclude planned maintenance windows from the error budget"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {excludeMaintenanceWindows
+                    ? "Downtime during scheduled or in-progress maintenance windows is subtracted from the error budget."
+                    : "Downtime during maintenance windows still counts against the error budget."}
                 </p>
               </div>
 

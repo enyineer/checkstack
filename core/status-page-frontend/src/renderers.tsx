@@ -7,7 +7,7 @@ import {
   HelpCircle,
   CalendarCheck,
 } from "lucide-react";
-import { MarkdownBlock, formatPercent } from "@checkstack/ui";
+import { Markdown, MarkdownBlock, formatPercent } from "@checkstack/ui";
 import { useSlotExtensions } from "@checkstack/frontend-api";
 import {
   BUILTIN_WIDGET_IDS,
@@ -31,6 +31,7 @@ import {
   type WidgetRenderer,
   type WidgetRendererMap,
 } from "./renderer-map";
+import { severityPillClass, severityStripeClass } from "./utils/severityTone";
 
 export {
   mergeWidgetRenderers,
@@ -119,6 +120,35 @@ const StatusPill: React.FC<{ status: PublicStatus }> = ({ status }) => {
 };
 
 type RendererProps = StatusWidgetRendererProps;
+
+/**
+ * Builds a public detail-page href for an incident / maintenance item, or null
+ * when detail linking is not available (e.g. the builder preview). Provided by
+ * {@link PublicStatusPageView}; consumed by the event-feed renderers. Uses plain
+ * `<a href>` full navigation (NOT a react-router `Link`) so the routerless
+ * custom-domain public bundle never crashes.
+ */
+export type BuildDetailHref = (args: {
+  kind: "incident" | "maintenance";
+  id: string;
+}) => string;
+
+export const StatusDetailLinkContext =
+  React.createContext<BuildDetailHref | null>(null);
+
+/** Wrap children in a plain link when an href is available, else render as-is. */
+const MaybeLink: React.FC<{
+  href?: string;
+  className?: string;
+  children: React.ReactNode;
+}> = ({ href, className, children }) =>
+  href ? (
+    <a href={href} className={className}>
+      {children}
+    </a>
+  ) : (
+    <>{children}</>
+  );
 
 /**
  * The optional per-block heading ("Block heading" in the builder) for content
@@ -225,17 +255,54 @@ const SystemHealthRenderer: React.FC<RendererProps> = ({ data, label }) => {
 
 const GroupStatusRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = GroupStatusDtoSchema.safeParse(data);
+  // A member is "an issue" (and forces the group open) when it is not
+  // operational - a degraded/outage status OR an active maintenance.
+  const anyDegraded = useMemo(
+    () =>
+      parsed.success
+        ? parsed.data.systems.some((s) => s.status !== "operational")
+        : false,
+    [parsed],
+  );
+  // Collapse only while every member is operational; otherwise stay open. The
+  // user can always expand manually via the toggle (accessibility).
+  const startCollapsed = parsed.success
+    ? parsed.data.collapseWhenHealthy && !anyDegraded
+    : false;
+  const [expanded, setExpanded] = React.useState(!startCollapsed);
   if (!parsed.success) return null;
+  const collapsible = parsed.data.collapseWhenHealthy && !anyDegraded;
+  const showMembers = expanded || !collapsible;
   return (
     <Section
       label={label ?? parsed.data.label}
-      action={<StatusPill status={parsed.data.status} />}
+      action={
+        <div className="flex items-center gap-2">
+          {collapsible && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              {expanded ? "Hide" : "Show"} systems
+            </button>
+          )}
+          <StatusPill status={parsed.data.status} />
+        </div>
+      }
     >
-      <div className="divide-y divide-border/60">
-        {parsed.data.systems.map((s, i) => (
-          <StatusRow key={i} label={s.label} status={s.status} />
-        ))}
-      </div>
+      {showMembers ? (
+        <div className="divide-y divide-border/60">
+          {parsed.data.systems.map((s, i) => (
+            <StatusRow key={i} label={s.label} status={s.status} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          All {parsed.data.systems.length} systems operational.
+        </p>
+      )}
     </Section>
   );
 };
@@ -304,19 +371,6 @@ const formatAt = (iso: string) =>
     timeStyle: "short",
   });
 
-const SEVERITY_CLASS: Record<string, string> = {
-  critical: "bg-status-down/10 text-status-down",
-  major: "bg-status-warn/10 text-status-warn",
-  minor: "bg-status-unknown/10 text-status-unknown",
-};
-
-/** Solid accent-stripe hue per severity, reusing the colorblind-safe triad. */
-const SEVERITY_STRIPE: Record<string, string> = {
-  critical: "bg-status-down",
-  major: "bg-status-warn",
-  minor: "bg-status-unknown",
-};
-
 /**
  * Depth card for an ACTIVE incident / maintenance item: layered surface,
  * soft shadow, and a severity-driven left accent stripe so a live event
@@ -349,7 +403,10 @@ const UpdatesTimeline: React.FC<{ updates: Update[] }> = ({ updates }) => {
               {u.statusChange}
             </span>
           )}
-          <p className="text-sm text-foreground">{u.message}</p>
+          {/* Sanitized markdown (rehype-sanitize inside <Markdown>): this is the
+              public, anonymous status page, so the update body must render its
+              formatting without opening an XSS surface. */}
+          <Markdown className="text-sm text-foreground">{u.message}</Markdown>
           <p className="text-[11px] tabular-nums text-muted-foreground">
             {formatAt(u.at)}
           </p>
@@ -367,11 +424,20 @@ const PastHeader: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 /** A compact past (resolved/completed) row: check + title + when. */
-const PastRow: React.FC<{ title: string; at?: string }> = ({ title, at }) => (
+const PastRow: React.FC<{ title: string; at?: string; href?: string }> = ({
+  title,
+  at,
+  href,
+}) => (
   <div className="flex items-center justify-between gap-2 py-1.5 text-sm">
     <span className="flex min-w-0 items-center gap-2">
       <CheckCircle2 className="size-4 shrink-0 text-status-ok" />
-      <span className="truncate text-muted-foreground">{title}</span>
+      <MaybeLink
+        href={href}
+        className="truncate text-muted-foreground hover:text-primary hover:underline"
+      >
+        <span className="truncate text-muted-foreground">{title}</span>
+      </MaybeLink>
     </span>
     {at && (
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
@@ -383,9 +449,12 @@ const PastRow: React.FC<{ title: string; at?: string }> = ({ title, at }) => (
 
 const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = IncidentsDtoSchema.safeParse(data);
+  const buildHref = React.useContext(StatusDetailLinkContext);
   if (!parsed.success) return null;
   const active = parsed.data.incidents.filter((i) => i.status !== "resolved");
   const past = parsed.data.incidents.filter((i) => i.status === "resolved");
+  const hrefFor = (id: string) =>
+    buildHref ? buildHref({ kind: "incident", id }) : undefined;
   return (
     <Section label={label ?? "Incidents"}>
       <div className="space-y-5">
@@ -398,14 +467,17 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
           active.map((inc) => (
             <ActiveEventCard
               key={inc.id}
-              stripe={
-                SEVERITY_STRIPE[inc.severity] ?? "bg-status-unknown"
-              }
+              stripe={severityStripeClass(inc.severity)}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <h4 className="font-semibold">{inc.title}</h4>
+                <MaybeLink
+                  href={hrefFor(inc.id)}
+                  className="font-semibold hover:text-primary hover:underline"
+                >
+                  <h4 className="font-semibold">{inc.title}</h4>
+                </MaybeLink>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${SEVERITY_CLASS[inc.severity] ?? "bg-status-unknown/10 text-status-unknown"}`}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${severityPillClass(inc.severity)}`}
                 >
                   {inc.severity}
                 </span>
@@ -426,7 +498,12 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
           <div className="space-y-1">
             <PastHeader>Recently resolved</PastHeader>
             {past.map((inc) => (
-              <PastRow key={inc.id} title={inc.title} at={inc.resolvedAt} />
+              <PastRow
+                key={inc.id}
+                title={inc.title}
+                at={inc.resolvedAt}
+                href={hrefFor(inc.id)}
+              />
             ))}
           </div>
         )}
@@ -437,9 +514,12 @@ const IncidentsRenderer: React.FC<RendererProps> = ({ data, label }) => {
 
 const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
   const parsed = MaintenanceDtoSchema.safeParse(data);
+  const buildHref = React.useContext(StatusDetailLinkContext);
   if (!parsed.success) return null;
   const active = parsed.data.maintenances.filter((m) => m.status !== "completed");
   const past = parsed.data.maintenances.filter((m) => m.status === "completed");
+  const hrefFor = (id: string) =>
+    buildHref ? buildHref({ kind: "maintenance", id }) : undefined;
   return (
     <Section label={label ?? "Scheduled maintenance"}>
       <div className="space-y-4">
@@ -453,7 +533,12 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
             <ActiveEventCard key={m.id} stripe="bg-status-unknown">
               <div className="flex flex-wrap items-center gap-2">
                 <Wrench className="size-4 text-status-unknown" />
-                <h4 className="font-semibold">{m.title}</h4>
+                <MaybeLink
+                  href={hrefFor(m.id)}
+                  className="font-semibold hover:text-primary hover:underline"
+                >
+                  <h4 className="font-semibold">{m.title}</h4>
+                </MaybeLink>
                 <span className="rounded-full bg-status-unknown/10 px-2 py-0.5 text-[11px] font-medium capitalize text-status-unknown">
                   {m.status.replace("_", " ")}
                 </span>
@@ -474,7 +559,12 @@ const MaintenanceRenderer: React.FC<RendererProps> = ({ data, label }) => {
           <div className="space-y-1">
             <PastHeader>Past maintenance</PastHeader>
             {past.map((m) => (
-              <PastRow key={m.id} title={m.title} at={m.endAt} />
+              <PastRow
+                key={m.id}
+                title={m.title}
+                at={m.endAt}
+                href={hrefFor(m.id)}
+              />
             ))}
           </div>
         )}

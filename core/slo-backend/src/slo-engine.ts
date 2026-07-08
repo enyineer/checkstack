@@ -28,6 +28,13 @@ export class SloEngine {
         since: Date;
       }) => Promise<Date | null>)
     | undefined;
+  private _getMaintenanceWindows:
+    | ((args: {
+        systemId: string;
+        from: Date;
+        to: Date;
+      }) => Promise<Array<{ startAt: Date; endAt: Date; status: string }>>)
+    | undefined;
 
   constructor({ service, signalService, logger }: {
     service: SloService;
@@ -61,6 +68,26 @@ export class SloEngine {
     resolver: (args: { systemId: string; since: Date }) => Promise<Date | null>,
   ) {
     this._getRecoveryTimeAfter = resolver;
+  }
+
+  /**
+   * Set the maintenance-windows resolver: given a system id and the budget
+   * window `[from, to]`, return the maintenance windows OVERLAPPING that range
+   * (with status). Used to subtract maintenance overlap from the error budget
+   * when an objective has `excludeMaintenanceWindows`. The budget window is
+   * TRAILING, so the resolver MUST include already-completed windows (the data
+   * source does, filtering out only `cancelled`); the engine additionally drops
+   * any `cancelled` window defensively before subtraction. Wired in
+   * afterPluginsReady from the maintenance RPC client.
+   */
+  setMaintenanceWindowsResolver(
+    resolver: (args: {
+      systemId: string;
+      from: Date;
+      to: Date;
+    }) => Promise<Array<{ startAt: Date; endAt: Date; status: string }>>,
+  ) {
+    this._getMaintenanceWindows = resolver;
   }
 
   /**
@@ -407,11 +434,30 @@ export class SloEngine {
       currentlyDown = true;
     }
 
+    // Planned maintenance exclusion (opt-in per objective). Subtract the
+    // portion of any downtime that overlaps a non-cancelled maintenance window
+    // on the system. The resolver is wired in afterPluginsReady; when it is
+    // absent (e.g. before ready) exclusion is simply skipped.
+    let maintenanceWindows:
+      | Array<{ startAt: Date; endAt: Date }>
+      | undefined;
+    if (objective.excludeMaintenanceWindows && this._getMaintenanceWindows) {
+      const windows = await this._getMaintenanceWindows({
+        systemId: objective.systemId,
+        from: windowStart,
+        to: now,
+      });
+      maintenanceWindows = windows
+        .filter((w) => w.status !== "cancelled")
+        .map((w) => ({ startAt: w.startAt, endAt: w.endAt }));
+    }
+
     const downtime = await this.service.getDowntimeForWindow({
       objectiveId: objective.id,
       windowStart,
       windowEnd: now,
       includeOpen: currentlyDown,
+      maintenanceWindows,
     });
 
     const totalWindowMinutes = objective.windowDays * 24 * 60;

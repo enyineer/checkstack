@@ -199,22 +199,20 @@ async function uptimeMap(
   ctx: WidgetResolveContext,
   ids: string[],
 ): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (ids.length === 0) return out;
   const end = new Date();
   const start = new Date(end.getTime() - 30 * 86_400_000);
-  const out = new Map<string, number>();
-  const results = await Promise.allSettled(
-    ids.map(async (systemId) => {
-      const stats = await ctx.rpcClient
-        .forPlugin(HealthCheckApi)
-        .getRunStats({ systemId, startDate: start, endDate: end, maxBuckets: 1 });
-      // No runs in the window => no uptime to report (don't surface a
-      // misleading 0.00% for a system with no history).
-      if (stats.total.runCount === 0) return null;
-      return [systemId, stats.total.uptimePct] as const;
-    }),
-  );
-  for (const r of results) {
-    if (r.status === "fulfilled" && r.value) out.set(r.value[0], r.value[1]);
+  // ONE bulk call for every system's uptime, instead of an N+1 fan-out of
+  // per-system `getRunStats` (each holding a pooled connection). Systems with
+  // no runs are omitted from `stats`, so they never enter the map - preserving
+  // the previous "no runs => no misleading 0.00%" behavior exactly.
+  const { stats } = await ctx.rpcClient
+    .forPlugin(HealthCheckApi)
+    .getBulkRunStats({ systemIds: ids, startDate: start, endDate: end, maxBuckets: 1 });
+  for (const systemId of ids) {
+    const s = stats[systemId];
+    if (s && s.total.runCount > 0) out.set(systemId, s.total.uptimePct);
   }
   return out;
 }
@@ -249,6 +247,7 @@ const groupStatus: WidgetTypeDefinition = {
       label: c.label ?? group?.name ?? "Group",
       status: rollupStatus(systems.map((s) => s.status)),
       systems,
+      collapseWhenHealthy: c.collapseWhenHealthy,
     });
   },
 };

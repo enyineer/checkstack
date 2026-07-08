@@ -2,6 +2,8 @@ import {
   SafeDatabase,
   dbTransactionsCounter,
   dbQueriesCounter,
+  dbQueryDurationHistogram,
+  dbTransactionDurationHistogram,
 } from "@checkstack/backend-api";
 import { sql, entityKind, type SQL } from "drizzle-orm";
 
@@ -219,6 +221,32 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
     dbQueriesCounter().add(1, { schema: schemaName });
   };
 
+  // Duration profiling: time the underlying transaction promise and record it
+  // on settle (success OR error) via `.finally`, so both latency and error
+  // paths are measured. Labels are BOUNDED — `schema` + `operation` — never raw
+  // SQL. The histograms are OTel no-ops unless metrics are enabled, so this is
+  // ~two `performance.now()` reads on the hot path when disabled.
+  const timeScopedQuery = <T>(
+    operation: string,
+    run: () => Promise<T>,
+  ): Promise<T> => {
+    const started = performance.now();
+    return run().finally(() => {
+      dbQueryDurationHistogram().record(performance.now() - started, {
+        schema: schemaName,
+        operation,
+      });
+    });
+  };
+  const timeScopedTx = <T>(run: () => Promise<T>): Promise<T> => {
+    const started = performance.now();
+    return run().finally(() => {
+      dbTransactionDurationHistogram().record(performance.now() - started, {
+        schema: schemaName,
+      });
+    });
+  };
+
   /**
    * WeakMap to track query chains for each builder instance.
    *
@@ -302,35 +330,36 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
               return builderThen.call(builderTarget, onFulfilled, onRejected);
             }
 
-            // Execute the query inside a transaction with search_path set
+            // Execute the query inside a transaction with search_path set,
+            // timing the standalone-query wall-clock (labelled by operation).
             recordScopedQuery();
-            const promise = baseDb.transaction(async (tx) => {
-              // Set the schema search_path for this transaction
-              // SET LOCAL ensures it only affects this transaction
-              await tx.execute(
-                setSearchPathSql(schemaName),
-              );
+            const promise = timeScopedQuery(chainInfo.method, () =>
+              baseDb.transaction(async (tx) => {
+                // Set the schema search_path for this transaction
+                // SET LOCAL ensures it only affects this transaction
+                await tx.execute(setSearchPathSql(schemaName));
 
-              // Rebuild the query on the transaction connection
-              // We call the same method (select/insert/etc.) on tx instead of target
-              type TxMethod = (...args: unknown[]) => unknown;
-              let txQuery = (
-                tx[chainInfo.method as keyof typeof tx] as TxMethod
-              )(...chainInfo.args);
+                // Rebuild the query on the transaction connection
+                // We call the same method (select/insert/etc.) on tx instead of target
+                type TxMethod = (...args: unknown[]) => unknown;
+                let txQuery = (
+                  tx[chainInfo.method as keyof typeof tx] as TxMethod
+                )(...chainInfo.args);
 
-              // Replay all the chained method calls (from, where, orderBy, etc.)
-              for (const call of chainInfo.chain) {
-                txQuery = (txQuery as Record<string, TxMethod>)[call.method](
-                  ...call.args,
-                );
-              }
+                // Replay all the chained method calls (from, where, orderBy, etc.)
+                for (const call of chainInfo.chain) {
+                  txQuery = (txQuery as Record<string, TxMethod>)[call.method](
+                    ...call.args,
+                  );
+                }
 
-              // Execute the query and return results
-              // Must await because txQuery is a thenable builder
-              return await txQuery;
-            });
+                // Execute the query and return results
+                // Must await because txQuery is a thenable builder
+                return await txQuery;
+              }),
+            );
 
-            // Chain the user's handlers onto our promise
+            // Chain the user's handlers onto our timed promise
             return promise.then(onFulfilled, onRejected);
           };
         }
@@ -352,27 +381,27 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
             }
 
             recordScopedQuery();
-            return baseDb.transaction(async (tx) => {
-              await tx.execute(
-                setSearchPathSql(schemaName),
-              );
+            return timeScopedQuery(chainInfo.method, () =>
+              baseDb.transaction(async (tx) => {
+                await tx.execute(setSearchPathSql(schemaName));
 
-              type TxMethod = (...args: unknown[]) => unknown;
-              let txQuery = (
-                tx[chainInfo.method as keyof typeof tx] as TxMethod
-              )(...chainInfo.args);
+                type TxMethod = (...args: unknown[]) => unknown;
+                let txQuery = (
+                  tx[chainInfo.method as keyof typeof tx] as TxMethod
+                )(...chainInfo.args);
 
-              for (const call of chainInfo.chain) {
-                txQuery = (txQuery as Record<string, TxMethod>)[call.method](
-                  ...call.args,
-                );
-              }
+                for (const call of chainInfo.chain) {
+                  txQuery = (txQuery as Record<string, TxMethod>)[call.method](
+                    ...call.args,
+                  );
+                }
 
-              // Call .execute() on the rebuilt query with original args
-              return (
-                txQuery as { execute: (...a: unknown[]) => Promise<unknown> }
-              ).execute(...args);
-            });
+                // Call .execute() on the rebuilt query with original args
+                return (
+                  txQuery as { execute: (...a: unknown[]) => Promise<unknown> }
+                ).execute(...args);
+              }),
+            );
           };
         }
 
@@ -465,14 +494,14 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
           callback: (tx: ScopedDatabase<TSchema>) => Promise<T>,
         ): Promise<T> => {
           recordScopedTx();
-          return target.transaction(async (tx) => {
-            // Set search_path once at transaction start
-            await tx.execute(
-              setSearchPathSql(schemaName),
-            );
-            // User's callback runs with the correct schema
-            return callback(tx as ScopedDatabase<TSchema>);
-          });
+          return timeScopedTx(() =>
+            target.transaction(async (tx) => {
+              // Set search_path once at transaction start
+              await tx.execute(setSearchPathSql(schemaName));
+              // User's callback runs with the correct schema
+              return callback(tx as ScopedDatabase<TSchema>);
+            }),
+          );
         };
       }
 
@@ -484,15 +513,14 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
       if (prop === "execute" && typeof value === "function") {
         return async (...args: unknown[]) => {
           recordScopedQuery();
-          return target.transaction(async (tx) => {
-            await tx.execute(
-              setSearchPathSql(schemaName),
-            );
-            return (tx.execute as (...a: unknown[]) => Promise<unknown>).apply(
-              tx,
-              args,
-            );
-          });
+          return timeScopedQuery("execute", () =>
+            target.transaction(async (tx) => {
+              await tx.execute(setSearchPathSql(schemaName));
+              return (
+                tx.execute as (...a: unknown[]) => Promise<unknown>
+              ).apply(tx, args);
+            }),
+          );
         };
       }
 
@@ -507,15 +535,14 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
       if (prop === "$count" && typeof value === "function") {
         return async (...args: unknown[]) => {
           recordScopedQuery();
-          return target.transaction(async (tx) => {
-            await tx.execute(
-              setSearchPathSql(schemaName),
-            );
-            return (tx.$count as (...a: unknown[]) => Promise<unknown>).apply(
-              tx,
-              args,
-            );
-          });
+          return timeScopedQuery("$count", () =>
+            target.transaction(async (tx) => {
+              await tx.execute(setSearchPathSql(schemaName));
+              return (
+                tx.$count as (...a: unknown[]) => Promise<unknown>
+              ).apply(tx, args);
+            }),
+          );
         };
       }
 

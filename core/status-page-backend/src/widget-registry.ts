@@ -78,6 +78,19 @@ export interface WidgetTypeDefinition {
     userClient: RpcClient;
     config: unknown;
   }): Promise<void>;
+  /**
+   * OPTIONAL: for system-scoped EVENT-FEED widgets (incidents, maintenance)
+   * whose live scope the anonymous email-subscriber fan-out must respect. Return
+   * the CURRENT effective set of catalog system ids this config surfaces,
+   * resolved from the SAME live source the widget's `resolvePublic` uses (catalog
+   * group expansion), so send-time scoping — the subscriber privacy boundary —
+   * can NEVER drift from what the widget actually shows. Omit for widgets that
+   * are not system-scoped event feeds; the fan-out ignores those.
+   */
+  resolveScopedSystems?(args: {
+    config: unknown;
+    ctx: WidgetResolveContext;
+  }): Promise<Set<string>>;
 }
 
 export interface RegisteredWidgetType extends WidgetTypeDefinition {

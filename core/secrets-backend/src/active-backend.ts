@@ -24,5 +24,26 @@ export function createActiveBackendStore({
       }
       return value;
     },
+
+    resolveMany: async (names: string[]): Promise<Map<string, string>> => {
+      const distinct = [...new Set(names)];
+      const resolved = new Map<string, string>();
+      if (distinct.length === 0) {
+        return resolved;
+      }
+      // Resolve the active backend id ONCE for the whole batch. The id
+      // read goes through the config store (a DB read), so doing it per
+      // name — as a `resolve` loop would — is the redundant N+1 this path
+      // removes. The per-name `backend.get` fetch is inherent.
+      const backend = backends.get(await getActiveBackendId());
+      for (const name of distinct) {
+        const value = await backend.get({ name });
+        if (value === undefined) {
+          throw new Error(`Secret not found: ${name}`);
+        }
+        resolved.set(name, value);
+      }
+      return resolved;
+    },
   };
 }

@@ -382,6 +382,34 @@ export const healthCheckContract = {
       ),
     ),
 
+  /**
+   * Bulk count of health-check assignments per system, keyed by systemId.
+   * Powers the catalog manager's per-system "Health Checks" badge for the whole
+   * visible list in ONE request instead of an N+1 fan-out of
+   * {@link getSystemAssociations} (one request per row, each holding a pooled
+   * connection that contends with the run executor). A system with no
+   * assignments reports `0`. The output record is keyed by systemId, so
+   * `parentScope` with `recordKey` gates EACH entry on the caller's
+   * `catalog.system` read grant, matching the per-system read exactly (a
+   * team-scoped user only sees counts for systems they may read).
+   */
+  getBulkAssignedHealthCheckCounts: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "read",
+        recordKey: "counts",
+      },
+    },
+  })
+    // POST avoids URL-length limits when many systemIds are batched.
+    .route({ method: "POST" })
+    .input(z.object({ systemIds: z.array(z.string()) }))
+    .output(z.object({ counts: z.record(z.string(), z.number()) })),
+
   associateSystem: proc({
     operationType: "mutation",
     userType: "authenticated",
@@ -588,6 +616,40 @@ export const healthCheckContract = {
       }),
     )
     .output(RunStatsSchema),
+
+  /**
+   * Bulk variant of {@link getRunStats}, keyed by systemId. Backs the public
+   * status page's `systemHealth` uptime column so a page with N systems pays
+   * ONE request instead of an N+1 fan-out of per-system {@link getRunStats}
+   * calls (each holding a pooled connection that contends with the run
+   * executor). All systems share one `[startDate, endDate]` window and
+   * `maxBuckets`. Systems with no runs in the window are OMITTED from `stats`
+   * (matching the single endpoint's zero-run semantics: nothing to report).
+   *
+   * `recordKey: "stats"` mirrors {@link getBulkSystemHealthStatus} exactly (the
+   * established bulk-by-systemIds mode on the same public `status` rule) - only
+   * the record-key name differs. Each systemId key is post-filtered against the
+   * caller's health-status access, so a team-scoped caller only sees stats for
+   * systems they may view.
+   */
+  getBulkRunStats: proc({
+    operationType: "query",
+    userType: "public",
+    access: [healthCheckAccess.status],
+    instanceAccess: { recordKey: "stats" },
+  })
+    // POST avoids URL-length limits when many systemIds are batched.
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemIds: z.array(z.string()),
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
+        /** Max time-series buckets per system (default 24, max 100). */
+        maxBuckets: z.number().min(1).max(100).optional().default(24),
+      }),
+    )
+    .output(z.object({ stats: z.record(z.string(), RunStatsSchema) })),
 
   /**
    * Global run-history feed (the History page). AUTHORIZED IN THE HANDLER,
@@ -829,6 +891,15 @@ export const healthCheckContract = {
              */
             status: HealthCheckStatusSchema,
             stateThresholds: StateThresholdsSchema.optional(),
+            /**
+             * The per-assignment environment selector (`systemHealthChecks.
+             * environmentIds`): `null` = all current environments, `[]` = opt
+             * out (env-less), a non-empty array = exactly those ids. Surfaced so
+             * the frontend orphan detection can tuck a slice whose environment
+             * was DISABLED for this assignment under "Old checks" - system
+             * membership alone can't tell, since the env is still in the system.
+             */
+            environmentIds: z.array(z.string()).nullable(),
             /**
              * Timestamp of the most recent HEALTHY run across every environment
              * of this assignment, or `undefined` when the check has never had a

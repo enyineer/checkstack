@@ -28,6 +28,7 @@ import { createRouter } from "./router";
 import { createSloCache } from "./cache";
 import { DependencyApi } from "@checkstack/dependency-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
 import {
   CATALOG_SYSTEM_ENTITY_KIND,
 } from "@checkstack/catalog-backend";
@@ -364,6 +365,52 @@ export default createBackendPlugin({
 
         const dependencyClient = rpcClient.forPlugin(DependencyApi);
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
+        const maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
+
+        /**
+         * Resolve a system's planned maintenance windows for SLO error-budget
+         * exclusion (opt-in per objective via `excludeMaintenanceWindows`). The
+         * SLO budget window is TRAILING, so this queries by TIME-RANGE OVERLAP
+         * over `[from, to]` and INCLUDES already-completed windows (the RPC
+         * excludes only `cancelled`). Using the active-only bulk RPC here would
+         * miss "last night's planned maintenance" the moment it completes and
+         * make consumed budget jump non-monotonically. The engine subtracts the
+         * portion of downtime overlapping each returned window. Set on BOTH
+         * engine instances so the read path (router) and the daily snapshot /
+         * recovery path agree. Fails open (empty list) if the RPC is
+         * unavailable, so an SLO read never breaks.
+         */
+        const maintenanceWindowsResolver = async ({
+          systemId,
+          from,
+          to,
+        }: {
+          systemId: string;
+          from: Date;
+          to: Date;
+        }) => {
+          try {
+            const { maintenances } =
+              await maintenanceClient.getMaintenanceWindowsForRange({
+                systemIds: [systemId],
+                from,
+                to,
+              });
+            return (maintenances[systemId] ?? []).map((m) => ({
+              startAt: m.startAt,
+              endAt: m.endAt,
+              status: m.status,
+            }));
+          } catch (error) {
+            logger.warn(
+              `SLO: failed to resolve maintenance windows for system ${systemId}`,
+              { error },
+            );
+            return [];
+          }
+        };
+        sharedEngine.setMaintenanceWindowsResolver(maintenanceWindowsResolver);
+        engine.setMaintenanceWindowsResolver(maintenanceWindowsResolver);
 
         /**
          * Set health status callback on the shared engine instance

@@ -15,7 +15,7 @@ describe("presentIncidentStatus", () => {
     ["investigating", "down", "Investigating"],
     ["identified", "warn", "Identified"],
     ["fixing", "warn", "Fixing"],
-    ["monitoring", "unknown", "Monitoring"],
+    ["monitoring", "info", "Monitoring"],
     ["resolved", "ok", "Resolved"],
   ];
 
@@ -31,7 +31,7 @@ describe("presentIncidentSeverity", () => {
   const cases: Array<[IncidentSeverity, StatusTone, string]> = [
     ["critical", "down", "Critical"],
     ["major", "warn", "Major"],
-    ["minor", "unknown", "Minor"],
+    ["minor", "info", "Minor"],
   ];
 
   test.each(cases)(
@@ -46,6 +46,6 @@ describe("getIncidentSeverityAccentClass", () => {
   test("derives the accent class from the same triad tone as the badge", () => {
     expect(getIncidentSeverityAccentClass("critical")).toBe("bg-status-down");
     expect(getIncidentSeverityAccentClass("major")).toBe("bg-status-warn");
-    expect(getIncidentSeverityAccentClass("minor")).toBe("bg-status-unknown");
+    expect(getIncidentSeverityAccentClass("minor")).toBe("bg-status-info");
   });
 });

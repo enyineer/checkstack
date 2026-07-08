@@ -20,6 +20,9 @@
       "path": "../signal-frontend"
     },
     {
+      "path": "../status-page-common"
+    },
+    {
       "path": "../tips-frontend"
     },
     {

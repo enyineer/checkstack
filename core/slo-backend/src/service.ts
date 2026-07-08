@@ -1,7 +1,11 @@
 import { eq, and, isNull, desc, gte, lte, or } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "./schema";
-import { aggregateWindowedDowntime } from "./downtime-window";
+import {
+  aggregateWindowedDowntime,
+  type MaintenanceWindowInput,
+} from "./downtime-window";
 import {
   sloObjectives,
   sloDowntimeEvents,
@@ -84,6 +88,7 @@ export class SloService {
         windowDays: input.windowDays,
         dependencyExclusion: input.dependencyExclusion ?? "strict",
         excludedDependencyIds: input.excludedDependencyIds ?? [],
+        excludeMaintenanceWindows: input.excludeMaintenanceWindows ?? false,
         burnRateWarningPercent: input.burnRateThresholds?.warningPercent ?? 50,
         burnRateCriticalPercent: input.burnRateThresholds?.criticalPercent ?? 80,
         burnRateFastBurnMultiplier:
@@ -109,37 +114,47 @@ export class SloService {
   }: {
     input: UpdateSloObjectiveInput;
   }): Promise<SloObjective | undefined> {
-    const [existing] = await this.db
-      .select()
-      .from(sloObjectives)
-      .where(eq(sloObjectives.id, input.id));
+    // Batched: the existence check, the update, and the reload of the fresh
+    // row run under one SET LOCAL search_path. `.returning()` folds the reload
+    // into the UPDATE, so this is a single transaction (one SELECT + one
+    // UPDATE ... RETURNING) instead of three standalone scoped queries.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(sloObjectives)
+        .where(eq(sloObjectives.id, input.id));
 
-    if (!existing) return undefined;
+      if (!existing) return;
 
-    const updateData: Partial<typeof sloObjectives.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    if (input.target !== undefined) updateData.target = input.target;
-    if (input.windowDays !== undefined) updateData.windowDays = input.windowDays;
-    if (input.dependencyExclusion !== undefined)
-      updateData.dependencyExclusion = input.dependencyExclusion;
-    if (input.excludedDependencyIds !== undefined)
-      updateData.excludedDependencyIds = input.excludedDependencyIds;
-    if (input.burnRateThresholds !== undefined) {
-      updateData.burnRateWarningPercent =
-        input.burnRateThresholds.warningPercent;
-      updateData.burnRateCriticalPercent =
-        input.burnRateThresholds.criticalPercent;
-      updateData.burnRateFastBurnMultiplier =
-        input.burnRateThresholds.fastBurnMultiplier;
-    }
+      const updateData: Partial<typeof sloObjectives.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      if (input.target !== undefined) updateData.target = input.target;
+      if (input.windowDays !== undefined)
+        updateData.windowDays = input.windowDays;
+      if (input.dependencyExclusion !== undefined)
+        updateData.dependencyExclusion = input.dependencyExclusion;
+      if (input.excludedDependencyIds !== undefined)
+        updateData.excludedDependencyIds = input.excludedDependencyIds;
+      if (input.excludeMaintenanceWindows !== undefined)
+        updateData.excludeMaintenanceWindows = input.excludeMaintenanceWindows;
+      if (input.burnRateThresholds !== undefined) {
+        updateData.burnRateWarningPercent =
+          input.burnRateThresholds.warningPercent;
+        updateData.burnRateCriticalPercent =
+          input.burnRateThresholds.criticalPercent;
+        updateData.burnRateFastBurnMultiplier =
+          input.burnRateThresholds.fastBurnMultiplier;
+      }
 
-    await this.db
-      .update(sloObjectives)
-      .set(updateData)
-      .where(eq(sloObjectives.id, input.id));
+      const [updated] = await tx
+        .update(sloObjectives)
+        .set(updateData)
+        .where(eq(sloObjectives.id, input.id))
+        .returning();
 
-    return (await this.getObjective({ id: input.id }))!;
+      return mapObjectiveRow(updated);
+    });
   }
 
   async deleteObjective({ id }: { id: string }): Promise<boolean> {
@@ -185,22 +200,22 @@ export class SloService {
     const id = generateId();
     const now = new Date();
 
-    await this.db.insert(sloDowntimeEvents).values({
-      id,
-      objectiveId,
-      systemId,
-      startTime: now,
-      attributionType,
-       
-      upstreamSystemId: upstreamSystemId ?? null,
-       
-      upstreamSystemName: upstreamSystemName ?? null,
-    });
-
+    // `.returning()` yields the inserted row directly, so the former
+    // insert-then-reload pair collapses to a single INSERT ... RETURNING.
     const [event] = await this.db
-      .select()
-      .from(sloDowntimeEvents)
-      .where(eq(sloDowntimeEvents.id, id));
+      .insert(sloDowntimeEvents)
+      .values({
+        id,
+        objectiveId,
+        systemId,
+        startTime: now,
+        attributionType,
+
+        upstreamSystemId: upstreamSystemId ?? null,
+
+        upstreamSystemName: upstreamSystemName ?? null,
+      })
+      .returning();
 
     return mapDowntimeEventRow(event);
   }
@@ -219,34 +234,38 @@ export class SloService {
      */
     endTime?: Date;
   }): Promise<SloDowntimeEvent> {
-    const [event] = await this.db
-      .select()
-      .from(sloDowntimeEvents)
-      .where(eq(sloDowntimeEvents.id, id));
+    // Batched: the load, the update, and the reload of the closed row run
+    // under one SET LOCAL search_path. `.returning()` folds the reload into
+    // the UPDATE, so this is one transaction (a SELECT + an UPDATE ...
+    // RETURNING) instead of three standalone scoped queries.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [event] = await tx
+        .select()
+        .from(sloDowntimeEvents)
+        .where(eq(sloDowntimeEvents.id, id));
 
-    if (!event || event.endTime) {
-      throw new Error(`Cannot close downtime event ${id}: not found or already closed`);
-    }
+      if (!event || event.endTime) {
+        throw new Error(
+          `Cannot close downtime event ${id}: not found or already closed`,
+        );
+      }
 
-    const requestedEnd = endTime ?? new Date();
-    const end =
-      requestedEnd.getTime() < event.startTime.getTime()
-        ? event.startTime
-        : requestedEnd;
-    const durationSeconds =
-      (end.getTime() - event.startTime.getTime()) / 1000;
+      const requestedEnd = endTime ?? new Date();
+      const end =
+        requestedEnd.getTime() < event.startTime.getTime()
+          ? event.startTime
+          : requestedEnd;
+      const durationSeconds =
+        (end.getTime() - event.startTime.getTime()) / 1000;
 
-    await this.db
-      .update(sloDowntimeEvents)
-      .set({ endTime: end, durationSeconds })
-      .where(eq(sloDowntimeEvents.id, id));
+      const [updated] = await tx
+        .update(sloDowntimeEvents)
+        .set({ endTime: end, durationSeconds })
+        .where(eq(sloDowntimeEvents.id, id))
+        .returning();
 
-    const [updated] = await this.db
-      .select()
-      .from(sloDowntimeEvents)
-      .where(eq(sloDowntimeEvents.id, id));
-
-    return mapDowntimeEventRow(updated);
+      return mapDowntimeEventRow(updated);
+    });
   }
 
   async getOpenDowntimeEvents({
@@ -331,6 +350,7 @@ export class SloService {
     windowStart,
     windowEnd,
     includeOpen,
+    maintenanceWindows,
   }: {
     objectiveId: string;
     windowStart: Date;
@@ -343,6 +363,12 @@ export class SloService {
      * missed-recovery row) has zero effect on the budget.
      */
     includeOpen: boolean;
+    /**
+     * Optional planned maintenance windows to subtract from consumed downtime
+     * (set when the objective opts into `excludeMaintenanceWindows`). Undefined
+     * leaves downtime accounting unchanged.
+     */
+    maintenanceWindows?: MaintenanceWindowInput[];
   }): Promise<{
     totalMinutes: number;
     selfMinutes: number;
@@ -388,6 +414,7 @@ export class SloService {
       windowStart,
       windowEnd,
       now,
+      maintenanceWindows,
     });
   }
 
@@ -633,6 +660,7 @@ function mapObjectiveRow(
     windowDays: row.windowDays,
     dependencyExclusion: row.dependencyExclusion as SloObjective["dependencyExclusion"],
     excludedDependencyIds: (row.excludedDependencyIds as string[] | null) ?? undefined,
+    excludeMaintenanceWindows: row.excludeMaintenanceWindows,
     burnRateThresholds: {
       warningPercent: row.burnRateWarningPercent,
       criticalPercent: row.burnRateCriticalPercent,

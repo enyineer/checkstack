@@ -1,7 +1,7 @@
 import React from "react";
 import { RowActions, RowAction, cn, formatRelativeTime } from "@checkstack/ui";
 import type { SatelliteWithStatus } from "@checkstack/satellite-common";
-import { KeyRound, MapPin, Trash2 } from "lucide-react";
+import { KeyRound, MapPin, Pencil, Trash2 } from "lucide-react";
 import { GitOpsSourceBadge } from "@checkstack/gitops-frontend";
 import type { ProvenanceLock } from "@checkstack/gitops-frontend";
 import { SatelliteStatusBadge } from "./SatelliteStatusBadge";
@@ -15,6 +15,7 @@ const ACCENT_BY_STATUS: Record<SatelliteWithStatus["status"], string> = {
 export interface SatelliteMobileCardProps {
   satellite: SatelliteWithStatus;
   lock: ProvenanceLock;
+  onEdit: (satellite: SatelliteWithStatus) => void;
   onRotate: (satellite: SatelliteWithStatus) => void;
   onDelete: (satellite: SatelliteWithStatus) => void;
 }
@@ -29,6 +30,7 @@ export interface SatelliteMobileCardProps {
 export const SatelliteMobileCard: React.FC<SatelliteMobileCardProps> = ({
   satellite,
   lock,
+  onEdit,
   onRotate,
   onDelete,
 }) => {
@@ -73,6 +75,13 @@ export const SatelliteMobileCard: React.FC<SatelliteMobileCardProps> = ({
       </div>
 
       <RowActions className="mt-3 pl-2">
+        <RowAction
+          icon={Pencil}
+          label={`Edit ${satellite.name}`}
+          disabled={lock.isLocked}
+          title={lock.isLocked ? "Managed by GitOps" : "Edit satellite"}
+          onClick={() => onEdit(satellite)}
+        />
         <RowAction
           icon={KeyRound}
           label={`Reset token for ${satellite.name}`}

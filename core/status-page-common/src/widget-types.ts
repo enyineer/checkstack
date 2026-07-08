@@ -69,6 +69,12 @@ export const SystemHealthConfigSchema = z.object({
 export const GroupStatusConfigSchema = z.object({
   groupId: z.string().min(1),
   label: z.string().trim().max(120).optional(),
+  /**
+   * Collapse the member rows (keeping the group header pill) while every member
+   * is operational. Members are revealed automatically when any member is not
+   * operational (an issue or maintenance), and can always be expanded manually.
+   */
+  collapseWhenHealthy: z.boolean().default(false),
 });
 
 export const UptimeConfigSchema = z.object({
@@ -94,16 +100,39 @@ export const EventFeedConfigSchema = z.object({
   pastMaxAgeDays: z.number().int().min(1).max(90).default(7),
 });
 
-export const IncidentsConfigSchema = EventFeedConfigSchema.extend({
-  /** Restrict to incidents touching these systems. Empty = all visible. */
+/**
+ * Shared scope config for the event-feed widgets. The resolved scope is
+ * `(systemIds ∪ members(groupIds)) − excludedSystemIds`, computed at RESOLVE
+ * TIME so a member added to a group later is reflected automatically. An empty
+ * resolved scope fails CLOSED (shows nothing) - it never falls back to "all".
+ */
+export const EventFeedScopeSchema = z.object({
+  /** Explicitly-selected systems. */
   systemIds: z.array(z.string().min(1)).default([]),
+  /** Catalog groups whose (current) members are included. */
+  groupIds: z.array(z.string().min(1)).default([]),
+  /** Systems removed from the resolved scope (e.g. one member of a group). */
+  excludedSystemIds: z.array(z.string().min(1)).default([]),
+  /**
+   * Optional PUBLIC label override per system id (same mechanism as the system-
+   * health widget's per-system `label`). The raw catalog name can leak internal
+   * naming (e.g. `pay-svc-prod-3.internal`); an override lets operators present a
+   * clean public label. Applied when the widget - and therefore the public
+   * incident/maintenance DETAIL page - renders a system name; falls back to the
+   * catalog name only when there is no override, so naming stays consistent with
+   * the rest of the status page.
+   */
+  systemLabels: z.record(z.string(), z.string().trim().max(120)).default({}),
   limit: z.number().int().min(1).max(20).default(5),
 });
 
-export const MaintenanceConfigSchema = EventFeedConfigSchema.extend({
-  systemIds: z.array(z.string().min(1)).default([]),
-  limit: z.number().int().min(1).max(20).default(5),
-});
+export const IncidentsConfigSchema = EventFeedConfigSchema.extend(
+  EventFeedScopeSchema.shape,
+);
+
+export const MaintenanceConfigSchema = EventFeedConfigSchema.extend(
+  EventFeedScopeSchema.shape,
+);
 
 export const TextConfigSchema = z.object({
   /** Markdown, rendered SANITIZED on the public page (no raw HTML/JS). */
@@ -154,6 +183,8 @@ export const GroupStatusDtoSchema = z.object({
   label: z.string(),
   status: PublicStatusSchema,
   systems: z.array(StatusItemDtoSchema),
+  /** Echoes the config toggle so the renderer can collapse healthy groups. */
+  collapseWhenHealthy: z.boolean().default(false),
 });
 
 export const UptimeBarSchema = z.object({
@@ -185,6 +216,7 @@ export const IncidentDtoItemSchema = z.object({
   resolvedAt: z.string().optional(),
   updates: z.array(PublicUpdateSchema),
 });
+export type IncidentDtoItem = z.infer<typeof IncidentDtoItemSchema>;
 export const IncidentsDtoSchema = z.object({
   incidents: z.array(IncidentDtoItemSchema),
 });
@@ -198,6 +230,7 @@ export const MaintenanceDtoItemSchema = z.object({
   systems: z.array(z.string()),
   updates: z.array(PublicUpdateSchema),
 });
+export type MaintenanceDtoItem = z.infer<typeof MaintenanceDtoItemSchema>;
 export const MaintenanceDtoSchema = z.object({
   maintenances: z.array(MaintenanceDtoItemSchema),
 });

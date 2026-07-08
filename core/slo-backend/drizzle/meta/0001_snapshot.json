@@ -1,0 +1,377 @@
+{
+  "id": "88299c4c-bd1a-4102-9e20-b16c1c04d1b2",
+  "prevId": "dd026a71-5006-4d09-85b1-ba5b892fce3f",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.slo_achievements": {
+      "name": "slo_achievements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "system_id": {
+          "name": "system_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "achievement": {
+          "name": "achievement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unlocked_at": {
+          "name": "unlocked_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slo_daily_snapshots": {
+      "name": "slo_daily_snapshots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "objective_id": {
+          "name": "objective_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "availability_percent": {
+          "name": "availability_percent",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "budget_consumed_minutes": {
+          "name": "budget_consumed_minutes",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "budget_remaining_percent": {
+          "name": "budget_remaining_percent",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "burn_rate": {
+          "name": "burn_rate",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "streak_days": {
+          "name": "streak_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slo_daily_snapshots_objective_id_slo_objectives_id_fk": {
+          "name": "slo_daily_snapshots_objective_id_slo_objectives_id_fk",
+          "tableFrom": "slo_daily_snapshots",
+          "tableTo": "slo_objectives",
+          "columnsFrom": [
+            "objective_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slo_downtime_events": {
+      "name": "slo_downtime_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "objective_id": {
+          "name": "objective_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "system_id": {
+          "name": "system_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_time": {
+          "name": "start_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_time": {
+          "name": "end_time",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_seconds": {
+          "name": "duration_seconds",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attribution_type": {
+          "name": "attribution_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "upstream_system_id": {
+          "name": "upstream_system_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upstream_system_name": {
+          "name": "upstream_system_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slo_downtime_events_objective_id_slo_objectives_id_fk": {
+          "name": "slo_downtime_events_objective_id_slo_objectives_id_fk",
+          "tableFrom": "slo_downtime_events",
+          "tableTo": "slo_objectives",
+          "columnsFrom": [
+            "objective_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slo_objectives": {
+      "name": "slo_objectives",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "system_id": {
+          "name": "system_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "health_check_configuration_id": {
+          "name": "health_check_configuration_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target": {
+          "name": "target",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_days": {
+          "name": "window_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dependency_exclusion": {
+          "name": "dependency_exclusion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'strict'"
+        },
+        "excluded_dependency_ids": {
+          "name": "excluded_dependency_ids",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "exclude_maintenance_windows": {
+          "name": "exclude_maintenance_windows",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "burn_rate_warning_percent": {
+          "name": "burn_rate_warning_percent",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 50
+        },
+        "burn_rate_critical_percent": {
+          "name": "burn_rate_critical_percent",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 80
+        },
+        "burn_rate_fast_burn_multiplier": {
+          "name": "burn_rate_fast_burn_multiplier",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.slo_streaks": {
+      "name": "slo_streaks",
+      "schema": "",
+      "columns": {
+        "objective_id": {
+          "name": "objective_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "system_id": {
+          "name": "system_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_streak": {
+          "name": "current_streak",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "best_streak": {
+          "name": "best_streak",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "streak_start": {
+          "name": "streak_start",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "best_streak_end": {
+          "name": "best_streak_end",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slo_streaks_objective_id_slo_objectives_id_fk": {
+          "name": "slo_streaks_objective_id_slo_objectives_id_fk",
+          "tableFrom": "slo_streaks",
+          "tableTo": "slo_objectives",
+          "columnsFrom": [
+            "objective_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

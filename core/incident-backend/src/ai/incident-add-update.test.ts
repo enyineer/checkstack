@@ -45,7 +45,12 @@ describe("incident.addUpdate tool", () => {
   });
 
   test("execute (apply) posts via addUpdate", async () => {
-    const created = { id: "upd1", ...input, createdAt: new Date() };
+    const created = {
+      id: "upd1",
+      ...input,
+      visibility: "public" as const,
+      createdAt: new Date(),
+    };
     const addUpdate = mock(() => Promise.resolve(created));
     const rpcClient = fakeRpcClient({ addUpdate });
     const tool = createIncidentAddUpdateTool();

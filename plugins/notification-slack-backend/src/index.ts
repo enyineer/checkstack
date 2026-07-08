@@ -12,6 +12,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
+  validateWebhookUrl,
   IMPORTANCE_EMOJI,
   renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
@@ -196,6 +197,17 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
       };
     }
 
+    // SSRF guard: the webhook URL is user-supplied. Reject it up front if it
+    // resolves to an internal/reserved address, and refuse redirects below so a
+    // receiver cannot 3xx us at an internal host past this pre-flight.
+    const validation = await validateWebhookUrl({ url: userConfig.webhookUrl });
+    if (!validation.ok) {
+      logger.warn(
+        `Blocked Slack delivery to ${userConfig.webhookUrl}: ${validation.error}`,
+      );
+      return { success: false, error: validation.error };
+    }
+
     // Build the Slack payload
     const payload = buildSlackPayload({
       title: notification.title,
@@ -209,6 +221,7 @@ const slackStrategy: NotificationStrategy<SlackConfig, SlackUserConfig> = {
     const result = await postJson({
       url: userConfig.webhookUrl,
       body: payload,
+      redirect: "error",
       serviceName: "Slack",
       logger,
     });
@@ -241,6 +254,11 @@ export default createBackendPlugin({
  * public API surface.
  * @internal
  */
-export { slackConfigSchemaV1, slackUserConfigSchema, buildSlackPayload };
+export {
+  slackConfigSchemaV1,
+  slackUserConfigSchema,
+  buildSlackPayload,
+  slackStrategy,
+};
 /** @internal */
 export type { SlackConfig, SlackUserConfig, SlackBlockOptions, SlackPayload };

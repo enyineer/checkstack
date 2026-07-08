@@ -144,6 +144,16 @@ env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
 
 `resolvePublic` may read anything via the trusted `ctx.rpcClient`, but must return only `dtoSchema` fields. The service validates the result against `dtoSchema` before it leaves the backend.
 
+### Resolve in bulk, never per item
+
+A widget renders a PUBLIC page, so every RPC a resolver makes is real external DB load. A resolver that already has a list of ids (systems, incidents, maintenances) MUST fetch their data with ONE bulk call keyed by id, never a per-item fan-out. The owning plugins expose bulk-by-id endpoints for exactly this:
+
+- Health check: `getBulkRunStats({ systemIds, startDate, endDate, maxBuckets })` returns `{ stats: Record<systemId, RunStats> }` (the `systemHealth` uptime column uses it instead of one `getRunStats` per system). Systems with no runs in the window are omitted.
+- Incident: `getBulkIncidentUpdates({ incidentIds })` returns `{ updates: Record<incidentId, IncidentUpdate[]> }` (the incidents widget uses it instead of one `getIncident` per incident just to read `.updates`).
+- Maintenance: `getBulkMaintenanceUpdates({ maintenanceIds })` returns `{ updates: Record<maintenanceId, MaintenanceUpdate[]> }` (the maintenance widget's symmetric endpoint).
+
+Each is `POST` (array input), keyed by the resource id, and gated with the record post-filter (`recordKey`) that matches the single endpoint's read scope - so a team-scoped caller only sees ids they may read, exactly like the sibling `getBulkSystemHealthStatus` / `getBulkIncidentsForSystems`. The update endpoints additionally apply the SAME per-item audience filter as `getIncident` / `getMaintenance`, so a logged-in/internal update (or author identity) never reaches a caller who is not a manager of that item; the public widget re-filters to `public` on top.
+
 ### Frontend: the renderer
 
 Contribute the renderer from your frontend plugin with `defineStatusWidgetRenderer` (in `@checkstack/status-page-common`), keyed by the same qualified widget-type id. It lands in your plugin's `extensions[]` and is collected through the plugin registry - no extra lifecycle:

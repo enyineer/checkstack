@@ -6,29 +6,38 @@ import { SystemDetailsTopSlot } from "@checkstack/catalog-common";
 import { IncidentApi } from "../api";
 import {
   incidentRoutes,
+  type IncidentSeverity,
   type IncidentWithSystems,
 } from "@checkstack/incident-common";
-import { cn, LoadingSpinner, Button } from "@checkstack/ui";
+import { cn, LoadingSpinner, Button, type StatusPillTone } from "@checkstack/ui";
 import { AlertTriangle, History } from "lucide-react";
+import { presentIncidentSeverity } from "../utils/badges.logic";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
 const SEVERITY_WEIGHTS = { critical: 3, major: 2, minor: 1 } as const;
 
-/** Colorblind-safe status triad tone for each incident severity. */
-type StatusTone = "warn" | "down" | "unknown";
-
-function severityTone(severity: string): StatusTone {
-  if (severity === "critical") return "down";
-  if (severity === "major") return "warn";
-  return "unknown";
+/**
+ * Colorblind-safe status tone for an incident severity. Reuses the canonical
+ * severity -> tone mapping (`critical` -> down, `major` -> warn, `minor` ->
+ * info) so this panel never drifts from the incident badges/list; a `minor`
+ * incident used to fall through to the neutral grey `unknown` tone here.
+ */
+function severityTone(severity: IncidentSeverity): StatusPillTone {
+  return presentIncidentSeverity(severity).tone;
 }
 
-/** Per-tone class sets for the panel surface, leading icon, and severity pill. */
+/** Per-tone class sets for the panel surface, leading icon, pill, and dot. */
 const toneStyles: Record<
-  StatusTone,
+  StatusPillTone,
   { surface: string; icon: string; pill: string; dot: string }
 > = {
+  ok: {
+    surface: "border-status-ok/30 bg-status-ok/5",
+    icon: "text-status-ok",
+    pill: "bg-status-ok/10 text-status-ok",
+    dot: "bg-status-ok",
+  },
   down: {
     surface: "border-status-down/30 bg-status-down/5",
     icon: "text-status-down",
@@ -40,6 +49,12 @@ const toneStyles: Record<
     icon: "text-status-warn",
     pill: "bg-status-warn/10 text-status-warn",
     dot: "bg-status-warn",
+  },
+  info: {
+    surface: "border-status-info/30 bg-status-info/5",
+    icon: "text-status-info",
+    pill: "bg-status-info/10 text-status-info",
+    dot: "bg-status-info",
   },
   unknown: {
     surface: "border-status-unknown/30 bg-status-unknown/5",

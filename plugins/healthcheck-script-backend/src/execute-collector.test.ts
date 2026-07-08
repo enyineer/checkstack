@@ -1,5 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
-import { evaluateAssertions } from "@checkstack/backend-api";
+import {
+  evaluateAssertions,
+  renderTemplatableConfig,
+} from "@checkstack/backend-api";
 import { ExecuteCollector, type ExecuteConfig } from "./execute-collector";
 import type { ScriptTransportClient } from "./transport-client";
 
@@ -578,5 +581,73 @@ describe("ExecuteCollector — global-only sandbox (no per-item override)", () =
       pluginId: "test",
     });
     expect(getInput()?.sandbox).toBeUndefined();
+  });
+});
+
+describe("ExecuteCollector — environment templating (cwd)", () => {
+  // `cwd` is `x-templatable`, so the executor renders `{{ environment.* }}` into
+  // it PER environment before execute. The `script` body is deliberately NOT
+  // templatable (env data reaches it via `CHECKSTACK_ENV_*` shell vars), so only
+  // the working directory fans out per environment. These tests exercise the
+  // render pass and confirm the rendered cwd reaches the transport client.
+  const makeRecordingClient = (): {
+    client: ScriptTransportClient;
+    getInput: () => Record<string, unknown> | undefined;
+  } => {
+    let captured: Record<string, unknown> | undefined;
+    return {
+      getInput: () => captured,
+      client: {
+        exec: async (input) => {
+          captured = input as unknown as Record<string, unknown>;
+          return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+        },
+      },
+    };
+  };
+
+  const render = (config: ExecuteConfig, environment: Record<string, unknown>) => {
+    const collector = new ExecuteCollector();
+    return renderTemplatableConfig({
+      config,
+      schema: collector.config.schema,
+      context: { environment, check: {}, system: {} },
+    }) as ExecuteConfig;
+  };
+
+  it("renders a {{ environment.workdir }} template into cwd", () => {
+    const rendered = render(
+      { script: "echo hi", cwd: "{{ environment.workdir }}", timeout: 5000 },
+      { workdir: "/srv/prod" },
+    );
+    expect(rendered.cwd).toBe("/srv/prod");
+    // The script body is NOT templated - a `{{ }}` in it is passed through.
+    expect(rendered.script).toBe("echo hi");
+  });
+
+  it("forwards the rendered cwd to the transport client", async () => {
+    const { client, getInput } = makeRecordingClient();
+    const collector = new ExecuteCollector();
+    const rendered = render(
+      { script: "pwd", cwd: "{{ environment.workdir }}", timeout: 5000 },
+      { workdir: "/srv/staging" },
+    );
+
+    await collector.execute({ config: rendered, client, pluginId: "test" });
+
+    expect(getInput()?.cwd).toBe("/srv/staging");
+  });
+
+  it("leaves the script body untouched when it contains {{ }}", () => {
+    const rendered = render(
+      {
+        script: "echo '{{ environment.workdir }}'",
+        timeout: 5000,
+      },
+      { workdir: "/srv/prod" },
+    );
+    // Only `cwd` is templatable; the shell source is passed through verbatim so
+    // env values are never spliced into executed code.
+    expect(rendered.script).toBe("echo '{{ environment.workdir }}'");
   });
 });

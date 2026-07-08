@@ -1,5 +1,5 @@
-import { eq, and, desc, inArray, isNull, isNotNull } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import { eq, and, desc, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import type { SafeDatabase, ScopedQueryRunner } from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   anomalySettingsConfig,
@@ -11,6 +11,19 @@ import type {
   AnomalySettings,
   PartialAnomalySettings,
 } from "@checkstack/anomaly-common";
+
+/**
+ * Composite map key for an assignment's (systemId, configurationId) pair.
+ * `JSON.stringify` keeps the two ids unambiguously separated so no id value can
+ * collide with the join. Shared by the batch assignment-config loader and its
+ * callers.
+ */
+export function anomalyAssignmentKey(
+  systemId: string,
+  configurationId: string,
+): string {
+  return JSON.stringify([systemId, configurationId]);
+}
 
 export class AnomalyService {
   constructor(private readonly db: SafeDatabase<typeof schema>) {}
@@ -288,6 +301,51 @@ export class AnomalyService {
     return anomalySettingsConfig.parseRecord(toVersionedRecord(result.config));
   }
 
+  /**
+   * Batch counterpart to {@link getAnomalyConfig}: resolve template configs for
+   * MANY configuration ids in ONE set-based `inArray` read instead of one
+   * SELECT per id (an N+1 in the hourly baseline analyzer). Returns a map keyed
+   * by configurationId; ids with no stored row resolve to the same default
+   * wrapper `getAnomalyConfig` returns, so callers see identical values.
+   *
+   * `runner` lets the caller compose this read onto an existing
+   * `withScopedTransaction` (defaults to the service db).
+   */
+  async getAnomalyConfigsByIds({
+    configurationIds,
+    runner = this.db,
+  }: {
+    configurationIds: string[];
+    runner?: ScopedQueryRunner<typeof schema>;
+  }): Promise<Map<string, VersionedRecord<AnomalySettings>>> {
+    const uniqueIds = [...new Set(configurationIds)];
+    const map = new Map<string, VersionedRecord<AnomalySettings>>();
+    if (uniqueIds.length === 0) return map;
+
+    const rows = await runner
+      .select()
+      .from(schema.anomalyConfigurations)
+      .where(inArray(schema.anomalyConfigurations.configurationId, uniqueIds));
+    const byId = new Map(rows.map((r) => [r.configurationId, r]));
+
+    for (const id of uniqueIds) {
+      const row = byId.get(id);
+      map.set(
+        id,
+        row
+          ? await anomalySettingsConfig.parseRecord(
+              toVersionedRecord(row.config),
+            )
+          : anomalySettingsConfig.create({
+              enabled: true,
+              baselineWindow: "7d",
+              notify: true,
+            }),
+      );
+    }
+    return map;
+  }
+
   async updateAnomalyConfig(
     configurationId: string,
     configData: AnomalySettings,
@@ -328,6 +386,59 @@ export class AnomalyService {
     return anomalyAssignmentConfig.parseRecord(
       toVersionedRecord(result.config),
     );
+  }
+
+  /**
+   * Batch counterpart to {@link getAnomalyAssignmentConfig}: resolve
+   * assignment-level overrides for MANY (systemId, configurationId) pairs in ONE
+   * read instead of one SELECT per assignment (an N+1 in the hourly baseline
+   * analyzer). Returns a map keyed by {@link anomalyAssignmentKey}; pairs with
+   * no stored override are simply absent (mirroring the single method returning
+   * `undefined`).
+   *
+   * `runner` lets the caller compose this read onto an existing
+   * `withScopedTransaction` (defaults to the service db).
+   */
+  async getAnomalyAssignmentConfigsByKeys({
+    keys,
+    runner = this.db,
+  }: {
+    keys: Array<{ systemId: string; configurationId: string }>;
+    runner?: ScopedQueryRunner<typeof schema>;
+  }): Promise<Map<string, VersionedRecord<PartialAnomalySettings>>> {
+    const map = new Map<string, VersionedRecord<PartialAnomalySettings>>();
+    if (keys.length === 0) return map;
+
+    // Dedupe pairs and build one OR-of-ANDs predicate so exactly the requested
+    // assignments are returned (no cross-product over-fetch).
+    const seen = new Set<string>();
+    const conditions = [];
+    for (const { systemId, configurationId } of keys) {
+      const key = anomalyAssignmentKey(systemId, configurationId);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      conditions.push(
+        and(
+          eq(schema.anomalyAssignments.systemId, systemId),
+          eq(schema.anomalyAssignments.configurationId, configurationId),
+        ),
+      );
+    }
+
+    const rows = await runner
+      .select()
+      .from(schema.anomalyAssignments)
+      .where(or(...conditions));
+
+    for (const row of rows) {
+      map.set(
+        anomalyAssignmentKey(row.systemId, row.configurationId),
+        await anomalyAssignmentConfig.parseRecord(
+          toVersionedRecord(row.config),
+        ),
+      );
+    }
+    return map;
   }
 
   async updateAnomalyAssignmentConfig(

@@ -41,16 +41,33 @@ import { containerSetupInstructions } from "./setup-instructions";
  * collectors.
  */
 export const containerConfigSchema = baseStrategyConfigSchema.extend({
-  endpoint: configString({})
+  // Templatable: supports `{{ environment.endpoint }}` so one config covers N
+  // environments. Presence is enforced POST-RENDER in `createClient` (an empty
+  // render must not silently probe an empty endpoint).
+  endpoint: configString({ "x-templatable": true })
     .min(1)
     .default("http://socket-proxy:2375")
     .describe(
-      "URL of your read-only socket-proxy (e.g. http://socket-proxy:2375) or a runtime socket path (e.g. unix:///run/user/1000/podman/podman.sock). Never point this at the raw Docker socket - see the setup guide.",
+      "URL of your read-only socket-proxy (e.g. http://socket-proxy:2375) or a runtime socket path (e.g. unix:///run/user/1000/podman/podman.sock). Never point this at the raw Docker socket - see the setup guide. Supports templating, e.g. {{ environment.endpoint }}",
     ),
-  container: configString({})
+  // Templatable: supports `{{ environment.container }}` so one config covers N
+  // environments. Presence is enforced POST-RENDER in `createClient`.
+  container: configString({ "x-templatable": true })
     .min(1)
-    .describe("Container name or ID to monitor"),
+    .describe(
+      "Container name or ID to monitor. Supports templating, e.g. {{ environment.container }}",
+    ),
 });
+
+/**
+ * Post-render validator for the required `endpoint` / `container`. The stored
+ * values are templatable strings, so `.min(1)` cannot meaningfully run at store
+ * time against a template; the executor renders `{{ environment.* }}` per
+ * environment, then this rejects a render that collapsed to empty/whitespace. An
+ * empty value is a config error - transport-failure semantics - not a "healthy"
+ * empty probe.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 export type ContainerConfig = z.infer<typeof containerConfigSchema>;
 
@@ -183,9 +200,29 @@ export class ContainerHealthCheckStrategy
     config: ContainerConfig,
   ): Promise<ConnectedClient<ContainerTransportClient>> {
     const validated = this.config.validate(config);
+
+    // Post-render guards: `endpoint` and `container` are templatable strings, so
+    // presence cannot be checked at store time. The executor has already
+    // rendered `{{ environment.* }}` into them; reject a render that collapsed to
+    // empty so the run fails clearly instead of probing an empty target.
+    const endpoint = renderedRequiredSchema.safeParse(validated.endpoint);
+    if (!endpoint.success) {
+      throw new Error(
+        `Rendered endpoint is empty: ${JSON.stringify(validated.endpoint)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+    const container = renderedRequiredSchema.safeParse(validated.container);
+    if (!container.success) {
+      throw new Error(
+        `Rendered container is empty: ${JSON.stringify(validated.container)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     const api = createRuntimeApi({
-      endpoint: validated.endpoint,
-      container: validated.container,
+      endpoint: endpoint.data,
+      container: container.data,
       timeoutMs: validated.timeout,
       fetchImpl: this.fetchImpl,
     });

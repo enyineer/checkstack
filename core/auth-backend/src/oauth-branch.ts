@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { RealUser, SafeDatabase } from "@checkstack/backend-api";
+import type { RealUser, ScopedQueryRunner } from "@checkstack/backend-api";
 import { narrowScopes } from "./scope-narrowing";
 import * as schema from "./schema";
 
@@ -31,7 +31,7 @@ export async function introspectOpaqueToken({
   token,
   now = new Date(),
 }: {
-  db: SafeDatabase<typeof schema>;
+  db: ScopedQueryRunner<typeof schema>;
   token: string;
   now?: Date;
 }): Promise<IntrospectedOAuthSession | undefined> {

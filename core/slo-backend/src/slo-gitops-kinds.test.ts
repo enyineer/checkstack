@@ -36,6 +36,7 @@ const stubService = () => {
     windowDays: 30,
     dependencyExclusion: "strict",
     excludedDependencyIds: [],
+    excludeMaintenanceWindows: false,
     burnRateThresholds: {
       warningPercent: 50,
       criticalPercent: 80,
@@ -107,6 +108,7 @@ describe("buildSloKind", () => {
         windowDays: 30,
         dependencyExclusion: "strict",
         excludedDependencyIds: [],
+        excludeMaintenanceWindows: false,
         burnRateThresholds: {
           warningPercent: 50,
           criticalPercent: 80,

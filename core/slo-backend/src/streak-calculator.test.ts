@@ -30,6 +30,7 @@ function objective(
     windowDays: over.windowDays ?? 30,
     dependencyExclusion: over.dependencyExclusion ?? "self-only",
     excludedDependencyIds: over.excludedDependencyIds,
+    excludeMaintenanceWindows: over.excludeMaintenanceWindows ?? false,
     burnRateThresholds: over.burnRateThresholds ?? {
       warningPercent: 50,
       criticalPercent: 80,

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import type { AiPermissionMode } from "@checkstack/ai-common";
 import * as schema from "../schema";
 import type {
@@ -165,24 +166,29 @@ export function createAiConversationStore({
     }) {
       // Scrub credential-shaped keys/values from EVERY bag on the write path:
       // the no-secret-leak guarantee is enforced here, not merely assumed.
-      const [row] = await db
-        .insert(schema.aiMessages)
-        .values({
-          conversationId,
-          role,
-          content: scrubContent(content),
-          toolCalls: toolCalls ? scrubModelMessages(toolCalls) : toolCalls,
-          modelMessages: modelMessages
-            ? scrubModelMessages(modelMessages)
-            : modelMessages,
-        })
-        .returning();
-      // Bump the owning conversation so list order reflects activity.
-      await db
-        .update(schema.aiConversations)
-        .set({ updatedAt: new Date() })
-        .where(eq(schema.aiConversations.id, conversationId));
-      return row;
+      // Insert + conversation bump run in ONE scoped transaction: a single
+      // SET LOCAL search_path instead of two, and the bump can never be lost
+      // relative to the message it accompanies (atomicity bonus).
+      return withScopedTransaction(db, async (tx) => {
+        const [row] = await tx
+          .insert(schema.aiMessages)
+          .values({
+            conversationId,
+            role,
+            content: scrubContent(content),
+            toolCalls: toolCalls ? scrubModelMessages(toolCalls) : toolCalls,
+            modelMessages: modelMessages
+              ? scrubModelMessages(modelMessages)
+              : modelMessages,
+          })
+          .returning();
+        // Bump the owning conversation so list order reflects activity.
+        await tx
+          .update(schema.aiConversations)
+          .set({ updatedAt: new Date() })
+          .where(eq(schema.aiConversations.id, conversationId));
+        return row;
+      });
     },
 
     async listMessages({ conversationId }) {

@@ -1,0 +1,35 @@
+{
+  "name": "@checkstack/notification-webhook-backend",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend",
+    "pluginId": "notification-webhook"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugin-metadata": "./src/plugin-metadata.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "eslint src --ext .ts",
+    "test": "bun test",
+    "pack": "bunx @checkstack/scripts plugin-pack"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/notification-backend": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.9.3"
+  },
+  "description": "Checkstack notification-webhook-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
+}

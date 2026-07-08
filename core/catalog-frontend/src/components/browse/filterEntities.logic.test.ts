@@ -27,6 +27,7 @@ function makeSystem(props: Partial<System> & { id: string; name: string }): Syst
 function makeGroup(props: Partial<Group> & { id: string; name: string }): Group {
   return {
     systemIds: [],
+    sortOrder: 0,
     metadata: null,
     createdAt: NOW,
     updatedAt: NOW,

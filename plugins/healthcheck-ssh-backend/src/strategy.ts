@@ -13,6 +13,7 @@ import {
   mergeCounter,
   mergeMinMax,
   z,
+  configString,
   configSecret,
   type ConnectedClient,
   type TransportTimings,
@@ -36,9 +37,16 @@ import type { SshTransportClient, SshCommandResult } from "./transport-client";
  * Configuration schema for SSH health checks.
  */
 export const sshConfigSchema = baseStrategyConfigSchema.extend({
-  host: z.string().describe("SSH server hostname"),
+  // Templatable connection fields: support `{{ environment.host }}` etc. so one
+  // config covers N environments. Presence is enforced POST-RENDER in
+  // `createClient`. The auth secrets stay `configSecret` (never templatable).
+  host: configString({ "x-templatable": true }).describe(
+    "SSH server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: z.number().int().min(1).max(65_535).default(22).describe("SSH port"),
-  username: z.string().describe("SSH username"),
+  username: configString({ "x-templatable": true }).describe(
+    "SSH username. Supports templating, e.g. {{ environment.user }}",
+  ),
   password: configSecret({ id: "password" })
     .describe("Password for authentication")
     .optional(),
@@ -52,6 +60,15 @@ export const sshConfigSchema = baseStrategyConfigSchema.extend({
 
 export type SshConfig = z.infer<typeof sshConfigSchema>;
 export type SshConfigInput = z.input<typeof sshConfigSchema>;
+
+/**
+ * Post-render validator for required connection fields. The stored values are
+ * plain templatable strings, so presence cannot be checked at store time; the
+ * executor renders `{{ environment.* }}` per environment, then this rejects a
+ * render that collapsed to empty/whitespace. An empty host/username is a config
+ * error that prevents the probe - transport-failure semantics.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -293,14 +310,31 @@ export class SshHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<SshTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: `host`/`username` are templatable strings, so their
+    // presence cannot be checked at store time. The executor has already
+    // rendered `{{ environment.* }}`; reject a render that collapsed to empty so
+    // the run fails clearly instead of attempting an empty connection.
+    const rendered = z
+      .object({ host: renderedRequiredSchema, username: renderedRequiredSchema })
+      .safeParse({
+        host: validatedConfig.host,
+        username: validatedConfig.username,
+      });
+    if (!rendered.success) {
+      throw new Error(
+        `Rendered SSH connection fields are empty (host/username). ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     // The SSH handshake (TCP connect + auth + channel ready) is a single
     // measurable phase up front; record it as connectMs. The per-command exec
     // time is filled in below as processingMs (last-command-wins).
     const connectStart = performance.now();
     const connection = await this.sshClient.connect({
-      host: validatedConfig.host,
+      host: rendered.data.host,
       port: validatedConfig.port,
-      username: validatedConfig.username,
+      username: rendered.data.username,
       password: validatedConfig.password,
       privateKey: validatedConfig.privateKey,
       passphrase: validatedConfig.passphrase,

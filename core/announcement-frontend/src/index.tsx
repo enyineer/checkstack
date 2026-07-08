@@ -6,9 +6,12 @@ import {
   announcementRoutes,
   pluginMetadata,
   announcementAccess,
+  ANNOUNCEMENTS_WIDGET_ID,
 } from "@checkstack/announcement-common";
+import { defineStatusWidgetRenderer } from "@checkstack/status-page-common";
 import { Megaphone } from "lucide-react";
 import { DashboardAnnouncements } from "./components/DashboardAnnouncements";
+import { StatusAnnouncementsWidget } from "./components/StatusAnnouncementsWidget";
 
 export default createFrontendPlugin({
   metadata: pluginMetadata,
@@ -33,6 +36,13 @@ export default createFrontendPlugin({
       component:
         DashboardAnnouncements as React.ComponentType<unknown>,
     },
+    // Status-page "Announcements" widget renderer. The backend contributes the
+    // widget TYPE + resolver; this draws the resolved public DTO.
+    defineStatusWidgetRenderer({
+      pluginMetadata,
+      id: ANNOUNCEMENTS_WIDGET_ID,
+      component: StatusAnnouncementsWidget,
+    }),
   ],
 });
 

@@ -3,49 +3,22 @@ import type {
   IncidentSeverity,
   IncidentHealthOverride,
 } from "@checkstack/incident-common";
+import {
+  pillToneStyles as toneStyles,
+  type StatusPillTone as StatusTone,
+} from "@checkstack/ui";
 
 /**
- * Pure, DOM-free mapping from incident status/severity to the colorblind-safe
- * status triad. Kept out of `badges.tsx` so the tone logic and the accent-class
- * derivation are testable without pulling React (or the incident-common runtime
- * chain) into the test process.
+ * Pure mapping from incident status/severity to the shared, colorblind-safe
+ * status tones. `StatusTone` + `toneStyles` are hoisted into `@checkstack/ui`
+ * (a DOM-free module) so both this plugin and maintenance consume ONE copy - the
+ * type import is erased at runtime and the value import carries no React.
  *
  * Status is multi-encoded (hue + a dot + a text label, and a left accent stripe
  * on cards/rows) so it never reads by color alone.
  */
-export type StatusTone = "ok" | "warn" | "down" | "unknown";
-
-/**
- * Per-tone class sets for the status pill, its leading dot, and a left accent
- * stripe used by cards/rows. Spelled out as full literal strings (not
- * interpolated) so Tailwind's JIT keeps them, and driven by the shared status
- * triad tokens.
- */
-export const toneStyles: Record<
-  StatusTone,
-  { pill: string; dot: string; accent: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
-};
+export { pillToneStyles as toneStyles } from "@checkstack/ui";
+export type { StatusPillTone as StatusTone } from "@checkstack/ui";
 
 /**
  * Impact rank for incident severity: highest impact sorts first (lowest
@@ -87,7 +60,9 @@ export function presentIncidentStatus(status: IncidentStatus): {
       return { tone: "warn", label: "Fixing" };
     }
     case "monitoring": {
-      return { tone: "unknown", label: "Monitoring" };
+      // Blue "info" tone: monitoring is neither a hard problem nor unknown -
+      // it's an informational "watching for recurrence" state (Item 7 fix).
+      return { tone: "info", label: "Monitoring" };
     }
     case "resolved": {
       return { tone: "ok", label: "Resolved" };
@@ -111,7 +86,11 @@ export function presentIncidentSeverity(severity: IncidentSeverity): {
       return { tone: "warn", label: "Major" };
     }
     case "minor": {
-      return { tone: "unknown", label: "Minor" };
+      // Blue "info" tone: a minor incident is the lowest-impact problem, sitting
+      // below major on the severity ramp. Mapping it to info gives a clean ramp
+      // blue(minor) -> amber(major) -> red(critical) with no minor/major amber
+      // collision (Item 7 fix).
+      return { tone: "info", label: "Minor" };
     }
     default: {
       return { tone: "unknown", label: severity };

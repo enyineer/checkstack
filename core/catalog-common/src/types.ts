@@ -60,6 +60,8 @@ export const GroupSchema = z.object({
   id: z.string(),
   name: z.string(),
   systemIds: z.array(z.string()), // Required field from the service layer
+  /** Persisted browse order (lower sorts first). */
+  sortOrder: z.number(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),

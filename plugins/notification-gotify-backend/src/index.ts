@@ -11,6 +11,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
+  validateWebhookUrl,
   renderSubjectsAsPlainText,
 } from "@checkstack/notification-backend";
 import { pluginMetadata } from "./plugin-metadata";
@@ -159,6 +160,15 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
     const serverUrl = strategyConfig.serverUrl.replace(/\/$/, "");
     const url = `${serverUrl}/message?token=${encodeURIComponent(userConfig.appToken)}`;
 
+    // SSRF guard: the Gotify server URL is user-supplied. Reject it up front if
+    // it resolves to an internal/reserved address, and refuse redirects below so
+    // a server cannot 3xx us at an internal host past this pre-flight.
+    const validation = await validateWebhookUrl({ url });
+    if (!validation.ok) {
+      logger.warn(`Blocked Gotify delivery to ${serverUrl}: ${validation.error}`);
+      return { success: false, error: validation.error };
+    }
+
     // Send to Gotify
     const result = await postJson({
       url,
@@ -168,6 +178,7 @@ const gotifyStrategy: NotificationStrategy<GotifyConfig, GotifyUserConfig> = {
         priority: mapImportanceToPriority(notification.importance),
         extras: Object.keys(extras).length > 0 ? extras : undefined,
       },
+      redirect: "error",
       serviceName: "Gotify",
       logger,
     });
@@ -209,6 +220,7 @@ export {
   gotifyConfigSchemaV1,
   gotifyUserConfigSchema,
   mapImportanceToPriority,
+  gotifyStrategy,
 };
 /** @internal */
 export type { GotifyConfig, GotifyUserConfig };

@@ -11,10 +11,12 @@ import {
 } from "@checkstack/slo-common";
 import { SystemSloPanel } from "./components/SystemSloPanel";
 import { SystemSloBadge } from "./components/SystemSloBadge";
+import { CatalogBrowseSloDataFiller } from "./components/CatalogBrowseSloDataFiller";
 import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemSignalsSlot,
+  CatalogBrowseDataBoundarySlot,
   catalogResourceTypes,
 } from "@checkstack/catalog-common";
 
@@ -68,6 +70,13 @@ export default createFrontendPlugin({
     createSlotExtension(SystemStateBadgesSlot, {
       id: "slo.system-state-badge",
       component: SystemSloBadge,
+    }),
+    // Bulk-fills the catalog browse tree with SLO objectives keyed on the whole
+    // visible systemIds set, so the per-row SystemSloBadges read from context
+    // instead of each firing getObjectivesForSystem — eliminating the N+1.
+    createSlotExtension(CatalogBrowseDataBoundarySlot, {
+      id: "slo.catalog.browse-slo-data",
+      component: CatalogBrowseSloDataFiller,
     }),
     createSlotExtension(SystemDetailsTopSlot, {
       id: "slo.system-details-top.panel",

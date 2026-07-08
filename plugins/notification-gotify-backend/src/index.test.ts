@@ -1,9 +1,45 @@
-import { describe, it, expect, spyOn } from "bun:test";
+import { describe, it, expect, spyOn, mock } from "bun:test";
+import type {
+  Logger,
+  NotificationSendContext,
+} from "@checkstack/backend-api";
 import {
   gotifyConfigSchemaV1,
   gotifyUserConfigSchema,
   mapImportanceToPriority,
+  gotifyStrategy,
 } from "./index";
+
+function makeLogger(): Logger {
+  return {
+    info: mock(() => {}),
+    error: mock(() => {}),
+    warn: mock(() => {}),
+    debug: mock(() => {}),
+  };
+}
+
+function makeContext(
+  serverUrl: string,
+): NotificationSendContext<
+  { serverUrl: string },
+  { appToken: string }
+> {
+  return {
+    user: { userId: "u1" },
+    contact: "tok",
+    notification: {
+      title: "Alert",
+      body: "body",
+      importance: "info",
+      type: "test",
+    },
+    strategyConfig: { serverUrl },
+    userConfig: { appToken: "tok" },
+    layoutConfig: undefined,
+    logger: makeLogger(),
+  };
+}
 
 /**
  * Unit tests for the Gotify Notification Strategy.
@@ -175,6 +211,50 @@ describe("Gotify Notification Strategy", () => {
         expect(response.status).toBe(401);
       } finally {
         mockFetch.mockRestore();
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SSRF hardening (user-supplied Gotify server URL)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("SSRF hardening", () => {
+    it("rejects a server URL that resolves to a blocked host before dispatch", async () => {
+      const fetchSpy = spyOn(globalThis, "fetch");
+      try {
+        const result = await gotifyStrategy.send(
+          makeContext("http://169.254.169.254"),
+        );
+        expect(result.success).toBe(false);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("refuses redirects so a 302 to a blocked host is not followed", async () => {
+      let targetHit = false;
+      const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+        _url: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        if (init?.redirect === "error") {
+          throw new TypeError("unexpected redirect");
+        }
+        targetHit = true;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch);
+      try {
+        const result = await gotifyStrategy.send(
+          makeContext("https://93.184.216.34"),
+        );
+        expect(result.success).toBe(false);
+        expect(targetHit).toBe(false);
+        const init = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+        expect(init?.redirect).toBe("error");
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });
