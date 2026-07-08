@@ -2,8 +2,11 @@ import type { SloService } from "./service";
 import type {
   SloObjective,
   SloStatus,
+  SloDowntimeEvent,
+  AttributionType,
+  DowntimeSource,
 } from "@checkstack/slo-common";
-import type { Logger } from "@checkstack/backend-api";
+import type { AdvisoryLockService, Logger } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
 import { SLO_STATUS_CHANGED } from "@checkstack/slo-common";
 
@@ -19,6 +22,7 @@ export class SloEngine {
   private service: SloService;
   private signalService: SignalService;
   private logger: Logger;
+  private advisoryLock: AdvisoryLockService | undefined;
   private _getSystemHealthStatus:
     | ((systemId: string) => Promise<{ isHealthy: boolean }>)
     | undefined;
@@ -35,15 +39,31 @@ export class SloEngine {
         to: Date;
       }) => Promise<Array<{ startAt: Date; endAt: Date; status: string }>>)
     | undefined;
+  private _isIncidentOverrideActive:
+    | ((args: { systemId: string }) => Promise<{ active: boolean }>)
+    | undefined;
 
-  constructor({ service, signalService, logger }: {
+  constructor({ service, signalService, logger, advisoryLock }: {
     service: SloService;
     signalService: SignalService;
     logger: Logger;
+    /**
+     * Cross-pod advisory lock used to serialize the "open a downtime event if
+     * none is open" critical section across the INDEPENDENT work-queue consumers
+     * that can each open one (health-check `handleSystemDown`, the incident
+     * channel `reconcileIncidentDowntime`, and `reconcileObjective`). Without it,
+     * two near-simultaneous jobs (e.g. a health-check failure and the
+     * auto-incident it triggers, possibly on different pods) both read zero open
+     * events and both INSERT, producing two overlapping open events that
+     * `getDowntimeForWindow` double-counts. Optional: unit tests run without it
+     * (single process, no race), and the underlying write still succeeds.
+     */
+    advisoryLock?: AdvisoryLockService;
   }) {
     this.service = service;
     this.signalService = signalService;
     this.logger = logger;
+    this.advisoryLock = advisoryLock;
   }
 
   /**
@@ -91,6 +111,22 @@ export class SloEngine {
   }
 
   /**
+   * Set the incident-override resolver: given a system id, report whether an
+   * incident currently forces a health override onto it (via
+   * `IncidentApi.getActiveHealthOverrides`). Used ONLY to LABEL a new downtime
+   * event's `source` when the cause cannot be inferred from the trigger edge
+   * (the incident channel and objective-reconcile paths). The open/close
+   * DECISIONS are driven by EFFECTIVE health (`_getSystemHealthStatus`, which
+   * already folds overrides), not by this resolver. Wired in afterPluginsReady
+   * from the incident RPC client.
+   */
+  setIncidentOverrideResolver(
+    resolver: (args: { systemId: string }) => Promise<{ active: boolean }>,
+  ) {
+    this._isIncidentOverrideActive = resolver;
+  }
+
+  /**
    * Reconcile a newly created objective with the current system state.
    * If the system is already degraded, opens an initial downtime event.
    * Called after createObjective to handle the edge case where a system
@@ -118,16 +154,25 @@ export class SloEngine {
     });
     if (openEvents.length > 0) return;
 
-    // Open an initial downtime event attributed to self
-    await this.service.openDowntimeEvent({
+    // Open an initial downtime event attributed to self. The system is
+    // effectively down (checks and/or an incident override); label the cause so
+    // an incident-forced event is not later mishandled by the orphan self-heal.
+    // Source is resolved OUTSIDE the lock (it may RPC); the insert is serialized.
+    const source = await this.resolveDowntimeSource({
+      systemId: objective.systemId,
+    });
+    const opened = await this.openDowntimeEventIfNone({
       objectiveId: objective.id,
       systemId: objective.systemId,
       attributionType: "self",
+      source,
     });
 
-    this.logger.info(
-      `SLO ${objective.id}: Initial downtime event — system already degraded at creation time`,
-    );
+    if (opened) {
+      this.logger.info(
+        `SLO ${objective.id}: Initial downtime event (source=${source}) — system already degraded at creation time`,
+      );
+    }
   }
 
   /**
@@ -167,6 +212,13 @@ export class SloEngine {
     if (!health.isHealthy) return; // genuinely down — the open event is real
 
     for (const event of openEvents) {
+      // Incident-sourced events are owned by the incident channel, which closes
+      // them on incident resolve/delete/override-clear. They must NOT be closed
+      // from health-check run history: an incident forces downtime while the
+      // probes stay HEALTHY, so the "first healthy run" resolver would close at
+      // ~the start instant and erase the real incident downtime. Skip them.
+      if (event.source === "incident") continue;
+
       // Find when the system ACTUALLY became healthy again, on/after this
       // event started. Closing at that instant preserves the genuine downtime;
       // deleting (the fallback) would erase it and read a false 100%.
@@ -216,7 +268,10 @@ export class SloEngine {
     const objectives = await this.service.getObjectivesForSystem({ systemId });
 
     for (const objective of objectives) {
-      // Check if there's already an open event (idempotent)
+      // Cheap unlocked pre-check: skip the attribution work when an event is
+      // already open. The AUTHORITATIVE idempotency guard is the locked re-check
+      // inside openDowntimeEventIfNone (a concurrent opener may commit between
+      // this read and the insert).
       const openEvents = await this.service.getOpenDowntimeEventsForObjective({
         objectiveId: objective.id,
       });
@@ -227,30 +282,154 @@ export class SloEngine {
         continue;
       }
 
+      // Compute attribution OUTSIDE the lock: it may issue RPCs, which must
+      // never run inside the advisory-lock transaction.
       const attribution = await this.determineAttribution({
         objective,
         _getUpstreamHealthStatus: getUpstreamHealthStatus,
       });
 
-      await this.service.openDowntimeEvent({
+      const opened = await this.openDowntimeEventIfNone({
         objectiveId: objective.id,
         systemId,
         attributionType: attribution.type,
         upstreamSystemId: attribution.upstreamSystemId,
         upstreamSystemName: attribution.upstreamSystemName,
+        source: "healthcheck",
       });
 
-      this.logger.info(
-        `SLO ${objective.id}: Downtime started (attribution: ${attribution.type}${attribution.upstreamSystemName ? ` → ${attribution.upstreamSystemName}` : ""})`,
-      );
+      if (opened) {
+        this.logger.info(
+          `SLO ${objective.id}: Downtime started (attribution: ${attribution.type}${attribution.upstreamSystemName ? ` → ${attribution.upstreamSystemName}` : ""})`,
+        );
+      }
     }
   }
 
   /**
-   * Handle a system transitioning to healthy.
-   * Closes all open downtime events and recomputes SLO status.
+   * Handle a system whose HEALTH CHECKS recovered.
+   *
+   * Checks recovering does NOT necessarily mean the system is available: an
+   * active incident override may still force it unhealthy/degraded. Closing the
+   * open events here would erase that still-ongoing incident downtime, so this
+   * only closes when the system is EFFECTIVELY healthy (checks AND incidents
+   * clear). The incident channel (`reconcileIncidentDowntime`) performs the
+   * mirror close when the incident later clears while checks are already healthy.
    */
   async handleSystemUp({
+    systemId,
+  }: {
+    systemId: string;
+  }): Promise<void> {
+    await this.closeOpenEventsIfEffectivelyHealthy({ systemId });
+  }
+
+  /**
+   * Reconcile a system's downtime after an incident lifecycle change (create,
+   * update — including a health override added / changed / cleared —, resolve,
+   * or delete). Idempotent and driven by EFFECTIVE health (which folds active
+   * incident overrides):
+   *
+   * - effectively healthy (incident cleared/resolved/deleted AND checks healthy)
+   *   → close all open events (the mirror of the health-recovery close), and
+   * - effectively down → ensure ONE open event exists per objective, opening an
+   *   incident-sourced event only when none is open. A concurrent health-check
+   *   outage already owns the event, so this can never double-count.
+   */
+  async reconcileIncidentDowntime({
+    systemId,
+  }: {
+    systemId: string;
+  }): Promise<void> {
+    if (!this._getSystemHealthStatus) {
+      this.logger.debug(
+        `SLO: reconcileIncidentDowntime(${systemId}) skipped — no health callback set`,
+      );
+      return;
+    }
+
+    const health = await this._getSystemHealthStatus(systemId);
+    if (health.isHealthy) {
+      // Incident cleared/resolved/deleted AND checks healthy → close. Events
+      // close at `now`. For an incident-sourced event this IS the true recovery
+      // (the override lifted at ~this instant). A rare stale healthcheck-sourced
+      // orphan would also close at `now` rather than its true recovery time, but
+      // that is conservative (never under-counts) and matches handleSystemUp's
+      // recovery-edge close; the accurate-recovery-time path lives in
+      // reconcileOrphanedDowntime (SLO-3).
+      await this.closeOpenEventsAndBroadcast({ systemId });
+      return;
+    }
+
+    // Effectively down. Open one incident-sourced event per objective that has
+    // none open. If checks are the real cause, handleSystemDown already opened a
+    // healthcheck-sourced event, so this is a no-op for that objective.
+    const objectives = await this.service.getObjectivesForSystem({ systemId });
+    for (const objective of objectives) {
+      // Cheap unlocked pre-check; the locked re-check inside
+      // openDowntimeEventIfNone is the authoritative guard against a concurrent
+      // health-check `handleSystemDown` opening the same objective's event.
+      const openEvents = await this.service.getOpenDowntimeEventsForObjective({
+        objectiveId: objective.id,
+      });
+      if (openEvents.length > 0) continue;
+
+      // Resolve the cause label OUTSIDE the lock (it issues an RPC).
+      const source = await this.resolveDowntimeSource({ systemId });
+      const opened = await this.openDowntimeEventIfNone({
+        objectiveId: objective.id,
+        systemId,
+        attributionType: "self",
+        source,
+      });
+      if (!opened) continue;
+
+      this.logger.info(
+        `SLO ${objective.id}: incident-forced downtime started (source=${source})`,
+      );
+
+      const status = await this.computeStatus({ objective });
+      await this.signalService.broadcast(SLO_STATUS_CHANGED, {
+        systemId,
+        objectiveId: objective.id,
+        budgetRemainingPercent: status.errorBudgetRemainingPercent,
+        isBreaching: status.isBreaching,
+      });
+    }
+  }
+
+  /**
+   * Close all open downtime events for a system ONLY when it is EFFECTIVELY
+   * healthy (checks AND incidents clear — `_getSystemHealthStatus` folds active
+   * overrides). No-op while still effectively down, so a recovery edge on one
+   * cause cannot close downtime the other cause is still holding open. When no
+   * health callback is wired (tests / before afterPluginsReady) it falls back to
+   * closing unconditionally, preserving the legacy recovery-edge behavior.
+   */
+  private async closeOpenEventsIfEffectivelyHealthy({
+    systemId,
+  }: {
+    systemId: string;
+  }): Promise<void> {
+    if (this._getSystemHealthStatus) {
+      const health = await this._getSystemHealthStatus(systemId);
+      if (!health.isHealthy) {
+        this.logger.debug(
+          `SLO: system ${systemId} still effectively down (checks or incident) — keeping open downtime events`,
+        );
+        return;
+      }
+    }
+    await this.closeOpenEventsAndBroadcast({ systemId });
+  }
+
+  /**
+   * Close every open downtime event for a system, then recompute + broadcast
+   * `SLO_STATUS_CHANGED` for each affected objective. Source-agnostic: it closes
+   * healthcheck- and incident-sourced events alike (the CALLER decides that the
+   * system is healthy). No-op when there are no open events.
+   */
+  private async closeOpenEventsAndBroadcast({
     systemId,
   }: {
     systemId: string;
@@ -260,7 +439,7 @@ export class SloEngine {
     for (const event of openEvents) {
       await this.service.closeDowntimeEvent({ id: event.id });
       this.logger.info(
-        `SLO event ${event.id}: Closed (${event.attributionType})`,
+        `SLO event ${event.id}: Closed (${event.attributionType}, source=${event.source ?? "healthcheck"})`,
       );
     }
 
@@ -278,6 +457,82 @@ export class SloEngine {
         isBreaching: status.isBreaching,
       });
     }
+  }
+
+  /**
+   * Label a new downtime event's cause when it is ambiguous (the incident
+   * channel and objective-reconcile paths). The health-check down/creation edges
+   * know their probes are failing and pass "healthcheck" directly. Returns
+   * "incident" when an incident override is active — the safe default, because an
+   * incident-labeled event is skipped by the orphan self-heal and both channels
+   * still close it via effective health — otherwise "healthcheck".
+   */
+  /**
+   * Open a downtime event for an objective IFF none is currently open,
+   * serialized across pods by a per-objective advisory lock so two independent
+   * work-queue consumers (health-check down + incident channel) can never both
+   * observe "no open event" and both INSERT a duplicate overlapping event.
+   *
+   * The re-check + insert run INSIDE the lock: `pg_advisory_xact_lock` blocks
+   * every other holder of this key until this lock transaction commits, so a
+   * racing opener waits at acquire and its re-check cannot observe "none open"
+   * until our insert has committed. Only DB work runs inside the lock (the
+   * caller resolves attribution/source, which may RPC, BEFORE calling this) so
+   * no non-DB await is wrapped in the lock transaction. Returns the opened event,
+   * or undefined when one was already open (idempotent no-op). Falls back to an
+   * unlocked check+insert when no advisory lock is wired (unit tests).
+   */
+  private async openDowntimeEventIfNone({
+    objectiveId,
+    systemId,
+    attributionType,
+    upstreamSystemId,
+    upstreamSystemName,
+    source,
+  }: {
+    objectiveId: string;
+    systemId: string;
+    attributionType: AttributionType;
+    upstreamSystemId?: string;
+    upstreamSystemName?: string;
+    source?: DowntimeSource;
+  }): Promise<SloDowntimeEvent | undefined> {
+    const checkThenInsert = async (): Promise<SloDowntimeEvent | undefined> => {
+      const openEvents = await this.service.getOpenDowntimeEventsForObjective({
+        objectiveId,
+      });
+      if (openEvents.length > 0) return undefined;
+      return this.service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType,
+        upstreamSystemId,
+        upstreamSystemName,
+        source,
+      });
+    };
+
+    if (!this.advisoryLock) return checkThenInsert();
+    return this.advisoryLock.withXactLock({
+      key: `slo.downtime-open:${objectiveId}`,
+      fn: checkThenInsert,
+    });
+  }
+
+  private async resolveDowntimeSource({
+    systemId,
+  }: {
+    systemId: string;
+  }): Promise<DowntimeSource> {
+    if (this._isIncidentOverrideActive) {
+      try {
+        const { active } = await this._isIncidentOverrideActive({ systemId });
+        if (active) return "incident";
+      } catch {
+        // Best-effort label, not a decision — fall back to "healthcheck".
+      }
+    }
+    return "healthcheck";
   }
 
   // ===========================================================================

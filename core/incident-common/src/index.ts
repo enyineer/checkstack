@@ -54,6 +54,13 @@ export {
   type BulkIncidentIdsInput,
   type BulkResolveIncidentsInput,
 } from "./schemas";
+export {
+  INCIDENT_LIFECYCLE_CHANGED_HOOK_ID,
+  IncidentLifecycleActionEnum,
+  incidentLifecycleChangedPayloadSchema,
+  type IncidentLifecycleAction,
+  type IncidentLifecycleChangedPayload,
+} from "./hooks";
 export { IncidentDetailsSlot, IncidentStatusSlot } from "./slots";
 export {
   INCIDENT_SIGNAL_SOURCE_ID,

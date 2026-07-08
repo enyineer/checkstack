@@ -3,6 +3,7 @@ export { sloContract, SloApi, type SloContract } from "./rpc-contract";
 export {
   DependencyExclusionModeSchema,
   AttributionTypeSchema,
+  DowntimeSourceSchema,
   AchievementTypeSchema,
   BurnRateThresholdsSchema,
   SloObjectiveSchema,
@@ -18,6 +19,7 @@ export {
   SLO_MAX_WINDOW_DAYS,
   type DependencyExclusionMode,
   type AttributionType,
+  type DowntimeSource,
   type AchievementType,
   type BurnRateThresholds,
   type SloObjective,

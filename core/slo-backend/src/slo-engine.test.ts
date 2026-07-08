@@ -703,6 +703,38 @@ describe("SloEngine", () => {
       );
     });
 
+    it("counts an incident-only open event as ongoing downtime when effectively down", async () => {
+      // An incident forces the system down (effective health = down) with a
+      // single incident-sourced open event and no closed history. It must count
+      // as ongoing downtime in the budget (includeOpen) and read as degraded.
+      const objective = createObjective({ dependencyExclusion: "strict" });
+      const openIncident = createDowntimeEvent({
+        source: "incident",
+        attributionType: "self",
+      });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openIncident],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      // getSystemHealthStatus folds the incident override -> effectively down.
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+
+      const status = await engine.computeStatus({ objective });
+
+      expect(status.hasOpenDowntime).toBe(true);
+      expect(mockService.getDowntimeForWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ includeOpen: true }),
+      );
+    });
+
     it("skips the health check entirely when there are no open events", async () => {
       const objective = createObjective();
       mockService = createMockService({ objectives: [objective] });
@@ -827,6 +859,37 @@ describe("SloEngine", () => {
       expect(healthCallback).not.toHaveBeenCalled();
       expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
     });
+
+    it("leaves source:\"incident\" open events untouched (owned by the incident channel)", async () => {
+      // An incident forces downtime while probes stay HEALTHY. The orphan
+      // self-heal must NOT close/void it from health-check history (it would
+      // close at ~the start instant and erase the incident downtime); the
+      // incident channel closes it when the override clears.
+      const objective = createObjective();
+      const incidentOrphan = createDowntimeEvent({
+        id: "inc-orphan",
+        source: "incident",
+      });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [incidentOrphan],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+      engine.setRecoveryTimeResolver(async () => new Date());
+
+      await engine.reconcileOrphanedDowntime({ objective });
+
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
+      expect(mockService.deleteDowntimeEvent).not.toHaveBeenCalled();
+    });
   });
 
   describe("reconcileObjective", () => {
@@ -919,6 +982,300 @@ describe("SloEngine", () => {
       await engine.reconcileObjective({ objective });
 
       expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // Incident-forced downtime (reconcileIncidentDowntime + incident-aware close)
+  // ===========================================================================
+  describe("reconcileIncidentDowntime", () => {
+    it("opens an incident-sourced event per objective when effectively down", async () => {
+      const obj1 = createObjective({ id: "obj-1" });
+      const obj2 = createObjective({ id: "obj-2" });
+      mockService = createMockService({ objectives: [obj1, obj2], openEvents: [] });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      // Effective health folds the override -> down. Override is the cause.
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+      engine.setIncidentOverrideResolver(async () => ({ active: true }));
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.openDowntimeEvent).toHaveBeenCalledTimes(2);
+      expect(mockService.openDowntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectiveId: "obj-1",
+          systemId: "sys-1",
+          attributionType: "self",
+          source: "incident",
+        }),
+      );
+    });
+
+    it("is idempotent — does not open a second event when one is already open", async () => {
+      const objective = createObjective();
+      const existing = createDowntimeEvent({ source: "incident" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [existing],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+      engine.setIncidentOverrideResolver(async () => ({ active: true }));
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("does NOT double-count with a concurrent health-check outage (event already open)", async () => {
+      // A checks outage already opened a healthcheck-sourced event; an incident
+      // then activates. The incident channel must not open a second event.
+      const objective = createObjective();
+      const checksEvent = createDowntimeEvent({ source: "healthcheck" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [checksEvent],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+      engine.setIncidentOverrideResolver(async () => ({ active: true }));
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("closes open events when effectively healthy (incident cleared/resolved/deleted AND checks healthy)", async () => {
+      const objective = createObjective();
+      const openIncident = createDowntimeEvent({ source: "incident" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openIncident],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.closeDowntimeEvent).toHaveBeenCalledWith({
+        id: openIncident.id,
+      });
+    });
+
+    it("does NOT close while checks are still down (incident resolved, checks outage ongoing)", async () => {
+      const objective = createObjective();
+      const checksEvent = createDowntimeEvent({ source: "healthcheck" });
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [checksEvent],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      // Effective health still down (checks), even though the incident is gone.
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+      engine.setIncidentOverrideResolver(async () => ({ active: false }));
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
+      // And it does not fragment the ongoing checks outage with a new event.
+      expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("skips gracefully when no health callback is set", async () => {
+      const objective = createObjective();
+      mockService = createMockService({ objectives: [objective] });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+
+      await engine.reconcileIncidentDowntime({ systemId: "sys-1" });
+
+      expect(mockService.openDowntimeEvent).not.toHaveBeenCalled();
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("concurrent open serialization (SLO-2)", () => {
+    it("opens the downtime event inside a per-objective advisory lock", async () => {
+      const objective = createObjective();
+      mockService = createMockService({ objectives: [objective], openEvents: [] });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      const withXactLock = mock(
+        async ({ fn }: { key: string; fn: () => Promise<unknown> }) => fn(),
+      );
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+        advisoryLock: { withXactLock } as never,
+      });
+
+      await engine.handleSystemDown({
+        systemId: "sys-1",
+        getUpstreamHealthStatus: alwaysHealthy,
+      });
+
+      expect(withXactLock).toHaveBeenCalledTimes(1);
+      const lockArg = withXactLock.mock.calls[0]![0] as { key: string };
+      expect(lockArg.key).toBe("slo.downtime-open:obj-1");
+      expect(mockService.openDowntimeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("serializes two concurrent openers so only ONE event is opened", async () => {
+      // The confirmed race: handleSystemDown (checks) and reconcileIncidentDowntime
+      // (incident) are independent consumers whose unlocked pre-checks both read
+      // zero open events. The per-objective advisory lock must serialize the
+      // re-check+insert so only one event is created. Simulated here with a
+      // stateful service + a per-key serializing lock (a single-process proxy for
+      // pg_advisory_xact_lock's cross-pod mutual exclusion).
+      const objective = createObjective();
+      const open: SloDowntimeEvent[] = [];
+      const openDowntimeEvent = mock(
+        async ({ source }: { source?: "healthcheck" | "incident" }) => {
+          const evt = createDowntimeEvent({ id: `evt-${open.length}`, source });
+          open.push(evt);
+          return evt;
+        },
+      );
+      const statefulService = {
+        getObjectivesForSystem: async () => [objective],
+        getObjective: async () => objective,
+        getOpenDowntimeEventsForObjective: async () => [...open],
+        openDowntimeEvent,
+        getDowntimeForWindow: async () => ({
+          totalMinutes: 0,
+          selfMinutes: 0,
+          upstreamMinutes: 0,
+          entries: [],
+        }),
+      } as unknown as SloService;
+
+      const chains = new Map<string, Promise<unknown>>();
+      const withXactLock = async ({
+        key,
+        fn,
+      }: {
+        key: string;
+        fn: () => Promise<unknown>;
+      }) => {
+        const prev = chains.get(key) ?? Promise.resolve();
+        const run = prev.then(() => fn());
+        chains.set(
+          key,
+          run.catch(() => {}),
+        );
+        return run;
+      };
+
+      engine = new SloEngine({
+        service: statefulService,
+        signalService: createMockSignalService() as never,
+        logger: createMockLogger() as never,
+        advisoryLock: { withXactLock } as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+
+      await Promise.all([
+        engine.handleSystemDown({
+          systemId: "sys-1",
+          getUpstreamHealthStatus: alwaysHealthy,
+        }),
+        engine.reconcileIncidentDowntime({ systemId: "sys-1" }),
+      ]);
+
+      expect(openDowntimeEvent).toHaveBeenCalledTimes(1);
+      expect(open).toHaveLength(1);
+    });
+  });
+
+  describe("handleSystemUp (incident-aware close)", () => {
+    it("does NOT close open events while an incident override still forces the system down", async () => {
+      const objective = createObjective();
+      const openEvent = createDowntimeEvent();
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openEvent],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      // Checks recovered, but effective health is still down (incident override).
+      engine.setHealthStatusCallback(async () => ({ isHealthy: false }));
+
+      await engine.handleSystemUp({ systemId: "sys-1" });
+
+      expect(mockService.closeDowntimeEvent).not.toHaveBeenCalled();
+    });
+
+    it("closes open events when the system is effectively healthy", async () => {
+      const objective = createObjective();
+      const openEvent = createDowntimeEvent();
+      mockService = createMockService({
+        objectives: [objective],
+        openEvents: [openEvent],
+      });
+      mockSignalService = createMockSignalService();
+      mockLogger = createMockLogger();
+
+      engine = new SloEngine({
+        service: mockService,
+        signalService: mockSignalService as never,
+        logger: mockLogger as never,
+      });
+      engine.setHealthStatusCallback(async () => ({ isHealthy: true }));
+
+      await engine.handleSystemUp({ systemId: "sys-1" });
+
+      expect(mockService.closeDowntimeEvent).toHaveBeenCalledWith({
+        id: openEvent.id,
+      });
     });
   });
 });

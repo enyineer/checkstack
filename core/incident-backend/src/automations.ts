@@ -11,7 +11,7 @@
  * and to match `wait_for_trigger` waits against the same incident.
  */
 import { z } from "zod";
-import { Versioned } from "@checkstack/backend-api";
+import { Versioned, type EventBus } from "@checkstack/backend-api";
 import type {
   ActionDefinition,
   ArtifactTypeDefinition,
@@ -22,9 +22,11 @@ import { makeEntityDrivenTriggerSetup } from "@checkstack/automation-backend";
 import {
   IncidentSeverityEnum,
   IncidentStatusEnum,
+  type IncidentLifecycleAction,
 } from "@checkstack/incident-common";
 
 import type { IncidentService } from "./service";
+import { emitIncidentLifecycleChanged } from "./hooks";
 import {
   toIncidentEntityState,
   writeIncidentEntity,
@@ -259,12 +261,20 @@ export interface IncidentActionDeps {
    * non-reactively.
    */
   getIncidentEntity?: () => EntityHandle<IncidentEntityState> | undefined;
+  /**
+   * Distributed event bus used to emit `incident.lifecycle.changed` after an
+   * automation-driven lifecycle mutation. Automations mutate incidents WITHOUT
+   * going through the RPC router, so without this an automation resolving an
+   * override-bearing incident would never notify SLO downtime reconciliation and
+   * the incident-sourced downtime event would leak open. Undefined in tests.
+   */
+  eventBus?: EventBus;
 }
 
 export function createIncidentActions(
   deps: IncidentActionDeps,
 ): ActionDefinition<unknown, unknown>[] {
-  const { service, getIncidentEntity } = deps;
+  const { service, getIncidentEntity, eventBus } = deps;
 
   const createAction: ActionDefinition<
     z.infer<typeof incidentCreateConfigSchema>,
@@ -339,6 +349,17 @@ export function createIncidentActions(
           );
         } else {
           logger.info(`Automation created incident ${incident.id}`);
+          // Only a real create is a lifecycle mutation; a REUSE changed nothing,
+          // so SLO already reconciled it at its original creation.
+          await emitIncidentLifecycleChanged({
+            eventBus,
+            logger,
+            payload: {
+              incidentId: incident.id,
+              systemIds: incident.systemIds,
+              action: "created",
+            },
+          });
         }
         return {
           success: true,
@@ -364,6 +385,15 @@ export function createIncidentActions(
         },
       });
       logger.info(`Automation created incident ${incident.id}`);
+      await emitIncidentLifecycleChanged({
+        eventBus,
+        logger,
+        payload: {
+          incidentId: incident.id,
+          systemIds: incident.systemIds,
+          action: "created",
+        },
+      });
       return {
         success: true,
         externalId: incident.id,
@@ -442,6 +472,17 @@ export function createIncidentActions(
         };
       }
       logger.info(`Automation resolved incident ${incident.id}`);
+      // A resolve clears any active health override, so SLO must close the
+      // incident-forced downtime — the defect this notifier fixes.
+      await emitIncidentLifecycleChanged({
+        eventBus,
+        logger,
+        payload: {
+          incidentId: incident.id,
+          systemIds: incident.systemIds,
+          action: "resolved",
+        },
+      });
       return {
         success: true,
         externalId: incident.id,
@@ -485,7 +526,8 @@ export function createIncidentActions(
       // is a no-op diff (no event). `opts.runId` masks run-resolved secrets.
       const captured: {
         update: Awaited<ReturnType<typeof service.addUpdate>> | null;
-      } = { update: null };
+        systemIds: string[];
+      } = { update: null, systemIds: [] };
       await writeIncidentEntity({
         handle: getIncidentEntity?.(),
         incidentId,
@@ -500,6 +542,7 @@ export function createIncidentActions(
           if (!incident) {
             throw new Error(`Incident ${incidentId} not found`);
           }
+          captured.systemIds = incident.systemIds;
           return toIncidentEntityState(incident);
         },
       });
@@ -513,6 +556,21 @@ export function createIncidentActions(
       logger.info(
         `Automation added update ${update.id} to incident ${incidentId}`,
       );
+      // Only a status-changing update is a lifecycle mutation SLO cares about; a
+      // comment-only update changes no health-relevant state. A change to
+      // resolved clears any override, so SLO must reconcile.
+      if (config.statusChange) {
+        await emitIncidentLifecycleChanged({
+          eventBus,
+          logger,
+          payload: {
+            incidentId,
+            systemIds: captured.systemIds,
+            action:
+              config.statusChange === "resolved" ? "resolved" : "updated",
+          },
+        });
+      }
       return {
         success: true,
         externalId: update.id,
@@ -553,7 +611,8 @@ export function createIncidentActions(
       // re-reads post-write state. `opts.runId` masks run-resolved secrets.
       const captured: {
         update: Awaited<ReturnType<typeof service.addUpdate>> | null;
-      } = { update: null };
+        systemIds: string[];
+      } = { update: null, systemIds: [] };
       await writeIncidentEntity({
         handle: getIncidentEntity?.(),
         incidentId,
@@ -568,6 +627,7 @@ export function createIncidentActions(
           if (!incident) {
             throw new Error(`Incident ${incidentId} not found`);
           }
+          captured.systemIds = incident.systemIds;
           return toIncidentEntityState(incident);
         },
       });
@@ -581,6 +641,19 @@ export function createIncidentActions(
       logger.info(
         `Automation set incident ${incidentId} status → ${config.status}`,
       );
+      // A status flip is a lifecycle mutation; a flip to resolved clears any
+      // override, so SLO must reconcile the affected systems' downtime.
+      const action: IncidentLifecycleAction =
+        config.status === "resolved" ? "resolved" : "updated";
+      await emitIncidentLifecycleChanged({
+        eventBus,
+        logger,
+        payload: {
+          incidentId,
+          systemIds: captured.systemIds,
+          action,
+        },
+      });
       return {
         success: true,
         externalId: update.id,

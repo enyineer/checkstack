@@ -65,15 +65,22 @@ function buildRouter() {
   const getIncident = mock(async (id: string) =>
     PRESENT.has(id) ? makeIncident(id) : undefined,
   );
+  // Echoes the patch back onto the incident so an override-only edit still
+  // resolves the affected systemIds for the lifecycle hook payload.
+  const updateIncident = mock(async (input: { id: string }) =>
+    PRESENT.has(input.id) ? makeIncident(input.id) : undefined,
+  );
 
   const service = {
     getIncident,
     deleteIncident,
     resolveIncident,
+    updateIncident,
   } as unknown as Parameters<typeof createRouter>[0]["service"];
 
   const invalidateForMutation = mock(async () => {});
   const broadcast = mock(async () => {});
+  const emit = mock(async () => {});
   const notifyForSubscription = mock(async () => {});
   const getSystem = mock(async () => undefined);
   const getUserById = mock(async () => undefined);
@@ -84,6 +91,9 @@ function buildRouter() {
     signalService: { broadcast } as unknown as Parameters<
       typeof createRouter
     >[0]["signalService"],
+    eventBus: { emit } as unknown as Parameters<
+      typeof createRouter
+    >[0]["eventBus"],
     catalogClient: { getSystem } as unknown as Parameters<
       typeof createRouter
     >[0]["catalogClient"],
@@ -103,6 +113,8 @@ function buildRouter() {
     router,
     deleteIncident,
     resolveIncident,
+    updateIncident,
+    emit,
     invalidateForMutation,
     notifyForSubscription,
   };
@@ -180,6 +192,33 @@ describe("incident router resolveIncident notification", () => {
     expect(payload?.body).toContain("has been resolved");
     // The operator's resolution note must reach subscribers, not be dropped.
     expect(payload?.body).toContain("Root cause fixed and services restored");
+  });
+});
+
+describe("incident lifecycle hook", () => {
+  it("fires incident.lifecycle.changed on an override-only update (with affected systemIds)", async () => {
+    // The reactive `incident` entity state is {status, severity, systemIds}, so
+    // clearing/adding a healthOverride with no other change emits no entity
+    // change. This hook MUST still fire so SLO can open/close incident-forced
+    // downtime — the whole reason it exists alongside INCIDENT_UPDATED.
+    const { router, emit } = buildRouter();
+    const ctx = teamScopedContext(["inc-ok"]);
+
+    await call(
+      router.updateIncident,
+      { id: "inc-ok", healthOverride: null },
+      { context: ctx },
+    );
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    const emitArgs = emit.mock.calls[0] as unknown[] | undefined;
+    const hook = emitArgs?.[0] as { id?: string } | undefined;
+    const payload = emitArgs?.[1] as
+      | { systemIds?: string[]; action?: string }
+      | undefined;
+    expect(hook?.id).toBe("incident.lifecycle.changed");
+    expect(payload?.action).toBe("updated");
+    expect(payload?.systemIds).toEqual(["sys-1"]);
   });
 });
 

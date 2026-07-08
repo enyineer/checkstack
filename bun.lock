@@ -2064,6 +2064,7 @@
         "@checkstack/gitops-common": "workspace:*",
         "@checkstack/healthcheck-backend": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/incident-common": "workspace:*",
         "@checkstack/maintenance-common": "workspace:*",
         "@checkstack/queue-api": "workspace:*",
         "@checkstack/signal-common": "workspace:*",

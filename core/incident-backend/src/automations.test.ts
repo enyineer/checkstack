@@ -324,6 +324,76 @@ describe("incident automation actions", () => {
       expect(service.resolveIncident).toHaveBeenCalledWith("INC-1", "Fixed");
     });
 
+    // SLO-1 regression: an automation-driven resolve mutates the incident WITHOUT
+    // going through the RPC router, so it must emit `incident.lifecycle.changed`
+    // itself — otherwise an override-bearing incident resolved by an automation
+    // never triggers SLO downtime reconciliation and its incident-sourced event
+    // leaks open.
+    it("emits incident.lifecycle.changed on an automation resolve (SLO downtime reconcile)", async () => {
+      const resolved = {
+        id: "INC-1",
+        status: "resolved",
+        severity: "critical",
+        systemIds: ["sys-1", "sys-2"],
+      };
+      const service = makeServiceStub({
+        resolveIncident: mock(
+          async () => resolved,
+        ) as unknown as IncidentService["resolveIncident"],
+      });
+      const emit = mock(async () => {});
+      const eventBus = { emit } as unknown as Parameters<
+        typeof createIncidentActions
+      >[0]["eventBus"];
+      const resolveAction = createIncidentActions({ service, eventBus })[1];
+
+      await resolveAction.execute({
+        ...actionContext,
+        config: { incidentId: "INC-1", message: "Fixed" } as never,
+      });
+
+      expect(emit).toHaveBeenCalledTimes(1);
+      const emitArgs = emit.mock.calls[0] as unknown[] | undefined;
+      const hook = emitArgs?.[0] as { id?: string } | undefined;
+      const payload = emitArgs?.[1] as
+        | { systemIds?: string[]; action?: string }
+        | undefined;
+      expect(hook?.id).toBe("incident.lifecycle.changed");
+      expect(payload?.action).toBe("resolved");
+      expect(payload?.systemIds).toEqual(["sys-1", "sys-2"]);
+    });
+
+    it("emits incident.lifecycle.changed on an automation update_status → resolved", async () => {
+      const update = {
+        id: "upd-3",
+        incidentId: "INC-1",
+        message: "Status changed to resolved",
+        createdAt: new Date(),
+      };
+      const service = makeServiceStub({
+        addUpdate: mock(
+          async () => update,
+        ) as unknown as IncidentService["addUpdate"],
+      });
+      const emit = mock(async () => {});
+      const eventBus = { emit } as unknown as Parameters<
+        typeof createIncidentActions
+      >[0]["eventBus"];
+      const updateStatusAction = createIncidentActions({ service, eventBus })[3];
+
+      await updateStatusAction.execute({
+        ...actionContext,
+        config: { incidentId: "INC-1", status: "resolved" } as never,
+      });
+
+      expect(emit).toHaveBeenCalledTimes(1);
+      const payload = (emit.mock.calls[0] as unknown[] | undefined)?.[1] as
+        | { systemIds?: string[]; action?: string }
+        | undefined;
+      expect(payload?.action).toBe("resolved");
+      expect(payload?.systemIds).toEqual(["sys-1"]);
+    });
+
     // 6(b) regression: an action-driven resolve must route through the reactive
     // entity (like the RPC router) so it appends an `entity_transitions` row,
     // emits `ENTITY_CHANGED` (waking `wait_until`), and fires the

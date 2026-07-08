@@ -50,6 +50,9 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../incident-common"
+    },
+    {
       "path": "../maintenance-common"
     },
     {

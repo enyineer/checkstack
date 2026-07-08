@@ -22,6 +22,7 @@ import type {
   SloStreak,
   SloAchievement,
   AttributionType,
+  DowntimeSource,
 } from "@checkstack/slo-common";
 
 type Db = SafeDatabase<typeof schema>;
@@ -190,12 +191,18 @@ export class SloService {
     attributionType,
     upstreamSystemId,
     upstreamSystemName,
+    source,
   }: {
     objectiveId: string;
     systemId: string;
     attributionType: AttributionType;
     upstreamSystemId?: string;
     upstreamSystemName?: string;
+    /**
+     * Cause of the downtime. Defaults to "healthcheck" (the legacy/probe cause)
+     * so existing callers are unchanged; the incident channel passes "incident".
+     */
+    source?: DowntimeSource;
   }): Promise<SloDowntimeEvent> {
     const id = generateId();
     const now = new Date();
@@ -214,6 +221,8 @@ export class SloService {
         upstreamSystemId: upstreamSystemId ?? null,
 
         upstreamSystemName: upstreamSystemName ?? null,
+
+        source: source ?? "healthcheck",
       })
       .returning();
 
@@ -684,6 +693,8 @@ function mapDowntimeEventRow(
     attributionType: row.attributionType as SloDowntimeEvent["attributionType"],
     upstreamSystemId: row.upstreamSystemId,
     upstreamSystemName: row.upstreamSystemName,
+    // NULL rows (persisted before the column existed) are read as "healthcheck".
+    source: (row.source as SloDowntimeEvent["source"]) ?? "healthcheck",
   };
 }
 

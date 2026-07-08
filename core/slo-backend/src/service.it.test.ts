@@ -257,6 +257,50 @@ describe.skipIf(!isIntegrationEnabled())("SloService (real Postgres)", () => {
     });
   });
 
+  describe("downtime source column", () => {
+    it("round-trips an explicit source and defaults to healthcheck", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      const incidentEvent = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+        source: "incident",
+      });
+      expect(incidentEvent.source).toBe("incident");
+
+      const defaultEvent = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+      });
+      expect(defaultEvent.source).toBe("healthcheck");
+    });
+
+    it("reads a NULL source row (persisted before the column existed) as healthcheck", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      // Insert directly WITHOUT a source, mimicking a legacy row (column NULL).
+      const legacyId = crypto.randomUUID();
+      await testDb.db.insert(sloDowntimeEvents).values({
+        id: legacyId,
+        objectiveId,
+        systemId: "ignored",
+        startTime: new Date(WINDOW_START.getTime() + MINUTE),
+        attributionType: "self",
+      });
+
+      const [event] = await service.getRecentDowntimeEvents({
+        objectiveId,
+        limit: 10,
+      });
+      expect(event?.id).toBe(legacyId);
+      expect(event?.source).toBe("healthcheck");
+    });
+  });
+
   describe("closeDowntimeEvent endTime", () => {
     it("closes at an explicit recovery time, recording the real duration", async () => {
       const systemId = `sys-${crypto.randomUUID()}`;

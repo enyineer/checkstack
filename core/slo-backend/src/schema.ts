@@ -66,6 +66,12 @@ export const sloDowntimeEvents = pgTable("slo_downtime_events", {
   attributionType: text("attribution_type").notNull(),
   upstreamSystemId: text("upstream_system_id"),
   upstreamSystemName: text("upstream_system_name"),
+  /**
+   * Cause of the downtime: "healthcheck" (failed probe) or "incident" (an
+   * active incident forced the system unhealthy/degraded via `healthOverride`).
+   * Nullable for backward compatibility; a NULL row is read as "healthcheck".
+   */
+  source: text("source"),
 });
 
 // =============================================================================

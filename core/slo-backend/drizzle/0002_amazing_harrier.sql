@@ -1,0 +1,1 @@
+ALTER TABLE "slo_downtime_events" ADD COLUMN "source" text;

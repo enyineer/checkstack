@@ -7,9 +7,12 @@ import {
   autoAuthMiddleware,
   correlationMiddleware,
   Logger,
+  type EventBus,
   type RpcContext,
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
+import type { IncidentLifecycleChangedPayload } from "@checkstack/incident-common";
+import { emitIncidentLifecycleChanged } from "./hooks";
 import type { IncidentService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
@@ -37,6 +40,13 @@ import {
 export interface IncidentRouterDeps {
   service: IncidentService;
   signalService: SignalService;
+  /**
+   * Distributed event bus used to emit the `incident.lifecycle.changed` hook on
+   * every lifecycle mutation (alongside the realtime `INCIDENT_UPDATED` signal),
+   * so backend consumers (e.g. SLO downtime reconciliation) react with
+   * exactly-once `work-queue` delivery. Optional so tests can omit it.
+   */
+  eventBus?: EventBus;
   catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<
     typeof import("@checkstack/notification-common").NotificationApi
@@ -51,6 +61,7 @@ export interface IncidentRouterDeps {
 export function createRouter({
   service,
   signalService,
+  eventBus,
   catalogClient,
   notificationClient,
   authClient,
@@ -58,6 +69,21 @@ export function createRouter({
   cache,
   getIncidentEntity,
 }: IncidentRouterDeps) {
+  /**
+   * Announce an incident lifecycle change: broadcast the realtime
+   * `INCIDENT_UPDATED` signal (frontend refetch) AND emit the distributed
+   * `incident.lifecycle.changed` hook (backend consumers, e.g. SLO downtime).
+   * Kept as one call so the signal and the hook can never drift apart. Both are
+   * best-effort: the write is already committed, so a delivery failure must
+   * never surface as a client error (the signal is inherently non-throwing; the
+   * hook emit is guarded here).
+   */
+  const notifyIncidentChanged = async (
+    payload: IncidentLifecycleChangedPayload,
+  ) => {
+    await signalService.broadcast(INCIDENT_UPDATED, payload);
+    await emitIncidentLifecycleChanged({ eventBus, logger, payload });
+  };
   /**
    * Resolve user IDs to profile names for a list of updates.
    * Falls back to "Unknown User" if the user cannot be found.
@@ -155,7 +181,7 @@ export function createRouter({
       incidentId: resolved.id,
       systemIds: resolved.systemIds,
     });
-    await signalService.broadcast(INCIDENT_UPDATED, {
+    await notifyIncidentChanged({
       incidentId: resolved.id,
       systemIds: resolved.systemIds,
       action: "resolved",
@@ -201,7 +227,7 @@ export function createRouter({
       incidentId: id,
       systemIds: incident.systemIds,
     });
-    await signalService.broadcast(INCIDENT_UPDATED, {
+    await notifyIncidentChanged({
       incidentId: id,
       systemIds: incident.systemIds,
       action: "deleted",
@@ -355,7 +381,7 @@ export function createRouter({
       });
 
       // Broadcast signal for realtime updates
-      await signalService.broadcast(INCIDENT_UPDATED, {
+      await notifyIncidentChanged({
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "created",
@@ -411,7 +437,7 @@ export function createRouter({
       });
 
       // Broadcast signal for realtime updates
-      await signalService.broadcast(INCIDENT_UPDATED, {
+      await notifyIncidentChanged({
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "updated",
@@ -474,7 +500,7 @@ export function createRouter({
           systemIds: incident.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
           action: "updated",
@@ -551,7 +577,7 @@ export function createRouter({
         incidentId: input.incidentId,
         systemIds: incident.systemIds,
       });
-      await signalService.broadcast(INCIDENT_UPDATED, {
+      await notifyIncidentChanged({
         incidentId: input.incidentId,
         systemIds: incident.systemIds,
         action: "updated",
@@ -590,7 +616,7 @@ export function createRouter({
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
         });
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
           action: "updated",
@@ -717,7 +743,7 @@ export function createRouter({
           systemIds: result.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "created",
@@ -776,7 +802,7 @@ export function createRouter({
           systemIds: result.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "resolved",

@@ -22,6 +22,7 @@
     "@checkstack/slo-common": "workspace:*",
     "@checkstack/healthcheck-common": "workspace:*",
     "@checkstack/healthcheck-backend": "workspace:*",
+    "@checkstack/incident-common": "workspace:*",
     "@checkstack/dependency-common": "workspace:*",
     "@checkstack/maintenance-common": "workspace:*",
     "@checkstack/catalog-common": "workspace:*",

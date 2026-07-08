@@ -26,6 +26,19 @@ export const AttributionTypeSchema = z.enum(["self", "upstream"]);
 export type AttributionType = z.infer<typeof AttributionTypeSchema>;
 
 /**
+ * Cause of a downtime event (orthogonal to {@link AttributionTypeSchema}, which
+ * is the dependency dimension). This records WHY the system was down:
+ * - healthcheck: a failed health-check probe (the default/legacy cause).
+ * - incident: an active incident forced the system unhealthy/degraded via its
+ *   `healthOverride`.
+ *
+ * Persisted as a nullable column; a NULL row (written before this field existed)
+ * is read as `"healthcheck"`.
+ */
+export const DowntimeSourceSchema = z.enum(["healthcheck", "incident"]);
+export type DowntimeSource = z.infer<typeof DowntimeSourceSchema>;
+
+/**
  * Achievement types that can be unlocked by systems.
  */
 export const AchievementTypeSchema = z.enum([
@@ -100,6 +113,12 @@ export const SloDowntimeEventSchema = z.object({
   attributionType: AttributionTypeSchema,
   upstreamSystemId: z.string().nullable(),
   upstreamSystemName: z.string().nullable(),
+  /**
+   * What caused this downtime (see {@link DowntimeSourceSchema}). Optional for
+   * backward compatibility with events persisted before the column existed; the
+   * service maps a NULL row to `"healthcheck"`.
+   */
+  source: DowntimeSourceSchema.optional(),
 });
 export type SloDowntimeEvent = z.infer<typeof SloDowntimeEventSchema>;
 
