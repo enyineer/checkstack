@@ -225,30 +225,25 @@ async function runLoad(): Promise<void> {
   await createSchema();
 
   // Local echo server: /fast responds immediately, /slow?ms=X after X ms.
-  // Upper bound on the echo delay. The delay is derived from a request query
-  // param, so clamp it to a fixed ceiling (and reject NaN) before handing it to
-  // setTimeout - an unbounded, request-controlled timer is a resource-exhaustion
-  // vector even in a loopback-only harness.
-  const MAX_ECHO_DELAY_MS = 120_000;
+  // Slow requests delay LONGER than the timeout, so the fetch aborts at TIMEOUT
+  // - i.e. they pin their concurrency slot for the full timeout (unreachable).
+  // The delay is a fixed server-side constant keyed on the path (`/slow` vs
+  // `/fast`); it is NOT read from the request, so no request-controlled value
+  // ever reaches setTimeout.
+  const SLOW_DELAY_MS = TIMEOUT + 5000;
   const echo = http.createServer((req, res) => {
-    const requested = new URL(req.url ?? "/", "http://x").searchParams.get("ms");
-    const parsed = requested === null ? 0 : Number(requested);
-    const ms = Number.isFinite(parsed)
-      ? Math.min(Math.max(parsed, 0), MAX_ECHO_DELAY_MS)
-      : 0;
+    const isSlow = (req.url ?? "/").startsWith("/slow");
     const send = (): void => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok");
     };
-    if (ms > 0) setTimeout(send, ms);
+    if (isSlow) setTimeout(send, SLOW_DELAY_MS);
     else send();
   });
   await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", () => resolve()));
   const echoPort = (echo.address() as AddressInfo).port;
   const fastUrl = `http://127.0.0.1:${echoPort}/fast`;
-  // Slow checks delay LONGER than the timeout, so the fetch aborts at TIMEOUT -
-  // i.e. they pin their concurrency slot for the full timeout (unreachable).
-  const slowUrl = `http://127.0.0.1:${echoPort}/slow?ms=${TIMEOUT + 5000}`;
+  const slowUrl = `http://127.0.0.1:${echoPort}/slow`;
 
   const loopbackLookup = async (
     _hostname: string,
