@@ -1119,6 +1119,7 @@
         "@checkstack/tsconfig": "workspace:*",
         "@types/bun": "^1.0.0",
         "@types/tdigest": "^0.1.5",
+        "bullmq": "^5.66.4",
         "date-fns": "^4.4.0",
         "drizzle-kit": "^0.31.10",
         "typescript": "^5.0.0",
