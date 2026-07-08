@@ -6,9 +6,13 @@ import { sloRoutes } from "@checkstack/slo-common";
 import { resolveRoute } from "@checkstack/common";
 import { ErrorBudgetBar } from "./ErrorBudgetBar";
 import { BurnRateIndicator } from "./BurnRateIndicator";
-import { formatPercent } from "@checkstack/ui";
+import { cn, formatPercent } from "@checkstack/ui";
 import { Target } from "lucide-react";
 import { Link } from "react-router-dom";
+
+/** Shared card elevation used by the system-overview panels. */
+const PANEL_SHADOW =
+  "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
 
 type Props = SlotContext<typeof SystemDetailsTopSlot>;
 
@@ -27,11 +31,16 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
   if (!objectives || objectives.length === 0) return;
 
   return (
-    <div className="rounded-md border border-border bg-card">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+    <div
+      className={cn(
+        "overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface",
+        PANEL_SHADOW,
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-border/50 px-[var(--d-pad)] py-3">
         <div className="flex items-center gap-2">
-          <Target className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium">SLO</span>
+          <Target className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold">SLO</span>
         </div>
       </div>
       <div className="divide-y divide-border/50">
@@ -41,7 +50,7 @@ export const SystemSloPanel: React.FC<Props> = ({ system }) => {
             to={resolveRoute(sloRoutes.routes.detail, {
               sloId: item.objective.id,
             })}
-            className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors no-underline"
+            className="flex items-center gap-3 px-[var(--d-pad)] py-2.5 transition-colors hover:bg-muted/50 no-underline"
           >
             <div className="flex items-center gap-2 min-w-0 shrink-0">
               <span className="text-xs font-medium whitespace-nowrap">
