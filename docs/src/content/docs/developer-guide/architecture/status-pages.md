@@ -148,11 +148,32 @@ env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
 
 A widget renders a PUBLIC page, so every RPC a resolver makes is real external DB load. A resolver that already has a list of ids (systems, incidents, maintenances) MUST fetch their data with ONE bulk call keyed by id, never a per-item fan-out. The owning plugins expose bulk-by-id endpoints for exactly this:
 
-- Health check: `getBulkRunStats({ systemIds, startDate, endDate, maxBuckets })` returns `{ stats: Record<systemId, RunStats> }` (the `systemHealth` uptime column uses it instead of one `getRunStats` per system). Systems with no runs in the window are omitted.
+- Health check: `getBulkRunStats({ systemIds, startDate, endDate, environmentIds?, maxBuckets })` returns `{ stats: Record<systemId, RunStats> }` (the `systemHealth` uptime column uses it instead of one `getRunStats` per system). Systems with no runs in the window are omitted. The optional `environmentIds` scopes uptime to a page's published environments.
 - Incident: `getBulkIncidentUpdates({ incidentIds })` returns `{ updates: Record<incidentId, IncidentUpdate[]> }` (the incidents widget uses it instead of one `getIncident` per incident just to read `.updates`).
 - Maintenance: `getBulkMaintenanceUpdates({ maintenanceIds })` returns `{ updates: Record<maintenanceId, MaintenanceUpdate[]> }` (the maintenance widget's symmetric endpoint).
 
 Each is `POST` (array input), keyed by the resource id, and gated with the record post-filter (`recordKey`) that matches the single endpoint's read scope - so a team-scoped caller only sees ids they may read, exactly like the sibling `getBulkSystemHealthStatus` / `getBulkIncidentsForSystems`. The update endpoints additionally apply the SAME per-item audience filter as `getIncident` / `getMaintenance`, so a logged-in/internal update (or author identity) never reaches a caller who is not a manager of that item; the public widget re-filters to `public` on top.
+
+### Environment scoping
+
+A page can publish only a subset of catalog [environments](/checkstack/user-guide/concepts/environments/) (`publishedEnvironmentIds` on the page; empty/NULL = all environments). The platform stays ignorant of what an environment is: it threads the selected ids onto `WidgetResolveContext.publishedEnvironmentIds` as OPAQUE strings and never interprets them. The SAME context is passed to `resolvePublic`, `resolveScopedSystems`, and `resolveScopedSystemsDetailed`, so what a page shows, offers for subscription, and emails about all agree.
+
+A domain widget contributor (which already imports `catalog-common`) resolves the scope to systems and filters:
+
+```ts
+async function envVisibleSystems(ctx: WidgetResolveContext): Promise<Set<string> | null> {
+  const envIds = ctx.publishedEnvironmentIds;
+  if (!envIds || envIds.length === 0) return null; // all environments -> no filter
+  const envs = await ctx.rpcClient
+    .forPlugin(CatalogApi)
+    .resolveEnvironments({ environmentIds: envIds });
+  const set = new Set<string>();
+  for (const env of envs) for (const s of env.systemIds) set.add(s);
+  return set;
+}
+```
+
+The health widgets additionally recompute per-environment: when a specific set is published they read the per-environment matrix (`getBulkSystemHealthMatrix`) and roll up only the selected environments, and pass `environmentIds` to `getBulkRunStats` / `getRunStats` so uptime counts only selected-environment runs. Incidents and maintenance have no environment of their own; they are scoped indirectly by intersecting each item's affected systems with the environment-visible set, so a system in several environments makes its items visible on a page publishing ANY of them (the multi-environment caveat).
 
 ### Frontend: the renderer
 
@@ -192,6 +213,25 @@ env.getExtensionPoint(statusWidgetTypeExtensionPoint).registerWidgetType(
 
 Built-in widgets omit `rendererRemote` (they are bundled). See [Custom domains](#a-separate-public-bundle) for how the bundle loads remotes securely.
 
+## Anonymous email subscriptions
+
+A page can opt in to anonymous EMAIL subscriptions (off by default). A visitor enters an address on the public page; the flow is double opt-in (a verification link), rate-limited per page, and every email carries a one-click unsubscribe token. `subscribeToStatusPage` ALWAYS resolves to a uniform `{ ok: true }` regardless of whether the page or address exists, so it can never enumerate pages or subscribers.
+
+### Send-time scoping is the privacy boundary
+
+Fan-out (`SubscriberService.notifyForSystems`) is driven by the notification platform's external-audience sink (`NotificationAudienceEvent`), which carries the affected `systemIds` and the source `sourcePluginId`. For each published, public, email-enabled page, the fan-out asks every event-feed widget for its CURRENT effective system scope via the widget's own `resolveScopedSystems` - the SAME live expansion the widget renders from - so a page can never email about a system it does not surface. status-page-backend never imports the catalog; the owning domain plugin supplies the expansion.
+
+### Granular subscriptions: categories + systems
+
+A subscription is scoped along two axes, both stored on the subscriber row (`categories text[]`, `system_ids text[]`):
+
+- **Categories** - `incident`, `maintenance`, `health`. A notification maps to exactly one category via the pure `sourcePluginIdToCategory` (in `@checkstack/status-page-common`): `incident -> incident`, `maintenance -> maintenance`, `healthcheck -> health`. A subscriber only receives its opted-in categories.
+- **Systems** - a subset of the systems the page surfaces, or all of them. The public read returns the page's `subscribableSystems` (id + public name), resolved from the same live scope source the fan-out uses, so the picker can never offer a hidden system.
+
+Defaults for a NEW subscription are all systems and categories `[incident, maintenance]` (health OFF). A NULL `categories` and NULL `system_ids` mean the legacy "everything" scope, so subscribers created before this feature keep receiving every update - the change is fully backward compatible.
+
+`subscribe()` CLAMPS its input: invalid categories are dropped (falling back to the defaults), and `systemIds` are filtered to the page's currently-surfaced systems (an all-invalid list falls back to "all systems"). Nothing is ever rejected or reflected back, so the constant, non-enumerable response holds. Re-subscribing an existing address updates its scope in place.
+
 ## Phases
 
-Phase 1 shipped the secure core, the admin builder, and the public page as a no-access-rule route at `/status/<slug>`. Custom domains (with a separate public bundle, edge-delegated TLS, and on-demand loading of third-party widget renderers) now ship too (see [Custom domains](#custom-domains)), as does pluggable widget rendering (see [Contributing a widget type](#contributing-a-widget-type)). Drag-to-reorder, live-data preview, and distribution (embeds, SVG badges, RSS, subscriptions) are the next phases. The data-isolation guarantee is server-enforced and holds regardless of how the public page is bundled or hosted.
+Phase 1 shipped the secure core, the admin builder, and the public page as a no-access-rule route at `/status/<slug>`. Custom domains (with a separate public bundle, edge-delegated TLS, and on-demand loading of third-party widget renderers) now ship too (see [Custom domains](#custom-domains)), as does pluggable widget rendering (see [Contributing a widget type](#contributing-a-widget-type)). Anonymous email subscriptions now ship too, with per-subscription category + system scope (see [Anonymous email subscriptions](#anonymous-email-subscriptions)). Drag-to-reorder, live-data preview, and the rest of distribution (embeds, SVG badges, RSS) are the next phases. The data-isolation guarantee is server-enforced and holds regardless of how the public page is bundled or hosted.

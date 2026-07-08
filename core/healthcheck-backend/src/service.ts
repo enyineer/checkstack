@@ -1926,6 +1926,7 @@ export class HealthCheckService {
     sourceFilter?: string;
     statusFilter?: HealthCheckStatus[];
     environmentId?: string | null;
+    environmentIds?: string[];
     maxBuckets?: number;
   }): Promise<RunStats> {
     const {
@@ -1936,6 +1937,7 @@ export class HealthCheckService {
       sourceFilter,
       statusFilter,
       environmentId,
+      environmentIds,
       maxBuckets = 24,
     } = props;
 
@@ -1959,6 +1961,12 @@ export class HealthCheckService {
       conditions.push(isNull(healthCheckRuns.environmentId));
     } else if (environmentId !== undefined) {
       conditions.push(eq(healthCheckRuns.environmentId, environmentId));
+    }
+    // Set-of-environments filter (the status page's per-page env scope). Only
+    // counts runs tagged with one of the selected envs; env-less runs are
+    // excluded (they belong to no published environment).
+    if (environmentIds && environmentIds.length > 0) {
+      conditions.push(inArray(healthCheckRuns.environmentId, environmentIds));
     }
 
     const rows = await this.db
@@ -1993,10 +2001,23 @@ export class HealthCheckService {
     systemIds: string[];
     startDate: Date;
     endDate: Date;
+    environmentIds?: string[];
     maxBuckets?: number;
   }): Promise<Record<string, RunStats>> {
-    const { systemIds, startDate, endDate, maxBuckets = 24 } = props;
+    const { systemIds, startDate, endDate, environmentIds, maxBuckets = 24 } =
+      props;
     if (systemIds.length === 0) return {};
+
+    const conditions = [
+      inArray(healthCheckRuns.systemId, systemIds),
+      gte(healthCheckRuns.timestamp, startDate),
+      lte(healthCheckRuns.timestamp, endDate),
+    ];
+    // Set-of-environments filter (the status page's per-page env scope): count
+    // only runs tagged with one of the selected envs; env-less runs excluded.
+    if (environmentIds && environmentIds.length > 0) {
+      conditions.push(inArray(healthCheckRuns.environmentId, environmentIds));
+    }
 
     const rows = await this.db
       .select({
@@ -2006,13 +2027,7 @@ export class HealthCheckService {
         latencyMs: healthCheckRuns.latencyMs,
       })
       .from(healthCheckRuns)
-      .where(
-        and(
-          inArray(healthCheckRuns.systemId, systemIds),
-          gte(healthCheckRuns.timestamp, startDate),
-          lte(healthCheckRuns.timestamp, endDate),
-        ),
-      );
+      .where(and(...conditions));
 
     const bySystem = new Map<string, StatRun[]>();
     for (const r of rows) {

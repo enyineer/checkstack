@@ -39,15 +39,17 @@ async function insertRun(row: {
   status: string;
   latencyMs?: number | null;
   at: string;
+  environmentId?: string | null;
 }): Promise<void> {
   await pool.query(
     `INSERT INTO "${SCHEMA}".health_check_runs
-       (id, configuration_id, system_id, status, latency_ms, timestamp)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+       (id, configuration_id, system_id, environment_id, status, latency_ms, timestamp)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       crypto.randomUUID(),
       crypto.randomUUID(),
       row.systemId,
+      row.environmentId ?? null,
       row.status,
       row.latencyMs ?? null,
       row.at,
@@ -138,6 +140,47 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       expect(Object.keys(stats).toSorted()).toEqual(["sys-a", "sys-b"]);
       // Sanity: sys-a uptime = 3/4 healthy = 75%.
       expect(stats["sys-a"]?.total.uptimePct).toBe(75);
+    });
+
+    it("scopes uptime to the selected environments (status-page env filter)", async () => {
+      // sys-a: prod 2 healthy; staging 1 healthy + 1 unhealthy; env-less 1
+      // unhealthy. A prod-only page must count ONLY the two prod runs (100%),
+      // never the staging or env-less runs.
+      await insertRun({ systemId: "sys-a", status: "healthy", environmentId: "env-prod", at: "2026-06-01T01:00:00Z" });
+      await insertRun({ systemId: "sys-a", status: "healthy", environmentId: "env-prod", at: "2026-06-01T02:00:00Z" });
+      await insertRun({ systemId: "sys-a", status: "healthy", environmentId: "env-stage", at: "2026-06-01T03:00:00Z" });
+      await insertRun({ systemId: "sys-a", status: "unhealthy", environmentId: "env-stage", at: "2026-06-01T04:00:00Z" });
+      await insertRun({ systemId: "sys-a", status: "unhealthy", environmentId: null, at: "2026-06-01T05:00:00Z" });
+
+      const prodOnly = await service.getBulkRunStats({
+        systemIds: ["sys-a"],
+        startDate: START,
+        endDate: END,
+        environmentIds: ["env-prod"],
+        maxBuckets: 24,
+      });
+      expect(prodOnly["sys-a"]?.total.runCount).toBe(2);
+      expect(prodOnly["sys-a"]?.total.uptimePct).toBe(100);
+
+      // No env filter counts every run (5 total, 3 healthy = 60%).
+      const all = await service.getBulkRunStats({
+        systemIds: ["sys-a"],
+        startDate: START,
+        endDate: END,
+        maxBuckets: 24,
+      });
+      expect(all["sys-a"]?.total.runCount).toBe(5);
+      expect(all["sys-a"]?.total.uptimePct).toBe(60);
+
+      // getRunStats honors the same set filter for the single-system uptime widget.
+      const single = await service.getRunStats({
+        systemId: "sys-a",
+        startDate: START,
+        endDate: END,
+        environmentIds: ["env-prod", "env-stage"],
+        maxBuckets: 24,
+      });
+      expect(single.total.runCount).toBe(4);
     });
 
     it("returns an empty record for an empty request without querying", async () => {

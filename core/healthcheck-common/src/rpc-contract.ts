@@ -611,6 +611,14 @@ export const healthCheckContract = {
          * the (system, configuration)). Same semantics as `getHistory`.
          */
         environmentId: z.string().nullish(),
+        /**
+         * Restrict to runs of ANY of these environments (server-side DB
+         * filter). Omitted/empty = no environment filter. Distinct from the
+         * single `environmentId`: this is the SET filter the status page uses to
+         * scope uptime to a page's published environments (union of the
+         * selected envs). When both are given they AND together.
+         */
+        environmentIds: z.array(z.string()).optional(),
         /** Max time-series buckets to return (default 24, max 100). */
         maxBuckets: z.number().min(1).max(100).optional().default(24),
       }),
@@ -645,6 +653,13 @@ export const healthCheckContract = {
         systemIds: z.array(z.string()),
         startDate: z.coerce.date(),
         endDate: z.coerce.date(),
+        /**
+         * Restrict every system's runs to ANY of these environments
+         * (server-side DB filter). Omitted/empty = no environment filter. Used
+         * by the status page's `systemHealth` uptime column to scope uptime to a
+         * page's published environments (union of the selected envs).
+         */
+        environmentIds: z.array(z.string()).optional(),
         /** Max time-series buckets per system (default 24, max 100). */
         maxBuckets: z.number().min(1).max(100).optional().default(24),
       }),

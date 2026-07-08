@@ -15,6 +15,7 @@ import {
   StatusPageSubscriberSchema,
   EmailSubscribersHourlyQuotaSchema,
 } from "./schemas";
+import { SubscriptionCategorySchema } from "./subscription-categories";
 import {
   WidgetTypeDescriptorSchema,
   IncidentDtoItemSchema,
@@ -58,6 +59,8 @@ export const statusPageContract = {
         title: TitleSchema,
         slug: StatusPageSlugSchema,
         teamId: z.string().optional(),
+        // Catalog environment ids to publish; omit/empty = all environments.
+        publishedEnvironmentIds: z.array(z.string()).optional(),
       }),
     )
     .output(StatusPageSchema),
@@ -85,6 +88,10 @@ export const statusPageContract = {
         // Toggle double-opt-in verification for new subscribers. Same page-manage
         // gate as every other field on this proc.
         emailVerificationRequired: z.boolean().optional(),
+        // Catalog environment ids to publish. Pass an array to set the set (empty
+        // array or null both mean "all environments"); omit to leave unchanged.
+        // Same page-manage gate as every other field on this proc.
+        publishedEnvironmentIds: z.array(z.string()).nullable().optional(),
       }),
     )
     .output(StatusPageSchema),
@@ -227,6 +234,14 @@ export const statusPageContract = {
    * - so it can never be used to enumerate pages or addresses. A verification
    * email (double opt-in) is sent out-of-band; the address receives fan-out only
    * after it confirms.
+   *
+   * Optional `categories` / `systemIds` scope the subscription (which update
+   * kinds, which systems). The backend CLAMPS both to what the page actually
+   * offers - unknown categories and systems not surfaced by the page are
+   * silently dropped, never rejected - so this endpoint can never be used to
+   * probe which systems a page hides. Omitting `categories` defaults to
+   * incidents + maintenance; omitting `systemIds` (or clamping to empty) means
+   * all systems the page surfaces.
    */
   subscribeToStatusPage: proc({
     operationType: "mutation",
@@ -234,7 +249,14 @@ export const statusPageContract = {
     access: [statusPageAccess.published],
     instanceAccess: { global: true },
   })
-    .input(z.object({ slug: z.string(), email: SubscriberEmailSchema }))
+    .input(
+      z.object({
+        slug: z.string(),
+        email: SubscriberEmailSchema,
+        categories: z.array(SubscriptionCategorySchema).optional(),
+        systemIds: z.array(z.string()).optional(),
+      }),
+    )
     .output(z.object({ ok: z.boolean() })),
 
   /** Confirm a subscription via its verification token. Constant-time response. */

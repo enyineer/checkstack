@@ -76,6 +76,15 @@ export const statusPages = pgTable(
     emailVerificationRequired: boolean("email_verification_required")
       .notNull()
       .default(true),
+    /**
+     * Catalog environment ids this page publishes. NULL (or empty) means "all
+     * environments" - the backward-compatible default that leaves existing pages
+     * unchanged. A non-empty set restricts the page: status, incidents,
+     * maintenances and uptime are omitted for systems that belong to NONE of
+     * these environments. The ids are OPAQUE here (status-page-backend never
+     * imports the catalog); domain widget contributors resolve them to systems.
+     */
+    publishedEnvironmentIds: text("published_environment_ids").array(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -118,6 +127,19 @@ export const statusPageSubscribers = pgTable(
     verified: boolean("verified").notNull().default(false),
     /** Stable token that unsubscribes this row (present in every email). */
     unsubscribeToken: text("unsubscribe_token").notNull(),
+    /**
+     * Update categories this subscriber opted into (incident / maintenance /
+     * health). NULL means "every category" - the backward-compatible legacy
+     * behavior for rows created before granular scope existed. A non-null value
+     * (possibly empty) restricts the fan-out to exactly those categories.
+     */
+    categories: text("categories").array(),
+    /**
+     * Concrete catalog system ids this subscriber restricted to. NULL or empty
+     * means "all systems the page surfaces" (the default). A non-empty value
+     * limits fan-out to notifications touching at least one of these systems.
+     */
+    systemIds: text("system_ids").array(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     verifiedAt: timestamp("verified_at"),
   },

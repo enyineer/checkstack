@@ -31,12 +31,37 @@ async function groupMembers(
 }
 
 /**
+ * The catalog system ids visible under the page's published-environment scope,
+ * or null when the page publishes all environments (no filter). Resolved once
+ * per page resolve (cache-keyed by the env set) from the catalog's own
+ * env->systems mapping, so a system in NONE of the selected environments is
+ * omitted from what the widget shows, offers for subscription, and emails about.
+ */
+async function envVisibleSystems(
+  ctx: WidgetResolveContext,
+): Promise<Set<string> | null> {
+  const envIds = ctx.publishedEnvironmentIds;
+  if (!envIds || envIds.length === 0) return null;
+  const key = `catalog.systemsInEnv:${[...envIds].toSorted().join(",")}`;
+  const ids = await ctx.cache(key, async () => {
+    const envs = await ctx.rpcClient
+      .forPlugin(CatalogApi)
+      .resolveEnvironments({ environmentIds: envIds });
+    const set = new Set<string>();
+    for (const env of envs) for (const s of env.systemIds) set.add(s);
+    return [...set];
+  });
+  return new Set(ids);
+}
+
+/**
  * The CURRENT effective set of catalog system ids this incidents config
  * surfaces: `(systemIds ∪ members(groupIds)) − excludedSystemIds`, expanded from
  * the SAME live catalog source (`groupMembers` via `getGroups`) the DTO resolve
- * uses. Shared by `resolvePublic` (what the widget shows) and
- * `resolveScopedSystems` (what the subscriber fan-out is allowed to email about)
- * so the two can NEVER diverge. Empty when nothing is bound (fail closed).
+ * uses, then INTERSECTED with the page's published-environment scope. Shared by
+ * `resolvePublic` (what the widget shows) and `resolveScopedSystems` (what the
+ * subscriber fan-out is allowed to email about) so the two can NEVER diverge.
+ * Empty when nothing is bound (fail closed).
  */
 async function effectiveScope(
   config: unknown,
@@ -44,12 +69,15 @@ async function effectiveScope(
 ): Promise<Set<string>> {
   const c = IncidentsConfigSchema.parse(config);
   if (c.systemIds.length === 0 && c.groupIds.length === 0) return new Set();
-  return resolveEventFeedScope({
+  const scope = resolveEventFeedScope({
     systemIds: c.systemIds,
     groupIds: c.groupIds,
     excludedSystemIds: c.excludedSystemIds,
     groupMembers: c.groupIds.length > 0 ? await groupMembers(ctx) : new Map(),
   });
+  const visible = await envVisibleSystems(ctx);
+  if (!visible) return scope;
+  return new Set([...scope].filter((id) => visible.has(id)));
 }
 
 function iso(value: string | Date): string {
@@ -113,6 +141,19 @@ const incidents: WidgetTypeDefinition = {
   // Send-time scoping for the subscriber fan-out uses the SAME expansion as the
   // DTO resolve, so a page never emails about a system its widget does not show.
   resolveScopedSystems: ({ config, ctx }) => effectiveScope(config, ctx),
+  // Same effective scope WITH public display names, so the subscribe form can
+  // offer a per-system scope. Applies the same public label override the widget
+  // renders with, so a name here never differs from what the page shows.
+  async resolveScopedSystemsDetailed({ config, ctx }) {
+    const c = IncidentsConfigSchema.parse(config);
+    const bound = await effectiveScope(c, ctx);
+    if (bound.size === 0) return [];
+    const names = await labelsFor(ctx, [...bound]);
+    return [...bound].map((id) => ({
+      id,
+      name: c.systemLabels[id] ?? names.get(id) ?? id,
+    }));
+  },
   async resolvePublic({ config, ctx }) {
     const c = IncidentsConfigSchema.parse(config);
     // FAIL CLOSED with NO read when nothing is bound: never fall back to "all

@@ -12,4 +12,5 @@ export * from "./overall-status";
 export * from "./public-mappers";
 export * from "./select-events";
 export * from "./event-feed-scope";
+export * from "./subscription-categories";
 export * from "./slots";

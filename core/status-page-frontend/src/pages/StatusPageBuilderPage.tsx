@@ -50,8 +50,10 @@ import {
   BUILTIN_WIDGET_IDS,
   DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA,
   EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX,
+  SUBSCRIPTION_CATEGORY_LABELS,
   type StatusPageBlock,
   type StatusPageVisibility,
+  type StatusPageSubscriber,
   type CustomDomainInfo,
 } from "@checkstack/status-page-common";
 import { BlockRenderer, useStatusWidgetRenderers } from "../renderers";
@@ -865,6 +867,26 @@ const CustomDomainSection: React.FC<{
 };
 
 /**
+ * Compact, human-readable summary of a subscriber's scope for the admin list:
+ * which categories and how many systems, e.g. "Incidents, Scheduled maintenance
+ * . all systems" or "Health & status changes . 2 systems". A NULL categories /
+ * systemIds means the legacy "everything" scope.
+ */
+function describeSubscriberScope(s: StatusPageSubscriber): string {
+  const categories =
+    s.categories === null
+      ? "All updates"
+      : s.categories.length === 0
+        ? "No updates"
+        : s.categories.map((c) => SUBSCRIPTION_CATEGORY_LABELS[c]).join(", ");
+  const systems =
+    s.systemIds && s.systemIds.length > 0
+      ? `${s.systemIds.length} system${s.systemIds.length === 1 ? "" : "s"}`
+      : "all systems";
+  return `${categories} - ${systems}`;
+}
+
+/**
  * Admin panel listing a page's anonymous EMAIL subscribers (double-opt-in), with
  * per-row removal. Rendered inside the manage-gated builder, so it inherits the
  * page's `manage` capability; the backend list/delete procs are additionally
@@ -1044,17 +1066,22 @@ const SubscribersSection: React.FC<{
           {subscribers.map((s) => (
             <li
               key={s.id}
-              className="flex items-center justify-between gap-2 py-2 text-sm"
+              className="flex items-start justify-between gap-2 py-2 text-sm"
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate">{s.email}</span>
-                <Badge
-                  variant={s.verified ? "secondary" : "outline"}
-                  className="text-[10px]"
-                >
-                  {s.verified ? "Verified" : "Pending"}
-                </Badge>
-              </span>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate">{s.email}</span>
+                  <Badge
+                    variant={s.verified ? "secondary" : "outline"}
+                    className="text-[10px]"
+                  >
+                    {s.verified ? "Verified" : "Pending"}
+                  </Badge>
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {describeSubscriberScope(s)}
+                </span>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -1094,6 +1121,11 @@ export const StatusPageBuilderPage: React.FC = () => {
   const { data: widgetTypesData } = client.listWidgetTypes.useQuery({});
   const { data: systemsData } = catalog.getSystems.useQuery({});
   const { data: groupsData } = catalog.getGroups.useQuery({});
+  const { data: environmentsData } = catalog.listEnvironments.useQuery({});
+  const environments = (environmentsData ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+  }));
   const systems: SystemOption[] = systemsData?.systems ?? [];
   const groups: GroupOption[] = (groupsData ?? []).map((g) => ({
     id: g.id,
@@ -1110,6 +1142,10 @@ export const StatusPageBuilderPage: React.FC = () => {
   const [blocks, setBlocks] = useState<StatusPageBlock[]>([]);
   const [addType, setAddType] = useState("");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  // Empty = publish all environments (backward-compatible default).
+  const [publishedEnvironmentIds, setPublishedEnvironmentIds] = useState<
+    string[]
+  >([]);
 
   useInitOnceForKey(page ?? undefined, page?.id, (p) => {
     setTitle(p.title);
@@ -1118,6 +1154,7 @@ export const StatusPageBuilderPage: React.FC = () => {
     setBrandColor(p.theme.brandColorHsl ?? "");
     setLogoUrl(p.theme.logoUrl ?? "");
     setBlocks(p.draftLayout);
+    setPublishedEnvironmentIds(p.publishedEnvironmentIds ?? []);
   });
 
   const updateMutation = client.updateStatusPage.useMutation();
@@ -1131,7 +1168,15 @@ export const StatusPageBuilderPage: React.FC = () => {
   // Dirty = local edits diverge from the loaded snapshot. Drives the unsaved
   // guard + Save/Publish enablement (there is no autosave).
   const dirty = page
-    ? JSON.stringify([title, slug, visibility, brandColor, logoUrl, blocks]) !==
+    ? JSON.stringify([
+        title,
+        slug,
+        visibility,
+        brandColor,
+        logoUrl,
+        blocks,
+        [...publishedEnvironmentIds].toSorted(),
+      ]) !==
       JSON.stringify([
         page.title,
         page.slug,
@@ -1139,6 +1184,7 @@ export const StatusPageBuilderPage: React.FC = () => {
         page.theme.brandColorHsl ?? "",
         page.theme.logoUrl ?? "",
         page.draftLayout,
+        [...(page.publishedEnvironmentIds ?? [])].toSorted(),
       ])
     : false;
 
@@ -1163,6 +1209,8 @@ export const StatusPageBuilderPage: React.FC = () => {
       ...(logoUrl ? { logoUrl } : {}),
     },
     draftLayout: blocks,
+    // Empty array persists as "all environments" (null) on the backend.
+    publishedEnvironmentIds,
   });
 
   const save = async () => {
@@ -1342,6 +1390,30 @@ export const StatusPageBuilderPage: React.FC = () => {
                   id="status-page-logo-url"
                   value={logoUrl}
                   onChange={(e) => setLogoUrl(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label id="status-page-environments-label">
+                  Published environments
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to show all environments. When set, the page shows
+                  status, incidents, maintenance and uptime only for systems in
+                  the selected environments (a system in several environments
+                  appears when any of them is published).
+                </p>
+                <SystemMultiSelect
+                  systems={environments}
+                  selectedIds={publishedEnvironmentIds}
+                  onChange={setPublishedEnvironmentIds}
+                  labelledBy="status-page-environments-label"
+                  searchPlaceholder="Search environments…"
+                  emptyText="No environments defined"
+                  countLabel={(n) =>
+                    n === 0
+                      ? "All environments"
+                      : `${n} environment(s) selected`
+                  }
                 />
               </div>
             </div>

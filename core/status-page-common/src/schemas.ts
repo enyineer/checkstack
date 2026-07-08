@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { HttpUrlSchema } from "./widget-types";
 import { OverallStatusSummarySchema } from "./overall-status";
+import { SubscriptionCategorySchema } from "./subscription-categories";
 
 /**
  * Page visibility. `public` = anyone (gated by the anonymous `published.read`
@@ -142,6 +143,14 @@ export const StatusPageSchema = z.object({
    * immediately without a verification email.
    */
   emailVerificationRequired: z.boolean(),
+  /**
+   * Catalog environment ids this page publishes, or null for "all environments"
+   * (the backward-compatible default). A non-empty set restricts the page:
+   * status, incidents, maintenances and uptime are omitted for systems in none
+   * of these environments. A system in several environments is included when the
+   * page publishes ANY of them (the multi-environment caveat).
+   */
+  publishedEnvironmentIds: z.array(z.string()).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -180,8 +189,30 @@ export const StatusPageSubscriberSchema = z.object({
   verified: z.boolean(),
   createdAt: z.string(),
   verifiedAt: z.string().nullable(),
+  /**
+   * Update categories this subscriber opted into, or null for a legacy row
+   * (created before granular scope existed) which receives EVERY category.
+   */
+  categories: z.array(SubscriptionCategorySchema).nullable(),
+  /**
+   * Concrete catalog system ids this subscriber restricted to, or null/empty
+   * for "all systems the page surfaces".
+   */
+  systemIds: z.array(z.string()).nullable(),
 });
 export type StatusPageSubscriber = z.infer<typeof StatusPageSubscriberSchema>;
+
+/**
+ * A system a visitor can scope a subscription to, as surfaced by the page's
+ * event-feed widgets (id + public display name). The public subscribe form
+ * offers exactly these; the backend clamps a submitted `systemIds` to this set
+ * so the endpoint never confirms or denies which systems a page hides.
+ */
+export const SubscribableSystemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+export type SubscribableSystem = z.infer<typeof SubscribableSystemSchema>;
 
 // ===========================================================================
 // Public output (the ONLY shape the public surface ever receives)
@@ -234,6 +265,14 @@ export const PublishedStatusPageSchema = z.object({
    * only renders the subscribe form when true (the endpoints also fail closed).
    */
   emailSubscriptionsEnabled: z.boolean().default(false),
+  /**
+   * Systems this page surfaces through its event-feed widgets, so the subscribe
+   * form can offer a per-system scope. Deduped and derived from the SAME live
+   * scope resolution the fan-out uses (never a parallel source), so the picker
+   * only offers what the page actually shows. Empty when the page has no
+   * system-scoped widgets (the form then offers "all systems" only).
+   */
+  subscribableSystems: z.array(SubscribableSystemSchema).default([]),
   /** When the resolver assembled this snapshot (drives client cache hints). */
   generatedAt: z.string(),
 });

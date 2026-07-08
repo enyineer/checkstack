@@ -111,6 +111,7 @@ export default createBackendPlugin({
                   title: audienceEvent.title,
                   body: audienceEvent.body,
                   systemIds: audienceEvent.systemIds,
+                  sourcePluginId: audienceEvent.sourcePluginId,
                   ...(audienceEvent.link ? { link: audienceEvent.link } : {}),
                 });
               },

@@ -34,6 +34,7 @@ import type {
   WidgetResolveContext,
   WidgetTypeRegistry,
 } from "./widget-registry";
+import { resolveSubscribableSystems } from "./scoped-systems";
 
 type Db = SafeDatabase<typeof schema>;
 
@@ -79,9 +80,23 @@ function rowToPage(row: StatusPageRow): StatusPage {
     emailSubscriptionsEnabled: row.emailSubscriptionsEnabled,
     emailSubscribersHourlyQuota: row.emailSubscribersHourlyQuota,
     emailVerificationRequired: row.emailVerificationRequired,
+    publishedEnvironmentIds: row.publishedEnvironmentIds ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * The page's EFFECTIVE published-environment filter for a resolve context: the
+ * stored ids, or `undefined` when the column is NULL or empty (both mean "all
+ * environments" - no filtering). Threaded onto {@link WidgetResolveContext} so
+ * widget contributors omit systems outside the selected environments.
+ */
+export function effectivePublishedEnvironmentIds(
+  row: Pick<StatusPageRow, "publishedEnvironmentIds">,
+): string[] | undefined {
+  const ids = row.publishedEnvironmentIds;
+  return ids && ids.length > 0 ? ids : undefined;
 }
 
 function rowToSummary(row: StatusPageRow): StatusPageSummary {
@@ -149,11 +164,24 @@ export class StatusPageService {
     }
   }
 
-  async create(input: { title: string; slug: string }): Promise<StatusPage> {
+  async create(input: {
+    title: string;
+    slug: string;
+    publishedEnvironmentIds?: string[];
+  }): Promise<StatusPage> {
     await this.assertSlugFree(input.slug);
     const [row] = await this.deps.db
       .insert(statusPages)
-      .values({ title: input.title, slug: input.slug })
+      .values({
+        title: input.title,
+        slug: input.slug,
+        // Empty array normalizes to NULL ("all environments").
+        publishedEnvironmentIds:
+          input.publishedEnvironmentIds &&
+          input.publishedEnvironmentIds.length > 0
+            ? input.publishedEnvironmentIds
+            : null,
+      })
       .returning();
     return rowToPage(row);
   }
@@ -168,6 +196,7 @@ export class StatusPageService {
     emailSubscriptionsEnabled?: boolean;
     emailSubscribersHourlyQuota?: number | null;
     emailVerificationRequired?: boolean;
+    publishedEnvironmentIds?: string[] | null;
   }): Promise<StatusPage> {
     await this.requireRow(input.id);
     if (input.slug !== undefined) await this.assertSlugFree(input.slug, input.id);
@@ -186,6 +215,15 @@ export class StatusPageService {
     }
     if (input.emailVerificationRequired !== undefined) {
       set.emailVerificationRequired = input.emailVerificationRequired;
+    }
+    if (input.publishedEnvironmentIds !== undefined) {
+      // null OR empty both persist as NULL ("all environments"); a non-empty
+      // array restricts the page to those environments.
+      set.publishedEnvironmentIds =
+        input.publishedEnvironmentIds &&
+        input.publishedEnvironmentIds.length > 0
+          ? input.publishedEnvironmentIds
+          : null;
     }
     const [row] = await this.deps.db
       .update(statusPages)
@@ -490,6 +528,10 @@ export class StatusPageService {
         memo.set(key, created);
         return created;
       },
+      // Per-page environment scope (undefined = all envs). Threaded into every
+      // widget resolve AND the subscribableSystems resolution below, so what the
+      // page shows and what it offers for subscription agree by construction.
+      publishedEnvironmentIds: effectivePublishedEnvironmentIds(row),
     };
 
     // Renderer remotes this page needs (third-party widgets only; built-ins are
@@ -526,6 +568,20 @@ export class StatusPageService {
       });
     }
 
+    // The systems the subscribe form can offer a per-system scope for, resolved
+    // from the SAME live scope source the fan-out uses (so the picker can never
+    // offer a system the page does not surface). Only needed when the page
+    // accepts subscriptions; skip the extra catalog reads otherwise.
+    const subscribableSystems = row.emailSubscriptionsEnabled
+      ? await resolveSubscribableSystems({
+          layout: row.publishedLayout,
+          registry: this.deps.registry,
+          ctx,
+          logger: this.deps.logger,
+          slug: row.slug,
+        })
+      : [];
+
     return {
       slug: row.slug,
       title: row.title,
@@ -540,6 +596,7 @@ export class StatusPageService {
         packageName,
       })),
       emailSubscriptionsEnabled: row.emailSubscriptionsEnabled,
+      subscribableSystems,
       generatedAt: new Date().toISOString(),
     };
   }

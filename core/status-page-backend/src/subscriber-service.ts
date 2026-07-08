@@ -9,9 +9,18 @@ import { withScopedTransaction } from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import {
   DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA,
+  clampSubscriptionCategories,
+  DEFAULT_SUBSCRIPTION_CATEGORIES,
+  clampSubscriptionSystemIds,
+  sourcePluginIdToCategory,
+  SubscriptionCategorySchema,
+  type StatusPageLayout,
+  type SubscriptionCategory,
   type StatusPageSubscriber,
 } from "@checkstack/status-page-common";
 import * as schema from "./schema";
+import { effectivePublishedEnvironmentIds } from "./service";
+import { resolveSurfacedSystemIds } from "./scoped-systems";
 import {
   statusPages,
   statusPageSubscribers,
@@ -33,6 +42,11 @@ export interface SystemsFanoutEvent {
   body: string;
   /** Concrete affected catalog system ids. */
   systemIds: string[];
+  /**
+   * The notification's SOURCE plugin id (the subscription spec's `ownerPlugin`),
+   * mapped to a subscriber category to honor each subscriber's category scope.
+   */
+  sourcePluginId: string;
   /** Optional deep link (the notification's primary action URL). */
   link?: string;
 }
@@ -122,6 +136,92 @@ export class SubscriberService {
     return row !== undefined;
   }
 
+  /** A memo-backed `cache` fn over the given memo map (shared per resolution). */
+  private makeCache(
+    memo: Map<string, Promise<unknown>>,
+  ): WidgetResolveContext["cache"] {
+    return <T,>(key: string, loader: () => Promise<T>): Promise<T> => {
+      const existing = memo.get(key);
+      if (existing) return existing as Promise<T>;
+      const created = loader();
+      memo.set(key, created);
+      return created;
+    };
+  }
+
+  /**
+   * A fresh widget-resolve context with its own per-call memo so repeated catalog
+   * reads (e.g. group expansion) are fetched once per resolution. `envIds`
+   * carries the page's published-environment scope (undefined = all envs), so the
+   * widget scope resolvers omit systems outside the selected environments.
+   */
+  private newResolveContext(envIds?: string[]): WidgetResolveContext {
+    return {
+      rpcClient: this.deps.rpcClient,
+      cache: this.makeCache(new Map<string, Promise<unknown>>()),
+      publishedEnvironmentIds: envIds,
+    };
+  }
+
+  /**
+   * Resolve a subscription's stored scope from the caller's requested categories
+   * / systemIds and, on a re-subscribe, the existing row.
+   *
+   * - An EXPLICIT list wins: categories clamped to valid values, systemIds
+   *   clamped to the systems the page CURRENTLY surfaces (else "all", as `null`).
+   *   The systemIds clamp uses the SAME live scope resolution the fan-out uses,
+   *   so a subscriber can never restrict to a system the page never emails about,
+   *   and a hidden system is silently dropped (no enumeration).
+   * - An OMITTED field PRESERVES the existing row's value on a re-subscribe (so a
+   *   legacy `null` = "everything" is not silently narrowed), or falls back to
+   *   the defaults for a brand-new subscription.
+   */
+  private async resolveSubscriptionScope(input: {
+    slug: string;
+    publishedLayout: StatusPageLayout | null;
+    publishedEnvironmentIds?: string[];
+    categories?: string[];
+    systemIds?: string[];
+    existing?: { categories: string[] | null; systemIds: string[] | null };
+  }): Promise<{ categories: string[] | null; systemIds: string[] | null }> {
+    // Categories: explicit -> clamp; omitted + existing -> preserve; else default.
+    let categories: string[] | null;
+    if (input.categories !== undefined) {
+      categories = clampSubscriptionCategories(input.categories);
+    } else if (input.existing) {
+      categories = input.existing.categories;
+    } else {
+      categories = [...DEFAULT_SUBSCRIPTION_CATEGORIES];
+    }
+
+    // Systems: explicit -> clamp to surfaced; omitted + existing -> preserve;
+    // else "all" (null).
+    let systemIds: string[] | null;
+    if (input.systemIds !== undefined) {
+      const requested = input.systemIds;
+      if (requested.length === 0) {
+        systemIds = null;
+      } else {
+        const surfaced = input.publishedLayout
+          ? await resolveSurfacedSystemIds({
+              layout: input.publishedLayout,
+              registry: this.deps.registry,
+              ctx: this.newResolveContext(input.publishedEnvironmentIds),
+              logger: this.deps.logger,
+              slug: input.slug,
+            })
+          : new Set<string>();
+        systemIds = clampSubscriptionSystemIds({ requested, surfaced });
+      }
+    } else if (input.existing) {
+      systemIds = input.existing.systemIds;
+    } else {
+      systemIds = null;
+    }
+
+    return { categories, systemIds };
+  }
+
   /**
    * Subscribe an address. Idempotent per (page, email). Always resolves
    * `{ ok: true }` regardless of page existence / prior state (enumeration guard).
@@ -139,7 +239,14 @@ export class SubscriberService {
    * The per-page hourly quota gates every NEW row; the mandatory unsubscribe link
    * rides every email; a page with subscriptions disabled fails closed.
    */
-  async subscribe(input: { slug: string; email: string }): Promise<{ ok: true }> {
+  async subscribe(input: {
+    slug: string;
+    email: string;
+    /** Update categories to opt into; clamped to valid values, defaults applied. */
+    categories?: string[];
+    /** Systems to restrict to; clamped to what the page surfaces (else "all"). */
+    systemIds?: string[];
+  }): Promise<{ ok: true }> {
     const email = input.email.trim().toLowerCase();
     try {
       // Only published, public pages that OPTED IN accept subscriptions. A miss
@@ -150,6 +257,8 @@ export class SubscriberService {
           id: statusPages.id,
           slug: statusPages.slug,
           title: statusPages.title,
+          publishedLayout: statusPages.publishedLayout,
+          publishedEnvironmentIds: statusPages.publishedEnvironmentIds,
           emailSubscriptionsEnabled: statusPages.emailSubscriptionsEnabled,
           emailSubscribersHourlyQuota: statusPages.emailSubscribersHourlyQuota,
           emailVerificationRequired: statusPages.emailVerificationRequired,
@@ -170,7 +279,37 @@ export class SubscriberService {
         )
         .limit(1);
 
-      if (existing?.verified) return { ok: true }; // already active
+      // Resolve the subscription's scope: an EXPLICIT categories/systemIds list
+      // is clamped (invalid categories dropped, hidden systems dropped - so the
+      // endpoint's constant outcome is preserved) and wins. When a field is
+      // OMITTED, a re-subscribe PRESERVES the existing row's value (so a legacy
+      // `null` = "everything" is never silently narrowed to the defaults) while a
+      // brand-new subscription uses the defaults.
+      const scope = await this.resolveSubscriptionScope({
+        slug: page.slug,
+        publishedLayout: page.publishedLayout,
+        publishedEnvironmentIds: effectivePublishedEnvironmentIds(page),
+        categories: input.categories,
+        systemIds: input.systemIds,
+        ...(existing
+          ? {
+              existing: {
+                categories: existing.categories,
+                systemIds: existing.systemIds,
+              },
+            }
+          : {}),
+      });
+
+      if (existing?.verified) {
+        // Already active: re-subscribing just updates the scope (the visitor
+        // changed which categories / systems they want). No new email.
+        await this.deps.db
+          .update(statusPageSubscribers)
+          .set({ categories: scope.categories, systemIds: scope.systemIds })
+          .where(eq(statusPageSubscribers.id, existing.id));
+        return { ok: true };
+      }
 
       const unsubscribeToken = existing?.unsubscribeToken ?? newToken("unsub");
       const now = new Date();
@@ -188,7 +327,13 @@ export class SubscriberService {
         if (existing) {
           await this.deps.db
             .update(statusPageSubscribers)
-            .set({ verified: true, verifiedAt: now, verificationToken: null })
+            .set({
+              verified: true,
+              verifiedAt: now,
+              verificationToken: null,
+              categories: scope.categories,
+              systemIds: scope.systemIds,
+            })
             .where(eq(statusPageSubscribers.id, existing.id));
         } else {
           if (
@@ -206,6 +351,8 @@ export class SubscriberService {
             unsubscribeToken,
             verified: true,
             verifiedAt: now,
+            categories: scope.categories,
+            systemIds: scope.systemIds,
           });
         }
         // Verification-required page reached here => the address was already
@@ -239,7 +386,12 @@ export class SubscriberService {
         if (age < VERIFICATION_RESEND_COOLDOWN_MS) return { ok: true };
         await this.deps.db
           .update(statusPageSubscribers)
-          .set({ verificationToken, createdAt: now })
+          .set({
+            verificationToken,
+            createdAt: now,
+            categories: scope.categories,
+            systemIds: scope.systemIds,
+          })
           .where(eq(statusPageSubscribers.id, existing.id));
       } else {
         if (
@@ -256,6 +408,8 @@ export class SubscriberService {
           verificationToken,
           unsubscribeToken,
           verified: false,
+          categories: scope.categories,
+          systemIds: scope.systemIds,
         });
       }
 
@@ -410,6 +564,17 @@ export class SubscriberService {
       verified: r.verified,
       createdAt: r.createdAt.toISOString(),
       verifiedAt: r.verifiedAt ? r.verifiedAt.toISOString() : null,
+      // NULL categories = legacy row that receives every category; expose as-is
+      // so the admin can see "All" vs a specific opt-in. Stored values are
+      // written valid, but narrow defensively to the enum (no cast) so a stray
+      // value can never break the DTO.
+      categories: r.categories
+        ? r.categories.filter(
+            (c): c is SubscriptionCategory =>
+              SubscriptionCategorySchema.safeParse(c).success,
+          )
+        : null,
+      systemIds: r.systemIds ?? null,
     }));
   }
 
@@ -470,6 +635,7 @@ export class SubscriberService {
         id: statusPages.id,
         slug: statusPages.slug,
         publishedLayout: statusPages.publishedLayout,
+        publishedEnvironmentIds: statusPages.publishedEnvironmentIds,
         visibility: statusPages.visibility,
         emailSubscriptionsEnabled: statusPages.emailSubscriptionsEnabled,
       })
@@ -477,18 +643,16 @@ export class SubscriberService {
 
     // One memo for the WHOLE fan-out: the widget scope resolvers read the catalog
     // (e.g. getGroups) through this cache, so the fan-out issues a single catalog
-    // fetch shared across every page instead of one per page.
+    // fetch shared across every page instead of one per page. Per-page env scope
+    // is applied via a per-page ctx that shares this cache (env-visible-system
+    // lookups are cache-keyed by their env set, so same-env pages still share).
     const memo = new Map<string, Promise<unknown>>();
-    const ctx: WidgetResolveContext = {
-      rpcClient: this.deps.rpcClient,
-      cache: <T,>(key: string, loader: () => Promise<T>): Promise<T> => {
-        const existing = memo.get(key);
-        if (existing) return existing as Promise<T>;
-        const created = loader();
-        memo.set(key, created);
-        return created;
-      },
-    };
+    const cache = this.makeCache(memo);
+
+    // The subscriber-facing category this notification maps to (null for an
+    // uncategorized source): a scoped subscriber only receives its opted-in
+    // categories; a legacy (NULL categories) subscriber receives everything.
+    const category = sourcePluginIdToCategory(event.sourcePluginId);
 
     let sent = 0;
     for (const page of pages) {
@@ -499,9 +663,19 @@ export class SubscriberService {
       ) {
         continue;
       }
-      // Does any event-feed widget on this page CURRENTLY surface an affected
-      // system? Fail CLOSED: a resolver error contributes nothing (no email).
-      let surfaced = false;
+      const ctx: WidgetResolveContext = {
+        rpcClient: this.deps.rpcClient,
+        cache,
+        publishedEnvironmentIds: effectivePublishedEnvironmentIds(page),
+      };
+      // The affected systems this page CURRENTLY surfaces through its event-feed
+      // widgets (affected ∩ surfaced), resolved from each widget's own live scope
+      // (fail CLOSED: a resolver error contributes nothing). This intersection is
+      // the privacy boundary used by BOTH the page gate and every per-subscriber
+      // system filter, so a subscriber can never be emailed about a system the
+      // page no longer surfaces (e.g. one removed from the layout after they
+      // scoped to it).
+      const surfacedAffected = new Set<string>();
       for (const block of page.publishedLayout) {
         const widget = this.deps.registry.get(block.type);
         if (!widget?.resolveScopedSystems) continue;
@@ -510,9 +684,8 @@ export class SubscriberService {
             config: block.config,
             ctx,
           });
-          if ([...affected].some((id) => scope.has(id))) {
-            surfaced = true;
-            break;
+          for (const id of affected) {
+            if (scope.has(id)) surfacedAffected.add(id);
           }
         } catch (error) {
           this.deps.logger.warn("status-page fan-out scope resolve failed", {
@@ -522,7 +695,8 @@ export class SubscriberService {
           });
         }
       }
-      if (!surfaced) continue;
+      // Page gate: nothing affected is currently surfaced -> no email.
+      if (surfacedAffected.size === 0) continue;
 
       const subs = await this.deps.db
         .select()
@@ -534,6 +708,24 @@ export class SubscriberService {
           ),
         );
       for (const sub of subs) {
+        // Per-subscriber CATEGORY scope: a non-null categories list must include
+        // this notification's category. NULL categories = legacy "everything".
+        // An uncategorized source (category === null) reaches only legacy rows.
+        if (sub.categories && (category === null || !sub.categories.includes(category))) {
+          continue;
+        }
+        // Per-subscriber SYSTEM scope: a non-empty systemIds list must intersect
+        // the systems this event affects AND the page currently surfaces
+        // (`surfacedAffected`), NOT the raw affected set - so a subscriber scoped
+        // to a system the page no longer surfaces is never emailed about it.
+        // NULL/empty = all systems the page surfaces.
+        if (
+          sub.systemIds &&
+          sub.systemIds.length > 0 &&
+          !sub.systemIds.some((id) => surfacedAffected.has(id))
+        ) {
+          continue;
+        }
         const { unsubscribeUrl } = subscriberUrls({
           baseUrl: this.deps.baseUrl,
           slug: page.slug,

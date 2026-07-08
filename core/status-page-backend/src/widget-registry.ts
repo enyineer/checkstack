@@ -27,6 +27,16 @@ export interface WidgetResolveContext {
    * per public hit. Keys are resolver-chosen and scoped to a single resolve.
    */
   cache<T>(key: string, loader: () => Promise<T>): Promise<T>;
+  /**
+   * The catalog ENVIRONMENT ids this page publishes, or undefined/empty for "all
+   * environments" (the backward-compatible default). OPAQUE to status-page-backend
+   * (it never interprets these strings): a domain widget contributor resolves them
+   * to systems via the catalog and omits status / events / uptime for systems that
+   * belong to NONE of the selected environments. Threaded identically into
+   * `resolvePublic`, `resolveScopedSystems`, and `resolveScopedSystemsDetailed`,
+   * so what a page shows, offers for subscription, and emails about all agree.
+   */
+  publishedEnvironmentIds?: string[];
 }
 
 /** A resource a widget binds to, for edit-time access checks + publish audit. */
@@ -91,6 +101,19 @@ export interface WidgetTypeDefinition {
     config: unknown;
     ctx: WidgetResolveContext;
   }): Promise<Set<string>>;
+  /**
+   * OPTIONAL, for the same system-scoped EVENT-FEED widgets: the CURRENT set of
+   * systems this config surfaces WITH their PUBLIC display names, so the public
+   * subscribe form can offer a per-system subscription scope. MUST resolve the
+   * same id set as {@link resolveScopedSystems} (share one scope helper so they
+   * cannot drift) and apply the same public label override the widget renders
+   * with, so a name here never differs from what the page shows. Omit for
+   * widgets that are not system-scoped event feeds.
+   */
+  resolveScopedSystemsDetailed?(args: {
+    config: unknown;
+    ctx: WidgetResolveContext;
+  }): Promise<Array<{ id: string; name: string }>>;
 }
 
 export interface RegisteredWidgetType extends WidgetTypeDefinition {

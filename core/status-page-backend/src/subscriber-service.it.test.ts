@@ -143,15 +143,29 @@ async function seedGlobalVerified(email: string): Promise<void> {
 async function getSubscriber(
   pageId: string,
   email: string,
-): Promise<{ verified: boolean; verificationToken: string | null } | undefined> {
+): Promise<
+  | {
+      verified: boolean;
+      verificationToken: string | null;
+      categories: string[] | null;
+      systemIds: string[] | null;
+    }
+  | undefined
+> {
   const res = await pool.query(
-    `SELECT verified, verification_token FROM "${SCHEMA}".status_page_subscribers
+    `SELECT verified, verification_token, categories, system_ids
+       FROM "${SCHEMA}".status_page_subscribers
        WHERE status_page_id = $1 AND email = $2`,
     [pageId, email],
   );
   const row = res.rows[0];
   if (!row) return undefined;
-  return { verified: row.verified, verificationToken: row.verification_token };
+  return {
+    verified: row.verified,
+    verificationToken: row.verification_token,
+    categories: row.categories,
+    systemIds: row.system_ids,
+  };
 }
 
 async function subscriberCount(pageId: string): Promise<number> {
@@ -187,6 +201,7 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
            email_subscriptions_enabled boolean NOT NULL DEFAULT false,
            email_subscribers_hourly_quota integer,
            email_verification_required boolean NOT NULL DEFAULT true,
+           published_environment_ids text[],
            created_at timestamp NOT NULL DEFAULT now(),
            updated_at timestamp NOT NULL DEFAULT now()
          )`,
@@ -200,6 +215,8 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
            verification_token text,
            verified boolean NOT NULL DEFAULT false,
            unsubscribe_token text NOT NULL,
+           categories text[],
+           system_ids text[],
            created_at timestamp NOT NULL DEFAULT now(),
            verified_at timestamp
          )`,
@@ -387,9 +404,147 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         title: "Incident",
         body: "down",
         systemIds: ["sys-1"],
+        sourcePluginId: "incident",
       });
       expect(n).toBe(1);
       expect(sentEmails.map((e) => e.to)).toEqual(["verified@x.com"]);
+    });
+
+    // ----- granular scope (categories + systems) round-trip -----
+
+    const feedLayout = [{ id: "b1", type: "test.feed", config: {} }];
+
+    it("new subscription defaults to incident+maintenance categories and all systems", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      const svc = makeService(scopeRegistry(["sys-A", "sys-B"]));
+      await svc.subscribe({ slug: "slug-p1", email: "a@x.com" });
+
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.verified).toBe(true);
+      expect(sub?.categories).toEqual(["incident", "maintenance"]);
+      expect(sub?.systemIds).toBeNull(); // null = all systems
+    });
+
+    it("clamps systemIds to the page's surfaced systems (hidden ids dropped)", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      const svc = makeService(scopeRegistry(["sys-A", "sys-B"]));
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        categories: ["incident"],
+        systemIds: ["sys-A", "sys-HIDDEN"],
+      });
+
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.categories).toEqual(["incident"]);
+      expect(sub?.systemIds).toEqual(["sys-A"]); // sys-HIDDEN dropped, no leak
+    });
+
+    it("falls back to all systems when every requested id is not surfaced", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      const svc = makeService(scopeRegistry(["sys-A"]));
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        systemIds: ["not-a-real-system"],
+      });
+
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.systemIds).toBeNull();
+    });
+
+    it("re-subscribing a verified address updates its scope (no duplicate row)", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      const svc = makeService(scopeRegistry(["sys-A", "sys-B"]));
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        categories: ["incident"],
+        systemIds: ["sys-A"],
+      });
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        categories: ["maintenance", "health"],
+        systemIds: ["sys-B"],
+      });
+
+      expect(await subscriberCount("p1")).toBe(1);
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.categories).toEqual(["maintenance", "health"]);
+      expect(sub?.systemIds).toEqual(["sys-B"]);
+    });
+
+    it("a legacy row (NULL scope) reads back as all categories / all systems", async () => {
+      await insertPage("p1", { enabled: true });
+      await insertSubscriber({ id: "s1", pageId: "p1", email: "a@x.com" });
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.categories).toBeNull();
+      expect(sub?.systemIds).toBeNull();
+    });
+
+    it("re-subscribing WITHOUT categories preserves the existing scope (legacy NULL stays 'everything')", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      // A legacy verified subscriber: NULL categories = every category, NULL
+      // systemIds = all systems.
+      await insertSubscriber({
+        id: "s1",
+        pageId: "p1",
+        email: "a@x.com",
+        verified: true,
+      });
+      const svc = makeService(scopeRegistry(["sys-A", "sys-B"]));
+      // Re-subscribe with NOTHING specified: must NOT narrow to the defaults.
+      await svc.subscribe({ slug: "slug-p1", email: "a@x.com" });
+
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.categories).toBeNull();
+      expect(sub?.systemIds).toBeNull();
+    });
+
+    it("re-subscribing updates only the explicitly-provided field, preserving the other", async () => {
+      await insertPage("p1", {
+        enabled: true,
+        verificationRequired: false,
+        publishedLayout: feedLayout,
+      });
+      const svc = makeService(scopeRegistry(["sys-A", "sys-B"]));
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        categories: ["incident"],
+        systemIds: ["sys-A"],
+      });
+      // Only systemIds provided this time -> categories preserved as [incident].
+      await svc.subscribe({
+        slug: "slug-p1",
+        email: "a@x.com",
+        systemIds: ["sys-B"],
+      });
+
+      const sub = await getSubscriber("p1", "a@x.com");
+      expect(sub?.categories).toEqual(["incident"]);
+      expect(sub?.systemIds).toEqual(["sys-B"]);
     });
 
     // ----- unsubscribe (wrapped in one scoped transaction) -----
