@@ -1,5 +1,125 @@
 # @checkstack/backend
 
+## 0.24.0
+
+### Minor Changes
+
+- d0eddc9: Add opt-in OpenTelemetry metrics with a Prometheus exporter so a performance
+  investigation can be grounded in real numbers from a running instance instead of
+  guesses.
+
+  The layer is **off by default and free when off**: the instruments are OTel
+  no-ops until a `MeterProvider` is registered, so the hot paths pay nothing until
+  you opt in.
+
+  - **`@checkstack/backend-api` gains an `instrumentation` module** exporting lazy,
+    memoized instrument accessors any plugin can record through:
+    `dbTransactionsCounter`, `dbQueriesCounter`, `healthcheckExecutionHistogram`,
+    `healthcheckPhaseHistogram`, `queueEnqueuedCounter`, `queueProcessedCounter`.
+    Each looks up its instrument once and is a no-op until the host registers a
+    provider, so callers can record unconditionally.
+  - **`@checkstack/backend` owns the SDK bootstrap.** `startMetrics()` registers a
+    global `MeterProvider` + Prometheus exporter when `CHECKSTACK_METRICS_ENABLED`
+    is set (host `127.0.0.1`, port `9464` by default, both overridable via
+    `CHECKSTACK_METRICS_HOST` / `CHECKSTACK_METRICS_PORT`). The exporter runs its
+    OWN HTTP server, NOT a route on the app, so it carries no app-auth surface. It
+    also registers host-owned observable instruments:
+    `checkstack.db.pool.connections` (admin/lock pool active/idle/waiting) and
+    `checkstack.runtime.event_loop_delay` (setInterval-drift histogram = JS-thread
+    block time).
+  - **The scoped-DB proxy records DB transactions/queries per plugin schema**, so
+    `db_transactions_total` minus `db_queries_total` per schema is exactly the
+    number of batched transactions - a live check that `withScopedTransaction`
+    batching is taking effect.
+  - **The health-check executor records execution + per-phase histograms**
+    (`connect`, `wait`, ...) so a high `connect` p95 with a low `wait` points at
+    connection establishment rather than a slow target or a CPU-bound platform.
+  - **The in-memory queue records enqueued/processed counters** per queue and
+    status.
+
+  No behaviour changes when disabled. Enable with `CHECKSTACK_METRICS_ENABLED=1`
+  and scrape `http://127.0.0.1:9464/metrics`. See the backend observability guide
+  for the full metric list and interpretation.
+
+- d0eddc9: Add a queue-backlog metric and fix the in-memory queue's backlog accounting so
+  the metric is trustworthy under saturation - the single most important signal
+  for whether health-check (or any queue) work is keeping up at scale.
+
+  - **New `checkstack.queue.jobs` observable gauge** (`state="pending"|"processing"`),
+    registered by the host once the QueueManager exists. `pending` is the backlog;
+    if it climbs without draining, work is arriving faster than the queue
+    concurrency can execute it. No-op unless metrics are enabled.
+  - **Fix: the in-memory queue undercounted `pending`.** `processNext` removed a
+    job from the pending list and only THEN awaited a concurrency slot in
+    `processJob`, so jobs blocked waiting for a slot were invisible - not in
+    `pending`, not yet in `processing`. Under saturation the reported backlog read
+    ~0 while hundreds of jobs were actually queued. Such slot-waiters are now
+    counted in `pending`, so `getStats()` (and the gauge, and the runtime panel)
+    reflect the true depth. `processing` still counts only executing jobs.
+
+  This surfaced from a scale harness driving the real hot path: 20% unreachable
+  checks (which pin a concurrency slot for the full timeout) drove the backlog from
+  0 to 700+ in 35s while lock-pool waiting stayed at 0 - i.e. the first scaling
+  ceiling is concurrency-slot saturation by slow checks, not the database.
+
+- f93ee7a: Fix a 403 that blocked team-scoped health-check managers from opening the
+  health-check editor.
+
+  The editor's utility endpoints (`healthcheck.getStrategies`,
+  `healthcheck.getCollectors`, `healthcheck.testCollectorScript`, and the
+  script-package SDK/type endpoints) were gated with `instanceAccess: { global:
+true }` or a separate global `script-packages.read` rule. A `global: true` gate
+  is enforced ONLY against a caller's global access rules - team grants never
+  satisfy it - so a user who could manage a health check through a team grant, but
+  did not hold the global `healthcheck.configuration.read` rule, got a 403 on the
+  metadata endpoints the editor needs and could not open it.
+
+  New `typeScoped` instanceAccess mode. A no-instance utility/catalog endpoint can
+  now be gated by ANY team grant of its resource type (or the global rule): a
+  `viewer`/`editor`/`owner` grant on any instance, or a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. `healthcheck.getStrategies` /
+  `getCollectors` use it at read level; `testCollectorScript` at manage level.
+  Backed by an `includeCreator` option threaded through `hasAnyTypeGrant`
+  (store -> auth S2S contract -> `AuthService`), so the create-capability path is
+  counted only where intended (the list/record post-filter keeps its old
+  semantics). The boot validator recognises `typeScoped` as one of the mutually
+  exclusive modes.
+
+  Script-package authoring endpoints relaxed to authenticated. `getInstallState`
+  and the two raw type routes (`/api/script-packages/sdk-types/:version` and
+  `/api/script-packages/types/:hash/:spec`) now require only authentication, not
+  the global `script-packages.read` grant. They serve IntelliSense metadata
+  (installed package inventory, `.d.ts` closures, the `@checkstack/sdk` bundle) -
+  no secrets - which any script author, including a team-scoped health-check
+  manager, needs. The install/registry MANAGE endpoints stay restricted.
+
+  Why the team-permission guards did not catch this: `check:manage-capabilities`
+  only covers management routes/nav, not the procedures a page calls; the boot
+  conformance validator treats `global: true` as a deliberate, valid "not
+  team-scoped" marker and cannot tell it is actually a dependency of a
+  team-scopable editor flow. The RLAC rule now documents `typeScoped` as the
+  correct mode and warns against `global: true` for endpoints a team manager
+  needs.
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/backend-api@0.31.0
+  - @checkstack/auth-common@0.13.0
+  - @checkstack/api-docs-common@0.1.27
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/pluginmanager-common@0.2.16
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/signal-backend@0.3.21
+  - @checkstack/signal-common@0.2.17
+
 ## 0.23.5
 
 ### Patch Changes

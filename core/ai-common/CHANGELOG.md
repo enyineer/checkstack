@@ -1,5 +1,13 @@
 # @checkstack/ai-common
 
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+
 ## 0.6.5
 
 ### Patch Changes

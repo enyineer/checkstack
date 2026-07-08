@@ -1,5 +1,21 @@
 # @checkstack/satellite-frontend
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.14.0
+  - @checkstack/ui@1.25.1
+  - @checkstack/satellite-common@0.9.3
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/gitops-frontend@0.7.1
+  - @checkstack/tips-frontend@0.4.10
+  - @checkstack/signal-frontend@0.3.5
+
 ## 0.6.0
 
 ### Minor Changes

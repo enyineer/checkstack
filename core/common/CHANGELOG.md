@@ -1,5 +1,95 @@
 # @checkstack/common
 
+## 0.22.0
+
+### Minor Changes
+
+- f93ee7a: Derive frontend authorization gates from the RPC contract instead of hand-picking
+  a hook per call site. The backend contract already declares, per procedure, both
+  the access rule (`access`) and how it is instance-scoped (`instanceAccess`); the
+  frontend gate was a hand re-encoding of that, which is how the "global-only
+  team-grant" drift shipped (nothing enforced that the hook a page chose matched
+  the mode the contract declared).
+
+  New `resolveProcedureGate` (`@checkstack/common`) reads a contract procedure's
+  metadata and returns the single gate the backend will enforce - classifying
+  `global` / `idParam` / `create` / `typeScoped` / post-filtered `open`, deriving
+  the object type from the rule and resolving the resource id from the input via
+  the contract's declared path. `parentScope` is normalized into an `idParam`/`open`
+  gate on a reconstructed parent rule + the parent type (the parent grant string the
+  backend checks is exactly `${resourceType}.${action}`, so no contract change was
+  needed). New `accessApi.useProcedureAccess(procedure, input)`
+  (`@checkstack/frontend-api` / `@checkstack/auth-frontend`) dispatches on the
+  derived gate; a call site can no longer gate on the wrong thing.
+
+  Fix a latent `create.parent` gap: the create gate's global-RBAC path only checked
+  the procedure's own manage rule, so a user with GLOBAL manage on the PARENT type
+  (e.g. a global system manager creating an incident/maintenance/SLO "for" a system,
+  which the backend authorizes via the parent gate) was not offered the create
+  affordance. The derived create gate now also ORs global manage on the parent type.
+
+  Migrate every `useCanCreate` create-button gate (catalog systems, health checks,
+  incidents, maintenance, SLOs, automations, status pages) to `useProcedureAccess`
+  on the owning create procedure, which also delivers the `create.parent` fix to
+  each, then remove `useCanCreate` from the `AccessApi`.
+
+  BREAKING CHANGES: `accessApi.useCanCreate(...)` is removed from
+  `@checkstack/frontend-api`. Replace it with
+  `accessApi.useProcedureAccess(SomeApi.contract.createX)` - the create procedure's
+  `instanceAccess.create` supplies the object type and parent gate, so no more
+  hand-passed `objectType` / `parentType`. The remaining hooks (`useAccess`,
+  `useCanAccessType`, `useResourceAccess`, `useRouteAccess`, `useIsAuthenticated`)
+  are unchanged: they gate surfaces/rows/routes that are not tied to a single
+  procedure. No gate became more restrictive; the create fix makes global
+  parent-managers correctly see create controls they were wrongly denied.
+
+  Patch-level adaptations to the `AccessApi` interface change (no behavior change of
+  their own): the host app's fallback `AccessApi` stubs (`@checkstack/frontend`) and
+  Storybook's mock (`@checkstack/ui`) drop `useCanCreate` and add the new
+  `useProcedureAccess` / `useSurfaceAccess` members so they match the interface, and
+  a `@checkstack/catalog-common` doc comment now names `useProcedureAccess` instead
+  of the removed hook.
+
+- f93ee7a: Fix a 403 that blocked team-scoped health-check managers from opening the
+  health-check editor.
+
+  The editor's utility endpoints (`healthcheck.getStrategies`,
+  `healthcheck.getCollectors`, `healthcheck.testCollectorScript`, and the
+  script-package SDK/type endpoints) were gated with `instanceAccess: { global:
+true }` or a separate global `script-packages.read` rule. A `global: true` gate
+  is enforced ONLY against a caller's global access rules - team grants never
+  satisfy it - so a user who could manage a health check through a team grant, but
+  did not hold the global `healthcheck.configuration.read` rule, got a 403 on the
+  metadata endpoints the editor needs and could not open it.
+
+  New `typeScoped` instanceAccess mode. A no-instance utility/catalog endpoint can
+  now be gated by ANY team grant of its resource type (or the global rule): a
+  `viewer`/`editor`/`owner` grant on any instance, or a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. `healthcheck.getStrategies` /
+  `getCollectors` use it at read level; `testCollectorScript` at manage level.
+  Backed by an `includeCreator` option threaded through `hasAnyTypeGrant`
+  (store -> auth S2S contract -> `AuthService`), so the create-capability path is
+  counted only where intended (the list/record post-filter keeps its old
+  semantics). The boot validator recognises `typeScoped` as one of the mutually
+  exclusive modes.
+
+  Script-package authoring endpoints relaxed to authenticated. `getInstallState`
+  and the two raw type routes (`/api/script-packages/sdk-types/:version` and
+  `/api/script-packages/types/:hash/:spec`) now require only authentication, not
+  the global `script-packages.read` grant. They serve IntelliSense metadata
+  (installed package inventory, `.d.ts` closures, the `@checkstack/sdk` bundle) -
+  no secrets - which any script author, including a team-scoped health-check
+  manager, needs. The install/registry MANAGE endpoints stay restricted.
+
+  Why the team-permission guards did not catch this: `check:manage-capabilities`
+  only covers management routes/nav, not the procedures a page calls; the boot
+  conformance validator treats `global: true` as a deliberate, valid "not
+  team-scoped" marker and cannot tell it is actually a dependency of a
+  team-scopable editor flow. The RLAC rule now documents `typeScoped` as the
+  correct mode and warns against `global: true` for endpoints a team manager
+  needs.
+
 ## 0.21.0
 
 ### Minor Changes

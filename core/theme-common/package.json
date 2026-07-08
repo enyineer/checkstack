@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/theme-common",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

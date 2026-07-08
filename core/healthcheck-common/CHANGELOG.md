@@ -1,5 +1,155 @@
 # @checkstack/healthcheck-common
 
+## 1.15.0
+
+### Minor Changes
+
+- 8aae4e2: Count fanned-out environment slices in the dashboard's "X of Y checks failing".
+
+  The dashboard problem card counted CHECKS, so a system with a single check that
+  fans out to three environments showed "Unhealthy 1 of 1 checks failing" even
+  when only one of the three environments was failing. It now counts (check ×
+  environment) slices: that system reads "1 of 3 checks failing", and a system
+  with a three-environment check plus a single-environment check with one
+  environment failing reads "1 of 4 checks failing". An env-less check counts as a
+  single slice, so a system with no environments reads exactly as before.
+
+  The per-check status DTO (`SystemCheckStatus`, returned by
+  `getSystemHealthStatus` / `getBulkSystemHealthStatus` /
+  `getBulkSystemHealthMatrix`) gains two fields: `sliceCount` (environment slices
+  this check currently fans out to, always >= 1) and `failingSliceCount` (how many
+  of those slices are non-healthy). `deriveHealthcheckSignals` sums them across
+  checks for the honest numerator/denominator.
+
+- f93ee7a: Fix a class of 403s where team-scoped managers were blocked from endpoints they
+  needed. A repo-wide audit of every `instanceAccess: { global: true }` procedure
+  found more instances of the same bug behind the health-check editor fix: an
+  endpoint on a team-scopable resource type, gated so only the GLOBAL access rule
+  (never a team grant) authorizes it.
+
+  Automation: the editor utilities and catalogs (`validateDefinition`,
+  `listTriggers`, `listActions`, `listArtifactTypes`, `listAutomationGroups`,
+  `listAutomationTemplates`, `renderTemplate`, `testScript`) now use `typeScoped`
+  so a team-scoped automation manager can author without the global rule. The run
+  endpoints (`listRuns`, `getRun`, `cancelRun`, `getRunScopeForReplay`) are scoped
+  to their parent automation via `parentScope` on `automationId`; `getRun`,
+  `cancelRun`, and `getRunScopeForReplay` now take the owning `automationId`
+  (always available in the run URL/editor) and the handler filters the run fetch by
+  it, so a run id cannot be paired with a foreign automation the caller happens to
+  hold a grant on. The two migration-admin endpoints stay `global: true` (genuine
+  platform-admin actions).
+
+  Health check: `validateConfiguration` (editor deep-validate) and
+  `getPlatformNotificationDefaults` (fetched on every assignment-editor mount) move
+  to `typeScoped`. The paired WRITE `setPlatformNotificationDefaults` stays
+  `global: true` on purpose - it rewrites instance-wide defaults for every team, so
+  a single team grant must not authorize it. Because that write stays global-only,
+  the assignment editor's "Notification defaults" button is now gated on the global
+  `configuration.manage` rule (`healthcheck-frontend`), so a team-scoped manager no
+  longer sees an editor whose Save always 403'd.
+
+  Anomaly: the anomaly settings panels embedded in the health-check editor
+  (`updateAnomalyConfig` / `getAnomalyConfig` and `updateAnomalyAssignmentConfig` /
+  `getAnomalyAssignmentConfig`) were authorized against the non-team-scopable
+  `anomaly_feed` type (via `global: true` or an `idParam` that could never match a
+  team grant), so a team-scoped manager who owns the check/system saw "Save
+  Defaults" / "Save Exceptions" buttons whose Save always 403'd. They now
+  `parentScope` on the owning health-check configuration (`healthcheck.healthcheck`)
+  and catalog system (`catalog.system`) respectively, so managing the check/system
+  authorizes reading and editing its anomaly settings. The frontend needed no
+  change: those buttons were already disabled for non-managers, and the panels are
+  only reachable inside the manager-gated editor. Also, the automation "New
+  automation" template picker (`automation-frontend`) gated its page on the bare
+  global manage rule; it now uses the create capability, so a team-scoped creator
+  (whom the route already reveals the page to) is no longer shown a blocked page.
+
+  Incident & maintenance: `removeLink` was `global: true` because its input carried
+  only the link id. It now takes the owning `incidentId` / `maintenanceId`
+  (mirroring `addLink`), authorizes per-instance via `idParam`, and the service
+  scopes the delete by that parent id so a link cannot be removed by pairing its id
+  with a different incident/maintenance the caller manages. The AI `removeLink`
+  tools carry the parent id too.
+
+  BREAKING CHANGES: `automation.getRun`, `automation.cancelRun`,
+  `automation.getRunScopeForReplay`, `incident.removeLink`, and
+  `maintenance.removeLink` now require a parent id (`automationId` /
+  `incidentId` / `maintenanceId`) in their input. Endpoints previously gated by a
+  global rule alone now also accept the owning team's grant; no endpoint became
+  more permissive for a user who lacks both the global rule and a relevant team
+  grant.
+
+  Not team-scopable, so intentionally left `global: true` (verified by the audit):
+  catalog environments, anomaly config, SLO list/streak/milestone reads and
+  health-check history/stats (their read rules are public/default), and every
+  hand-rolled HTTP route (global admin/infra or already team-aware).
+
+- 8aae4e2: Show the last successful run per check (or per check+environment when fanned
+  out) in the system overview.
+
+  Each overview row that is currently degraded or unhealthy now shows when it was
+  last healthy (for example "Healthy until 2h ago", or "Never healthy" when it has
+  never succeeded), so operators can see at a glance since when a system has been
+  degraded or unhealthy without opening the drawer.
+
+  `getSystemHealthOverview` gains a `lastSuccessfulRunAt` field at both the check
+  level (most recent healthy run across all of the check's environments) and per
+  environment (`perEnvironment[].lastSuccessfulRunAt`). It is computed with a
+  dedicated max-per-environment aggregate query OUTSIDE the bounded sparkline
+  window, so it stays accurate even when a check has been failing for far longer
+  than the last runs shown in the sparkline.
+
+- f93ee7a: Fix a 403 that blocked team-scoped health-check managers from opening the
+  health-check editor.
+
+  The editor's utility endpoints (`healthcheck.getStrategies`,
+  `healthcheck.getCollectors`, `healthcheck.testCollectorScript`, and the
+  script-package SDK/type endpoints) were gated with `instanceAccess: { global:
+true }` or a separate global `script-packages.read` rule. A `global: true` gate
+  is enforced ONLY against a caller's global access rules - team grants never
+  satisfy it - so a user who could manage a health check through a team grant, but
+  did not hold the global `healthcheck.configuration.read` rule, got a 403 on the
+  metadata endpoints the editor needs and could not open it.
+
+  New `typeScoped` instanceAccess mode. A no-instance utility/catalog endpoint can
+  now be gated by ANY team grant of its resource type (or the global rule): a
+  `viewer`/`editor`/`owner` grant on any instance, or a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. `healthcheck.getStrategies` /
+  `getCollectors` use it at read level; `testCollectorScript` at manage level.
+  Backed by an `includeCreator` option threaded through `hasAnyTypeGrant`
+  (store -> auth S2S contract -> `AuthService`), so the create-capability path is
+  counted only where intended (the list/record post-filter keeps its old
+  semantics). The boot validator recognises `typeScoped` as one of the mutually
+  exclusive modes.
+
+  Script-package authoring endpoints relaxed to authenticated. `getInstallState`
+  and the two raw type routes (`/api/script-packages/sdk-types/:version` and
+  `/api/script-packages/types/:hash/:spec`) now require only authentication, not
+  the global `script-packages.read` grant. They serve IntelliSense metadata
+  (installed package inventory, `.d.ts` closures, the `@checkstack/sdk` bundle) -
+  no secrets - which any script author, including a team-scoped health-check
+  manager, needs. The install/registry MANAGE endpoints stay restricted.
+
+  Why the team-permission guards did not catch this: `check:manage-capabilities`
+  only covers management routes/nav, not the procedures a page calls; the boot
+  conformance validator treats `global: true` as a deliberate, valid "not
+  team-scoped" marker and cannot tell it is actually a dependency of a
+  team-scopable editor flow. The RLAC rule now documents `typeScoped` as the
+  correct mode and warns against `global: true` for endpoints a team manager
+  needs.
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.14.0
+  - @checkstack/catalog-common@2.6.3
+  - @checkstack/notification-common@1.5.3
+  - @checkstack/secrets-common@0.3.2
+  - @checkstack/signal-common@0.2.17
+
 ## 1.14.0
 
 ### Minor Changes

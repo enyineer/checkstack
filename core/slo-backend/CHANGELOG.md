@@ -1,5 +1,42 @@
 # @checkstack/slo-backend
 
+## 0.10.12
+
+### Patch Changes
+
+- Updated dependencies [8aae4e2]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+  - @checkstack/healthcheck-common@1.15.0
+  - @checkstack/healthcheck-backend@1.18.0
+  - @checkstack/common@0.22.0
+  - @checkstack/catalog-common@2.6.3
+  - @checkstack/ai-backend@0.10.9
+  - @checkstack/backend-api@0.31.0
+  - @checkstack/automation-backend@0.11.0
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/catalog-backend@1.6.9
+  - @checkstack/command-backend@0.2.21
+  - @checkstack/dependency-common@1.7.1
+  - @checkstack/gitops-backend@0.5.21
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/signal-common@0.2.17
+  - @checkstack/slo-common@0.8.3
+  - @checkstack/cache-utils@0.2.24
+
 ## 0.10.11
 
 ### Patch Changes

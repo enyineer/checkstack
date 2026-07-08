@@ -1,5 +1,104 @@
 # @checkstack/frontend-api
 
+## 0.14.0
+
+### Minor Changes
+
+- f93ee7a: Derive frontend authorization gates from the RPC contract instead of hand-picking
+  a hook per call site. The backend contract already declares, per procedure, both
+  the access rule (`access`) and how it is instance-scoped (`instanceAccess`); the
+  frontend gate was a hand re-encoding of that, which is how the "global-only
+  team-grant" drift shipped (nothing enforced that the hook a page chose matched
+  the mode the contract declared).
+
+  New `resolveProcedureGate` (`@checkstack/common`) reads a contract procedure's
+  metadata and returns the single gate the backend will enforce - classifying
+  `global` / `idParam` / `create` / `typeScoped` / post-filtered `open`, deriving
+  the object type from the rule and resolving the resource id from the input via
+  the contract's declared path. `parentScope` is normalized into an `idParam`/`open`
+  gate on a reconstructed parent rule + the parent type (the parent grant string the
+  backend checks is exactly `${resourceType}.${action}`, so no contract change was
+  needed). New `accessApi.useProcedureAccess(procedure, input)`
+  (`@checkstack/frontend-api` / `@checkstack/auth-frontend`) dispatches on the
+  derived gate; a call site can no longer gate on the wrong thing.
+
+  Fix a latent `create.parent` gap: the create gate's global-RBAC path only checked
+  the procedure's own manage rule, so a user with GLOBAL manage on the PARENT type
+  (e.g. a global system manager creating an incident/maintenance/SLO "for" a system,
+  which the backend authorizes via the parent gate) was not offered the create
+  affordance. The derived create gate now also ORs global manage on the parent type.
+
+  Migrate every `useCanCreate` create-button gate (catalog systems, health checks,
+  incidents, maintenance, SLOs, automations, status pages) to `useProcedureAccess`
+  on the owning create procedure, which also delivers the `create.parent` fix to
+  each, then remove `useCanCreate` from the `AccessApi`.
+
+  BREAKING CHANGES: `accessApi.useCanCreate(...)` is removed from
+  `@checkstack/frontend-api`. Replace it with
+  `accessApi.useProcedureAccess(SomeApi.contract.createX)` - the create procedure's
+  `instanceAccess.create` supplies the object type and parent gate, so no more
+  hand-passed `objectType` / `parentType`. The remaining hooks (`useAccess`,
+  `useCanAccessType`, `useResourceAccess`, `useRouteAccess`, `useIsAuthenticated`)
+  are unchanged: they gate surfaces/rows/routes that are not tied to a single
+  procedure. No gate became more restrictive; the create fix makes global
+  parent-managers correctly see create controls they were wrongly denied.
+
+  Patch-level adaptations to the `AccessApi` interface change (no behavior change of
+  their own): the host app's fallback `AccessApi` stubs (`@checkstack/frontend`) and
+  Storybook's mock (`@checkstack/ui`) drop `useCanCreate` and add the new
+  `useProcedureAccess` / `useSurfaceAccess` members so they match the interface, and
+  a `@checkstack/catalog-common` doc comment now names `useProcedureAccess` instead
+  of the removed hook.
+
+- f93ee7a: Fuse authorization into the RPC call so a frontend gate can't drift from - or be
+  forgotten alongside - the procedure it guards. This is the structural endpoint of
+  the contract-derived gating work: instead of pairing `client.X.useMutation()` with
+  a separate `useProcedureAccess(X)`, the gate is welded to the call.
+
+  - `useGatedMutation` / `useGatedQuery` (`@checkstack/frontend-api`): the plugin
+    client's mutation/query hooks now have gate-fused variants that derive the
+    authorization verdict from the SAME contract procedure and input the call uses
+    and return it as `{ allowed, accessLoading }` on the result. A control cannot
+    obtain `mutate` without the verdict, and a gated query stays disabled until the
+    caller is authorized (no guaranteed-403 fetch). The id a mutation gates on is
+    passed as `gateInput` (e.g. `{ id }`), the same id `mutate` will send.
+  - `accessApi.useSurfaceAccess(procedure)` (`@checkstack/auth-frontend`): the
+    coarse "can the user reach this management surface" gate, DERIVED from a
+    representative procedure of the page (its access rule + object/parent type from
+    the contract) instead of hand-passed `objectType`/`parentType` that can drift.
+    Generalizes the hand-authored `useCanAccessType` surface gate.
+  - Runtime gating-drift detector (`@checkstack/backend-api`): the auth middleware
+    logs, in dev/e2e only (no-op in production), when a real user is denied a
+    global-only gate - a candidate for the "shown-but-denied" drift class. A
+    belt-and-suspenders net for hand-rolled/dynamic call paths the fused hooks
+    don't cover.
+
+  The automation editor is the reference surface: its create/update gates are fused
+  directly into the create/update mutations, so there is no separate gate hook to
+  keep in sync, and its surface gate uses `useSurfaceAccess`. The run-detail page's
+  "Cancel run" control is also fused onto
+  `cancelRun` - a real drift fix: it previously gated on a bare
+  `useAccess(automation.manage)` (the GLOBAL rule), so a team-scoped manager with a
+  grant on the automation but no global rule saw no Cancel button even though the
+  `parentScope`d backend would authorize them; the fused gate derives the verdict
+  from the page's `automationId`, so they now see it. A
+  `checkstack/prefer-gated-mutation` lint rule (dev tooling, scoped, `warn`) nudges
+  raw `.useMutation()` toward the fused variant so fusion is the default and raw
+  mutations become the deliberate, greppable exception (the remaining raw automation
+  mutations - per-row toggle/delete gated via `useResourceAccess`, and the
+  stateless `renderTemplate` utility - carry a documented suppression).
+
+  No behavior change for existing call sites: `useMutation` / `useQuery` /
+  `useCanAccessType` are unchanged and remain for per-row arrays, non-procedure
+  gates, and compound controls.
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/signal-common@0.2.17
+
 ## 0.13.2
 
 ### Patch Changes
