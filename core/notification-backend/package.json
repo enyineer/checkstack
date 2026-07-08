@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-backend",
-  "version": "1.6.6",
+  "version": "1.6.7",
   "license": "Elastic-2.0",
   "type": "module",
   "main": "src/index.ts",

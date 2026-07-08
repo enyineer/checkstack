@@ -1,5 +1,13 @@
 # @checkstack/template-engine
 
+## 0.4.11
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+
 ## 0.4.10
 
 ### Patch Changes

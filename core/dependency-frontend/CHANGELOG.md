@@ -1,5 +1,27 @@
 # @checkstack/dependency-frontend
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+  - @checkstack/healthcheck-common@1.15.0
+  - @checkstack/common@0.22.0
+  - @checkstack/frontend-api@0.14.0
+  - @checkstack/ui@1.25.1
+  - @checkstack/catalog-common@2.6.3
+  - @checkstack/dashboard-frontend@0.10.5
+  - @checkstack/dependency-common@1.7.1
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/gitops-frontend@0.7.1
+  - @checkstack/signal-frontend@0.3.5
+
 ## 0.8.0
 
 ### Minor Changes

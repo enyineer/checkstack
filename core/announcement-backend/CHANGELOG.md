@@ -1,5 +1,24 @@
 # @checkstack/announcement-backend
 
+## 0.5.6
+
+### Patch Changes
+
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/backend-api@0.31.0
+  - @checkstack/auth-backend@0.10.0
+  - @checkstack/announcement-common@0.6.3
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/command-backend@0.2.21
+  - @checkstack/signal-common@0.2.17
+  - @checkstack/cache-utils@0.2.24
+
 ## 0.5.5
 
 ### Patch Changes

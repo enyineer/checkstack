@@ -1,5 +1,226 @@
 # @checkstack/backend-api
 
+## 0.31.0
+
+### Minor Changes
+
+- f93ee7a: Fuse authorization into the RPC call so a frontend gate can't drift from - or be
+  forgotten alongside - the procedure it guards. This is the structural endpoint of
+  the contract-derived gating work: instead of pairing `client.X.useMutation()` with
+  a separate `useProcedureAccess(X)`, the gate is welded to the call.
+
+  - `useGatedMutation` / `useGatedQuery` (`@checkstack/frontend-api`): the plugin
+    client's mutation/query hooks now have gate-fused variants that derive the
+    authorization verdict from the SAME contract procedure and input the call uses
+    and return it as `{ allowed, accessLoading }` on the result. A control cannot
+    obtain `mutate` without the verdict, and a gated query stays disabled until the
+    caller is authorized (no guaranteed-403 fetch). The id a mutation gates on is
+    passed as `gateInput` (e.g. `{ id }`), the same id `mutate` will send.
+  - `accessApi.useSurfaceAccess(procedure)` (`@checkstack/auth-frontend`): the
+    coarse "can the user reach this management surface" gate, DERIVED from a
+    representative procedure of the page (its access rule + object/parent type from
+    the contract) instead of hand-passed `objectType`/`parentType` that can drift.
+    Generalizes the hand-authored `useCanAccessType` surface gate.
+  - Runtime gating-drift detector (`@checkstack/backend-api`): the auth middleware
+    logs, in dev/e2e only (no-op in production), when a real user is denied a
+    global-only gate - a candidate for the "shown-but-denied" drift class. A
+    belt-and-suspenders net for hand-rolled/dynamic call paths the fused hooks
+    don't cover.
+
+  The automation editor is the reference surface: its create/update gates are fused
+  directly into the create/update mutations, so there is no separate gate hook to
+  keep in sync, and its surface gate uses `useSurfaceAccess`. The run-detail page's
+  "Cancel run" control is also fused onto
+  `cancelRun` - a real drift fix: it previously gated on a bare
+  `useAccess(automation.manage)` (the GLOBAL rule), so a team-scoped manager with a
+  grant on the automation but no global rule saw no Cancel button even though the
+  `parentScope`d backend would authorize them; the fused gate derives the verdict
+  from the page's `automationId`, so they now see it. A
+  `checkstack/prefer-gated-mutation` lint rule (dev tooling, scoped, `warn`) nudges
+  raw `.useMutation()` toward the fused variant so fusion is the default and raw
+  mutations become the deliberate, greppable exception (the remaining raw automation
+  mutations - per-row toggle/delete gated via `useResourceAccess`, and the
+  stateless `renderTemplate` utility - carry a documented suppression).
+
+  No behavior change for existing call sites: `useMutation` / `useQuery` /
+  `useCanAccessType` are unchanged and remain for per-row arrays, non-procedure
+  gates, and compound controls.
+
+- d0eddc9: Cut the per-tick database work of the health-check executor by batching
+  scoped-database queries, and fix a dashboard "Recent activity" rendering bug.
+
+  The scoped-database proxy has to wrap every standalone query in its own
+  transaction so `SET LOCAL search_path` applies to it, which means a hot path
+  issuing many sequential queries pays the `BEGIN` / `SET LOCAL` / `COMMIT`
+  round-trips once per query and checks a connection out that many times. Two
+  changes remove most of that overhead on the health-check path:
+
+  - **New `withScopedTransaction` helper (`@checkstack/backend-api`).** A reusable
+    primitive for running several scoped queries under a SINGLE `SET LOCAL
+search_path` transaction, plus `ScopedTransaction` / `ScopedQueryRunner`
+    types so a helper can accept either the scoped db or a transaction handle.
+    Use it on any scoped-db hot path that issues 2+ queries in sequence.
+  - **`getSystemHealthStatus` is now batched.** It was a `1 + N` read fan-out (one
+    associations query, then one run-window query per enabled check) run as `1 +
+N` separate proxy transactions. It now runs as ONE transaction. This is the
+    hottest read on the platform - each check tick reads it several times, and the
+    dashboard, RPC router, and AI system-signals all call it - so the reduction in
+    transaction volume and connection churn is broad. The reads are also now a
+    single consistent snapshot.
+  - **The executor's run + aggregate writes are batched.** Each persisted run
+    previously issued the run `INSERT`, the aggregate `SELECT`, and the aggregate
+    `UPSERT` as three separate proxy transactions; they now run in one
+    transaction and commit atomically (the run and the aggregate it feeds can no
+    longer be persisted apart).
+
+  Behaviour is unchanged: the derived health status, transition detection, and
+  signals are identical; only the number of database transactions per tick drops.
+
+  Also fixes a dashboard bug where the "Recent activity" feed generated React keys
+  from `configurationName` plus a millisecond timestamp, so results from different
+  systems sharing a check name that completed in the same millisecond collided on
+  one key and React mis-reconciled the list (visually duplicated/omitted entries).
+  Keys are now derived from the system, configuration, and environment ids.
+
+- d0eddc9: Add opt-in OpenTelemetry metrics with a Prometheus exporter so a performance
+  investigation can be grounded in real numbers from a running instance instead of
+  guesses.
+
+  The layer is **off by default and free when off**: the instruments are OTel
+  no-ops until a `MeterProvider` is registered, so the hot paths pay nothing until
+  you opt in.
+
+  - **`@checkstack/backend-api` gains an `instrumentation` module** exporting lazy,
+    memoized instrument accessors any plugin can record through:
+    `dbTransactionsCounter`, `dbQueriesCounter`, `healthcheckExecutionHistogram`,
+    `healthcheckPhaseHistogram`, `queueEnqueuedCounter`, `queueProcessedCounter`.
+    Each looks up its instrument once and is a no-op until the host registers a
+    provider, so callers can record unconditionally.
+  - **`@checkstack/backend` owns the SDK bootstrap.** `startMetrics()` registers a
+    global `MeterProvider` + Prometheus exporter when `CHECKSTACK_METRICS_ENABLED`
+    is set (host `127.0.0.1`, port `9464` by default, both overridable via
+    `CHECKSTACK_METRICS_HOST` / `CHECKSTACK_METRICS_PORT`). The exporter runs its
+    OWN HTTP server, NOT a route on the app, so it carries no app-auth surface. It
+    also registers host-owned observable instruments:
+    `checkstack.db.pool.connections` (admin/lock pool active/idle/waiting) and
+    `checkstack.runtime.event_loop_delay` (setInterval-drift histogram = JS-thread
+    block time).
+  - **The scoped-DB proxy records DB transactions/queries per plugin schema**, so
+    `db_transactions_total` minus `db_queries_total` per schema is exactly the
+    number of batched transactions - a live check that `withScopedTransaction`
+    batching is taking effect.
+  - **The health-check executor records execution + per-phase histograms**
+    (`connect`, `wait`, ...) so a high `connect` p95 with a low `wait` points at
+    connection establishment rather than a slow target or a CPU-bound platform.
+  - **The in-memory queue records enqueued/processed counters** per queue and
+    status.
+
+  No behaviour changes when disabled. Enable with `CHECKSTACK_METRICS_ENABLED=1`
+  and scrape `http://127.0.0.1:9464/metrics`. See the backend observability guide
+  for the full metric list and interpretation.
+
+- f93ee7a: Fix a 403 that blocked team-scoped health-check managers from opening the
+  health-check editor.
+
+  The editor's utility endpoints (`healthcheck.getStrategies`,
+  `healthcheck.getCollectors`, `healthcheck.testCollectorScript`, and the
+  script-package SDK/type endpoints) were gated with `instanceAccess: { global:
+true }` or a separate global `script-packages.read` rule. A `global: true` gate
+  is enforced ONLY against a caller's global access rules - team grants never
+  satisfy it - so a user who could manage a health check through a team grant, but
+  did not hold the global `healthcheck.configuration.read` rule, got a 403 on the
+  metadata endpoints the editor needs and could not open it.
+
+  New `typeScoped` instanceAccess mode. A no-instance utility/catalog endpoint can
+  now be gated by ANY team grant of its resource type (or the global rule): a
+  `viewer`/`editor`/`owner` grant on any instance, or a `creator`
+  (create-capability) grant so a team member who may CREATE the type can open its
+  authoring UI before owning an instance. `healthcheck.getStrategies` /
+  `getCollectors` use it at read level; `testCollectorScript` at manage level.
+  Backed by an `includeCreator` option threaded through `hasAnyTypeGrant`
+  (store -> auth S2S contract -> `AuthService`), so the create-capability path is
+  counted only where intended (the list/record post-filter keeps its old
+  semantics). The boot validator recognises `typeScoped` as one of the mutually
+  exclusive modes.
+
+  Script-package authoring endpoints relaxed to authenticated. `getInstallState`
+  and the two raw type routes (`/api/script-packages/sdk-types/:version` and
+  `/api/script-packages/types/:hash/:spec`) now require only authentication, not
+  the global `script-packages.read` grant. They serve IntelliSense metadata
+  (installed package inventory, `.d.ts` closures, the `@checkstack/sdk` bundle) -
+  no secrets - which any script author, including a team-scoped health-check
+  manager, needs. The install/registry MANAGE endpoints stay restricted.
+
+  Why the team-permission guards did not catch this: `check:manage-capabilities`
+  only covers management routes/nav, not the procedures a page calls; the boot
+  conformance validator treats `global: true` as a deliberate, valid "not
+  team-scoped" marker and cannot tell it is actually a dependency of a
+  team-scopable editor flow. The RLAC rule now documents `typeScoped` as the
+  correct mode and warns against `global: true` for endpoints a team manager
+  needs.
+
+### Patch Changes
+
+- d0eddc9: Rework health-check scheduling to one recurring job per
+  `(configuration, system, environment)` slice and add a slow-check bulkhead so a
+  slow or unreachable check can no longer starve the healthy ones.
+
+  Previously a single recurring job per `(configuration, system)` fanned out over
+  every environment sequentially inside one tick, so the job held a concurrency
+  slot for the sum of all its environments, and a slow environment stalled its
+  siblings. Now each environment slice is its own recurring job that holds a slot
+  only for its own probe. A convergence reconciler (k8s-controller style) derives
+  the desired per-env job set from Postgres + catalog membership and converges the
+  queue toward it (schedule missing, cancel orphans, reschedule interval changes),
+  so it is self-healing across pods and stays correct as catalog membership
+  changes. It runs at boot, and system-scoped after an assignment or GitOps
+  change. `run_now` enqueues one one-off job per effective environment.
+
+  The system rollup (the bare `<systemId>` health entity every badge, SLO rule and
+  dependency map reads) is recomputed by an event-driven, debounced consumer that
+  subscribes to per-environment health changes and recomputes once per system per
+  window, instead of inline on every tick. Notifications stay owned by the
+  per-environment runs, so the rollup notification is structurally deduplicated.
+
+  The bulkhead classifies each slice's recent runs: a slice whose last K runs were
+  slow transport failures (held its slot ~the full timeout) is admitted to a
+  capped, pod-local lane (single-flight per slice) and probed with a timeout shrunk
+  toward its own healthy-latency baseline, or DEFERRED (recording nothing, freeing
+  the slot) when the lane is full or a prior run is still in flight. The adaptive
+  timeout has four deadlock guardrails: no baseline means no shrink, the baseline
+  uses only healthy runs, every Nth suspect run re-probes at the full timeout, and
+  an absolute floor. A healthy slice is never gated and always runs at the full
+  timeout. A new `checkstack.healthcheck.deferred{reason}` counter records
+  bulkhead deferrals.
+
+  Measured with the scale harness (240 checks, 20% unreachable, concurrency 10, 5s
+  timeout, 35s): with the bulkhead off the queue backlog climbs unbounded to 774
+  while 60 slow checks pin slots; with it on the backlog stays bounded (drains to
+  0), completions roughly triple (288 → 862), and slot-pinning timeouts drop
+  (60 → 12) as 207 suspect runs are deferred.
+
+  `@checkstack/test-utils-backend` gains a `withTransactionMock` helper that adds a
+  `.transaction(cb)` passthrough to a mock database, so tests can exercise code
+  that batches reads/writes through `withScopedTransaction`.
+
+  BREAKING CHANGE: the internal `HealthCheckJobPayload` now requires an
+  `environmentId` field and recurring health-check job IDs are per-environment
+  (`healthcheck:<config>:<system>[:<env>]`). This is an internal queue contract
+  with no external package API surface; on upgrade the reconciler cancels the
+  old-format jobs and schedules the per-environment set at boot.
+
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+  - @checkstack/healthcheck-common@1.15.0
+  - @checkstack/common@0.22.0
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/signal-common@0.2.17
+  - @checkstack/template-engine@0.4.11
+
 ## 0.30.0
 
 ### Minor Changes

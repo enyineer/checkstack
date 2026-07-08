@@ -1,5 +1,270 @@
 # @checkstack/healthcheck-backend
 
+## 1.18.0
+
+### Minor Changes
+
+- 8aae4e2: Count fanned-out environment slices in the dashboard's "X of Y checks failing".
+
+  The dashboard problem card counted CHECKS, so a system with a single check that
+  fans out to three environments showed "Unhealthy 1 of 1 checks failing" even
+  when only one of the three environments was failing. It now counts (check ×
+  environment) slices: that system reads "1 of 3 checks failing", and a system
+  with a three-environment check plus a single-environment check with one
+  environment failing reads "1 of 4 checks failing". An env-less check counts as a
+  single slice, so a system with no environments reads exactly as before.
+
+  The per-check status DTO (`SystemCheckStatus`, returned by
+  `getSystemHealthStatus` / `getBulkSystemHealthStatus` /
+  `getBulkSystemHealthMatrix`) gains two fields: `sliceCount` (environment slices
+  this check currently fans out to, always >= 1) and `failingSliceCount` (how many
+  of those slices are non-healthy). `deriveHealthcheckSignals` sums them across
+  checks for the honest numerator/denominator.
+
+- d0eddc9: Rework health-check scheduling to one recurring job per
+  `(configuration, system, environment)` slice and add a slow-check bulkhead so a
+  slow or unreachable check can no longer starve the healthy ones.
+
+  Previously a single recurring job per `(configuration, system)` fanned out over
+  every environment sequentially inside one tick, so the job held a concurrency
+  slot for the sum of all its environments, and a slow environment stalled its
+  siblings. Now each environment slice is its own recurring job that holds a slot
+  only for its own probe. A convergence reconciler (k8s-controller style) derives
+  the desired per-env job set from Postgres + catalog membership and converges the
+  queue toward it (schedule missing, cancel orphans, reschedule interval changes),
+  so it is self-healing across pods and stays correct as catalog membership
+  changes. It runs at boot, and system-scoped after an assignment or GitOps
+  change. `run_now` enqueues one one-off job per effective environment.
+
+  The system rollup (the bare `<systemId>` health entity every badge, SLO rule and
+  dependency map reads) is recomputed by an event-driven, debounced consumer that
+  subscribes to per-environment health changes and recomputes once per system per
+  window, instead of inline on every tick. Notifications stay owned by the
+  per-environment runs, so the rollup notification is structurally deduplicated.
+
+  The bulkhead classifies each slice's recent runs: a slice whose last K runs were
+  slow transport failures (held its slot ~the full timeout) is admitted to a
+  capped, pod-local lane (single-flight per slice) and probed with a timeout shrunk
+  toward its own healthy-latency baseline, or DEFERRED (recording nothing, freeing
+  the slot) when the lane is full or a prior run is still in flight. The adaptive
+  timeout has four deadlock guardrails: no baseline means no shrink, the baseline
+  uses only healthy runs, every Nth suspect run re-probes at the full timeout, and
+  an absolute floor. A healthy slice is never gated and always runs at the full
+  timeout. A new `checkstack.healthcheck.deferred{reason}` counter records
+  bulkhead deferrals.
+
+  Measured with the scale harness (240 checks, 20% unreachable, concurrency 10, 5s
+  timeout, 35s): with the bulkhead off the queue backlog climbs unbounded to 774
+  while 60 slow checks pin slots; with it on the backlog stays bounded (drains to
+  0), completions roughly triple (288 → 862), and slot-pinning timeouts drop
+  (60 → 12) as 207 suspect runs are deferred.
+
+  `@checkstack/test-utils-backend` gains a `withTransactionMock` helper that adds a
+  `.transaction(cb)` passthrough to a mock database, so tests can exercise code
+  that batches reads/writes through `withScopedTransaction`.
+
+  BREAKING CHANGE: the internal `HealthCheckJobPayload` now requires an
+  `environmentId` field and recurring health-check job IDs are per-environment
+  (`healthcheck:<config>:<system>[:<env>]`). This is an internal queue contract
+  with no external package API surface; on upgrade the reconciler cancels the
+  old-format jobs and schedules the per-environment set at boot.
+
+- 8aae4e2: Show the last successful run per check (or per check+environment when fanned
+  out) in the system overview.
+
+  Each overview row that is currently degraded or unhealthy now shows when it was
+  last healthy (for example "Healthy until 2h ago", or "Never healthy" when it has
+  never succeeded), so operators can see at a glance since when a system has been
+  degraded or unhealthy without opening the drawer.
+
+  `getSystemHealthOverview` gains a `lastSuccessfulRunAt` field at both the check
+  level (most recent healthy run across all of the check's environments) and per
+  environment (`perEnvironment[].lastSuccessfulRunAt`). It is computed with a
+  dedicated max-per-environment aggregate query OUTSIDE the bounded sparkline
+  window, so it stays accurate even when a check has been failing for far longer
+  than the last runs shown in the sparkline.
+
+### Patch Changes
+
+- 8aae4e2: Stop sending a duplicate notification when a fanned-out system goes unhealthy.
+
+  A health check that fans out across environments notified once per environment
+  ("... is unhealthy in environment X") AND once more for the system rollup
+  ("... is unhealthy") in the same tick, so operators received two notifications
+  describing the same outage. The rollup transition is always driven by the very
+  environment(s) that already notified, so the rollup notification is now
+  suppressed whenever any environment notified this tick. It is still sent as a
+  fallback when no environment notified (e.g. every per-env delivery was
+  suppressed by policy/maintenance or threw), so a real status change is never
+  left entirely unannounced, and a system with no environments is unaffected.
+
+  Only the redundant user-facing notification is dropped: the rollup state
+  transition is still recorded and the `SYSTEM_STATUS_CHANGED` signal is still
+  broadcast, so SLO downtime, the dependency graph, the frontend, and automations
+  (which subscribe to the per-env and rollup entity changes) are unchanged.
+
+- d0eddc9: Cut health-check connection churn and de-cluster the scheduling "thundering
+  herd" so per-run durations stop varying wildly for the same check against the
+  same target. Grounded in live OpenTelemetry phase histograms: per-run wall time
+  was dominated by TCP/TLS connection setup under a self-inflicted burst, not by
+  slow targets, CPU, or the database.
+
+  - **In-memory queue now honors `startDelay` in `scheduleRecurring`.** It was
+    silently dropped, so every recurring job (health checks included) fired
+    immediately on boot and then on a boot-anchored interval grid - keeping all
+    equal-interval checks phase-aligned forever. `scheduleRecurring` now defers the
+    first execution by `startDelay` and anchors the recurrence to that first fire,
+    matching the queue contract and the BullMQ backend's intent. Jobs scheduled
+    without `startDelay` are unchanged (first run is immediate).
+  - **The BullMQ queue now honors `startDelay` in `scheduleRecurring` too.** It also
+    dropped `startDelay`, and its `every` scheduler captures the grid phase from
+    whenever `upsertJobScheduler` first runs - so a bootstrap loop scheduling many
+    equal-interval jobs at ~the same instant handed them all the same phase.
+    `scheduleRecurring` now pins the first fire to `now + startDelay` via the
+    scheduler's `startDate`, which shifts the whole recurrence, so the same jittered
+    `startDelay` de-clusters checks on the Redis backend identically to the
+    in-memory one. Cron schedules (absolute times) are unaffected.
+  - **The health-check scheduler jitters each check's first fire** by a small,
+    deterministic fraction of its interval (stable across restarts, keyed on the
+    check). A synchronized set of checks now spreads across the interval instead of
+    hammering their targets at the same instant. Because the queue anchors the
+    recurrence to the first fire, this offset persists for every subsequent run.
+  - **The HTTP collector refreshes its TCP/TLS connect-timing probe in the
+    background, per origin, and never awaits it.** Bun's `fetch` already pools and
+    reuses connections across runs (verified: warm reuse survives 20s+ idle gaps),
+    but the timing probe opened a fresh handshake on EVERY run - mis-reporting the
+    reused request's real latency and doubling the connection count under a burst.
+    The probe now refreshes a per-origin sample at most once per TTL (60s) and runs
+    fully in the background: it is NEVER on a request's critical path. Pinned to one
+    resolved IP, the probe can be far slower than the reused fetch (e.g. an
+    intermittent IPv6 SYN retry the real request never pays), and per the collector
+    contract best-effort timing must never delay the check - the previous code
+    `await`ed it, so a slow probe's refresh run showed up as a latency outlier. The
+    `connect`/`tls` phases are now explicitly a cached, per-host estimate.
+  - **The run detail UI now labels the estimate.** The timing-breakdown caption
+    clarifies that DNS, wait, and transfer are measured on the request, while
+    connection and TLS setup are an estimate sampled from a periodic per-host probe
+    and cached briefly (about a minute), so an operator does not read the cached
+    connect/TLS value as a per-run measurement.
+
+  Behaviour is otherwise unchanged: health status and assertions are the same;
+  there are simply far fewer connections, the herd is spread out, and the timing
+  breakdown can no longer be inflated by a slow best-effort probe. No configuration
+  or API changes.
+
+- d0eddc9: Cut the per-tick database work of the health-check executor by batching
+  scoped-database queries, and fix a dashboard "Recent activity" rendering bug.
+
+  The scoped-database proxy has to wrap every standalone query in its own
+  transaction so `SET LOCAL search_path` applies to it, which means a hot path
+  issuing many sequential queries pays the `BEGIN` / `SET LOCAL` / `COMMIT`
+  round-trips once per query and checks a connection out that many times. Two
+  changes remove most of that overhead on the health-check path:
+
+  - **New `withScopedTransaction` helper (`@checkstack/backend-api`).** A reusable
+    primitive for running several scoped queries under a SINGLE `SET LOCAL
+search_path` transaction, plus `ScopedTransaction` / `ScopedQueryRunner`
+    types so a helper can accept either the scoped db or a transaction handle.
+    Use it on any scoped-db hot path that issues 2+ queries in sequence.
+  - **`getSystemHealthStatus` is now batched.** It was a `1 + N` read fan-out (one
+    associations query, then one run-window query per enabled check) run as `1 +
+N` separate proxy transactions. It now runs as ONE transaction. This is the
+    hottest read on the platform - each check tick reads it several times, and the
+    dashboard, RPC router, and AI system-signals all call it - so the reduction in
+    transaction volume and connection churn is broad. The reads are also now a
+    single consistent snapshot.
+  - **The executor's run + aggregate writes are batched.** Each persisted run
+    previously issued the run `INSERT`, the aggregate `SELECT`, and the aggregate
+    `UPSERT` as three separate proxy transactions; they now run in one
+    transaction and commit atomically (the run and the aggregate it feeds can no
+    longer be persisted apart).
+
+  Behaviour is unchanged: the derived health status, transition detection, and
+  signals are identical; only the number of database transactions per tick drops.
+
+  Also fixes a dashboard bug where the "Recent activity" feed generated React keys
+  from `configurationName` plus a millisecond timestamp, so results from different
+  systems sharing a check name that completed in the same millisecond collided on
+  one key and React mis-reconciled the list (visually duplicated/omitted entries).
+  Keys are now derived from the system, configuration, and environment ids.
+
+- d0eddc9: Add opt-in OpenTelemetry metrics with a Prometheus exporter so a performance
+  investigation can be grounded in real numbers from a running instance instead of
+  guesses.
+
+  The layer is **off by default and free when off**: the instruments are OTel
+  no-ops until a `MeterProvider` is registered, so the hot paths pay nothing until
+  you opt in.
+
+  - **`@checkstack/backend-api` gains an `instrumentation` module** exporting lazy,
+    memoized instrument accessors any plugin can record through:
+    `dbTransactionsCounter`, `dbQueriesCounter`, `healthcheckExecutionHistogram`,
+    `healthcheckPhaseHistogram`, `queueEnqueuedCounter`, `queueProcessedCounter`.
+    Each looks up its instrument once and is a no-op until the host registers a
+    provider, so callers can record unconditionally.
+  - **`@checkstack/backend` owns the SDK bootstrap.** `startMetrics()` registers a
+    global `MeterProvider` + Prometheus exporter when `CHECKSTACK_METRICS_ENABLED`
+    is set (host `127.0.0.1`, port `9464` by default, both overridable via
+    `CHECKSTACK_METRICS_HOST` / `CHECKSTACK_METRICS_PORT`). The exporter runs its
+    OWN HTTP server, NOT a route on the app, so it carries no app-auth surface. It
+    also registers host-owned observable instruments:
+    `checkstack.db.pool.connections` (admin/lock pool active/idle/waiting) and
+    `checkstack.runtime.event_loop_delay` (setInterval-drift histogram = JS-thread
+    block time).
+  - **The scoped-DB proxy records DB transactions/queries per plugin schema**, so
+    `db_transactions_total` minus `db_queries_total` per schema is exactly the
+    number of batched transactions - a live check that `withScopedTransaction`
+    batching is taking effect.
+  - **The health-check executor records execution + per-phase histograms**
+    (`connect`, `wait`, ...) so a high `connect` p95 with a low `wait` points at
+    connection establishment rather than a slow target or a CPU-bound platform.
+  - **The in-memory queue records enqueued/processed counters** per queue and
+    status.
+
+  No behaviour changes when disabled. Enable with `CHECKSTACK_METRICS_ENABLED=1`
+  and scrape `http://127.0.0.1:9464/metrics`. See the backend observability guide
+  for the full metric list and interpretation.
+
+- Updated dependencies [8aae4e2]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [8aae4e2]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+  - @checkstack/healthcheck-common@1.15.0
+  - @checkstack/common@0.22.0
+  - @checkstack/catalog-common@2.6.3
+  - @checkstack/ai-backend@0.10.9
+  - @checkstack/backend-api@0.31.0
+  - @checkstack/automation-backend@0.11.0
+  - @checkstack/incident-common@1.9.0
+  - @checkstack/incident-backend@1.11.0
+  - @checkstack/maintenance-common@1.9.0
+  - @checkstack/script-packages-backend@0.4.0
+  - @checkstack/satellite-backend@0.8.3
+  - @checkstack/sdk@0.126.1
+  - @checkstack/ai-common@0.6.6
+  - @checkstack/cache-api@0.3.19
+  - @checkstack/catalog-backend@1.6.9
+  - @checkstack/command-backend@0.2.21
+  - @checkstack/gitops-backend@0.5.21
+  - @checkstack/gitops-common@0.7.3
+  - @checkstack/notification-common@1.5.3
+  - @checkstack/queue-api@0.3.19
+  - @checkstack/secrets-backend@0.3.3
+  - @checkstack/secrets-common@0.3.2
+  - @checkstack/signal-common@0.2.17
+  - @checkstack/status-page-backend@0.4.8
+  - @checkstack/status-page-common@0.5.3
+  - @checkstack/cache-utils@0.2.24
+
 ## 1.17.0
 
 ### Minor Changes

@@ -1,5 +1,52 @@
 # @checkstack/ai-backend
 
+## 0.10.9
+
+### Patch Changes
+
+- f93ee7a: Regenerate the in-app docs search index for the contract-derived access-gating docs.
+
+  The bundled docs index (`generated/docs-index.ts`) is regenerated so the rewritten
+  `developer-guide/frontend/access-gating` page and the updated
+  `developer-guide/backend/teams` reference (now recommending the gate-fused
+  `useGatedMutation` / `useProcedureAccess` / `useSurfaceAccess` hooks instead of the
+  removed `useCanCreate`) are searchable by the in-app AI assistant. Generated content
+  only; no code behavior change.
+
+- 8aae4e2: Regenerate the in-app docs search index for the environment fan-out UI docs.
+
+  The bundled docs index (`generated/docs-index.ts`) is regenerated so the updated
+  "Monitor a service across staging and production" guide (per-(check, environment)
+  overview rows, the last-healthy stamp, the environment-slice "X of Y checks
+  failing" count, and the deduplicated per-environment notification) and the
+  Notifications concept page (no duplicate rollup notification for fanned-out
+  systems) are searchable by the in-app AI assistant. Generated content only; no
+  code behavior change.
+
+- d0eddc9: Regenerate the AI docs search index to cover the new health-check execution and
+  scheduling page (per-environment recurring jobs, the convergence reconciler, the
+  event-driven rollup consumer, and the slow-check bulkhead) and the
+  `checkstack.healthcheck.deferred` metric added to the observability reference.
+- d0eddc9: Regenerate the AI assistant docs index to reflect the new
+  "Batching queries with `withScopedTransaction`" section in the Drizzle schema /
+  scoped-database developer guide, the new
+  "Metrics (OpenTelemetry + Prometheus)" section on the backend observability
+  page, and the `startDelay` phase-offset / de-clustering guidance added to the
+  queue-system recurring-scheduling section.
+- Updated dependencies [f93ee7a]
+- Updated dependencies [f93ee7a]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [d0eddc9]
+- Updated dependencies [f93ee7a]
+  - @checkstack/common@0.22.0
+  - @checkstack/catalog-common@2.6.3
+  - @checkstack/backend-api@0.31.0
+  - @checkstack/auth-common@0.13.0
+  - @checkstack/sdk@0.126.1
+  - @checkstack/ai-common@0.6.6
+  - @checkstack/integration-backend@0.7.3
+
 ## 0.10.8
 
 ### Patch Changes
