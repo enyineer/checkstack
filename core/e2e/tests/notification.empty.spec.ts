@@ -8,8 +8,9 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * once, before the parallel `chromium` phase), where only the admin user
  * exists. Because the inbox starts with no notifications and there are no
  * active subscriptions, these specs assert the page render + empty-state UI
- * for the inbox (`/notification/`) and the settings/subscription manager
- * (`/notification/settings`), plus the navbar notification bell. This file
+ * for the inbox (`/notification/`), the settings page
+ * (`/notification/settings`) and the subscription manager
+ * (`/notification/subscriptions`), plus the navbar notification bell. This file
  * CREATES NOTHING, so the empty-state assertions stay valid; meaningful
  * notification events are out of scope.
  *
@@ -79,7 +80,7 @@ test.describe("notifications & subscriptions", () => {
     ).toBeVisible();
   });
 
-  test("settings page renders the subscription manager and channel sections", async ({
+  test("settings page renders channels; the subscription manager lives on its own page", async ({
     page,
   }) => {
     await page.goto("/notification/settings", { waitUntil: "load" });
@@ -94,10 +95,20 @@ test.describe("notifications & subscriptions", () => {
       page.getByRole("heading", { name: "Your Notification Channels" }),
     ).toBeVisible();
 
-    // Subscriptions section header (what the user is reached about).
+    // Subscriptions were moved off the settings page onto their own surface
+    // (`/notification/subscriptions`), so the settings page no longer renders
+    // the subscription-manager heading.
     await expect(
       page.getByRole("heading", { name: "Your Subscriptions" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+
+    // The subscription manager (what the user is reached about) + its empty
+    // state render on the dedicated subscriptions page.
+    await page.goto("/notification/subscriptions", { waitUntil: "load" });
+    await expect(
+      page.getByRole("heading", { name: "Your Subscriptions" }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator("body")).not.toContainText("Route not found");
 
     // Empty DB -> no active subscriptions yet.
     await expect(page.getByText("No active subscriptions")).toBeVisible();

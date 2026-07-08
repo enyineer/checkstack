@@ -82,6 +82,10 @@
     "drizzle-kit": {
       "reason": "Pinned below 1.0 to a drizzle-kit range compatible with the pinned drizzle-orm.",
       "addedAt": "2026-04-30"
+    },
+    "@astrojs/markdown-remark": {
+      "reason": "Deduped to a single version so astro-mermaid resolves the copy that exports isUnifiedProcessor; a stale transitive 7.1.x (from @astrojs/mdx) otherwise broke the docs build with 'isUnifiedProcessor is not a function'.",
+      "addedAt": "2026-07-08"
     }
   }
 }
