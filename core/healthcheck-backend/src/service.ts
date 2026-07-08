@@ -52,7 +52,9 @@ import { parseHealthEntityId } from "./health-entity-id";
 import { stateThresholds } from "./state-thresholds-migrations";
 import type { MaintenanceApi } from "@checkstack/maintenance-common";
 import type { Logger } from "@checkstack/backend-api";
+import { resolveEffectiveEnvironments } from "./effective-environments";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import type {
   HealthCheckRegistry,
   SafeDatabase,
@@ -263,6 +265,53 @@ export class HealthCheckService {
       .from(healthCheckConfigurations)
       .where(eq(healthCheckConfigurations.id, id));
     return config ? this.mapConfig(config) : undefined;
+  }
+
+  /**
+   * Resolve the per-environment slices a (system, config) assignment should
+   * enqueue for a ONE-OFF run (the `run_now` automation). Returns the list of
+   * environment ids to run, or `[null]` (a single env-less run) when the
+   * assignment has no effective environments. Mirrors the executor's fan-out
+   * resolution so a manual run covers exactly the same slices the recurring
+   * schedule does. Fail-open: a catalog resolution failure collapses to a
+   * single env-less run rather than enqueuing nothing.
+   */
+  async resolveEnqueueEnvironmentIds(props: {
+    systemId: string;
+    configurationId: string;
+    catalogClient: CatalogClient;
+    logger: Logger;
+  }): Promise<(string | null)[]> {
+    const { systemId, configurationId, catalogClient, logger } = props;
+    const [assignment] = await this.db
+      .select({ environmentIds: systemHealthChecks.environmentIds })
+      .from(systemHealthChecks)
+      .where(
+        and(
+          eq(systemHealthChecks.systemId, systemId),
+          eq(systemHealthChecks.configurationId, configurationId),
+        ),
+      );
+
+    let membership: Awaited<
+      ReturnType<CatalogClient["resolveSystemEnvironments"]>
+    > = [];
+    try {
+      membership = await catalogClient.resolveSystemEnvironments({ systemId });
+    } catch (error) {
+      logger.warn(
+        `run_now: could not resolve environments for system ${systemId}`,
+        error,
+      );
+    }
+
+    const effectiveEnvs = resolveEffectiveEnvironments({
+      environmentIds: assignment?.environmentIds,
+      membership,
+    });
+    return effectiveEnvs.length > 0
+      ? effectiveEnvs.map((env) => env.id)
+      : [null];
   }
 
   /**
@@ -1035,178 +1084,179 @@ export class HealthCheckService {
     systemId: string,
     environmentId?: string | null,
   ): Promise<SystemHealthStatusResponse> {
-    // Get all associations for this system with their thresholds and config names
-    const associations = await this.db
-      .select({
-        configurationId: systemHealthChecks.configurationId,
-        stateThresholds: systemHealthChecks.stateThresholds,
-        configName: healthCheckConfigurations.name,
-        enabled: systemHealthChecks.enabled,
-      })
-      .from(systemHealthChecks)
-      .innerJoin(
-        healthCheckConfigurations,
-        eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
-      )
-      .where(
-        and(
-          eq(systemHealthChecks.systemId, systemId),
-          eq(systemHealthChecks.enabled, true),
-          // A paused configuration contributes no signal to the system's
-          // health: its execution is skipped (see queue-executor pause gate)
-          // and its historical runs MUST NOT keep the aggregate degraded
-          // while it is paused. Excluding it here makes the rollup reflect
-          // only the actively-running checks, so pausing the sole failing
-          // check clears the system's status and downstream SLO downtime.
-          eq(healthCheckConfigurations.paused, false),
-        ),
-      );
+    // §perf: batch the 1 (associations) + N (per-check run window) reads
+    // into ONE scoped transaction so the whole read fan-out pays a single
+    // BEGIN/SET LOCAL/COMMIT and holds one connection, instead of 1+N
+    // standalone scoped queries each checking a connection out. Pure
+    // evaluation runs inside too (it issues no DB). See withScopedTransaction.
+    const checkStatuses = await withScopedTransaction(this.db, async (tx) => {
+      // Get all associations for this system with their thresholds and config names
+      const associations = await tx
+        .select({
+          configurationId: systemHealthChecks.configurationId,
+          stateThresholds: systemHealthChecks.stateThresholds,
+          configName: healthCheckConfigurations.name,
+          enabled: systemHealthChecks.enabled,
+        })
+        .from(systemHealthChecks)
+        .innerJoin(
+          healthCheckConfigurations,
+          eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
+        )
+        .where(
+          and(
+            eq(systemHealthChecks.systemId, systemId),
+            eq(systemHealthChecks.enabled, true),
+            // A paused configuration contributes no signal to the system's
+            // health: its execution is skipped (see queue-executor pause gate)
+            // and its historical runs MUST NOT keep the aggregate degraded
+            // while it is paused. Excluding it here makes the rollup reflect
+            // only the actively-running checks, so pausing the sole failing
+            // check clears the system's status and downstream SLO downtime.
+            eq(healthCheckConfigurations.paused, false),
+          ),
+        );
 
-    if (associations.length === 0) {
-      // No health checks configured - default healthy
-      return {
-        status: "healthy",
-        evaluatedAt: new Date(),
-        checkStatuses: [],
-      };
-    }
+      if (associations.length === 0) return [];
 
-    // For each association, get recent runs and evaluate status
-    const checkStatuses: SystemCheckStatus[] = [];
-    const maxWindowSize = 100; // Max configurable window size
+      // For each association, get recent runs and evaluate status
+      const out: SystemCheckStatus[] = [];
+      const maxWindowSize = 100; // Max configurable window size
 
-    // Environment filter for the per-check run window. `undefined` (rollup)
-    // adds no predicate; `null` filters to the env-less slice; a string
-    // filters to that environment. The lookup index leads with
-    // (system_id, environment_id, …) so the env-scoped query is index-efficient.
-    //
-    // For the rollup, we deliberately do NOT apply a single envFilter to one
-    // flat run list — see the per-association branch below for why.
-    const envFilter =
-      environmentId === undefined
-        ? undefined
-        : environmentId === null
-          ? isNull(healthCheckRuns.environmentId)
-          : eq(healthCheckRuns.environmentId, environmentId);
+      // Environment filter for the per-check run window. `undefined` (rollup)
+      // adds no predicate; `null` filters to the env-less slice; a string
+      // filters to that environment. The lookup index leads with
+      // (system_id, environment_id, …) so the env-scoped query is index-efficient.
+      //
+      // For the rollup, we deliberately do NOT apply a single envFilter to one
+      // flat run list — see the per-association branch below for why.
+      const envFilter =
+        environmentId === undefined
+          ? undefined
+          : environmentId === null
+            ? isNull(healthCheckRuns.environmentId)
+            : eq(healthCheckRuns.environmentId, environmentId);
 
-    for (const assoc of associations) {
-      // Extract and migrate thresholds from versioned config
-      let thresholds: StateThresholds | undefined;
-      if (assoc.stateThresholds) {
-        thresholds = await stateThresholds.parse(assoc.stateThresholds);
-      }
-
-      let status: HealthCheckStatus;
-      let runsConsidered: number;
-      let lastRunAt: Date | undefined;
-      // Fan-out accounting for the honest "X of Y checks failing" denominator:
-      // how many environment slices this check currently spans, and how many
-      // are non-healthy. A non-fanned (single-env / env-less) check is one
-      // slice. Populated in both branches so the DTO field is always present.
-      let sliceCount = 1;
-      let failingSliceCount = 0;
-
-      if (environmentId === undefined) {
-        // System rollup: evaluate the threshold window PER ENVIRONMENT within
-        // the association, then take worst-wins ACROSS envs. Flattening every
-        // env's runs into one list feeds interleaved statuses to
-        // `evaluateConsecutive` (the default mode): the streak breaks on the
-        // first interleaving env, so the evaluator collapses to whatever
-        // single env's status the most recent run landed on. That masks any
-        // permanently-failing sibling env in the default mode ("the healthy
-        // env wins"), and flaps healthy↔degraded whenever env insertion
-        // order drifts across ticks (see the regression test
-        // `rollup — worst-wins across environments within an association`).
-        // Per-env evaluation makes the rollup worst-wins stable regardless of
-        // insertion order or multi-pod racing.
-        const runs = await this.db
-          .select({
-            status: healthCheckRuns.status,
-            timestamp: healthCheckRuns.timestamp,
-            environmentId: healthCheckRuns.environmentId,
-          })
-          .from(healthCheckRuns)
-          .where(
-            and(
-              eq(healthCheckRuns.systemId, systemId),
-              eq(healthCheckRuns.configurationId, assoc.configurationId),
-            ),
-          )
-          .orderBy(desc(healthCheckRuns.timestamp))
-          .limit(maxWindowSize);
-
-        // Group by environmentId. `null` is its own group (the env-less slice
-        // of an assignment that has opted out, plus any pre-3b env-less runs).
-        const byEnv = new Map<string | null, { status: HealthCheckStatus; timestamp: Date }[]>();
-        for (const r of runs) {
-          const key = r.environmentId ?? null;
-          const bucket = byEnv.get(key);
-          if (bucket) {
-            bucket.push(r);
-          } else {
-            byEnv.set(key, [r]);
-          }
+      for (const assoc of associations) {
+        // Extract and migrate thresholds from versioned config
+        let thresholds: StateThresholds | undefined;
+        if (assoc.stateThresholds) {
+          thresholds = await stateThresholds.parse(assoc.stateThresholds);
         }
 
-        status = "healthy";
-        runsConsidered = runs.length;
-        lastRunAt = runs[0]?.timestamp;
-        // Each env group is a slice. A check that has runs against N envs
-        // currently fans out to N; before it has ever run it is still one
-        // logical slice (byEnv empty => keep the default 1).
-        sliceCount = Math.max(byEnv.size, 1);
-        failingSliceCount = 0;
-        for (const envRuns of byEnv.values()) {
-          const envStatus = evaluateHealthStatus({ runs: envRuns, thresholds });
-          // Count EVERY failing slice (don't break early): the failing count
-          // feeds the dashboard numerator, so all non-healthy envs must tally.
-          if (envStatus !== "healthy") {
-            failingSliceCount++;
+        let status: HealthCheckStatus;
+        let runsConsidered: number;
+        let lastRunAt: Date | undefined;
+        // Fan-out accounting for the honest "X of Y checks failing" denominator:
+        // how many environment slices this check currently spans, and how many
+        // are non-healthy. A non-fanned (single-env / env-less) check is one
+        // slice. Populated in both branches so the DTO field is always present.
+        let sliceCount = 1;
+        let failingSliceCount = 0;
+
+        if (environmentId === undefined) {
+          // System rollup: evaluate the threshold window PER ENVIRONMENT within
+          // the association, then take worst-wins ACROSS envs. Flattening every
+          // env's runs into one list feeds interleaved statuses to
+          // `evaluateConsecutive` (the default mode): the streak breaks on the
+          // first interleaving env, so the evaluator collapses to whatever
+          // single env's status the most recent run landed on. That masks any
+          // permanently-failing sibling env in the default mode ("the healthy
+          // env wins"), and flaps healthy↔degraded whenever env insertion
+          // order drifts across ticks (see the regression test
+          // `rollup — worst-wins across environments within an association`).
+          // Per-env evaluation makes the rollup worst-wins stable regardless of
+          // insertion order or multi-pod racing.
+          const runs = await tx
+            .select({
+              status: healthCheckRuns.status,
+              timestamp: healthCheckRuns.timestamp,
+              environmentId: healthCheckRuns.environmentId,
+            })
+            .from(healthCheckRuns)
+            .where(
+              and(
+                eq(healthCheckRuns.systemId, systemId),
+                eq(healthCheckRuns.configurationId, assoc.configurationId),
+              ),
+            )
+            .orderBy(desc(healthCheckRuns.timestamp))
+            .limit(maxWindowSize);
+
+          // Group by environmentId. `null` is its own group (the env-less slice
+          // of an assignment that has opted out, plus any pre-3b env-less runs).
+          const byEnv = new Map<string | null, { status: HealthCheckStatus; timestamp: Date }[]>();
+          for (const r of runs) {
+            const key = r.environmentId ?? null;
+            const bucket = byEnv.get(key);
+            if (bucket) {
+              bucket.push(r);
+            } else {
+              byEnv.set(key, [r]);
+            }
           }
-          if (envStatus === "unhealthy") {
-            status = "unhealthy";
-          } else if (envStatus === "degraded" && status === "healthy") {
-            status = "degraded";
+
+          status = "healthy";
+          runsConsidered = runs.length;
+          lastRunAt = runs[0]?.timestamp;
+          // Each env group is a slice. A check that has runs against N envs
+          // currently fans out to N; before it has ever run it is still one
+          // logical slice (byEnv empty => keep the default 1).
+          sliceCount = Math.max(byEnv.size, 1);
+          failingSliceCount = 0;
+          for (const envRuns of byEnv.values()) {
+            const envStatus = evaluateHealthStatus({ runs: envRuns, thresholds });
+            // Count EVERY failing slice (don't break early): the failing count
+            // feeds the dashboard numerator, so all non-healthy envs must tally.
+            if (envStatus !== "healthy") {
+              failingSliceCount++;
+            }
+            if (envStatus === "unhealthy") {
+              status = "unhealthy";
+            } else if (envStatus === "degraded" && status === "healthy") {
+              status = "degraded";
+            }
           }
+        } else {
+          // Per-env (string) or env-less (null) slice: that slice's flat run
+          // window is monotonic per-env, so the threshold evaluator sees no
+          // interleaving — the consecutive streak is well-defined.
+          const runs = await tx
+            .select({
+              status: healthCheckRuns.status,
+              timestamp: healthCheckRuns.timestamp,
+            })
+            .from(healthCheckRuns)
+            .where(
+              and(
+                eq(healthCheckRuns.systemId, systemId),
+                eq(healthCheckRuns.configurationId, assoc.configurationId),
+                ...(envFilter ? [envFilter] : []),
+              ),
+            )
+            .orderBy(desc(healthCheckRuns.timestamp))
+            .limit(maxWindowSize);
+
+          status = evaluateHealthStatus({ runs, thresholds });
+          runsConsidered = runs.length;
+          lastRunAt = runs[0]?.timestamp;
+          // Single-slice evaluation: this env either counts as failing or not.
+          sliceCount = 1;
+          failingSliceCount = status === "healthy" ? 0 : 1;
         }
-      } else {
-        // Per-env (string) or env-less (null) slice: that slice's flat run
-        // window is monotonic per-env, so the threshold evaluator sees no
-        // interleaving — the consecutive streak is well-defined.
-        const runs = await this.db
-          .select({
-            status: healthCheckRuns.status,
-            timestamp: healthCheckRuns.timestamp,
-          })
-          .from(healthCheckRuns)
-          .where(
-            and(
-              eq(healthCheckRuns.systemId, systemId),
-              eq(healthCheckRuns.configurationId, assoc.configurationId),
-              ...(envFilter ? [envFilter] : []),
-            ),
-          )
-          .orderBy(desc(healthCheckRuns.timestamp))
-          .limit(maxWindowSize);
 
-        status = evaluateHealthStatus({ runs, thresholds });
-        runsConsidered = runs.length;
-        lastRunAt = runs[0]?.timestamp;
-        // Single-slice evaluation: this env either counts as failing or not.
-        sliceCount = 1;
-        failingSliceCount = status === "healthy" ? 0 : 1;
+        out.push({
+          configurationId: assoc.configurationId,
+          configurationName: assoc.configName,
+          status,
+          runsConsidered,
+          lastRunAt,
+          sliceCount,
+          failingSliceCount,
+        });
       }
-
-      checkStatuses.push({
-        configurationId: assoc.configurationId,
-        configurationName: assoc.configName,
-        status,
-        runsConsidered,
-        lastRunAt,
-        sliceCount,
-        failingSliceCount,
-      });
-    }
+      return out;
+    });
 
     // Aggregate status: worst status wins (unhealthy > degraded > healthy)
     let aggregateStatus: HealthCheckStatus = "healthy";

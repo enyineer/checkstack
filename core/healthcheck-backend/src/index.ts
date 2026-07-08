@@ -1,8 +1,8 @@
 import {
   setupHealthCheckWorker,
-  bootstrapHealthChecks,
   recomputeSystemRollupHealth,
 } from "./queue-executor";
+import { reconcileHealthCheckJobs } from "./schedule-reconciler";
 import { setupRetentionJob } from "./retention-job";
 import * as schema from "./schema";
 import {
@@ -38,6 +38,7 @@ import {
   type SafeDatabase,
   type HealthCheckRegistry,
   type CollectorRegistry,
+  type AdvisoryLockService,
 } from "@checkstack/backend-api";
 import type { QueueManager } from "@checkstack/queue-api";
 import {
@@ -75,6 +76,9 @@ import { IncidentApi } from "@checkstack/incident-common";
 import { GitOpsApi } from "@checkstack/gitops-common";
 import { registerSearchProvider } from "@checkstack/command-backend";
 import { resolveRoute } from "@checkstack/common";
+import type { InferClient } from "@checkstack/common";
+import type { SignalService } from "@checkstack/signal-common";
+import { setupRollupConsumer } from "./rollup-consumer";
 import { createHealthCheckCache } from "./cache";
 import { inArray, ilike } from "drizzle-orm";
 
@@ -174,6 +178,12 @@ export default createBackendPlugin({
     let gitopsCollectorRegistry: CollectorRegistry | undefined;
     let gitopsQueueManager: QueueManager | undefined;
     let gitopsConfigSecrets: HealthCheckSecretsDeps | undefined;
+    let gitopsCatalogClient: InferClient<typeof CatalogApi> | undefined;
+    // Resolved AdvisoryLockService captured in init() for use in
+    // afterPluginsReady (the boot reconcile serializes across pods on it).
+    let resolvedAdvisoryLock: AdvisoryLockService | undefined;
+    // SignalService captured in init() for the afterPluginsReady rollup consumer.
+    let resolvedSignalService: SignalService | undefined;
     let healthCheckCache:
       | ReturnType<typeof createHealthCheckCache>
       | undefined;
@@ -210,6 +220,15 @@ export default createBackendPlugin({
         if (!gitopsQueueManager)
           throw new Error("QueueManager not initialized");
         return gitopsQueueManager;
+      },
+      getDb: () => {
+        if (!gitopsDb) throw new Error("Healthcheck database not initialized");
+        return gitopsDb;
+      },
+      getCatalogClient: () => {
+        if (!gitopsCatalogClient)
+          throw new Error("Catalog client not initialized");
+        return gitopsCatalogClient;
       },
     });
 
@@ -317,6 +336,9 @@ export default createBackendPlugin({
         gitopsHealthCheckRegistry = healthCheckRegistry;
         gitopsCollectorRegistry = collectorRegistry;
         gitopsQueueManager = queueManager;
+        gitopsCatalogClient = rpcClient.forPlugin(CatalogApi);
+        resolvedAdvisoryLock = advisoryLock;
+        resolvedSignalService = signalService;
 
         // Bind the COMPUTE-ON-READ accessor's db + service for the `health`
         // entity (defined in register()). From here onward the entity `read`
@@ -553,8 +575,8 @@ export default createBackendPlugin({
               return mapped;
             },
           },
-          recomputeSystemRollupHealth: (systemId) =>
-            recomputeSystemRollupHealth({
+          recomputeSystemRollupHealth: async (systemId) => {
+            await recomputeSystemRollupHealth({
               systemId,
               // Reuse the COMPUTE-ON-READ service instance bound to the
               // `health` entity read accessor — it's the same db/registry
@@ -563,7 +585,8 @@ export default createBackendPlugin({
               getHealthEntity: () => healthEntity,
               advisoryLock,
               logger,
-            }),
+            });
+          },
         });
         rpc.registerRouter(healthCheckRouter, healthCheckContract);
 
@@ -607,11 +630,17 @@ export default createBackendPlugin({
       }) => {
         // Store emitHook for the queue worker (Closure-based Hook Getter pattern)
         storedEmitHook = emitHook;
-        // Bootstrap all enabled health checks
-        await bootstrapHealthChecks({
+        // Converge the per-environment recurring job set at boot (schedule
+        // desired (config, system, env) jobs, cancel orphans incl. old-format
+        // ones). The periodic reconcile below keeps it converged as catalog
+        // membership changes.
+        const reconcileCatalogClient = rpcClient.forPlugin(CatalogApi);
+        await reconcileHealthCheckJobs({
           db: database,
           queueManager,
+          catalogClient: reconcileCatalogClient,
           logger,
+          advisoryLock: resolvedAdvisoryLock,
         });
 
         // Notification subscription specs. Per-resource group lifecycle
@@ -649,9 +678,32 @@ export default createBackendPlugin({
         for (const action of createHealthCheckActions({
           service,
           queueManager,
+          catalogClient: reconcileCatalogClient,
           emitHook,
         })) {
           automationActions.registerAction(action, pluginMetadata);
+        }
+
+        // Phase 2: event-driven debounced system-rollup consumer. Under
+        // per-environment jobs each run writes only its own env entity; this
+        // subscribes to per-env `health` changes and debounces a recompute of
+        // the bare `<systemId>` rollup entity (+ SYSTEM_STATUS_CHANGED). Needs
+        // the cache/signal/lock resolved in init().
+        if (resolvedAdvisoryLock && resolvedSignalService && healthCheckCache) {
+          await setupRollupConsumer({
+            queueManager,
+            onEntityChanged: entityPoint.onEntityChanged,
+            service,
+            advisoryLock: resolvedAdvisoryLock,
+            signalService: resolvedSignalService,
+            cache: healthCheckCache,
+            getHealthEntity: () => healthEntity,
+            logger,
+          });
+        } else {
+          logger.warn(
+            "Health rollup consumer NOT wired: advisoryLock/signalService/cache unresolved after init",
+          );
         }
 
         // React to catalog system deletion (tombstone) via the reactive

@@ -110,7 +110,7 @@ export function ExpandedResultView({ result }: ExpandedResultViewProps) {
           <RequestWaterfall phases={phases} />
           <p className="text-[11px] text-muted-foreground">
             {granular
-              ? "Phases reflect this run's transport timing. Wait and transfer are measured on the request; connection-setup phases may be sampled alongside it."
+              ? "DNS, wait and transfer are measured on this request. Connection and TLS setup are an estimate: they are sampled from a separate per-host probe and cached briefly (about a minute), because the request reuses a pooled connection and does not re-measure connection setup on every run."
               : "Only connection and processing time were recorded for this run; finer DNS / TLS / transfer phases were not captured by this transport."}
           </p>
         </div>

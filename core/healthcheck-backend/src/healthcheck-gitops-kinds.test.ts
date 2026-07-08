@@ -20,6 +20,34 @@ import { Versioned } from "@checkstack/backend-api";
  * System → healthchecks extension in isolation with mock services.
  */
 
+// The System extension's reconcile converges the per-env recurring jobs via
+// `reconcileHealthCheckJobs`. That path has its own dedicated tests
+// (schedule-reconciler.test.ts); here we feed it EMPTY db/catalog/queue stubs so
+// it is a safe no-op and these tests can focus on the association logic.
+// (A `mock.module` would leak process-wide and break schedule-reconciler.test.)
+function emptyReconcileDbStub() {
+  return {
+    select: () => ({
+      from: () => ({
+        innerJoin: () => ({ where: () => Promise.resolve([]) }),
+        groupBy: () => Promise.resolve([]),
+      }),
+    }),
+  } as never;
+}
+function emptyReconcileQueueManager() {
+  return {
+    getQueue: () => ({
+      scheduleRecurring: async () => "job-123",
+      listRecurringJobs: async () => [],
+      getRecurringJobDetails: async () => undefined,
+      cancelRecurring: async () => {},
+    }),
+  } as never;
+}
+const emptyCatalogClient = () =>
+  ({ resolveSystemEnvironments: async () => [] }) as never;
+
 // ─── Mock Healthcheck Service ──────────────────────────────────────────────
 
 interface MockConfig {
@@ -231,7 +259,9 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
       createService: () => mockService as any,
       getHealthCheckRegistry: () => mockHCRegistry as any,
       getCollectorRegistry: () => mockCollectorRegistry as any,
-      getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
+      getQueueManager: () => emptyReconcileQueueManager(),
+      getDb: () => emptyReconcileDbStub(),
+      getCatalogClient: () => emptyCatalogClient(),
     };
     return buildHealthcheckKind(mockDeps);
   }
@@ -594,7 +624,9 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
         }) as never,
       getHealthCheckRegistry: () => createMockHealthCheckRegistry() as never,
       getCollectorRegistry: () => createMockCollectorRegistry() as never,
-      getQueueManager: () => ({ getQueue: () => ({ scheduleRecurring: async () => "job-123" }) } as any),
+      getQueueManager: () => emptyReconcileQueueManager(),
+      getDb: () => emptyReconcileDbStub(),
+      getCatalogClient: () => emptyCatalogClient(),
     });
   }
 

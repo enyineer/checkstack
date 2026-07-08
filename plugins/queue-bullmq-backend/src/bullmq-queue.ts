@@ -191,21 +191,40 @@ export class BullMQQueue<T = unknown> implements Queue<T> {
     options: {
       jobId: string;
       priority?: number;
+      /** Optional delay before the first execution (delta-based scheduling). */
+      startDelay?: number;
     } & RecurringSchedule,
   ): Promise<string> {
     if (this.stopped) {
       throw new Error("Queue has been stopped");
     }
 
-    const { jobId, priority } = options;
+    const { jobId, priority, startDelay } = options;
+    const isCron = "cronPattern" in options && options.cronPattern;
 
-    // Use upsertJobScheduler for create-or-update semantics
-    // BullMQ supports either 'every' (interval) or 'pattern' (cron)
+    // Use upsertJobScheduler for create-or-update semantics.
+    // BullMQ supports either 'every' (interval) or 'pattern' (cron).
+    //
+    // Honor `startDelay` on the interval path by pinning the FIRST fire to
+    // `now + startDelay` via `startDate`. BullMQ's `every` scheduler captures
+    // the grid PHASE from the first fire and anchors every subsequent run to it
+    // (nextMillis = prevMillis + every), so a `startDate` shifts the whole
+    // schedule. Without it, the phase is captured from whenever `upsert` first
+    // runs - so a bootstrap loop scheduling many equal-interval jobs at ~the
+    // same instant hands them all the same phase (a thundering herd). A jittered
+    // `startDelay` (the health-check scheduler supplies one) therefore de-clusters
+    // them, matching the in-memory backend and the queue contract. Cron schedules
+    // carry their own absolute times, so startDelay does not apply there.
     await this.queue.upsertJobScheduler(
       jobId,
-      "cronPattern" in options && options.cronPattern
+      isCron
         ? { pattern: options.cronPattern }
-        : { every: options.intervalSeconds! * 1000 },
+        : {
+            every: options.intervalSeconds! * 1000,
+            ...(startDelay && startDelay > 0
+              ? { startDate: Date.now() + startDelay * 1000 }
+              : {}),
+          },
       {
         name: this.name,
         data,

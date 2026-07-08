@@ -82,6 +82,12 @@ import {
 } from "@checkstack/api-docs-common";
 
 import { cors } from "hono/cors";
+import { startMetrics, registerQueueInstruments } from "./instrumentation-sdk";
+
+// Start OpenTelemetry metrics export FIRST (before plugins init / migrations),
+// so early queries are counted. No-op unless CHECKSTACK_METRICS_ENABLED is set;
+// the exporter runs its own localhost Prometheus server, not an app route.
+startMetrics();
 
 // IMPORTANT: TrieRouter (not the default SmartRouter).
 // SmartRouter freezes its matcher on the first incoming request — any later
@@ -666,6 +672,10 @@ const init = async () => {
     queueRegistry
   );
   pluginManager.registerService(coreServices.queueManager, queueManager);
+
+  // Backlog gauge: now that the QueueManager exists, expose queue pending/
+  // processing depth on the metrics endpoint (no-op unless metrics are enabled).
+  registerQueueInstruments({ queueManager });
 
   // 1.8. Register Cache Services
   rootLogger.debug("Registering cache services...");

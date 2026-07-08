@@ -332,8 +332,12 @@ T=3:   Job A completes
 - **Fixed timing**: Jobs start exactly at the configured interval, regardless of execution time
 - **Potential overlap**: If jobs take longer than `intervalSeconds`, multiple jobs may run concurrently
 - **Configuration updates**: Calling `scheduleRecurring()` with an existing `jobId` cancels the old interval and starts a new one with the updated configuration
+- **`startDelay` phase offset**: `scheduleRecurring()` honors `startDelay` (seconds) by deferring the FIRST execution; the recurrence is then anchored to that first fire, so the phase offset persists for the schedule's whole life. Omitting it runs the first execution immediately (unchanged default).
 
 > **Recommendation:** Set `intervalSeconds` to a value greater than the expected maximum execution time to avoid job accumulation. For health checks, consider the network timeout plus processing time.
+
+> [!TIP]
+> Use `startDelay` to **de-cluster** a large set of equal-interval jobs that would otherwise all fire on the same phase (a thundering herd). The health-check scheduler offsets each check's first fire by a small, deterministic fraction of its interval, so dozens of checks spread across the interval instead of hammering their targets at the same instant. Because the recurrence is anchored to the first fire, one jittered `startDelay` de-clusters every subsequent run too.
 
 ### Instance namespacing
 

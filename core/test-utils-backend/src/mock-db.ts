@@ -53,7 +53,7 @@ export function createMockDb() {
     };
   };
 
-  return {
+  const db = {
     select: mock(() => createSelectChain()),
     insert: mock(() => ({
       values: mock(() => ({
@@ -73,6 +73,27 @@ export function createMockDb() {
     })),
     execute: mock(() => Promise.resolve()),
   };
+  return withTransactionMock(db);
+}
+
+/**
+ * Add a `.transaction(cb)` passthrough to a mock database so it matches the
+ * scoped-db contract used by production code.
+ *
+ * The real scoped-db proxy exposes `.transaction(cb)`, injecting
+ * `SET LOCAL search_path` ONCE at transaction start and running `cb` against a
+ * transaction handle (see `withScopedTransaction`). This mirrors that by
+ * invoking `cb` with the SAME mock db, so a batched read/write group resolves
+ * through the identical stubbed query chains (preserving any per-call ordering
+ * state a test's `select` mock keeps). Mutates and returns `db` for ergonomic
+ * inline use: `const mockDb = withTransactionMock({ select: mock(...), ... })`.
+ */
+export function withTransactionMock<T extends object>(
+  db: T,
+): T & { transaction: (cb: (tx: T) => unknown) => unknown } {
+  return Object.assign(db, {
+    transaction: mock((cb: (tx: T) => unknown) => cb(db)),
+  });
 }
 
 /**

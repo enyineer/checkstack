@@ -11,6 +11,10 @@ import {
   type CollectorRunContext,
   type AdvisoryLockService,
   renderTemplatableConfig,
+  withScopedTransaction,
+  healthcheckExecutionHistogram,
+  healthcheckPhaseHistogram,
+  healthcheckDeferredCounter,
 } from "@checkstack/backend-api";
 import type { RunTimings } from "@checkstack/healthcheck-common";
 import { QueueManager } from "@checkstack/queue-api";
@@ -20,7 +24,7 @@ import {
   healthCheckRuns,
 } from "./schema";
 import * as schema from "./schema";
-import { eq, and, max } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { type SignalService } from "@checkstack/signal-common";
 import {
   HEALTH_CHECK_RUN_COMPLETED,
@@ -56,8 +60,13 @@ import { healthCheckHooks } from "./hooks";
 import { incrementHourlyAggregate } from "./realtime-aggregation";
 import type { HealthCheckCache } from "./cache";
 import {
+  resolveSlowCheckRuntime,
+  type SlowCheckRuntime,
+} from "./slow-check-config";
+import type { RecentRun } from "./slow-check-classifier";
+import { evaluateSlowCheckAdmission } from "./slow-check-admission";
+import {
   classifyTransition,
-  shouldEmitRollupNotification,
   shouldNotifyTransition,
 } from "./notification-policy";
 import { recordStateTransition } from "./state-transitions";
@@ -97,6 +106,48 @@ function toHealthEntityView(state: AggregatedHealth): HealthEntityState {
       .length,
     totalChecks: state.checkStatuses.length,
   };
+}
+
+/**
+ * Read the most recent runs for ONE (config, system, environment) slice,
+ * newest-first, projected to the fields the slow-check classifier needs. Used
+ * only when the slow-check bulkhead is enabled; keyed on the SAME
+ * `environmentId` the job runs (an env-less job reads the `environment_id IS
+ * NULL` slice), so the classification reflects exactly this slice's streak.
+ */
+async function fetchRecentRunsForSlice(props: {
+  db: Db;
+  configId: string;
+  systemId: string;
+  environmentId: string | null;
+  limit: number;
+}): Promise<RecentRun[]> {
+  const { db, configId, systemId, environmentId, limit } = props;
+  const rows = await db
+    .select({
+      environmentId: healthCheckRuns.environmentId,
+      status: healthCheckRuns.status,
+      latencyMs: healthCheckRuns.latencyMs,
+      timestamp: healthCheckRuns.timestamp,
+    })
+    .from(healthCheckRuns)
+    .where(
+      and(
+        eq(healthCheckRuns.configurationId, configId),
+        eq(healthCheckRuns.systemId, systemId),
+        environmentId === null
+          ? isNull(healthCheckRuns.environmentId)
+          : eq(healthCheckRuns.environmentId, environmentId),
+      ),
+    )
+    .orderBy(desc(healthCheckRuns.timestamp))
+    .limit(limit);
+  return rows.map((r) => ({
+    environmentId: r.environmentId,
+    status: r.status,
+    latencyMs: r.latencyMs,
+    timestamp: r.timestamp,
+  }));
 }
 
 /** The known transport timing phase keys, in transport order. */
@@ -186,11 +237,38 @@ async function emitCheckCompletedHook({
 }
 
 /**
- * Payload for health check queue jobs
+ * Payload for health check queue jobs. Every job runs EXACTLY ONE environment
+ * slice - there is no in-job fan-out:
+ * - `environmentId: null` - the single ENV-LESS run of a system that has no
+ *   environments. Its write IS the system rollup, so it notifies directly.
+ * - `environmentId: <id>` - the run for that specific environment. The system
+ *   rollup is recomputed by the event-driven rollup consumer, not inline.
+ *
+ * The scheduling reconciler owns which (config, system, env) jobs exist; the
+ * `run_now` action enqueues one job per effective environment.
  */
 export interface HealthCheckJobPayload {
   configId: string;
   systemId: string;
+  environmentId: string | null;
+}
+
+/** Prefix every health-check recurring jobId shares (used for orphan scans). */
+export const HEALTH_CHECK_JOB_PREFIX = "healthcheck:";
+
+/**
+ * Build the recurring jobId for a check. The env-less form keeps the historical
+ * `healthcheck:${configId}:${systemId}` shape (so env-less systems' jobs are
+ * unchanged across the per-env migration); an env-scoped job appends the env id.
+ */
+export function encodeHealthCheckJobId(props: {
+  configId: string;
+  systemId: string;
+  environmentId: string | null;
+}): string {
+  const { configId, systemId, environmentId } = props;
+  const base = `${HEALTH_CHECK_JOB_PREFIX}${configId}:${systemId}`;
+  return environmentId === null ? base : `${base}:${environmentId}`;
 }
 
 /**
@@ -231,7 +309,11 @@ export async function scheduleHealthCheck(props: {
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
 
-  const jobId = `healthcheck:${payload.configId}:${payload.systemId}`;
+  const jobId = encodeHealthCheckJobId({
+    configId: payload.configId,
+    systemId: payload.systemId,
+    environmentId: payload.environmentId,
+  });
 
   logger?.debug(
     `Scheduling recurring health check ${jobId} with interval ${intervalSeconds}s, startDelay ${startDelay}s`,
@@ -273,16 +355,45 @@ export async function recomputeSystemRollupHealth(args: {
   getHealthEntity?: () => EntityHandle<HealthEntityState> | undefined;
   advisoryLock: AdvisoryLockService;
   logger: Logger;
-}): Promise<void> {
-  const { systemId, service, getHealthEntity, advisoryLock, logger } = args;
+  /**
+   * When provided, a real rollup status change (prev → next) also invalidates
+   * the per-system cache and broadcasts `SYSTEM_STATUS_CHANGED`, matching the
+   * system-level signal the pre-per-env inline rollup fired. Omit for the pure
+   * entity-only recompute (the framework's `ENTITY_CHANGED` still drives
+   * SLO/dependency/triggers regardless).
+   */
+  signalService?: SignalService;
+  cache?: HealthCheckCache;
+}): Promise<{ previousStatus: HealthCheckStatus; newStatus: HealthCheckStatus } | undefined> {
+  const {
+    systemId,
+    service,
+    getHealthEntity,
+    advisoryLock,
+    logger,
+    signalService,
+    cache,
+  } = args;
   const rollupEntityId = encodeHealthEntityId({ systemId });
   const makeHealthSerializer = createHealthEntitySerializer({ advisoryLock });
+  // The system-level signal + cache invalidation are only needed when a caller
+  // wants them (the rollup consumer). The framework snapshots its OWN prev
+  // inside `handle.mutate` for the authoritative `ENTITY_CHANGED`, so the
+  // pure entity-recompute path (pause/resume) skips the extra prev read.
+  const wantsSignal = signalService !== undefined || cache !== undefined;
   try {
+    let previousStatus: HealthCheckStatus | undefined;
+    if (wantsSignal) {
+      const previousState = await service.getSystemHealthStatus(systemId);
+      previousStatus = previousState.status;
+    }
+    let newStatus: HealthCheckStatus | undefined = previousStatus;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
         const rollupState = await service.getSystemHealthStatus(systemId);
+        newStatus = rollupState.status;
         return toHealthEntityView(rollupState);
       },
       serialize: makeHealthSerializer(rollupEntityId),
@@ -292,6 +403,23 @@ export async function recomputeSystemRollupHealth(args: {
           error,
         ),
     });
+
+    if (
+      wantsSignal &&
+      previousStatus !== undefined &&
+      newStatus !== undefined &&
+      newStatus !== previousStatus
+    ) {
+      await cache?.invalidateSystem(systemId);
+      await signalService?.broadcast(SYSTEM_STATUS_CHANGED, {
+        systemId,
+        previousStatus,
+        newStatus,
+      });
+    }
+    return previousStatus !== undefined && newStatus !== undefined
+      ? { previousStatus, newStatus }
+      : undefined;
   } catch (error) {
     // A recompute failure must never break the pause/resume RPC. The
     // durable tables still hold the authoritative runs; the next run tick
@@ -300,6 +428,7 @@ export async function recomputeSystemRollupHealth(args: {
       `Failed to recompute system rollup health for ${systemId}`,
       error,
     );
+    return undefined;
   }
 }
 
@@ -563,6 +692,12 @@ async function executeHealthCheckJob(props: {
    * without it, marker-bearing configs fail their runs clearly.
    */
   internalSecrets?: InternalSecretsService;
+  /**
+   * Slow-check bulkhead + adaptive-timeout runtime, resolved once at worker
+   * startup. `null`/`undefined` disables the feature: the classification read
+   * is skipped and the run executes exactly as before (full timeout, no lane).
+   */
+  slowCheckRuntime?: SlowCheckRuntime | null;
 }): Promise<void> {
   const {
     payload,
@@ -581,6 +716,7 @@ async function executeHealthCheckJob(props: {
     cache,
     secretResolver,
     internalSecrets,
+    slowCheckRuntime,
   } = props;
   const { configId, systemId } = payload;
 
@@ -603,6 +739,10 @@ async function executeHealthCheckJob(props: {
   // the executor has always taken first.
   const rollupPreviousState = await service.getSystemHealthStatus(systemId);
   const rollupPreviousStatus = rollupPreviousState.status;
+
+  // Slow-check lane admission (set when this run was admitted to the suspect
+  // lane); released in the outer finally so the slot frees on any exit path.
+  let laneKey: string | undefined;
 
   try {
     // Fetch configuration (including name for signals)
@@ -717,13 +857,15 @@ async function executeHealthCheckJob(props: {
     // tables and is re-read every tick via the cross-plugin RPC, so every pod
     // resolves the same set (state-and-scale: no pod-local env state).
     let membership: Environment[] = [];
+    let catalogResolutionFailed = false;
     try {
       membership = await catalogClient.resolveSystemEnvironments({ systemId });
     } catch (error) {
-      // Fail-open: a catalog read failure must not wedge the check. Degrade
-      // to an env-less run (today's behavior) rather than skipping the tick.
+      // Fail-open: a catalog read failure must not wedge the check. We keep
+      // running the payload's env with degraded fields rather than skipping.
+      catalogResolutionFailed = true;
       logger.warn(
-        `Could not resolve environments for system ${systemId}, running env-less`,
+        `Could not resolve environments for system ${systemId}`,
         error,
       );
       // Observability: a `logger.warn` alone is easy to miss when a durable
@@ -747,36 +889,102 @@ async function executeHealthCheckJob(props: {
       environmentIds: configRow.environmentIds,
       membership,
     });
-    // `null` env => the single env-less run. Each entry => one run per env.
-    const runEnvironments: (EffectiveEnvironment | null)[] =
-      effectiveEnvs.length > 0 ? effectiveEnvs : [null];
 
-    // Execute one run per effective environment. Runs are independent (own
-    // status / latency / result) and persisted with their own
-    // `environmentId`. Phase 3b: each env-run mutates its OWN env-qualified
-    // `health` entity (`<systemId>::<environmentId>`, or the bare `<systemId>`
-    // for the env-less run) through a per-entity serializer; after the loop a
-    // single ROLLUP write for the bare `<systemId>` recomputes the worst-status
-    // rollup so system-level consumers keep firing off the unchanged id.
-    //
-    // Track whether ANY per-env run persisted (so the rollup write only runs
-    // when there is something to roll up — an all-failed loop still leaves the
-    // durable runs the per-env apply already wrote).
-    let anyEnvRunPersisted = false;
-    // Whether any PER-ENVIRONMENT notification was actually delivered this
-    // tick. The post-loop system-rollup notification describes the same
-    // underlying outage ("system unhealthy" vs. "system unhealthy in env X"),
-    // so when an environment already notified we suppress the rollup one to
-    // avoid the duplicate notification pair. We still record the rollup
-    // transition and broadcast SYSTEM_STATUS_CHANGED (SLO/dependency/frontend
-    // consumers depend on those) — only the redundant notification is dropped.
-    let anyEnvNotified = false;
-    // Whether this tick fans out into REAL environments (vs. the single
-    // env-less run). When env-less, the loop's lone write already targets the
-    // bare `<systemId>` entity — which IS the rollup — so no separate rollup
-    // write is needed. With real envs, the loop writes `<systemId>::<env>`
-    // entities and we recompute the bare-`<systemId>` rollup after the loop.
-    const isFannedOut = effectiveEnvs.length > 0;
+    // Select THE single environment this job runs (payload.environmentId). The
+    // reconciler owns which (config, system, env) jobs exist; here we only
+    // validate the payload's env against the CURRENT effective set so a stale
+    // job (env removed, or an env-less job for a system that has since gained
+    // envs) is skipped and the reconciler converges the set.
+    const targetEnvironmentId = payload.environmentId;
+    let singleEnvironment: EffectiveEnvironment | null;
+    if (targetEnvironmentId === null) {
+      // Env-less job: valid only while the system has no effective envs.
+      if (!catalogResolutionFailed && effectiveEnvs.length > 0) {
+        logger.debug(
+          `Env-less job for ${configId}/${systemId} is stale (system now has ${effectiveEnvs.length} env(s)); skipping`,
+        );
+        return;
+      }
+      singleEnvironment = null;
+    } else {
+      const found =
+        effectiveEnvs.find((env) => env.id === targetEnvironmentId) ?? null;
+      if (found) {
+        singleEnvironment = found;
+      } else if (catalogResolutionFailed) {
+        // Transient catalog failure: still run the probe, with degraded (empty)
+        // env fields rather than skipping the tick. The next tick recovers.
+        singleEnvironment = {
+          id: targetEnvironmentId,
+          name: targetEnvironmentId,
+          fields: {},
+        };
+      } else {
+        logger.debug(
+          `Env ${targetEnvironmentId} no longer effective for ${configId}/${systemId}; skipping`,
+        );
+        return;
+      }
+    }
+
+    // ── Slow-check bulkhead + adaptive timeout ──────────────────────────────
+    // Classify THIS slice's recent runs. A slice whose last K runs were SLOW
+    // transport failures (held its slot ~the full timeout) is "suspect": it is
+    // admitted to a capped, pod-local lane (or DEFERRED this tick when the lane
+    // is full or a prior run of the same slice is still in flight — recording
+    // nothing so it can't pile up) and probed with a timeout shrunk toward its
+    // OWN healthy-latency baseline, so a stuck target frees its slot fast
+    // instead of pinning it for the full timeout. A healthy slice is untouched.
+    let effectiveTimeout = executionTimeout;
+    const sliceEnvironmentId = singleEnvironment?.id ?? null;
+    if (slowCheckRuntime) {
+      try {
+        const recentRuns = await fetchRecentRunsForSlice({
+          db,
+          configId,
+          systemId,
+          environmentId: sliceEnvironmentId,
+          limit: slowCheckRuntime.recentRunsLimit,
+        });
+        const decision = evaluateSlowCheckAdmission({
+          runtime: slowCheckRuntime,
+          recentRuns,
+          configId,
+          systemId,
+          environmentId: sliceEnvironmentId,
+          executionTimeoutMs: executionTimeout,
+        });
+        if (decision.kind === "defer") {
+          healthcheckDeferredCounter().add(1, { reason: decision.reason });
+          logger.debug(
+            `Deferred suspect health check ${configId}/${systemId}` +
+              (sliceEnvironmentId ? ` [${sliceEnvironmentId}]` : "") +
+              ` (${decision.reason}); recording nothing this tick`,
+          );
+          // Record nothing: the recurring job stays scheduled, so the next tick
+          // retries once the lane drains / the in-flight run finishes.
+          return;
+        }
+        effectiveTimeout = decision.effectiveTimeoutMs;
+        laneKey = decision.laneKey;
+      } catch (error) {
+        // Classification is best-effort: a read failure must never wedge the
+        // check. Fall back to the full timeout with no lane admission.
+        logger.warn(
+          `Slow-check classification failed for ${configId}/${systemId}; running at full timeout`,
+          error,
+        );
+      }
+    }
+
+    // This job runs exactly this ONE env. `isFannedOut` is now a per-JOB
+    // property: an env-scoped run (`isFannedOut === true`) mutates the
+    // `<systemId>::<env>` entity and leaves the bare `<systemId>` ROLLUP to the
+    // event-driven rollup consumer; an env-less run mutates the bare entity
+    // (which IS the rollup) and so notifies + broadcasts SYSTEM_STATUS_CHANGED
+    // directly.
+    const runEnvironments: (EffectiveEnvironment | null)[] = [singleEnvironment];
+    const isFannedOut = targetEnvironmentId !== null;
     for (const environment of runEnvironments) {
       const environmentId = environment?.id ?? null;
       // The env-qualified entity id this run mutates. For the env-less run
@@ -1067,9 +1275,9 @@ async function executeHealthCheckJob(props: {
           setTimeout(
             () =>
               reject(
-                new Error(`Execution timeout after ${executionTimeout}ms`),
+                new Error(`Execution timeout after ${effectiveTimeout}ms`),
               ),
-            executionTimeout,
+            effectiveTimeout,
           ),
         ),
       ]);
@@ -1101,31 +1309,38 @@ async function executeHealthCheckJob(props: {
         handle: getHealthEntity?.(),
         entityId: envEntityId,
         apply: async () => {
-          await db.insert(healthCheckRuns).values({
-            configurationId: configId,
-            systemId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            result: { ...result } as Record<string, unknown>,
-            sourceId: undefined,
-            sourceLabel: "Local",
-          });
+          // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+          // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+          // which also makes the run and its aggregate commit atomically.
+          await withScopedTransaction(db, async (tx) => {
+            await tx.insert(healthCheckRuns).values({
+              configurationId: configId,
+              systemId,
+              environmentId,
+              status: result.status,
+              latencyMs: result.latencyMs,
+              result: { ...result } as Record<string, unknown>,
+              sourceId: undefined,
+              sourceLabel: "Local",
+            });
 
-          await incrementHourlyAggregate({
-            db,
-            systemId,
-            configurationId: configId,
-            environmentId,
-            status: result.status,
-            latencyMs: result.latencyMs,
-            runTimestamp: new Date(),
-            result: { ...result } as Record<string, unknown>,
-            collectorRegistry,
-            sourceLabel: "Local",
+            await incrementHourlyAggregate({
+              db: tx,
+              systemId,
+              configurationId: configId,
+              environmentId,
+              status: result.status,
+              latencyMs: result.latencyMs,
+              runTimestamp: new Date(),
+              result: { ...result } as Record<string, unknown>,
+              collectorRegistry,
+              sourceLabel: "Local",
+            });
           });
 
           // Env-scoped view: the per-env entity reflects only this env's runs.
+          // Runs as its own batched read AFTER the write commits, so it sees
+          // the just-inserted run.
           newState = await service.getSystemHealthStatus(systemId, environmentId);
           return toHealthEntityView(newState);
         },
@@ -1136,7 +1351,6 @@ async function executeHealthCheckJob(props: {
             error,
           ),
       });
-      anyEnvRunPersisted = true;
 
       logger.debug(
         `Health check ${configId} for system ${systemId} failed: ${finalError}`,
@@ -1171,7 +1385,7 @@ async function executeHealthCheckJob(props: {
           toStatus: newState.status,
         });
 
-        const envNotified = await notifyStateChange({
+        await notifyStateChange({
           notificationClient,
           systemId,
           systemName,
@@ -1186,7 +1400,6 @@ async function executeHealthCheckJob(props: {
           incidentClient,
           logger,
         });
-        anyEnvNotified = anyEnvNotified || envNotified;
       }
 
       // This environment's run is done (failed). Continue to the next
@@ -1211,6 +1424,21 @@ async function executeHealthCheckJob(props: {
     // client surfaced any. Strategies that cannot measure sub-phases leave this
     // undefined and the frontend falls back to the coarse connection split.
     const timings = extractRunTimings(connectedClient);
+
+    // Metrics (OTel no-ops unless enabled): the probe's total wall-clock and its
+    // network sub-phases. The `phase` breakdown is what tells "slow target"
+    // (`wait` grows) apart from "slow connection establishment" (`connect`/`tls`
+    // grow under a same-host stampede) apart from platform delay.
+    healthcheckExecutionHistogram().record(totalLatencyMs, { status });
+    if (timings) {
+      for (const [phase, value] of Object.entries(timings)) {
+        if (typeof value === "number" && Number.isFinite(value)) {
+          healthcheckPhaseHistogram().record(value, {
+            phase: phase.replace(/Ms$/, ""),
+          });
+        }
+      }
+    }
 
     const result = {
       status: status as "healthy" | "unhealthy",
@@ -1238,33 +1466,40 @@ async function executeHealthCheckJob(props: {
       handle: getHealthEntity?.(),
       entityId: envEntityId,
       apply: async () => {
-        // Store result (spread to convert structured type to plain record for jsonb)
-        await db.insert(healthCheckRuns).values({
-          configurationId: configId,
-          systemId,
-          environmentId,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          result: { ...result } as Record<string, unknown>,
-          sourceId: undefined,
-          sourceLabel: "Local",
-        });
+        // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
+        // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
+        // which also makes the run and its aggregate commit atomically.
+        await withScopedTransaction(db, async (tx) => {
+          // Store result (spread to convert structured type to plain record for jsonb)
+          await tx.insert(healthCheckRuns).values({
+            configurationId: configId,
+            systemId,
+            environmentId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            result: { ...result } as Record<string, unknown>,
+            sourceId: undefined,
+            sourceLabel: "Local",
+          });
 
-        // Trigger incremental hourly aggregation
-        await incrementHourlyAggregate({
-          db,
-          systemId,
-          configurationId: configId,
-          environmentId,
-          status: result.status,
-          latencyMs: result.latencyMs,
-          runTimestamp: new Date(),
-          result: { ...result } as Record<string, unknown>,
-          collectorRegistry,
-          sourceLabel: "Local",
+          // Trigger incremental hourly aggregation
+          await incrementHourlyAggregate({
+            db: tx,
+            systemId,
+            configurationId: configId,
+            environmentId,
+            status: result.status,
+            latencyMs: result.latencyMs,
+            runTimestamp: new Date(),
+            result: { ...result } as Record<string, unknown>,
+            collectorRegistry,
+            sourceLabel: "Local",
+          });
         });
 
         // Env-scoped view: the per-env entity reflects only this env's runs.
+        // Runs as its own batched read AFTER the write commits, so it sees the
+        // just-inserted run.
         newState = await service.getSystemHealthStatus(systemId, environmentId);
         return toHealthEntityView(newState);
       },
@@ -1272,7 +1507,6 @@ async function executeHealthCheckJob(props: {
       onError: (error) =>
         logger.warn(`Failed to mirror health entity for ${envEntityId}`, error),
     });
-    anyEnvRunPersisted = true;
 
     logger.debug(
       `Ran health check ${configId} for system ${systemId}: ${result.status}`,
@@ -1318,7 +1552,7 @@ async function executeHealthCheckJob(props: {
         toStatus: newState.status,
       });
 
-      const envNotified = await notifyStateChange({
+      await notifyStateChange({
         notificationClient,
         systemId,
         systemName,
@@ -1333,7 +1567,6 @@ async function executeHealthCheckJob(props: {
         incidentClient,
         logger,
       });
-      anyEnvNotified = anyEnvNotified || envNotified;
 
       // The system-level `SYSTEM_STATUS_CHANGED` signal must carry the ROLLUP
       // status, not a per-env status. When fanned out, the post-loop rollup
@@ -1365,90 +1598,14 @@ async function executeHealthCheckJob(props: {
     }
     } // end per-environment fan-out loop (for ... of runEnvironments)
 
-    // ── System rollup write (§7.4.3) ───────────────────────────────────────
-    // With real environments, the per-env writes mutated `<systemId>::<env>`
-    // entities; the bare `<systemId>` ROLLUP entity (the worst-status view
-    // every existing system-level consumer references) must now recompute so
-    // it diffs/emits its OWN `ENTITY_CHANGED`. The rollup `apply` does NO new
-    // durable insert (the runs are already persisted by the per-env writes) —
-    // it just recomputes + returns the all-runs rollup view so the framework
-    // diffs prev → next. Keyed on the bare `health:<systemId>` lock so it
-    // serializes against itself, independent of the per-env locks.
-    //
-    // Skipped when env-less (the loop's lone write already targeted the bare
-    // `<systemId>` entity = the rollup) or when nothing persisted (a fully
-    // isolated-failure loop left no new runs to roll up).
-    if (isFannedOut && anyEnvRunPersisted) {
-      const rollupEntityId = encodeHealthEntityId({ systemId });
-      let rollupState!: AggregatedHealth;
-      try {
-        await writeHealthEntity({
-          handle: getHealthEntity?.(),
-          entityId: rollupEntityId,
-          apply: async () => {
-            // No durable insert — recompute the all-runs (rollup) view.
-            rollupState = await service.getSystemHealthStatus(systemId);
-            return toHealthEntityView(rollupState);
-          },
-          serialize: makeHealthSerializer(rollupEntityId),
-          onError: (error) =>
-            logger.warn(
-              `Failed to mirror rollup health entity for ${systemId}`,
-              error,
-            ),
-        });
-
-        // Record the ROLLUP transition (environmentId = null) so system-level
-        // "in status since" reflects the aggregate, and notify on a real
-        // rollup status change so existing system-level notifications fire.
-        if (rollupState.status !== rollupPreviousStatus) {
-          await recordStateTransition({
-            db,
-            systemId,
-            configurationId: configId,
-            environmentId: null,
-            fromStatus: rollupPreviousStatus,
-            toStatus: rollupState.status,
-          });
-
-          // Deduplicate against the per-environment notifications: when an
-          // environment already notified this tick, the rollup notification
-          // ("system unhealthy") describes the same outage as the per-env one
-          // ("system unhealthy in env X") and would be a redundant second
-          // notification. Only fire the rollup notification when NO environment
-          // notified (e.g. every per-env delivery was suppressed/threw) so the
-          // user is never left entirely uninformed of a real status change.
-          if (shouldEmitRollupNotification({ anyEnvironmentNotified: anyEnvNotified })) {
-            await notifyStateChange({
-              notificationClient,
-              systemId,
-              systemName,
-              configurationId: configId,
-              previousStatus: rollupPreviousStatus,
-              newStatus: rollupState.status,
-              service,
-              catalogClient,
-              maintenanceClient,
-              incidentClient,
-              logger,
-            });
-          }
-
-          await signalService.broadcast(SYSTEM_STATUS_CHANGED, {
-            systemId,
-            previousStatus: rollupPreviousStatus as HealthCheckStatus,
-            newStatus: rollupState.status,
-          });
-        }
-      } catch (rollupError) {
-        // The rollup is best-effort reactivity over already-durable runs; a
-        // failure must not wedge the (completed) per-env runs.
-        logger.error(
-          `Failed to write system rollup health for ${systemId}`,
-          rollupError,
-        );
-      }
-    }
+    // The system ROLLUP (bare `<systemId>` entity) for a fanned-out env-scoped
+    // run is recomputed ASYNCHRONOUSLY by the event-driven rollup consumer,
+    // which subscribes to per-env `health` entity changes and debounces per
+    // system (recordSystemRollupChange). Doing it inline per env-job would
+    // multiply the `health:<systemId>` advisory-lock load by the fan-out
+    // factor. An env-less run needs no separate rollup: its write above IS the
+    // bare `<systemId>` entity, and it already recorded its own transition,
+    // notification, and SYSTEM_STATUS_CHANGED signal.
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
   } catch (error) {
@@ -1469,27 +1626,32 @@ async function executeHealthCheckJob(props: {
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
-        // Store failure (no latencyMs for failures)
-        await db.insert(healthCheckRuns).values({
-          configurationId: configId,
-          systemId,
-          status: "unhealthy",
-          result: { error: String(error) } as Record<string, unknown>,
-          sourceId: undefined,
-          sourceLabel: "Local",
-        });
+        // §perf: batch the failure run INSERT + aggregate SELECT/UPSERT under
+        // ONE `SET LOCAL search_path` transaction (3 scoped-db transactions →
+        // 1), which also makes them commit atomically.
+        await withScopedTransaction(db, async (tx) => {
+          // Store failure (no latencyMs for failures)
+          await tx.insert(healthCheckRuns).values({
+            configurationId: configId,
+            systemId,
+            status: "unhealthy",
+            result: { error: String(error) } as Record<string, unknown>,
+            sourceId: undefined,
+            sourceLabel: "Local",
+          });
 
-        // Trigger incremental hourly aggregation
-        await incrementHourlyAggregate({
-          db,
-          systemId,
-          configurationId: configId,
-          status: "unhealthy",
-          latencyMs: undefined,
-          runTimestamp: new Date(),
-          // No collector data for error cases
-          collectorRegistry,
-          sourceLabel: "Local",
+          // Trigger incremental hourly aggregation
+          await incrementHourlyAggregate({
+            db: tx,
+            systemId,
+            configurationId: configId,
+            status: "unhealthy",
+            latencyMs: undefined,
+            runTimestamp: new Date(),
+            // No collector data for error cases
+            collectorRegistry,
+            sourceLabel: "Local",
+          });
         });
 
         newState = await service.getSystemHealthStatus(systemId);
@@ -1585,6 +1747,11 @@ async function executeHealthCheckJob(props: {
     }
 
     // Note: No manual rescheduling needed - recurring job handles it automatically
+  } finally {
+    // Release the suspect-lane slot (single-flight + capacity) on EVERY exit
+    // path — success, timeout, or a catastrophic throw — so a slow run frees
+    // its slot for the next tick. A no-op when this run was not admitted.
+    if (laneKey && slowCheckRuntime) slowCheckRuntime.lane.release(laneKey);
   }
 }
 
@@ -1605,6 +1772,12 @@ export async function setupHealthCheckWorker(props: {
   cache: HealthCheckCache;
   secretResolver?: SecretResolverService;
   internalSecrets?: InternalSecretsService;
+  /**
+   * Slow-check bulkhead runtime. Omit to resolve it once from `process.env`
+   * (the production path); pass `null` to force the feature OFF (tests that
+   * don't exercise the bulkhead), or a concrete runtime to drive it.
+   */
+  slowCheckRuntime?: SlowCheckRuntime | null;
 }): Promise<void> {
   const {
     db,
@@ -1624,6 +1797,16 @@ export async function setupHealthCheckWorker(props: {
     secretResolver,
     internalSecrets,
   } = props;
+
+  // Resolve the slow-check runtime once at startup unless the caller supplied
+  // one (including an explicit `null` to disable it).
+  const slowCheckRuntime =
+    props.slowCheckRuntime === undefined
+      ? resolveSlowCheckRuntime(process.env)
+      : props.slowCheckRuntime;
+  if (slowCheckRuntime) {
+    logger.debug("🩺 Slow-check bulkhead + adaptive timeout enabled.");
+  }
 
   const queue =
     queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
@@ -1648,6 +1831,7 @@ export async function setupHealthCheckWorker(props: {
         cache,
         secretResolver,
         internalSecrets,
+        slowCheckRuntime,
       });
     },
     {
@@ -1659,117 +1843,3 @@ export async function setupHealthCheckWorker(props: {
   logger.debug("🎯 Health Check Worker subscribed to queue");
 }
 
-/**
- * Bootstrap health checks by enqueueing all enabled checks
- */
-export async function bootstrapHealthChecks(props: {
-  db: Db;
-  queueManager: QueueManager;
-  logger: Logger;
-}): Promise<void> {
-  const { db, queueManager, logger } = props;
-
-  // Get all enabled health checks
-  const enabledChecks = await db
-    .select({
-      systemId: systemHealthChecks.systemId,
-      configId: healthCheckConfigurations.id,
-      interval: healthCheckConfigurations.intervalSeconds,
-    })
-    .from(systemHealthChecks)
-    .innerJoin(
-      healthCheckConfigurations,
-      eq(systemHealthChecks.configurationId, healthCheckConfigurations.id),
-    )
-    .where(eq(systemHealthChecks.enabled, true));
-
-  // Get latest run timestamp for each system+config pair
-  // Using Drizzle's max() function for proper timestamp handling (no raw SQL)
-  const latestRuns = await db
-    .select({
-      systemId: healthCheckRuns.systemId,
-      configurationId: healthCheckRuns.configurationId,
-      maxTimestamp: max(healthCheckRuns.timestamp),
-    })
-    .from(healthCheckRuns)
-    .groupBy(healthCheckRuns.systemId, healthCheckRuns.configurationId);
-
-  // Create a lookup map for fast access
-  const lastRunMap = new Map<string, Date>();
-  for (const run of latestRuns) {
-    if (run.maxTimestamp) {
-      const key = `${run.systemId}:${run.configurationId}`;
-      lastRunMap.set(key, run.maxTimestamp);
-    }
-  }
-
-  logger.debug(`Bootstrapping ${enabledChecks.length} health checks`);
-
-  for (const check of enabledChecks) {
-    // Look up the last run from the map
-    const lastRunKey = `${check.systemId}:${check.configId}`;
-    const lastRun = lastRunMap.get(lastRunKey);
-
-    // Calculate delay for first run based on time since last run
-    let startDelay = 0;
-    if (lastRun) {
-      const elapsedSeconds = Math.floor(
-        (Date.now() - lastRun.getTime()) / 1000,
-      );
-      if (elapsedSeconds < check.interval) {
-        // Not overdue yet - schedule with remaining time
-        startDelay = check.interval - elapsedSeconds;
-      }
-      // Otherwise it's overdue - run immediately (startDelay = 0)
-      logger.debug(
-        `Health check ${check.configId}:${
-          check.systemId
-        } - lastRun: ${lastRun.toISOString()}, elapsed: ${elapsedSeconds}s, interval: ${
-          check.interval
-        }s, startDelay: ${startDelay}s`,
-      );
-    } else {
-      logger.debug(
-        `Health check ${check.configId}:${check.systemId} - no lastRun found, running immediately`,
-      );
-    }
-
-    await scheduleHealthCheck({
-      queueManager,
-      payload: {
-        configId: check.configId,
-        systemId: check.systemId,
-      },
-      intervalSeconds: check.interval,
-      startDelay,
-      logger,
-    });
-  }
-
-  logger.debug(`✅ Bootstrapped ${enabledChecks.length} health checks`);
-
-  // Clean up orphaned jobs
-  const queue =
-    queueManager.getQueue<HealthCheckJobPayload>(HEALTH_CHECK_QUEUE);
-  const allRecurringJobs = await queue.listRecurringJobs();
-  const expectedJobIds = new Set(
-    enabledChecks.map(
-      (check) => `healthcheck:${check.configId}:${check.systemId}`,
-    ),
-  );
-
-  const orphanedJobs = allRecurringJobs.filter(
-    (jobId) => jobId.startsWith("healthcheck:") && !expectedJobIds.has(jobId),
-  );
-
-  for (const jobId of orphanedJobs) {
-    await queue.cancelRecurring(jobId);
-    logger.debug(`Removed orphaned job scheduler: ${jobId}`);
-  }
-
-  if (orphanedJobs.length > 0) {
-    logger.info(
-      `🧹 Cleaned up ${orphanedJobs.length} orphaned health check jobs`,
-    );
-  }
-}

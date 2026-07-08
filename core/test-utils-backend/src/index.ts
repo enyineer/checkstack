@@ -1,6 +1,10 @@
 export { createMockLogger, createMockLoggerModule } from "./mock-logger";
 export { createMockQueueManager } from "./mock-queue-factory";
-export { createMockDb, createMockDbModule } from "./mock-db";
+export {
+  createMockDb,
+  createMockDbModule,
+  withTransactionMock,
+} from "./mock-db";
 export { createMockFetch } from "./mock-fetch";
 export {
   createMockSignalService,

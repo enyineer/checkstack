@@ -12,6 +12,10 @@ import {
   JobState,
 } from "@checkstack/queue-api";
 import type { Logger } from "@checkstack/backend-api";
+import {
+  queueEnqueuedCounter,
+  queueProcessedCounter,
+} from "@checkstack/backend-api";
 import { extractErrorMessage } from "@checkstack/common";
 import { InMemoryQueueConfig } from "./plugin";
 import parser from "cron-parser";
@@ -114,6 +118,15 @@ export class InMemoryQueue<T> implements Queue<T> {
   private semaphore: Semaphore;
   private stopped = false;
   private processing = 0;
+  /**
+   * Jobs that have been claimed by `processNext` (and so removed from `jobs`)
+   * but are still BLOCKED on `semaphore.acquire()` waiting for a concurrency
+   * slot. Without this counter such jobs are invisible to `getStats()` - not in
+   * `jobs` (pending) and not yet counted in `processing` - so under saturation
+   * the reported backlog reads ~0 while hundreds of jobs are actually queued for
+   * a slot. They ARE pending (not executing), so `getStats().pending` adds them.
+   */
+  private awaitingSlot = 0;
   private stats = {
     completed: 0,
     failed: 0,
@@ -207,6 +220,9 @@ export class InMemoryQueue<T> implements Queue<T> {
       this.jobs.splice(insertIndex, 0, job);
     }
 
+    // Metrics (OTel no-op unless enabled).
+    queueEnqueuedCounter().add(1, { queue: this.name });
+
     // Trigger processing for all consumer groups (or schedule for later)
     if (!this.stopped) {
       if (options?.startDelay) {
@@ -259,6 +275,8 @@ export class InMemoryQueue<T> implements Queue<T> {
     options: {
       jobId: string;
       priority?: number;
+      /** Optional delay before the first execution (delta-based scheduling). */
+      startDelay?: number;
     } & RecurringSchedule,
   ): Promise<string> {
     const { jobId, priority = 0 } = options;
@@ -341,37 +359,61 @@ export class InMemoryQueue<T> implements Queue<T> {
       return jobId;
     }
 
-    // Handle interval-based scheduling (original behavior)
+    // Handle interval-based scheduling.
     // TypeScript XOR pattern doesn't narrow well, but intervalSeconds is guaranteed here
     const intervalSeconds = options.intervalSeconds!;
     const intervalMs =
       intervalSeconds * 1000 * (this.config.delayMultiplier ?? 1);
+    // Honor `startDelay` (queue contract: delay the FIRST execution, or run
+    // immediately when not provided). The recurrence is anchored to that first
+    // fire, so the phase offset persists for the schedule's whole life. This is
+    // what lets the health-check scheduler spread equal-interval checks across
+    // the interval (jittered startDelay) instead of every check firing on the
+    // same boot-anchored grid - the thundering-herd that inflates and destabi-
+    // lizes connection setup. Previously startDelay was silently dropped here.
+    const startDelayMs = options.startDelay
+      ? options.startDelay * 1000 * (this.config.delayMultiplier ?? 1)
+      : 0;
 
-    // Create interval for wall-clock scheduling
-    const timerId = setInterval(() => {
-      if (!this.stopped) {
-        const uniqueId = `${jobId}:${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
-        void this.enqueue(data, { jobId: uniqueId, priority });
-      }
-    }, intervalMs);
-
-    // Store recurring job metadata with interval ID
-    this.recurringJobs.set(jobId, {
+    // Store metadata up-front so the fire/interval closures observe an enabled
+    // job (and so `stop()`/the update-case can clear whatever timer is pending).
+    const metadata: RecurringJobMetadata<T> = {
       jobId,
       intervalSeconds,
       payload: data,
       priority,
       enabled: true,
-      timerId,
-    });
+    };
+    this.recurringJobs.set(jobId, metadata);
 
-    // Schedule first execution immediately for interval-based jobs
-    const firstJobId = `${jobId}:${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
-    await this.enqueue(data, { jobId: firstJobId, priority });
+    const fireOnce = (): void => {
+      if (this.stopped || !metadata.enabled) return;
+      const uniqueId = `${jobId}:${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      void this.enqueue(data, { jobId: uniqueId, priority });
+    };
+    const startInterval = (): void => {
+      if (this.stopped || !metadata.enabled) return;
+      metadata.timerId = setInterval(fireOnce, intervalMs);
+    };
+
+    if (startDelayMs > 0) {
+      // Phase-shift the whole schedule: the first fire AND the interval start
+      // wait out startDelay, so fires land at startDelay + k * interval.
+      metadata.timerId = setTimeout(() => {
+        fireOnce();
+        startInterval();
+      }, Math.min(startDelayMs, MAX_TIMEOUT));
+    } else {
+      // No delay: preserve the prior behavior of firing the first execution
+      // immediately (awaited), then every interval.
+      const firstJobId = `${jobId}:${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      await this.enqueue(data, { jobId: firstJobId, priority });
+      startInterval();
+    }
 
     return jobId;
   }
@@ -485,7 +527,9 @@ export class InMemoryQueue<T> implements Queue<T> {
     groupId: string,
     groupState: ConsumerGroupState<T>,
   ): Promise<void> {
+    this.awaitingSlot++;
     await this.semaphore.acquire();
+    this.awaitingSlot--;
     this.processing++;
     const startedAt = new Date();
     this.activeJobs.set(job.id, {
@@ -500,6 +544,7 @@ export class InMemoryQueue<T> implements Queue<T> {
     try {
       await consumer.handler(job);
       this.stats.completed++;
+      queueProcessedCounter().add(1, { queue: this.name, status: "completed" });
       this.pushHistory(this.completedHistory, {
         id: job.id,
         state: "completed",
@@ -542,6 +587,7 @@ export class InMemoryQueue<T> implements Queue<T> {
         });
       } else {
         this.stats.failed++;
+        queueProcessedCounter().add(1, { queue: this.name, status: "failed" });
         this.pushHistory(this.failedHistory, {
           id: job.id,
           state: "failed",
@@ -594,7 +640,7 @@ export class InMemoryQueue<T> implements Queue<T> {
 
   async getStats(): Promise<QueueStats> {
     return {
-      pending: this.jobs.length,
+      pending: this.jobs.length + this.awaitingSlot,
       processing: this.processing,
       completed: this.stats.completed,
       failed: this.stats.failed,

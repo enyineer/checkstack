@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import {
   setupHealthCheckWorker,
   scheduleHealthCheck,
-  bootstrapHealthChecks,
   recomputeSystemRollupHealth,
   type HealthCheckJobPayload,
 } from "./queue-executor";
 import type { HealthCheckCache } from "./cache";
+import { SuspectLane } from "./suspect-lane";
+import type { SlowCheckRuntime } from "./slow-check-config";
 
 const passthroughCache: HealthCheckCache = {
   wrapSystemHealthStatus: (_systemId, loader) => loader(),
@@ -141,6 +142,7 @@ describe("Queue-Based Health Check Executor", () => {
       const payload: HealthCheckJobPayload = {
         configId: "config-1",
         systemId: "system-1",
+        environmentId: null,
       };
 
       await scheduleHealthCheck({
@@ -162,6 +164,7 @@ describe("Queue-Based Health Check Executor", () => {
       const payload: HealthCheckJobPayload = {
         configId: "config-1",
         systemId: "system-1",
+        environmentId: null,
       };
 
       const result = await scheduleHealthCheck({
@@ -214,6 +217,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -222,97 +226,11 @@ describe("Queue-Based Health Check Executor", () => {
     });
   });
 
-  describe("bootstrapHealthChecks", () => {
-    beforeEach(() => {
-      // Reset all mocks between tests
-    });
-
-    it("should enqueue all enabled health checks", async () => {
-      const mockQueueManager = createMockQueueManager();
-      const mockLogger = createMockLogger();
-      const mockDb = createMockDb();
-
-      // Configure the mock database to return some enabled checks
-      const mockData = [
-        {
-          systemId: "system-1",
-          configId: "config-1",
-          interval: 30,
-          lastRun: null,
-        },
-        {
-          systemId: "system-2",
-          configId: "config-2",
-          interval: 60,
-          lastRun: null,
-        },
-      ];
-
-      // Override select to return a chain that handles subquery with groupBy
-      // First call: for enabledChecks query (innerJoin().where)
-      // Second call: for latestRuns query (groupBy)
-      let selectCallCount = 0;
-      (mockDb.select as any) = mock(() => {
-        selectCallCount++;
-        if (selectCallCount === 1) {
-          // enabledChecks query
-          return {
-            from: mock(() => ({
-              innerJoin: mock(() => ({
-                where: mock(() => Promise.resolve(mockData)),
-              })),
-            })),
-          };
-        } else {
-          // latestRuns query
-          return {
-            from: mock(() => ({
-              groupBy: mock(() => Promise.resolve([])),
-            })),
-          };
-        }
-      });
-
-      await bootstrapHealthChecks({
-        db: mockDb as any,
-        queueManager: mockQueueManager,
-        logger: mockLogger,
-      });
-
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Bootstrapping 2 health checks",
-      );
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        "✅ Bootstrapped 2 health checks",
-      );
-    });
-
-    it("should handle empty health check list", async () => {
-      const mockQueueManager = createMockQueueManager();
-      const mockLogger = createMockLogger();
-      const mockDb = createMockDb();
-
-      // Override to return empty array
-      const mockSelectChain = mockDb.select();
-      const mockFromResult = (mockSelectChain as any).from();
-      Object.assign(mockFromResult, {
-        then: (resolve: any) => resolve([]),
-      });
-
-      await bootstrapHealthChecks({
-        db: mockDb as any,
-        queueManager: mockQueueManager,
-        logger: mockLogger,
-      });
-
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        "Bootstrapping 0 health checks",
-      );
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        "✅ Bootstrapped 0 health checks",
-      );
-    });
-  });
+  // NOTE: `bootstrapHealthChecks` was removed in the per-environment-jobs
+  // migration. Boot-time scheduling is now owned by `reconcileHealthCheckJobs`
+  // (schedule-reconciler.ts), which converges the desired per-env recurring
+  // job set from the durable tables + catalog membership; see
+  // schedule-reconciler.test.ts for its coverage.
 
   describe("executeHealthCheckJob - paused behavior", () => {
     it("should skip execution when configuration is paused", async () => {
@@ -412,12 +330,13 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       // Execute a paused health check
       if (capturedHandler) {
         await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
+          data: { configId: "config-1", systemId: "system-1", environmentId: null },
         });
       }
 
@@ -549,6 +468,7 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
@@ -557,7 +477,7 @@ describe("Queue-Based Health Check Executor", () => {
         // doesn't model, so tolerate a later throw — the run-context we
         // assert on is captured synchronously at collector-execute time.
         await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
+          data: { configId: "config-1", systemId: "system-1", environmentId: null },
         }).catch(() => {});
       }
 
@@ -753,11 +673,12 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
         await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
+          data: { configId: "config-1", systemId: "system-1", environmentId: null },
         }).catch(() => {});
       }
 
@@ -770,19 +691,27 @@ describe("Queue-Based Health Check Executor", () => {
     });
   });
 
-  describe("executeHealthCheckJob - per-environment fan-out", () => {
+  describe("executeHealthCheckJob - per-environment jobs (single env per job)", () => {
     /**
-     * Drive one job with a configurable assignment `environmentIds` + catalog
-     * membership, capturing the run-context handed to the collector on EACH
-     * run. The collector executes once per fanned-out run, so the captured
-     * list is a faithful witness of "one run per effective environment".
+     * Drive ONE job for a single (config, system, environment) slice, capturing
+     * the run-context handed to the collector. Under the per-environment-jobs
+     * model each recurring job runs EXACTLY ONE environment (its
+     * `payload.environmentId`); the executor validates that env against the
+     * CURRENT effective set (from the assignment `environmentIds` + catalog
+     * membership) and SKIPS the tick when the slice is stale. So the captured
+     * run list is either one run (the payload's env) or empty (skipped).
      */
-    async function runFanOut({
+    async function runSingleEnv({
+      payloadEnvironmentId,
       environmentIds,
       membership,
       collectorConfig = {},
       collectorConfigSchema = z.object({}),
+      failCatalogResolution = false,
     }: {
+      /** The env this job runs (`null` = an env-less job). */
+      payloadEnvironmentId: string | null;
+      /** The assignment's stored `environmentIds` selector. */
       environmentIds: string[] | null;
       membership: Array<{
         id: string;
@@ -793,8 +722,10 @@ describe("Queue-Based Health Check Executor", () => {
       collectorConfig?: Record<string, unknown>;
       /** Schema used to detect `x-templatable` fields for the render pass. */
       collectorConfigSchema?: z.ZodType<unknown>;
+      /** When true, the catalog membership read REJECTS (fail-open path). */
+      failCatalogResolution?: boolean;
     }): Promise<{
-      /** Run-context captured per fanned-out run (env + rendered config). */
+      /** Run-context captured for the single run (empty when skipped). */
       runs: Array<{ environment?: unknown; config?: unknown }>;
       /** Payloads broadcast on `healthcheck.run.completed`, in order. */
       runCompletedPayloads: Array<Record<string, unknown>>;
@@ -812,15 +743,16 @@ describe("Queue-Based Health Check Executor", () => {
         id: "system-1",
         name: "web-01",
       }));
-      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () =>
-        membership.map((m) => ({
+      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => {
+        if (failCatalogResolution) throw new Error("catalog unavailable");
+        return membership.map((m) => ({
           ...m,
           description: null,
           systemIds: [],
           createdAt: new Date(),
           updatedAt: new Date(),
-        })),
-      );
+        }));
+      });
 
       // The default full select chain (from().where(), groupBy, orderBy, ...)
       // so the durable persist path (aggregate read + rollup) resolves instead
@@ -934,14 +866,19 @@ describe("Queue-Based Health Check Executor", () => {
         >[0]["incidentClient"],
         getEmitHook: () => undefined,
         cache: passthroughCache,
+        slowCheckRuntime: null,
       });
 
       if (capturedHandler) {
         // Downstream persistence touches DB surfaces the lightweight mock
-        // doesn't fully model; tolerate a later throw — run-contexts are
-        // captured synchronously at collector-execute time, one per run.
+        // doesn't fully model; tolerate a later throw - run-contexts are
+        // captured synchronously at collector-execute time.
         await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
+          data: {
+            configId: "config-1",
+            systemId: "system-1",
+            environmentId: payloadEnvironmentId,
+          },
         }).catch(() => {});
       }
 
@@ -952,8 +889,9 @@ describe("Queue-Based Health Check Executor", () => {
       return { runs: captured, runCompletedPayloads };
     }
 
-    it("runs once per effective environment with that env in run-context (null selector = all)", async () => {
-      const { runs: captured } = await runFanOut({
+    it("runs the payload's environment with that env in run-context", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: "prod",
         environmentIds: null,
         membership: [
           { id: "prod", name: "Production", metadata: { baseUrl: "p" } },
@@ -961,21 +899,17 @@ describe("Queue-Based Health Check Executor", () => {
         ],
       });
 
-      expect(captured).toHaveLength(2);
+      expect(captured).toHaveLength(1);
       expect(captured[0]?.environment).toEqual({
         id: "prod",
         name: "Production",
         fields: { baseUrl: "p" },
       });
-      expect(captured[1]?.environment).toEqual({
-        id: "staging",
-        name: "Staging",
-        fields: { baseUrl: "s" },
-      });
     });
 
-    it("broadcasts the fanned-out environment on run.completed for each env", async () => {
-      const { runCompletedPayloads } = await runFanOut({
+    it("broadcasts the environment on run.completed for an env-scoped run", async () => {
+      const { runCompletedPayloads } = await runSingleEnv({
+        payloadEnvironmentId: "staging",
         environmentIds: null,
         membership: [
           { id: "prod", name: "Production", metadata: { baseUrl: "p" } },
@@ -983,19 +917,16 @@ describe("Queue-Based Health Check Executor", () => {
         ],
       });
 
-      expect(runCompletedPayloads).toHaveLength(2);
+      expect(runCompletedPayloads).toHaveLength(1);
       expect(runCompletedPayloads[0]).toMatchObject({
-        environmentId: "prod",
-        environmentName: "Production",
-      });
-      expect(runCompletedPayloads[1]).toMatchObject({
         environmentId: "staging",
         environmentName: "Staging",
       });
     });
 
     it("omits the environment on run.completed for an env-less run", async () => {
-      const { runCompletedPayloads } = await runFanOut({
+      const { runCompletedPayloads } = await runSingleEnv({
+        payloadEnvironmentId: null,
         environmentIds: [],
         membership: [{ id: "prod", name: "Production", metadata: {} }],
       });
@@ -1006,8 +937,9 @@ describe("Queue-Based Health Check Executor", () => {
       expect(runCompletedPayloads[0]?.environmentName).toBeUndefined();
     });
 
-    it("renders x-templatable config fields per environment against environment.*", async () => {
-      const { runs: captured } = await runFanOut({
+    it("renders x-templatable config fields against the payload environment", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: "prod",
         environmentIds: null,
         membership: [
           {
@@ -1027,18 +959,16 @@ describe("Queue-Based Health Check Executor", () => {
         }),
       });
 
-      expect(captured).toHaveLength(2);
-      // Each env gets its own rendered config (per-env render pass, §6.3.3).
+      expect(captured).toHaveLength(1);
+      // The run renders against ITS env (prod), not staging (per-env render).
       expect((captured[0]?.config as { url: string }).url).toBe(
         "https://prod.example.com/healthz",
-      );
-      expect((captured[1]?.config as { url: string }).url).toBe(
-        "https://staging.example.com/healthz",
       );
     });
 
     it("renders environment.* to empty string for an env-less run (render-empty, §11.6)", async () => {
-      const { runs: captured } = await runFanOut({
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: null,
         environmentIds: [],
         membership: [
           { id: "prod", name: "Production", metadata: { baseUrl: "x" } },
@@ -1051,13 +981,14 @@ describe("Queue-Based Health Check Executor", () => {
 
       expect(captured).toHaveLength(1);
       expect(captured[0]?.environment).toBeUndefined();
-      // Missing path renders empty (strict: false) — the HTTP collector's
+      // Missing path renders empty (strict: false) - the HTTP collector's
       // post-render .url() check turns this into a clear config error.
       expect((captured[0]?.config as { url: string }).url).toBe("/healthz");
     });
 
-    it("runs only the explicit subset, intersected with membership", async () => {
-      const { runs: captured } = await runFanOut({
+    it("runs the explicit-subset environment the payload targets", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: "staging",
         environmentIds: ["staging"],
         membership: [
           { id: "prod", name: "Production", metadata: {} },
@@ -1069,18 +1000,9 @@ describe("Queue-Based Health Check Executor", () => {
       expect((captured[0]?.environment as { id: string }).id).toBe("staging");
     });
 
-    it("runs exactly once with no environment when opting out ([] selector)", async () => {
-      const { runs: captured } = await runFanOut({
-        environmentIds: [],
-        membership: [{ id: "prod", name: "Production", metadata: {} }],
-      });
-
-      expect(captured).toHaveLength(1);
-      expect(captured[0]?.environment).toBeUndefined();
-    });
-
-    it("runs exactly once env-less when the system has no environments (null selector, empty membership)", async () => {
-      const { runs: captured } = await runFanOut({
+    it("runs env-less when the system has no environments (null selector, empty membership)", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: null,
         environmentIds: null,
         membership: [],
       });
@@ -1089,315 +1011,64 @@ describe("Queue-Based Health Check Executor", () => {
       expect(captured[0]?.environment).toBeUndefined();
     });
 
-    /**
-     * Per-environment ISOLATION regression (§7.2). When the FIRST
-     * environment's run throws (here: its durable persist rejects, which —
-     * with no health-entity handle bound — propagates out of
-     * `writeHealthEntity` to the per-env catch), the loop MUST log and
-     * continue so the SECOND environment still produces a run. One env's
-     * failure must never abort its siblings.
-     */
-    it("continues to the next environment when the first environment's run throws", async () => {
-      const mockDb = createMockDb();
-      const mockRegistry = createMockRegistry();
-      const mockLogger = createMockLogger();
-      const mockQueueManager = createMockQueueManager();
-      const mockCatalogClient = createMockCatalogClient();
-      const mockMaintenanceClient = createMockMaintenanceClient();
-      const mockIncidentClient = createMockIncidentClient();
-      const mockSignalService = createMockSignalService();
-
-      (mockCatalogClient.getSystem as any) = mock(async () => ({
-        id: "system-1",
-        name: "web-01",
-      }));
-      const membership = [
-        { id: "prod", name: "Production", metadata: {} },
-        { id: "staging", name: "Staging", metadata: {} },
-      ];
-      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () =>
-        membership.map((m) => ({
-          ...m,
-          description: null,
-          systemIds: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })),
-      );
-
-      let selectCallCount = 0;
-      (mockDb.select as any) = mock(() => {
-        selectCallCount++;
-        if (selectCallCount === 2) {
-          return {
-            from: mock(() => ({
-              innerJoin: mock(() => ({
-                where: mock(() =>
-                  Promise.resolve([
-                    {
-                      configId: "config-1",
-                      configName: "Check",
-                      strategyId: "test-strategy",
-                      config: { timeout: 5000 },
-                      collectors: [
-                        {
-                          id: "col-1",
-                          collectorId: "test-collector",
-                          config: {},
-                        },
-                      ],
-                      interval: 45,
-                      enabled: true,
-                      paused: false,
-                      includeLocal: true,
-                      satelliteIds: [],
-                      environmentIds: null,
-                    },
-                  ]),
-                ),
-              })),
-            })),
-          };
-        }
-        return {
-          from: mock(() => ({
-            innerJoin: mock(() => ({
-              where: mock(() => Promise.resolve([])),
-            })),
-          })),
-        };
+    it("skips a stale env-less job once the system has environments", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: null,
+        environmentIds: null,
+        membership: [
+          { id: "prod", name: "Production", metadata: {} },
+          { id: "staging", name: "Staging", metadata: {} },
+        ],
       });
 
-      // The first environment's run insert REJECTS; the second succeeds.
-      // With no health-entity handle bound, a failed `apply` propagates out
-      // of `writeHealthEntity`, so this throw reaches the per-env catch.
-      let insertCalls = 0;
-      (mockDb.insert as any) = mock(() => ({
-        values: mock(() => {
-          insertCalls++;
-          if (insertCalls === 1) {
-            return Promise.reject(new Error("env-1 persist failed"));
-          }
-          return Promise.resolve();
-        }),
-      }));
+      // The env-less slice is stale (the system now has effective envs); the
+      // reconciler owns converging to per-env jobs, so this tick is skipped.
+      expect(captured).toHaveLength(0);
+    });
 
-      const envSeen: Array<string | undefined> = [];
-      const collectorExecute = mock(
-        async (params: { runContext?: { environment?: { id?: string } } }) => {
-          envSeen.push(params.runContext?.environment?.id);
-          return { result: {} };
-        },
-      );
-      const mockCollectorRegistry = {
-        register: mock(() => {}),
-        getCollector: mock(() => ({
-          collector: {
-            id: "test-collector",
-            execute: collectorExecute,
-            config: new Versioned({ version: 1, schema: z.object({}) }),
-            mergeResult: mock(() => ({})),
-          },
-        })),
-        getCollectors: mock(() => []),
-      };
-
-      const queue =
-        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
-      let capturedHandler:
-        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
-        | undefined;
-      (queue.consume as any) = mock(
-        async (
-          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
-        ) => {
-          capturedHandler = handler;
-        },
-      );
-
-      await setupHealthCheckWorker({
-        db: mockDb as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["db"],
-        advisoryLock: mockAdvisoryLock,
-        registry: mockRegistry,
-        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["collectorRegistry"],
-        logger: mockLogger,
-        queueManager: mockQueueManager,
-        signalService: mockSignalService,
-        catalogClient: mockCatalogClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["catalogClient"],
-        notificationClient: {
-          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
-        } as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["notificationClient"],
-        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["maintenanceClient"],
-        incidentClient: mockIncidentClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["incidentClient"],
-        getEmitHook: () => undefined,
-        cache: passthroughCache,
+    it("skips a job whose environment is no longer effective", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: "prod",
+        environmentIds: ["staging"],
+        membership: [
+          { id: "prod", name: "Production", metadata: {} },
+          { id: "staging", name: "Staging", metadata: {} },
+        ],
       });
 
-      if (capturedHandler) {
-        await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
-        });
-      }
-
-      // BOTH environments' collectors ran — the first env's persist failure
-      // did not abort the loop.
-      expect(envSeen).toEqual(["prod", "staging"]);
-      // The failure was logged (isolated), not propagated.
-      expect(mockLogger.error).toHaveBeenCalled();
+      // `prod` is no longer in the effective subset ({staging}); skip the tick
+      // and let the reconciler cancel this orphaned job.
+      expect(captured).toHaveLength(0);
     });
 
     /**
      * Fail-open OBSERVABILITY (P3 review item 2). When the catalog
-     * `resolveSystemEnvironments` read fails and the executor degrades to a
-     * single env-less run, it MUST emit a counter-style signal (not just a
-     * `logger.warn`) so durable catalog misconfig / outage is observable.
+     * `resolveSystemEnvironments` read fails, an env-SCOPED job keeps running
+     * its own env with degraded (empty) fields rather than skipping, and MUST
+     * emit a counter-style signal (not just a `logger.warn`) so durable catalog
+     * misconfig / outage is observable.
      */
-    it("broadcasts ENVIRONMENT_RESOLUTION_FAILED and degrades to one env-less run when the catalog read fails", async () => {
-      const mockDb = createMockDb();
-      const mockRegistry = createMockRegistry();
-      const mockLogger = createMockLogger();
-      const mockQueueManager = createMockQueueManager();
-      const mockCatalogClient = createMockCatalogClient();
-      const mockMaintenanceClient = createMockMaintenanceClient();
-      const mockIncidentClient = createMockIncidentClient();
+    it("runs a degraded env-scoped probe and broadcasts ENVIRONMENT_RESOLUTION_FAILED when the catalog read fails", async () => {
       const mockSignalService = createMockSignalService();
-
-      (mockCatalogClient.getSystem as any) = mock(async () => ({
-        id: "system-1",
-        name: "web-01",
-      }));
-      // The catalog read REJECTS — the executor must fail open.
-      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => {
-        throw new Error("catalog unavailable");
-      });
-
-      let selectCallCount = 0;
-      (mockDb.select as any) = mock(() => {
-        selectCallCount++;
-        if (selectCallCount === 2) {
-          return {
-            from: mock(() => ({
-              innerJoin: mock(() => ({
-                where: mock(() =>
-                  Promise.resolve([
-                    {
-                      configId: "config-1",
-                      configName: "Check",
-                      strategyId: "test-strategy",
-                      config: { timeout: 5000 },
-                      collectors: [
-                        {
-                          id: "col-1",
-                          collectorId: "test-collector",
-                          config: {},
-                        },
-                      ],
-                      interval: 45,
-                      enabled: true,
-                      paused: false,
-                      includeLocal: true,
-                      satelliteIds: [],
-                      environmentIds: null,
-                    },
-                  ]),
-                ),
-              })),
-            })),
-          };
-        }
-        return {
-          from: mock(() => ({
-            innerJoin: mock(() => ({
-              where: mock(() => Promise.resolve([])),
-            })),
-          })),
-        };
-      });
-
-      const envSeen: Array<string | undefined> = [];
-      const collectorExecute = mock(
-        async (params: { runContext?: { environment?: { id?: string } } }) => {
-          envSeen.push(params.runContext?.environment?.id);
-          return { result: {} };
-        },
-      );
-      const mockCollectorRegistry = {
-        register: mock(() => {}),
-        getCollector: mock(() => ({
-          collector: {
-            id: "test-collector",
-            execute: collectorExecute,
-            config: new Versioned({ version: 1, schema: z.object({}) }),
-            mergeResult: mock(() => ({})),
-          },
-        })),
-        getCollectors: mock(() => []),
-      };
-
-      const queue =
-        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
-      let capturedHandler:
-        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
-        | undefined;
-      (queue.consume as any) = mock(
-        async (
-          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
-        ) => {
-          capturedHandler = handler;
+      const { runs: captured, runCompletedPayloads } = await runSingleEnvWithSignals(
+        {
+          payloadEnvironmentId: "prod",
+          environmentIds: null,
+          membership: [],
+          failCatalogResolution: true,
+          signalService: mockSignalService,
         },
       );
 
-      await setupHealthCheckWorker({
-        db: mockDb as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["db"],
-        advisoryLock: mockAdvisoryLock,
-        registry: mockRegistry,
-        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["collectorRegistry"],
-        logger: mockLogger,
-        queueManager: mockQueueManager,
-        signalService: mockSignalService,
-        catalogClient: mockCatalogClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["catalogClient"],
-        notificationClient: {
-          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
-        } as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["notificationClient"],
-        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["maintenanceClient"],
-        incidentClient: mockIncidentClient as unknown as Parameters<
-          typeof setupHealthCheckWorker
-        >[0]["incidentClient"],
-        getEmitHook: () => undefined,
-        cache: passthroughCache,
+      // Degraded to exactly one env-scoped run keeping its env id (empty fields).
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.environment).toEqual({
+        id: "prod",
+        name: "prod",
+        fields: {},
       });
+      expect(runCompletedPayloads).toHaveLength(1);
 
-      if (capturedHandler) {
-        await capturedHandler({
-          data: { configId: "config-1", systemId: "system-1" },
-        }).catch(() => {});
-      }
-
-      // Degraded to exactly one env-less run.
-      expect(envSeen).toEqual([undefined]);
-      // The observability signal was broadcast with the failure detail.
       const resolutionFailed = mockSignalService.getRecordedSignalsById(
         "healthcheck.environment.resolution_failed",
       );
@@ -1406,6 +1077,178 @@ describe("Queue-Based Health Check Executor", () => {
         (resolutionFailed[0]?.payload as { systemId?: string }).systemId,
       ).toBe("system-1");
     });
+
+    /**
+     * Same driver as `runSingleEnv` but with a caller-supplied signal service,
+     * so the resolution-failed test can assert on the recorded signals.
+     */
+    async function runSingleEnvWithSignals({
+      payloadEnvironmentId,
+      environmentIds,
+      membership,
+      failCatalogResolution = false,
+      signalService,
+    }: {
+      payloadEnvironmentId: string | null;
+      environmentIds: string[] | null;
+      membership: Array<{
+        id: string;
+        name: string;
+        metadata: Record<string, unknown> | null;
+      }>;
+      failCatalogResolution?: boolean;
+      signalService: ReturnType<typeof createMockSignalService>;
+    }): Promise<{
+      runs: Array<{ environment?: unknown; config?: unknown }>;
+      runCompletedPayloads: Array<Record<string, unknown>>;
+    }> {
+      const mockDb = createMockDb();
+      const mockRegistry = createMockRegistry();
+      const mockLogger = createMockLogger();
+      const mockQueueManager = createMockQueueManager();
+      const mockCatalogClient = createMockCatalogClient();
+      const mockMaintenanceClient = createMockMaintenanceClient();
+      const mockIncidentClient = createMockIncidentClient();
+
+      (mockCatalogClient.getSystem as any) = mock(async () => ({
+        id: "system-1",
+        name: "web-01",
+      }));
+      (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => {
+        if (failCatalogResolution) throw new Error("catalog unavailable");
+        return membership.map((m) => ({
+          ...m,
+          description: null,
+          systemIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }));
+      });
+
+      const defaultSelect = mockDb.select;
+      let selectCallCount = 0;
+      (mockDb.select as any) = mock((...args: unknown[]) => {
+        selectCallCount++;
+        if (selectCallCount === 2) {
+          return {
+            from: mock(() => ({
+              innerJoin: mock(() => ({
+                where: mock(() =>
+                  Promise.resolve([
+                    {
+                      configId: "config-1",
+                      configName: "Check",
+                      strategyId: "test-strategy",
+                      config: { timeout: 5000 },
+                      collectors: [
+                        {
+                          id: "col-1",
+                          collectorId: "test-collector",
+                          config: {},
+                        },
+                      ],
+                      interval: 45,
+                      enabled: true,
+                      paused: false,
+                      includeLocal: true,
+                      satelliteIds: [],
+                      environmentIds,
+                    },
+                  ]),
+                ),
+              })),
+            })),
+          };
+        }
+        return (defaultSelect as (...a: unknown[]) => unknown)(...args);
+      });
+
+      const captured: Array<{ environment?: unknown; config?: unknown }> = [];
+      const collectorExecute = mock(
+        async (params: {
+          runContext?: { environment?: unknown };
+          config?: unknown;
+        }) => {
+          captured.push({
+            environment: params.runContext?.environment,
+            config: params.config,
+          });
+          return { result: {} };
+        },
+      );
+      const mockCollectorRegistry = {
+        register: mock(() => {}),
+        getCollector: mock(() => ({
+          collector: {
+            id: "test-collector",
+            execute: collectorExecute,
+            config: new Versioned({ version: 1, schema: z.object({}) }),
+            mergeResult: mock(() => ({})),
+          },
+        })),
+        getCollectors: mock(() => []),
+      };
+
+      const queue =
+        mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+      let capturedHandler:
+        | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+        | undefined;
+      (queue.consume as any) = mock(
+        async (
+          handler: (job: { data: HealthCheckJobPayload }) => Promise<void>,
+        ) => {
+          capturedHandler = handler;
+        },
+      );
+
+      await setupHealthCheckWorker({
+        db: mockDb as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["db"],
+        advisoryLock: mockAdvisoryLock,
+        registry: mockRegistry,
+        collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["collectorRegistry"],
+        logger: mockLogger,
+        queueManager: mockQueueManager,
+        signalService,
+        catalogClient: mockCatalogClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["catalogClient"],
+        notificationClient: {
+          notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+        } as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["notificationClient"],
+        maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["maintenanceClient"],
+        incidentClient: mockIncidentClient as unknown as Parameters<
+          typeof setupHealthCheckWorker
+        >[0]["incidentClient"],
+        getEmitHook: () => undefined,
+        cache: passthroughCache,
+        slowCheckRuntime: null,
+      });
+
+      if (capturedHandler) {
+        await capturedHandler({
+          data: {
+            configId: "config-1",
+            systemId: "system-1",
+            environmentId: payloadEnvironmentId,
+          },
+        }).catch(() => {});
+      }
+
+      const runCompletedPayloads = signalService
+        .getRecordedSignalsById("healthcheck.run.completed")
+        .map((r) => z.record(z.string(), z.unknown()).parse(r.payload));
+
+      return { runs: captured, runCompletedPayloads };
+    }
   });
 });
 
@@ -1594,13 +1437,14 @@ describe("executeHealthCheckJob - structured assertion outcomes", () => {
       >[0]["incidentClient"],
       getEmitHook: () => undefined,
       cache: passthroughCache,
+      slowCheckRuntime: null,
     });
 
     if (capturedHandler) {
       // Downstream aggregation touches DB surfaces the lightweight mock
       // doesn't model; the run insert we assert on happens before that.
       await capturedHandler({
-        data: { configId: "config-1", systemId: "system-1" },
+        data: { configId: "config-1", systemId: "system-1", environmentId: null },
       }).catch(() => {});
     }
 
@@ -1639,5 +1483,214 @@ describe("executeHealthCheckJob - structured assertion outcomes", () => {
       passed: false,
       actual: "404",
     });
+  });
+});
+
+describe("executeHealthCheckJob - slow-check bulkhead wiring", () => {
+  function makeRuntime(lane: SuspectLane): SlowCheckRuntime {
+    return {
+      lane,
+      recentRunsLimit: 20,
+      classifierParams: {
+        consecutiveFailures: 3,
+        slowFraction: 0.8,
+        recoveryProbeEvery: 5,
+      },
+      safetyFactor: 1.5,
+      absoluteFloorMs: 1000,
+    };
+  }
+
+  const TIMEOUT = 5000;
+  const slowFail = () => ({
+    environment_id: null,
+    environmentId: null,
+    status: "unhealthy" as const,
+    latencyMs: TIMEOUT,
+    timestamp: new Date(),
+  });
+
+  /**
+   * Drive ONE env-less job with the slow-check bulkhead enabled and a
+   * configurable recent-run history + lane. Captures whether the collector
+   * executed and whether a durable run was inserted.
+   */
+  async function runWithBulkhead({
+    recentRuns,
+    slowCheckRuntime,
+  }: {
+    recentRuns: Array<{ environmentId: string | null; status: "healthy" | "unhealthy"; latencyMs: number | null; timestamp: Date }>;
+    slowCheckRuntime: SlowCheckRuntime;
+  }): Promise<{ collectorRan: boolean; runInserted: boolean }> {
+    const mockDb = createMockDb();
+    const mockRegistry = createMockRegistry();
+    const mockLogger = createMockLogger();
+    const mockQueueManager = createMockQueueManager();
+    const mockCatalogClient = createMockCatalogClient();
+    const mockMaintenanceClient = createMockMaintenanceClient();
+    const mockIncidentClient = createMockIncidentClient();
+    const mockSignalService = createMockSignalService();
+
+    (mockCatalogClient.getSystem as any) = mock(async () => ({ id: "system-1", name: "web-01" }));
+    (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => []);
+
+    // Select call order: #1 getSystemHealthStatus (rollup prev), #2 config,
+    // #3 fetchRecentRunsForSlice. Everything else falls through to default.
+    const defaultSelect = mockDb.select;
+    let selectCallCount = 0;
+    (mockDb.select as any) = mock((...args: unknown[]) => {
+      selectCallCount++;
+      if (selectCallCount === 2) {
+        return {
+          from: mock(() => ({
+            innerJoin: mock(() => ({
+              where: mock(() =>
+                Promise.resolve([
+                  {
+                    configId: "config-1",
+                    configName: "Check",
+                    strategyId: "test-strategy",
+                    config: { timeout: TIMEOUT },
+                    collectors: [
+                      { id: "col-1", collectorId: "test-collector", config: {} },
+                    ],
+                    interval: 45,
+                    enabled: true,
+                    paused: false,
+                    includeLocal: true,
+                    satelliteIds: [],
+                    environmentIds: null,
+                  },
+                ]),
+              ),
+            })),
+          })),
+        };
+      }
+      if (selectCallCount === 3) {
+        return {
+          from: mock(() => ({
+            where: mock(() => ({
+              orderBy: mock(() => ({
+                limit: mock(() => Promise.resolve(recentRuns)),
+              })),
+            })),
+          })),
+        };
+      }
+      return (defaultSelect as (...a: unknown[]) => unknown)(...args);
+    });
+
+    let runInserted = false;
+    (mockDb.insert as any) = mock(() => ({
+      values: mock((vals: Record<string, unknown>) => {
+        if (vals && "status" in vals) runInserted = true;
+        return Promise.resolve();
+      }),
+    }));
+
+    let collectorRan = false;
+    const collectorExecute = mock(async () => {
+      collectorRan = true;
+      return { result: {} };
+    });
+    const mockCollectorRegistry = {
+      register: mock(() => {}),
+      getCollector: mock(() => ({
+        collector: {
+          id: "test-collector",
+          execute: collectorExecute,
+          config: new Versioned({ version: 1, schema: z.object({}) }),
+          mergeResult: mock(() => ({})),
+        },
+      })),
+      getCollectors: mock(() => []),
+    };
+
+    const queue = mockQueueManager.getQueue<HealthCheckJobPayload>("health-checks");
+    let capturedHandler:
+      | ((job: { data: HealthCheckJobPayload }) => Promise<void>)
+      | undefined;
+    (queue.consume as any) = mock(
+      async (handler: (job: { data: HealthCheckJobPayload }) => Promise<void>) => {
+        capturedHandler = handler;
+      },
+    );
+
+    await setupHealthCheckWorker({
+      db: mockDb as unknown as Parameters<typeof setupHealthCheckWorker>[0]["db"],
+      advisoryLock: mockAdvisoryLock,
+      registry: mockRegistry,
+      collectorRegistry: mockCollectorRegistry as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["collectorRegistry"],
+      logger: mockLogger,
+      queueManager: mockQueueManager,
+      signalService: mockSignalService,
+      catalogClient: mockCatalogClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["catalogClient"],
+      notificationClient: {
+        notifyForSubscription: () => Promise.resolve({ notifiedCount: 0 }),
+      } as unknown as Parameters<typeof setupHealthCheckWorker>[0]["notificationClient"],
+      maintenanceClient: mockMaintenanceClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["maintenanceClient"],
+      incidentClient: mockIncidentClient as unknown as Parameters<
+        typeof setupHealthCheckWorker
+      >[0]["incidentClient"],
+      getEmitHook: () => undefined,
+      cache: passthroughCache,
+      slowCheckRuntime,
+    });
+
+    if (capturedHandler) {
+      await capturedHandler({
+        data: { configId: "config-1", systemId: "system-1", environmentId: null },
+      }).catch(() => {});
+    }
+
+    return { collectorRan, runInserted };
+  }
+
+  it("DEFERS a suspect slice when the lane is full — records nothing, never probes", async () => {
+    const lane = new SuspectLane(1);
+    lane.tryAdmit("other:slice:_"); // fill the only slot with a different slice
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [slowFail(), slowFail(), slowFail()],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    // Deferred BEFORE the probe: no collector execution, no durable run row.
+    expect(collectorRan).toBe(false);
+    expect(runInserted).toBe(false);
+  });
+
+  it("runs a suspect slice when the lane has room, and frees the slot after", async () => {
+    const lane = new SuspectLane(1);
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [slowFail(), slowFail(), slowFail()],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    expect(collectorRan).toBe(true);
+    expect(runInserted).toBe(true);
+    // The slot was released in the executor's finally.
+    expect(lane.active).toBe(0);
+  });
+
+  it("does NOT gate a healthy slice (no recent slow failures)", async () => {
+    const lane = new SuspectLane(1);
+    lane.tryAdmit("other:slice:_"); // lane full, but the slice is NOT suspect
+    const { collectorRan, runInserted } = await runWithBulkhead({
+      recentRuns: [
+        { environmentId: null, status: "healthy", latencyMs: 40, timestamp: new Date() },
+      ],
+      slowCheckRuntime: makeRuntime(lane),
+    });
+
+    // Healthy slices never touch the lane, so a full lane doesn't defer them.
+    expect(collectorRan).toBe(true);
+    expect(runInserted).toBe(true);
   });
 });

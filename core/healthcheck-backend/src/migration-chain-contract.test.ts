@@ -19,7 +19,10 @@ import { describe, expect, it } from "bun:test";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { Hook } from "@checkstack/backend-api";
 import { stateThresholds } from "./state-thresholds-migrations";
-import { createHealthCheckActions } from "./automations";
+import {
+  createHealthCheckActions,
+  type HealthCheckActionDeps,
+} from "./automations";
 import type { HealthCheckService } from "./service";
 
 // `createHealthCheckActions` only constructs the action definitions; the deps
@@ -27,6 +30,8 @@ import type { HealthCheckService } from "./service";
 // Stubs are sufficient.
 const stubService = {} as unknown as HealthCheckService;
 const stubQueueManager = {} as unknown as QueueManager;
+const stubCatalogClient =
+  {} as unknown as HealthCheckActionDeps["catalogClient"];
 const stubEmitHook = async <T>(_hook: Hook<T>, _payload: T): Promise<void> => {};
 
 describe("healthcheck config migration-chain contract", () => {
@@ -42,6 +47,7 @@ describe("healthcheck config migration-chain contract", () => {
     const actions = createHealthCheckActions({
       service: stubService,
       queueManager: stubQueueManager,
+      catalogClient: stubCatalogClient,
       emitHook: stubEmitHook,
     });
     expect(actions.length).toBeGreaterThan(0);

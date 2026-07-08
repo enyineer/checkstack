@@ -706,4 +706,56 @@ describe("InMemoryQueue Consumer Groups", () => {
       expect(lastPage.hasMore).toBe(false);
     });
   });
+
+  describe("backlog accounting under saturation", () => {
+    it("counts jobs waiting for a concurrency slot as pending (not lost)", async () => {
+      const q = new InMemoryQueue<string>(
+        "saturation",
+        {
+          concurrency: 1,
+          maxQueueSize: 100,
+          delayMultiplier: 1,
+          heartbeatIntervalMs: 0,
+        },
+        testLogger,
+      );
+
+      // A gate that keeps the single slot occupied until we release it, so we
+      // can observe jobs queued behind it.
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      await q.consume(
+        async () => {
+          await gate;
+        },
+        { consumerGroup: "g", maxRetries: 0 },
+      );
+
+      // Three jobs against a single slot: one runs, two wait for the slot.
+      await q.enqueue("a");
+      await q.enqueue("b");
+      await q.enqueue("c");
+
+      // Let processNext/processJob run to the point where the two extra jobs are
+      // blocked on semaphore.acquire().
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+
+      const stats = await q.getStats();
+      expect(stats.processing).toBe(1);
+      // The two slot-waiters MUST show as pending. Before the fix they were
+      // removed from `jobs` before acquiring a slot, so this read 0 - hiding the
+      // real backlog exactly when saturation makes it matter.
+      expect(stats.pending).toBe(2);
+
+      // Releasing the slot drains everything.
+      release();
+      for (let i = 0; i < 60; i++) await Promise.resolve();
+      const drained = await q.getStats();
+      expect(drained.pending).toBe(0);
+
+      await q.stop();
+    });
+  });
 });

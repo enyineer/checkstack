@@ -16,6 +16,7 @@
     "@checkstack/queue-api": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
     "@checkstack/template-engine": "workspace:*",
+    "@opentelemetry/api": "^1.9.1",
     "@orpc/client": "^1.14.4",
     "@orpc/contract": "^1.14.4",
     "@orpc/openapi": "^1.14.4",

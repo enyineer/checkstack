@@ -1,4 +1,8 @@
-import { SafeDatabase } from "@checkstack/backend-api";
+import {
+  SafeDatabase,
+  dbTransactionsCounter,
+  dbQueriesCounter,
+} from "@checkstack/backend-api";
 import { sql, entityKind, type SQL } from "drizzle-orm";
 
 /**
@@ -203,6 +207,18 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
 ): ScopedDatabase<TSchema> {
   const wrappedDb = baseDb as SafeDatabase<TSchema>;
 
+  // Metrics (OTel no-ops unless enabled): every scoped operation opens ONE
+  // transaction (BEGIN + SET LOCAL + COMMIT). `recordScopedQuery` additionally
+  // marks a STANDALONE query (one that paid for its own transaction), so
+  // `transactions - queries` approximates the batched (`withScopedTransaction`)
+  // transactions. `schema` attributes both per plugin.
+  const recordScopedTx = () =>
+    dbTransactionsCounter().add(1, { schema: schemaName });
+  const recordScopedQuery = () => {
+    recordScopedTx();
+    dbQueriesCounter().add(1, { schema: schemaName });
+  };
+
   /**
    * WeakMap to track query chains for each builder instance.
    *
@@ -287,6 +303,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
             }
 
             // Execute the query inside a transaction with search_path set
+            recordScopedQuery();
             const promise = baseDb.transaction(async (tx) => {
               // Set the schema search_path for this transaction
               // SET LOCAL ensures it only affects this transaction
@@ -334,6 +351,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
               );
             }
 
+            recordScopedQuery();
             return baseDb.transaction(async (tx) => {
               await tx.execute(
                 setSearchPathSql(schemaName),
@@ -446,6 +464,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
         return async <T>(
           callback: (tx: ScopedDatabase<TSchema>) => Promise<T>,
         ): Promise<T> => {
+          recordScopedTx();
           return target.transaction(async (tx) => {
             // Set search_path once at transaction start
             await tx.execute(
@@ -464,6 +483,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
        */
       if (prop === "execute" && typeof value === "function") {
         return async (...args: unknown[]) => {
+          recordScopedQuery();
           return target.transaction(async (tx) => {
             await tx.execute(
               setSearchPathSql(schemaName),
@@ -486,6 +506,7 @@ export function createScopedDb<TSchema extends Record<string, unknown>>(
        */
       if (prop === "$count" && typeof value === "function") {
         return async (...args: unknown[]) => {
+          recordScopedQuery();
           return target.transaction(async (tx) => {
             await tx.execute(
               setSearchPathSql(schemaName),
