@@ -19,9 +19,15 @@ import {
   DependencyApi,
   dependencyAccess,
   type Dependency,
+  type ImpactType,
 } from "@checkstack/dependency-common";
-import { cn, LoadingSpinner } from "@checkstack/ui";
-import { ArrowUpRight, ArrowDownLeft, Network } from "lucide-react";
+import { cn, LoadingSpinner, Tooltip } from "@checkstack/ui";
+import { ArrowUpRight, ArrowDownLeft, Info, Network, Zap } from "lucide-react";
+import {
+  presentDependencyImpact,
+  type DependencyDirection,
+  type ImpactTone,
+} from "../utils/impact.logic";
 
 const PANEL_SHADOW =
   "shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)]";
@@ -52,29 +58,57 @@ function healthDotClass(status: string | undefined): string {
   }
 }
 
-/** Compact impact chip mirroring the edge editor's severity vocabulary. */
-function ImpactChip({ impactType }: { impactType: string }): React.ReactNode {
-  if (impactType === "critical") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-status-down/10 px-2 py-0.5 text-[11px] font-medium text-status-down">
-        <span className="size-1.5 rounded-full bg-status-down" />
-        Critical
-      </span>
-    );
-  }
-  if (impactType === "degraded") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
-        <span className="size-1.5 rounded-full bg-status-warn" />
-        Degraded
-      </span>
-    );
-  }
+/**
+ * Per-tone chip classes. Deliberately NEUTRAL - impact is a static edge
+ * attribute, not a live status, so it never uses the status (red/amber) palette
+ * that would read as "impacted right now". Severity is ranked by emphasis
+ * (foreground vs muted) and by the label, while the row's health dot remains the
+ * only colour-coded live signal.
+ */
+const impactToneClass: Record<ImpactTone, string> = {
+  critical: "border-border bg-surface-inset text-foreground",
+  degraded: "border-border/70 bg-surface-inset text-muted-foreground",
+  informational: "border-border/60 bg-surface-inset text-muted-foreground",
+};
+
+/**
+ * Impact chip for a dependency edge. Describes what the edge DOES to the system
+ * ("Critical impact") rather than a live status: a neutral chip (no status
+ * colour) with an impact icon (not a status dot) and a direction-aware tooltip
+ * spelling out the exact consequence, so it can't be misread as the neighbour
+ * being down right now.
+ */
+function ImpactChip({
+  impactType,
+  direction,
+  systemName,
+  neighbourName,
+}: {
+  impactType: ImpactType;
+  direction: DependencyDirection;
+  systemName: string;
+  neighbourName: string;
+}): React.ReactNode {
+  const { label, description, tone } = presentDependencyImpact({
+    impactType,
+    direction,
+    systemName,
+    neighbourName,
+  });
+  const Icon = tone === "informational" ? Info : Zap;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-      <span className="size-1.5 rounded-full bg-muted-foreground/60" />
-      Info
-    </span>
+    <Tooltip content={description}>
+      <span
+        tabIndex={0}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          impactToneClass[tone],
+        )}
+      >
+        <Icon className="size-3" aria-hidden />
+        {label}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -89,10 +123,14 @@ function scopeSummary(dependency: Dependency): string {
 function DependencyRow({
   row,
   name,
+  systemName,
+  direction,
   healthStatus,
 }: {
   row: NeighbourRow;
   name: string;
+  systemName: string;
+  direction: DependencyDirection;
   healthStatus: string | undefined;
 }): React.ReactNode {
   return (
@@ -114,7 +152,12 @@ function DependencyRow({
           {scopeSummary(row.dependency)}
         </span>
       </div>
-      <ImpactChip impactType={row.dependency.impactType} />
+      <ImpactChip
+        impactType={row.dependency.impactType}
+        direction={direction}
+        systemName={systemName}
+        neighbourName={name}
+      />
     </div>
   );
 }
@@ -223,6 +266,8 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
                 key={row.dependency.id}
                 row={row}
                 name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
+                systemName={system.name}
+                direction="depends-on"
                 healthStatus={healthStatuses[row.systemId]?.status}
               />
             ))}
@@ -242,6 +287,8 @@ export const SystemDependenciesPanel: React.FC<Props> = ({ system }) => {
                 key={row.dependency.id}
                 row={row}
                 name={nameMap.get(row.systemId) ?? row.systemId.slice(0, 8)}
+                systemName={system.name}
+                direction="depended-on-by"
                 healthStatus={healthStatuses[row.systemId]?.status}
               />
             ))}
