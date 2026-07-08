@@ -1,6 +1,7 @@
 ---
 "@checkstack/healthcheck-backend": minor
 "@checkstack/backend-api": patch
+"@checkstack/test-utils-backend": patch
 ---
 
 Rework health-check scheduling to one recurring job per
@@ -40,6 +41,10 @@ timeout, 35s): with the bulkhead off the queue backlog climbs unbounded to 774
 while 60 slow checks pin slots; with it on the backlog stays bounded (drains to
 0), completions roughly triple (288 → 862), and slot-pinning timeouts drop
 (60 → 12) as 207 suspect runs are deferred.
+
+`@checkstack/test-utils-backend` gains a `withTransactionMock` helper that adds a
+`.transaction(cb)` passthrough to a mock database, so tests can exercise code
+that batches reads/writes through `withScopedTransaction`.
 
 BREAKING CHANGE: the internal `HealthCheckJobPayload` now requires an
 `environmentId` field and recurring health-check job IDs are per-environment
