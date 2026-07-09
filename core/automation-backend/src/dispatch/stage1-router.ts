@@ -91,25 +91,39 @@ export async function routeEntityChange(args: {
   }
 
   // (b) Fresh-run triggers — derive the qualified trigger event id(s).
+  //
+  // Load the enabled automations ONCE (a single SELECT) and match every
+  // derived event id against them in memory, instead of issuing one
+  // full-table scan of `automations` per derived event id — an N-scans-per-
+  // change N+1 that made Stage-1 routing a top ongoing DB consumer. Matching
+  // in memory preserves the exact fan-out order (outer loop over `eventIds`,
+  // inner loop over automations in DB row order, identical to before). Skipped
+  // entirely when nothing derived, so a change that routes no fresh runs still
+  // issues zero automation queries (the Phase-5 production default).
   const eventIds = changeDerivers.derive(changed);
-  for (const eventId of eventIds) {
-    const automations = await automationStore.findEnabledByTriggerEvent(eventId);
-    for (const automation of automations) {
-      const job: DispatchJob = {
-        reason: "trigger",
-        automationId: automation.id,
-        triggerId: eventId,
-        ref,
-        changed,
-      };
-      await queue.enqueue(job, {
-        // Dedup REDELIVERIES of one change (stable `changeId`) but distinguish
-        // two DISTINCT changes to the same entity — even within one
-        // millisecond, where `occurredAt` collides (§13.2). Fall back to
-        // `occurredAt` only for legacy payloads emitted before `changeId`.
-        jobId: `trigger:${automation.id}:${eventId}:${ref}:${changed.changeId ?? changed.occurredAt}`,
-      });
-      enqueued.push(job);
+  if (eventIds.length > 0) {
+    const enabled = await automationStore.listEnabled();
+    for (const eventId of eventIds) {
+      const automations = enabled.filter((a) =>
+        a.definition.triggers.some((t) => t.event === eventId),
+      );
+      for (const automation of automations) {
+        const job: DispatchJob = {
+          reason: "trigger",
+          automationId: automation.id,
+          triggerId: eventId,
+          ref,
+          changed,
+        };
+        await queue.enqueue(job, {
+          // Dedup REDELIVERIES of one change (stable `changeId`) but distinguish
+          // two DISTINCT changes to the same entity — even within one
+          // millisecond, where `occurredAt` collides (§13.2). Fall back to
+          // `occurredAt` only for legacy payloads emitted before `changeId`.
+          jobId: `trigger:${automation.id}:${eventId}:${ref}:${changed.changeId ?? changed.occurredAt}`,
+        });
+        enqueued.push(job);
+      }
     }
   }
 

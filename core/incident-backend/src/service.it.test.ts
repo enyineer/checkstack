@@ -73,6 +73,7 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
           incident_id text NOT NULL,
           label text,
           url text NOT NULL,
+          visibility text NOT NULL DEFAULT 'public',
           created_at timestamp NOT NULL DEFAULT now()
         )`,
       );
@@ -125,6 +126,62 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
       expect(await linkExists("lnk-1")).toBe(false);
       // The other incident's link is untouched.
       expect(await linkExists("lnk-2")).toBe(true);
+    });
+
+    it("updateLink edits the link when the pair matches", async () => {
+      await insertLink({ id: "lnk-1", incidentId: "inc-1", url: "https://a" });
+
+      const updated = await service.updateLink({
+        id: "lnk-1",
+        incidentId: "inc-1",
+        label: "Runbook",
+        url: "https://b",
+        visibility: "internal",
+      });
+      expect(updated?.label).toBe("Runbook");
+      expect(updated?.url).toBe("https://b");
+      expect(updated?.visibility).toBe("internal");
+
+      const res = await pool.query(
+        `SELECT url, label, visibility FROM "${SCHEMA}".incident_links WHERE id = $1`,
+        ["lnk-1"],
+      );
+      expect(res.rows[0]).toEqual({
+        url: "https://b",
+        label: "Runbook",
+        visibility: "internal",
+      });
+    });
+
+    it("updateLink edits nothing and returns undefined when the incidentId does not own the link", async () => {
+      await insertLink({ id: "lnk-1", incidentId: "inc-1", url: "https://a" });
+
+      // Link belongs to inc-1; the caller is authorized against inc-2. The
+      // spoofed pair must NOT edit.
+      expect(
+        await service.updateLink({
+          id: "lnk-1",
+          incidentId: "inc-2",
+          url: "https://evil",
+        }),
+      ).toBeUndefined();
+
+      const res = await pool.query(
+        `SELECT url FROM "${SCHEMA}".incident_links WHERE id = $1`,
+        ["lnk-1"],
+      );
+      // The link is untouched.
+      expect(res.rows[0].url).toBe("https://a");
+    });
+
+    it("updateLink returns undefined for a link id that does not exist", async () => {
+      expect(
+        await service.updateLink({
+          id: "missing",
+          incidentId: "inc-1",
+          url: "https://x",
+        }),
+      ).toBeUndefined();
     });
   },
 );

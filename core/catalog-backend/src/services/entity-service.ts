@@ -1,7 +1,12 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import * as schema from "../schema";
-import { SafeDatabase } from "@checkstack/backend-api";
+import {
+  SafeDatabase,
+  withScopedTransaction,
+  type ScopedQueryRunner,
+} from "@checkstack/backend-api";
 import { v4 as uuidv4 } from "uuid";
+import { diffSystemEnvironments } from "./environment-membership";
 
 /** Reactive subset of a catalog system (the `catalog-system` entity state). */
 type CatalogSystemEntityState = {
@@ -222,6 +227,44 @@ export class EntityService {
     return result[0];
   }
 
+  // Edit a link in place, scoped by BOTH the link id and its parent systemId
+  // (anti-spoof, same reasoning as removeLink): a manager of one system cannot
+  // edit another system's link by passing a foreign link id. Only the provided
+  // fields change; returns the updated row, or undefined when nothing matched
+  // both predicates.
+  async updateLink({
+    linkId,
+    systemId,
+    label,
+    url,
+  }: {
+    linkId: string;
+    systemId: string;
+    label?: string;
+    url?: string;
+  }) {
+    const scope = and(
+      eq(schema.systemLinks.id, linkId),
+      eq(schema.systemLinks.systemId, systemId),
+    );
+    const updateData: Partial<typeof schema.systemLinks.$inferInsert> = {};
+    if (label !== undefined) updateData.label = label;
+    if (url !== undefined) updateData.url = url;
+    if (Object.keys(updateData).length === 0) {
+      const [existing] = await this.database
+        .select()
+        .from(schema.systemLinks)
+        .where(scope);
+      return existing;
+    }
+    const result = await this.database
+      .update(schema.systemLinks)
+      .set(updateData)
+      .where(scope)
+      .returning();
+    return result[0];
+  }
+
   // Scoped by BOTH the link id and its parent systemId so a manager of one
   // system cannot delete another system's link by passing a foreign link id
   // (the instanceAccess check only proves manage on `systemId`). Returns the
@@ -240,14 +283,23 @@ export class EntityService {
   }
 
   // Groups
-  async getGroups() {
-    // Fetch all groups
-    const allGroups = await this.database.select().from(schema.groups);
+
+  /**
+   * Read all groups (persisted browse order) plus their system memberships and
+   * join them in-memory. Threaded onto a `runner` (the scoped db OR a
+   * transaction handle) so it composes inside a batching transaction — e.g.
+   * `getEntitiesTopology` reads systems on the SAME `tx`.
+   */
+  private async readGroupsPopulated(runner: ScopedQueryRunner<typeof schema>) {
+    // Fetch all groups in persisted browse order (sortOrder asc). A stable
+    // tiebreak on createdAt keeps equal sortOrder deterministic.
+    const allGroups = await runner
+      .select()
+      .from(schema.groups)
+      .orderBy(schema.groups.sortOrder, schema.groups.createdAt);
 
     // Fetch all system-group associations
-    const associations = await this.database
-      .select()
-      .from(schema.systemsGroups);
+    const associations = await runner.select().from(schema.systemsGroups);
 
     // Build a map of groupId -> systemIds[]
     const groupSystemsMap = new Map<string, string[]>();
@@ -264,6 +316,31 @@ export class EntityService {
     }));
   }
 
+  async getGroups() {
+    // Batch the 2 reads (groups + all memberships) into ONE scoped transaction
+    // so the fan-out pays a single BEGIN/SET LOCAL/COMMIT and holds one
+    // connection instead of 2 standalone scoped queries. See
+    // withScopedTransaction.
+    return withScopedTransaction(this.database, (tx) =>
+      this.readGroupsPopulated(tx),
+    );
+  }
+
+  /**
+   * Batched topology read for `getEntities`: systems + groups (with their
+   * system memberships) under ONE scoped transaction, so the whole read pays a
+   * single BEGIN/SET LOCAL/COMMIT instead of the 3 standalone scoped queries
+   * `getSystems()` + `getGroups()` would issue back-to-back. Output shape is
+   * identical to `{ systems: getSystems(), groups: getGroups() }`.
+   */
+  async getEntitiesTopology() {
+    return withScopedTransaction(this.database, async (tx) => {
+      const systems = await tx.select().from(schema.systems);
+      const groups = await this.readGroupsPopulated(tx);
+      return { systems, groups };
+    });
+  }
+
   /**
    * Create a group.
    *
@@ -273,11 +350,45 @@ export class EntityService {
    * fresh id is generated. The id is server-owned either way.
    */
   async createGroup(data: NewGroup, id: string = uuidv4()) {
-    const result = await this.database
-      .insert(schema.groups)
-      .values({ id, ...data })
-      .returning();
-    return result[0];
+    // Append new groups after the current maximum so a fresh group lands at the
+    // end of the persisted browse order rather than colliding on the default 0.
+    //
+    // Wrapping the max(sortOrder) read and the insert in ONE scoped transaction
+    // both collapses the two standalone scoped queries into a single
+    // BEGIN/SET LOCAL/COMMIT AND tightens the read-then-insert race: the max
+    // read and the insert now run back-to-back on one connection inside one
+    // transaction with no await interleaving between them, instead of two
+    // separate auto-committed statements a concurrent create could slot into.
+    return withScopedTransaction(this.database, async (tx) => {
+      const [{ maxOrder } = { maxOrder: null }] = await tx
+        .select({
+          maxOrder: sql<number | null>`max(${schema.groups.sortOrder})`,
+        })
+        .from(schema.groups);
+      const nextSortOrder = (maxOrder ?? -1) + 1;
+      const result = await tx
+        .insert(schema.groups)
+        .values({ id, sortOrder: nextSortOrder, ...data })
+        .returning();
+      return result[0];
+    });
+  }
+
+  /**
+   * Persist a new browse order for groups. Each id in `orderedIds` is assigned
+   * a `sortOrder` equal to its position in the array. Ids not present are left
+   * untouched. Runs in a single transaction so the reorder is atomic.
+   */
+  async reorderGroups(orderedIds: string[]) {
+    if (orderedIds.length === 0) return;
+    await this.database.transaction(async (tx) => {
+      for (const [index, id] of orderedIds.entries()) {
+        await tx
+          .update(schema.groups)
+          .set({ sortOrder: index, updatedAt: new Date() })
+          .where(eq(schema.groups.id, id));
+      }
+    });
   }
 
   async updateGroup(id: string, data: Partial<NewGroup>) {
@@ -354,57 +465,67 @@ export class EntityService {
 
   // Environments — instance-wide catalog primitive (M:N with systems)
   async getEnvironments() {
-    const allEnvironments = await this.database
-      .select()
-      .from(schema.environments);
+    // Batch the 2 reads (environments + all memberships) into ONE scoped
+    // transaction — a single BEGIN/SET LOCAL/COMMIT for the fan-out.
+    return withScopedTransaction(this.database, async (tx) => {
+      const allEnvironments = await tx.select().from(schema.environments);
 
-    const associations = await this.database
-      .select()
-      .from(schema.systemsEnvironments);
+      const associations = await tx
+        .select()
+        .from(schema.systemsEnvironments);
 
-    const envSystemsMap = new Map<string, string[]>();
-    for (const assoc of associations) {
-      const existing = envSystemsMap.get(assoc.environmentId) ?? [];
-      existing.push(assoc.systemId);
-      envSystemsMap.set(assoc.environmentId, existing);
-    }
+      const envSystemsMap = new Map<string, string[]>();
+      for (const assoc of associations) {
+        const existing = envSystemsMap.get(assoc.environmentId) ?? [];
+        existing.push(assoc.systemId);
+        envSystemsMap.set(assoc.environmentId, existing);
+      }
 
-    return allEnvironments.map((environment) => ({
-      ...environment,
-      systemIds: envSystemsMap.get(environment.id) ?? [],
-    }));
+      return allEnvironments.map((environment) => ({
+        ...environment,
+        systemIds: envSystemsMap.get(environment.id) ?? [],
+      }));
+    });
   }
 
   async getEnvironment(id: string) {
-    const rows = await this.database
-      .select()
-      .from(schema.environments)
-      .where(eq(schema.environments.id, id));
-    const environment = rows[0];
-    if (!environment) return;
-    const associations = await this.database
-      .select()
-      .from(schema.systemsEnvironments)
-      .where(eq(schema.systemsEnvironments.environmentId, id));
-    return {
-      ...environment,
-      systemIds: associations.map((a) => a.systemId),
-    };
+    // Batch the environment read + its membership read into ONE scoped
+    // transaction (single BEGIN/SET LOCAL/COMMIT).
+    return withScopedTransaction(this.database, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.environments)
+        .where(eq(schema.environments.id, id));
+      const environment = rows[0];
+      if (!environment) return;
+      const associations = await tx
+        .select()
+        .from(schema.systemsEnvironments)
+        .where(eq(schema.systemsEnvironments.environmentId, id));
+      return {
+        ...environment,
+        systemIds: associations.map((a) => a.systemId),
+      };
+    });
   }
 
   /**
-   * Resolve a set of environment ids to their full records (with systemIds).
-   * Unknown ids are silently dropped. Used by the cross-plugin
-   * `resolveEnvironments` read for the explicit-subset fan-out case.
+   * Read environment records for `ids` (with systemIds), joining memberships
+   * in-memory. Threaded onto a `runner` so it composes inside a batching
+   * transaction — `getEnvironmentsByIds` and `getEnvironmentsForSystemPopulated`
+   * both run it on their own `tx`.
    */
-  async getEnvironmentsByIds(ids: ReadonlyArray<string>) {
+  private async readEnvironmentsByIds(
+    runner: ScopedQueryRunner<typeof schema>,
+    ids: ReadonlyArray<string>,
+  ) {
     if (ids.length === 0) return [];
-    const rows = await this.database
+    const rows = await runner
       .select()
       .from(schema.environments)
       .where(inArray(schema.environments.id, [...ids]));
     if (rows.length === 0) return [];
-    const associations = await this.database
+    const associations = await runner
       .select()
       .from(schema.systemsEnvironments)
       .where(inArray(schema.systemsEnvironments.environmentId, [...ids]));
@@ -418,6 +539,39 @@ export class EntityService {
       ...environment,
       systemIds: envSystemsMap.get(environment.id) ?? [],
     }));
+  }
+
+  /**
+   * Resolve a set of environment ids to their full records (with systemIds).
+   * Unknown ids are silently dropped. Used by the cross-plugin
+   * `resolveEnvironments` read for the explicit-subset fan-out case. The 2
+   * reads run under ONE scoped transaction.
+   */
+  async getEnvironmentsByIds(ids: ReadonlyArray<string>) {
+    if (ids.length === 0) return [];
+    return withScopedTransaction(this.database, (tx) =>
+      this.readEnvironmentsByIds(tx, ids),
+    );
+  }
+
+  /**
+   * Resolve a system's environments (full records with systemIds) under ONE
+   * scoped transaction: read the system's memberships, then the environment
+   * records for those ids. Collapses two standalone scoped reads into a single
+   * BEGIN/SET LOCAL/COMMIT. Output is identical to
+   * `getEnvironmentsByIds(getEnvironmentsForSystem(systemId).map(...))`.
+   */
+  async getEnvironmentsForSystemPopulated(systemId: string) {
+    return withScopedTransaction(this.database, async (tx) => {
+      const memberships = await tx
+        .select()
+        .from(schema.systemsEnvironments)
+        .where(eq(schema.systemsEnvironments.systemId, systemId));
+      return this.readEnvironmentsByIds(
+        tx,
+        memberships.map((m) => m.environmentId),
+      );
+    });
   }
 
   async createEnvironment(data: NewEnvironment, id: string = uuidv4()) {
@@ -481,6 +635,47 @@ export class EntityService {
           eq(schema.systemsEnvironments.systemId, systemId),
         ),
       );
+  }
+
+  /**
+   * Replace a system's environment memberships so it belongs to EXACTLY
+   * `environmentIds`. Reads the current memberships, diffs against the desired
+   * set, then applies the N adds + M removes — all inside ONE scoped
+   * transaction. This both collapses the read + N·M writes into a single
+   * BEGIN/SET LOCAL/COMMIT and makes the swap atomic: no partial membership
+   * state (some rows added, others not yet removed) is ever observable.
+   */
+  async setSystemEnvironments(props: {
+    systemId: string;
+    environmentIds: ReadonlyArray<string>;
+  }) {
+    const { systemId, environmentIds } = props;
+    await withScopedTransaction(this.database, async (tx) => {
+      const current = await tx
+        .select()
+        .from(schema.systemsEnvironments)
+        .where(eq(schema.systemsEnvironments.systemId, systemId));
+      const { toAdd, toRemove } = diffSystemEnvironments({
+        current: current.map((row) => row.environmentId),
+        desired: [...environmentIds],
+      });
+      for (const environmentId of toAdd) {
+        await tx
+          .insert(schema.systemsEnvironments)
+          .values({ environmentId, systemId })
+          .onConflictDoNothing();
+      }
+      for (const environmentId of toRemove) {
+        await tx
+          .delete(schema.systemsEnvironments)
+          .where(
+            and(
+              eq(schema.systemsEnvironments.environmentId, environmentId),
+              eq(schema.systemsEnvironments.systemId, systemId),
+            ),
+          );
+      }
+    });
   }
 
   // Views

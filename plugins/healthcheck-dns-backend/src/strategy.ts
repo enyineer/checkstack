@@ -9,6 +9,7 @@ import {
   mergeAverage,
   mergeCounter,
   z,
+  configString,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -37,7 +38,15 @@ import { extractErrorMessage } from "@checkstack/common";
  * Resolver configuration only - action params moved to LookupCollector.
  */
 export const dnsConfigSchema = baseStrategyConfigSchema.extend({
-  nameserver: z.string().optional().describe("Custom nameserver (optional)"),
+  // Templatable: supports `{{ environment.nameserver }}` so one config covers N
+  // environments. Optional - an empty render (no nameserver for this
+  // environment) falls back to the system default resolver, so no post-render
+  // presence guard is needed.
+  nameserver: configString({ "x-templatable": true })
+    .optional()
+    .describe(
+      "Custom nameserver (optional). Supports templating, e.g. {{ environment.nameserver }}",
+    ),
 });
 
 export type DnsConfig = z.infer<typeof dnsConfigSchema>;

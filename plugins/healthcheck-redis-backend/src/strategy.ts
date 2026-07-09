@@ -44,7 +44,12 @@ import { extractErrorMessage } from "@checkstack/common";
  * Configuration schema for Redis health checks.
  */
 export const redisConfigSchema = baseStrategyConfigSchema.extend({
-  host: configString({}).describe("Redis server hostname"),
+  // Templatable connection field: supports `{{ environment.host }}` etc. so one
+  // config covers N environments. Presence is enforced POST-RENDER in
+  // `createClient`. `password` stays a secret (never templatable).
+  host: configString({ "x-templatable": true }).describe(
+    "Redis server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: configNumber({})
     .int()
     .min(1)
@@ -64,6 +69,15 @@ export const redisConfigSchema = baseStrategyConfigSchema.extend({
 
 export type RedisConfig = z.infer<typeof redisConfigSchema>;
 export type RedisConfigInput = z.input<typeof redisConfigSchema>;
+
+/**
+ * Post-render validator for the required `host`. The stored value is a plain
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace. An empty host is a config error that prevents
+ * the probe - transport-failure semantics.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -292,9 +306,21 @@ export class RedisHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RedisTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: `host` is a templatable string, so its presence cannot
+    // be checked at store time. The executor has already rendered
+    // `{{ environment.* }}`; reject a render that collapsed to empty so the run
+    // fails clearly instead of attempting an empty connection.
+    const host = renderedRequiredSchema.safeParse(validatedConfig.host);
+    if (!host.success) {
+      throw new Error(
+        `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     const connectStart = performance.now();
     const connection = await this.redisClient.connect({
-      host: validatedConfig.host,
+      host: host.data,
       port: validatedConfig.port,
       password: validatedConfig.password,
       db: validatedConfig.database,

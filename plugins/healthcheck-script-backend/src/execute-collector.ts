@@ -134,16 +134,26 @@ function shellQuote(arg: string): string {
 // ============================================================================
 
 const executeConfigSchemaV2 = z.object({
+  // Deliberately NOT `x-templatable`: rendering `{{ environment.* }}` into the
+  // shell source would splice env-field values into executed code (a shell
+  // injection surface). Per-environment data reaches the script safely via the
+  // reserved `CHECKSTACK_ENV_*` env vars (see `runContextEnv`), which are
+  // exposed as shell variables, not interpolated into the source.
   script: configString({
     "x-editor-types": ["shell"],
     "x-script-testable": true,
   }).describe(
     "Shell script source. Executed via `sh -c`, so pipes, redirects, `if`/`for`/`while`, variable expansion, command substitution etc. all work. Exit non-zero to fail the check.",
   ),
-  cwd: z
-    .string()
+  // Templatable: a per-environment working directory (e.g.
+  // `{{ environment.workdir }}`) so one check config fans out across N
+  // environments. This is a plain path VALUE substitution - unlike the `script`
+  // body (see below), rendering it cannot inject executable shell code.
+  cwd: configString({ "x-templatable": true })
     .optional()
-    .describe("Working directory for the script (defaults to the satellite's CWD)"),
+    .describe(
+      "Working directory for the script (defaults to the satellite's CWD). Supports templating, e.g. {{ environment.workdir }}",
+    ),
   env: z
     .record(z.string(), z.string())
     .optional()

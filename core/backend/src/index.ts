@@ -22,6 +22,7 @@ import {
   normalizeHost,
 } from "./public-host/registry";
 import { createHostRoutingMiddleware } from "./public-host/middleware";
+import { createCorsOriginResolver } from "./public-host/cors";
 import { injectBootstrap } from "./bootstrap-html";
 import { plugins } from "./schema";
 import { eq, and } from "drizzle-orm";
@@ -147,6 +148,11 @@ async function matchPublicHost(c: Context): Promise<PublicHostMatch | null> {
   return publicHostRegistry.resolve(host);
 }
 
+/** A proxy may send a comma-list in x-forwarded-*; take the first hop. */
+function firstForwardedHop(v: string | undefined): string | undefined {
+  return v?.split(",")[0]?.trim();
+}
+
 /**
  * The origin a request actually arrived on (honoring the edge's forwarding
  * headers). On a public host this is the custom domain itself — the public
@@ -154,9 +160,18 @@ async function matchPublicHost(c: Context): Promise<PublicHostMatch | null> {
  * origin, never the admin origin.
  */
 function requestOrigin(c: Context): string {
-  const proto = c.req.header("x-forwarded-proto") ?? "https";
-  const host =
-    c.req.header("x-forwarded-host") ?? c.req.header("host") ?? "";
+  const proto = (firstForwardedHop(c.req.header("x-forwarded-proto")) ?? "https").toLowerCase();
+  const rawHost =
+    firstForwardedHop(c.req.header("x-forwarded-host")) ??
+    c.req.header("host") ??
+    "";
+  // Normalize away a REDUNDANT default port so the derived origin is stable
+  // across proxy variance (`:443` on https / `:80` on http would otherwise make
+  // the bundle's baseUrl differ from the browser origin and re-fire the probe).
+  const [hostname, port] = rawHost.split(":");
+  const redundantPort =
+    (proto === "https" && port === "443") || (proto === "http" && port === "80");
+  const host = redundantPort ? (hostname ?? "") : rawHost;
   return `${proto}://${host}`;
 }
 
@@ -200,10 +215,26 @@ if (!process.env.BASE_URL || corsOrigin.includes("localhost")) {
   corsOrigins.push("http://localhost:5173");
 }
 
+/**
+ * Bounded dynamic CORS origin check. Admits the static allow-list (admin
+ * BASE_URL + the Vite dev origin) AND any resolved/configured custom-domain
+ * public host, so a request whose Origin is a status-page custom domain is not
+ * rejected. The host is attacker-controlled, so resolution stays bounded via the
+ * registry's cached, size-capped lookup (never an unbounded per-Origin DB hit),
+ * and an unresolved Origin is denied. Non-CORS (same-origin) requests carry no
+ * Origin and are unaffected. The decision itself lives in `./public-host/cors`
+ * so it is unit-testable and cannot drift from the e2e assertions.
+ */
+const resolveCorsOrigin = createCorsOriginResolver({
+  staticOrigins: corsOrigins,
+  primaryHost,
+  registry: publicHostRegistry,
+});
+
 app.use(
   "*",
   cors({
-    origin: corsOrigins,
+    origin: (origin) => resolveCorsOrigin(origin),
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],

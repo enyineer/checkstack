@@ -23,6 +23,7 @@ import {
   useInitOnceForKey,
   useUnsavedChanges,
   ConfirmationModal,
+  createReferenceCompletionProvider,
   type ValidationIssue,
 } from "@checkstack/ui";
 import { Save, Settings } from "lucide-react";
@@ -35,9 +36,13 @@ import {
   environmentToPreviewFields,
   findSelectedEnvironment,
 } from "@checkstack/catalog-frontend";
-import { buildTemplatePreviewContext } from "../components/editor/collector-preview-context.logic";
+import {
+  buildTemplatePreviewContext,
+  buildHealthCheckTemplateProperties,
+} from "../components/editor/collector-preview-context.logic";
 import { SaveBlockersSummary } from "../components/editor/SaveBlockersSummary";
 import { teamCreateErrorMessage } from "@checkstack/auth-frontend";
+import { resolvePersistedConfigId } from "./configEditing.logic";
 
 
 // =============================================================================
@@ -62,7 +67,12 @@ const HealthCheckIDEPageContent = () => {
   const toast = useToast();
   const healthCheckClient = usePluginClient(HealthCheckApi);
 
-  const isEditMode = !!configId && configId !== "new";
+  // The route param is a persisted id or the "new" sentinel. Collapse the
+  // sentinel to `undefined` so consumers' `enabled: !!configurationId` guards
+  // (and the IDE plugin slots below) don't fire parent-scoped queries with a
+  // non-existent id on an unsaved check. See `configEditing.logic.ts`.
+  const persistedConfigId = resolvePersistedConfigId(configId);
+  const isEditMode = !!persistedConfigId;
   const strategyIdFromUrl = searchParams.get("strategy") ?? undefined;
   const systemIdFromUrl = searchParams.get("systemId") ?? undefined;
   const catalogClient = usePluginClient(CatalogApi);
@@ -414,6 +424,25 @@ const HealthCheckIDEPageContent = () => {
     formState.intervalSeconds,
   ]);
 
+  // `{{ … }}` autocomplete provider for the strategy + collector config forms,
+  // seeded with the fixed `environment.* / check.* / system.*` namespace. The
+  // `environment.*` keys track the currently-selected preview environment so
+  // suggestions match what the preview line resolves. Fields opt in via
+  // `x-templatable` (DynamicForm is passed `templatableFieldsOnly`).
+  const templateCompletionProvider = useMemo(() => {
+    const selectedEnv = findSelectedEnvironment({
+      environments: previewEnvironments,
+      selectedId: previewEnvironmentId,
+    });
+    return createReferenceCompletionProvider(
+      buildHealthCheckTemplateProperties({
+        environmentFields: selectedEnv
+          ? environmentToPreviewFields(selectedEnv)
+          : {},
+      }),
+    );
+  }, [previewEnvironments, previewEnvironmentId]);
+
   // --- Save ---
 
   const associateMutation = healthCheckClient.associateSystem.useMutation();
@@ -576,7 +605,7 @@ const HealthCheckIDEPageContent = () => {
             onAddCollector={handleCollectorAdd}
             validationIssues={validationIssues}
             strategyId={activeStrategyId ?? ""}
-            configId={configId}
+            configId={persistedConfigId}
             showSystemsNode={!isEditMode}
             selectedSystemCount={selectedSystemIds.length}
           />
@@ -618,6 +647,7 @@ const HealthCheckIDEPageContent = () => {
               previewEnvironmentId={previewEnvironmentId}
               onPreviewEnvironmentChange={setPreviewEnvironmentId}
               templatePreviewContext={templatePreviewContext}
+              templateCompletionProvider={templateCompletionProvider}
               ownerTeamId={ownerTeamId}
               onOwnerTeamIdChange={(id) => {
                 setOwnerTeamId(id);
@@ -625,11 +655,11 @@ const HealthCheckIDEPageContent = () => {
               }}
               ownerTeamError={ownerTeamError}
             />
-            {configId && (
+            {persistedConfigId && (
               <ExtensionSlot
                 slot={HealthCheckConfigIDEPanelSlot}
                 context={{
-                  configurationId: configId,
+                  configurationId: persistedConfigId,
                   strategyId: activeStrategyId ?? "",
                   selectedNode,
                   onSelectNode: setSelectedNode,

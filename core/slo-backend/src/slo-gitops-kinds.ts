@@ -34,6 +34,7 @@ const sloSpecSchema = z.object({
   windowDays: SloWindowDaysSchema,
   dependencyExclusion: DependencyExclusionModeSchema.optional(),
   excludedDependencyRefs: z.array(entityRefSchema).optional(),
+  excludeMaintenanceWindows: z.boolean().optional(),
   burnRateThresholds: BurnRateThresholdsSchema.optional(),
 });
 
@@ -120,6 +121,7 @@ export function buildSloKind(
             windowDays: spec.windowDays,
             dependencyExclusion: spec.dependencyExclusion,
             excludedDependencyIds,
+            excludeMaintenanceWindows: spec.excludeMaintenanceWindows,
             burnRateThresholds: spec.burnRateThresholds,
           },
         });
@@ -137,6 +139,7 @@ export function buildSloKind(
           windowDays: spec.windowDays,
           dependencyExclusion: spec.dependencyExclusion ?? "strict",
           excludedDependencyIds,
+          excludeMaintenanceWindows: spec.excludeMaintenanceWindows ?? false,
           burnRateThresholds: spec.burnRateThresholds ?? {
             warningPercent: 50,
             criticalPercent: 80,

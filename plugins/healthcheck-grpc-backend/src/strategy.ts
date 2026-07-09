@@ -11,6 +11,7 @@ import {
   mergeRate,
   mergeCounter,
   z,
+  configString,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -50,7 +51,12 @@ export type GrpcHealthStatusType = z.infer<typeof GrpcHealthStatus>;
  * Configuration schema for gRPC health checks.
  */
 export const grpcConfigSchema = baseStrategyConfigSchema.extend({
-  host: z.string().describe("gRPC server hostname"),
+  // Templatable: supports `{{ environment.host }}` etc. so one config covers N
+  // environments. Presence is enforced POST-RENDER in `createClient` (an empty
+  // render must not silently dial an empty host).
+  host: configString({ "x-templatable": true }).describe(
+    "gRPC server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: z.number().int().min(1).max(65_535).describe("gRPC port"),
   service: z
     .string()
@@ -61,6 +67,16 @@ export const grpcConfigSchema = baseStrategyConfigSchema.extend({
 
 export type GrpcConfig = z.infer<typeof grpcConfigSchema>;
 export type GrpcConfigInput = z.input<typeof grpcConfigSchema>;
+
+/**
+ * Post-render validator for the connection `host`. The stored value is a plain
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace (e.g. an env-less run). An empty host is a
+ * config error that prevents the RPC from running - transport-failure semantics
+ * - not a "healthy" result.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -313,6 +329,18 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<GrpcTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: `host` is a templatable string, so `.min(1)` cannot run
+    // at store time. The executor has already rendered `{{ environment.* }}`
+    // into `config.host`; reject a render that collapsed to empty here so the
+    // run fails clearly instead of dialing an empty host.
+    const host = renderedRequiredSchema.safeParse(validatedConfig.host);
+    if (!host.success) {
+      throw new Error(
+        `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     // The gRPC client is per-request: the channel connect, optional TLS
     // handshake, and unary RPC all happen inside a single makeUnaryRequest in
     // exec, so the only phase we can measure accurately is the full round-trip.
@@ -325,7 +353,7 @@ export class GrpcHealthCheckStrategy implements HealthCheckStrategy<
         const start = performance.now();
         try {
           const result = await this.grpcClient.check({
-            host: validatedConfig.host,
+            host: host.data,
             port: validatedConfig.port,
             service: request.service,
             useTls: validatedConfig.useTls,

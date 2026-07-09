@@ -6,6 +6,7 @@ import { createIncidentAddUpdateTool } from "./incident-add-update";
 import { createIncidentResolveTool } from "./incident-resolve";
 import { createIncidentAddLinkTool } from "./incident-add-link";
 import { createIncidentRemoveLinkTool } from "./incident-remove-link";
+import { createIncidentDeleteUpdateTool } from "./incident-delete-update";
 
 /**
  * The incident plugin's AI tools, registered into the AI registry via
@@ -29,5 +30,6 @@ export function buildIncidentAiTools(): RegisteredAiTool[] {
     createIncidentResolveTool(),
     createIncidentAddLinkTool(),
     createIncidentRemoveLinkTool(),
+    createIncidentDeleteUpdateTool(),
   ];
 }

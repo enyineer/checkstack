@@ -485,6 +485,37 @@ describe("handleTriggerFiring with for: triggers", () => {
     expect(remaining.every((d) => d.armedStatus !== "unhealthy")).toBe(true);
   });
 
+  it("reads enabled automations ONCE per firing (step 2 + inverse-cancel share the scan)", async () => {
+    // The inverse-cancel step (step 3) used to re-issue the same full-table
+    // scan of `automations` that step 2 already ran — two scans per firing.
+    // This is the case that triggered it: a `for:` trigger (so step 3
+    // iterates) with a health client wired and a contextKey set.
+    const { deps } = setup({ statuses: { "sys-1": "unhealthy" } });
+    const automation = buildAutomation({
+      trigger: { event: EVENT, for: { minutes: 30 } },
+    });
+    const inner = makeAutomationStore([automation]);
+    let findByEventCalls = 0;
+    const store: AutomationStore = {
+      ...inner,
+      findEnabledByTriggerEvent: async (eventId) => {
+        findByEventCalls += 1;
+        return inner.findEnabledByTriggerEvent(eventId);
+      },
+    };
+
+    await handleTriggerFiring({
+      deps,
+      automationStore: store,
+      qualifiedEventId: EVENT,
+      triggerPayload: { id: "sys-1" },
+      actor: SYSTEM_ACTOR,
+      contextKey: "sys-1",
+    });
+
+    expect(findByEventCalls).toBe(1);
+  });
+
   it("starts a run immediately for a trigger WITHOUT for:", async () => {
     const { deps, dwells, rec } = setup({ statuses: { "sys-1": "unhealthy" } });
     const automation = buildAutomation({ trigger: { event: EVENT } });

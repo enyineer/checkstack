@@ -35,6 +35,15 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
     },
   });
 
+  const updateMutation = catalogClient.updateSystemLink.useMutation({
+    onSuccess: () => {
+      void refetch();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to update link", error);
+    },
+  });
+
   const removeMutation = catalogClient.removeSystemLink.useMutation({
     onSuccess: () => {
       void refetch();
@@ -50,9 +59,16 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
       description="Jira boards, ticket tools, dashboards, or any URL related to this system."
       links={links}
       canManage={canManage}
-      busy={addMutation.isPending || removeMutation.isPending}
+      busy={
+        addMutation.isPending ||
+        updateMutation.isPending ||
+        removeMutation.isPending
+      }
       onAdd={async ({ label, url }) => {
         await addMutation.mutateAsync({ systemId, label, url });
+      }}
+      onEdit={async ({ id, label, url }) => {
+        await updateMutation.mutateAsync({ id, systemId, label, url });
       }}
       onRemove={async (link) => {
         await removeMutation.mutateAsync({ id: link.id, systemId });

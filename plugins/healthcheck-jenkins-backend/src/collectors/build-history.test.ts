@@ -64,6 +64,28 @@ describe("BuildHistoryCollector", () => {
     expect(result.result.successRate).toBe(0);
   });
 
+  it("treats an EMPTY rendered jobName as a transport failure (config error)", async () => {
+    // A `{{ environment.jobName }}` template that renders empty must surface as a
+    // collector error, not a silent probe of an empty job path.
+    let called = false;
+    const mockClient: JenkinsTransportClient = {
+      exec: async () => {
+        called = true;
+        return { statusCode: 200, data: { builds: [] } };
+      },
+    };
+
+    const result = await collector.execute({
+      config: { jobName: "   ", buildCount: 10 },
+      client: mockClient,
+      pluginId: "healthcheck-jenkins",
+    });
+
+    expect(result.error).toContain("Rendered jobName is empty");
+    expect(result.result.totalBuilds).toBe(0);
+    expect(called).toBe(false);
+  });
+
   it("should aggregate correctly", () => {
     const runs: Parameters<typeof collector.mergeResult>[1][] = [
       {

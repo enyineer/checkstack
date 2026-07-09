@@ -227,6 +227,27 @@ export const createHealthCheckRouter = (opts: {
       });
     }
 
+    // Recompute the rollup `health` entity for this system NOW. Changing an
+    // assignment's environment set can make a previously-effective env slice
+    // orphaned (env disabled/removed from `environmentIds`): that slice stops
+    // producing runs, so NO per-env health-change event will ever fire for it,
+    // and the event-driven rollup consumer would never recompute the disabled
+    // env's last (unhealthy) status away. `getSystemHealthStatus` now excludes
+    // non-effective slices, so this recompute promptly drops the stale slice
+    // from the persisted entity - closing any SLO downtime it was holding open
+    // and clearing the badge - instead of waiting for its runs to age out of
+    // the window. Best-effort: a recompute failure is logged inside the helper
+    // and never breaks the mutation (the live RPC reads are already correct).
+    if (recomputeSystemRollupHealth) {
+      try {
+        await recomputeSystemRollupHealth(args.systemId);
+      } catch (error) {
+        logger.warn(
+          `Failed to recompute rollup health after assignment change for system ${args.systemId}: ${extractErrorMessage(error, "unknown")}`,
+        );
+      }
+    }
+
     // Notify subscribers (e.g., satellite-backend) that assignments changed.
     const emitHook = getEmitHook();
     if (emitHook) {
@@ -473,6 +494,17 @@ export const createHealthCheckRouter = (opts: {
       },
     ),
 
+    getBulkAssignedHealthCheckCounts:
+      os.getBulkAssignedHealthCheckCounts.handler(async ({ input }) => {
+        // ONE grouped query for the whole visible system list (replaces the
+        // per-row getSystemAssociations N+1). recordKey gating on the contract
+        // drops counts for systems the caller may not read.
+        const counts = await service.getBulkAssignedHealthCheckCounts(
+          input.systemIds,
+        );
+        return { counts };
+      }),
+
     associateSystem: os.associateSystem.handler(async ({ input, context }) => {
       await enforceNotGitOpsLocked("System", input.systemId);
       await service.associateSystem({
@@ -571,6 +603,10 @@ export const createHealthCheckRouter = (opts: {
 
     getRunStats: os.getRunStats.handler(async ({ input }) => {
       return service.getRunStats(input);
+    }),
+
+    getBulkRunStats: os.getBulkRunStats.handler(async ({ input }) => {
+      return { stats: await service.getBulkRunStats(input) };
     }),
 
     getDetailedHistory: os.getDetailedHistory.handler(

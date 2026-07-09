@@ -72,8 +72,10 @@ The system now belongs to both environments. On the next health check run the ex
 
 The URL field is marked `x-templatable`. At run time, before the HTTP request is made, the executor renders `{{ environment.baseUrl }}` against the resolved environment's custom fields. The result for staging is `https://staging.example.com/healthz`; for production it is `https://api.example.com/healthz`.
 
+Templating is not limited to HTTP. Most connection and target fields across the built-in check types support `{{ … }}`, so the same "one config, many environments" pattern works for a database host, an SSH command, a DNS hostname, a gRPC host, and more. The available variables are the selected environment's custom fields (`{{ environment.<key> }}`), the check metadata (`{{ check.id }}`, `{{ check.name }}`, `{{ check.intervalSeconds }}`), and the system metadata (`{{ system.id }}`, `{{ system.name }}`).
+
 > [!TIP]
-> When a check item has templatable fields, the editor shows a **Preview as: &lt;environment&gt;** picker next to its Configuration heading. Pick an environment and a **Preview** line appears under each templatable field, resolving the template against that environment's custom fields so you can confirm the substitution looks right before saving. The picker lists the system's environments when you opened the editor from a system, otherwise every environment.
+> A field that accepts templating shows a small **Templating** badge next to its label, and typing `{{` offers autocomplete for the available variables. When a check item has templatable fields, the editor also shows a **Preview as: &lt;environment&gt;** picker next to both the connection (Strategy Configuration) heading and each check item's Configuration heading. Pick an environment and a **Preview** line appears under each templatable field, resolving the template against that environment's custom fields so you can confirm the substitution looks right before saving. The picker lists the system's environments when you opened the editor from a system, otherwise every environment.
 
 ### Assign to the system
 
@@ -101,6 +103,11 @@ Leave **All environments** selected (the default). With staging and production a
 
 > [!NOTE]
 > If you later add a third environment (for example `canary`) to the system and the assignment is still in **All environments** mode, the next tick automatically picks it up with no config change.
+
+> [!NOTE]
+> When you **disable an environment on the assignment** (switch to **Specific** and deselect it, or choose **None**), that environment stops fanning out and its last health value is dropped from the system rollup and badge **immediately** - it no longer keeps the system unhealthy. Its historical per-environment slice is preserved but moves under **Old checks** in the system overview so you can still inspect it.
+>
+> Known limitation: under **All environments**, an environment removed only from the system's catalog membership (rather than disabled on the assignment) can still count toward the rollup badge until the assignment is re-evaluated, because the rollup is computed catalog-free so it reads the same on every server. The system overview still moves such a slice under **Old checks**.
 
 ---
 

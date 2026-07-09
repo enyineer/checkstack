@@ -85,10 +85,15 @@ export function createSecretResolverService({
         collectSecretNames({ value: Object.values(normalized) }),
       );
 
-      const resolved = new Map<string, string>();
-      for (const name of names) {
-        resolved.set(name, await secretStore.resolve(name));
-      }
+      // Resolve the whole batch in one shot. `resolveMany` (active-backend
+      // store) resolves the active backend id ONCE for every name instead
+      // of the per-name config read the old `resolve` loop incurred. Stores
+      // without a batch path (e.g. a plain `resolve`-only literal) fall back
+      // to looping `resolve` — same result, no batch optimization.
+      const nameList = [...names];
+      const resolved = secretStore.resolveMany
+        ? await secretStore.resolveMany(nameList)
+        : await resolveEach({ secretStore, names: nameList });
 
       // Build the env by substituting templates in each mapping value.
       const env: Record<string, string> = {};
@@ -100,6 +105,24 @@ export function createSecretResolverService({
       return { env, masking };
     },
   };
+}
+
+/**
+ * Fallback batch resolution for a {@link SecretStore} without a native
+ * `resolveMany`: resolve each distinct name via the single `resolve`.
+ */
+async function resolveEach({
+  secretStore,
+  names,
+}: {
+  secretStore: SecretStore;
+  names: string[];
+}): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>();
+  for (const name of names) {
+    resolved.set(name, await secretStore.resolve(name));
+  }
+  return resolved;
 }
 
 const TEMPLATE_RE = /\$\{\{\s*secrets\.([a-zA-Z0-9_-]+)\s*\}\}/g;

@@ -145,6 +145,7 @@ export default createBackendPlugin({
         rpc: coreServices.rpc,
         rpcClient: coreServices.rpcClient,
         signalService: coreServices.signalService,
+        eventBus: coreServices.eventBus,
         cacheManager: coreServices.cacheManager,
         advisoryLock: coreServices.advisoryLock,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
@@ -155,6 +156,7 @@ export default createBackendPlugin({
         rpc,
         rpcClient,
         signalService,
+        eventBus,
         cacheManager,
         advisoryLock,
         resourceResolverRegistry,
@@ -198,6 +200,7 @@ export default createBackendPlugin({
         const router = createRouter({
           service,
           signalService,
+          eventBus,
           catalogClient,
           notificationClient,
           authClient,
@@ -218,6 +221,7 @@ export default createBackendPlugin({
         for (const action of createIncidentActions({
           service,
           getIncidentEntity: () => incidentEntity,
+          eventBus,
         })) {
           automationActions.registerAction(action, pluginMetadata);
         }

@@ -1,4 +1,11 @@
-import type { CollectorRegistry, Logger, SafeDatabase } from "@checkstack/backend-api";
+import type {
+  CollectorRegistry,
+  Logger,
+  SafeDatabase,
+  VersionedRecord,
+} from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
+import { sql } from "drizzle-orm";
 import type { CacheProvider } from "@checkstack/cache-api";
 import type { CatalogApi } from "@checkstack/catalog-common";
 import type { NotificationApi } from "@checkstack/notification-common";
@@ -12,14 +19,16 @@ import {
   computeMean,
   computeStdDev,
   type AnomalyDirection,
+  type AnomalySettings,
   type FieldBaseline,
+  type PartialAnomalySettings,
 } from "@checkstack/anomaly-common";
 import type { QueueManager } from "@checkstack/queue-api";
 import type { SignalService } from "@checkstack/signal-common";
 import type { z } from "zod";
 import * as schema from "../schema";
-import { AnomalyService } from "../service";
-import { evaluateDrift } from "../drift-evaluator";
+import { AnomalyService, anomalyAssignmentKey } from "../service";
+import { evaluateDrift, loadExistingDriftRows } from "../drift-evaluator";
 
 export const BASELINE_ANALYZER_QUEUE = "anomaly-baseline-analyzer";
 
@@ -61,28 +70,53 @@ export async function setupBaselineAnalyzerJob({
         limitPerAssignment: 200,
       });
 
+      // Batch fix: preload BOTH per-assignment config reads for ALL assignments
+      // set-based (one `inArray`/`OR` read each) under a SINGLE scoped
+      // transaction, instead of 2 standalone SELECTs per assignment (an N+1
+      // across the run). `getRunsForAnalysis` above is an RPC and stays OUTSIDE
+      // the transaction; only these two pure-DB reads run inside it.
+      let templateConfigs: Map<string, VersionedRecord<AnomalySettings>> =
+        new Map();
+      let assignmentConfigs: Map<
+        string,
+        VersionedRecord<PartialAnomalySettings>
+      > = new Map();
+      try {
+        const preload = await withScopedTransaction(db, async (tx) => {
+          const templates = await anomalyService.getAnomalyConfigsByIds({
+            configurationIds: activeAssignments.map((a) => a.configurationId),
+            runner: tx,
+          });
+          const assignments =
+            await anomalyService.getAnomalyAssignmentConfigsByKeys({
+              keys: activeAssignments.map((a) => ({
+                systemId: a.systemId,
+                configurationId: a.configurationId,
+              })),
+              runner: tx,
+            });
+          return { templates, assignments };
+        });
+        templateConfigs = preload.templates;
+        assignmentConfigs = preload.assignments;
+      } catch (error) {
+        logger.warn(
+          "Failed to preload anomaly configs for baseline analysis; proceeding without config overrides",
+          error,
+        );
+      }
+
       for (const assignment of activeAssignments) {
-        // Per-assignment configuration is fetched once and reused across
-        // every per-environment fan-out within this assignment.
-        let templateConfig;
-        let assignmentConfig;
-        try {
-          const templateRecord = await anomalyService.getAnomalyConfig(
-            assignment.configurationId,
-          );
-          templateConfig = templateRecord.data;
-          const assignmentRecord =
-            await anomalyService.getAnomalyAssignmentConfig(
-              assignment.systemId,
-              assignment.configurationId,
-            );
-          assignmentConfig = assignmentRecord?.data;
-        } catch (error) {
-          logger.warn(
-            `Failed to fetch anomaly config for ${assignment.configurationId}; skipping drift evaluation`,
-            error,
-          );
-        }
+        // Per-assignment configuration comes from the batch preload above,
+        // reused across every per-environment fan-out within this assignment.
+        // Missing ids fall back to the default template (see
+        // getAnomalyConfigsByIds); a missing assignment override is `undefined`.
+        const templateConfig = templateConfigs.get(
+          assignment.configurationId,
+        )?.data;
+        const assignmentConfig = assignmentConfigs.get(
+          anomalyAssignmentKey(assignment.systemId, assignment.configurationId),
+        )?.data;
 
         // Fan out per environment so each env gets its own baseline. `null`
         // is the env-less slice (no environment membership) — preserved as a
@@ -139,6 +173,26 @@ export async function setupBaselineAnalyzerJob({
             }
           }
 
+          // Pass 1 (pure CPU): compute each field's baseline stats and collect
+          // one insert row per qualifying field. Nothing touches the DB here.
+          const baselineRows: (typeof schema.anomalyBaselines.$inferInsert)[] =
+            [];
+          const perField: Array<{
+            path: string;
+            baseline: {
+              mean: number;
+              stdDev: number;
+              trendSlope: number;
+              dominantValue: string | undefined;
+              dominantRatio: number | undefined;
+              sampleCount: number;
+              computedAt: Date;
+            };
+            isNumeric: boolean;
+            collectorId: string | undefined;
+            fieldName: string | undefined;
+          }> = [];
+
           for (const [path, values] of Object.entries(fieldValues)) {
             if (values.length < MIN_BASELINE_SAMPLES) continue;
 
@@ -147,8 +201,9 @@ export async function setupBaselineAnalyzerJob({
             let trendSlope = 0;
             let dominantValue: string | undefined;
             let dominantRatio: number | undefined;
+            const isNumeric = typeof values[0] === "number";
 
-            if (typeof values[0] === "number") {
+            if (isNumeric) {
               const numValues = values as number[];
               mean = computeMean(numValues);
               stdDev = computeStdDev(numValues);
@@ -171,64 +226,111 @@ export async function setupBaselineAnalyzerJob({
               computedAt: new Date(),
             };
 
-            await db
-              .insert(schema.anomalyBaselines)
-              .values({
-                systemId: assignment.systemId,
-                configurationId: assignment.configurationId,
-                environmentId,
-                fieldPath: path,
-                ...baseline,
-              })
-              .onConflictDoUpdate({
-                target: [
-                  schema.anomalyBaselines.systemId,
-                  schema.anomalyBaselines.configurationId,
-                  schema.anomalyBaselines.environmentId,
-                  schema.anomalyBaselines.fieldPath,
-                ],
-                set: baseline,
-              });
+            baselineRows.push({
+              systemId: assignment.systemId,
+              configurationId: assignment.configurationId,
+              environmentId,
+              fieldPath: path,
+              mean: baseline.mean,
+              stdDev: baseline.stdDev,
+              trendSlope: baseline.trendSlope,
+              sampleCount: baseline.sampleCount,
+              computedAt: baseline.computedAt,
+              dominantValue: baseline.dominantValue ?? null,
+              dominantRatio: baseline.dominantRatio ?? null,
+            });
+            perField.push({
+              path,
+              baseline,
+              isNumeric,
+              collectorId: fieldCollectorIds[path],
+              fieldName: fieldNames[path],
+            });
+          }
 
+          if (baselineRows.length === 0) continue;
+
+          // Batch fix: ONE multi-row `INSERT ... ON CONFLICT DO UPDATE` per env
+          // (was one upsert per field). `excluded.*` writes each row's
+          // freshly-computed value, so the per-row result is identical to the
+          // previous single-row upserts.
+          await db
+            .insert(schema.anomalyBaselines)
+            .values(baselineRows)
+            .onConflictDoUpdate({
+              target: [
+                schema.anomalyBaselines.systemId,
+                schema.anomalyBaselines.configurationId,
+                schema.anomalyBaselines.environmentId,
+                schema.anomalyBaselines.fieldPath,
+              ],
+              set: {
+                mean: sql`excluded.mean`,
+                stdDev: sql`excluded.std_dev`,
+                trendSlope: sql`excluded.trend_slope`,
+                sampleCount: sql`excluded.sample_count`,
+                computedAt: sql`excluded.computed_at`,
+                dominantValue: sql`excluded.dominant_value`,
+                dominantRatio: sql`excluded.dominant_ratio`,
+              },
+            });
+
+          // Per-field cache write + baseline-updated signal. These are NOT DB
+          // ops (cache / event bus), so they stay out of any transaction.
+          for (const f of perField) {
             // Cache key mirrors the detector's lookup, including the env slice
             // so a per-env baseline never shadows another env's cached entry.
-            const cacheKey = `baseline:${assignment.configurationId}:${assignment.systemId}:${environmentId ?? "<none>"}:${path}`;
+            const cacheKey = `baseline:${assignment.configurationId}:${assignment.systemId}:${environmentId ?? "<none>"}:${f.path}`;
             await cache.set(
               cacheKey,
-              { ...baseline, computedAt: baseline.computedAt.toISOString() },
+              {
+                ...f.baseline,
+                computedAt: f.baseline.computedAt.toISOString(),
+              },
               1000 * 60 * 60 * 24,
             );
 
-            if (signalService && typeof values[0] === "number") {
+            if (signalService && f.isNumeric) {
               await signalService.broadcast(ANOMALY_BASELINE_UPDATED, {
                 systemId: assignment.systemId,
                 configurationId: assignment.configurationId,
                 environmentId,
-                fieldPath: path,
-                mean: baseline.mean,
-                stdDev: baseline.stdDev,
-                sampleCount: baseline.sampleCount,
+                fieldPath: f.path,
+                mean: f.baseline.mean,
+                stdDev: f.baseline.stdDev,
+                sampleCount: f.baseline.sampleCount,
               });
             }
+          }
 
-            // Drift evaluation runs only for numeric fields scoped to a collector
-            // (the path layout `collectors.${id}.${field}`). Run-level fields like
-            // `latencyMs` are skipped because we have no schema-declared direction
-            // for them.
-            if (typeof values[0] !== "number") continue;
-            const collectorId = fieldCollectorIds[path];
-            const fieldName = fieldNames[path];
-            if (!collectorId || !fieldName) continue;
+          // Batch fix: preload ALL existing 'drift' rows for this env ONCE
+          // (was one SELECT per field inside evaluateDrift — an N+1). Each field
+          // is a distinct fieldPath, so the map read is equivalent to a fresh
+          // per-field query.
+          const existingDriftRows = await loadExistingDriftRows({
+            db,
+            systemId: assignment.systemId,
+            configurationId: assignment.configurationId,
+            environmentId,
+          });
+
+          // Drift evaluation runs only for numeric fields scoped to a collector
+          // (the path layout `collectors.${id}.${field}`). Run-level fields like
+          // `latencyMs` are skipped because we have no schema-declared direction
+          // for them.
+          for (const f of perField) {
+            if (!f.isNumeric) continue;
+            if (!f.collectorId || !f.fieldName) continue;
 
             const schemaInfo = lookupSchemaInfo({
               collectorRegistry,
-              collectorId,
-              fieldName,
+              collectorId: f.collectorId,
+              fieldName: f.fieldName,
             });
 
             const baselineDto: FieldBaseline = {
-              ...baseline,
-              computedAt: baseline.computedAt.toISOString(),
+              ...f.baseline,
+              computedAt: f.baseline.computedAt.toISOString(),
             };
 
             await evaluateDrift({
@@ -240,7 +342,7 @@ export async function setupBaselineAnalyzerJob({
               systemId: assignment.systemId,
               configurationId: assignment.configurationId,
               environmentId,
-              fieldPath: path,
+              fieldPath: f.path,
               baseline: baselineDto,
               schemaDirection: schemaInfo.direction,
               schemaSensitivity: schemaInfo.sensitivity,
@@ -251,6 +353,7 @@ export async function setupBaselineAnalyzerJob({
               schemaMinRelativeDelta: schemaInfo.minRelativeDelta,
               templateConfig,
               assignmentConfig,
+              existingDriftRows,
             });
           }
         }

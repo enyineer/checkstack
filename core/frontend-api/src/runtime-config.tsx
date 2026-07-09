@@ -15,7 +15,14 @@ export interface RuntimeConfig {
    */
   publicHost?: {
     kind: string;
-    slug: string;
+    /** The published page's slug; absent when the domain has no live page. */
+    slug?: string;
+    /**
+     * The Host is a CONFIGURED custom domain that is NOT currently servable
+     * (unverified, unpublished, or non-public). The public bundle shows a
+     * neutral "not available" page; the admin shell is never served here.
+     */
+    unavailable?: boolean;
   };
   /**
    * Same-origin URL path prefixes (e.g. `/statuspage/view`) whose pages are
@@ -157,9 +164,13 @@ export const RuntimeConfigProvider: React.FC<RuntimeConfigProviderProps> = ({
 
         // Step 2: Validate the returned baseUrl is actually reachable.
         // We only need to probe when baseUrl differs from the current page
-        // origin — same-origin is trivially reachable.
+        // origin — same-origin is trivially reachable. On a custom public-domain
+        // host (`publicHost` present) the backend already returns THIS origin as
+        // baseUrl, so treat it as same-origin and skip the cross-origin probe:
+        // proxy scheme/port variance would otherwise re-fire it and CORS-block,
+        // producing a false "cannot reach BASE_URL" screen.
         const currentOrigin = getCurrentOrigin();
-        if (currentOrigin && data.baseUrl !== currentOrigin) {
+        if (currentOrigin && data.baseUrl !== currentOrigin && !data.publicHost) {
           try {
             await fetch(`${data.baseUrl}/api/config`, {
               method: "HEAD",

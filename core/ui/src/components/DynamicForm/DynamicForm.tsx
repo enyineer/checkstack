@@ -24,6 +24,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
   optionsResolvers,
   templateProperties,
   templateCompletionProvider,
+  templatableFieldsOnly,
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
@@ -157,6 +158,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
+                templatableFieldsOnly={templatableFieldsOnly}
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}

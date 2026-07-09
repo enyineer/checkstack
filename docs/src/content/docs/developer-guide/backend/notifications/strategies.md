@@ -838,6 +838,57 @@ await notificationApi.sendTransactional({
 
 ## Best Practices
 
+### 0. Guard user-supplied URLs against SSRF
+
+If your strategy POSTs to a URL that comes from user or admin config (a webhook
+URL, a self-hosted server URL), that URL is an SSRF vector: a user can point it
+at `http://169.254.169.254/` (cloud metadata) or the loopback interface to
+exfiltrate credentials or reach process-local services. Defend in depth with the
+shared helpers from `@checkstack/notification-backend`:
+
+```typescript
+import { postJson, validateWebhookUrl } from "@checkstack/notification-backend";
+
+async send({ userConfig, notification, logger }) {
+  const url = userConfig?.webhookUrl;
+  if (!url) return { success: false, error: "No URL configured" };
+
+  // 1. Pre-flight: reject a URL that resolves to a blocked exfil/pivot target
+  //    (loopback, cloud-metadata, link-local, IPv6 ULA) BEFORE any request is
+  //    sent. Internal RFC1918 hosts are ALLOWED (see policy below).
+  const validation = await validateWebhookUrl({ url });
+  if (!validation.ok) {
+    logger.warn(`Blocked delivery to ${url}: ${validation.error}`);
+    return { success: false, error: validation.error };
+  }
+
+  // 2. Refuse redirects: a receiver could 302 to a blocked host that the
+  //    pre-flight never validated, so `postJson` must fail closed on any 3xx.
+  const result = await postJson({
+    url,
+    body: buildPayload(notification),
+    redirect: "error",
+    serviceName: "MyChannel",
+    logger,
+  });
+  return result.ok ? { success: true } : { success: false, error: result.error };
+}
+```
+
+Both steps are required together: the pre-flight blocks the original host, and
+`redirect: "error"` closes the redirect-follow bypass. The built-in Webhook,
+Discord, Slack, Gotify, and Backstage channels all use this pattern. Strategies
+that POST to a hard-coded host (e.g. Pushover, Telegram, Teams, Webex) do not
+need it.
+
+**Denylist policy.** `validateWebhookUrl` blocks only the classic
+exfiltration / pivot targets: the loopback interface (`127.0.0.0/8`, `::1/128`),
+the `0.0.0.0/8` "this host" alias, the cloud-metadata + link-local ranges, and
+IPv6 ULA. Internal RFC1918 ranges (`10/8`, `172.16/12`, `192.168/16`) and CGNAT
+(`100.64/10`) are deliberately **allowed**, because a self-hosted internal
+Gotify / Backstage / webhook receiver on a private network is a legitimate,
+common target.
+
 ### 1. Use Versioned Configurations
 
 Always use `Versioned<T>` for config schemas to support future migrations:

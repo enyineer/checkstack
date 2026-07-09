@@ -7,6 +7,7 @@ import {
   mergeAverage,
   VersionedAggregated,
   aggregatedAverage,
+  configString,
   type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
@@ -21,7 +22,15 @@ import type { PingTransportClient } from "./transport-client";
 // ============================================================================
 
 const pingConfigSchema = z.object({
-  host: z.string().min(1).describe("Hostname or IP address to ping"),
+  // Templatable: supports `{{ environment.host }}` so one config covers N
+  // environments. `.min(1)` still guards the STORED value (a `{{ }}` template is
+  // non-empty); the CONCRETE rendered host is re-checked POST-RENDER in
+  // `execute` because an empty render must not run as a successful probe.
+  host: configString({ "x-templatable": true })
+    .min(1)
+    .describe(
+      "Hostname or IP address to ping. Supports templating, e.g. {{ environment.host }}",
+    ),
   count: z
     .number()
     .int()
@@ -37,6 +46,13 @@ const pingConfigSchema = z.object({
 });
 
 export type PingConfig = z.infer<typeof pingConfigSchema>;
+
+/**
+ * Post-render validator for the rendered `host`. An empty render (e.g. an
+ * env-less run resolving `{{ environment.host }}` to "") is a config error that
+ * prevents the probe - transport-failure semantics - not a healthy empty ping.
+ */
+const renderedHostSchema = z.string().trim().min(1);
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -180,8 +196,27 @@ export class PingCollector implements CollectorStrategy<
     client: PingTransportClient;
     pluginId: string;
   }): Promise<CollectorResult<PingResult>> {
+    // Post-render guard: `host` is a templatable string, so the concrete value
+    // is re-validated here after the executor rendered `{{ environment.* }}`.
+    // An empty render is a config error - fail as a transport failure rather
+    // than spawning a ping against an empty host.
+    const host = renderedHostSchema.safeParse(config.host);
+    if (!host.success) {
+      return {
+        result: {
+          packetsSent: 0,
+          packetsReceived: 0,
+          // No packet could reach an empty host: report total loss. The run is
+          // already short-circuited to unhealthy by the `error` below.
+          packetLoss: 100,
+        },
+        error: `Rendered host is empty: ${JSON.stringify(config.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      };
+    }
+
     const response = await client.exec({
-      host: config.host,
+      host: host.data,
       count: config.count,
       timeout: config.timeout,
     });

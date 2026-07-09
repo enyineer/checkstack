@@ -1,6 +1,7 @@
 import {
   Versioned,
   z,
+  configString,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -24,10 +25,27 @@ import type { PostgresTransportClient } from "./transport-client";
 // ============================================================================
 
 const queryConfigSchema = z.object({
-  query: z.string().min(1).default("SELECT 1").describe("SQL query to execute"),
+  // Templatable: supports `{{ environment.query }}` so one config covers N
+  // environments. `.min(1)` still guards the STORED value (a `{{ }}` template is
+  // non-empty); the CONCRETE rendered query is re-checked POST-RENDER in
+  // `execute` because an empty render must not run as a successful query.
+  query: configString({ "x-templatable": true })
+    .min(1)
+    .default("SELECT 1")
+    .describe(
+      "SQL query to execute. Supports templating, e.g. {{ environment.query }}",
+    ),
 });
 
 export type QueryConfig = z.infer<typeof queryConfigSchema>;
+
+/**
+ * Post-render validator for the rendered `query`. An empty render (e.g. an
+ * env-less run resolving `{{ environment.query }}` to "") is a config error
+ * that prevents the probe - transport-failure semantics - not a healthy empty
+ * query.
+ */
+const renderedQuerySchema = z.string().trim().min(1);
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -143,7 +161,24 @@ export class QueryCollector implements CollectorStrategy<
   }): Promise<CollectorResult<QueryResult>> {
     const startTime = Date.now();
 
-    const response = await client.exec({ query: config.query });
+    // Post-render guard: `query` is a templatable string, so the concrete value
+    // is re-validated here after the executor rendered `{{ environment.* }}`.
+    // An empty render is a config error - fail as a transport failure rather
+    // than running (and "succeeding" at) an empty query.
+    const query = renderedQuerySchema.safeParse(config.query);
+    if (!query.success) {
+      return {
+        result: {
+          rowCount: 0,
+          executionTimeMs: Date.now() - startTime,
+          success: false,
+        },
+        error: `Rendered query is empty: ${JSON.stringify(config.query)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      };
+    }
+
+    const response = await client.exec({ query: query.data });
     const executionTimeMs = Date.now() - startTime;
 
     return {

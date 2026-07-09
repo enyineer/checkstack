@@ -9,6 +9,7 @@ import {
   VersionedAggregated,
   aggregatedAverage,
   aggregatedRate,
+  configString,
   type InferAggregatedResult,
 } from "@checkstack/backend-api";
 import {
@@ -25,10 +26,13 @@ import type { GrpcTransportClient } from "./transport-client";
 // ============================================================================
 
 const healthConfigSchema = z.object({
-  service: z
-    .string()
+  // Templatable and optional: an empty render legitimately means "check the
+  // overall server health", so no post-render presence guard is applied.
+  service: configString({ "x-templatable": true })
     .default("")
-    .describe("Service name to check (empty for overall)"),
+    .describe(
+      "Service name to check (empty for overall). Supports templating, e.g. {{ environment.service }}",
+    ),
 });
 
 export type HealthConfig = z.infer<typeof healthConfigSchema>;

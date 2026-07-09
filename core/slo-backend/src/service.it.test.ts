@@ -216,6 +216,91 @@ describe.skipIf(!isIntegrationEnabled())("SloService (real Postgres)", () => {
     });
   });
 
+  describe("updateObjective (returning-folded reload)", () => {
+    it("returns the freshly-updated objective, matching a subsequent read", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      const updated = await service.updateObjective({
+        input: {
+          id: objectiveId,
+          target: 99.5,
+          windowDays: 7,
+          excludeMaintenanceWindows: true,
+          burnRateThresholds: {
+            warningPercent: 40,
+            criticalPercent: 70,
+            fastBurnMultiplier: 6,
+          },
+        },
+      });
+
+      // The value from the `.returning()` fold must equal an independent read.
+      const reread = await service.getObjective({ id: objectiveId });
+      expect(updated).toEqual(reread);
+      // And it reflects the write, not the pre-update row.
+      expect(updated?.target).toBe(99.5);
+      expect(updated?.windowDays).toBe(7);
+      expect(updated?.excludeMaintenanceWindows).toBe(true);
+      expect(updated?.burnRateThresholds).toEqual({
+        warningPercent: 40,
+        criticalPercent: 70,
+        fastBurnMultiplier: 6,
+      });
+    });
+
+    it("returns undefined for a missing objective (no row updated)", async () => {
+      const result = await service.updateObjective({
+        input: { id: crypto.randomUUID(), target: 99 },
+      });
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe("downtime source column", () => {
+    it("round-trips an explicit source and defaults to healthcheck", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      const incidentEvent = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+        source: "incident",
+      });
+      expect(incidentEvent.source).toBe("incident");
+
+      const defaultEvent = await service.openDowntimeEvent({
+        objectiveId,
+        systemId,
+        attributionType: "self",
+      });
+      expect(defaultEvent.source).toBe("healthcheck");
+    });
+
+    it("reads a NULL source row (persisted before the column existed) as healthcheck", async () => {
+      const systemId = `sys-${crypto.randomUUID()}`;
+      const objectiveId = await seedObjective(systemId);
+
+      // Insert directly WITHOUT a source, mimicking a legacy row (column NULL).
+      const legacyId = crypto.randomUUID();
+      await testDb.db.insert(sloDowntimeEvents).values({
+        id: legacyId,
+        objectiveId,
+        systemId: "ignored",
+        startTime: new Date(WINDOW_START.getTime() + MINUTE),
+        attributionType: "self",
+      });
+
+      const [event] = await service.getRecentDowntimeEvents({
+        objectiveId,
+        limit: 10,
+      });
+      expect(event?.id).toBe(legacyId);
+      expect(event?.source).toBe("healthcheck");
+    });
+  });
+
   describe("closeDowntimeEvent endTime", () => {
     it("closes at an explicit recovery time, recording the real duration", async () => {
       const systemId = `sys-${crypto.randomUUID()}`;

@@ -93,6 +93,10 @@ export default {
             DEFAULT: "hsl(var(--status-unknown))",
             foreground: "hsl(var(--status-unknown-foreground))",
           },
+          info: {
+            DEFAULT: "hsl(var(--status-info))",
+            foreground: "hsl(var(--status-info-foreground))",
+          },
         },
         "grid-line": "hsl(var(--grid-line))",
       },

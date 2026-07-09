@@ -326,6 +326,26 @@ export function createInMemoryArtifactStore(): {
         .filter((a) => !(input.onlyOpen ?? true) || a.closedAt === null)
         .toSorted((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     },
+    async findLatestByTypes(input) {
+      const onlyOpen = input.onlyOpen ?? true;
+      const wanted = new Set(input.artifactTypes);
+      const byType = new Map<string, PersistedArtifact>();
+      const rows = artifacts
+        .filter((a) => a.automationId === input.automationId)
+        .filter((a) => wanted.has(a.artifactType))
+        .filter(
+          (a) =>
+            input.contextKey === undefined ||
+            input.contextKey === null ||
+            a.contextKey === input.contextKey,
+        )
+        .filter((a) => !onlyOpen || a.closedAt === null)
+        .toSorted((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      for (const row of rows) {
+        if (!byType.has(row.artifactType)) byType.set(row.artifactType, row);
+      }
+      return byType;
+    },
     async markClosed(artifactId) {
       const a = artifacts.find((x) => x.id === artifactId);
       if (a) a.closedAt = new Date();

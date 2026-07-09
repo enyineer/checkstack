@@ -17,25 +17,60 @@ import {
 } from "@checkstack/gitops-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import { catalogAccess, catalogResourceTypes } from "@checkstack/catalog-common";
-import { Plus, LayoutGrid, Check, Pencil, Trash2, X } from "lucide-react";
+import {
+  Plus,
+  LayoutGrid,
+  Check,
+  Pencil,
+  Trash2,
+  X,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import type { Group, System } from "../../api";
 import { AssignMenu } from "./AssignMenu";
 
 export interface GroupsTabProps {
   /** Groups after search/filter. */
   groups: Group[];
+  /** The FULL group list in persisted browse order, used to compute reorders. */
+  orderedGroups: Group[];
   totalCount: number;
   allSystems: System[];
   onAddGroup: () => void;
   onDeleteGroup: (id: string) => void;
   onRenameGroup: (id: string, name: string) => void;
+  /** Persist a new browse order (full ordered list of group ids). */
+  onReorderGroups: (orderedIds: string[]) => void;
   onAddToGroup: (systemId: string, groupId: string) => void;
   onRemoveFromGroup: (groupId: string, systemId: string) => void;
   onClearFilters: () => void;
 }
 
 export function GroupsTab(props: GroupsTabProps): React.ReactElement {
-  const { groups, totalCount, allSystems, onAddGroup } = props;
+  const { groups, orderedGroups, totalCount, allSystems, onAddGroup } = props;
+
+  // Reorder acts on the FULL persisted order. A search/filter that hides some
+  // groups makes "move up/down" ambiguous, so reorder controls are disabled
+  // until filters are cleared.
+  const isFiltered = groups.length !== orderedGroups.length;
+  const orderIndexById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [index, group] of orderedGroups.entries()) {
+      map.set(group.id, index);
+    }
+    return map;
+  }, [orderedGroups]);
+
+  const moveGroup = (group: Group, direction: "up" | "down"): void => {
+    const ids = orderedGroups.map((g) => g.id);
+    const index = ids.indexOf(group.id);
+    if (index === -1) return;
+    const swapWith = direction === "up" ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= ids.length) return;
+    [ids[index], ids[swapWith]] = [ids[swapWith], ids[index]];
+    props.onReorderGroups(ids);
+  };
 
   const systemsById = useMemo(() => {
     const map = new Map<string, System>();
@@ -103,6 +138,27 @@ export function GroupsTab(props: GroupsTabProps): React.ReactElement {
   );
 
   const columns: DataTableColumn<Group>[] = [
+    {
+      id: "order",
+      header: "Order",
+      headClassName: "w-24",
+      cellClassName: "align-top",
+      sortValue: (group) => orderIndexById.get(group.id) ?? group.sortOrder,
+      cell: (group) => {
+        const index = orderIndexById.get(group.id) ?? 0;
+        return (
+          <ReorderControls
+            groupName={group.name}
+            position={index + 1}
+            canMoveUp={index > 0}
+            canMoveDown={index < orderedGroups.length - 1}
+            disabled={isFiltered}
+            onMoveUp={() => moveGroup(group, "up")}
+            onMoveDown={() => moveGroup(group, "down")}
+          />
+        );
+      },
+    },
     {
       id: "name",
       header: "Name",
@@ -188,7 +244,7 @@ export function GroupsTab(props: GroupsTabProps): React.ReactElement {
         columns={columns}
         getRowId={(group) => group.id}
         searchable={false}
-        defaultSort={{ columnId: "name", direction: "asc" }}
+        defaultSort={{ columnId: "order", direction: "asc" }}
         noResultsState={
           <ListEmptyState
             resource="groups"
@@ -206,21 +262,33 @@ export function GroupsTab(props: GroupsTabProps): React.ReactElement {
             kind: "Group",
             entityId: group.id,
           });
+          const index = orderIndexById.get(group.id) ?? 0;
           return (
             <Card className="p-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <GroupName
-                    group={group}
-                    isLocked={isLocked}
-                    provenance={provenance}
-                    editing={editingId === group.id}
-                    draft={draft}
-                    onDraftChange={setDraft}
-                    onStartEditing={() => startEditing(group)}
-                    onCommit={() => commitRename(group)}
-                    onCancel={cancelEditing}
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <ReorderControls
+                    groupName={group.name}
+                    position={index + 1}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < orderedGroups.length - 1}
+                    disabled={isFiltered}
+                    onMoveUp={() => moveGroup(group, "up")}
+                    onMoveDown={() => moveGroup(group, "down")}
                   />
+                  <div className="min-w-0 flex-1">
+                    <GroupName
+                      group={group}
+                      isLocked={isLocked}
+                      provenance={provenance}
+                      editing={editingId === group.id}
+                      draft={draft}
+                      onDraftChange={setDraft}
+                      onStartEditing={() => startEditing(group)}
+                      onCommit={() => commitRename(group)}
+                      onCancel={cancelEditing}
+                    />
+                  </div>
                 </div>
                 <GroupActions
                   group={group}
@@ -244,6 +312,60 @@ export function GroupsTab(props: GroupsTabProps): React.ReactElement {
           );
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Up/down reorder controls plus the current 1-based position, shared by the
+ * desktop row and the mobile card. Disabled while a filter is active (moving a
+ * hidden neighbor is ambiguous) or at the ends of the list.
+ */
+function ReorderControls({
+  groupName,
+  position,
+  canMoveUp,
+  canMoveDown,
+  disabled,
+  onMoveUp,
+  onMoveDown,
+}: {
+  groupName: string;
+  position: number;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  disabled: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}): React.ReactElement {
+  const filteredTitle = disabled ? "Clear filters to reorder" : undefined;
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex flex-col">
+        <button
+          type="button"
+          disabled={disabled || !canMoveUp}
+          title={filteredTitle ?? "Move up"}
+          aria-label={`Move ${groupName} up`}
+          onClick={onMoveUp}
+          className="text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronUp className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          disabled={disabled || !canMoveDown}
+          title={filteredTitle ?? "Move down"}
+          aria-label={`Move ${groupName} down`}
+          onClick={onMoveDown}
+          className="text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {position}
+      </span>
     </div>
   );
 }

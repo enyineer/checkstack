@@ -162,6 +162,84 @@ describe("Stage-1 routeEntityChange — fresh triggers via deriver", () => {
   });
 });
 
+describe("Stage-1 routeEntityChange — single enabled-automations read", () => {
+  /**
+   * Wrap a store, counting how many times each read path is hit. Proves the
+   * fan-out does not re-scan `automations` once per derived event id.
+   */
+  function countingStore(inner: AutomationStore): {
+    store: AutomationStore;
+    counts: { listEnabled: number; findByEvent: number };
+  } {
+    const counts = { listEnabled: 0, findByEvent: 0 };
+    return {
+      counts,
+      store: {
+        ...inner,
+        listEnabled: async () => {
+          counts.listEnabled += 1;
+          return inner.listEnabled();
+        },
+        findEnabledByTriggerEvent: async (eventId) => {
+          counts.findByEvent += 1;
+          return inner.findEnabledByTriggerEvent(eventId);
+        },
+      },
+    };
+  }
+
+  it("reads enabled automations ONCE regardless of how many event ids derive", async () => {
+    const { deps } = makeDispatchDeps();
+    const changeDerivers = createChangeDeriverRegistry();
+    // Five derived event ids — the pre-fix code issued one full-table scan per
+    // id (an N-scans-per-change N+1).
+    changeDerivers.register({
+      kind: "fake",
+      derive: () => [
+        "fake.opened",
+        "fake.touched",
+        "fake.a",
+        "fake.b",
+        "fake.c",
+      ],
+    });
+
+    const auto = fakeAutomation(); // references "fake.opened"
+    const { store, counts } = countingStore(storeWith([auto]));
+
+    const jobs = await routeEntityChange({
+      deps,
+      automationStore: store,
+      changeDerivers,
+      changed: change(),
+    });
+
+    // Batched: exactly one enabled-automations read, zero per-event scans.
+    expect(counts.listEnabled).toBe(1);
+    expect(counts.findByEvent).toBe(0);
+    // Behaviour unchanged: still fans out only to the matching automation.
+    const triggerJobs = jobs.filter((j) => j.reason === "trigger");
+    expect(triggerJobs).toHaveLength(1);
+    expect(triggerJobs[0]?.reason === "trigger" && triggerJobs[0].automationId).toBe(
+      "auto-1",
+    );
+  });
+
+  it("issues zero automation reads when nothing derives (production default)", async () => {
+    const { deps } = makeDispatchDeps();
+    const { store, counts } = countingStore(storeWith([fakeAutomation()]));
+    const jobs = await routeEntityChange({
+      deps,
+      automationStore: store,
+      changeDerivers: createChangeDeriverRegistry(), // no derivers
+      changed: change(),
+    });
+    expect(jobs).toHaveLength(0);
+    expect(counts.listEnabled).toBe(0);
+    expect(counts.findByEvent).toBe(0);
+  });
+});
+
 describe("Stage-1 trigger jobId — dedup by changeId, not occurredAt", () => {
   /** Re-route the same logical change and collect the trigger job ids. */
   async function triggerJobIdsFor(changed: EntityChanged): Promise<string[]> {

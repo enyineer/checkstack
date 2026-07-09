@@ -15,6 +15,11 @@ import {
 // custom domains.
 export { PublicStatusPageView } from "./pages/PublicStatusPage";
 export {
+  PublicIncidentDetailView,
+  PublicMaintenanceDetailView,
+} from "./pages/PublicEventDetailPage";
+export { type BuildDetailHref } from "./renderers";
+export {
   RendererRemotesProvider,
   useLoadRendererRemotes,
   type LoadRendererRemotes,
@@ -56,6 +61,27 @@ export default createFrontendPlugin({
           default: m.PublicStatusPage,
         })),
       title: "Status",
+      standalone: true,
+    },
+    {
+      // PUBLIC incident detail page (linked from the incidents widget). Gated
+      // server-side to items the page's published widgets actually surface.
+      route: statusPublicRoutes.routes.incident,
+      load: () =>
+        import("./pages/PublicEventDetailPage").then((m) => ({
+          default: m.PublicIncidentDetailPage,
+        })),
+      title: "Incident",
+      standalone: true,
+    },
+    {
+      // PUBLIC maintenance detail page.
+      route: statusPublicRoutes.routes.maintenance,
+      load: () =>
+        import("./pages/PublicEventDetailPage").then((m) => ({
+          default: m.PublicMaintenanceDetailPage,
+        })),
+      title: "Maintenance",
       standalone: true,
     },
   ],

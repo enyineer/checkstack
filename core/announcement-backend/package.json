@@ -22,6 +22,7 @@
     "@checkstack/command-backend": "workspace:*",
     "@checkstack/common": "workspace:*",
     "@checkstack/signal-common": "workspace:*",
+    "@checkstack/status-page-backend": "workspace:*",
     "drizzle-orm": "^0.45.0",
     "zod": "^4.2.1",
     "@orpc/server": "^1.14.4"

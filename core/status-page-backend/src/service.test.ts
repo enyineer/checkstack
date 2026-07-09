@@ -408,6 +408,61 @@ describe("resolveByHost — routing gate (verified AND published)", () => {
   });
 });
 
+describe("resolvePublished — environment scope threading", () => {
+  function capturingWidget(sink: { seen?: string[]; called: boolean }) {
+    return widget({
+      id: "cap",
+      qualifiedId: "test.cap",
+      resolvePublic: async ({ ctx }) => {
+        sink.called = true;
+        sink.seen = ctx.publishedEnvironmentIds;
+        return { value: "ok" };
+      },
+    });
+  }
+
+  test("threads the page's published environment ids into the widget ctx", async () => {
+    const sink = { called: false } as { seen?: string[]; called: boolean };
+    const svc = service({
+      row: row({
+        publishedEnvironmentIds: ["prod", "stage"],
+        publishedLayout: [{ id: "b1", type: "test.cap", config: {} }],
+      }),
+      widgets: [capturingWidget(sink)],
+    });
+    await svc.resolvePublished({ slug: "acme", isAuthenticated: false });
+    expect(sink.called).toBe(true);
+    expect(sink.seen).toEqual(["prod", "stage"]);
+  });
+
+  test("a NULL env column threads undefined (all environments)", async () => {
+    const sink = { called: false } as { seen?: string[]; called: boolean };
+    const svc = service({
+      row: row({
+        publishedEnvironmentIds: null,
+        publishedLayout: [{ id: "b1", type: "test.cap", config: {} }],
+      }),
+      widgets: [capturingWidget(sink)],
+    });
+    await svc.resolvePublished({ slug: "acme", isAuthenticated: false });
+    expect(sink.called).toBe(true);
+    expect(sink.seen).toBeUndefined();
+  });
+
+  test("an EMPTY env array threads undefined (all environments)", async () => {
+    const sink = { called: false } as { seen?: string[]; called: boolean };
+    const svc = service({
+      row: row({
+        publishedEnvironmentIds: [],
+        publishedLayout: [{ id: "b1", type: "test.cap", config: {} }],
+      }),
+      widgets: [capturingWidget(sink)],
+    });
+    await svc.resolvePublished({ slug: "acme", isAuthenticated: false });
+    expect(sink.seen).toBeUndefined();
+  });
+});
+
 describe("resolvePublished — renderer remotes (third-party widgets)", () => {
   test("lists the remote for a third-party widget, dedupes, and omits built-ins", async () => {
     const svc = service({

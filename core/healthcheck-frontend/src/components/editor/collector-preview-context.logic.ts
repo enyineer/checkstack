@@ -14,7 +14,11 @@
  *    from what runs.
  */
 
-import type { JsonSchema, JsonSchemaProperty } from "@checkstack/ui";
+import type {
+  JsonSchema,
+  JsonSchemaProperty,
+  TemplateProperty,
+} from "@checkstack/ui";
 
 /**
  * True when `schema` (or any nested object/array property) declares at least
@@ -85,4 +89,60 @@ export function buildTemplatePreviewContext({
     check: check ?? {},
     system: system ?? {},
   };
+}
+
+/**
+ * Build the FIXED completion namespace offered by the health-check editor's
+ * `{{ … }}` autocomplete. Mirrors the run-time template context exactly (see
+ * `queue-executor.ts`):
+ *
+ *   - `environment.<key>` for each custom field of the SELECTED environment
+ *     (none when no environment is picked).
+ *   - `check.id` / `check.name` / `check.intervalSeconds` (always).
+ *   - `system.id` / `system.name` (always).
+ *
+ * Feed the result to `createReferenceCompletionProvider` from `@checkstack/ui`
+ * and pass that provider to `DynamicForm`. Typing `{{` then offers these paths
+ * and inserts `{{ path }}`.
+ */
+export function buildHealthCheckTemplateProperties({
+  environmentFields,
+}: {
+  environmentFields: Record<string, unknown>;
+}): TemplateProperty[] {
+  const envProperties: TemplateProperty[] = Object.keys(environmentFields).map(
+    (key) => ({
+      path: `environment.${key}`,
+      type: templateValueType(environmentFields[key]),
+      description: "Selected environment custom field",
+    }),
+  );
+
+  const checkProperties: TemplateProperty[] = [
+    { path: "check.id", type: "string", description: "Health check id" },
+    { path: "check.name", type: "string", description: "Health check name" },
+    {
+      path: "check.intervalSeconds",
+      type: "number",
+      description: "Check interval in seconds",
+    },
+  ];
+
+  const systemProperties: TemplateProperty[] = [
+    { path: "system.id", type: "string", description: "Monitored system id" },
+    {
+      path: "system.name",
+      type: "string",
+      description: "Monitored system name",
+    },
+  ];
+
+  return [...envProperties, ...checkProperties, ...systemProperties];
+}
+
+/** Coarse type label for a completion row (display only). */
+function templateValueType(value: unknown): string {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  return "string";
 }

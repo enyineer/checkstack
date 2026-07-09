@@ -51,6 +51,7 @@ export * from "./components/TimeOfDayInput";
 export * from "./components/DateRangeFilter";
 export * from "./components/BackLink";
 export * from "./components/StatusUpdateTimeline";
+export * from "./components/status-tone";
 export * from "./components/LinksEditor";
 export * from "./components/Slider";
 export * from "./components/DynamicIcon";

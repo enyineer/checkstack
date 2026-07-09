@@ -15,7 +15,11 @@ import {
   sloRoutes,
   AchievementTypeSchema,
 } from "@checkstack/slo-common";
-import { createBackendPlugin, coreServices } from "@checkstack/backend-api";
+import {
+  createBackendPlugin,
+  coreServices,
+  createHook,
+} from "@checkstack/backend-api";
 import { inArray, ilike } from "drizzle-orm";
 import {
   automationTriggerExtensionPoint,
@@ -28,6 +32,12 @@ import { createRouter } from "./router";
 import { createSloCache } from "./cache";
 import { DependencyApi } from "@checkstack/dependency-common";
 import { HealthCheckApi } from "@checkstack/healthcheck-common";
+import { MaintenanceApi } from "@checkstack/maintenance-common";
+import {
+  IncidentApi,
+  INCIDENT_LIFECYCLE_CHANGED_HOOK_ID,
+  type IncidentLifecycleChangedPayload,
+} from "@checkstack/incident-common";
 import {
   CATALOG_SYSTEM_ENTITY_KIND,
 } from "@checkstack/catalog-backend";
@@ -89,6 +99,15 @@ const sloWeeklyDigestPayloadSchema = z.object({
     }),
   ),
 });
+
+// Distributed hook fired by incident-backend on EVERY incident lifecycle change
+// (create/update/resolve/delete, incl. override added/changed/cleared). The id +
+// payload contract live in the incident-common LEAF, so subscribing here needs
+// no dependency on incident-backend. Consumed with `work-queue` delivery so the
+// downtime reconcile runs exactly once per cluster (like the health handlers).
+const incidentLifecycleChangedHook = createHook<IncidentLifecycleChangedPayload>(
+  INCIDENT_LIFECYCLE_CHANGED_HOOK_ID,
+);
 
 // =============================================================================
 // Plugin Definition
@@ -238,6 +257,8 @@ export default createBackendPlugin({
         rpcClient: coreServices.rpcClient,
         queueManager: coreServices.queueManager,
         cacheManager: coreServices.cacheManager,
+        eventBus: coreServices.eventBus,
+        advisoryLock: coreServices.advisoryLock,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
       },
       init: async ({
@@ -247,6 +268,7 @@ export default createBackendPlugin({
         signalService,
         rpcClient,
         cacheManager,
+        advisoryLock,
         resourceResolverRegistry,
       }) => {
         logger.debug("🔧 Initializing SLO Backend...");
@@ -258,6 +280,7 @@ export default createBackendPlugin({
           service,
           signalService,
           logger,
+          advisoryLock,
         });
 
         // Store for afterPluginsReady
@@ -347,6 +370,8 @@ export default createBackendPlugin({
         rpcClient,
         signalService,
         queueManager,
+        eventBus,
+        advisoryLock,
       }) => {
         const typedDb = database as SafeDatabase<typeof schema>;
         const service = new SloService(typedDb);
@@ -354,6 +379,7 @@ export default createBackendPlugin({
           service,
           signalService,
           logger,
+          advisoryLock,
         });
         // Publish the service + engine for the PLUGIN-BACKED + COMPUTED entity
         // `read` accessor (defined in register()). The daily snapshot job — the
@@ -364,13 +390,67 @@ export default createBackendPlugin({
 
         const dependencyClient = rpcClient.forPlugin(DependencyApi);
         const healthCheckClient = rpcClient.forPlugin(HealthCheckApi);
+        const maintenanceClient = rpcClient.forPlugin(MaintenanceApi);
+        const incidentClient = rpcClient.forPlugin(IncidentApi);
 
         /**
-         * Set health status callback on the shared engine instance
-         * (the one used by the router). This enables reconcileObjective
-         * to check current system health when SLOs are created.
+         * Resolve a system's planned maintenance windows for SLO error-budget
+         * exclusion (opt-in per objective via `excludeMaintenanceWindows`). The
+         * SLO budget window is TRAILING, so this queries by TIME-RANGE OVERLAP
+         * over `[from, to]` and INCLUDES already-completed windows (the RPC
+         * excludes only `cancelled`). Using the active-only bulk RPC here would
+         * miss "last night's planned maintenance" the moment it completes and
+         * make consumed budget jump non-monotonically. The engine subtracts the
+         * portion of downtime overlapping each returned window. Set on BOTH
+         * engine instances so the read path (router) and the daily snapshot /
+         * recovery path agree. Fails open (empty list) if the RPC is
+         * unavailable, so an SLO read never breaks.
          */
-        sharedEngine.setHealthStatusCallback(async (systemId) => {
+        const maintenanceWindowsResolver = async ({
+          systemId,
+          from,
+          to,
+        }: {
+          systemId: string;
+          from: Date;
+          to: Date;
+        }) => {
+          try {
+            const { maintenances } =
+              await maintenanceClient.getMaintenanceWindowsForRange({
+                systemIds: [systemId],
+                from,
+                to,
+              });
+            return (maintenances[systemId] ?? []).map((m) => ({
+              startAt: m.startAt,
+              endAt: m.endAt,
+              status: m.status,
+            }));
+          } catch (error) {
+            logger.warn(
+              `SLO: failed to resolve maintenance windows for system ${systemId}`,
+              { error },
+            );
+            return [];
+          }
+        };
+        sharedEngine.setMaintenanceWindowsResolver(maintenanceWindowsResolver);
+        engine.setMaintenanceWindowsResolver(maintenanceWindowsResolver);
+
+        /**
+         * EFFECTIVE system health: the healthcheck `getSystemHealthStatus` RPC
+         * folds active incident overrides (worst-wins), so an incident-forced
+         * unhealthy/degraded status counts as "down" here. This is what makes the
+         * open/close decisions incident-aware WITHOUT a second data source: an
+         * incident-only open event reads as ongoing, checks-recovery does not
+         * close while an incident is still active, and incident-resolve does not
+         * close while checks are still down. Set on BOTH engine instances so the
+         * router (sharedEngine) reconcile/reads AND the event-driven engine
+         * (handleSystemDown/Up + the incident channel) agree. Fails open
+         * (healthy) so an SLO read/close never breaks on a transient RPC error.
+         */
+        const getEffectiveSystemHealth = async (systemId: string) => {
           try {
             const status = await healthCheckClient.getSystemHealthStatus({
               systemId,
@@ -387,7 +467,39 @@ export default createBackendPlugin({
             // Default to healthy if we can't determine status
             return { isHealthy: true };
           }
-        });
+        };
+        sharedEngine.setHealthStatusCallback(getEffectiveSystemHealth);
+        engine.setHealthStatusCallback(getEffectiveSystemHealth);
+
+        /**
+         * Incident-override LABELING resolver: reports whether an incident
+         * currently forces a health override onto a system
+         * (`IncidentApi.getActiveHealthOverrides`). Used ONLY to label a new
+         * downtime event's `source` (the open/close DECISIONS use effective
+         * health above). Fails open to "not active" — a labeling default, never a
+         * close decision. Set on both engines (router reconcileObjective + the
+         * event-driven incident channel).
+         */
+        const isIncidentOverrideActive = async ({
+          systemId,
+        }: {
+          systemId: string;
+        }) => {
+          try {
+            const { overrides } = await incidentClient.getActiveHealthOverrides({
+              systemIds: [systemId],
+            });
+            return { active: (overrides[systemId]?.length ?? 0) > 0 };
+          } catch (error) {
+            logger.warn(
+              `SLO: failed to read incident overrides for system ${systemId}`,
+              { error },
+            );
+            return { active: false };
+          }
+        };
+        sharedEngine.setIncidentOverrideResolver(isIncidentOverrideActive);
+        engine.setIncidentOverrideResolver(isIncidentOverrideActive);
 
         /**
          * Resolve a system's ACTUAL recovery time for missed-recovery
@@ -396,9 +508,19 @@ export default createBackendPlugin({
          * downtime window at the true recovery instant (preserving the genuine
          * downtime) instead of deleting it. Returns null when no healthy run is
          * found (e.g. history pruned) — the caller then falls back to deleting
-         * the unprovable window.
+         * the unprovable window. Set on BOTH engines: the router self-heals on
+         * read, and the daily streak job self-heals in the background — the
+         * latter runs on `engine`, which now also has the health callback, so
+         * without this resolver its orphan reconcile would DELETE recoverable
+         * downtime instead of closing it at the true recovery time.
          */
-        sharedEngine.setRecoveryTimeResolver(async ({ systemId, since }) => {
+        const resolveRecoveryTime = async ({
+          systemId,
+          since,
+        }: {
+          systemId: string;
+          since: Date;
+        }) => {
           try {
             const { runs } = await healthCheckClient.getHistory({
               systemId,
@@ -416,7 +538,9 @@ export default createBackendPlugin({
             );
             return null;
           }
-        });
+        };
+        sharedEngine.setRecoveryTimeResolver(resolveRecoveryTime);
+        engine.setRecoveryTimeResolver(resolveRecoveryTime);
 
         /**
          * Helper: check upstream health status via RPC loopback.
@@ -558,6 +682,30 @@ export default createBackendPlugin({
           },
           delivery: { mode: "work-queue", workerGroup: "slo-system-cleanup" },
         });
+
+        // =====================================================================
+        // Incident lifecycle: open/close incident-forced downtime
+        // =====================================================================
+        // An active incident health override forces a system unhealthy/degraded
+        // but does NOT change the checks-only `health` entity, so the health
+        // handlers above never observe it. Subscribe to the incident lifecycle
+        // hook — which fires on create/update/resolve/delete INCLUDING
+        // override-only edits (the reactive `incident` entity change would miss
+        // those) — and reconcile each affected system's downtime against
+        // effective health: open an incident-sourced event while forced down,
+        // close it once resolved/deleted/cleared AND checks are healthy.
+        // `work-queue` delivery = exactly-once per cluster, matching the health
+        // handlers (a broadcast would double-apply the write).
+        await eventBus.subscribe(
+          pluginMetadata.pluginId,
+          incidentLifecycleChangedHook,
+          async ({ systemIds }) => {
+            for (const systemId of systemIds) {
+              await engine.reconcileIncidentDowntime({ systemId });
+            }
+          },
+          { mode: "work-queue", workerGroup: "slo-incident-downtime" },
+        );
 
         // =====================================================================
         // Daily snapshot + streak calculation cron job

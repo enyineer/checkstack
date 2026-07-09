@@ -6,6 +6,7 @@ import { createMaintenanceAddUpdateTool } from "./maintenance-add-update";
 import { createMaintenanceCloseTool } from "./maintenance-close";
 import { createMaintenanceAddLinkTool } from "./maintenance-add-link";
 import { createMaintenanceRemoveLinkTool } from "./maintenance-remove-link";
+import { createMaintenanceDeleteUpdateTool } from "./maintenance-delete-update";
 
 /**
  * The maintenance plugin's AI tools, registered into the AI registry via
@@ -29,5 +30,6 @@ export function buildMaintenanceAiTools(): RegisteredAiTool[] {
     createMaintenanceCloseTool(),
     createMaintenanceAddLinkTool(),
     createMaintenanceRemoveLinkTool(),
+    createMaintenanceDeleteUpdateTool(),
   ];
 }

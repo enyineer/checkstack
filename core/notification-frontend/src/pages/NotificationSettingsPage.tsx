@@ -16,7 +16,6 @@ import {
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
-import type { EnrichedSubscription } from "@checkstack/notification-common";
 import {
   NotificationApi,
   notificationAccess,
@@ -65,13 +64,6 @@ export const NotificationSettingsPage = () => {
   const { data: fetchedRetentionSettings, isLoading: retentionLoading } =
     notificationClient.getRetentionSettings.useQuery({}, { enabled: isAdmin });
 
-  // Query: Subscriptions
-  const {
-    data: subscriptions = [],
-    isLoading: subsLoading,
-    refetch: refetchSubscriptions,
-  } = notificationClient.getSubscriptions.useQuery({});
-
   // Query: Delivery strategies (admin only)
   const {
     data: strategies = [],
@@ -106,16 +98,6 @@ export const NotificationSettingsPage = () => {
         toastError(toast, "Failed to save settings", error);
       },
     });
-
-  const unsubscribeMutation = notificationClient.unsubscribe.useMutation({
-    onSuccess: () => {
-      toastSuccess(toast, "Unsubscribed successfully");
-      void refetchSubscriptions();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to unsubscribe", error);
-    },
-  });
 
   const updateStrategyMutation =
     notificationClient.updateDeliveryStrategy.useMutation({
@@ -187,10 +169,6 @@ export const NotificationSettingsPage = () => {
     );
   };
 
-  const handleUnsubscribe = (groupId: string) => {
-    unsubscribeMutation.mutate({ groupId });
-  };
-
   const handleStrategyUpdate = async (
     strategyId: string,
     enabled: boolean,
@@ -246,7 +224,7 @@ export const NotificationSettingsPage = () => {
   };
 
   return (
-    <PageLayout title="Notification Settings" icon={Bell} loading={subsLoading}>
+    <PageLayout title="Notification Settings" icon={Bell}>
       <div className="space-y-8">
         <TipBanner
           plugin={notificationPluginMetadata}
@@ -290,52 +268,6 @@ export const NotificationSettingsPage = () => {
                   connecting={channelConnecting === channel.strategyId}
                   testing={channelTesting === channel.strategyId}
                 />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Subscription Management - Shows current subscriptions */}
-        <section>
-          <SectionHeader
-            title="Your Subscriptions"
-            description="Manage your notification subscriptions. Subscriptions are created by plugins and services."
-            icon={<Bell className="h-5 w-5" />}
-          />
-          {(subscriptions as EnrichedSubscription[]).length === 0 ? (
-            <Card className="p-4">
-              <div className="text-center py-4 text-muted-foreground">
-                No active subscriptions
-              </div>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {(subscriptions as EnrichedSubscription[]).map((sub) => (
-                <div
-                  key={sub.groupId}
-                  className="group relative flex items-center justify-between gap-4 overflow-hidden rounded-[var(--d-card-r)] border border-border/70 bg-gradient-to-b from-surface-2 to-surface p-[var(--d-pad)] shadow-[0_1px_2px_hsl(var(--foreground)/0.04),0_10px_30px_-14px_hsl(var(--foreground)/0.12)] transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-xl"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-foreground">
-                      {sub.groupName}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {sub.groupDescription}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      From: {sub.ownerPlugin}
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUnsubscribe(sub.groupId)}
-                    disabled={unsubscribeMutation.isPending}
-                    className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-                  >
-                    Unsubscribe
-                  </Button>
-                </div>
               ))}
             </div>
           )}

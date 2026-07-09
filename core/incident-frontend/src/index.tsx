@@ -22,12 +22,29 @@ export default createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [
     {
+      // Public, read-gated overview. Anonymous holds `incident.read` by default,
+      // so this nav shows logged-out (Item 6). Managing/editing stays on the
+      // separate manage-gated config route below.
+      route: incidentRoutes.routes.overview,
+      load: () =>
+        import("./pages/IncidentOverviewPage").then((m) => ({
+          default: m.IncidentOverviewPage,
+        })),
+      title: "Incidents",
+      accessRule: incidentAccess.incident.read,
+      nav: {
+        group: "Reliability",
+        icon: AlertTriangle,
+        isVisible: () => true,
+      },
+    },
+    {
       route: incidentRoutes.routes.config,
       load: () =>
         import("./pages/IncidentConfigPage").then((m) => ({
           default: m.IncidentConfigPage,
         })),
-      title: "Incidents",
+      title: "Manage Incidents",
       accessRule: incidentAccess.incident.manage,
       // Team-scoped: managing a system unlocks the incidents surface for it.
       manageCapability: {

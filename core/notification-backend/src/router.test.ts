@@ -528,6 +528,8 @@ function createDispatchDb({
         };
       }),
     })),
+    // Scoped-db contract: resolveInheritedGroups batches its two reads in a tx.
+    transaction: mock((cb: (tx: unknown) => unknown) => cb(db)),
   };
 
   return { db, capturedInsert };
@@ -819,6 +821,237 @@ describe("notification router · notifyForSubscription (dispatch)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// notifyForSubscription · external-delivery config hoisting (regression)
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll `predicate` across event-loop turns until it holds. The external
+ * fan-out in `notifyForSubscription` is fire-and-forget (`void
+ * sendToExternalChannels(...)`), so the per-recipient sends settle AFTER the
+ * handler promise resolves. All the doubles resolve synchronously, so a
+ * handful of `setImmediate` turns is enough to flush them.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  { tries = 100 }: { tries?: number } = {},
+): Promise<void> {
+  for (let i = 0; i < tries; i += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  if (!predicate()) {
+    throw new Error("waitFor: condition was not met within the allotted turns");
+  }
+}
+
+/**
+ * A `ConfigService` double that records every `get(configId)` it services so a
+ * test can assert HOW MANY TIMES each strategy config was read across a
+ * multi-recipient dispatch. Returns canned values keyed by the id suffix the
+ * `StrategyService` uses:
+ *   - `strategy.<id>.meta`         -> `{ enabled: true }`
+ *   - `strategy.<id>.config`       -> a non-null opaque config
+ *   - `strategy.<id>.layoutConfig` -> undefined (strategies here declare none)
+ *   - `user-pref.<userId>.<id>`    -> the per-user preference (recipient-specific)
+ */
+function makeCountingConfigService({
+  prefByUser = {},
+}: {
+  prefByUser?: Record<string, { enabled: boolean } | null>;
+}): { configService: unknown; getIds: string[] } {
+  const getIds: string[] = [];
+  const configService = {
+    get: mock(async (configId: string) => {
+      getIds.push(configId);
+      if (configId.endsWith(".meta")) return { enabled: true };
+      if (configId.endsWith(".layoutConfig")) return undefined;
+      if (configId.startsWith("user-pref.")) {
+        for (const [userId, pref] of Object.entries(prefByUser)) {
+          if (configId.startsWith(`user-pref.${userId}.`)) return pref;
+        }
+        return null;
+      }
+      // strategy.<id>.config — non-null so the strategy is "configured".
+      return { opaque: true };
+    }),
+    set: mock(async () => {}),
+  };
+  return { configService, getIds };
+}
+
+describe("notification router · notifyForSubscription (config hoisting)", () => {
+  const serviceCaller = {
+    type: "service" as const,
+    id: "service-caller",
+    pluginId: "my-plugin",
+    accessRules: ["*"],
+  };
+
+  const SUBJECTS_FIXTURE = [
+    { kind: "my-plugin.system", id: "system-1", name: "API Gateway" },
+  ];
+
+  function buildRouterForDelivery({
+    db,
+    configService,
+    sends,
+  }: {
+    db: unknown;
+    configService: unknown;
+    sends: Array<{ contact: string }>;
+  }): {
+    router: ReturnType<typeof createNotificationRouter>;
+    send: ReturnType<typeof mock>;
+  } {
+    const send = mock(async (ctx: { contact: string }) => {
+      sends.push({ contact: ctx.contact });
+      return { success: true };
+    });
+    const router = createNotificationRouter({
+      database: db as never,
+      configService: configService as never,
+      signalService: makeSignalService() as never,
+      strategyRegistry: makeStrategyRegistry([
+        { qualifiedId: "my-plugin.email", send },
+      ]),
+      rpcApi: {
+        forPlugin: () => ({
+          getUserById: async ({ userId }: { userId: string }) => ({
+            id: userId,
+            email: `${userId}@example.com`,
+            name: userId,
+          }),
+        }),
+      } as never,
+      logger: makeLogger() as never,
+      cache: passthroughCache,
+    });
+    return { router, send };
+  }
+
+  it("reads the recipient-independent strategy config ONCE per strategy while fanning out to every recipient", async () => {
+    // Two subscribers, both with the channel enabled. The meta + config reads
+    // are recipient-independent, so they must be issued exactly ONCE for the
+    // whole fan-out; only the per-user preference read scales with recipients.
+    const { db } = createDispatchDb({
+      scenario: {
+        spec: SPEC_FIXTURE,
+        knownResources: [{ resourceKey: "system-1" }],
+        subscribers: [{ userId: "user-1" }, { userId: "user-2" }],
+      },
+      insertReturning: [
+        { id: "notif-1", userId: "user-1" },
+        { id: "notif-2", userId: "user-2" },
+      ],
+    });
+    const { configService, getIds } = makeCountingConfigService({
+      prefByUser: { "user-1": { enabled: true }, "user-2": { enabled: true } },
+    });
+    const sends: Array<{ contact: string }> = [];
+    const { router, send } = buildRouterForDelivery({ db, configService, sends });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user: serviceCaller,
+    });
+
+    const result = await call(
+      router.notifyForSubscription,
+      {
+        specId: SPEC_FIXTURE.specId,
+        resourceKeys: ["system-1"],
+        title: "Heads up",
+        body: "Something happened",
+        subjects: SUBJECTS_FIXTURE,
+      },
+      { context },
+    );
+
+    expect(result.notifiedCount).toBe(2);
+
+    // Fan-out reaches BOTH recipients, each with their own resolved contact.
+    await waitFor(() => send.mock.calls.length === 2);
+    expect(sends.map((s) => s.contact).sort()).toEqual([
+      "user-1@example.com",
+      "user-2@example.com",
+    ]);
+
+    // The recipient-INDEPENDENT reads happen exactly once despite 2 recipients.
+    const metaReads = getIds.filter((id) => id.endsWith(".meta"));
+    const configReads = getIds.filter((id) => id.endsWith(".config"));
+    expect(metaReads).toEqual(["strategy.my-plugin.email.meta"]);
+    expect(configReads).toEqual(["strategy.my-plugin.email.config"]);
+
+    // The per-recipient preference read still scales with recipients: one per
+    // user, proving each recipient's own preference is consulted.
+    const prefReads = getIds.filter((id) => id.startsWith("user-pref."));
+    expect(prefReads.sort()).toEqual([
+      "user-pref.user-1.my-plugin.email",
+      "user-pref.user-2.my-plugin.email",
+    ]);
+  });
+
+  it("applies each recipient's own preference: a user who disabled the channel is skipped while config is still read once", async () => {
+    // user-1 keeps the channel on, user-2 turned it off. Both are notified
+    // in-app, but only user-1 receives the external send — and the strategy
+    // meta/config are STILL read exactly once for the whole fan-out.
+    const { db } = createDispatchDb({
+      scenario: {
+        spec: SPEC_FIXTURE,
+        knownResources: [{ resourceKey: "system-1" }],
+        subscribers: [{ userId: "user-1" }, { userId: "user-2" }],
+      },
+      insertReturning: [
+        { id: "notif-1", userId: "user-1" },
+        { id: "notif-2", userId: "user-2" },
+      ],
+    });
+    const { configService, getIds } = makeCountingConfigService({
+      prefByUser: { "user-1": { enabled: true }, "user-2": { enabled: false } },
+    });
+    const sends: Array<{ contact: string }> = [];
+    const { router, send } = buildRouterForDelivery({ db, configService, sends });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user: serviceCaller,
+    });
+
+    const result = await call(
+      router.notifyForSubscription,
+      {
+        specId: SPEC_FIXTURE.specId,
+        resourceKeys: ["system-1"],
+        title: "Heads up",
+        body: "Something happened",
+        subjects: SUBJECTS_FIXTURE,
+      },
+      { context },
+    );
+
+    // Both recipients get the in-app notification row.
+    expect(result.notifiedCount).toBe(2);
+
+    // Both users' preferences are consulted, so wait until both reads landed,
+    // then confirm only the enabled user received an external send.
+    await waitFor(
+      () =>
+        getIds.filter((id) => id.startsWith("user-pref.")).length === 2,
+    );
+    expect(send.mock.calls.length).toBe(1);
+    expect(sends).toEqual([{ contact: "user-1@example.com" }]);
+
+    // Config still read once regardless of the per-recipient skip.
+    expect(getIds.filter((id) => id.endsWith(".meta"))).toEqual([
+      "strategy.my-plugin.email.meta",
+    ]);
+    expect(getIds.filter((id) => id.endsWith(".config"))).toEqual([
+      "strategy.my-plugin.email.config",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sendTransactional · strategy fallback
 // ---------------------------------------------------------------------------
 
@@ -1036,6 +1269,66 @@ describe("notification router · sendTransactional (strategy fallback)", () => {
   });
 });
 
+describe("notification router · sendRawEmail (raw address)", () => {
+  const serviceCaller = {
+    type: "service" as const,
+    id: "service-caller",
+    pluginId: "any-plugin",
+    accessRules: ["*"],
+  };
+
+  it("delivers to the raw address via email strategies with a mandatory unsubscribe link", async () => {
+    let captured: { contact?: string; body?: string; action?: unknown } = {};
+    const send = mock(
+      async (ctx: {
+        contact: string;
+        notification: { body?: string; action?: unknown };
+      }) => {
+        captured = {
+          contact: ctx.contact,
+          body: ctx.notification.body,
+          action: ctx.notification.action,
+        };
+        return { success: true };
+      },
+    );
+
+    const router = buildRouterForSendTransactional({
+      db: {} as unknown,
+      strategies: [{ qualifiedId: "notification-smtp.smtp", send }],
+    });
+
+    const context = createMockRpcContext({
+      pluginMetadata: { pluginId: "notification" },
+      user: serviceCaller,
+    });
+
+    const result = await call(
+      router.sendRawEmail,
+      {
+        to: "anon@example.com",
+        subject: "Status update",
+        body: "Something happened.",
+        unsubscribeUrl: "https://status.example.com/statuspage/view/x?unsubscribe=tok",
+      },
+      { context },
+    );
+
+    expect(result.deliveredCount).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    // Raw address is passed straight through as the contact (no account lookup).
+    expect(captured.contact).toBe("anon@example.com");
+    // Mandatory unsubscribe link is in the body AND as the action.
+    expect(captured.body).toContain(
+      "https://status.example.com/statuspage/view/x?unsubscribe=tok",
+    );
+    expect(captured.action).toEqual({
+      label: "Unsubscribe",
+      url: "https://status.example.com/statuspage/view/x?unsubscribe=tok",
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // resolveSubscriptionInheritance (structural inheritance read)
 // ---------------------------------------------------------------------------
@@ -1082,6 +1375,8 @@ function createInheritanceDb({
         return buildThenable([]);
       }),
     })),
+    // Scoped-db contract: resolveInheritedGroups batches its two reads in a tx.
+    transaction: mock((cb: (tx: unknown) => unknown) => cb(db)),
   };
   return { db };
 }

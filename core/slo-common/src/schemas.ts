@@ -26,6 +26,19 @@ export const AttributionTypeSchema = z.enum(["self", "upstream"]);
 export type AttributionType = z.infer<typeof AttributionTypeSchema>;
 
 /**
+ * Cause of a downtime event (orthogonal to {@link AttributionTypeSchema}, which
+ * is the dependency dimension). This records WHY the system was down:
+ * - healthcheck: a failed health-check probe (the default/legacy cause).
+ * - incident: an active incident forced the system unhealthy/degraded via its
+ *   `healthOverride`.
+ *
+ * Persisted as a nullable column; a NULL row (written before this field existed)
+ * is read as `"healthcheck"`.
+ */
+export const DowntimeSourceSchema = z.enum(["healthcheck", "incident"]);
+export type DowntimeSource = z.infer<typeof DowntimeSourceSchema>;
+
+/**
  * Achievement types that can be unlocked by systems.
  */
 export const AchievementTypeSchema = z.enum([
@@ -73,6 +86,12 @@ export const SloObjectiveSchema = z.object({
   windowDays: z.number().int().positive(),
   dependencyExclusion: DependencyExclusionModeSchema,
   excludedDependencyIds: z.array(z.string()).optional(),
+  /**
+   * When true, downtime that overlaps a planned maintenance window on the
+   * system is subtracted from the error budget. Defaults to false so existing
+   * SLO numbers are preserved until a user opts in.
+   */
+  excludeMaintenanceWindows: z.boolean(),
   burnRateThresholds: BurnRateThresholdsSchema,
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -94,6 +113,12 @@ export const SloDowntimeEventSchema = z.object({
   attributionType: AttributionTypeSchema,
   upstreamSystemId: z.string().nullable(),
   upstreamSystemName: z.string().nullable(),
+  /**
+   * What caused this downtime (see {@link DowntimeSourceSchema}). Optional for
+   * backward compatibility with events persisted before the column existed; the
+   * service maps a NULL row to `"healthcheck"`.
+   */
+  source: DowntimeSourceSchema.optional(),
 });
 export type SloDowntimeEvent = z.infer<typeof SloDowntimeEventSchema>;
 
@@ -221,6 +246,11 @@ export const CreateSloObjectiveInputSchema = z.object({
     "strict",
   ),
   excludedDependencyIds: z.array(z.string()).optional().default([]),
+  /**
+   * Exclude planned maintenance windows from the error budget. Defaults to
+   * false to preserve existing SLO numbers for callers that omit it.
+   */
+  excludeMaintenanceWindows: z.boolean().optional().default(false),
   burnRateThresholds: BurnRateThresholdsSchema.optional().default({
     warningPercent: 50,
     criticalPercent: 80,
@@ -242,6 +272,7 @@ export const UpdateSloObjectiveInputSchema = z.object({
   windowDays: SloWindowDaysSchema.optional(),
   dependencyExclusion: DependencyExclusionModeSchema.optional(),
   excludedDependencyIds: z.array(z.string()).optional(),
+  excludeMaintenanceWindows: z.boolean().optional(),
   burnRateThresholds: BurnRateThresholdsSchema.optional(),
 });
 export type UpdateSloObjectiveInput = z.infer<

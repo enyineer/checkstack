@@ -43,20 +43,39 @@ import { extractErrorMessage } from "@checkstack/common";
  * Configuration schema for MySQL health checks.
  */
 export const mysqlConfigSchema = baseStrategyConfigSchema.extend({
-  host: configString({}).describe("MySQL server hostname"),
+  // Templatable connection fields: support `{{ environment.host }}` etc. so one
+  // config covers N environments. Presence is enforced POST-RENDER in
+  // `createClient`. `password` stays a secret (never templatable - see
+  // assertNoSecretTemplatableConflict).
+  host: configString({ "x-templatable": true }).describe(
+    "MySQL server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: configNumber({})
     .int()
     .min(1)
     .max(65_535)
     .default(3306)
     .describe("MySQL port"),
-  database: configString({}).describe("Database name"),
-  user: configString({}).describe("Database user"),
+  database: configString({ "x-templatable": true }).describe(
+    "Database name. Supports templating, e.g. {{ environment.database }}",
+  ),
+  user: configString({ "x-templatable": true }).describe(
+    "Database user. Supports templating, e.g. {{ environment.user }}",
+  ),
   password: configSecret({ id: "password" }).describe("Database password"),
 });
 
 export type MysqlConfig = z.infer<typeof mysqlConfigSchema>;
 export type MysqlConfigInput = z.input<typeof mysqlConfigSchema>;
+
+/**
+ * Post-render validator for required connection fields. The stored values are
+ * plain templatable strings, so presence cannot be checked at store time; the
+ * executor renders `{{ environment.* }}` per environment, then this rejects a
+ * render that collapsed to empty/whitespace. An empty host/database/user is a
+ * config error that prevents the probe - transport-failure semantics.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -274,12 +293,35 @@ export class MysqlHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<MysqlTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: the connection fields are templatable strings, so their
+    // presence cannot be checked at store time. The executor has already
+    // rendered `{{ environment.* }}`; reject a render that collapsed to empty so
+    // the run fails clearly instead of attempting an empty connection.
+    const rendered = z
+      .object({
+        host: renderedRequiredSchema,
+        database: renderedRequiredSchema,
+        user: renderedRequiredSchema,
+      })
+      .safeParse({
+        host: validatedConfig.host,
+        database: validatedConfig.database,
+        user: validatedConfig.user,
+      });
+    if (!rendered.success) {
+      throw new Error(
+        `Rendered MySQL connection fields are empty ` +
+          `(host/database/user). Check the {{ environment.* }} templating ` +
+          `for this environment.`,
+      );
+    }
+
     const connectStart = performance.now();
     const connection = await this.dbClient.connect({
-      host: validatedConfig.host,
+      host: rendered.data.host,
       port: validatedConfig.port,
-      database: validatedConfig.database,
-      user: validatedConfig.user,
+      database: rendered.data.database,
+      user: rendered.data.user,
       password: validatedConfig.password,
       connectTimeout: validatedConfig.timeout,
     });

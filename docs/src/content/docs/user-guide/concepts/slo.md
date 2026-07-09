@@ -49,6 +49,27 @@ You can also exclude specific upstream systems explicitly. The objective's detai
 > [!NOTE]
 > Attribution is decided as outages happen, and can split mid-outage: if an upstream goes down partway through a self-caused outage, the remaining minutes are re-attributed to the upstream.
 
+## Incident-forced downtime
+
+An [incident](/checkstack/user-guide/concepts/incidents/) can force a system to
+"degraded" or "unhealthy" with a health override, even while its health checks
+still pass. That forced downtime is real, so it counts against the affected
+system's SLOs the same way a failed check does: while an incident override is
+active, an open downtime event is recorded for each of the system's objectives
+and consumes the error budget, and the objective reads **Degraded**.
+
+The event closes automatically when the override stops applying - when the
+incident is resolved or deleted, or the override is cleared - as long as the
+system's health checks are also healthy by then. Downtime is never
+double-counted: if a health-check outage and an incident overlap, a single event
+covers the period. And one cause can never close downtime the other is still
+holding open - resolving an incident while checks are still failing leaves the
+outage open, and checks recovering while an incident override is still active
+does too.
+
+Each downtime event records its cause (a failed health check or an incident) so
+you can tell them apart in the downtime history.
+
 ## Notifications and history
 
 - A breaching or recovering objective broadcasts a signal that surfaces on the dashboard and feeds the assistant's "what is wrong?" view.

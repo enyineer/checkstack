@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
+import { renderTemplatableConfig } from "@checkstack/backend-api";
 import { QueryCollector, type QueryConfig } from "./query-collector";
 import type { MysqlTransportClient } from "./transport-client";
 
@@ -61,6 +62,79 @@ describe("QueryCollector", () => {
       expect(client.exec).toHaveBeenCalledWith({
         query: "SELECT COUNT(*) FROM orders",
       });
+    });
+  });
+
+  describe("environment templating", () => {
+    // `query` is `x-templatable`, so the executor renders `{{ environment.* }}`
+    // into it PER environment before execute. These tests exercise that render
+    // pass and the post-render empty-query guard together.
+    const renderQuery = (query: string, environment: Record<string, unknown>) => {
+      const collector = new QueryCollector();
+      const rendered = renderTemplatableConfig({
+        config: { query },
+        schema: collector.config.schema,
+        context: { environment, check: {}, system: {} },
+      });
+      return (rendered as { query: string }).query;
+    };
+
+    it("renders a {{ environment.query }} template against the env fields", () => {
+      expect(
+        renderQuery("{{ environment.query }}", {
+          query: "SELECT COUNT(*) FROM prod_users",
+        }),
+      ).toBe("SELECT COUNT(*) FROM prod_users");
+    });
+
+    it("runs the rendered query against the client", async () => {
+      const collector = new QueryCollector();
+      const client = createMockClient({ rowCount: 3 });
+      const query = renderQuery("{{ environment.query }}", {
+        query: "SELECT 1",
+      });
+
+      const result = await collector.execute({
+        config: { query },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(client.exec).toHaveBeenCalledWith({ query: "SELECT 1" });
+    });
+
+    it("returns a transport failure when the query renders empty (no env)", async () => {
+      const collector = new QueryCollector();
+      const client = createMockClient();
+      // An env-less run resolves `{{ environment.query }}` to "" (strict:false).
+      const query = renderQuery("{{ environment.query }}", {});
+      expect(query).toBe("");
+
+      const result = await collector.execute({
+        config: { query },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("Rendered query is empty");
+      expect(result.result.success).toBe(false);
+      // A config error must not run the query.
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
+    it("returns a transport failure for a whitespace-only rendered query", async () => {
+      const collector = new QueryCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { query: "   " },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("Rendered query is empty");
+      expect(client.exec).not.toHaveBeenCalled();
     });
   });
 

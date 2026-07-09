@@ -11,6 +11,9 @@ import {
   CreateIncidentInputSchema,
   UpdateIncidentInputSchema,
   AddIncidentUpdateInputSchema,
+  EditIncidentUpdateInputSchema,
+  DeleteIncidentUpdateInputSchema,
+  UpdateIncidentLinkInputSchema,
   IncidentStatusEnum,
   IncidentHealthOverrideEnum,
   BulkIncidentActionResultSchema,
@@ -105,6 +108,35 @@ export const incidentContract = {
       }),
     ),
 
+  /**
+   * Bulk fetch of each incident's update timeline, keyed by incident id. Backs
+   * the public status page's incidents widget so rendering the update timeline
+   * for N incidents costs ONE request instead of an N+1 fan-out of
+   * {@link getIncident} (which the widget was calling purely for `.updates`).
+   * The handler applies the SAME per-incident audience filter as `getIncident`
+   * (Item 3/5), so logged-in/internal updates and author identity never reach a
+   * caller who is not a manager of that incident; the public widget re-filters
+   * to `public` on top.
+   *
+   * `recordKey: "updates"` mirrors `getIncident`'s own-incident read gate
+   * (`idParam: "id"`) as a record post-filter: each incident-id key is checked
+   * against the caller's `incident.incident` read grant, exactly like
+   * `listIncidents`' `listKey`. Incidents with no updates are omitted.
+   */
+  getBulkIncidentUpdates: proc({
+    operationType: "query",
+    userType: "public",
+    access: [incidentAccess.incident.read],
+    instanceAccess: { recordKey: "updates" },
+  })
+    .route({ method: "POST" })
+    .input(z.object({ incidentIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        updates: z.record(z.string(), z.array(IncidentUpdateSchema)),
+      }),
+    ),
+
   /** Create a new incident */
   createIncident: proc({
     operationType: "mutation",
@@ -156,6 +188,38 @@ export const incidentContract = {
     .input(AddIncidentUpdateInputSchema)
     .output(IncidentUpdateSchema),
 
+  /**
+   * Edit a published update in place. Object-scoped on the OWNING incident via
+   * `incidentId` (mirrors addUpdate), so a team-scoped incident manager may edit
+   * updates on their own incident without the global rule. The handler scopes
+   * the write by `incidentId`, and a `statusChange` edit on the LATEST update
+   * re-derives the incident's status. Sets `editedAt`.
+   */
+  editUpdate: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+    instanceAccess: { idParam: "incidentId" },
+  })
+    .route({ method: "PATCH" })
+    .input(EditIncidentUpdateInputSchema)
+    .output(IncidentUpdateSchema),
+
+  /**
+   * Delete a published update. Object-scoped on the OWNING incident via
+   * `incidentId` (mirrors removeLink); the handler scopes the delete by
+   * `incidentId` so an update id cannot be paired with a foreign incident.
+   */
+  deleteUpdate: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+    instanceAccess: { idParam: "incidentId" },
+  })
+    .route({ method: "DELETE" })
+    .input(DeleteIncidentUpdateInputSchema)
+    .output(z.object({ success: z.boolean() })),
+
   /** Resolve an incident (sets status to resolved) */
   resolveIncident: proc({
     operationType: "mutation",
@@ -178,6 +242,23 @@ export const incidentContract = {
     instanceAccess: { idParam: "incidentId" },
   })
     .input(AddIncidentLinkInputSchema)
+    .output(IncidentLinkSchema),
+
+  /**
+   * Edit a hotlink in place. Object-scoped on the OWNING incident via
+   * `incidentId` (mirrors removeLink), so a team-scoped incident manager may
+   * edit links on their own incident without the global rule. The handler
+   * additionally scopes the update by `incidentId`, so a link id cannot be
+   * paired with a foreign incident the caller happens to manage.
+   */
+  updateLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [incidentAccess.incident.manage],
+    instanceAccess: { idParam: "incidentId" },
+  })
+    .route({ method: "PATCH" })
+    .input(UpdateIncidentLinkInputSchema)
     .output(IncidentLinkSchema),
 
   /** Remove a hotlink from an incident */

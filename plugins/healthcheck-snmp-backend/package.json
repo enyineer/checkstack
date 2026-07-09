@@ -1,0 +1,33 @@
+{
+  "name": "@checkstack/healthcheck-snmp-backend",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "backend",
+    "pluginId": "healthcheck-snmp"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "pack": "bunx @checkstack/scripts plugin-pack"
+  },
+  "dependencies": {
+    "@checkstack/backend-api": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/healthcheck-common": "workspace:*",
+    "net-snmp": "^3.26.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0",
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "description": "Checkstack healthcheck-snmp-backend plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
+}

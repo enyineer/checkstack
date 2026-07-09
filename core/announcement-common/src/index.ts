@@ -21,3 +21,12 @@ export {
 export * from "./plugin-metadata";
 export { announcementRoutes } from "./routes";
 export { ANNOUNCEMENT_UPDATED } from "./signals";
+export {
+  ANNOUNCEMENTS_WIDGET_ID,
+  AnnouncementsWidgetConfigSchema,
+  AnnouncementsWidgetItemDtoSchema,
+  AnnouncementsWidgetDtoSchema,
+  type AnnouncementsWidgetConfig,
+  type AnnouncementsWidgetItemDto,
+  type AnnouncementsWidgetDto,
+} from "./widget";

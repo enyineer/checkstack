@@ -5,6 +5,7 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import type { QueueManager } from "@checkstack/queue-api";
 import { adminPool, lockPool } from "./db";
 import { rootLogger } from "./logger";
+import { registerDbStatementInstruments } from "./pg-stat-statements";
 
 /**
  * OpenTelemetry metrics bootstrap (host-owned).
@@ -60,6 +61,17 @@ export function startMetrics(): void {
   metrics.setGlobalMeterProvider(provider);
 
   registerHostInstruments();
+
+  // Query profiler: registers per-statement observable instruments IF
+  // pg_stat_statements is active. Async (it probes the extension first) and
+  // fire-and-forget: a missing extension is a clean no-op, and a probe failure
+  // must never block startup. See `pg-stat-statements.ts`.
+  void registerDbStatementInstruments({ pool: adminPool }).catch((error) => {
+    rootLogger.warn(
+      "Metrics: failed to register pg_stat_statements profiler (continuing without it)",
+      error,
+    );
+  });
 }
 
 /** Stop the exporter + lag sampler and flush. Call on graceful shutdown. */

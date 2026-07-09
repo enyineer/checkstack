@@ -6,14 +6,41 @@ import {
   DynamicForm,
   Markdown,
   listSecretFieldKeys,
+  type TemplateCompletionProvider,
 } from "@checkstack/ui";
+import {
+  EnvironmentPreviewPicker,
+  type Environment,
+} from "@checkstack/catalog-frontend";
 import { AlertTriangle, BookOpen } from "lucide-react";
+import { schemaHasTemplatableFields } from "./collector-preview-context.logic";
 
 interface GeneralSectionProps {
   name: string;
   intervalSeconds: number;
   strategyConfig: Record<string, unknown>;
   strategy: HealthCheckStrategyDto | undefined;
+  /**
+   * Environments offered in the strategy "Preview as" picker (the system's when
+   * one is in context, else all). Empty hides the picker.
+   */
+  previewEnvironments?: ReadonlyArray<Environment>;
+  /** Selected preview environment id (shared with the collector forms). */
+  previewEnvironmentId?: string | null;
+  /** Called when the author picks (or clears) a preview environment. */
+  onPreviewEnvironmentChange?: (environmentId: string | null) => void;
+  /**
+   * Sample `{ environment, check, system }` context for previewing the
+   * strategy's `x-templatable` connection fields (host, servername, …).
+   * `undefined` when no environment is selected (preview line stays hidden).
+   */
+  templatePreviewContext?: Record<string, unknown>;
+  /**
+   * `{{ … }}` autocomplete provider seeded with the fixed
+   * `environment.* / check.* / system.*` namespace. Wired to templatable
+   * connection fields only.
+   */
+  templateCompletionProvider?: TemplateCompletionProvider;
   /**
    * EDIT mode: the loaded config is REDACTED (x-secret fields absent), so a
    * blank secret input means "keep the stored value" and must count as
@@ -41,6 +68,11 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
   strategy,
   isEditMode,
   storedSecretKeys,
+  previewEnvironments = [],
+  previewEnvironmentId = null,
+  onPreviewEnvironmentChange,
+  templatePreviewContext,
+  templateCompletionProvider,
   onNameChange,
   onIntervalChange,
   onStrategyConfigChange,
@@ -117,17 +149,32 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
       {/* Strategy Config */}
       {strategy?.configSchema && (
         <div className="space-y-3 pt-2 border-t">
-          <div>
-            <h3 className="text-sm font-semibold">Strategy Configuration</h3>
-            <p className="text-xs text-muted-foreground">
-              Settings specific to {strategy.displayName}.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold">Strategy Configuration</h3>
+              <p className="text-xs text-muted-foreground">
+                Settings specific to {strategy.displayName}.
+              </p>
+            </div>
+            {/* Offer the environment preview only when a connection field is
+                templatable, so host/port previews resolve against a sample
+                environment exactly as the collector forms do. */}
+            {schemaHasTemplatableFields(strategy.configSchema) && (
+              <EnvironmentPreviewPicker
+                environments={previewEnvironments}
+                selectedId={previewEnvironmentId}
+                onSelect={(id) => onPreviewEnvironmentChange?.(id)}
+              />
+            )}
           </div>
           <DynamicForm
             schema={strategy.configSchema}
             value={strategyConfig}
             onChange={onStrategyConfigChange}
             onValidChange={onStrategyConfigValidChange}
+            templatePreviewContext={templatePreviewContext}
+            templateCompletionProvider={templateCompletionProvider}
+            templatableFieldsOnly
             keepExistingSecretFields={
               isEditMode
                 ? (storedSecretKeys ??

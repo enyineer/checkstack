@@ -29,11 +29,12 @@ import {
   cn,
   formatRelativeTime,
 } from "@checkstack/ui";
-import { Plus, Satellite, Trash2, MapPin, KeyRound } from "lucide-react";
+import { Plus, Satellite, Trash2, MapPin, KeyRound, Pencil } from "lucide-react";
 import { SatelliteStatusBadge } from "../components/SatelliteStatusBadge";
 import { FleetSummaryStrip } from "../components/FleetSummaryStrip";
 import { SatelliteMobileCard } from "../components/SatelliteMobileCard";
 import { CreateSatelliteDialog } from "../components/CreateSatelliteDialog";
+import { EditSatelliteDialog } from "../components/EditSatelliteDialog";
 import { RotateSatelliteTokenDialog } from "../components/RotateSatelliteTokenDialog";
 import {
   useProvenanceLocks,
@@ -50,6 +51,9 @@ const SatelliteListPageContent: React.FC = () => {
   );
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<
+    SatelliteWithStatus | undefined
+  >();
   const [deleteTarget, setDeleteTarget] = useState<
     SatelliteWithStatus | undefined
   >();
@@ -161,6 +165,13 @@ const SatelliteListPageContent: React.FC = () => {
         return (
           <RowActions>
             <RowAction
+              icon={Pencil}
+              label={`Edit ${sat.name}`}
+              disabled={lock.isLocked}
+              title={lock.isLocked ? "Managed by GitOps" : "Edit satellite"}
+              onClick={() => setEditTarget(sat)}
+            />
+            <RowAction
               icon={KeyRound}
               label={`Reset token for ${sat.name}`}
               title="Reset token"
@@ -254,6 +265,7 @@ const SatelliteListPageContent: React.FC = () => {
               <SatelliteMobileCard
                 satellite={sat}
                 lock={getLock({ kind: "Satellite", entityId: sat.id })}
+                onEdit={setEditTarget}
                 onRotate={setRotateTarget}
                 onDelete={setDeleteTarget}
               />
@@ -266,6 +278,12 @@ const SatelliteListPageContent: React.FC = () => {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={() => void refetch()}
+      />
+
+      <EditSatelliteDialog
+        satellite={editTarget}
+        onClose={() => setEditTarget(undefined)}
+        onUpdated={() => void refetch()}
       />
 
       <ConfirmationModal

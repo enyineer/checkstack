@@ -171,6 +171,12 @@ export async function handleTriggerFiring(
   await wakeWaitingRuns(args);
 
   // ── Step 2: route to fresh runs for automations referencing this event ──
+  // Resolve the enabled automations referencing this event ONCE and reuse the
+  // result for step 3, instead of re-issuing the same full-table scan of
+  // `automations` per firing (the eager inverse-cancel below queried it a
+  // second time). The set can't change between the two steps — dispatching a
+  // run doesn't enable/disable automations — so reusing it is behaviour-
+  // preserving and halves the per-firing automation SELECTs.
   const matches = await args.automationStore.findEnabledByTriggerEvent(
     args.qualifiedEventId,
   );
@@ -197,7 +203,7 @@ export async function handleTriggerFiring(
   // the same automation + system). The expiry re-confirm would catch
   // this anyway, but cancelling now deletes the dwell row so its queue
   // job no-ops promptly instead of waking and re-checking later.
-  await cancelStaleDwells(args);
+  await cancelStaleDwells(args, matches);
 }
 
 /**
@@ -209,13 +215,10 @@ export async function handleTriggerFiring(
  */
 async function cancelStaleDwells(
   args: HandleTriggerFiringArgs,
+  matches: LoadedAutomation[],
 ): Promise<void> {
   const client = args.deps.healthCheckClient;
   if (!client || args.contextKey === null) return;
-
-  const matches = await args.automationStore.findEnabledByTriggerEvent(
-    args.qualifiedEventId,
-  );
 
   let currentStatus: string | undefined;
   for (const automation of matches) {

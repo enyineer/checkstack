@@ -59,6 +59,25 @@ describe("LookupCollector", () => {
         recordType: "MX",
       });
     });
+
+    it("treats an EMPTY rendered hostname as a transport failure (config error)", async () => {
+      // A `{{ environment.hostname }}` template that renders empty (env-less run)
+      // must surface as a collector error, not a silent healthy empty resolution.
+      const collector = new LookupCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { hostname: "   ", recordType: "A" },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("Rendered hostname is empty");
+      expect(result.result.values).toEqual([]);
+      expect(result.result.recordCount).toBe(0);
+      // The probe must never run against an empty target.
+      expect(client.exec).not.toHaveBeenCalled();
+    });
   });
 
   describe("mergeResult", () => {

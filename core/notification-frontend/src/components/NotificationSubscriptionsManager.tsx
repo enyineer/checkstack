@@ -26,6 +26,7 @@ import {
   collectStatusGroupIds,
   buildRowInheritance,
 } from "./subscriptionInheritance.logic";
+import { useBulkSubscriptionStatusOptional } from "./BulkSubscriptionStatusProvider";
 
 export interface NotificationSubscriptionsManagerProps<TResource> {
   /**
@@ -60,6 +61,7 @@ export function NotificationSubscriptionsManager<TResource>({
 }: NotificationSubscriptionsManagerProps<TResource>) {
   const [open, setOpen] = React.useState(false);
   const notificationClient = usePluginClient(NotificationApi);
+  const bulkStatus = useBulkSubscriptionStatusOptional();
   const toast = useToast();
 
   const resourceKey = target.keyOf(resource);
@@ -106,16 +108,41 @@ export function NotificationSubscriptionsManager<TResource>({
     [primaryGroupIds, inheritance],
   );
 
+  // When a bulk provider (catalog browse view) covers every primary group id
+  // and the dialog is CLOSED, the collapsed trigger derives its state entirely
+  // from the shared bulk query - so this bell fires NO request of its own,
+  // eliminating the browse view's per-bell N+1. Otherwise (no provider, or the
+  // dialog is OPEN and needs the inheritance-augmented statusMap) the bell keeps
+  // its own per-bell query unchanged. `activeBulk` narrows to a non-null context
+  // only in the collapsed-and-fully-covered case, so no non-null assertion is
+  // needed downstream.
+  const activeBulk =
+    !open &&
+    bulkStatus !== null &&
+    primaryGroupIds.length > 0 &&
+    primaryGroupIds.every((id) => bulkStatus.covers(id))
+      ? bulkStatus
+      : null;
+
   const { data: statusMap = {}, refetch: refetchStatus } =
     notificationClient.getMySubscriptionStatus.useQuery(
       { groupIds },
-      { enabled: groupIds.length > 0, staleTime: 30_000 },
+      { enabled: groupIds.length > 0 && activeBulk === null, staleTime: 30_000 },
     );
+
+  // Subscribed flag for a primary group id: from the shared bulk query when the
+  // collapsed trigger is covered by a provider, otherwise from this bell's own
+  // status batch. The rendered collapsed state is identical either way - only
+  // the data SOURCE changes.
+  const isSubscribed = (id: string): boolean =>
+    activeBulk ? (activeBulk.getStatus(id) ?? false) : (statusMap[id] ?? false);
 
   // The header summary and "subscribe/unsubscribe to all" act on the
   // PRIMARY (resource-level) groups only - inherited parent subscriptions
   // are managed at the parent resource's own bell.
-  const subscribedCount = primaryGroupIds.filter((id) => statusMap[id]).length;
+  const subscribedCount = primaryGroupIds.filter((id) =>
+    isSubscribed(id),
+  ).length;
   const totalCount = primaryGroupIds.length;
   const allSubscribed = totalCount > 0 && subscribedCount === totalCount;
   const anySubscribed = subscribedCount > 0;

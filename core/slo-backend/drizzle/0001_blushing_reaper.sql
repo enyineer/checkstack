@@ -1,0 +1,1 @@
+ALTER TABLE "slo_objectives" ADD COLUMN "exclude_maintenance_windows" boolean DEFAULT false NOT NULL;

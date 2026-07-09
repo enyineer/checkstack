@@ -66,6 +66,63 @@ describe("SshHealthCheckStrategy", () => {
         }),
       ).rejects.toThrow("Connection refused");
     });
+
+    it("should connect with a concrete rendered host and username", async () => {
+      const mockClient = createMockClient();
+      const strategy = new SshHealthCheckStrategy(mockClient);
+
+      const connectedClient = await strategy.createClient({
+        host: "ssh.prod.example.com",
+        port: 22,
+        username: "deploy",
+        password: "secret",
+        timeout: 5000,
+      });
+
+      expect(mockClient.connect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "ssh.prod.example.com",
+          username: "deploy",
+        }),
+      );
+
+      connectedClient.close();
+    });
+
+    // A required templatable field (host/username) that renders to empty (e.g.
+    // `{{ environment.host }}` with no environment) is a config error - it must
+    // fail as a transport failure, never attempt an empty connection.
+    it("should throw when the rendered host is empty", async () => {
+      const mockClient = createMockClient();
+      const strategy = new SshHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "",
+          port: 22,
+          username: "user",
+          password: "secret",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/Rendered SSH connection fields are empty/);
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
+
+    it("should throw when the rendered username is empty/whitespace", async () => {
+      const mockClient = createMockClient();
+      const strategy = new SshHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "localhost",
+          port: 22,
+          username: "   ",
+          password: "secret",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/Rendered SSH connection fields are empty/);
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
   });
 
   describe("client.exec", () => {

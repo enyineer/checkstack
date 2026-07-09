@@ -21,6 +21,7 @@
     "@checkstack/common": "workspace:*",
     "@checkstack/frontend-api": "workspace:*",
     "@checkstack/signal-frontend": "workspace:*",
+    "@checkstack/status-page-common": "workspace:*",
     "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "date-fns": "^4.4.0",

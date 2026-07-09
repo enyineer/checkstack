@@ -122,6 +122,68 @@ const scriptResultSchema = healthResultSchema({
 
 type ScriptResult = z.infer<typeof scriptResultSchema>;
 
+/**
+ * Shape of the RUN-level metadata the executor actually stores for a
+ * collector-based script check. The per-collector result lives under
+ * `metadata.collectors[<entryId>]`; each entry carries the platform-added
+ * `_collectorError` (a GENUINE transport error string, or absent on success),
+ * the stripped `timedOut` metric, and - IGNORED here - `_assertionFailed` (an
+ * assertion outcome, NOT a transport failure). A catastrophic run that failed
+ * before any collector produced an entry carries a top-level `error` instead.
+ * Extra keys (including `_assertionFailed`) are stripped by the default parse,
+ * so this reads only the transport signals without touching assertion state.
+ */
+const runTransportMetadataSchema = z.object({
+  error: z.string().nullish(),
+  collectors: z
+    .record(
+      z.string(),
+      z.object({
+        _collectorError: z.string().nullish(),
+        timedOut: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+});
+
+interface RunTransportOutcome {
+  /** The probe could not complete (a genuine transport failure or timeout). */
+  hasError: boolean;
+  /** The probe was aborted by a timeout specifically. */
+  hasTimeout: boolean;
+}
+
+/** True when a nullish/optional error string carries an actual message. */
+function isNonEmptyError(value: string | null | undefined): boolean {
+  return value !== null && value !== undefined && value !== "";
+}
+
+/**
+ * Classify a run's TRANSPORT outcome from its stored metadata, per the
+ * health-check collector semantics rule: success/error reflect only whether the
+ * probe COMPLETED, INDEPENDENT of assertion outcomes. An assertion failure
+ * (`_assertionFailed`) makes the run `unhealthy` but is deliberately NOT read
+ * here - it must not lower the success rate or count as an error.
+ */
+function classifyRunTransport(metadata: unknown): RunTransportOutcome {
+  const parsed = runTransportMetadataSchema.safeParse(metadata);
+  if (!parsed.success) return { hasError: false, hasTimeout: false };
+
+  let hasError = isNonEmptyError(parsed.data.error);
+  let hasTimeout = false;
+  for (const entry of Object.values(parsed.data.collectors ?? {})) {
+    if (isNonEmptyError(entry._collectorError)) hasError = true;
+    if (entry.timedOut === true) hasTimeout = true;
+  }
+
+  // A timeout is a transport failure. Both collectors set `error` on timeout so
+  // it is already covered, but fold it in explicitly so a timeout can never be
+  // read as a success even if a future collector flags only `timedOut`.
+  if (hasTimeout) hasError = true;
+
+  return { hasError, hasTimeout };
+}
+
 /** Aggregated field definitions for bucket merging */
 const scriptAggregatedFields = {
   avgExecutionTime: aggregatedAverage({
@@ -271,22 +333,37 @@ export class ScriptHealthCheckStrategy implements HealthCheckStrategy<
 
   mergeResult(
     existing: ScriptAggregatedResult | undefined,
-    run: HealthCheckRunForAggregation<ScriptResult>,
+    // The metadata the executor passes here is the RUN metadata (with the
+    // per-collector results under `metadata.collectors`), NOT the strategy's
+    // own `ScriptResult` shape - see the note in the body. Typed as the generic
+    // run metadata so the code reads what actually arrives at runtime.
+    run: HealthCheckRunForAggregation,
   ): ScriptAggregatedResult {
-    const metadata = run.metadata;
+    // In the collector-based execution model the strategy no longer produces a
+    // top-level per-run result: the executor stores each collector's `success` /
+    // `executionTimeMs` / `timedOut` (and the transport-error signal
+    // `_collectorError`) under `metadata.collectors[<entryId>]`. Reading
+    // `metadata.success` / `metadata.executionTimeMs` (the pre-collector shape)
+    // therefore always saw `undefined`, which `mergeRate` / `mergeAverage` fold
+    // into rate 0 / avg 0 - the "0% success, 0ms" aggregate tiles.
+    //
+    // Success Rate and Errors are TRANSPORT-level metrics (did the probe run?),
+    // INDEPENDENT of assertion outcomes - the platform convention shared by
+    // every other strategy (see .claude/rules/healthcheck-collectors.md). We must
+    // NOT use `run.status`: it goes `unhealthy` on an assertion failure too, so
+    // it cannot distinguish a genuine transport error from a completed-but-
+    // asserted-failing run. Classify from the collector transport signals
+    // instead; `avgExecutionTime` stays the run's wall-clock latency.
+    const { hasError, hasTimeout } = classifyRunTransport(run.metadata);
+
+    const successRate = mergeRate(existing?.successRate, !hasError);
 
     const avgExecutionTime = mergeAverage(
       existing?.avgExecutionTime,
-      metadata?.executionTimeMs,
+      run.latencyMs,
     );
 
-    const isSuccess = metadata?.success ?? false;
-    const successRate = mergeRate(existing?.successRate, isSuccess);
-
-    const hasError = metadata?.error !== undefined;
     const errorCount = mergeCounter(existing?.errorCount, hasError);
-
-    const hasTimeout = metadata?.timedOut === true;
     const timeoutCount = mergeCounter(existing?.timeoutCount, hasTimeout);
 
     return { avgExecutionTime, successRate, errorCount, timeoutCount };

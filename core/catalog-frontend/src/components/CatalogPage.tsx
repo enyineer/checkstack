@@ -27,6 +27,7 @@ import { useCatalogBrowseState } from "../hooks/useCatalogBrowseState";
 import { CatalogBrowseToolbar } from "./browse/CatalogBrowseToolbar";
 import { CatalogGroupSection } from "./browse/CatalogGroupSection";
 import { CatalogBrowseHealth } from "./browse/CatalogBrowseHealth";
+import { CatalogBrowseDataBoundary } from "./browse/CatalogBrowseDataBoundary";
 import {
   buildBrowseModel,
   collectTagOptions,
@@ -76,6 +77,7 @@ const CatalogPageContent: React.FC = () => {
   const healthEnabled = healthStatuses !== null;
 
   const systemIds = useMemo(() => systems.map((s) => s.id), [systems]);
+  const groupIds = useMemo(() => groups.map((g) => g.id), [groups]);
 
   const model = useMemo(
     () =>
@@ -185,16 +187,25 @@ const CatalogPageContent: React.FC = () => {
               }
             />
           ) : (
-            <div className="space-y-3">
-              {model.sections.map((section) => (
-                <CatalogGroupSection
-                  key={section.id}
-                  section={section}
-                  density={model.density}
-                  onToggle={browse.setSectionOpen}
-                />
-              ))}
-            </div>
+            /*
+              Boundary that lets provider plugins wrap the whole browse tree in
+              their bulk-data providers (health/incident/maintenance badges,
+              notification bells), so per-row contributions read bulk data from
+              context instead of each firing its own request. No filler installed
+              => renders the tree as-is (each contribution fetches its own).
+            */
+            <CatalogBrowseDataBoundary systemIds={systemIds} groupIds={groupIds}>
+              <div className="space-y-3">
+                {model.sections.map((section) => (
+                  <CatalogGroupSection
+                    key={section.id}
+                    section={section}
+                    density={model.density}
+                    onToggle={browse.setSectionOpen}
+                  />
+                ))}
+              </div>
+            </CatalogBrowseDataBoundary>
           )}
         </div>
       )}

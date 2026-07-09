@@ -11,8 +11,16 @@ import {
   StatusPageSlugSchema,
   PublishedStatusPageSchema,
   CustomDomainSchema,
+  SubscriberEmailSchema,
+  StatusPageSubscriberSchema,
+  EmailSubscribersHourlyQuotaSchema,
 } from "./schemas";
-import { WidgetTypeDescriptorSchema } from "./widget-types";
+import { SubscriptionCategorySchema } from "./subscription-categories";
+import {
+  WidgetTypeDescriptorSchema,
+  IncidentDtoItemSchema,
+  MaintenanceDtoItemSchema,
+} from "./widget-types";
 
 const TitleSchema = z.string().trim().min(1).max(160);
 
@@ -51,6 +59,8 @@ export const statusPageContract = {
         title: TitleSchema,
         slug: StatusPageSlugSchema,
         teamId: z.string().optional(),
+        // Catalog environment ids to publish; omit/empty = all environments.
+        publishedEnvironmentIds: z.array(z.string()).optional(),
       }),
     )
     .output(StatusPageSchema),
@@ -69,6 +79,19 @@ export const statusPageContract = {
         visibility: StatusPageVisibilitySchema.optional(),
         theme: StatusPageThemeSchema.optional(),
         draftLayout: StatusPageLayoutSchema.optional(),
+        emailSubscriptionsEnabled: z.boolean().optional(),
+        // Nullable: pass null to reset to the platform default; omit to leave
+        // unchanged. Gated by the same `idParam: "id"` page-manage capability as
+        // every other field on this proc (no new open surface).
+        emailSubscribersHourlyQuota:
+          EmailSubscribersHourlyQuotaSchema.nullable().optional(),
+        // Toggle double-opt-in verification for new subscribers. Same page-manage
+        // gate as every other field on this proc.
+        emailVerificationRequired: z.boolean().optional(),
+        // Catalog environment ids to publish. Pass an array to set the set (empty
+        // array or null both mean "all environments"); omit to leave unchanged.
+        // Same page-manage gate as every other field on this proc.
+        publishedEnvironmentIds: z.array(z.string()).nullable().optional(),
       }),
     )
     .output(StatusPageSchema),
@@ -174,6 +197,110 @@ export const statusPageContract = {
   })
     .input(z.object({ slug: z.string() }))
     .output(PublishedStatusPageSchema.nullable()),
+
+  /**
+   * Public-safe detail for a single incident item on a published page. GATED to
+   * prevent enumeration / IDOR: the handler resolves the page for `slug` (same
+   * published + visibility checks as {@link getPublishedStatusPage}) and returns
+   * the item ONLY if that page actually surfaces `id` through an incidents
+   * widget. Returns the SAME field-allow-listed DTO the widget emits (no
+   * `createdBy` / internal fields); null when the page does not expose the id.
+   */
+  getPublishedIncident: proc({
+    operationType: "query",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(z.object({ slug: z.string(), id: z.string() }))
+    .output(IncidentDtoItemSchema.nullable()),
+
+  /** Public-safe detail for a single maintenance item. See getPublishedIncident. */
+  getPublishedMaintenance: proc({
+    operationType: "query",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(z.object({ slug: z.string(), id: z.string() }))
+    .output(MaintenanceDtoItemSchema.nullable()),
+
+  // ----- Email subscriptions (public, anonymous double-opt-in) -----
+
+  /**
+   * Subscribe an email address to a published page's incident updates. Public +
+   * anonymous. ALWAYS returns `{ ok: true }` in constant time regardless of
+   * whether the page exists, is published, or the address is already subscribed
+   * - so it can never be used to enumerate pages or addresses. A verification
+   * email (double opt-in) is sent out-of-band; the address receives fan-out only
+   * after it confirms.
+   *
+   * Optional `categories` / `systemIds` scope the subscription (which update
+   * kinds, which systems). The backend CLAMPS both to what the page actually
+   * offers - unknown categories and systems not surfaced by the page are
+   * silently dropped, never rejected - so this endpoint can never be used to
+   * probe which systems a page hides. Omitting `categories` defaults to
+   * incidents + maintenance; omitting `systemIds` (or clamping to empty) means
+   * all systems the page surfaces.
+   */
+  subscribeToStatusPage: proc({
+    operationType: "mutation",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(
+      z.object({
+        slug: z.string(),
+        email: SubscriberEmailSchema,
+        categories: z.array(SubscriptionCategorySchema).optional(),
+        systemIds: z.array(z.string()).optional(),
+      }),
+    )
+    .output(z.object({ ok: z.boolean() })),
+
+  /** Confirm a subscription via its verification token. Constant-time response. */
+  verifyStatusPageSubscription: proc({
+    operationType: "mutation",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(z.object({ token: z.string().min(1) }))
+    .output(z.object({ ok: z.boolean() })),
+
+  /** Unsubscribe via the token embedded in every email. Constant-time response. */
+  unsubscribeFromStatusPage: proc({
+    operationType: "mutation",
+    userType: "public",
+    access: [statusPageAccess.published],
+    instanceAccess: { global: true },
+  })
+    .input(z.object({ token: z.string().min(1) }))
+    .output(z.object({ ok: z.boolean() })),
+
+  // ----- Subscriber admin (authenticated, team-scoped via the page) -----
+
+  /** List a page's email subscribers (admin). Team-scoped by MANAGE on the page. */
+  listStatusPageSubscribers: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [statusPageAccess.page.manage],
+    instanceAccess: { idParam: "statusPageId" },
+  })
+    .input(z.object({ statusPageId: z.string() }))
+    .output(z.object({ subscribers: z.array(StatusPageSubscriberSchema) })),
+
+  /** Remove a subscriber (admin). Team-scoped by MANAGE on the owning page. */
+  deleteStatusPageSubscriber: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [statusPageAccess.page.manage],
+    instanceAccess: { idParam: "statusPageId" },
+  })
+    .route({ method: "DELETE" })
+    .input(z.object({ statusPageId: z.string(), id: z.string() }))
+    .output(z.object({ deleted: z.boolean() })),
 } as const;
 
 export const StatusPageApi = createClientDefinition(

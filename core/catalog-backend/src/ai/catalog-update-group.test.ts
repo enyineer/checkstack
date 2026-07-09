@@ -12,6 +12,7 @@ const group = {
   id: "grp1",
   name: "Payments",
   systemIds: [],
+  sortOrder: 0,
   metadata: null,
   createdAt: new Date(),
   updatedAt: new Date(),

@@ -11,6 +11,7 @@ import {
   mergeCounter,
   mergeMinMax,
   z,
+  configString,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -37,12 +38,20 @@ import type {
  * Configuration schema for TLS health checks.
  */
 export const tlsConfigSchema = baseStrategyConfigSchema.extend({
-  host: z.string().describe("Hostname to connect to"),
+  // Templatable: supports `{{ environment.host }}` etc. so one config covers N
+  // environments. Presence is enforced POST-RENDER in `createClient` (an empty
+  // render must not silently connect to an empty host).
+  host: configString({ "x-templatable": true }).describe(
+    "Hostname to connect to. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: z.number().int().min(1).max(65_535).default(443).describe("TLS port"),
-  servername: z
-    .string()
+  // Templatable and optional: an empty render legitimately means "unset" (SNI
+  // falls back to host), so no post-render presence guard is applied.
+  servername: configString({ "x-templatable": true })
     .optional()
-    .describe("Server name for SNI (defaults to host)"),
+    .describe(
+      "Server name for SNI (defaults to host). Supports templating, e.g. {{ environment.host }}",
+    ),
   minDaysUntilExpiry: z
     .number()
     .int()
@@ -56,6 +65,16 @@ export const tlsConfigSchema = baseStrategyConfigSchema.extend({
 });
 
 export type TlsConfig = z.infer<typeof tlsConfigSchema>;
+
+/**
+ * Post-render validator for the connection `host`. The stored value is a plain
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace (e.g. an env-less run). An empty host is a
+ * config error that prevents the TLS handshake from running - transport-failure
+ * semantics - not a "healthy" result.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -350,10 +369,22 @@ export class TlsHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<TlsTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: `host` is a templatable string, so `.min(1)` cannot run
+    // at store time. The executor has already rendered `{{ environment.* }}`
+    // into `config.host`; reject a render that collapsed to empty here so the
+    // run fails clearly instead of attempting an empty TLS handshake.
+    const host = renderedRequiredSchema.safeParse(validatedConfig.host);
+    if (!host.success) {
+      throw new Error(
+        `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     const { connection, connectMs, tlsMs } = await this.tlsClient.connect({
-      host: validatedConfig.host,
+      host: host.data,
       port: validatedConfig.port,
-      servername: validatedConfig.servername ?? validatedConfig.host,
+      servername: validatedConfig.servername || host.data,
       rejectUnauthorized: validatedConfig.rejectUnauthorized,
       timeout: validatedConfig.timeout,
     });

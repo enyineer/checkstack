@@ -17,6 +17,12 @@
       "path": "../drizzle-helper"
     },
     {
+      "path": "../notification-backend"
+    },
+    {
+      "path": "../notification-common"
+    },
+    {
       "path": "../status-page-common"
     },
     {

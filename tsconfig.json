@@ -379,6 +379,9 @@
       "path": "./plugins/healthcheck-script-backend"
     },
     {
+      "path": "./plugins/healthcheck-snmp-backend"
+    },
+    {
       "path": "./plugins/healthcheck-ssh-backend"
     },
     {
@@ -434,6 +437,9 @@
     },
     {
       "path": "./plugins/notification-webex-backend"
+    },
+    {
+      "path": "./plugins/notification-webhook-backend"
     },
     {
       "path": "./plugins/queue-bullmq-backend"

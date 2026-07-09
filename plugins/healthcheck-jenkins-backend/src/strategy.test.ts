@@ -32,6 +32,32 @@ describe("JenkinsHealthCheckStrategy", () => {
 
       expect(() => connectedClient.close()).not.toThrow();
     });
+
+    it("throws (transport failure) when rendered baseUrl is empty", async () => {
+      // A `{{ environment.baseUrl }}` template that renders empty must fail the
+      // probe as a config error, not attempt a request against an empty URL.
+      await expect(
+        strategy.createClient({
+          baseUrl: "   ",
+          username: "admin",
+          apiToken: "api-token-123",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow("Rendered baseUrl is invalid");
+    });
+
+    it("throws (transport failure) when rendered baseUrl is not a valid URL", async () => {
+      // The `.url()` check moved post-render; a template that renders to a
+      // relative path (e.g. `/job/x`) must be rejected as a config error.
+      await expect(
+        strategy.createClient({
+          baseUrl: "/job/x",
+          username: "admin",
+          apiToken: "api-token-123",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow("Rendered baseUrl is invalid");
+    });
   });
 
   describe("client.exec", () => {

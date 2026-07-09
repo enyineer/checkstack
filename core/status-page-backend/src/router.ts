@@ -11,6 +11,7 @@ import {
   forwardableAuthHeadersFrom,
 } from "./user-client";
 import type { StatusPageService } from "./service";
+import type { SubscriberService } from "./subscriber-service";
 
 const os = implement(statusPageContract)
   .$context<RpcContext>()
@@ -19,12 +20,14 @@ const os = implement(statusPageContract)
 
 export interface StatusPageRouterDeps {
   service: StatusPageService;
+  subscriberService: SubscriberService;
   /** Loopback base URL for the user-scoped publish gate. */
   internalUrl: string;
 }
 
 export function createStatusPageRouter({
   service,
+  subscriberService,
   internalUrl,
 }: StatusPageRouterDeps) {
   const listStatusPages = os.listStatusPages.handler(async () => ({
@@ -88,9 +91,14 @@ export function createStatusPageRouter({
     service.removeCustomDomain(input),
   );
 
-  const deleteStatusPage = os.deleteStatusPage.handler(async ({ input }) => ({
-    deleted: await service.remove(input.id),
-  }));
+  const deleteStatusPage = os.deleteStatusPage.handler(async ({ input }) => {
+    // Reconcile subscribers on deletion: explicitly remove them (and thereby
+    // invalidate every pending verify/unsubscribe token) BEFORE the page row
+    // goes. The FK is ON DELETE CASCADE too, so this is defense-in-depth - no
+    // orphan rows, no possible post-deletion send.
+    await subscriberService.removeAllForPage(input.id);
+    return { deleted: await service.remove(input.id) };
+  });
 
   const listWidgetTypes = os.listWidgetTypes.handler(async () => ({
     widgetTypes: service.listWidgetTypes(),
@@ -102,6 +110,55 @@ export function createStatusPageRouter({
         context.user?.type === "user" || context.user?.type === "application";
       return service.resolvePublished({ slug: input.slug, isAuthenticated });
     },
+  );
+
+  const getPublishedIncident = os.getPublishedIncident.handler(
+    async ({ input, context }) => {
+      const isAuthenticated =
+        context.user?.type === "user" || context.user?.type === "application";
+      return service.resolvePublishedIncident({
+        slug: input.slug,
+        id: input.id,
+        isAuthenticated,
+      });
+    },
+  );
+
+  const getPublishedMaintenance = os.getPublishedMaintenance.handler(
+    async ({ input, context }) => {
+      const isAuthenticated =
+        context.user?.type === "user" || context.user?.type === "application";
+      return service.resolvePublishedMaintenance({
+        slug: input.slug,
+        id: input.id,
+        isAuthenticated,
+      });
+    },
+  );
+
+  const subscribeToStatusPage = os.subscribeToStatusPage.handler(
+    async ({ input }) => subscriberService.subscribe(input),
+  );
+
+  const verifyStatusPageSubscription =
+    os.verifyStatusPageSubscription.handler(async ({ input }) =>
+      subscriberService.verify(input),
+    );
+
+  const unsubscribeFromStatusPage = os.unsubscribeFromStatusPage.handler(
+    async ({ input }) => subscriberService.unsubscribe(input),
+  );
+
+  const listStatusPageSubscribers = os.listStatusPageSubscribers.handler(
+    async ({ input }) => ({
+      subscribers: await subscriberService.list(input),
+    }),
+  );
+
+  const deleteStatusPageSubscriber = os.deleteStatusPageSubscriber.handler(
+    async ({ input }) => ({
+      deleted: await subscriberService.remove(input),
+    }),
   );
 
   return {
@@ -117,5 +174,12 @@ export function createStatusPageRouter({
     deleteStatusPage,
     listWidgetTypes,
     getPublishedStatusPage,
+    getPublishedIncident,
+    getPublishedMaintenance,
+    subscribeToStatusPage,
+    verifyStatusPageSubscription,
+    unsubscribeFromStatusPage,
+    listStatusPageSubscribers,
+    deleteStatusPageSubscriber,
   };
 }

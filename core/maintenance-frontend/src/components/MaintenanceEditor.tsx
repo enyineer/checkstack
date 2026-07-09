@@ -5,7 +5,10 @@ import type {
   MaintenanceWithSystems,
   MaintenanceUpdate,
 } from "@checkstack/maintenance-common";
-import { maintenanceAccess } from "@checkstack/maintenance-common";
+import {
+  maintenanceAccess,
+  MaintenanceVisibilityEnum,
+} from "@checkstack/maintenance-common";
 import type { System } from "@checkstack/catalog-common";
 import {
   catalogAccess,
@@ -25,18 +28,16 @@ import {
   Checkbox,
   useToast,
   DateTimePicker,
-  StatusUpdateTimeline,
   LinksEditor,
   toastError,
-  Spinner,
   FormError,
   ConfirmationModal,
   SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
-import { Plus, MessageSquare, AlertCircle } from "lucide-react";
-import { MaintenanceUpdateForm } from "./MaintenanceUpdateForm";
-import { getMaintenanceStatusBadge } from "../utils/badges";
+import { MaintenanceUpdatesSection } from "./MaintenanceUpdatesSection";
+import { VisibilityBadge } from "../utils/visibilityBadge";
+import { MAINTENANCE_VISIBILITY_OPTIONS } from "../utils/visibilityOptions";
 import {
   TeamAccessEditor,
   TeamOwnershipPicker,
@@ -104,9 +105,9 @@ export const MaintenanceEditor: React.FC<Props> = ({
     allowAllOverride: allowGlobal,
   });
 
-  // Status update fields
+  // Status updates seeded from the detail query and handed to the shared
+  // MaintenanceUpdatesSection, which owns the add / edit / delete affordances.
   const [updates, setUpdates] = useState<MaintenanceUpdate[]>([]);
-  const [showUpdateForm, setShowUpdateForm] = useState(false);
 
   // Inline validation: a per-field error map is the single source of truth for
   // both the inline FormError messages and submit-validity. Errors are only
@@ -163,6 +164,15 @@ export const MaintenanceEditor: React.FC<Props> = ({
     },
   });
 
+  const updateLinkMutation = maintenanceClient.updateLink.useMutation({
+    onSuccess: () => {
+      void refetchDetail();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to update link", error);
+    },
+  });
+
   const removeLinkMutation = maintenanceClient.removeLink.useMutation({
     onSuccess: () => {
       void refetchDetail();
@@ -203,7 +213,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setSelectedSystemIds(new Set());
       setSuppressNotifications(false);
       setUpdates([]);
-      setShowUpdateForm(false);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
@@ -334,13 +343,11 @@ export const MaintenanceEditor: React.FC<Props> = ({
     if (maintenance) {
       void refetchDetail();
     }
-    setShowUpdateForm(false);
-    // Notify parent to refresh list (status may have changed)
+    // Notify parent to refresh list (status may have changed).
     onSave();
   };
 
   const saving = createMutation.isPending || updateMutation.isPending;
-  const loadingUpdates = false; // Now handled by useQuery
 
   const titleError = showError("title");
   const systemsError = showError("systems");
@@ -488,58 +495,20 @@ export const MaintenanceEditor: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Status Updates Section - Only show when editing */}
+              {/* Status Updates Section - Only show when editing. Uses the
+                  SAME shared section the detail page renders, so add/edit/delete
+                  (including editing the published time + edit history) behave
+                  identically in both surfaces. */}
               {maintenance && (
                 <div className="border-t pt-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                      <Label className="text-base font-medium">
-                        Status Updates
-                      </Label>
-                    </div>
-                    {!showUpdateForm && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowUpdateForm(true)}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add Update
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Add Update Form */}
-                  {showUpdateForm && (
-                    <div className="mb-4">
-                      <MaintenanceUpdateForm
-                        maintenanceId={maintenance.id}
-                        onSuccess={handleUpdateSuccess}
-                        onCancel={() => setShowUpdateForm(false)}
-                      />
-                    </div>
-                  )}
-
-                  {/* Updates List */}
-                  {loadingUpdates ? (
-                    <div className="flex justify-center py-4">
-                      <Spinner size="lg" className="text-muted-foreground" />
-                    </div>
-                  ) : updates.length === 0 ? (
-                    <div className="flex flex-col items-center py-6 text-muted-foreground">
-                      <AlertCircle className="h-8 w-8 mb-2" />
-                      <p className="text-sm">No status updates yet</p>
-                    </div>
-                  ) : (
-                    <StatusUpdateTimeline
-                      updates={updates}
-                      renderStatusBadge={getMaintenanceStatusBadge}
-                      showTimeline={false}
-                      maxHeight="max-h-48"
-                    />
-                  )}
+                  <MaintenanceUpdatesSection
+                    maintenanceId={maintenance.id}
+                    currentStatus={maintenance.status}
+                    updates={updates}
+                    onChanged={handleUpdateSuccess}
+                    showTimeline={false}
+                    maxHeight="max-h-48"
+                  />
                 </div>
               )}
 
@@ -550,14 +519,35 @@ export const MaintenanceEditor: React.FC<Props> = ({
                     title="Hotlinks"
                     description="Attach change tickets, runbooks, dashboards, or any URL relevant to this maintenance."
                     links={maintenanceDetail?.links ?? []}
+                    visibility={{
+                      options: MAINTENANCE_VISIBILITY_OPTIONS,
+                      default: "public",
+                      renderBadge: (v) => <VisibilityBadge visibility={v} />,
+                    }}
                     busy={
-                      addLinkMutation.isPending || removeLinkMutation.isPending
+                      addLinkMutation.isPending ||
+                      updateLinkMutation.isPending ||
+                      removeLinkMutation.isPending
                     }
-                    onAdd={async ({ label, url }) => {
+                    onAdd={async ({ label, url, visibility }) => {
                       await addLinkMutation.mutateAsync({
                         maintenanceId: maintenance.id,
                         label,
                         url,
+                        visibility: MaintenanceVisibilityEnum.parse(
+                          visibility ?? "public",
+                        ),
+                      });
+                    }}
+                    onEdit={async ({ id, label, url, visibility }) => {
+                      await updateLinkMutation.mutateAsync({
+                        id,
+                        maintenanceId: maintenance.id,
+                        label,
+                        url,
+                        visibility: visibility
+                          ? MaintenanceVisibilityEnum.parse(visibility)
+                          : undefined,
                       });
                     }}
                     onRemove={async (link) => {

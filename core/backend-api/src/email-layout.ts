@@ -80,6 +80,9 @@ const HEADER_BORDER = "#27272a"; // matches --border in dark theme
 const HEADER_FG = "#fafafa";
 const HEADER_MUTED = "#a1a1aa";
 
+// Public marketing site the footer wordmark links to.
+const CHECKSTACK_URL = "https://checkstack.dev";
+
 /**
  * HTML escaping for security.
  */
@@ -90,6 +93,19 @@ function escapeHtml(text: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+/**
+ * Render the footer text, escaping it for safety and then linking any
+ * "Checkstack" wordmark to the public site. The injected anchor is a trusted
+ * constant and the rest of the text stays escaped, so this cannot introduce
+ * markup from an admin-customized footer string.
+ */
+export function renderFooterText(text: string): string {
+  return escapeHtml(text).replaceAll(
+    "Checkstack",
+    `<a href="${CHECKSTACK_URL}" style="color: inherit; text-decoration: underline;">Checkstack</a>`,
+  );
 }
 
 /**
@@ -299,7 +315,7 @@ export function wrapInEmailLayout(options: EmailLayoutOptions): string {
           <tr>
             <td class="email-footer" style="background-color: #fafafa; padding: 16px 28px; border-top: 1px solid #e4e4e7;">
               <p class="mono" style="margin: 0; color: #71717a; font-size: 11px; line-height: 1.5; text-align: center; letter-spacing: 0.02em;">
-                ${escapeHtml(footerText)}
+                ${renderFooterText(footerText)}
               </p>
               ${
                 footerLinksHtml

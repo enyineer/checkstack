@@ -72,4 +72,34 @@ describe("ContainerHealthCheckStrategy", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("throws (transport failure) when rendered endpoint is empty", async () => {
+    // A `{{ environment.endpoint }}` template that renders empty must fail the
+    // probe as a config error before any request is attempted.
+    const strategy = new ContainerHealthCheckStrategy(
+      fetchStub({ "/_ping": { status: 200 } }),
+    );
+    await expect(
+      strategy.createClient({
+        endpoint: "   ",
+        container: "web",
+        timeout: 1000,
+      }),
+    ).rejects.toThrow("Rendered endpoint is empty");
+  });
+
+  it("throws (transport failure) when rendered container is empty", async () => {
+    // A `{{ environment.container }}` template that renders empty must fail the
+    // probe as a config error before any request is attempted.
+    const strategy = new ContainerHealthCheckStrategy(
+      fetchStub({ "/_ping": { status: 200 } }),
+    );
+    await expect(
+      strategy.createClient({
+        endpoint: "http://socket-proxy:2375",
+        container: "   ",
+        timeout: 1000,
+      }),
+    ).rejects.toThrow("Rendered container is empty");
+  });
 });

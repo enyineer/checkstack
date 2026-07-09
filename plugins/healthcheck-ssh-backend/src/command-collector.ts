@@ -1,6 +1,7 @@
 import {
   Versioned,
   z,
+  configString,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -24,10 +25,26 @@ import type { SshTransportClient } from "@checkstack/healthcheck-ssh-common";
 // ============================================================================
 
 const commandConfigSchema = z.object({
-  command: z.string().min(1).describe("Shell command to execute"),
+  // Templatable: supports `{{ environment.command }}` so one config covers N
+  // environments. `.min(1)` still guards the STORED value (a `{{ }}` template is
+  // non-empty); the CONCRETE rendered command is re-checked POST-RENDER in
+  // `execute` because an empty render must not run as a successful command.
+  command: configString({ "x-templatable": true })
+    .min(1)
+    .describe(
+      "Shell command to execute. Supports templating, e.g. {{ environment.command }}",
+    ),
 });
 
 export type CommandConfig = z.infer<typeof commandConfigSchema>;
+
+/**
+ * Post-render validator for the rendered `command`. An empty render (e.g. an
+ * env-less run resolving `{{ environment.command }}` to "") is a config error
+ * that prevents the probe - transport-failure semantics - not a healthy empty
+ * command.
+ */
+const renderedCommandSchema = z.string().trim().min(1);
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -152,7 +169,27 @@ export class CommandCollector implements CollectorStrategy<
     pluginId: string;
   }): Promise<CollectorResult<CommandResult>> {
     const startTime = Date.now();
-    const result = await client.exec(config.command);
+
+    // Post-render guard: `command` is a templatable string, so the concrete
+    // value is re-validated here after the executor rendered `{{ environment.* }}`.
+    // An empty render is a config error - fail as a transport failure rather
+    // than running (and "succeeding" at) an empty command.
+    const command = renderedCommandSchema.safeParse(config.command);
+    if (!command.success) {
+      return {
+        result: {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          executionTimeMs: Date.now() - startTime,
+        },
+        error:
+          `Rendered command is empty: ${JSON.stringify(config.command)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      };
+    }
+
+    const result = await client.exec(command.data);
     const executionTimeMs = Date.now() - startTime;
 
     return {

@@ -6,7 +6,9 @@ import {
   primaryKey,
   boolean,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
+import type { IncidentUpdateEditSnapshot } from "@checkstack/incident-common";
 
 /**
  * Incident status enum
@@ -37,6 +39,17 @@ export const incidentSeverityEnum = pgEnum("incident_severity", [
 export const incidentHealthOverrideEnum = pgEnum("incident_health_override", [
   "degraded",
   "unhealthy",
+]);
+
+/**
+ * Audience for an incident update or hotlink. Filtered server-side on the read
+ * path: anonymous / public-status-page reads see only `public`; authenticated
+ * non-managers additionally see `logged_in`; managers see everything.
+ */
+export const incidentVisibilityEnum = pgEnum("incident_content_visibility", [
+  "public",
+  "logged_in",
+  "internal",
 ]);
 
 /**
@@ -82,7 +95,18 @@ export const incidentUpdates = pgTable("incident_updates", {
     .references(() => incidents.id, { onDelete: "cascade" }),
   message: text("message").notNull(),
   statusChange: incidentStatusEnum("status_change"),
+  visibility: incidentVisibilityEnum("visibility").notNull().default("public"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Set when the update is edited in place (null = never edited).
+  editedAt: timestamp("edited_at"),
+  // Prior versions archived on each in-place edit (oldest first). Durable,
+  // globally-readable history of edits (jsonb, defaults to an empty array so
+  // existing rows backfill cleanly). Manager-facing; the read path strips it
+  // for non-manager audiences (see read-visibility).
+  editHistory: jsonb("edit_history")
+    .$type<IncidentUpdateEditSnapshot[]>()
+    .notNull()
+    .default([]),
   createdBy: text("created_by"),
 });
 
@@ -99,6 +123,9 @@ export const incidentLinks = pgTable(
       .references(() => incidents.id, { onDelete: "cascade" }),
     label: text("label"),
     url: text("url").notNull(),
+    visibility: incidentVisibilityEnum("visibility")
+      .notNull()
+      .default("public"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({

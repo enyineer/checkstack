@@ -118,6 +118,10 @@ export const defaultInlineScriptExecutor: InlineScriptExecutor = {
 // ============================================================================
 
 const inlineScriptConfigSchema = z.object({
+  // Deliberately NOT `x-templatable`: rendering `{{ environment.* }}` into the
+  // module source would splice env-field values into executed code. Per-
+  // environment data reaches the script safely via `globalThis.context
+  // .environment` (`{ id, name, fields }`), not by interpolating the source.
   script: configString({
     "x-editor-types": ["typescript"],
     "x-script-testable": true,

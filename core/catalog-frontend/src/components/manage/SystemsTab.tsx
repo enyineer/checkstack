@@ -92,6 +92,12 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
     () => systems.filter((s) => canAccess(s.id)).map((s) => s.id),
     [systems, canAccess],
   );
+
+  // Every rendered row's id, handed to the CatalogSystemActionsSlot so a filler
+  // (e.g. the health-check count badge) bulk-fetches per-system data for the
+  // whole visible list in ONE deduped request instead of an N+1 per row. Same
+  // array value for every row, so identical-input slot queries collapse to one.
+  const visibleSystemIds = useMemo(() => systems.map((s) => s.id), [systems]);
   const selectedVisible = visibleIds.filter((id) => selected.has(id));
   const allSelected =
     visibleIds.length > 0 && selectedVisible.length === visibleIds.length;
@@ -224,6 +230,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
           system={system}
           canManage={canAccess(system.id)}
           isLocked={getLock({ kind: "System", entityId: system.id }).isLocked}
+          visibleSystemIds={visibleSystemIds}
           onEdit={props.onEditSystem}
           onDelete={props.onDeleteSystem}
         />
@@ -344,6 +351,7 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
             lock={getLock({ kind: "System", entityId: system.id })}
             allGroups={allGroups}
             allEnvironments={allEnvironments}
+            visibleSystemIds={visibleSystemIds}
             assignedGroupIds={systemGroupMap.get(system.id) ?? []}
             assignedEnvIds={systemEnvMap.get(system.id) ?? []}
             selected={selected.has(system.id)}
@@ -514,6 +522,8 @@ interface SystemActionsProps {
   /** Whether the current user may manage (edit/delete) this system. */
   canManage: boolean;
   isLocked: boolean;
+  /** Ids of every visible row, so slot fillers can bulk-fetch without N+1. */
+  visibleSystemIds: string[];
   onEdit: (system: System) => void;
   onDelete: (id: string) => void;
 }
@@ -523,6 +533,7 @@ function SystemActions({
   system,
   canManage,
   isLocked,
+  visibleSystemIds,
   onEdit,
   onDelete,
 }: SystemActionsProps): React.ReactElement {
@@ -531,7 +542,11 @@ function SystemActions({
     <RowActions>
       <ExtensionSlot
         slot={CatalogSystemActionsSlot}
-        context={{ systemId: system.id, systemName: system.name }}
+        context={{
+          systemId: system.id,
+          systemName: system.name,
+          visibleSystemIds,
+        }}
       />
       {canManage && (
         <RowAction
@@ -562,6 +577,8 @@ interface SystemMobileCardProps {
   lock: ProvenanceLock;
   allGroups: Group[];
   allEnvironments: Environment[];
+  /** Ids of every visible row, so slot fillers can bulk-fetch without N+1. */
+  visibleSystemIds: string[];
   assignedGroupIds: string[];
   assignedEnvIds: string[];
   selected: boolean;
@@ -580,6 +597,7 @@ function SystemMobileCard({
   lock,
   allGroups,
   allEnvironments,
+  visibleSystemIds,
   assignedGroupIds,
   assignedEnvIds,
   selected,
@@ -649,6 +667,7 @@ function SystemMobileCard({
           system={system}
           canManage={canManage}
           isLocked={isLocked}
+          visibleSystemIds={visibleSystemIds}
           onEdit={onEdit}
           onDelete={onDelete}
         />

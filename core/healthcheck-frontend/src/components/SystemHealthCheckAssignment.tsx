@@ -28,6 +28,7 @@ type Props = SlotContext<typeof CatalogSystemActionsSlot>;
  */
 export const SystemHealthCheckAssignment: React.FC<Props> = ({
   systemId,
+  visibleSystemIds,
 }) => {
   const healthCheckClient = usePluginClient(HealthCheckApi);
   const accessApi = useApi(accessApiRef);
@@ -43,12 +44,20 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
   });
   const navigate = useNavigate();
 
-  // Fetch associations count for the badge
-  const { data: associations = [] } =
-    healthCheckClient.getSystemAssociations.useQuery(
-      { systemId },
-      { enabled: true },
+  // Assigned-check counts for the badge, bulk-fetched for the WHOLE visible list
+  // in ONE request. Every row of the list passes the same `visibleSystemIds`, so
+  // these identical-input queries dedupe to a single network call instead of the
+  // old getSystemAssociations N+1 (one pooled connection per row, contending with
+  // the run executor). Read-gated per system on the backend (`recordKey`), so a
+  // count for a system the caller cannot read is simply absent. Auto-invalidated
+  // with the rest of `[["healthcheck"]]` when an assignment changes, so the badge
+  // stays current.
+  const { data: countsData } =
+    healthCheckClient.getBulkAssignedHealthCheckCounts.useQuery(
+      { systemIds: visibleSystemIds },
+      { enabled: visibleSystemIds.length > 0, staleTime: 30_000 },
     );
+  const assignedCount = countsData?.counts[systemId] ?? 0;
 
   if (!canManage || !canManageSystem(systemId)) return;
 
@@ -65,9 +74,9 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
     >
       <Activity className="h-3.5 w-3.5 text-primary" />
       <span className="text-xs font-medium">Health Checks</span>
-      {associations.length > 0 && (
+      {assignedCount > 0 && (
         <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-          {associations.length}
+          {assignedCount}
         </span>
       )}
     </Button>

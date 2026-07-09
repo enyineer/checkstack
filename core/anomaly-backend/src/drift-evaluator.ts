@@ -24,6 +24,51 @@ const DRIFT_CONFIRMATION_THRESHOLD = 2;
 /** Minimum sample count before drift detection runs (matches spike cold-start). */
 const DRIFT_MIN_SAMPLES = 24;
 
+/** A row from the `anomalies` table. */
+export type AnomalyRow = typeof schema.anomalies.$inferSelect;
+
+/**
+ * Load ALL existing 'drift' anomaly rows for a (system, config, env) slice in
+ * ONE set-based SELECT, keyed by fieldPath. The baseline analyzer calls this
+ * once per env before its field loop and threads the map into
+ * {@link evaluateDrift} as `existingDriftRows`, so the per-field drift lookup is
+ * an in-memory map read instead of an N+1 SELECT per field. Each field maps to a
+ * distinct fieldPath (and thus a distinct row), so a preloaded snapshot is
+ * behaviourally identical to a fresh per-field query.
+ */
+export async function loadExistingDriftRows({
+  db,
+  systemId,
+  configurationId,
+  environmentId,
+}: {
+  db: SafeDatabase<typeof schema>;
+  systemId: string;
+  configurationId: string;
+  environmentId: string | null;
+}): Promise<Map<string, AnomalyRow>> {
+  const envPredicate =
+    environmentId === null
+      ? isNull(schema.anomalies.environmentId)
+      : eq(schema.anomalies.environmentId, environmentId);
+  const rows = await db
+    .select()
+    .from(schema.anomalies)
+    .where(
+      and(
+        eq(schema.anomalies.systemId, systemId),
+        eq(schema.anomalies.configurationId, configurationId),
+        envPredicate,
+        eq(schema.anomalies.kind, "drift"),
+      ),
+    );
+  const map = new Map<string, AnomalyRow>();
+  for (const row of rows) {
+    map.set(row.fieldPath, row);
+  }
+  return map;
+}
+
 export interface EvaluateDriftInput {
   db: SafeDatabase<typeof schema>;
   logger: Logger;
@@ -59,6 +104,15 @@ export interface EvaluateDriftInput {
   schemaMinRelativeDelta?: number;
   templateConfig?: AnomalySettings;
   assignmentConfig?: Partial<AnomalySettings>;
+  /**
+   * Optional batch-preloaded map of existing 'drift' rows keyed by fieldPath for
+   * this (system, config, env) slice (see {@link loadExistingDriftRows}). When
+   * provided, the existing-row lookup reads from this map instead of issuing its
+   * own per-field SELECT — the baseline analyzer preloads these set-based to
+   * avoid an N+1. When omitted (standalone use), evaluateDrift resolves the row
+   * itself.
+   */
+  existingDriftRows?: Map<string, AnomalyRow>;
 }
 
 /**
@@ -91,6 +145,7 @@ export async function evaluateDrift({
   schemaMinRelativeDelta,
   templateConfig,
   assignmentConfig,
+  existingDriftRows,
 }: EvaluateDriftInput): Promise<void> {
   const {
     enabled,
@@ -128,26 +183,32 @@ export async function evaluateDrift({
     minRelativeDelta,
   });
 
-  // Resolve the per-env drift row: match environmentId when present, or the
-  // env-less (NULL) slice otherwise. Mirrors the per-env baseline lookup so a
-  // drift for this check in env A is a distinct row from env B.
-  const envPredicate =
-    environmentId === null
-      ? isNull(schema.anomalies.environmentId)
-      : eq(schema.anomalies.environmentId, environmentId);
-  const [existing] = await db
-    .select()
-    .from(schema.anomalies)
-    .where(
-      and(
-        eq(schema.anomalies.systemId, systemId),
-        eq(schema.anomalies.configurationId, configurationId),
-        envPredicate,
-        eq(schema.anomalies.fieldPath, fieldPath),
-        eq(schema.anomalies.kind, "drift"),
-      ),
-    )
-    .limit(1);
+  // Resolve the per-env drift row. When the caller batch-preloaded the drift
+  // rows (analyzer path), read the row from that map in memory; otherwise issue
+  // the per-field SELECT. The env predicate mirrors the per-env baseline lookup
+  // so a drift for this check in env A is a distinct row from env B.
+  let existing: AnomalyRow | undefined;
+  if (existingDriftRows) {
+    existing = existingDriftRows.get(fieldPath);
+  } else {
+    const envPredicate =
+      environmentId === null
+        ? isNull(schema.anomalies.environmentId)
+        : eq(schema.anomalies.environmentId, environmentId);
+    [existing] = await db
+      .select()
+      .from(schema.anomalies)
+      .where(
+        and(
+          eq(schema.anomalies.systemId, systemId),
+          eq(schema.anomalies.configurationId, configurationId),
+          envPredicate,
+          eq(schema.anomalies.fieldPath, fieldPath),
+          eq(schema.anomalies.kind, "drift"),
+        ),
+      )
+      .limit(1);
+  }
 
   if (driftResult.drifting) {
     if (!existing) {

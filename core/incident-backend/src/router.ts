@@ -7,9 +7,12 @@ import {
   autoAuthMiddleware,
   correlationMiddleware,
   Logger,
+  type EventBus,
   type RpcContext,
 } from "@checkstack/backend-api";
 import type { SignalService } from "@checkstack/signal-common";
+import type { IncidentLifecycleChangedPayload } from "@checkstack/incident-common";
+import { emitIncidentLifecycleChanged } from "./hooks";
 import type { IncidentService } from "./service";
 import { CatalogApi } from "@checkstack/catalog-common";
 import { AuthApi } from "@checkstack/auth-common";
@@ -28,10 +31,22 @@ import {
   toIncidentEntityState,
   type IncidentEntityState,
 } from "./incident-entity";
+import {
+  resolveIncidentAudience,
+  filterByAudience,
+  scopeEditHistory,
+} from "./read-visibility";
 
 export interface IncidentRouterDeps {
   service: IncidentService;
   signalService: SignalService;
+  /**
+   * Distributed event bus used to emit the `incident.lifecycle.changed` hook on
+   * every lifecycle mutation (alongside the realtime `INCIDENT_UPDATED` signal),
+   * so backend consumers (e.g. SLO downtime reconciliation) react with
+   * exactly-once `work-queue` delivery. Optional so tests can omit it.
+   */
+  eventBus?: EventBus;
   catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<
     typeof import("@checkstack/notification-common").NotificationApi
@@ -46,6 +61,7 @@ export interface IncidentRouterDeps {
 export function createRouter({
   service,
   signalService,
+  eventBus,
   catalogClient,
   notificationClient,
   authClient,
@@ -53,6 +69,21 @@ export function createRouter({
   cache,
   getIncidentEntity,
 }: IncidentRouterDeps) {
+  /**
+   * Announce an incident lifecycle change: broadcast the realtime
+   * `INCIDENT_UPDATED` signal (frontend refetch) AND emit the distributed
+   * `incident.lifecycle.changed` hook (backend consumers, e.g. SLO downtime).
+   * Kept as one call so the signal and the hook can never drift apart. Both are
+   * best-effort: the write is already committed, so a delivery failure must
+   * never surface as a client error (the signal is inherently non-throwing; the
+   * hook emit is guarded here).
+   */
+  const notifyIncidentChanged = async (
+    payload: IncidentLifecycleChangedPayload,
+  ) => {
+    await signalService.broadcast(INCIDENT_UPDATED, payload);
+    await emitIncidentLifecycleChanged({ eventBus, logger, payload });
+  };
   /**
    * Resolve user IDs to profile names for a list of updates.
    * Falls back to "Unknown User" if the user cannot be found.
@@ -150,7 +181,7 @@ export function createRouter({
       incidentId: resolved.id,
       systemIds: resolved.systemIds,
     });
-    await signalService.broadcast(INCIDENT_UPDATED, {
+    await notifyIncidentChanged({
       incidentId: resolved.id,
       systemIds: resolved.systemIds,
       action: "resolved",
@@ -166,6 +197,7 @@ export function createRouter({
       systemNames,
       action: "resolved",
       severity: resolved.severity,
+      updateMessage: message,
     });
     return { status: "resolved", incident: resolved };
   }
@@ -195,7 +227,7 @@ export function createRouter({
       incidentId: id,
       systemIds: incident.systemIds,
     });
-    await signalService.broadcast(INCIDENT_UPDATED, {
+    await notifyIncidentChanged({
       incidentId: id,
       systemIds: incident.systemIds,
       action: "deleted",
@@ -217,19 +249,35 @@ export function createRouter({
       };
     }),
 
-    getIncident: os.getIncident.handler(async ({ input }) => {
+    getIncident: os.getIncident.handler(async ({ input, context }) => {
       const result = await cache.wrapIncident(input.id, () =>
         service.getIncident(input.id),
       );
       if (!result) {
-         
+
         return null;
       }
+      // Item 3/5: filter updates + hotlinks by the caller's audience SERVER-SIDE
+      // (never CSS). The cache stores the full record; visibility is applied
+      // per-request so an internal note or logged-in-only link never ships to an
+      // anonymous or non-manager caller.
+      const audience = await resolveIncidentAudience({
+        context: { user: context.user, auth: context.auth },
+        incidentId: input.id,
+      });
       // User-name resolution stays outside the cache: it's a foreign-system
       // lookup with its own freshness needs and is cheap relative to the
       // incident query.
-      const updatesWithNames = await resolveUserNames(result.updates);
-      return { ...result, updates: updatesWithNames };
+      // Filter by current visibility, THEN strip the manager-only edit history
+      // (a prior version may have been internal before being made public).
+      const updatesWithNames = await resolveUserNames(
+        scopeEditHistory(filterByAudience(result.updates, audience), audience),
+      );
+      return {
+        ...result,
+        updates: updatesWithNames,
+        links: filterByAudience(result.links, audience),
+      };
     }),
 
     getIncidentsForSystem: os.getIncidentsForSystem.handler(
@@ -257,6 +305,32 @@ export function createRouter({
           }),
         );
         return { incidents };
+      },
+    ),
+
+    getBulkIncidentUpdates: os.getBulkIncidentUpdates.handler(
+      async ({ input, context }) => {
+        const raw = await service.getBulkIncidentUpdates(input.incidentIds);
+        // Mirror getIncident's per-incident audience filter (Item 3/5) so this
+        // bulk endpoint can never leak logged-in/internal updates - or author
+        // identity - to a caller who is not a manager of that incident. The
+        // public status-page widget re-filters to `public` on top; a trusted
+        // service call resolves as `manager` and sees all, exactly as
+        // getIncident does. Names are resolved per incident (batched within),
+        // matching the single-incident read.
+        const updates: Record<string, IncidentUpdate[]> = {};
+        await Promise.all(
+          Object.entries(raw).map(async ([incidentId, list]) => {
+            const audience = await resolveIncidentAudience({
+              context: { user: context.user, auth: context.auth },
+              incidentId,
+            });
+            updates[incidentId] = await resolveUserNames(
+              scopeEditHistory(filterByAudience(list, audience), audience),
+            );
+          }),
+        );
+        return { updates };
       },
     ),
 
@@ -307,7 +381,7 @@ export function createRouter({
       });
 
       // Broadcast signal for realtime updates
-      await signalService.broadcast(INCIDENT_UPDATED, {
+      await notifyIncidentChanged({
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "created",
@@ -325,6 +399,7 @@ export function createRouter({
         systemNames,
         action: "created",
         severity: result.severity,
+        updateMessage: input.initialMessage,
       });
 
       return result;
@@ -362,7 +437,7 @@ export function createRouter({
       });
 
       // Broadcast signal for realtime updates
-      await signalService.broadcast(INCIDENT_UPDATED, {
+      await notifyIncidentChanged({
         incidentId: result.id,
         systemIds: result.systemIds,
         action: "updated",
@@ -425,19 +500,27 @@ export function createRouter({
           systemIds: incident.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: input.incidentId,
           systemIds: incident.systemIds,
           action: "updated",
         });
 
-        // Send notifications when status changes
-        if (input.statusChange && previousStatus !== input.statusChange) {
+        // Notify subscribers on every update EXCEPT an internal-only operator
+        // note: an internal update (Item 3/5) must NEVER reach system
+        // subscribers. A status change picks the matching verb
+        // (resolved / reopened); a message-only update (no status change) still
+        // reaches subscribers as an "updated" notification so the latest update
+        // text is delivered rather than silently swallowed.
+        if (input.visibility !== "internal") {
+          const isStatusChange =
+            !!input.statusChange && previousStatus !== input.statusChange;
+
           // Determine notification action based on status transition
           let notificationAction: "resolved" | "reopened" | "updated";
-          if (input.statusChange === "resolved") {
+          if (isStatusChange && input.statusChange === "resolved") {
             notificationAction = "resolved";
-          } else if (previousStatus === "resolved") {
+          } else if (isStatusChange && previousStatus === "resolved") {
             // Reopening: was resolved, now not resolved
             notificationAction = "reopened";
           } else {
@@ -455,11 +538,91 @@ export function createRouter({
             systemNames,
             action: notificationAction,
             severity: incident.severity,
+            updateMessage: input.message,
           });
         }
       }
 
       return result;
+    }),
+
+    editUpdate: os.editUpdate.handler(async ({ input }) => {
+      // Drive the edit through the reactive `incident` entity: a `statusChange`
+      // edit on the LATEST update re-derives the incident status (service
+      // layer), so `apply` re-reads and returns the post-write reactive state
+      // and the deriver fires the right change event. Editing an update never
+      // re-notifies subscribers (only status transitions via addUpdate do).
+      let updateResult: IncidentUpdate | undefined;
+      let incident: Awaited<ReturnType<typeof service.getIncident>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.incidentId,
+        apply: async () => {
+          updateResult = await service.editUpdate(input);
+          if (!updateResult) {
+            throw new ORPCError("NOT_FOUND", { message: "Update not found" });
+          }
+          incident = await service.getIncident(input.incidentId);
+          if (!incident) {
+            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+          }
+          return toIncidentEntityState(incident);
+        },
+      });
+      if (!updateResult || !incident) {
+        throw new ORPCError("NOT_FOUND", { message: "Update not found" });
+      }
+
+      await cache.invalidateForMutation({
+        incidentId: input.incidentId,
+        systemIds: incident.systemIds,
+      });
+      await notifyIncidentChanged({
+        incidentId: input.incidentId,
+        systemIds: incident.systemIds,
+        action: "updated",
+      });
+      return updateResult;
+    }),
+
+    deleteUpdate: os.deleteUpdate.handler(async ({ input }) => {
+      // Probe first: a no-op delete (missing incident/update) must NOT drive an
+      // entity write. `getIncident` returns the FULL (unfiltered) timeline, so
+      // the presence check is visibility-independent.
+      const before = await service.getIncident(input.incidentId);
+      if (!before || !before.updates.some((u) => u.id === input.id)) {
+        return { success: false };
+      }
+
+      // Drive the delete through the reactive `incident` entity: deleting the
+      // latest status-bearing update re-derives the incident status (service
+      // layer), so `apply` re-reads and returns the post-write reactive state
+      // and the deriver fires the right change event (symmetric with editUpdate).
+      let incident: Awaited<ReturnType<typeof service.getIncident>>;
+      await writeIncidentEntity({
+        handle: getIncidentEntity?.(),
+        incidentId: input.incidentId,
+        apply: async () => {
+          await service.deleteUpdate(input.id, input.incidentId);
+          incident = await service.getIncident(input.incidentId);
+          if (!incident) {
+            throw new ORPCError("NOT_FOUND", { message: "Incident not found" });
+          }
+          return toIncidentEntityState(incident);
+        },
+      });
+      if (incident) {
+        await cache.invalidateForMutation({
+          incidentId: input.incidentId,
+          systemIds: incident.systemIds,
+        });
+        await notifyIncidentChanged({
+          incidentId: input.incidentId,
+          systemIds: incident.systemIds,
+          action: "updated",
+        });
+      }
+      return { success: true };
     }),
 
     resolveIncident: os.resolveIncident.handler(async ({ input, context }) => {
@@ -580,7 +743,7 @@ export function createRouter({
           systemIds: result.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "created",
@@ -597,6 +760,7 @@ export function createRouter({
           systemNames,
           action: "created",
           severity: result.severity,
+          updateMessage: input.initialMessage,
         });
 
         return { id: result.id };
@@ -638,7 +802,7 @@ export function createRouter({
           systemIds: result.systemIds,
         });
 
-        await signalService.broadcast(INCIDENT_UPDATED, {
+        await notifyIncidentChanged({
           incidentId: result.id,
           systemIds: result.systemIds,
           action: "resolved",
@@ -655,6 +819,7 @@ export function createRouter({
           systemNames,
           action: "resolved",
           severity: result.severity,
+          updateMessage: input.message,
         });
 
         return { success: true };
@@ -672,6 +837,21 @@ export function createRouter({
         incidentId: incident.id,
         systemIds: incident.systemIds,
       });
+      return link;
+    }),
+
+    updateLink: os.updateLink.handler(async ({ input }) => {
+      const link = await service.updateLink(input);
+      if (!link) {
+        throw new ORPCError("NOT_FOUND", { message: "Link not found" });
+      }
+      const incident = await service.getIncident(input.incidentId);
+      if (incident) {
+        await cache.invalidateForMutation({
+          incidentId: incident.id,
+          systemIds: incident.systemIds,
+        });
+      }
       return link;
     }),
 

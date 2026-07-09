@@ -1,0 +1,1 @@
+ALTER TABLE "status_pages" ADD COLUMN "published_environment_ids" text[];

@@ -178,6 +178,18 @@ Enforcement:
 
 The dispatcher will reject calls that violate any of these.
 
+### External (non-auth-user) audiences
+
+Some audiences are not auth users. notification-backend defines a
+`notificationAudienceExtensionPoint`; an owning platform plugin
+contributes a sink that receives a `NotificationAudienceEvent`
+(carrying the affected `systemIds` and the source `sourcePluginId`)
+once per `notifyForSubscription`. Status pages contribute such a sink
+for their anonymous email subscribers, applying their own send-time
+system scoping AND per-subscription category (`sourcePluginId` mapped to
+incident / maintenance / health) and system scope. See
+[Status pages -> Anonymous email subscriptions](/checkstack/developer-guide/architecture/status-pages/#anonymous-email-subscriptions).
+
 ## Frontend
 
 The frontend renders no per-spec rows in plugin code. Every host

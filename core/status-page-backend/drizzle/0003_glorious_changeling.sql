@@ -1,0 +1,1 @@
+ALTER TABLE "status_pages" ADD COLUMN "email_subscriptions_enabled" boolean DEFAULT false NOT NULL;

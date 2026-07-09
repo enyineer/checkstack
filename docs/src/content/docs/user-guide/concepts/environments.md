@@ -94,6 +94,21 @@ filter: "trigger.payload.environmentId == 'production'"
 
 An automation that does not reference `environmentId` is unaffected by the new per-environment events because the rollup change still fires for it.
 
+## Publishing environments on a status page
+
+A [status page](/checkstack/developer-guide/architecture/status-pages/) can be scoped to publish only some environments. In the status page builder, the **Published environments** picker in the page settings selects which environments the page reflects. Leave it empty to publish **all** environments (the default, and how every existing page behaves).
+
+When you select one or more environments, the page omits everything for systems that belong to **none** of the selected environments:
+
+- **Status and uptime**: a system's status rolls up from only its selected-environment runs, and its uptime counts only runs recorded in those environments. A system in both `production` and `staging`, on a production-only page, shows its production health and uptime, not a cross-environment mix.
+- **Incidents and maintenance**: an incident or maintenance window appears only when at least one of its affected systems belongs to a selected environment. Systems outside the selected environments are not listed on the item, even when the same incident also affects them.
+- **Email subscriptions**: the per-system subscribe picker and the outbound fan-out both honor the same scope, so subscribers are never emailed about a system the page does not show.
+
+> [!NOTE]
+> Incidents and maintenance windows carry no environment of their own - they are scoped **indirectly** through their affected systems. A system that belongs to several environments therefore makes its incidents visible on a page publishing **any** of those environments. If `payments-api` is in both `production` and `staging`, an incident on it appears on a production-only page and on a staging-only page alike (the multi-environment caveat).
+
+Incident-forced status overrides are whole-system rather than per-environment, so on an environment-scoped page they are surfaced through the (env-filtered) incidents feed rather than folded into the per-environment health rollup.
+
 ## Templating config with `{{ environment.* }}`
 
 An environment's custom fields are available in **collector config templating**, so one check configuration covers every environment without duplication. The motivating case is the HTTP collector's URL: store it once as `{{ environment.baseUrl }}/healthz` and each per-environment run resolves it against that environment's `baseUrl`.

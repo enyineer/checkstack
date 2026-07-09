@@ -36,6 +36,9 @@ describe("GitOps reconciler fast-path retry logic", () => {
       insert: () => mockDb,
       values: async () => [],
       delete: () => mockDb,
+      // Scoped-db contract: run a batched select+upsert group against the same
+      // stubbed chains (mirrors withTransactionMock in test-utils-backend).
+      transaction: async (cb: (tx: unknown) => unknown) => cb(mockDb),
     } as any;
 
     const kindRegistry = createEntityKindRegistry();
@@ -98,6 +101,9 @@ describe("GitOps reconciler fast-path retry logic", () => {
       insert: () => mockDb,
       values: async () => [],
       delete: () => mockDb,
+      // Scoped-db contract: run a batched select+upsert group against the same
+      // stubbed chains (mirrors withTransactionMock in test-utils-backend).
+      transaction: async (cb: (tx: unknown) => unknown) => cb(mockDb),
     } as any;
 
     const kindRegistry = createEntityKindRegistry();

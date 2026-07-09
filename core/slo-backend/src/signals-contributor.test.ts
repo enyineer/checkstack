@@ -14,6 +14,7 @@ const objective: SloObjective = {
   windowDays: 30,
   dependencyExclusion: "strict",
   excludedDependencyIds: [],
+  excludeMaintenanceWindows: false,
   burnRateThresholds: {
     warningPercent: 50,
     criticalPercent: 80,

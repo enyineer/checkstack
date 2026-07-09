@@ -141,3 +141,138 @@ describe("aggregateWindowedDowntime", () => {
     expect(result.totalMinutes).toBe(0);
   });
 });
+
+describe("maintenance-window exclusion", () => {
+  // A 4-hour closed self-event ending at `now`.
+  const eventStart = new Date(now.getTime() - 4 * HOUR);
+
+  it("subtracts a maintenance window fully inside the event", () => {
+    // Maintenance covers the middle 2 hours of the 4-hour outage.
+    const seconds = eventWindowSeconds({
+      startTime: eventStart,
+      endTime: now,
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 3 * HOUR),
+          endAt: new Date(now.getTime() - 1 * HOUR),
+        },
+      ],
+    });
+    expect(seconds).toBe((2 * HOUR) / 1000);
+  });
+
+  it("clamps a maintenance window that extends beyond the event", () => {
+    // Maintenance starts before the event and ends 1h into it: only that 1h
+    // overlaps, leaving 3h of counted downtime.
+    const seconds = eventWindowSeconds({
+      startTime: eventStart,
+      endTime: now,
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 6 * HOUR),
+          endAt: new Date(now.getTime() - 3 * HOUR),
+        },
+      ],
+    });
+    expect(seconds).toBe((3 * HOUR) / 1000);
+  });
+
+  it("merges overlapping maintenance windows so overlap is not double-subtracted", () => {
+    // Two overlapping windows together cover [-3h, -1h] = 2h, not 3h.
+    const seconds = eventWindowSeconds({
+      startTime: eventStart,
+      endTime: now,
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 3 * HOUR),
+          endAt: new Date(now.getTime() - 1.5 * HOUR),
+        },
+        {
+          startAt: new Date(now.getTime() - 2 * HOUR),
+          endAt: new Date(now.getTime() - 1 * HOUR),
+        },
+      ],
+    });
+    expect(seconds).toBe((2 * HOUR) / 1000);
+  });
+
+  it("counts the full event when no maintenance window overlaps", () => {
+    const seconds = eventWindowSeconds({
+      startTime: eventStart,
+      endTime: now,
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 10 * HOUR),
+          endAt: new Date(now.getTime() - 8 * HOUR),
+        },
+      ],
+    });
+    expect(seconds).toBe((4 * HOUR) / 1000);
+  });
+
+  it("excludes maintenance uniformly across attribution in the aggregate", () => {
+    // A 2h self event and a 2h upstream event, each with a 1h maintenance
+    // window over their second hour. Both should halve.
+    const result = aggregateWindowedDowntime({
+      events: [
+        selfEvent({
+          startTime: new Date(now.getTime() - 2 * HOUR),
+          endTime: now,
+        }),
+        {
+          startTime: new Date(now.getTime() - 2 * HOUR),
+          endTime: now,
+          attributionType: "upstream",
+          upstreamSystemId: "up-1",
+          upstreamSystemName: "Upstream",
+        },
+      ],
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 1 * HOUR),
+          endAt: now,
+        },
+      ],
+    });
+    expect(result.selfMinutes).toBe(60);
+    expect(result.upstreamMinutes).toBe(60);
+    expect(result.totalMinutes).toBe(120);
+  });
+
+  it("drops an event entirely covered by maintenance", () => {
+    const result = aggregateWindowedDowntime({
+      events: [
+        selfEvent({
+          startTime: new Date(now.getTime() - 2 * HOUR),
+          endTime: now,
+        }),
+      ],
+      windowStart,
+      windowEnd,
+      now,
+      maintenanceWindows: [
+        {
+          startAt: new Date(now.getTime() - 3 * HOUR),
+          endAt: now,
+        },
+      ],
+    });
+    expect(result.totalMinutes).toBe(0);
+    expect(result.entries).toHaveLength(0);
+  });
+});

@@ -1,6 +1,7 @@
 import {
   Versioned,
   z,
+  configString,
   type HealthCheckRunForAggregation,
   type CollectorResult,
   type CollectorStrategy,
@@ -24,10 +25,14 @@ import type { JenkinsTransportClient } from "../transport-client";
 // ============================================================================
 
 const jobStatusConfigSchema = z.object({
-  jobName: z
-    .string()
+  // Templatable: supports `{{ environment.jobName }}` so one config covers N
+  // environments. Presence is enforced POST-RENDER in `execute` (an empty
+  // render must not silently probe an empty job path and look healthy).
+  jobName: configString({ "x-templatable": true })
     .min(1)
-    .describe("Full job path (e.g., 'folder/job-name' or 'my-job')"),
+    .describe(
+      "Full job path (e.g., 'folder/job-name' or 'my-job'). Supports templating, e.g. {{ environment.jobName }}",
+    ),
   checkLastBuild: z
     .boolean()
     .default(true)
@@ -35,6 +40,15 @@ const jobStatusConfigSchema = z.object({
 });
 
 export type JobStatusConfig = z.infer<typeof jobStatusConfigSchema>;
+
+/**
+ * Post-render validator for the required `jobName`. The stored value is a
+ * templatable string, so `.min(1)` cannot meaningfully run at store time against
+ * a template; the executor renders `{{ environment.* }}` per environment, then
+ * this rejects a render that collapsed to empty/whitespace. An empty job path is
+ * a config error - transport-failure semantics - not a "healthy" empty probe.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 // ============================================================================
 // RESULT SCHEMAS
@@ -188,8 +202,25 @@ export class JobStatusCollector implements CollectorStrategy<
     client: JenkinsTransportClient;
     pluginId: string;
   }): Promise<CollectorResult<JobStatusResult>> {
+    // Post-render guard: reject a template that rendered to empty before probing
+    // an empty job path (which would otherwise return a misleading result).
+    const jobName = renderedRequiredSchema.safeParse(config.jobName);
+    if (!jobName.success) {
+      return {
+        result: {
+          jobName: config.jobName,
+          buildable: false,
+          inQueue: false,
+          color: "notbuilt",
+        },
+        error:
+          `Rendered jobName is empty: ${JSON.stringify(config.jobName)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      };
+    }
+
     // Encode job path for URL (handle folders)
-    const jobPath = config.jobName
+    const jobPath = jobName.data
       .split("/")
       .map((part) => `job/${encodeURIComponent(part)}`)
       .join("/");

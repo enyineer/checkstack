@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   json,
+  integer,
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -68,6 +69,10 @@ export const groups = pgTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    // Persisted browse order. Lower sorts first. Assigned on create (appended
+    // after existing groups) and rewritten by the reorder proc. Backfilled
+    // deterministically for pre-existing rows by the accompanying migration.
+    sortOrder: integer("sort_order").notNull().default(0),
 
     metadata: json("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at").defaultNow().notNull(),

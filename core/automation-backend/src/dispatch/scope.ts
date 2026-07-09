@@ -103,19 +103,21 @@ export async function resolveConsumedArtifacts(
   if (consumes.length === 0) return {};
   const result: Record<string, unknown> = {};
 
+  // `consumes` carries local artifact ids; the stored artifact type is the
+  // fully-qualified `${pluginId}.${id}` the producing action wrote. Qualify
+  // each against the consuming action's own plugin (same-plugin handoff), then
+  // resolve every type in ONE `inArray` query instead of one lookup per type.
+  const byQualifiedType = await ctx.deps.artifactStore.findLatestByTypes({
+    automationId: ctx.run.automation.id,
+    contextKey: ctx.run.contextKey,
+    artifactTypes: consumes.map((localType) => `${ownerPluginId}.${localType}`),
+    onlyOpen: true,
+  });
+
   for (const localType of consumes) {
-    // `consumes` carries local artifact ids; the stored artifact type is
-    // the fully-qualified `${pluginId}.${id}` the producing action wrote.
-    // Qualify against the consuming action's own plugin (same-plugin
-    // handoff) for the lookup, but key the result by the local id so the
-    // action's `execute` reads `consumedArtifacts[localId]`.
-    const qualifiedType = `${ownerPluginId}.${localType}`;
-    const found = await ctx.deps.artifactStore.find({
-      automationId: ctx.run.automation.id,
-      contextKey: ctx.run.contextKey,
-      artifactType: qualifiedType,
-      onlyOpen: true,
-    });
+    // Key the result by the local id so the action's `execute` reads
+    // `consumedArtifacts[localId]`.
+    const found = byQualifiedType.get(`${ownerPluginId}.${localType}`);
     if (found) {
       result[localType] = found.data;
     }

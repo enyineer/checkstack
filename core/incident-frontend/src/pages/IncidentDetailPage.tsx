@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   usePluginClient,
@@ -19,32 +19,28 @@ import {
 import { CatalogApi } from "@checkstack/catalog-common";
 import {
   Card,
-  CardHeader,
-  CardHeaderRow,
-  CardTitle,
   CardContent,
   Button,
   Badge,
   LoadingSpinner,
   BackLink,
   useToast,
-  StatusUpdateTimeline,
   PageLayout,
   toastError,
   cn,
+  MarkdownBlock,
 } from "@checkstack/ui";
 import {
   AlertTriangle,
   Calendar,
-  MessageSquare,
   CheckCircle2,
   Server,
-  Plus,
   ExternalLink,
   HeartPulse,
 } from "lucide-react";
+import { VisibilityBadge } from "../utils/visibilityBadge";
 import { format, formatDistanceToNow } from "date-fns";
-import { IncidentUpdateForm } from "../components/IncidentUpdateForm";
+import { IncidentUpdatesSection } from "../components/IncidentUpdatesSection";
 import {
   getIncidentStatusBadge,
   getIncidentSeverityBadge,
@@ -61,8 +57,6 @@ const IncidentDetailPageContent: React.FC = () => {
   const accessApi = useApi(accessApiRef);
   const queryClient = useQueryClient();
   const toast = useToast();
-
-  const [showUpdateForm, setShowUpdateForm] = useState(false);
 
   // Fetch incident with useQuery
   const {
@@ -109,11 +103,11 @@ const IncidentDetailPageContent: React.FC = () => {
     },
   });
 
-  const handleUpdateSuccess = () => {
-    // A posted update may carry a status change (e.g. to resolved), which lifts
-    // an override, so refresh derived system health too.
+  // Called by the shared updates section after an add / edit / delete. A status
+  // change can lift/apply a health override (healthcheck's derived data), so
+  // refresh that too (Pillar 2 of the query-invalidation rule).
+  const handleUpdatesChanged = () => {
     invalidateSystemHealth();
-    setShowUpdateForm(false);
     void refetchIncident();
   };
 
@@ -231,9 +225,9 @@ const IncidentDetailPageContent: React.FC = () => {
                   <h4 className="text-xs font-medium text-muted-foreground mb-1">
                     Description
                   </h4>
-                  <p className="text-sm text-foreground">
+                  <MarkdownBlock size="sm" className="text-foreground">
                     {incident.description}
-                  </p>
+                  </MarkdownBlock>
                 </div>
               )}
 
@@ -294,6 +288,7 @@ const IncidentDetailPageContent: React.FC = () => {
                       >
                         <ExternalLink className="h-3 w-3" />
                         <span>{link.label ?? link.url}</span>
+                        <VisibilityBadge visibility={link.visibility} />
                       </a>
                     ))}
                   </div>
@@ -303,42 +298,14 @@ const IncidentDetailPageContent: React.FC = () => {
           </div>
         </div>
 
-        {/* Status Updates Timeline */}
+        {/* Status Updates - shared with the incident editor dialog. */}
         <Card>
-          <CardHeader className="border-b border-border">
-            <CardHeaderRow>
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Status Updates</CardTitle>
-              </div>
-              {canAccess(incident.id) && !showUpdateForm && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowUpdateForm(true)}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Update
-                </Button>
-              )}
-            </CardHeaderRow>
-          </CardHeader>
           <CardContent className="p-6">
-            {/* Add Update Form */}
-            {showUpdateForm && incidentId && (
-              <div className="mb-6">
-                <IncidentUpdateForm
-                  incidentId={incidentId}
-                  onSuccess={handleUpdateSuccess}
-                  onCancel={() => setShowUpdateForm(false)}
-                />
-              </div>
-            )}
-
-            <StatusUpdateTimeline
+            <IncidentUpdatesSection
+              incidentId={incident.id}
+              currentStatus={incident.status}
               updates={incident.updates}
-              renderStatusBadge={getIncidentStatusBadge}
-              emptyTitle="No status updates"
+              onChanged={handleUpdatesChanged}
               emptyDescription="No status updates have been posted for this incident."
             />
           </CardContent>

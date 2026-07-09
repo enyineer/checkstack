@@ -1,5 +1,6 @@
 import { eq, or, and, inArray } from "drizzle-orm";
-import type { SafeDatabase } from "@checkstack/backend-api";
+import type { SafeDatabase, ScopedQueryRunner } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "../schema";
 import {
   dependencies,
@@ -15,6 +16,13 @@ import type {
 } from "@checkstack/dependency-common";
 
 type Db = SafeDatabase<typeof schema>;
+
+/**
+ * A db handle usable both standalone (the scoped db) and inside a batching
+ * `withScopedTransaction` (the `tx`). Helpers that a wrapped write threads its
+ * `tx` through (`detectCycle`, `getDependencyById`) accept this.
+ */
+type Runner = ScopedQueryRunner<typeof schema>;
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -71,63 +79,71 @@ export class DependencyService {
     input: CreateDependencyInput,
     id: string = generateId(),
   ): Promise<Dependency> {
-    // Check for duplicate edge
-    const [existing] = await this.db
-      .select()
-      .from(dependencies)
-      .where(
-        and(
-          eq(dependencies.sourceSystemId, input.sourceSystemId),
-          eq(dependencies.targetSystemId, input.targetSystemId),
-        ),
-      );
+    // Batched: the duplicate check, cycle-detection traversal, edge insert,
+    // rule inserts, and the reload all run under one SET LOCAL search_path.
+    // The per-rule insert loop collapses into a single multi-row insert.
+    return withScopedTransaction(this.db, async (tx) => {
+      // Check for duplicate edge
+      const [existing] = await tx
+        .select()
+        .from(dependencies)
+        .where(
+          and(
+            eq(dependencies.sourceSystemId, input.sourceSystemId),
+            eq(dependencies.targetSystemId, input.targetSystemId),
+          ),
+        );
 
-    if (existing) {
-      throw new Error(
-        `Dependency already exists between ${input.sourceSystemId} and ${input.targetSystemId}`,
-      );
-    }
-
-    // Cycle detection: check if adding this edge would create a cycle
-    const cyclePath = await this.detectCycle({
-      sourceSystemId: input.sourceSystemId,
-      targetSystemId: input.targetSystemId,
-    });
-
-    if (cyclePath) {
-      throw new Error(
-        `Cannot create dependency: would form a circular chain: ${cyclePath.join(" → ")}`,
-      );
-    }
-
-    await this.db.insert(dependencies).values({
-      id,
-      sourceSystemId: input.sourceSystemId,
-      targetSystemId: input.targetSystemId,
-      impactType: input.impactType,
-      transitive: input.transitive ?? false,
-       
-      label: input.label ?? null,
-    });
-
-    // Create scope cells if provided
-    if (input.healthCheckRules && input.healthCheckRules.length > 0) {
-      for (const rule of input.healthCheckRules) {
-        await this.db.insert(dependencyHealthCheckRules).values({
-          id: generateId(),
-          dependencyId: id,
-          healthCheckId: rule.healthCheckId ?? null,
-          environmentId: rule.environmentId ?? null,
-          overrideImpactType: rule.overrideImpactType,
-        });
+      if (existing) {
+        throw new Error(
+          `Dependency already exists between ${input.sourceSystemId} and ${input.targetSystemId}`,
+        );
       }
-    }
 
-    const result = await this.getDependencyById(id);
-    if (!result) {
-      throw new Error("Failed to create dependency");
-    }
-    return result;
+      // Cycle detection: check if adding this edge would create a cycle
+      const cyclePath = await this.detectCycle(
+        {
+          sourceSystemId: input.sourceSystemId,
+          targetSystemId: input.targetSystemId,
+        },
+        tx,
+      );
+
+      if (cyclePath) {
+        throw new Error(
+          `Cannot create dependency: would form a circular chain: ${cyclePath.join(" → ")}`,
+        );
+      }
+
+      await tx.insert(dependencies).values({
+        id,
+        sourceSystemId: input.sourceSystemId,
+        targetSystemId: input.targetSystemId,
+        impactType: input.impactType,
+        transitive: input.transitive ?? false,
+
+        label: input.label ?? null,
+      });
+
+      // Create scope cells if provided — one multi-row insert, not N.
+      if (input.healthCheckRules && input.healthCheckRules.length > 0) {
+        await tx.insert(dependencyHealthCheckRules).values(
+          input.healthCheckRules.map((rule) => ({
+            id: generateId(),
+            dependencyId: id,
+            healthCheckId: rule.healthCheckId ?? null,
+            environmentId: rule.environmentId ?? null,
+            overrideImpactType: rule.overrideImpactType,
+          })),
+        );
+      }
+
+      const result = await this.getDependencyById(id, tx);
+      if (!result) {
+        throw new Error("Failed to create dependency");
+      }
+      return result;
+    });
   }
 
   /**
@@ -136,59 +152,72 @@ export class DependencyService {
   async updateDependency(
     input: UpdateDependencyInput,
   ): Promise<Dependency | undefined> {
-    const [existing] = await this.db
-      .select()
-      .from(dependencies)
-      .where(eq(dependencies.id, input.id));
+    // Batched: existence check, update, rule replace (delete + one multi-row
+    // insert), and reload all run under one SET LOCAL search_path.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(dependencies)
+        .where(eq(dependencies.id, input.id));
 
-    if (!existing) return undefined;
+      if (!existing) return;
 
-    const updateData: Partial<typeof dependencies.$inferInsert> = {
-      updatedAt: new Date(),
-    };
-    if (input.impactType !== undefined) updateData.impactType = input.impactType;
-    if (input.transitive !== undefined) updateData.transitive = input.transitive;
-    if (input.label !== undefined) updateData.label = input.label;
+      const updateData: Partial<typeof dependencies.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      if (input.impactType !== undefined)
+        updateData.impactType = input.impactType;
+      if (input.transitive !== undefined)
+        updateData.transitive = input.transitive;
+      if (input.label !== undefined) updateData.label = input.label;
 
-    await this.db
-      .update(dependencies)
-      .set(updateData)
-      .where(eq(dependencies.id, input.id));
+      await tx
+        .update(dependencies)
+        .set(updateData)
+        .where(eq(dependencies.id, input.id));
 
-    // Replace health check rules if provided
-    if (input.healthCheckRules !== undefined) {
-      await this.db
-        .delete(dependencyHealthCheckRules)
-        .where(eq(dependencyHealthCheckRules.dependencyId, input.id));
+      // Replace health check rules if provided
+      if (input.healthCheckRules !== undefined) {
+        await tx
+          .delete(dependencyHealthCheckRules)
+          .where(eq(dependencyHealthCheckRules.dependencyId, input.id));
 
-      for (const rule of input.healthCheckRules) {
-        await this.db.insert(dependencyHealthCheckRules).values({
-          id: generateId(),
-          dependencyId: input.id,
-          healthCheckId: rule.healthCheckId ?? null,
-          environmentId: rule.environmentId ?? null,
-          overrideImpactType: rule.overrideImpactType,
-        });
+        // One multi-row insert, not N.
+        if (input.healthCheckRules.length > 0) {
+          await tx.insert(dependencyHealthCheckRules).values(
+            input.healthCheckRules.map((rule) => ({
+              id: generateId(),
+              dependencyId: input.id,
+              healthCheckId: rule.healthCheckId ?? null,
+              environmentId: rule.environmentId ?? null,
+              overrideImpactType: rule.overrideImpactType,
+            })),
+          );
+        }
       }
-    }
 
-    return this.getDependencyById(input.id);
+      return this.getDependencyById(input.id, tx);
+    });
   }
 
   /**
    * Delete a dependency.
    */
   async deleteDependency(id: string): Promise<boolean> {
-    const [existing] = await this.db
-      .select()
-      .from(dependencies)
-      .where(eq(dependencies.id, id));
+    // Batched: the existence check and the delete run under one SET LOCAL
+    // search_path (a single transaction) instead of two standalone queries.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(dependencies)
+        .where(eq(dependencies.id, id));
 
-    if (!existing) return false;
+      if (!existing) return false;
 
-    // Cascade delete handles health check rules
-    await this.db.delete(dependencies).where(eq(dependencies.id, id));
-    return true;
+      // Cascade delete handles health check rules
+      await tx.delete(dependencies).where(eq(dependencies.id, id));
+      return true;
+    });
   }
 
   /**
@@ -209,15 +238,33 @@ export class DependencyService {
   /**
    * Get a single dependency by ID with health check rules.
    */
-  async getDependencyById(id: string): Promise<Dependency | undefined> {
-    const [row] = await this.db
+  async getDependencyById(
+    id: string,
+    runner?: Runner,
+  ): Promise<Dependency | undefined> {
+    // When composed inside a write's `withScopedTransaction`, the caller
+    // passes its `tx` so both reads join that batch. Called standalone, wrap
+    // the two reads in one transaction so they share a single SET LOCAL
+    // search_path instead of opening one per query.
+    if (runner) return this.loadDependencyById(runner, id);
+    return withScopedTransaction(this.db, (tx) =>
+      this.loadDependencyById(tx, id),
+    );
+  }
+
+  /** The two reads behind {@link getDependencyById}, on a supplied runner. */
+  private async loadDependencyById(
+    runner: Runner,
+    id: string,
+  ): Promise<Dependency | undefined> {
+    const [row] = await runner
       .select()
       .from(dependencies)
       .where(eq(dependencies.id, id));
 
     if (!row) return undefined;
 
-    const rules = await this.db
+    const rules = await runner
       .select()
       .from(dependencyHealthCheckRules)
       .where(eq(dependencyHealthCheckRules.dependencyId, id));
@@ -315,21 +362,26 @@ export class DependencyService {
     userId: string;
     positions: NodePosition[];
   }): Promise<void> {
-    // Delete existing positions for this user
-    await this.db
-      .delete(nodePositions)
-      .where(eq(nodePositions.userId, userId));
+    // Replace-all: the delete and the insert of the new set run under one
+    // SET LOCAL search_path, and the former per-position insert loop collapses
+    // into a single multi-row insert (set-based).
+    await withScopedTransaction(this.db, async (tx) => {
+      // Delete existing positions for this user
+      await tx.delete(nodePositions).where(eq(nodePositions.userId, userId));
 
-    // Insert new positions
-    for (const pos of positions) {
-      await this.db.insert(nodePositions).values({
-        id: generateId(),
-        userId,
-        systemId: pos.systemId,
-        x: pos.x,
-        y: pos.y,
-      });
-    }
+      // Insert new positions — one multi-row insert, not N.
+      if (positions.length > 0) {
+        await tx.insert(nodePositions).values(
+          positions.map((pos) => ({
+            id: generateId(),
+            userId,
+            systemId: pos.systemId,
+            x: pos.x,
+            y: pos.y,
+          })),
+        );
+      }
+    });
   }
 
   // ===========================================================================
@@ -341,15 +393,20 @@ export class DependencyService {
    * Uses DFS from the target system following existing edges.
    * Returns the cycle path if found, or undefined if safe.
    */
-  async detectCycle({
-    sourceSystemId,
-    targetSystemId,
-  }: {
-    sourceSystemId: string;
-    targetSystemId: string;
-  }): Promise<string[] | undefined> {
-    // Load all edges for traversal
-    const allEdges = await this.db
+  async detectCycle(
+    {
+      sourceSystemId,
+      targetSystemId,
+    }: {
+      sourceSystemId: string;
+      targetSystemId: string;
+    },
+    runner: Runner = this.db,
+  ): Promise<string[] | undefined> {
+    // Load all edges for traversal. `runner` lets a wrapping write pass its
+    // `tx` so this read joins the same batch (and sees the same snapshot) as
+    // the duplicate check and insert around it.
+    const allEdges = await runner
       .select({
         sourceSystemId: dependencies.sourceSystemId,
         targetSystemId: dependencies.targetSystemId,

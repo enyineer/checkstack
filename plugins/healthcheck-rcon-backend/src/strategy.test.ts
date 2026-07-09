@@ -60,6 +60,24 @@ describe("RconHealthCheckStrategy", () => {
       close();
     });
 
+    // A required templatable `host` that renders to empty (e.g.
+    // `{{ environment.host }}` with no environment) is a config error - it must
+    // fail as a transport failure, never attempt an empty connection.
+    it("should throw when the rendered host is empty", async () => {
+      const mockClient = createMockRconClient();
+      const strategy = new RconHealthCheckStrategy(mockClient);
+
+      await expect(
+        strategy.createClient({
+          host: "   ",
+          port: 25575,
+          password: "secret",
+          timeout: 5000,
+        }),
+      ).rejects.toThrow(/Rendered host is empty/);
+      expect(mockClient.connect).not.toHaveBeenCalled();
+    });
+
     it("should execute commands through transport client", async () => {
       const mockClient = createMockRconClient("list response");
       const strategy = new RconHealthCheckStrategy(mockClient);

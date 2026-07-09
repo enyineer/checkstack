@@ -12,6 +12,7 @@ import {
 import {
   notificationStrategyExtensionPoint,
   postJson,
+  validateWebhookUrl,
   IMPORTANCE_EMOJI,
   renderSubjectsAsMarkdown,
 } from "@checkstack/notification-backend";
@@ -174,6 +175,17 @@ const discordStrategy: NotificationStrategy<DiscordConfig, DiscordUserConfig> =
         };
       }
 
+      // SSRF guard: the webhook URL is user-supplied. Reject it up front if it
+      // resolves to an internal/reserved address, and refuse redirects below so
+      // a receiver cannot 3xx us at an internal host past this pre-flight.
+      const validation = await validateWebhookUrl({ url: userConfig.webhookUrl });
+      if (!validation.ok) {
+        logger.warn(
+          `Blocked Discord delivery to ${userConfig.webhookUrl}: ${validation.error}`,
+        );
+        return { success: false, error: validation.error };
+      }
+
       // Build the embed
       const embed = buildDiscordEmbed({
         title: notification.title,
@@ -187,6 +199,7 @@ const discordStrategy: NotificationStrategy<DiscordConfig, DiscordUserConfig> =
       const result = await postJson({
         url: userConfig.webhookUrl,
         body: { embeds: [embed] },
+        redirect: "error",
         serviceName: "Discord",
         logger,
       });
@@ -219,6 +232,11 @@ export default createBackendPlugin({
  * public API surface.
  * @internal
  */
-export { discordConfigSchemaV1, discordUserConfigSchema, buildDiscordEmbed };
+export {
+  discordConfigSchemaV1,
+  discordUserConfigSchema,
+  buildDiscordEmbed,
+  discordStrategy,
+};
 /** @internal */
 export type { DiscordConfig, DiscordUserConfig, DiscordEmbedOptions };

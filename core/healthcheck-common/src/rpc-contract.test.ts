@@ -26,6 +26,12 @@ interface InstanceAccessMeta {
   listKey?: string;
   recordKey?: string;
   create?: { teamIdParam?: string; idField?: string };
+  parentScope?: {
+    resourceType?: string;
+    action?: string;
+    idParam?: string;
+    recordKey?: string;
+  };
 }
 
 function metaFor(procName: keyof typeof healthCheckContract): {
@@ -247,5 +253,33 @@ describe("detailed run history is handler-authorized (manage or system-owner)", 
     expect(
       (healthCheckAccess as Record<string, unknown>).details,
     ).toBeUndefined();
+  });
+});
+
+describe("getBulkAssignedHealthCheckCounts gating (bulk badge, no N+1)", () => {
+  test("read-authenticated, parentScope catalog.system / read / recordKey=counts", () => {
+    // Mirrors the per-system getSystemAssociations authorization it replaces:
+    // configuration.read + parentScope on catalog.system read, but as a bulk
+    // record keyed by systemId so recordKey filters each entry by the caller's
+    // read grant. Must NOT weaken to `public` or drop the parent scope.
+    const meta = metaFor("getBulkAssignedHealthCheckCounts");
+    expect(meta.userType).toBe("authenticated");
+    const ia = meta.instanceAccess;
+    expect(ia?.parentScope).toBeDefined();
+    expect(ia?.parentScope?.resourceType).toBe("catalog.system");
+    expect(ia?.parentScope?.action).toBe("read");
+    expect(ia?.parentScope?.recordKey).toBe("counts");
+    // No instance/list scoping fields - it is a record-keyed bulk read.
+    expect(ia?.idParam).toBeUndefined();
+    expect(ia?.listKey).toBeUndefined();
+    expect(ia?.recordKey).toBeUndefined();
+  });
+
+  test("input is a systemIds array; output is a counts record", () => {
+    expect(
+      inputSchemaFor("getBulkAssignedHealthCheckCounts").safeParse({
+        systemIds: ["sys-1", "sys-2"],
+      }).success,
+    ).toBe(true);
   });
 });

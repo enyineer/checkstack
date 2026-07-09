@@ -495,6 +495,52 @@ export const notificationContract = {
     )
     .output(z.object({ notifiedCount: z.number() })),
 
+  // Send an email to an ARBITRARY raw address that has NO auth account.
+  // Unlike `sendTransactional` (which resolves recipients from auth accounts by
+  // userId), this delivers straight to `to` via every enabled EMAIL strategy
+  // (contactResolution "auth-email", e.g. SMTP). It is the primitive for
+  // anonymous flows like status-page email subscribers.
+  //
+  // SECURITY: `userType: "service"` - callable ONLY by a trusted backend-to-
+  // backend (service) principal, NEVER by an end user. Sending to an arbitrary
+  // attacker-chosen `to` is an open-relay / email-bomb primitive; its only
+  // legitimate caller is a platform plugin (the status-page subscriber mailer)
+  // via its trusted service client. Gating it on `authenticated` +
+  // `notification.send` would let any user holding that rule relay mail to any
+  // address, so it is deliberately service-only. A mandatory `unsubscribeUrl` is
+  // appended to every message.
+  sendRawEmail: proc({
+    operationType: "mutation",
+    userType: "service",
+    access: [],
+  })
+    .input(
+      z.object({
+        to: z.string().email().describe("Raw recipient email address"),
+        subject: z.string().min(1).max(300),
+        body: z.string().describe("Email body (supports markdown)"),
+        unsubscribeUrl: z
+          .string()
+          .url()
+          .describe("Mandatory unsubscribe link appended to the message"),
+        importance: z.enum(["info", "warning", "critical"]).optional(),
+      }),
+    )
+    .output(
+      z.object({
+        deliveredCount: z
+          .number()
+          .describe("Number of email strategies that delivered successfully"),
+        results: z.array(
+          z.object({
+            strategyId: z.string(),
+            success: z.boolean(),
+            error: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+
   // Send transactional notification via ALL enabled strategies.
   // userType "authenticated" + access gate: trusted services bypass checks
   // (short-circuit), while a service-account principal (e.g. an automation's

@@ -8,6 +8,16 @@ import { isSecretSchema } from "@checkstack/backend-api";
  */
 export interface SecretStore {
   resolve: (name: string) => Promise<string>;
+  /**
+   * Resolve many secret names in one batch. Optional — implementations
+   * backed by the active backend override this to resolve the active
+   * backend id ONCE for the whole batch (instead of the per-name config
+   * read `resolve` incurs), returning a `name → value` map keyed by the
+   * distinct input names. Throws `Secret not found: NAME` on any absent
+   * name, matching `resolve`. Callers that need a batch but face a store
+   * without this method fall back to looping `resolve`.
+   */
+  resolveMany?: (names: string[]) => Promise<Map<string, string>>;
 }
 
 /**

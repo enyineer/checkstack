@@ -249,6 +249,28 @@ export const catalogContract = {
     )
     .output(SystemLinkSchema),
 
+  // Edit a link in place. Scoped by its PARENT system (grants are keyed on
+  // "catalog.system"), so `idParam` points at `systemId`; the handler
+  // additionally scopes the update by `systemId` (anti-spoof), so a link id
+  // cannot be paired with a foreign system the caller manages. Only the
+  // provided fields change.
+  updateSystemLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.system.manage],
+    instanceAccess: { idParam: "systemId" },
+  })
+    .route({ method: "PATCH" })
+    .input(
+      z.object({
+        id: z.string(),
+        systemId: z.string(),
+        label: z.string().max(120).optional(),
+        url: z.string().url("Must be a valid URL").optional(),
+      }),
+    )
+    .output(SystemLinkSchema),
+
   // Input reshaped from a bare `z.string()` (the link id) to
   // `{ id, systemId }` so the per-system manage check can resolve the parent
   // system. Removing a link is scoped by its PARENT system (grants are keyed
@@ -292,6 +314,22 @@ export const catalogContract = {
   })
     .route({ method: "DELETE" })
     .input(z.string())
+    .output(z.object({ success: z.boolean() })),
+
+  /**
+   * Persist a new browse order for groups. `orderedIds` lists group ids in the
+   * desired order; each is assigned a `sortOrder` equal to its index. Groups
+   * are GLOBAL (no team scoping), so this follows the sibling group mutations
+   * and declares no instanceAccess - the caller must hold the global group
+   * manage rule.
+   */
+  reorderGroups: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [catalogAccess.group.manage],
+  })
+    .route({ method: "PATCH" })
+    .input(z.object({ orderedIds: z.array(z.string()) }))
     .output(z.object({ success: z.boolean() })),
 
   // ==========================================================================

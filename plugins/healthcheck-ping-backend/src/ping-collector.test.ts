@@ -64,6 +64,57 @@ describe("PingCollector", () => {
       expect(result.error).toBe("Host unreachable");
     });
 
+    it("pings a concrete (already-rendered) host", async () => {
+      // The executor renders `{{ environment.host }}` upstream, so execute always
+      // sees a concrete value; verify it is forwarded to the transport client.
+      const collector = new PingCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { host: "rendered.example.com", count: 3, timeout: 5000 },
+        client,
+        pluginId: "test",
+      });
+
+      expect(client.exec).toHaveBeenCalledWith({
+        host: "rendered.example.com",
+        count: 3,
+        timeout: 5000,
+      });
+      expect(result.error).toBeUndefined();
+    });
+
+    it("returns a transport error when the rendered host is empty", async () => {
+      // An env-less run renders `{{ environment.host }}` to "". A required target
+      // that renders empty is a config error, not a silent healthy probe.
+      const collector = new PingCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { host: "", count: 3, timeout: 5000 },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("Rendered host is empty");
+      expect(result.result.packetLoss).toBe(100);
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
+    it("returns a transport error when the rendered host is whitespace-only", async () => {
+      const collector = new PingCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { host: "   ", count: 3, timeout: 5000 },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toContain("Rendered host is empty");
+      expect(client.exec).not.toHaveBeenCalled();
+    });
+
     it("should pass correct parameters to client", async () => {
       const collector = new PingCollector();
       const client = createMockClient();

@@ -11,6 +11,9 @@ import {
   CreateMaintenanceInputSchema,
   UpdateMaintenanceInputSchema,
   AddMaintenanceUpdateInputSchema,
+  EditMaintenanceUpdateInputSchema,
+  DeleteMaintenanceUpdateInputSchema,
+  UpdateMaintenanceLinkInputSchema,
   MaintenanceStatusEnum,
   BulkMaintenanceActionResultSchema,
   BulkMaintenanceIdsInputSchema,
@@ -101,6 +104,76 @@ export const maintenanceContract = {
       }),
     ),
 
+  /**
+   * Bulk fetch of each maintenance's update timeline, keyed by maintenance id.
+   * Backs the public status page's maintenance widget so rendering the update
+   * timeline for N windows costs ONE request instead of an N+1 fan-out of
+   * {@link getMaintenance} (which the widget was calling purely for `.updates`).
+   * The handler applies the SAME per-maintenance audience filter as
+   * `getMaintenance` (Item 3/5), so logged-in/internal updates and author
+   * identity never reach a caller who is not a manager of that maintenance; the
+   * public widget re-filters to `public` on top.
+   *
+   * `recordKey: "updates"` mirrors `getMaintenance`'s own-object read gate
+   * (`idParam: "id"`) as a record post-filter: each maintenance-id key is
+   * checked against the caller's `maintenance.maintenance` read grant, exactly
+   * like `listMaintenances`' `listKey`. Maintenances with no updates are omitted.
+   */
+  getBulkMaintenanceUpdates: proc({
+    operationType: "query",
+    userType: "public",
+    access: [maintenanceAccess.maintenance.read],
+    instanceAccess: { recordKey: "updates" },
+  })
+    .route({ method: "POST" })
+    .input(z.object({ maintenanceIds: z.array(z.string()) }))
+    .output(
+      z.object({
+        updates: z.record(z.string(), z.array(MaintenanceUpdateSchema)),
+      }),
+    ),
+
+  /**
+   * Get maintenance windows that OVERLAP a time range `[from, to]` for the
+   * given systems, INCLUDING already-completed windows and EXCLUDING only
+   * `cancelled` ones. Unlike `getBulkMaintenancesForSystems` (active/scheduled
+   * only), this backs TRAILING-window budget math (the SLO error-budget
+   * maintenance exclusion): a planned maintenance that has since completed must
+   * still be subtracted, and the subtracted amount must not jump when the
+   * window transitions `scheduled -> in_progress -> completed`. Overlap test is
+   * `startAt <= to AND endAt >= from`. Output is `Record<systemId, windows[]>`,
+   * so `parentScope` with `recordKey` gates on catalog.system access per key
+   * (a trusted service-to-service loopback caller passes the gate).
+   */
+  getMaintenanceWindowsForRange: proc({
+    operationType: "query",
+    userType: "public",
+    access: [maintenanceAccess.maintenance.read],
+    instanceAccess: {
+      parentScope: {
+        resourceType: "catalog.system",
+        action: "read",
+        recordKey: "maintenances",
+      },
+    },
+  })
+    .route({ method: "POST" })
+    .input(
+      z.object({
+        systemIds: z.array(z.string()),
+        from: z.date(),
+        to: z.date(),
+      }),
+    )
+    .output(
+      z.object({
+        maintenances: z.record(
+          z.string(),
+          z.array(MaintenanceWithSystemsSchema),
+        ),
+      }),
+    ),
+
   /** Create a new maintenance */
   createMaintenance: proc({
     operationType: "mutation",
@@ -148,6 +221,37 @@ export const maintenanceContract = {
     .input(AddMaintenanceUpdateInputSchema)
     .output(MaintenanceUpdateSchema),
 
+  /**
+   * Edit a published update in place. Object-scoped on the OWNING maintenance
+   * via `maintenanceId` (mirrors addUpdate). The handler scopes the write by
+   * `maintenanceId`, and a `statusChange` edit on the LATEST update re-derives
+   * the maintenance status. Sets `editedAt`.
+   */
+  editUpdate: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+    instanceAccess: { idParam: "maintenanceId" },
+  })
+    .route({ method: "PATCH" })
+    .input(EditMaintenanceUpdateInputSchema)
+    .output(MaintenanceUpdateSchema),
+
+  /**
+   * Delete a published update. Object-scoped on the OWNING maintenance via
+   * `maintenanceId` (mirrors removeLink); the handler scopes the delete by
+   * `maintenanceId`.
+   */
+  deleteUpdate: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+    instanceAccess: { idParam: "maintenanceId" },
+  })
+    .route({ method: "DELETE" })
+    .input(DeleteMaintenanceUpdateInputSchema)
+    .output(z.object({ success: z.boolean() })),
+
   /** Close a maintenance early (sets status to completed) */
   closeMaintenance: proc({
     operationType: "mutation",
@@ -168,6 +272,23 @@ export const maintenanceContract = {
     instanceAccess: { idParam: "maintenanceId" },
   })
     .input(AddMaintenanceLinkInputSchema)
+    .output(MaintenanceLinkSchema),
+
+  /**
+   * Edit a hotlink in place. Object-scoped on the OWNING maintenance via
+   * `maintenanceId` (mirrors removeLink), so a team-scoped maintenance manager
+   * may edit links on their own maintenance without the global rule. The handler
+   * additionally scopes the update by `maintenanceId`, so a link id cannot be
+   * paired with a foreign maintenance the caller happens to manage.
+   */
+  updateLink: proc({
+    operationType: "mutation",
+    userType: "authenticated",
+    access: [maintenanceAccess.maintenance.manage],
+    instanceAccess: { idParam: "maintenanceId" },
+  })
+    .route({ method: "PATCH" })
+    .input(UpdateMaintenanceLinkInputSchema)
     .output(MaintenanceLinkSchema),
 
   /** Remove a hotlink from a maintenance */

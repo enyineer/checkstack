@@ -267,6 +267,15 @@ export const CatalogConfigPage = () => {
     },
   });
 
+  const reorderGroupsMutation = catalogClient.reorderGroups.useMutation({
+    onSuccess: () => {
+      void refetchGroups();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to reorder groups", error);
+    },
+  });
+
   const updateGroupMutation = catalogClient.updateGroup.useMutation({
     onSuccess: () => {
       toastSuccess(toast, "Group name updated successfully");
@@ -549,11 +558,15 @@ export const CatalogConfigPage = () => {
       {activeTab === "groups" && (
         <GroupsTab
           groups={visibleGroups}
+          orderedGroups={groups}
           totalCount={groups.length}
           allSystems={systems}
           onAddGroup={() => setIsGroupEditorOpen(true)}
           onDeleteGroup={handleDeleteGroup}
           onRenameGroup={handleUpdateGroupName}
+          onReorderGroups={(orderedIds) =>
+            reorderGroupsMutation.mutate({ orderedIds })
+          }
           onAddToGroup={handleAddSystemToGroup}
           onRemoveFromGroup={handleRemoveSystemFromGroup}
           onClearFilters={browse.clearFilters}

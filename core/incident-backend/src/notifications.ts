@@ -7,6 +7,7 @@ import type { Logger } from "@checkstack/backend-api";
 import type { InferClient } from "@checkstack/common";
 import { resolveRoute } from "@checkstack/common";
 import type { NotificationApi } from "@checkstack/notification-common";
+import { buildUpdateMessageSuffix } from "@checkstack/notification-common";
 import {
   incidentRoutes,
   incidentCollapseKey,
@@ -29,6 +30,13 @@ export async function notifyAffectedSystems(props: {
   systemNames?: Map<string, string>;
   action: "created" | "updated" | "resolved" | "reopened";
   severity: string;
+  /**
+   * The latest incident update's free-text message. When present it is
+   * escaped, single-lined, truncated, and appended to the notification body as
+   * a blockquote so subscribers see WHAT changed, not just that something did.
+   * User-supplied, so it is always sanitized before it reaches a markdown body.
+   */
+  updateMessage?: string;
 }): Promise<void> {
   const {
     notificationClient,
@@ -39,6 +47,7 @@ export async function notifyAffectedSystems(props: {
     systemNames,
     action,
     severity,
+    updateMessage,
   } = props;
   void props.catalogClient;
 
@@ -64,12 +73,14 @@ export async function notifyAffectedSystems(props: {
     }),
   );
 
+  const messageSuffix = buildUpdateMessageSuffix({ message: updateMessage });
+
   try {
     await notificationClient.notifyForSubscription({
       specId: incidentSystemSubscription.specId,
       resourceKeys: uniqueSystemIds,
       title: `Incident ${actionText}: ${incidentTitle}`,
-      body: `Incident **"${incidentTitle}"** has been ${actionText}.`,
+      body: `Incident **"${incidentTitle}"** has been ${actionText}.${messageSuffix}`,
       importance,
       action: { label: "View Incident", url: incidentDetailPath },
       collapseKey: incidentCollapseKey(incidentId),

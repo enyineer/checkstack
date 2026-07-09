@@ -3,6 +3,7 @@ import {
   mapHealthStatus,
   rollupStatus,
   overallBannerStatus,
+  rollupSelectedEnvironments,
   statusBannerTitle,
 } from "./rollup";
 
@@ -42,6 +43,45 @@ describe("overallBannerStatus", () => {
     expect(overallBannerStatus(["degraded", "operational"])).toBe("degraded");
     expect(overallBannerStatus([])).toBe("unknown");
     expect(overallBannerStatus(["unknown"])).toBe("unknown");
+  });
+});
+
+describe("rollupSelectedEnvironments", () => {
+  const environments = {
+    prod: { status: "healthy" },
+    staging: { status: "unhealthy" },
+    dev: { status: "degraded" },
+  };
+  test("considers only the selected environments (worst-wins)", () => {
+    expect(
+      rollupSelectedEnvironments({
+        environments,
+        selectedEnvironmentIds: ["prod"],
+      }),
+    ).toBe("operational");
+    expect(
+      rollupSelectedEnvironments({
+        environments,
+        selectedEnvironmentIds: ["prod", "staging"],
+      }),
+    ).toBe("major_outage");
+    expect(
+      rollupSelectedEnvironments({
+        environments,
+        selectedEnvironmentIds: ["prod", "dev"],
+      }),
+    ).toBe("degraded");
+  });
+  test("no slice in any selected env -> unknown", () => {
+    expect(
+      rollupSelectedEnvironments({
+        environments,
+        selectedEnvironmentIds: ["nonexistent"],
+      }),
+    ).toBe("unknown");
+    expect(
+      rollupSelectedEnvironments({ environments, selectedEnvironmentIds: [] }),
+    ).toBe("unknown");
   });
 });
 

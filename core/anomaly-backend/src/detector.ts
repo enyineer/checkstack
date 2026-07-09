@@ -135,6 +135,37 @@ export async function processCheckCompleted({
     );
   }
 
+  // Batch fix: pre-load ALL existing 'spike' anomaly rows for this
+  // (system, config, env) slice in ONE set-based SELECT and index by fieldPath,
+  // instead of issuing one SELECT per field inside the loop (an N+1 on the
+  // hottest anomaly path — this runs on every `checkCompleted`). Each field
+  // appears once in `fieldsToCheck`, so a per-path map lookup is behaviourally
+  // identical to the prior per-field query. The env predicate mirrors the
+  // per-env baseline lookup: match `environmentId` when present, else the
+  // env-less (NULL) slice.
+  const anomalyEnvPredicate =
+    environmentId === null
+      ? isNull(schema.anomalies.environmentId)
+      : eq(schema.anomalies.environmentId, environmentId);
+  const existingSpikeRows = await db
+    .select()
+    .from(schema.anomalies)
+    .where(
+      and(
+        eq(schema.anomalies.systemId, systemId),
+        eq(schema.anomalies.configurationId, configurationId),
+        anomalyEnvPredicate,
+        eq(schema.anomalies.kind, "spike"),
+      ),
+    );
+  const existingSpikeByPath = new Map<
+    string,
+    (typeof existingSpikeRows)[number]
+  >();
+  for (const row of existingSpikeRows) {
+    existingSpikeByPath.set(row.fieldPath, row);
+  }
+
   // Check each field
   for (const { path, value, collectorId, fieldName } of fieldsToCheck) {
     // Cache key mirrors the analyzer's, including the env slice, so a per-env
@@ -266,27 +297,11 @@ export async function processCheckCompleted({
           : 0;
     }
 
-    // Resolve the per-env anomaly row: match environmentId when present, or the
-    // env-less (NULL) slice otherwise. Mirrors the baseline lookup above, so an
+    // Resolve the per-env anomaly row from the batch-preloaded map (keyed by
+    // fieldPath). Behaviourally identical to the prior per-field SELECT: an
     // anomaly for this check in env A is a distinct row from env B - a healthy
     // value in one env never merges with (or masks) an anomaly in another.
-    const anomalyEnvPredicate =
-      environmentId === null
-        ? isNull(schema.anomalies.environmentId)
-        : eq(schema.anomalies.environmentId, environmentId);
-    const [existingAnomaly] = await db
-      .select()
-      .from(schema.anomalies)
-      .where(
-        and(
-          eq(schema.anomalies.systemId, systemId),
-          eq(schema.anomalies.configurationId, configurationId),
-          anomalyEnvPredicate,
-          eq(schema.anomalies.fieldPath, path),
-          eq(schema.anomalies.kind, "spike"),
-        ),
-      )
-      .limit(1);
+    const existingAnomaly = existingSpikeByPath.get(path);
 
     if (anomalous) {
       if (!existingAnomaly) {

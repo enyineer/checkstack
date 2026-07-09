@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   PageLayout,
@@ -21,6 +21,8 @@ import {
   QueryErrorState,
   ConfirmationModal,
   SystemMultiSelect,
+  Checkbox,
+  cn,
 } from "@checkstack/ui";
 import {
   ArrowUp,
@@ -34,6 +36,8 @@ import {
   MonitorCheck,
   Globe,
   Copy,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { usePluginClient } from "@checkstack/frontend-api";
 import { useInitOnceForKey } from "@checkstack/ui";
@@ -44,8 +48,12 @@ import {
   statusPageRoutes,
   statusPublicRoutes,
   BUILTIN_WIDGET_IDS,
+  DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA,
+  EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX,
+  SUBSCRIPTION_CATEGORY_LABELS,
   type StatusPageBlock,
   type StatusPageVisibility,
+  type StatusPageSubscriber,
   type CustomDomainInfo,
 } from "@checkstack/status-page-common";
 import { BlockRenderer, useStatusWidgetRenderers } from "../renderers";
@@ -60,7 +68,7 @@ function defaultConfig(type: string): unknown {
       return { items: [], showUptime: false };
     }
     case BUILTIN_WIDGET_IDS.groupStatus: {
-      return { groupId: "" };
+      return { groupId: "", collapseWhenHealthy: false };
     }
     case BUILTIN_WIDGET_IDS.uptime: {
       return { systemId: "", days: 90 };
@@ -69,6 +77,8 @@ function defaultConfig(type: string): unknown {
     case BUILTIN_WIDGET_IDS.maintenance: {
       return {
         systemIds: [],
+        groupIds: [],
+        excludedSystemIds: [],
         limit: 5,
         showUpdates: true,
         maxUpdates: 3,
@@ -95,7 +105,7 @@ function defaultConfig(type: string): unknown {
 }
 
 type SystemOption = { id: string; name: string };
-type GroupOption = { id: string; name: string };
+type GroupOption = { id: string; name: string; systemIds: string[] };
 
 /** Inline editor for a list of labelled links (the links widget config). */
 const LinksConfigEditor: React.FC<{
@@ -213,6 +223,211 @@ const EventFeedControls: React.FC<{
   );
 };
 
+/**
+ * Nested tri-state scope picker for the event-feed widgets. The stored config is
+ * `{ systemIds, groupIds, excludedSystemIds }`; the resolved scope is
+ * `(systemIds ∪ members(groupIds)) − excludedSystemIds`, computed on the backend
+ * at read time. A group toggles all its members; a member added to the group
+ * later is included automatically (nothing to re-save). Individual members can
+ * be excluded from a selected group, or added standalone without their group.
+ */
+const EventFeedScopePicker: React.FC<{
+  systems: SystemOption[];
+  groups: GroupOption[];
+  config: Record<string, unknown>;
+  set: (patch: Record<string, unknown>) => void;
+}> = ({ systems, groups, config, set }) => {
+  const systemIds = (config.systemIds as string[]) ?? [];
+  const groupIds = (config.groupIds as string[]) ?? [];
+  const excludedSystemIds = (config.excludedSystemIds as string[]) ?? [];
+  const systemLabels = (config.systemLabels as Record<string, string>) ?? {};
+  const systemIdSet = new Set(systemIds);
+  const groupIdSet = new Set(groupIds);
+  const excludedSet = new Set(excludedSystemIds);
+  const systemName = new Map(systems.map((s) => [s.id, s.name]));
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+  const setLabel = (id: string, value: string) => {
+    const next = { ...systemLabels };
+    const v = value.trim();
+    if (v) next[id] = v;
+    else delete next[id];
+    set({ systemLabels: next });
+  };
+
+  const memberOfSelectedGroup = (id: string) =>
+    groups.some((g) => groupIdSet.has(g.id) && g.systemIds.includes(id));
+  const isIncluded = (id: string) =>
+    systemIdSet.has(id) ||
+    (memberOfSelectedGroup(id) && !excludedSet.has(id));
+
+  const toggleGroup = (group: GroupOption, on: boolean) => {
+    const nextGroups = on
+      ? [...new Set([...groupIds, group.id])]
+      : groupIds.filter((g) => g !== group.id);
+    // Turning a group on re-includes its members (clear any stale exclusions);
+    // turning it off clears exclusions too so a later re-add starts clean.
+    const nextExcluded = excludedSystemIds.filter(
+      (id) => !group.systemIds.includes(id),
+    );
+    set({ groupIds: nextGroups, excludedSystemIds: nextExcluded });
+  };
+
+  const toggleSystem = (id: string, on: boolean) => {
+    const memberSelected = memberOfSelectedGroup(id);
+    if (on) {
+      set({
+        // Re-include: drop any exclusion; only add to explicit picks when not
+        // already covered by a selected group.
+        excludedSystemIds: excludedSystemIds.filter((x) => x !== id),
+        systemIds: memberSelected
+          ? systemIds
+          : [...new Set([...systemIds, id])],
+      });
+      return;
+    }
+    set({
+      systemIds: systemIds.filter((s) => s !== id),
+      // Exclude a group-provided member; a standalone pick just drops out above.
+      excludedSystemIds:
+        memberSelected && !excludedSet.has(id)
+          ? [...excludedSystemIds, id]
+          : excludedSystemIds,
+    });
+  };
+
+  const groupedSystemIds = new Set(groups.flatMap((g) => g.systemIds));
+  const ungrouped = systems.filter((s) => !groupedSystemIds.has(s.id));
+  // Systems currently in scope: the only ones for which a public label matters.
+  const includedSystems = systems.filter((s) => isIncluded(s.id));
+
+  const Row: React.FC<{ id: string; name: string; indent?: boolean }> = ({
+    id,
+    name,
+    indent,
+  }) => (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center gap-2 py-1 text-sm",
+        indent && "pl-6",
+      )}
+    >
+      <Checkbox
+        checked={isIncluded(id)}
+        onCheckedChange={(v) => toggleSystem(id, v)}
+      />
+      <span className="min-w-0 truncate">{name}</span>
+    </label>
+  );
+
+  return (
+    <div className="space-y-2">
+    <div className="space-y-2 rounded-md border border-border p-2">
+      {groups.length === 0 && systems.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No systems or groups available.
+        </p>
+      )}
+      {groups.map((group) => {
+        const open = openGroups.has(group.id);
+        const on = groupIdSet.has(group.id);
+        const excludedCount = group.systemIds.filter((id) =>
+          excludedSet.has(id),
+        ).length;
+        return (
+          <div key={group.id}>
+            <div className="flex items-center gap-2 py-1 text-sm">
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(group.id)) next.delete(group.id);
+                    else next.add(group.id);
+                    return next;
+                  })
+                }
+                aria-label={open ? "Collapse group" : "Expand group"}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {open ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </button>
+              <label className="flex flex-1 cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={on}
+                  onCheckedChange={(v) => toggleGroup(group, v)}
+                />
+                <span className="min-w-0 truncate font-medium">
+                  {group.name}
+                </span>
+              </label>
+              {on && excludedCount > 0 && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {excludedCount} excluded
+                </Badge>
+              )}
+            </div>
+            {open && (
+              <div className="border-l border-border/60 pl-2">
+                {group.systemIds.length === 0 ? (
+                  <p className="pl-6 py-1 text-xs text-muted-foreground">
+                    No systems in this group.
+                  </p>
+                ) : (
+                  group.systemIds.map((id) => (
+                    <Row
+                      key={id}
+                      id={id}
+                      name={systemName.get(id) ?? id}
+                      indent
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {ungrouped.length > 0 && (
+        <div className="border-t border-border/60 pt-1">
+          {ungrouped.map((s) => (
+            <Row key={s.id} id={s.id} name={s.name} />
+          ))}
+        </div>
+      )}
+    </div>
+    {includedSystems.length > 0 && (
+      <div className="space-y-1 rounded-md border border-border p-2">
+        <p className="text-xs font-medium text-muted-foreground">
+          Public labels (optional)
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          Shown publicly instead of the system name (incl. on the detail page).
+          Leave empty to use the catalog name.
+        </p>
+        {includedSystems.map((s) => (
+          <div key={s.id} className="flex items-center gap-2">
+            <span className="w-1/3 min-w-0 truncate text-xs text-muted-foreground">
+              {s.name}
+            </span>
+            <Input
+              value={systemLabels[s.id] ?? ""}
+              onChange={(e) => setLabel(s.id, e.target.value)}
+              placeholder={s.name}
+              className="h-7 flex-1 text-xs"
+            />
+          </div>
+        ))}
+      </div>
+    )}
+    </div>
+  );
+};
+
 const BlockConfigEditor: React.FC<{
   block: StatusPageBlock;
   systems: SystemOption[];
@@ -236,10 +451,11 @@ const BlockConfigEditor: React.FC<{
     case BUILTIN_WIDGET_IDS.maintenance: {
       return (
         <div className="space-y-3">
-          <SystemMultiSelect
+          <EventFeedScopePicker
             systems={systems}
-            selectedIds={(config.systemIds as string[]) ?? []}
-            onChange={(ids) => set({ systemIds: ids })}
+            groups={groups}
+            config={config}
+            set={set}
           />
           <EventFeedControls config={config} set={set} />
         </div>
@@ -351,27 +567,36 @@ const BlockConfigEditor: React.FC<{
     }
     case BUILTIN_WIDGET_IDS.groupStatus: {
       return (
-        <Select
-          value={(config.groupId as string) || ""}
-          onValueChange={(v) => set({ groupId: v })}
-        >
-          <SelectTrigger aria-label="Select a group">
-            <SelectValue placeholder="Select a group" />
-          </SelectTrigger>
-          <SelectContent>
-            {groups.length === 0 ? (
-              <SelectItem value="_none" disabled>
-                No groups available
-              </SelectItem>
-            ) : (
-              groups.map((g) => (
-                <SelectItem key={g.id} value={g.id}>
-                  {g.name}
+        <div className="space-y-2">
+          <Select
+            value={(config.groupId as string) || ""}
+            onValueChange={(v) => set({ groupId: v })}
+          >
+            <SelectTrigger aria-label="Select a group">
+              <SelectValue placeholder="Select a group" />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.length === 0 ? (
+                <SelectItem value="_none" disabled>
+                  No groups available
                 </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+              ) : (
+                groups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-sm">
+            <Toggle
+              checked={Boolean(config.collapseWhenHealthy)}
+              onCheckedChange={(v) => set({ collapseWhenHealthy: v })}
+            />
+            Collapse systems when all operational
+          </label>
+        </div>
       );
     }
     case BUILTIN_WIDGET_IDS.links: {
@@ -641,6 +866,244 @@ const CustomDomainSection: React.FC<{
   );
 };
 
+/**
+ * Compact, human-readable summary of a subscriber's scope for the admin list:
+ * which categories and how many systems, e.g. "Incidents, Scheduled maintenance
+ * . all systems" or "Health & status changes . 2 systems". A NULL categories /
+ * systemIds means the legacy "everything" scope.
+ */
+function describeSubscriberScope(s: StatusPageSubscriber): string {
+  const categories =
+    s.categories === null
+      ? "All updates"
+      : s.categories.length === 0
+        ? "No updates"
+        : s.categories.map((c) => SUBSCRIPTION_CATEGORY_LABELS[c]).join(", ");
+  const systems =
+    s.systemIds && s.systemIds.length > 0
+      ? `${s.systemIds.length} system${s.systemIds.length === 1 ? "" : "s"}`
+      : "all systems";
+  return `${categories} - ${systems}`;
+}
+
+/**
+ * Admin panel listing a page's anonymous EMAIL subscribers (double-opt-in), with
+ * per-row removal. Rendered inside the manage-gated builder, so it inherits the
+ * page's `manage` capability; the backend list/delete procs are additionally
+ * team-scoped by MANAGE on this page.
+ */
+const SubscribersSection: React.FC<{
+  pageId: string;
+  enabled: boolean;
+  quota: number | null;
+  verificationRequired: boolean;
+}> = ({ pageId, enabled, quota, verificationRequired }) => {
+  const client = usePluginClient(StatusPageApi);
+  const toast = useToast();
+  const { data } = client.listStatusPageSubscribers.useQuery({
+    statusPageId: pageId,
+  });
+  const removeMutation = client.deleteStatusPageSubscriber.useMutation();
+  const updateMutation = client.updateStatusPage.useMutation();
+  const subscribers = data?.subscribers ?? [];
+
+  // Local draft of the quota field (string so it can be cleared -> "use default").
+  const [quotaDraft, setQuotaDraft] = useState(quota === null ? "" : String(quota));
+  useEffect(() => {
+    setQuotaDraft(quota === null ? "" : String(quota));
+  }, [quota]);
+
+  const onRemove = async (id: string) => {
+    try {
+      await removeMutation.mutateAsync({ statusPageId: pageId, id });
+      toastSuccess(toast, "Subscriber removed.");
+    } catch (error) {
+      toastError(toast, "Couldn't remove the subscriber", error);
+    }
+  };
+
+  const onToggle = async (value: boolean) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: pageId,
+        emailSubscriptionsEnabled: value,
+      });
+      toastSuccess(
+        toast,
+        value ? "Email subscriptions enabled." : "Email subscriptions disabled.",
+      );
+    } catch (error) {
+      toastError(toast, "Couldn't update the setting", error);
+    }
+  };
+
+  const onCommitQuota = async () => {
+    const trimmed = quotaDraft.trim();
+    // Empty -> reset to the platform default (null); otherwise a positive int
+    // within the ceiling. Anything invalid snaps back to the stored value.
+    let next: number | null;
+    if (trimmed === "") {
+      next = null;
+    } else {
+      const parsed = Number(trimmed);
+      if (
+        !Number.isInteger(parsed) ||
+        parsed <= 0 ||
+        parsed > EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX
+      ) {
+        setQuotaDraft(quota === null ? "" : String(quota));
+        toastError(
+          toast,
+          "Invalid limit",
+          `Enter a whole number between 1 and ${EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX}, or leave empty for the default.`,
+        );
+        return;
+      }
+      next = parsed;
+    }
+    if (next === quota) return; // no change
+    try {
+      await updateMutation.mutateAsync({
+        id: pageId,
+        emailSubscribersHourlyQuota: next,
+      });
+      toastSuccess(toast, "Subscriber rate limit updated.");
+    } catch (error) {
+      toastError(toast, "Couldn't update the rate limit", error);
+    }
+  };
+
+  const onToggleVerification = async (value: boolean) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: pageId,
+        emailVerificationRequired: value,
+      });
+      toastSuccess(
+        toast,
+        value
+          ? "Email verification required."
+          : "Email verification turned off.",
+      );
+    } catch (error) {
+      toastError(toast, "Couldn't update the setting", error);
+    }
+  };
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Send className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-medium">Email subscribers</h3>
+            <p className="text-xs text-muted-foreground">
+              Let visitors subscribe to incident updates by email. The public
+              subscribe form appears only while this is on.
+            </p>
+          </div>
+        </div>
+        <Toggle
+          checked={enabled}
+          onCheckedChange={(v) => void onToggle(v)}
+          disabled={updateMutation.isPending}
+          aria-label="Enable email subscriptions"
+        />
+      </div>
+      {enabled && (
+        <div className="flex flex-col gap-1 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div className="min-w-0">
+            <label
+              htmlFor="subscriber-hourly-quota"
+              className="text-sm font-medium"
+            >
+              Max new subscribers per hour
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Caps verification emails from this page. Leave empty for the
+              default ({DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA}).
+            </p>
+          </div>
+          <Input
+            id="subscriber-hourly-quota"
+            type="number"
+            min={1}
+            max={EMAIL_SUBSCRIBERS_HOURLY_QUOTA_MAX}
+            inputMode="numeric"
+            value={quotaDraft}
+            placeholder={String(DEFAULT_EMAIL_SUBSCRIBERS_HOURLY_QUOTA)}
+            onChange={(e) => setQuotaDraft(e.target.value)}
+            onBlur={() => void onCommitQuota()}
+            disabled={updateMutation.isPending}
+            className="w-full sm:w-28"
+            aria-label="Maximum new subscribers per hour"
+          />
+        </div>
+      )}
+      {enabled && (
+        <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Require email verification</p>
+            <p className="text-xs text-muted-foreground">
+              Subscribers confirm their address before receiving updates. Turn
+              off to add subscribers immediately without confirmation - use only
+              for a trusted, e.g. internal, page.
+            </p>
+          </div>
+          <Toggle
+            checked={verificationRequired}
+            onCheckedChange={(v) => void onToggleVerification(v)}
+            disabled={updateMutation.isPending}
+            aria-label="Require email verification"
+          />
+        </div>
+      )}
+      {enabled && subscribers.length === 0 && (
+        <p className="text-xs text-muted-foreground">No subscribers yet.</p>
+      )}
+      {enabled && subscribers.length > 0 && (
+        <ul className="divide-y divide-border/60">
+          {subscribers.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-start justify-between gap-2 py-2 text-sm"
+            >
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate">{s.email}</span>
+                  <Badge
+                    variant={s.verified ? "secondary" : "outline"}
+                    className="text-[10px]"
+                  >
+                    {s.verified ? "Verified" : "Pending"}
+                  </Badge>
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {describeSubscriberScope(s)}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void onRemove(s.id)}
+                disabled={removeMutation.isPending}
+                aria-label={`Remove ${s.email}`}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!enabled && (
+        <p className="text-xs text-muted-foreground">
+          Email subscriptions are off for this page.
+        </p>
+      )}
+    </Card>
+  );
+};
+
 export const StatusPageBuilderPage: React.FC = () => {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -658,8 +1121,17 @@ export const StatusPageBuilderPage: React.FC = () => {
   const { data: widgetTypesData } = client.listWidgetTypes.useQuery({});
   const { data: systemsData } = catalog.getSystems.useQuery({});
   const { data: groupsData } = catalog.getGroups.useQuery({});
+  const { data: environmentsData } = catalog.listEnvironments.useQuery({});
+  const environments = (environmentsData ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
+  }));
   const systems: SystemOption[] = systemsData?.systems ?? [];
-  const groups: GroupOption[] = groupsData ?? [];
+  const groups: GroupOption[] = (groupsData ?? []).map((g) => ({
+    id: g.id,
+    name: g.name,
+    systemIds: g.systemIds,
+  }));
   const widgetTypes = widgetTypesData?.widgetTypes ?? [];
 
   const [title, setTitle] = useState("");
@@ -670,6 +1142,10 @@ export const StatusPageBuilderPage: React.FC = () => {
   const [blocks, setBlocks] = useState<StatusPageBlock[]>([]);
   const [addType, setAddType] = useState("");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  // Empty = publish all environments (backward-compatible default).
+  const [publishedEnvironmentIds, setPublishedEnvironmentIds] = useState<
+    string[]
+  >([]);
 
   useInitOnceForKey(page ?? undefined, page?.id, (p) => {
     setTitle(p.title);
@@ -678,6 +1154,7 @@ export const StatusPageBuilderPage: React.FC = () => {
     setBrandColor(p.theme.brandColorHsl ?? "");
     setLogoUrl(p.theme.logoUrl ?? "");
     setBlocks(p.draftLayout);
+    setPublishedEnvironmentIds(p.publishedEnvironmentIds ?? []);
   });
 
   const updateMutation = client.updateStatusPage.useMutation();
@@ -691,7 +1168,15 @@ export const StatusPageBuilderPage: React.FC = () => {
   // Dirty = local edits diverge from the loaded snapshot. Drives the unsaved
   // guard + Save/Publish enablement (there is no autosave).
   const dirty = page
-    ? JSON.stringify([title, slug, visibility, brandColor, logoUrl, blocks]) !==
+    ? JSON.stringify([
+        title,
+        slug,
+        visibility,
+        brandColor,
+        logoUrl,
+        blocks,
+        [...publishedEnvironmentIds].toSorted(),
+      ]) !==
       JSON.stringify([
         page.title,
         page.slug,
@@ -699,6 +1184,7 @@ export const StatusPageBuilderPage: React.FC = () => {
         page.theme.brandColorHsl ?? "",
         page.theme.logoUrl ?? "",
         page.draftLayout,
+        [...(page.publishedEnvironmentIds ?? [])].toSorted(),
       ])
     : false;
 
@@ -723,6 +1209,8 @@ export const StatusPageBuilderPage: React.FC = () => {
       ...(logoUrl ? { logoUrl } : {}),
     },
     draftLayout: blocks,
+    // Empty array persists as "all environments" (null) on the backend.
+    publishedEnvironmentIds,
   });
 
   const save = async () => {
@@ -904,6 +1392,30 @@ export const StatusPageBuilderPage: React.FC = () => {
                   onChange={(e) => setLogoUrl(e.target.value)}
                 />
               </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label id="status-page-environments-label">
+                  Visible environments
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to show all environments. When set, the page shows
+                  status, incidents, maintenance and uptime only for systems in
+                  the selected environments (a system in several environments
+                  appears when any of them is shown).
+                </p>
+                <SystemMultiSelect
+                  systems={environments}
+                  selectedIds={publishedEnvironmentIds}
+                  onChange={setPublishedEnvironmentIds}
+                  labelledBy="status-page-environments-label"
+                  searchPlaceholder="Search environments…"
+                  emptyText="No environments defined"
+                  countLabel={(n) =>
+                    n === 0
+                      ? "All environments"
+                      : `${n} environment(s) selected`
+                  }
+                />
+              </div>
             </div>
           </Card>
 
@@ -911,6 +1423,13 @@ export const StatusPageBuilderPage: React.FC = () => {
             pageId={id}
             published={page.published}
             customDomain={page.customDomain}
+          />
+
+          <SubscribersSection
+            pageId={id}
+            enabled={page.emailSubscriptionsEnabled}
+            quota={page.emailSubscribersHourlyQuota}
+            verificationRequired={page.emailVerificationRequired}
           />
 
           {blocks.map((block, i) => {

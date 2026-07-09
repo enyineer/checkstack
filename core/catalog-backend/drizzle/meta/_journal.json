@@ -50,6 +50,13 @@
       "when": 1780651494240,
       "tag": "0006_optimal_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783499098302,
+      "tag": "0007_bright_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

@@ -190,6 +190,82 @@ To make a check unhealthy on a 404, the user adds an assertion like
 `statusCode equals 200`; to make a check that WANTS a 404 green, they add
 `statusCode equals 404`. The collector stays out of that decision.
 
+## Environment templating in connection and target fields
+
+Free-text connection and target fields support `{{ … }}` templating, so one
+config covers many environments. A field opts in by declaring
+`configString({ "x-templatable": true })`; the executor renders it PER
+environment (after the secret pass, before the strategy client build and the
+collector `execute`) against a fixed context:
+
+- `{{ environment.<key> }}` - the resolved environment's custom fields.
+- `{{ check.id }}` / `{{ check.name }}` / `{{ check.intervalSeconds }}`.
+- `{{ system.id }}` / `{{ system.name }}`.
+
+An undefined reference renders to an empty string (the engine runs with
+`strict: false`), so a required target field can render EMPTY - for example an
+env-less run that references `{{ environment.host }}`.
+
+### Fields that support templating
+
+| Strategy | Templatable fields |
+|----------|--------------------|
+| HTTP | `url`, header values, `body` |
+| TLS | `host`, `servername` |
+| TCP | `host` |
+| Ping | `host` |
+| gRPC | `host`, `service` |
+| MySQL | `host`, `database`, `user`, `query` |
+| Postgres | `host`, `database`, `user`, `query` |
+| SSH | `host`, `username`, `command` |
+| Redis | `host`, `args` |
+| RCON | `host`, `command` |
+| DNS | `hostname`, `nameserver` |
+| Jenkins | `url` (`baseUrl`), `jobName` |
+| Container | `endpoint`, `container` |
+
+Secret fields (passwords, tokens, keys) are NEVER templatable - the load guard
+`assertNoSecretTemplatableConflict` rejects a field marked both secret and
+templatable, because secrets and templates are resolved in separate passes.
+Script collectors (shell / inline-TS) use `$ENV` / typed context, not `{{ }}`.
+
+### MUST: validate the rendered value (post-render config-error guard)
+
+> [!CAUTION]
+> A required target field that renders EMPTY must be treated as a **transport
+> failure** (a configuration error that prevents the probe), NEVER a silent
+> healthy result. Because a `{{ }}` template is not a valid concrete value, any
+> store-time validation (a `.url()`, a `.min(1)` that would reject the template)
+> moves to a POST-RENDER check.
+
+Re-validate the concrete rendered value where it is consumed, mirroring the HTTP
+`renderedUrlSchema` precedent:
+
+- **Strategy connection fields** (host, database, user, endpoint, base URL):
+  validate in `createClient` and **throw** on an empty / invalid render.
+  Throwing there is the strategy's transport-failure mechanism, and any
+  SSRF / egress guard already runs on the RENDERED host because rendering
+  happens before `createClient`.
+- **Collector target fields** (query, command, hostname, jobName, container):
+  validate in `execute` and **return** a `CollectorResult` with a populated
+  `error` on an empty render.
+
+```ts
+// Strategy: reject an empty rendered host (transport failure).
+const renderedHostSchema = z.string().trim().min(1);
+const host = renderedHostSchema.safeParse(validatedConfig.host);
+if (!host.success) {
+  throw new Error(
+    `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+      `Check the {{ environment.* }} templating for this environment.`,
+  );
+}
+```
+
+Optional fields (SNI `servername`, gRPC `service`, DNS `nameserver`, Redis
+`args`) are marked templatable but are NOT non-empty-guarded: an empty render is
+a legitimate "unset".
+
 ## Assertion outcomes and analytics
 
 Assertions are the user's grading of a completed collection (see the

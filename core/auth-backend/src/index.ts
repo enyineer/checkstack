@@ -23,11 +23,15 @@ import {
 import { NotificationApi } from "@checkstack/notification-common";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
-import { SafeDatabase } from "@checkstack/backend-api";
+import { SafeDatabase, withScopedTransaction } from "@checkstack/backend-api";
 import { BetterAuthOptions, User } from "better-auth/types";
 import { verifyPassword } from "better-auth/crypto";
 import { createExtensionPoint } from "@checkstack/backend-api";
-import { enrichUser, enrichApplicationPrincipal } from "./utils/user";
+import {
+  enrichUser,
+  enrichApplicationPrincipal,
+  readEnrichedUser,
+} from "./utils/user";
 import { ADMIN_ROLE_ID, createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
 import {
@@ -480,28 +484,32 @@ export default createBackendPlugin({
         // only PRODUCES the narrowed principal. A miss falls through to session.
         const opaqueToken = opaqueBearerToken(request);
         if (opaqueToken) {
-          const session = await introspectOpaqueToken({
-            db,
-            token: opaqueToken,
-          });
-          if (session) {
-            const userRow = await db
+          // introspect -> user -> enrich -> access-rule catalog are all pure
+          // DB reads, so run the whole branch under a single scoped transaction
+          // (one `SET LOCAL search_path`), threading the same `tx` down into
+          // `readEnrichedUser`.
+          const narrowed = await withScopedTransaction(db, async (tx) => {
+            const session = await introspectOpaqueToken({
+              db: tx,
+              token: opaqueToken,
+            });
+            if (!session) return;
+            const userRow = await tx
               .select()
               .from(schema.user)
               .where(eq(schema.user.id, session.userId))
               .limit(1);
-            if (userRow.length > 0) {
-              const base = await enrichUser(userRow[0], db);
-              const catalogRows = await db
-                .select({ id: schema.accessRule.id })
-                .from(schema.accessRule);
-              const narrowed = narrowedPrincipalFromSession({
-                session,
-                principal: { base, catalog: catalogRows.map((r) => r.id) },
-              });
-              if (narrowed) return narrowed;
-            }
-          }
+            if (userRow.length === 0) return;
+            const base = await readEnrichedUser(userRow[0], tx);
+            const catalogRows = await tx
+              .select({ id: schema.accessRule.id })
+              .from(schema.accessRule);
+            return narrowedPrincipalFromSession({
+              session,
+              principal: { base, catalog: catalogRows.map((r) => r.id) },
+            });
+          });
+          if (narrowed) return narrowed;
         }
 
         // Fall back to session-based authentication (better-auth)

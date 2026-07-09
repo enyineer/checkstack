@@ -1,0 +1,14 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "references": [
+    {
+      "path": "../../core/backend-api"
+    },
+    {
+      "path": "../../core/common"
+    },
+    {
+      "path": "../../core/notification-backend"
+    }
+  ]
+}

@@ -12,6 +12,24 @@ export const MaintenanceStatusEnum = z.enum([
 export type MaintenanceStatus = z.infer<typeof MaintenanceStatusEnum>;
 
 /**
+ * Audience for a maintenance update or hotlink.
+ *
+ * - `public`: visible to everyone, including anonymous visitors and the public
+ *   status page.
+ * - `logged_in`: visible only to authenticated users (hidden from anonymous
+ *   reads and the public status-page projection).
+ * - `internal`: an operator-only note, visible only to maintenance managers.
+ *
+ * Filtering is enforced SERVER-SIDE on the read path (never CSS).
+ */
+export const MaintenanceVisibilityEnum = z.enum([
+  "public",
+  "logged_in",
+  "internal",
+]);
+export type MaintenanceVisibility = z.infer<typeof MaintenanceVisibilityEnum>;
+
+/**
  * Core maintenance entity schema
  */
 export const MaintenanceSchema = z.object({
@@ -38,6 +56,31 @@ export type MaintenanceWithSystems = z.infer<
 >;
 
 /**
+ * A prior version of a maintenance update, archived when the update is edited in
+ * place. Captures every field an edit can change PLUS the published time
+ * (`createdAt`) that version carried, so the timeline can show a GitHub-style
+ * "history of edits". Timestamps are ISO strings because the array is persisted
+ * as a `jsonb` column and round-trips through JSON.
+ *
+ * This is MANAGER-FACING detail: a prior version may have been `internal` before
+ * being made `public`, so the read path only attaches `editHistory` for the
+ * manager audience (see `maintenance-backend/read-visibility`). Never ship it to
+ * a public / logged-in reader, or prior internal content would leak.
+ */
+export const MaintenanceUpdateEditSnapshotSchema = z.object({
+  message: z.string(),
+  statusChange: MaintenanceStatusEnum.optional(),
+  visibility: MaintenanceVisibilityEnum,
+  /** The published time this version carried before the edit (ISO string). */
+  createdAt: z.string(),
+  /** When this version was superseded, i.e. the edit timestamp (ISO string). */
+  editedAt: z.string(),
+});
+export type MaintenanceUpdateEditSnapshot = z.infer<
+  typeof MaintenanceUpdateEditSnapshotSchema
+>;
+
+/**
  * Maintenance update schema - status updates posted to a maintenance
  */
 export const MaintenanceUpdateSchema = z.object({
@@ -45,7 +88,17 @@ export const MaintenanceUpdateSchema = z.object({
   maintenanceId: z.string(),
   message: z.string(),
   statusChange: MaintenanceStatusEnum.optional(),
+  /** Audience for this update; see {@link MaintenanceVisibilityEnum}. */
+  visibility: MaintenanceVisibilityEnum,
   createdAt: z.date(),
+  /** Set when the update was edited in place. `null`/absent = never edited. */
+  editedAt: z.date().nullable().optional(),
+  /**
+   * Prior versions of this update, oldest first. Present ONLY for the manager
+   * audience (stripped on public / logged-in reads to avoid leaking prior
+   * internal content). Absent/empty means no edit history to show.
+   */
+  editHistory: z.array(MaintenanceUpdateEditSnapshotSchema).optional(),
   createdBy: z.string().optional(),
   createdByName: z.string().optional(),
 });
@@ -59,6 +112,8 @@ export const MaintenanceLinkSchema = z.object({
   maintenanceId: z.string(),
   label: z.string().nullable(),
   url: z.string(),
+  /** Audience for this hotlink; see {@link MaintenanceVisibilityEnum}. */
+  visibility: MaintenanceVisibilityEnum,
   createdAt: z.date(),
 });
 export type MaintenanceLink = z.infer<typeof MaintenanceLinkSchema>;
@@ -67,9 +122,27 @@ export const AddMaintenanceLinkInputSchema = z.object({
   maintenanceId: z.string(),
   label: z.string().max(120).optional(),
   url: z.string().url("Must be a valid URL"),
+  // Optional at the boundary; the service defaults an omitted value to "public".
+  visibility: MaintenanceVisibilityEnum.optional(),
 });
 export type AddMaintenanceLinkInput = z.infer<
   typeof AddMaintenanceLinkInputSchema
+>;
+
+/**
+ * Edit an existing hotlink in place. Scoped by `maintenanceId` in the handler
+ * (anti-spoof, mirrors removeLink). Only the provided fields change; omitting a
+ * field leaves it unchanged.
+ */
+export const UpdateMaintenanceLinkInputSchema = z.object({
+  id: z.string(),
+  maintenanceId: z.string(),
+  label: z.string().max(120).optional(),
+  url: z.string().url("Must be a valid URL").optional(),
+  visibility: MaintenanceVisibilityEnum.optional(),
+});
+export type UpdateMaintenanceLinkInput = z.infer<
+  typeof UpdateMaintenanceLinkInputSchema
 >;
 
 /**
@@ -119,9 +192,45 @@ export const AddMaintenanceUpdateInputSchema = z.object({
   maintenanceId: z.string(),
   message: z.string().min(1, "Message is required"),
   statusChange: MaintenanceStatusEnum.optional(),
+  // Optional at the boundary; the service defaults an omitted value to "public".
+  visibility: MaintenanceVisibilityEnum.optional(),
 });
 export type AddMaintenanceUpdateInput = z.infer<
   typeof AddMaintenanceUpdateInputSchema
+>;
+
+/**
+ * Edit a published update in place. Only the provided fields change; a
+ * `statusChange` edit on the LATEST update (or a `createdAt` re-time that
+ * changes which update is latest) re-derives the maintenance status
+ * (handled server-side). Sets `editedAt` and archives the prior version into
+ * `editHistory` when any field actually changes, so the timeline can mark it
+ * "edited" and offer a history disclosure.
+ */
+export const EditMaintenanceUpdateInputSchema = z.object({
+  id: z.string(),
+  maintenanceId: z.string(),
+  message: z.string().min(1, "Message is required").optional(),
+  statusChange: MaintenanceStatusEnum.optional(),
+  visibility: MaintenanceVisibilityEnum.optional(),
+  /**
+   * Optional new published time for the update. Omit to leave it unchanged.
+   * Re-timing an update re-derives the maintenance status (ordering by time),
+   * so the header still follows the latest status-bearing update.
+   */
+  createdAt: z.date().optional(),
+});
+export type EditMaintenanceUpdateInput = z.infer<
+  typeof EditMaintenanceUpdateInputSchema
+>;
+
+/** Delete a published update. Scoped by `maintenanceId` in the handler. */
+export const DeleteMaintenanceUpdateInputSchema = z.object({
+  id: z.string(),
+  maintenanceId: z.string(),
+});
+export type DeleteMaintenanceUpdateInput = z.infer<
+  typeof DeleteMaintenanceUpdateInputSchema
 >;
 
 /**

@@ -6,7 +6,9 @@ import {
   primaryKey,
   boolean,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
+import type { MaintenanceUpdateEditSnapshot } from "@checkstack/maintenance-common";
 
 /**
  * Maintenance status enum
@@ -17,6 +19,16 @@ export const maintenanceStatusEnum = pgEnum("maintenance_status", [
   "completed",
   "cancelled",
 ]);
+
+/**
+ * Audience for a maintenance update or hotlink. Filtered server-side on the
+ * read path: anonymous / public-status-page reads see only `public`;
+ * authenticated non-managers additionally see `logged_in`; managers see all.
+ */
+export const maintenanceVisibilityEnum = pgEnum(
+  "maintenance_content_visibility",
+  ["public", "logged_in", "internal"],
+);
 
 /**
  * Main maintenance table
@@ -61,7 +73,20 @@ export const maintenanceUpdates = pgTable("maintenance_updates", {
     .references(() => maintenances.id, { onDelete: "cascade" }),
   message: text("message").notNull(),
   statusChange: maintenanceStatusEnum("status_change"),
+  visibility: maintenanceVisibilityEnum("visibility")
+    .notNull()
+    .default("public"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Set when the update is edited in place (null = never edited).
+  editedAt: timestamp("edited_at"),
+  // Prior versions archived on each in-place edit (oldest first). Durable,
+  // globally-readable history of edits (jsonb, defaults to an empty array so
+  // existing rows backfill cleanly). Manager-facing; the read path strips it
+  // for non-manager audiences (see read-visibility).
+  editHistory: jsonb("edit_history")
+    .$type<MaintenanceUpdateEditSnapshot[]>()
+    .notNull()
+    .default([]),
   createdBy: text("created_by"),
 });
 
@@ -78,6 +103,9 @@ export const maintenanceLinks = pgTable(
       .references(() => maintenances.id, { onDelete: "cascade" }),
     label: text("label"),
     url: text("url").notNull(),
+    visibility: maintenanceVisibilityEnum("visibility")
+      .notNull()
+      .default("public"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({

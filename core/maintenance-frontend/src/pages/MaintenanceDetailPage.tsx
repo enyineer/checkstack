@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   useParams,
   Link,
@@ -33,23 +33,22 @@ import {
   PageLayout,
   BackLink,
   Button,
-  StatusUpdateTimeline,
   useToast,
   toastError,
+  MarkdownBlock,
 } from "@checkstack/ui";
 import {
   Calendar,
   Clock,
   Wrench,
   Server,
-  Plus,
-  MessageSquare,
   CheckCircle2,
   ExternalLink,
 } from "lucide-react";
+import { VisibilityBadge } from "../utils/visibilityBadge";
 import { cn } from "@checkstack/ui";
 import { format } from "date-fns";
-import { MaintenanceUpdateForm } from "../components/MaintenanceUpdateForm";
+import { MaintenanceUpdatesSection } from "../components/MaintenanceUpdatesSection";
 import { MaintenanceWindowHero } from "../components/MaintenanceWindowHero";
 import {
   getMaintenanceStatusBadge,
@@ -74,8 +73,6 @@ const MaintenanceDetailPageContent: React.FC = () => {
     objectType: maintenanceResourceTypes.maintenance,
     resourceIds: [maintenanceId ?? ""],
   });
-
-  const [showUpdateForm, setShowUpdateForm] = useState(false);
 
   // Fetch maintenance with useQuery
   const {
@@ -105,8 +102,8 @@ const MaintenanceDetailPageContent: React.FC = () => {
     },
   });
 
-  const handleUpdateSuccess = () => {
-    setShowUpdateForm(false);
+  // Called by the shared updates section after an add / edit / delete.
+  const handleUpdatesChanged = () => {
     void refetchMaintenance();
   };
 
@@ -231,7 +228,9 @@ const MaintenanceDetailPageContent: React.FC = () => {
                 <h4 className="text-sm font-medium text-muted-foreground mb-1">
                   Description
                 </h4>
-                <p className="text-foreground">{maintenance.description}</p>
+                <MarkdownBlock size="sm" className="text-foreground">
+                  {maintenance.description}
+                </MarkdownBlock>
               </div>
             )}
 
@@ -294,6 +293,7 @@ const MaintenanceDetailPageContent: React.FC = () => {
                     >
                       <ExternalLink className="h-3 w-3" />
                       <span>{link.label ?? link.url}</span>
+                      <VisibilityBadge visibility={link.visibility} />
                     </a>
                   ))}
                 </div>
@@ -302,42 +302,14 @@ const MaintenanceDetailPageContent: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Status Updates Timeline */}
+        {/* Status Updates - shared with the maintenance editor dialog. */}
         <Card>
-          <CardHeader className="border-b border-border">
-            <CardHeaderRow>
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-muted-foreground" />
-                <CardTitle>Status Updates</CardTitle>
-              </div>
-              {canAccess(maintenanceId) && !showUpdateForm && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowUpdateForm(true)}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Update
-                </Button>
-              )}
-            </CardHeaderRow>
-          </CardHeader>
           <CardContent className="p-6">
-            {/* Add Update Form */}
-            {showUpdateForm && (
-              <div className="mb-6">
-                <MaintenanceUpdateForm
-                  maintenanceId={maintenanceId}
-                  onSuccess={handleUpdateSuccess}
-                  onCancel={() => setShowUpdateForm(false)}
-                />
-              </div>
-            )}
-
-            <StatusUpdateTimeline
+            <MaintenanceUpdatesSection
+              maintenanceId={maintenanceId}
+              currentStatus={maintenance.status}
               updates={maintenance.updates}
-              renderStatusBadge={getMaintenanceStatusBadge}
-              emptyTitle="No status updates"
+              onChanged={handleUpdatesChanged}
               emptyDescription="No status updates have been posted for this maintenance."
             />
           </CardContent>

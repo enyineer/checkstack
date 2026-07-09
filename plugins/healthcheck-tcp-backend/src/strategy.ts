@@ -10,6 +10,7 @@ import {
   mergeRate,
   mergeCounter,
   z,
+  configString,
   type ConnectedClient,
   type TransportTimings,
   type InferAggregatedResult,
@@ -37,9 +38,24 @@ import type {
  * Connection-only parameters - action params moved to BannerCollector.
  */
 export const tcpConfigSchema = baseStrategyConfigSchema.extend({
-  host: z.string().describe("Hostname or IP address"),
+  // Templatable: supports `{{ environment.host }}` etc. so one config covers N
+  // environments. Presence is enforced POST-RENDER in `createClient` (an empty
+  // render must not silently connect to an empty host).
+  host: configString({ "x-templatable": true }).describe(
+    "Hostname or IP address. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: z.number().int().min(1).max(65_535).describe("TCP port number"),
 });
+
+/**
+ * Post-render validator for the connection `host`. The stored value is a plain
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace (e.g. an env-less run). An empty host is a
+ * config error that prevents the probe from running - transport-failure
+ * semantics - not a "healthy" result.
+ */
+const renderedHostSchema = z.string().trim().min(1);
 
 export type TcpConfig = z.infer<typeof tcpConfigSchema>;
 
@@ -297,11 +313,24 @@ export class TcpHealthCheckStrategy implements HealthCheckStrategy<
     config: TcpConfig,
   ): Promise<ConnectedClient<TcpTransportClient>> {
     const validatedConfig = this.config.validate(config);
+
+    // Post-render guard: `host` is a templatable string, so `.min(1)` cannot run
+    // at store time. The executor has already rendered `{{ environment.* }}`
+    // into `config.host`; reject a render that collapsed to empty here so the
+    // run fails clearly instead of attempting an empty connection.
+    const host = renderedHostSchema.safeParse(validatedConfig.host);
+    if (!host.success) {
+      throw new Error(
+        `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     const socket = this.socketFactory();
 
     const connectStart = performance.now();
     await socket.connect({
-      host: validatedConfig.host,
+      host: host.data,
       port: validatedConfig.port,
     });
     // The only meaningful sub-phase for a raw TCP probe is the connect itself.

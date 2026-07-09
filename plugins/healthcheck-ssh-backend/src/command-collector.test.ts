@@ -67,6 +67,26 @@ describe("CommandCollector", () => {
 
       expect(client.exec).toHaveBeenCalledWith("ls -la /tmp");
     });
+
+    // A templatable `command` that renders to empty (e.g. `{{ environment.command }}`
+    // with no environment) is a config error - it must fail as a transport
+    // failure (populated `error`) and never invoke the client.
+    it("should return a transport error when the rendered command is empty", async () => {
+      const collector = new CommandCollector();
+      const client = createMockClient();
+
+      const result = await collector.execute({
+        config: { command: "   " },
+        client,
+        pluginId: "test",
+      });
+
+      expect(result.error).toMatch(/Rendered command is empty/);
+      expect(result.result.exitCode).toBe(0);
+      expect(result.result.stdout).toBe("");
+      expect(result.result.stderr).toBe("");
+      expect(client.exec).not.toHaveBeenCalled();
+    });
   });
 
   describe("mergeResult", () => {

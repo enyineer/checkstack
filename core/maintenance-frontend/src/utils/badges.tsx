@@ -1,44 +1,15 @@
 import React from "react";
-import { cn } from "@checkstack/ui";
+import {
+  cn,
+  pillToneStyles as toneStyles,
+  type StatusPillTone as StatusTone,
+} from "@checkstack/ui";
 import type { MaintenanceStatus } from "@checkstack/maintenance-common";
 
-/**
- * Colorblind-safe status triad tones. Status is multi-encoded (hue + a dot +
- * a text label) so it never reads by color alone.
- */
-export type StatusTone = "ok" | "warn" | "down" | "unknown";
-
-/**
- * Per-tone class sets for the status pill, its leading dot, and the left
- * accent stripe used on premium cards/rows. Spelled out as full literal
- * strings (not interpolated) so Tailwind's JIT keeps them, and driven by the
- * shared status triad tokens.
- */
-const toneStyles: Record<
-  StatusTone,
-  { pill: string; dot: string; accent: string }
-> = {
-  ok: {
-    pill: "bg-status-ok/10 text-status-ok",
-    dot: "bg-status-ok",
-    accent: "bg-status-ok",
-  },
-  warn: {
-    pill: "bg-status-warn/10 text-status-warn",
-    dot: "bg-status-warn",
-    accent: "bg-status-warn",
-  },
-  down: {
-    pill: "bg-status-down/10 text-status-down",
-    dot: "bg-status-down",
-    accent: "bg-status-down",
-  },
-  unknown: {
-    pill: "bg-status-unknown/10 text-status-unknown",
-    dot: "bg-status-unknown",
-    accent: "bg-status-unknown",
-  },
-};
+// `StatusTone` + `toneStyles` are hoisted into `@checkstack/ui` so incidents and
+// maintenance share ONE colorblind-safe tone set (including the new blue `info`
+// hue). Re-exported for existing local consumers.
+export type { StatusPillTone as StatusTone } from "@checkstack/ui";
 
 /**
  * A compact, multi-encoded status pill: a tinted chip carrying a small status
@@ -76,7 +47,7 @@ export const maintenanceStatusRank: Record<MaintenanceStatus, number> = {
 };
 
 /** Maps a maintenance status to its triad tone + human label. */
-function presentMaintenanceStatus(status: MaintenanceStatus): {
+export function presentMaintenanceStatus(status: MaintenanceStatus): {
   tone: StatusTone;
   label: string;
 } {
@@ -85,12 +56,16 @@ function presentMaintenanceStatus(status: MaintenanceStatus): {
       return { tone: "warn", label: "In Progress" };
     }
     case "scheduled": {
-      return { tone: "unknown", label: "Scheduled" };
+      // Blue "info" tone: an upcoming planned window is informational, not an
+      // unknown/inert state - grey was misleading (Item 7 fix).
+      return { tone: "info", label: "Scheduled" };
     }
     case "completed": {
       return { tone: "ok", label: "Completed" };
     }
     case "cancelled": {
+      // Grey "unknown" is correct here: a cancelled window is a voided no-op,
+      // genuinely inert - it carries no good/bad/informational signal.
       return { tone: "unknown", label: "Cancelled" };
     }
     default: {

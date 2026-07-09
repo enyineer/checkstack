@@ -192,6 +192,8 @@ host-owned observable instruments:
 | -------------------------------------- | --------- | --------------------- | ------------------------------------------------------------- |
 | `checkstack_db_transactions_total`     | counter   | `schema`              | Scoped-DB transactions opened per plugin schema.              |
 | `checkstack_db_queries_total`          | counter   | `schema`              | Standalone scoped queries (each wraps in its own tx).         |
+| `checkstack_db_query_duration`         | histogram | `schema`, `operation` | Standalone scoped-query wall-clock (`BEGIN`+`SET LOCAL`+query+`COMMIT`), by operation kind. |
+| `checkstack_db_transaction_duration`   | histogram | `schema`              | `withScopedTransaction` batch wall-clock = connection hold time. |
 | `checkstack_healthcheck_execution_duration` | histogram | `status`         | End-to-end run latency by outcome.                            |
 | `checkstack_healthcheck_phase_duration`     | histogram | `phase`          | Per-phase timing (`connect`, `wait`, ...) from run timings.   |
 | `checkstack_healthcheck_deferred`      | counter   | `reason`              | Suspect env-runs skipped by the slow-check bulkhead (`lane_full`/`in_flight`). |
@@ -201,8 +203,18 @@ host-owned observable instruments:
 | `checkstack_db_pool_connections`       | gauge     | `pool`, `state`       | admin/lock pool `active`/`idle`/`waiting` counts.             |
 | `checkstack_runtime_event_loop_delay`  | histogram | -                     | setInterval drift = how long the JS thread was blocked.       |
 
-Two of these are the direct tests for the questions a slowdown raises:
+These are the direct tests for the questions a slowdown raises:
 
+- **`db_query_duration{operation=...}` and `db_transaction_duration`** answer
+  "how long do queries take, and how long is a connection held". The query
+  histogram is bucketed by `schema` + `operation`
+  (`select`/`insert`/`update`/`delete`/`execute`/`$count`) so a slow operation
+  kind stands out per plugin; the transaction histogram is the connection-hold
+  time of a `withScopedTransaction` batch (a rising p95 here means a batch is
+  pinning a pooled connection - the thing to watch after batching an N+1, and a
+  guard against accidentally wrapping slow non-DB work in a transaction). Both
+  labels are BOUNDED; for the per-statement drill-down (which exact SQL is hot)
+  use the query profiler below.
 - **`db_transactions_total` minus `db_queries_total` per schema** is the
   number of **batched** transactions. Batching an N+1 read fan-out into
   one `withScopedTransaction` shows up here as transactions rising far
@@ -229,6 +241,145 @@ Two of these are the direct tests for the questions a slowdown raises:
   alongside a bounded `queue_jobs{state="pending"}` is the bulkhead
   working as designed, not an error. See
   [health-check execution](/checkstack/developer-guide/backend/healthchecks/execution/).
+
+### Query profiler (pg_stat_statements)
+
+The `db_query_duration` histogram tells you which OPERATION KIND is slow per
+schema; to find WHICH exact statement is hot, the backend can additionally export
+Postgres' own [`pg_stat_statements`](https://www.postgresql.org/docs/current/pgstatstatements.html)
+view as metrics. This is the per-statement drill-down: normalized statement text,
+cumulative call count, total and mean execution time, and rows.
+
+It is **opt-in and self-disabling**. When metrics are enabled the backend probes
+the connected database once at startup:
+
+- If `pg_stat_statements` is **not active** (the extension is not in
+  `shared_preload_libraries`, or `CREATE EXTENSION pg_stat_statements` was never
+  run, or the connecting role cannot read the view) the profiler registers
+  **nothing** and logs a single info line. A deployment without the extension
+  pays zero cost and sees no error.
+- If it **is** active, the profiler registers observable instruments read on each
+  scrape.
+
+#### Setting up Postgres for advanced profiling
+
+`pg_stat_statements` is a Postgres contrib module. Activating it is a
+**two-part** job: the shared library must be **preloaded** at server start
+(`shared_preload_libraries`, which requires a restart), AND the extension must be
+**created** in the database Checkstack connects to. Creating the extension WITHOUT
+the preload leaves a non-functional view (`relation "pg_stat_statements" does not
+exist`), which is exactly the case the profiler treats as "not active" and no-ops.
+
+**Standalone / managed Postgres.** Set the preload, restart, then create the
+extension:
+
+```sql
+-- 1) Preload the library (persisted; needs a restart to take effect).
+ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+
+-- 2) Restart the Postgres server (managed providers: use their restart control).
+
+-- 3) After restart, create the extension in Checkstack's database and
+--    (optionally) track statements inside functions too.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+ALTER SYSTEM SET pg_stat_statements.track = 'all';
+SELECT pg_reload_conf();
+```
+
+> [!NOTE]
+> `pg_stat_statements.track` only becomes a valid setting AFTER the library is
+> preloaded - setting it before the restart errors with `unrecognized
+> configuration parameter`. Set it in step 3, not step 1.
+
+Verify the view is actually readable by the connecting role (superuser or a role
+granted `pg_read_all_stats`):
+
+```bash
+psql "$DATABASE_URL" -c 'SELECT count(*) FROM pg_stat_statements;'
+```
+
+If that returns a count (not an error), the profiler will enable itself on the
+next backend start; watch for the log line
+`Metrics: pg_stat_statements query profiler enabled`.
+
+**Local docker-compose dev.** The dev Postgres has no preload by default. Enable
+it once against the running container, then restart it:
+
+```bash
+docker exec checkstack-postgres-1 psql -U checkstack -d checkstack \
+  -c "ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';"
+docker restart checkstack-postgres-1
+docker exec checkstack-postgres-1 psql -U checkstack -d checkstack \
+  -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+```
+
+To make it reproducible instead of a one-off, add the preload to the postgres
+service in `docker-compose-dev.yml` as a command flag
+(`command: postgres -c shared_preload_libraries=pg_stat_statements`) and still run
+`CREATE EXTENSION` once. Then start the backend with metrics on:
+
+```bash
+CHECKSTACK_METRICS_ENABLED=1 bun run dev
+curl -s http://127.0.0.1:9464/metrics | grep '^checkstack_db_statements_'
+```
+
+| Metric                                     | Kind    | Labels             | What it tells you                                 |
+| ------------------------------------------ | ------- | ------------------ | ------------------------------------------------- |
+| `checkstack_db_statements_calls_total`     | counter | `queryid`, `query` | Cumulative call count for a hot statement.        |
+| `checkstack_db_statements_exec_time_ms_total` | counter | `queryid`, `query` | Cumulative total execution time.                  |
+| `checkstack_db_statements_rows_total`      | counter | `queryid`, `query` | Cumulative rows returned/affected.                |
+| `checkstack_db_statements_mean_exec_time_ms` | gauge | `queryid`, `query` | Mean execution time per call.                     |
+
+`queryid` is Postgres' stable statement fingerprint; `query` is the normalized
+statement text (parameters stripped by `pg_stat_statements`), collapsed and
+truncated for use as a label.
+
+> [!CAUTION]
+> Per-statement labels are higher cardinality than the bounded schema/operation
+> histograms, so the profiler is deliberately limited to the **top-N statements
+> by total execution time** (`CHECKSTACK_DB_STATEMENTS_TOP_N`, default 25).
+> Because the top-N set shifts over time, Prometheus accumulates some stale
+> series until they age out - inherent to top-N profiling, and why the whole
+> exporter is opt-in.
+
+| Env var                         | Default | Meaning                                              |
+| ------------------------------- | ------- | ---------------------------------------------------- |
+| `CHECKSTACK_DB_STATEMENTS_TOP_N` | `25`   | How many hottest statements (by total exec time) to export. |
+
+### Analyzing a snapshot
+
+Reading a raw `/metrics` scrape by eye is tedious, and a bug report often
+includes one (or two) pasted snapshots rather than live access. The
+`profile:analyze` script turns a snapshot into a ranked report - hot query
+paths, slowest-by-mean, batching effectiveness, transaction hold time, the
+`pg_stat_statements` drill-down, and auto-generated flags (unbatched high-volume
+schemas, pool saturation, event-loop starvation):
+
+```bash
+# One snapshot -> cumulative-since-boot totals.
+bun run profile:analyze snapshot.txt
+
+# Two snapshots (a baseline + a later scrape) -> the DELTA over that window,
+# which is the accurate "what is hot right now". Order-independent.
+bun run profile:analyze t0.txt t1.txt --interval 300
+```
+
+To capture a snapshot from a running backend (metrics enabled), scrape the
+exporter twice a few minutes apart:
+
+```bash
+curl -s http://127.0.0.1:9464/metrics > t0.txt
+sleep 300
+curl -s http://127.0.0.1:9464/metrics > t1.txt
+bun run profile:analyze t0.txt t1.txt --interval 300
+```
+
+The script reads only Checkstack's own metric families and degrades gracefully:
+a single snapshot, or one without `pg_stat_statements`, simply omits the
+affected section. It needs no DB or network access, so it is safe to run against
+an untrusted snapshot from an issue. Flags: `--top <n>` (rows per table),
+`--min-calls <n>` (floor for the slowest-by-mean table), `--interval <seconds>`
+(also express counts as per-second rates).
 
 ### Recording from a plugin
 

@@ -171,6 +171,19 @@ function buildSimpleProvider(
 }
 
 /**
+ * Public factory for a simple field-reference completion provider. Wraps the
+ * internal simple-provider engine so a caller with a fixed, flat namespace
+ * (e.g. the health-check editor's `environment.* / check.* / system.*`) gets
+ * `{{ path }}` insertion on typing `{{`, without hand-building a grammar-aware
+ * provider. Pass the result as `templateCompletionProvider` to `DynamicForm`.
+ */
+export function createReferenceCompletionProvider(
+  properties: TemplateProperty[],
+): TemplateCompletionProvider {
+  return buildSimpleProvider(properties);
+}
+
+/**
  * Whether this field holds a `{{ }}`-rendered TEMPLATE (the default — action
  * config, durations, variables) or a bare EXPRESSION (a condition / `when` /
  * trigger filter). The distinction is invisible from the value alone, so the

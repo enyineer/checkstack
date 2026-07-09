@@ -13,6 +13,7 @@ import {
   mergeCounter,
   mergeMinMax,
   z,
+  configString,
   configSecret,
   type ConnectedClient,
   type TransportTimings,
@@ -36,7 +37,12 @@ import type { RconTransportClient } from "@checkstack/healthcheck-rcon-common";
  * Configuration schema for RCON health checks.
  */
 export const rconConfigSchema = baseStrategyConfigSchema.extend({
-  host: z.string().describe("RCON server hostname"),
+  // Templatable connection field: supports `{{ environment.host }}` etc. so one
+  // config covers N environments. Presence is enforced POST-RENDER in
+  // `createClient`. `password` stays a secret (never templatable).
+  host: configString({ "x-templatable": true }).describe(
+    "RCON server hostname. Supports templating, e.g. {{ environment.host }}",
+  ),
   port: z
     .number()
     .int()
@@ -49,6 +55,15 @@ export const rconConfigSchema = baseStrategyConfigSchema.extend({
 
 export type RconConfig = z.infer<typeof rconConfigSchema>;
 export type RconConfigInput = z.input<typeof rconConfigSchema>;
+
+/**
+ * Post-render validator for the required `host`. The stored value is a plain
+ * templatable string, so presence cannot be checked at store time; the executor
+ * renders `{{ environment.* }}` per environment, then this rejects a render that
+ * collapsed to empty/whitespace. An empty host is a config error that prevents
+ * the probe - transport-failure semantics.
+ */
+const renderedRequiredSchema = z.string().trim().min(1);
 
 /**
  * Per-run result metadata.
@@ -248,9 +263,21 @@ export class RconHealthCheckStrategy implements HealthCheckStrategy<
   ): Promise<ConnectedClient<RconTransportClient>> {
     const validatedConfig = this.config.validate(config);
 
+    // Post-render guard: `host` is a templatable string, so its presence cannot
+    // be checked at store time. The executor has already rendered
+    // `{{ environment.* }}`; reject a render that collapsed to empty so the run
+    // fails clearly instead of attempting an empty connection.
+    const host = renderedRequiredSchema.safeParse(validatedConfig.host);
+    if (!host.success) {
+      throw new Error(
+        `Rendered host is empty: ${JSON.stringify(validatedConfig.host)}. ` +
+          `Check the {{ environment.* }} templating for this environment.`,
+      );
+    }
+
     const connectStart = performance.now();
     const connection = await this.rconClient.connect({
-      host: validatedConfig.host,
+      host: host.data,
       port: validatedConfig.port,
       password: validatedConfig.password,
       timeout: validatedConfig.timeout,

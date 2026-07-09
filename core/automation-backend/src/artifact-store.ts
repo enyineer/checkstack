@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
 import { automationArtifacts } from "./schema";
 import type { RunSecretRegistry } from "./dispatch/run-secret-registry";
@@ -58,6 +58,20 @@ export interface ArtifactStore {
   record(input: RecordArtifactInput): Promise<PersistedArtifact>;
   find(input: FindArtifactInput): Promise<PersistedArtifact | undefined>;
   findAll(input: FindArtifactInput): Promise<PersistedArtifact[]>;
+  /**
+   * Batched sibling of {@link find} for resolving several artifact types at
+   * once (a consuming action's `consumes` list). Returns, per requested type,
+   * the SAME most-recent match {@link find} would return for that type in
+   * isolation — keyed by `artifactType` — in a SINGLE `inArray` query instead
+   * of one `find` per type. Types with no match are simply absent from the map.
+   */
+  findLatestByTypes(input: {
+    automationId: string;
+    contextKey?: string | null;
+    artifactTypes: ReadonlyArray<string>;
+    /** When true, ignore artifacts that have been closed. Defaults to true. */
+    onlyOpen?: boolean;
+  }): Promise<Map<string, PersistedArtifact>>;
   markClosed(artifactId: string): Promise<void>;
 }
 
@@ -143,6 +157,37 @@ export function createArtifactStore(
         .orderBy(desc(automationArtifacts.createdAt));
 
       return rows.map((row) => mapRow(row));
+    },
+
+    async findLatestByTypes(input) {
+      if (input.artifactTypes.length === 0) return new Map();
+      const onlyOpen = input.onlyOpen ?? true;
+      const filters = [
+        eq(automationArtifacts.automationId, input.automationId),
+        inArray(automationArtifacts.artifactType, [...input.artifactTypes]),
+      ];
+      if (input.contextKey !== undefined && input.contextKey !== null) {
+        filters.push(eq(automationArtifacts.contextKey, input.contextKey));
+      }
+      if (onlyOpen) {
+        filters.push(isNull(automationArtifacts.closedAt));
+      }
+
+      // Ordered newest-first so the FIRST row seen per type is the most recent
+      // — matching `find`'s per-type "most recent match wins" contract.
+      const rows = await db
+        .select()
+        .from(automationArtifacts)
+        .where(and(...filters))
+        .orderBy(desc(automationArtifacts.createdAt));
+
+      const byType = new Map<string, PersistedArtifact>();
+      for (const row of rows) {
+        if (!byType.has(row.artifactType)) {
+          byType.set(row.artifactType, mapRow(row));
+        }
+      }
+      return byType;
     },
 
     async markClosed(artifactId) {

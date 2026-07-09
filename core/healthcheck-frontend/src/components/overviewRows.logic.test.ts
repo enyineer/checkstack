@@ -72,6 +72,34 @@ describe("buildOverviewRows – orphan detection", () => {
     expect(prodRow?.environmentName).toBe("Production");
   });
 
+  it("treats an env DISABLED for THIS assignment as orphaned even though it is still in the system", () => {
+    // env-prod is still part of the system (membership), but this assignment's
+    // selector no longer includes it (environmentIds = ['env-staging']). Its
+    // per-env slice - still failing from before it was disabled - must be tucked
+    // under "Old checks", not counted as a live failing row.
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          environmentIds: ["env-staging"],
+          perEnvironment: [
+            { environmentId: "env-prod", status: "unhealthy", recentRuns: [run("unhealthy")] },
+            { environmentId: "env-staging", status: "healthy", recentRuns: [run()] },
+          ],
+        }),
+      ],
+      environmentIds: ["env-prod", "env-staging"],
+      envNameById: new Map([
+        ["env-prod", "Production"],
+        ["env-staging", "Staging"],
+      ]),
+    });
+    const prodRow = rows.find((r) => r.environmentId === "env-prod");
+    const stagingRow = rows.find((r) => r.environmentId === "env-staging");
+    expect(prodRow?.isOrphaned).toBe(true);
+    expect(prodRow?.state).toBe("unhealthy");
+    expect(stagingRow?.isOrphaned).toBe(false);
+  });
+
   it("case 2: all environments removed – env-less slice is live, old env slices are orphaned", () => {
     const rows = buildOverviewRows({
       checks: [
@@ -178,6 +206,75 @@ describe("buildOverviewRows – orphan detection", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].isOrphaned).toBe(false);
+  });
+});
+
+describe("buildOverviewRows – stable ordering", () => {
+  it("orders checks by name regardless of the backend's array order", () => {
+    const checks: OverviewCheckLike[] = [
+      check({ configurationId: "c-zebra", configurationName: "Zebra" }),
+      check({ configurationId: "c-alpha", configurationName: "Alpha" }),
+      check({ configurationId: "c-mango", configurationName: "Mango" }),
+    ];
+    const forward = buildOverviewRows({
+      checks,
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+    const reversed = buildOverviewRows({
+      checks: checks.toReversed(),
+      environmentIds: [],
+      envNameById: noEnvNames,
+    });
+    expect(forward.map((r) => r.name)).toEqual(["Alpha", "Mango", "Zebra"]);
+    // Same output no matter what order the backend returned them in.
+    expect(reversed.map((r) => r.rowKey)).toEqual(forward.map((r) => r.rowKey));
+  });
+
+  it("does not reorder when a check's health status changes", () => {
+    const build = (bStatus: "healthy" | "unhealthy") =>
+      buildOverviewRows({
+        checks: [
+          check({ configurationId: "c-a", configurationName: "A" }),
+          check({
+            configurationId: "c-b",
+            configurationName: "B",
+            status: bStatus,
+            recentRuns: [run(bStatus)],
+          }),
+          check({ configurationId: "c-c", configurationName: "C" }),
+        ],
+        environmentIds: [],
+        envNameById: noEnvNames,
+      });
+    // The middle check flipping to unhealthy must not move it in the list.
+    expect(build("healthy").map((r) => r.rowKey)).toEqual(
+      build("unhealthy").map((r) => r.rowKey),
+    );
+  });
+
+  it("orders per-env rows with the env-less slice first, then envs by name", () => {
+    const rows = buildOverviewRows({
+      checks: [
+        check({
+          perEnvironment: [
+            { environmentId: "env-staging", status: "healthy", recentRuns: [run()] },
+            { environmentId: null, status: "healthy", recentRuns: [run()] },
+            { environmentId: "env-prod", status: "healthy", recentRuns: [run()] },
+          ],
+        }),
+      ],
+      environmentIds: ["env-prod", "env-staging"],
+      envNameById: new Map([
+        ["env-prod", "Production"],
+        ["env-staging", "Staging"],
+      ]),
+    });
+    expect(rows.map((r) => r.environmentId)).toEqual([
+      null,
+      "env-prod",
+      "env-staging",
+    ]);
   });
 });
 

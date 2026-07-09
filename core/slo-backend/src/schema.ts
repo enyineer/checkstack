@@ -5,6 +5,7 @@ import {
   doublePrecision,
   integer,
   json,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 // =============================================================================
@@ -24,6 +25,9 @@ export const sloObjectives = pgTable("slo_objectives", {
   windowDays: integer("window_days").notNull(),
   dependencyExclusion: text("dependency_exclusion").notNull().default("strict"),
   excludedDependencyIds: json("excluded_dependency_ids").$type<string[]>(),
+  excludeMaintenanceWindows: boolean("exclude_maintenance_windows")
+    .notNull()
+    .default(false),
   burnRateWarningPercent: doublePrecision("burn_rate_warning_percent")
     .notNull()
     .default(50),
@@ -62,6 +66,12 @@ export const sloDowntimeEvents = pgTable("slo_downtime_events", {
   attributionType: text("attribution_type").notNull(),
   upstreamSystemId: text("upstream_system_id"),
   upstreamSystemName: text("upstream_system_name"),
+  /**
+   * Cause of the downtime: "healthcheck" (failed probe) or "incident" (an
+   * active incident forced the system unhealthy/degraded via `healthOverride`).
+   * Nullable for backward compatibility; a NULL row is read as "healthcheck".
+   */
+  source: text("source"),
 });
 
 // =============================================================================

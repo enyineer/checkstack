@@ -1,5 +1,10 @@
 import { eq, and, inArray, ne, isNotNull } from "drizzle-orm";
-import type { AdvisoryLockService, SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
+import type {
+  AdvisoryLockService,
+  SafeDatabase,
+  ScopedQueryRunner,
+} from "@checkstack/backend-api";
 import * as schema from "./schema";
 import {
   incidents,
@@ -13,18 +18,52 @@ import type {
   IncidentUpdate,
   IncidentLink,
   AddIncidentLinkInput,
+  UpdateIncidentLinkInput,
   CreateIncidentInput,
   UpdateIncidentInput,
   AddIncidentUpdateInput,
+  EditIncidentUpdateInput,
   IncidentStatus,
   IncidentSeverity,
+  IncidentUpdateEditSnapshot,
   SystemHealthOverride,
 } from "@checkstack/incident-common";
+import { desc } from "drizzle-orm";
 
 type Db = SafeDatabase<typeof schema>;
 
+/** The transaction handle drizzle hands to `db.transaction(async (tx) => ...)`. */
+type IncidentTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 function generateId(): string {
   return crypto.randomUUID();
+}
+
+/**
+ * Derive an incident's header status from its timeline: the `statusChange` of
+ * the MOST RECENT status-bearing update (message-only updates are ignored), so
+ * the header always follows the newest update that actually declared a status.
+ * Returns undefined when no update carries a status (nothing to derive). Runs on
+ * the passed `tx` so an edit/delete re-derivation is atomic with the write that
+ * triggered it. Centralized so `editUpdate` and `deleteUpdate` can never
+ * diverge on how "current status" is resolved.
+ */
+async function deriveStatusFromTimeline(
+  tx: IncidentTx,
+  incidentId: string,
+): Promise<IncidentStatus | undefined> {
+  const [latest] = await tx
+    .select({ statusChange: incidentUpdates.statusChange })
+    .from(incidentUpdates)
+    .where(
+      and(
+        eq(incidentUpdates.incidentId, incidentId),
+        isNotNull(incidentUpdates.statusChange),
+      ),
+    )
+    .orderBy(desc(incidentUpdates.createdAt), desc(incidentUpdates.id))
+    .limit(1);
+  return latest?.statusChange ?? undefined;
 }
 
 export class IncidentService {
@@ -41,93 +80,124 @@ export class IncidentService {
     systemId?: string;
     includeResolved?: boolean;
   }): Promise<IncidentWithSystems[]> {
-    let incidentRows;
+    const statusFilter = filters?.status
+      ? eq(incidents.status, filters.status)
+      : filters?.includeResolved
+        ? undefined
+        : ne(incidents.status, "resolved");
 
-    if (filters?.systemId) {
-      // Filter by system - need to join
-      const systemIncidentIds = await this.db
-        .select({ incidentId: incidentSystems.incidentId })
-        .from(incidentSystems)
-        .where(eq(incidentSystems.systemId, filters.systemId));
+    // One SET LOCAL for the whole read fan-out. System associations are fetched
+    // in a SINGLE set-based `inArray` query and grouped in JS, instead of the
+    // former per-row N+1 loop (mirrors `getManyEntityStates`).
+    return withScopedTransaction(this.db, async (tx) => {
+      let incidentRows;
 
-      const ids = systemIncidentIds.map((r) => r.incidentId);
-      if (ids.length === 0) return [];
+      if (filters?.systemId) {
+        // Filter by system - need to join
+        const systemIncidentIds = await tx
+          .select({ incidentId: incidentSystems.incidentId })
+          .from(incidentSystems)
+          .where(eq(incidentSystems.systemId, filters.systemId));
 
-      const statusFilter = filters.status
-        ? eq(incidents.status, filters.status)
-        : filters.includeResolved
-          ? undefined
-          : ne(incidents.status, "resolved");
+        const ids = systemIncidentIds.map((r) => r.incidentId);
+        if (ids.length === 0) return [];
 
-      incidentRows = await this.db
-        .select()
-        .from(incidents)
-        .where(and(inArray(incidents.id, ids), statusFilter));
-    } else {
-      const statusFilter = filters?.status
-        ? eq(incidents.status, filters.status)
-        : filters?.includeResolved
-          ? undefined
-          : ne(incidents.status, "resolved");
+        incidentRows = await tx
+          .select()
+          .from(incidents)
+          .where(and(inArray(incidents.id, ids), statusFilter));
+      } else {
+        incidentRows = await tx.select().from(incidents).where(statusFilter);
+      }
 
-      incidentRows = await this.db.select().from(incidents).where(statusFilter);
-    }
+      if (incidentRows.length === 0) return [];
 
-    // Fetch all system associations
-    const result: IncidentWithSystems[] = [];
-    for (const i of incidentRows) {
-      const systems = await this.db
-        .select({ systemId: incidentSystems.systemId })
-        .from(incidentSystems)
-        .where(eq(incidentSystems.incidentId, i.id));
+      const systemsByIncident = await this.getSystemsByIncident(
+        tx,
+        incidentRows.map((i) => i.id),
+      );
 
-      result.push({
+      return incidentRows.map((i) => ({
         ...i,
         description: i.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
+        systemIds: systemsByIncident.get(i.id) ?? [],
+      }));
+    });
+  }
 
-    return result;
+  /**
+   * Read the system associations for a set of incident ids in ONE set-based
+   * `inArray` query and group them by incidentId. Runs on the passed runner
+   * (the scoped db OR a batching `tx`), so callers that already hold a
+   * transaction reuse its single `SET LOCAL search_path`. Replaces the former
+   * per-row N+1 loop used by the list/for-system reads.
+   */
+  private async getSystemsByIncident(
+    runner: ScopedQueryRunner<typeof schema>,
+    incidentIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const byIncident = new Map<string, string[]>();
+    if (incidentIds.length === 0) return byIncident;
+
+    const systemRows = await runner
+      .select({
+        incidentId: incidentSystems.incidentId,
+        systemId: incidentSystems.systemId,
+      })
+      .from(incidentSystems)
+      .where(inArray(incidentSystems.incidentId, incidentIds));
+
+    for (const r of systemRows) {
+      const list = byIncident.get(r.incidentId);
+      if (list) list.push(r.systemId);
+      else byIncident.set(r.incidentId, [r.systemId]);
+    }
+    return byIncident;
   }
 
   /**
    * Get single incident with full details
    */
   async getIncident(id: string): Promise<IncidentDetail | undefined> {
-    const [incident] = await this.db
-      .select()
-      .from(incidents)
-      .where(eq(incidents.id, id));
+    // Batch the 4 sequential reads (incident -> systems -> updates -> links)
+    // behind a single `SET LOCAL search_path`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const [incident] = await tx
+        .select()
+        .from(incidents)
+        .where(eq(incidents.id, id));
 
-    if (!incident) return undefined;
+      if (!incident) return;
 
-    const systems = await this.db
-      .select({ systemId: incidentSystems.systemId })
-      .from(incidentSystems)
-      .where(eq(incidentSystems.incidentId, id));
+      const systems = await tx
+        .select({ systemId: incidentSystems.systemId })
+        .from(incidentSystems)
+        .where(eq(incidentSystems.incidentId, id));
 
-    const updates = await this.db
-      .select()
-      .from(incidentUpdates)
-      .where(eq(incidentUpdates.incidentId, id));
+      const updates = await tx
+        .select()
+        .from(incidentUpdates)
+        .where(eq(incidentUpdates.incidentId, id));
 
-    const links = await this.db
-      .select()
-      .from(incidentLinks)
-      .where(eq(incidentLinks.incidentId, id));
+      const links = await tx
+        .select()
+        .from(incidentLinks)
+        .where(eq(incidentLinks.incidentId, id));
 
-    return {
-      ...incident,
-      description: incident.description ?? undefined,
-      systemIds: systems.map((s) => s.systemId),
-      updates: updates.map((u) => ({
-        ...u,
-        statusChange: u.statusChange ?? undefined,
-        createdBy: u.createdBy ?? undefined,
-      })),
-      links,
-    };
+      return {
+        ...incident,
+        description: incident.description ?? undefined,
+        systemIds: systems.map((s) => s.systemId),
+        updates: updates.map((u) => ({
+          ...u,
+          statusChange: u.statusChange ?? undefined,
+          editedAt: u.editedAt ?? undefined,
+          editHistory: u.editHistory ?? [],
+          createdBy: u.createdBy ?? undefined,
+        })),
+        links,
+      };
+    });
   }
 
   /**
@@ -146,42 +216,74 @@ export class IncidentService {
   > {
     if (ids.length === 0) return {};
 
-    const rows = await this.db
-      .select({
-        id: incidents.id,
-        status: incidents.status,
-        severity: incidents.severity,
-      })
-      .from(incidents)
-      .where(inArray(incidents.id, [...ids]));
-    if (rows.length === 0) return {};
+    // Batch the incidents read + junction read behind a single `SET LOCAL`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const rows = await tx
+        .select({
+          id: incidents.id,
+          status: incidents.status,
+          severity: incidents.severity,
+        })
+        .from(incidents)
+        .where(inArray(incidents.id, [...ids]));
+      if (rows.length === 0) return {};
 
-    const presentIds = rows.map((r) => r.id);
-    const systemRows = await this.db
-      .select({
-        incidentId: incidentSystems.incidentId,
-        systemId: incidentSystems.systemId,
-      })
-      .from(incidentSystems)
-      .where(inArray(incidentSystems.incidentId, presentIds));
+      const systemsByIncident = await this.getSystemsByIncident(
+        tx,
+        rows.map((r) => r.id),
+      );
 
-    const systemsByIncident = new Map<string, string[]>();
-    for (const r of systemRows) {
-      const list = systemsByIncident.get(r.incidentId);
-      if (list) list.push(r.systemId);
-      else systemsByIncident.set(r.incidentId, [r.systemId]);
-    }
+      const out: Record<
+        string,
+        {
+          status: IncidentStatus;
+          severity: IncidentSeverity;
+          systemIds: string[];
+        }
+      > = {};
+      for (const row of rows) {
+        out[row.id] = {
+          status: row.status,
+          severity: row.severity,
+          systemIds: systemsByIncident.get(row.id) ?? [],
+        };
+      }
+      return out;
+    });
+  }
 
-    const out: Record<
-      string,
-      { status: IncidentStatus; severity: IncidentSeverity; systemIds: string[] }
-    > = {};
-    for (const row of rows) {
-      out[row.id] = {
-        status: row.status,
-        severity: row.severity,
-        systemIds: systemsByIncident.get(row.id) ?? [],
+  /**
+   * Bulk read of each incident's FULL update timeline (all visibilities),
+   * keyed by incident id, in ONE set-based `inArray` query grouped in JS -
+   * instead of an N+1 fan-out of {@link getIncident} the status-page widget
+   * used purely for `.updates`. Returns the same raw update shape `getIncident`
+   * produces; the ROUTER applies audience filtering + name resolution on top,
+   * so no visibility policy lives here. Incidents with no updates are omitted.
+   */
+  async getBulkIncidentUpdates(
+    incidentIds: string[],
+  ): Promise<Record<string, IncidentUpdate[]>> {
+    if (incidentIds.length === 0) return {};
+
+    const rows = await withScopedTransaction(this.db, (tx) =>
+      tx
+        .select()
+        .from(incidentUpdates)
+        .where(inArray(incidentUpdates.incidentId, incidentIds)),
+    );
+
+    const out: Record<string, IncidentUpdate[]> = {};
+    for (const u of rows) {
+      const mapped: IncidentUpdate = {
+        ...u,
+        statusChange: u.statusChange ?? undefined,
+        editedAt: u.editedAt ?? undefined,
+        editHistory: u.editHistory ?? [],
+        createdBy: u.createdBy ?? undefined,
       };
+      const list = out[u.incidentId];
+      if (list) list.push(mapped);
+      else out[u.incidentId] = [mapped];
     }
     return out;
   }
@@ -192,37 +294,38 @@ export class IncidentService {
   async getIncidentsForSystem(
     systemId: string,
   ): Promise<IncidentWithSystems[]> {
-    // Get incident IDs for this system
-    const systemIncidents = await this.db
-      .select({ incidentId: incidentSystems.incidentId })
-      .from(incidentSystems)
-      .where(eq(incidentSystems.systemId, systemId));
-
-    const ids = systemIncidents.map((r) => r.incidentId);
-    if (ids.length === 0) return [];
-
-    // Get only non-resolved incidents
-    const rows = await this.db
-      .select()
-      .from(incidents)
-      .where(and(inArray(incidents.id, ids), ne(incidents.status, "resolved")));
-
-    // Fetch system IDs for each
-    const result: IncidentWithSystems[] = [];
-    for (const i of rows) {
-      const systems = await this.db
-        .select({ systemId: incidentSystems.systemId })
+    return withScopedTransaction(this.db, async (tx) => {
+      // Get incident IDs for this system
+      const systemIncidents = await tx
+        .select({ incidentId: incidentSystems.incidentId })
         .from(incidentSystems)
-        .where(eq(incidentSystems.incidentId, i.id));
+        .where(eq(incidentSystems.systemId, systemId));
 
-      result.push({
+      const ids = systemIncidents.map((r) => r.incidentId);
+      if (ids.length === 0) return [];
+
+      // Get only non-resolved incidents
+      const rows = await tx
+        .select()
+        .from(incidents)
+        .where(
+          and(inArray(incidents.id, ids), ne(incidents.status, "resolved")),
+        );
+      if (rows.length === 0) return [];
+
+      // Fetch the full system membership for all matched incidents in ONE
+      // set-based query (was a per-row N+1 loop).
+      const systemsByIncident = await this.getSystemsByIncident(
+        tx,
+        rows.map((i) => i.id),
+      );
+
+      return rows.map((i) => ({
         ...i,
         description: i.description ?? undefined,
-        systemIds: systems.map((s) => s.systemId),
-      });
-    }
-
-    return result;
+        systemIds: systemsByIncident.get(i.id) ?? [],
+      }));
+    });
   }
 
   /**
@@ -240,42 +343,34 @@ export class IncidentService {
   async listOpenIncidentsBySystem(): Promise<
     Record<string, IncidentWithSystems[]>
   > {
-    const openRows = await this.db
-      .select()
-      .from(incidents)
-      .where(ne(incidents.status, "resolved"));
-    if (openRows.length === 0) return {};
+    // Batch the open-incidents read + junction read behind one `SET LOCAL`.
+    return withScopedTransaction(this.db, async (tx) => {
+      const openRows = await tx
+        .select()
+        .from(incidents)
+        .where(ne(incidents.status, "resolved"));
+      if (openRows.length === 0) return {};
 
-    const openIds = openRows.map((i) => i.id);
-    const systemRows = await this.db
-      .select({
-        incidentId: incidentSystems.incidentId,
-        systemId: incidentSystems.systemId,
-      })
-      .from(incidentSystems)
-      .where(inArray(incidentSystems.incidentId, openIds));
+      const systemsByIncident = await this.getSystemsByIncident(
+        tx,
+        openRows.map((i) => i.id),
+      );
 
-    const systemsByIncident = new Map<string, string[]>();
-    for (const r of systemRows) {
-      const list = systemsByIncident.get(r.incidentId);
-      if (list) list.push(r.systemId);
-      else systemsByIncident.set(r.incidentId, [r.systemId]);
-    }
-
-    const result: Record<string, IncidentWithSystems[]> = {};
-    for (const i of openRows) {
-      const systemIds = systemsByIncident.get(i.id) ?? [];
-      const incident: IncidentWithSystems = {
-        ...i,
-        description: i.description ?? undefined,
-        systemIds,
-      };
-      for (const systemId of systemIds) {
-        (result[systemId] ??= []).push(incident);
+      const result: Record<string, IncidentWithSystems[]> = {};
+      for (const i of openRows) {
+        const systemIds = systemsByIncident.get(i.id) ?? [];
+        const incident: IncidentWithSystems = {
+          ...i,
+          description: i.description ?? undefined,
+          systemIds,
+        };
+        for (const systemId of systemIds) {
+          (result[systemId] ??= []).push(incident);
+        }
       }
-    }
 
-    return result;
+      return result;
+    });
   }
 
   /**
@@ -440,7 +535,9 @@ export class IncidentService {
     // Atomic: the status flip and the timeline entry that records it must commit
     // together. Without the transaction a failed insert left the incident in a
     // new status with no update row explaining it (status/timeline divergence).
-    await this.db.transaction(async (tx) => {
+    // The inserted row is returned via `.returning()`, removing the former
+    // post-commit re-select.
+    const update = await this.db.transaction(async (tx) => {
       // If status change is provided, update the incident status
       if (input.statusChange) {
         await tx
@@ -449,25 +546,198 @@ export class IncidentService {
           .where(eq(incidents.id, input.incidentId));
       }
 
-      await tx.insert(incidentUpdates).values({
-        id,
-        incidentId: input.incidentId,
-        message: input.message,
-        statusChange: input.statusChange,
-        createdBy: userId,
-      });
+      const [inserted] = await tx
+        .insert(incidentUpdates)
+        .values({
+          id,
+          incidentId: input.incidentId,
+          message: input.message,
+          statusChange: input.statusChange,
+          visibility: input.visibility ?? "public",
+          createdBy: userId,
+        })
+        .returning();
+      return inserted;
     });
-
-    const [update] = await this.db
-      .select()
-      .from(incidentUpdates)
-      .where(eq(incidentUpdates.id, id));
 
     return {
       ...update,
       statusChange: update.statusChange ?? undefined,
+      editedAt: update.editedAt ?? undefined,
+      editHistory: update.editHistory ?? [],
       createdBy: update.createdBy ?? undefined,
     };
+  }
+
+  /**
+   * Edit a published update in place. Scoped by `incidentId` (mirrors
+   * `removeLink`): a caller authorized against THIS incident cannot pair an
+   * update id with a foreign incident. Only the provided fields change. When any
+   * field actually changes, the CURRENT values are archived into `editHistory`
+   * (oldest first) and `editedAt` is stamped, so the timeline can show a
+   * GitHub-style history of edits. A no-op edit (nothing changed) neither
+   * archives a snapshot nor marks the update "edited".
+   *
+   * When the edit touches `statusChange` OR re-times the update (`createdAt`),
+   * the incident's own `status` is re-derived from the most recent
+   * status-bearing update (see {@link deriveStatusFromTimeline}) so the header
+   * and timeline never diverge - including the edge case where the latest row is
+   * message-only and the header must follow an earlier status-bearing update,
+   * and the case where re-timing changes which update is latest.
+   */
+  async editUpdate(
+    input: EditIncidentUpdateInput,
+  ): Promise<IncidentUpdate | undefined> {
+    const [existing] = await this.db
+      .select()
+      .from(incidentUpdates)
+      .where(
+        and(
+          eq(incidentUpdates.id, input.id),
+          eq(incidentUpdates.incidentId, input.incidentId),
+        ),
+      );
+    if (!existing) return undefined;
+
+    // Only fields that actually differ count as a change; the edit form always
+    // re-sends message/status/visibility, so a bare save must not manufacture a
+    // spurious "edited" marker or history entry.
+    const messageChanged =
+      input.message !== undefined && input.message !== existing.message;
+    const statusChanged =
+      input.statusChange !== undefined &&
+      (input.statusChange ?? null) !== (existing.statusChange ?? null);
+    const visibilityChanged =
+      input.visibility !== undefined && input.visibility !== existing.visibility;
+    const createdAtChanged =
+      input.createdAt !== undefined &&
+      input.createdAt.getTime() !== existing.createdAt.getTime();
+    const contentChanged =
+      messageChanged || statusChanged || visibilityChanged || createdAtChanged;
+
+    const now = new Date();
+    const updateData: Partial<typeof incidentUpdates.$inferInsert> = {};
+    if (input.message !== undefined) updateData.message = input.message;
+    if (input.statusChange !== undefined)
+      updateData.statusChange = input.statusChange;
+    if (input.visibility !== undefined)
+      updateData.visibility = input.visibility;
+    if (input.createdAt !== undefined) updateData.createdAt = input.createdAt;
+
+    if (contentChanged) {
+      updateData.editedAt = now;
+      // Archive the pre-edit version (oldest first). Timestamps are ISO strings
+      // so the jsonb payload round-trips through JSON cleanly.
+      const snapshot: IncidentUpdateEditSnapshot = {
+        message: existing.message,
+        statusChange: existing.statusChange ?? undefined,
+        visibility: existing.visibility,
+        createdAt: existing.createdAt.toISOString(),
+        editedAt: now.toISOString(),
+      };
+      updateData.editHistory = [...(existing.editHistory ?? []), snapshot];
+    }
+
+    // Nothing provided to change: return the current row untouched (a bare
+    // `.set({})` would throw), leaving `editedAt`/`editHistory` as they were.
+    if (Object.keys(updateData).length === 0) {
+      return {
+        ...existing,
+        statusChange: existing.statusChange ?? undefined,
+        editedAt: existing.editedAt ?? undefined,
+        editHistory: existing.editHistory ?? [],
+        createdBy: existing.createdBy ?? undefined,
+      };
+    }
+
+    const update = await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(incidentUpdates)
+        .set(updateData)
+        .where(
+          and(
+            eq(incidentUpdates.id, input.id),
+            eq(incidentUpdates.incidentId, input.incidentId),
+          ),
+        )
+        .returning();
+
+      // Re-derive the header from the most recent status-bearing update
+      // whenever the edit touched a status OR re-timed the update. This handles
+      // editing a non-latest update (header keeps the newest status), the
+      // message-only latest edge case (header follows the prior status-bearing
+      // update), AND a re-time that changes which update is latest.
+      if (input.statusChange !== undefined || createdAtChanged) {
+        const derived = await deriveStatusFromTimeline(tx, input.incidentId);
+        if (derived) {
+          await tx
+            .update(incidents)
+            .set({ status: derived, updatedAt: new Date() })
+            .where(eq(incidents.id, input.incidentId));
+        }
+      }
+      return updated;
+    });
+
+    return {
+      ...update,
+      statusChange: update.statusChange ?? undefined,
+      editedAt: update.editedAt ?? undefined,
+      editHistory: update.editHistory ?? [],
+      createdBy: update.createdBy ?? undefined,
+    };
+  }
+
+  /**
+   * Delete a published update. Scoped by `incidentId` (mirrors `removeLink`).
+   * Returns the parent incidentId so the caller can invalidate caches, or
+   * undefined if the update did not exist under that incident.
+   *
+   * When the deleted update CARRIED a status, the incident's `status` is
+   * re-derived from the remaining timeline in the SAME transaction (see
+   * {@link deriveStatusFromTimeline}) so deleting the latest status-bearing
+   * update never leaves the header pinned to a now-gone status. A message-only
+   * delete can never change the derived status, so it skips the re-derivation.
+   * If no status-bearing update remains, the status is left intact (deletion is
+   * irreversible; we never null a status the header still needs).
+   */
+  async deleteUpdate(
+    id: string,
+    incidentId: string,
+  ): Promise<string | undefined> {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(incidentUpdates)
+        .where(
+          and(
+            eq(incidentUpdates.id, id),
+            eq(incidentUpdates.incidentId, incidentId),
+          ),
+        );
+      if (!existing) return;
+
+      await tx
+        .delete(incidentUpdates)
+        .where(
+          and(
+            eq(incidentUpdates.id, id),
+            eq(incidentUpdates.incidentId, incidentId),
+          ),
+        );
+
+      if (existing.statusChange !== null) {
+        const derived = await deriveStatusFromTimeline(tx, incidentId);
+        if (derived) {
+          await tx
+            .update(incidents)
+            .set({ status: derived, updatedAt: new Date() })
+            .where(eq(incidents.id, incidentId));
+        }
+      }
+
+      return existing.incidentId;
+    });
   }
 
   /**
@@ -536,16 +806,58 @@ export class IncidentService {
    */
   async addLink(input: AddIncidentLinkInput): Promise<IncidentLink> {
     const id = generateId();
-    await this.db.insert(incidentLinks).values({
-      id,
-      incidentId: input.incidentId,
-      label: input.label,
-      url: input.url,
-    });
+    // `.returning()` yields the inserted row directly, removing the former
+    // standalone re-select (one query instead of two).
     const [row] = await this.db
+      .insert(incidentLinks)
+      .values({
+        id,
+        incidentId: input.incidentId,
+        label: input.label,
+        url: input.url,
+        visibility: input.visibility ?? "public",
+      })
+      .returning();
+    return row;
+  }
+
+  /**
+   * Edit a hotlink in place. Scoped by `incidentId` (anti-spoof, mirrors
+   * `removeLink`): a link belonging to a different incident cannot be edited by
+   * pairing its id with an incident the caller manages. Only the provided fields
+   * change; returns the updated row, or undefined if the pair did not match.
+   */
+  async updateLink(
+    input: UpdateIncidentLinkInput,
+  ): Promise<IncidentLink | undefined> {
+    const [existing] = await this.db
       .select()
       .from(incidentLinks)
-      .where(eq(incidentLinks.id, id));
+      .where(
+        and(
+          eq(incidentLinks.id, input.id),
+          eq(incidentLinks.incidentId, input.incidentId),
+        ),
+      );
+    if (!existing) return undefined;
+
+    const updateData: Partial<typeof incidentLinks.$inferInsert> = {};
+    if (input.label !== undefined) updateData.label = input.label;
+    if (input.url !== undefined) updateData.url = input.url;
+    if (input.visibility !== undefined)
+      updateData.visibility = input.visibility;
+    if (Object.keys(updateData).length === 0) return existing;
+
+    const [row] = await this.db
+      .update(incidentLinks)
+      .set(updateData)
+      .where(
+        and(
+          eq(incidentLinks.id, input.id),
+          eq(incidentLinks.incidentId, input.incidentId),
+        ),
+      )
+      .returning();
     return row;
   }
 

@@ -56,6 +56,45 @@ export function dbQueriesCounter(): Counter {
   return dbQueries;
 }
 
+let dbQueryDuration: Histogram | undefined;
+/**
+ * Wall-clock of a STANDALONE scoped query (its own BEGIN + SET LOCAL + query +
+ * COMMIT), measured at the scoped-db proxy seam. Attributes: `schema` (plugin
+ * schema) and `operation` (select/insert/update/delete/execute/$count) — both
+ * BOUNDED so Prometheus cardinality stays flat. This is the RED-style "how long
+ * do queries take, how often" signal; pair it with `pg_stat_statements` for the
+ * per-statement drill-down. NEVER attribute raw SQL / parameter values / ids
+ * here — that would be unbounded cardinality.
+ */
+export function dbQueryDurationHistogram(): Histogram {
+  dbQueryDuration ??= getMeter().createHistogram("checkstack.db.query.duration", {
+    description:
+      "Standalone scoped-db query wall-clock (BEGIN+SET LOCAL+query+COMMIT). Attributes: schema, operation.",
+    unit: "ms",
+  });
+  return dbQueryDuration;
+}
+
+let dbTransactionDuration: Histogram | undefined;
+/**
+ * Wall-clock a `withScopedTransaction` batch holds its connection (BEGIN → SET
+ * LOCAL → N queries → COMMIT). Attribute: `schema`. Rising values mean a batch
+ * is pinning a pooled connection for long — the thing to watch after the
+ * scoped-tx batching optimizations, and a guard against accidentally wrapping
+ * slow (non-db) work inside a transaction.
+ */
+export function dbTransactionDurationHistogram(): Histogram {
+  dbTransactionDuration ??= getMeter().createHistogram(
+    "checkstack.db.transaction.duration",
+    {
+      description:
+        "withScopedTransaction batch wall-clock (connection hold time). Attribute: schema.",
+      unit: "ms",
+    },
+  );
+  return dbTransactionDuration;
+}
+
 let healthcheckExecution: Histogram | undefined;
 /** Health-check job wall-clock. Attribute: `status`. */
 export function healthcheckExecutionHistogram(): Histogram {

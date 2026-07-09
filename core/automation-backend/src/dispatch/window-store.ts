@@ -12,6 +12,7 @@
  */
 import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type { SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 
 import { automationWindowEvents } from "../schema";
 import type { RecordWindowInput, WindowStore } from "./types";
@@ -47,31 +48,37 @@ export function createWindowStore(db: SafeDatabase<Schema>): WindowStore {
         refire,
       } = input;
 
-      // (1) Append the qualifying occurrence. One INSERT per claimed emission,
-      // so the count below can't double-count across pods.
-      await db.insert(automationWindowEvents).values({
-        automationId,
-        triggerId,
-        eventId,
-        contextKey,
-        occurredAt,
-      });
-
-      // (2) Count rows in the trailing window (inclusive of the row just
-      // inserted) — a pure DB read, identical on every pod.
+      // The INSERT then COUNT run under one SET LOCAL search_path (a single
+      // transaction) instead of two standalone scoped queries — the append
+      // log stays the source of truth and the COUNT stays pure SQL, so the
+      // cross-pod semantics are unchanged.
       const windowStart = new Date(
         occurredAt.getTime() - windowMinutes * 60_000,
       );
-      const result = await db
-        .select({ count: sql<number>`COUNT(*)::int` })
-        .from(automationWindowEvents)
-        .where(
-          and(
-            keyWhere(automationId, triggerId, contextKey),
-            gte(automationWindowEvents.occurredAt, windowStart),
-          ),
-        );
-      const newCount = result[0]?.count ?? 0;
+      const newCount = await withScopedTransaction(db, async (tx) => {
+        // (1) Append the qualifying occurrence. One INSERT per claimed
+        // emission, so the count below can't double-count across pods.
+        await tx.insert(automationWindowEvents).values({
+          automationId,
+          triggerId,
+          eventId,
+          contextKey,
+          occurredAt,
+        });
+
+        // (2) Count rows in the trailing window (inclusive of the row just
+        // inserted) — a pure DB read, identical on every pod.
+        const result = await tx
+          .select({ count: sql<number>`COUNT(*)::int` })
+          .from(automationWindowEvents)
+          .where(
+            and(
+              keyWhere(automationId, triggerId, contextKey),
+              gte(automationWindowEvents.occurredAt, windowStart),
+            ),
+          );
+        return result[0]?.count ?? 0;
+      });
 
       // (3) Apply the re-fire policy.
       //  - `every`: fire on every occurrence at/over the threshold.

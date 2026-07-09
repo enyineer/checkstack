@@ -123,11 +123,15 @@ The status updates in real time via WebSocket signals. If the satellite drops th
 
 ## 8. Assign a health check to the satellite
 
-The point of the satellite is to run checks from its vantage point. Pin a check:
+The point of the satellite is to run checks from its vantage point. Execution is a per-**assignment** property (a check on a specific system), NOT a property of the check template you edit under the **Health Checks** sidebar. So you pin execution from the system the check is assigned to:
 
-1. Open **Health Checks** and edit any check that supports satellite execution (network strategies like HTTP, TCP, ping, DNS all do).
-2. In the **Execution** section, switch from `Core` to `Satellite` and pick your new satellite from the dropdown.
-3. Save.
+1. Open **Catalog** and open the system whose check you want to run from the satellite.
+2. On that system, click **Health Checks** to open its assignment editor.
+3. In the sidebar, select the assigned check, then open its **Execution** node.
+4. Under **Execution Sources**, enable your new satellite in the **Assigned Satellites** list. Leave **Execute this health check on the core server** on to run from both, or turn it off to run only from the satellite (you must keep at least one source enabled).
+5. Click **Save**.
+
+Only network strategies can run remotely (HTTP, TCP, ping, DNS, and similar). A check that must run on the core server does not offer a satellite.
 
 The next run executes on the satellite. The result returns through the WebSocket and lands in the check history alongside core-executed runs. The history detail page shows which satellite produced each run.
 

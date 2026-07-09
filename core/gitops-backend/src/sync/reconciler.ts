@@ -1,4 +1,5 @@
 import type { Logger, SafeDatabase } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import type { EntityEnvelope } from "@checkstack/gitops-common";
 import { collectSecretNames } from "@checkstack/gitops-common";
 import { z } from "zod";
@@ -456,54 +457,58 @@ async function upsertProvenance(params: {
     errorMessage,
     warnings,
   } = params;
-  const existing = await db
-    .select()
-    .from(schema.provenance)
-    .where(
-      and(
-        eq(schema.provenance.kind, entity.kind),
-        eq(schema.provenance.entityName, entity.metadata.name),
-      ),
-    );
+  // Pure-db select + upsert (no plugin/secret RPC between them): one scoped
+  // transaction pays a single SET LOCAL search_path for the pair.
+  await withScopedTransaction(db, async (tx) => {
+    const existing = await tx
+      .select()
+      .from(schema.provenance)
+      .where(
+        and(
+          eq(schema.provenance.kind, entity.kind),
+          eq(schema.provenance.entityName, entity.metadata.name),
+        ),
+      );
 
-  if (existing[0]) {
-    await db
-      .update(schema.provenance)
-      .set({
-        lastSyncHash: contentHash,
-        secretRefs,
-        // Preserve existing entityId on error retries; update on successful reconcile
-        ...(entityId ? { entityId } : {}),
-        status,
-        errorMessage: errorMessage ?? null,  
-        warnings: warnings ?? [],
-        repository: file.repository,
-        filePath: file.filePath,
-        lastSyncedAt: new Date(),
-      })
-      .where(eq(schema.provenance.id, existing[0].id));
-    return;
-  }
+    if (existing[0]) {
+      await tx
+        .update(schema.provenance)
+        .set({
+          lastSyncHash: contentHash,
+          secretRefs,
+          // Preserve existing entityId on error retries; update on successful reconcile
+          ...(entityId ? { entityId } : {}),
+          status,
+          errorMessage: errorMessage ?? null,
+          warnings: warnings ?? [],
+          repository: file.repository,
+          filePath: file.filePath,
+          lastSyncedAt: new Date(),
+        })
+        .where(eq(schema.provenance.id, existing[0].id));
+      return;
+    }
 
-  // First-time error: no entityId available yet because the entity failed to create.
-  // We MUST create a provenance record anyway so the error shows in the UI.
-  // We use a "pending-" prefix so the orphan detector knows not to call the delete reconciler.
-  const resolvedEntityId = entityId ?? `pending-${uuidv4()}`;
+    // First-time error: no entityId available yet because the entity failed to create.
+    // We MUST create a provenance record anyway so the error shows in the UI.
+    // We use a "pending-" prefix so the orphan detector knows not to call the delete reconciler.
+    const resolvedEntityId = entityId ?? `pending-${uuidv4()}`;
 
-  await db.insert(schema.provenance).values({
-    id: uuidv4(),
-    apiVersion: entity.apiVersion,
-    kind: entity.kind,
-    entityName: entity.metadata.name,
-    entityId: resolvedEntityId,
-    providerId,
-    repository: file.repository,
-    filePath: file.filePath,
-    lastSyncHash: contentHash,
-    secretRefs,
-    status,
-    errorMessage: errorMessage ?? null,  
-    warnings: warnings ?? [],
+    await tx.insert(schema.provenance).values({
+      id: uuidv4(),
+      apiVersion: entity.apiVersion,
+      kind: entity.kind,
+      entityName: entity.metadata.name,
+      entityId: resolvedEntityId,
+      providerId,
+      repository: file.repository,
+      filePath: file.filePath,
+      lastSyncHash: contentHash,
+      secretRefs,
+      status,
+      errorMessage: errorMessage ?? null,
+      warnings: warnings ?? [],
+    });
   });
 }
 

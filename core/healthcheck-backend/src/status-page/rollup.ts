@@ -58,6 +58,33 @@ export function overallBannerStatus(statuses: PublicStatus[]): PublicStatus {
   return rollupStatus(known);
 }
 
+/**
+ * Roll up a system's PER-ENVIRONMENT health-check statuses into a single public
+ * status for a status page scoped to specific environments. ONLY the slices for
+ * the selected environments are considered (worst-status-wins via the public
+ * precedence); a system with no slice in any selected environment resolves to
+ * `unknown`. Used by the health widgets when a page publishes an explicit
+ * environment set, so a system in both prod and staging shows only its
+ * selected-environment health rather than the cross-environment rollup.
+ *
+ * This considers CHECK statuses only. Incident-forced overrides are whole-system
+ * (not environment-scoped), so the caller folds the override IN via worst-wins on
+ * top of this result (see `healthPublicStatuses`) - keeping this helper a pure
+ * per-environment checks rollup.
+ */
+export function rollupSelectedEnvironments(args: {
+  environments: Record<string, { status: string }>;
+  selectedEnvironmentIds: string[];
+}): PublicStatus {
+  const { environments, selectedEnvironmentIds } = args;
+  const statuses: PublicStatus[] = [];
+  for (const envId of selectedEnvironmentIds) {
+    const slice = environments[envId];
+    if (slice) statuses.push(mapHealthStatus(slice.status));
+  }
+  return rollupStatus(statuses);
+}
+
 export function statusBannerTitle(status: PublicStatus): string {
   switch (status) {
     case "operational": {

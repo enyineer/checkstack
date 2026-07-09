@@ -2,9 +2,19 @@ import { describe, it, expect, mock } from "bun:test";
 import { enrichUser, resolveAllApplicationAccessRules } from "./user";
 import { User } from "better-auth/types";
 
-// Mock Drizzle DB
+// Mock Drizzle DB.
+//
+// `enrichUser` now runs its reads inside `withScopedTransaction`, and the
+// per-role N+1 loop is collapsed into ONE set-based `inArray` query, so the
+// query sequence is fixed regardless of role count:
+//   1. roles
+//   2. access rules (single query — ONLY when there is >=1 non-admin role)
+//   3. team memberships
+// The `transaction` method invokes the callback with the mock itself so the
+// same thenable drives the queries whether they run on `db` or the `tx` handle.
 const createMockDb = (data: {
   roles?: unknown[];
+  // Rows now carry `roleId` (grouped per role in JS) alongside `accessRuleId`.
   accessRules?: unknown[];
   teams?: unknown[];
 }) => {
@@ -13,12 +23,11 @@ const createMockDb = (data: {
     from: mock(() => mockDb),
     innerJoin: mock(() => mockDb),
     where: mock(() => mockDb),
+    transaction: mock((fn: (tx: unknown) => unknown) => fn(mockDb)),
   };
 
-  // Track call count for sequential responses
-  // Call order in enrichUser: 1=roles, 2+=access rules per role, final=teams
   let callCount = 0;
-  const nonAdminRoles = (data.roles || []).filter(
+  const hasNonAdminRole = (data.roles || []).some(
     (r) => (r as { roleId: string }).roleId !== "admin"
   );
 
@@ -26,14 +35,14 @@ const createMockDb = (data: {
   (mockDb as { then: unknown }).then = (resolve: (arg0: unknown) => void) => {
     callCount++;
     if (callCount === 1) {
-      // First call: get roles
+      // First query: roles.
       return resolve(data.roles || []);
     }
-    if (callCount <= 1 + nonAdminRoles.length && nonAdminRoles.length > 0) {
-      // Access rule calls for each non-admin role
+    if (callCount === 2 && hasNonAdminRole) {
+      // Single set-based access-rule query (only when non-admin roles exist).
       return resolve(data.accessRules || []);
     }
-    // Team memberships (final call)
+    // Team memberships (final query).
     return resolve(data.teams || []);
   };
 
@@ -69,7 +78,7 @@ describe("enrichUser", () => {
   it("should enrich user with custom roles and access rules", async () => {
     const mockDb = createMockDb({
       roles: [{ roleId: "editor" }],
-      accessRules: [{ accessRuleId: "blog.edit" }],
+      accessRules: [{ roleId: "editor", accessRuleId: "blog.edit" }],
       teams: [],
     });
 
@@ -81,6 +90,48 @@ describe("enrichUser", () => {
     expect(result.roles).toContain("editor");
     expect(result.accessRules).toContain("blog.edit");
     expect(result.teamIds).toEqual([]);
+  });
+
+  it("merges the access rules of a user's multiple roles (set-based, no N+1)", async () => {
+    // Two non-admin roles, each contributing rules (one overlapping) — the
+    // single `inArray` query returns every row; the merged result must be the
+    // deduped union, exactly as the old per-role loop produced.
+    const mockDb = createMockDb({
+      roles: [{ roleId: "editor" }, { roleId: "reviewer" }],
+      accessRules: [
+        { roleId: "editor", accessRuleId: "blog.edit" },
+        { roleId: "editor", accessRuleId: "blog.read" },
+        { roleId: "reviewer", accessRuleId: "blog.read" },
+        { roleId: "reviewer", accessRuleId: "blog.approve" },
+      ],
+      teams: [{ teamId: "team-1" }],
+    });
+
+    const result = await enrichUser(
+      baseUser,
+      mockDb as Parameters<typeof enrichUser>[1]
+    );
+
+    expect(result.roles).toEqual(["editor", "reviewer"]);
+    // Deduped union of both roles' rules, in role-insertion order.
+    expect(result.accessRules).toEqual(["blog.edit", "blog.read", "blog.approve"]);
+    expect(result.teamIds).toEqual(["team-1"]);
+  });
+
+  it("wildcards admin while still merging a co-assigned custom role's rules", async () => {
+    const mockDb = createMockDb({
+      roles: [{ roleId: "admin" }, { roleId: "editor" }],
+      accessRules: [{ roleId: "editor", accessRuleId: "blog.edit" }],
+      teams: [],
+    });
+
+    const result = await enrichUser(
+      baseUser,
+      mockDb as Parameters<typeof enrichUser>[1]
+    );
+
+    expect(result.roles).toEqual(["admin", "editor"]);
+    expect(result.accessRules).toEqual(["*", "blog.edit"]);
   });
 
   it("should handle user with no roles", async () => {

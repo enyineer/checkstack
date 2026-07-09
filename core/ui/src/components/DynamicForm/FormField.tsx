@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Braces, Plus, Trash2 } from "lucide-react";
 import { renderTemplatePreview } from "@checkstack/template-engine";
 import {
   SECRET_CLEAR_SENTINEL,
@@ -51,6 +51,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   optionsResolvers,
   templateProperties,
   templateCompletionProvider,
+  templatableFieldsOnly,
   typeDefinitions,
   shellEnvVars,
   starterTemplates,
@@ -309,23 +310,32 @@ export const FormField: React.FC<FormFieldProps> = ({
       );
     }
 
-    // Default string input. When a completion provider is supplied the
-    // field is templatable (e.g. automation action config), so render a
-    // TemplateValueInput wired to it for `{{ … }}` autocomplete; without
-    // one, keep the bare Input so other DynamicForm consumers are
-    // unaffected.
+    // Default string input. When a completion provider is supplied the field
+    // gets a TemplateValueInput wired to it for `{{ … }}` autocomplete; without
+    // one, keep the bare Input so other DynamicForm consumers are unaffected.
+    // `templatableFieldsOnly` restricts the provider to fields explicitly
+    // marked `x-templatable` (the health-check editor, where only some fields
+    // template); the default (false) applies it to every string field (the
+    // automation editor, where all config is templatable).
+    const isTemplatable = propSchema["x-templatable"] === true;
+    const useTemplateInput =
+      Boolean(templateCompletionProvider) &&
+      (!templatableFieldsOnly || isTemplatable);
     const placeholder = propSchema.default
       ? `Default: ${String(propSchema.default)}`
       : "";
     return (
       <div className="space-y-2">
         <div>
-          <Label htmlFor={id} required={isRequired}>{label}</Label>
+          <div className="flex items-center gap-2">
+            <Label htmlFor={id} required={isRequired}>{label}</Label>
+            {isTemplatable && <TemplatableBadge />}
+          </div>
           {cleanDesc && (
             <p className="text-sm text-muted-foreground mt-0.5">{cleanDesc}</p>
           )}
         </div>
-        {templateCompletionProvider ? (
+        {useTemplateInput && templateCompletionProvider ? (
           <TemplateValueInput
             id={id}
             value={(value as string) || ""}
@@ -343,7 +353,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             aria-describedby={describedBy}
           />
         )}
-        {propSchema["x-templatable"] && templatePreviewContext && (
+        {isTemplatable && templatePreviewContext && (
           <TemplatePreviewLine
             value={(value as string) || ""}
             context={templatePreviewContext}
@@ -488,6 +498,7 @@ export const FormField: React.FC<FormFieldProps> = ({
             optionsResolvers={optionsResolvers}
             templateProperties={templateProperties}
             templateCompletionProvider={templateCompletionProvider}
+            templatableFieldsOnly={templatableFieldsOnly}
             typeDefinitions={typeDefinitions}
             shellEnvVars={shellEnvVars}
             starterTemplates={starterTemplates}
@@ -602,6 +613,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
+                templatableFieldsOnly={templatableFieldsOnly}
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}
@@ -747,6 +759,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
+                templatableFieldsOnly={templatableFieldsOnly}
                 typeDefinitions={typeDefinitions}
                 shellEnvVars={shellEnvVars}
                 starterTemplates={starterTemplates}
@@ -821,6 +834,23 @@ const ArrayItemRow: React.FC<{
     </div>
   );
 };
+
+/**
+ * Small discoverability badge shown next to a single-line `x-templatable`
+ * field's label. Signals that the field accepts `{{ … }}` templating
+ * (`{{ environment.* }}`, `{{ check.* }}`, `{{ system.* }}`) without relying on
+ * the field's `.describe()` prose. Kept quiet (muted, bordered) so it reads as
+ * an affordance, not a warning.
+ */
+const TemplatableBadge: React.FC = () => (
+  <span
+    className="inline-flex items-center gap-1 rounded border border-border/60 bg-surface-inset px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground"
+    title="Supports {{ }} templating: {{ environment.* }}, {{ check.* }}, {{ system.* }}"
+  >
+    <Braces className="h-3 w-3" />
+    Templating
+  </span>
+);
 
 /**
  * Inline preview of a templatable field's rendered output against a sample

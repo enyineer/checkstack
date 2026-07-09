@@ -29,6 +29,11 @@ import {
   writeMaintenanceEntity,
   type MaintenanceEntityState,
 } from "./entity";
+import {
+  resolveMaintenanceAudience,
+  filterByAudience,
+  scopeEditHistory,
+} from "./read-visibility";
 
 export interface MaintenanceRouterDeps {
   service: MaintenanceService;
@@ -176,6 +181,7 @@ export function createRouter({
       systemIds: closed.systemIds,
       systemNames,
       action: "completed",
+      updateMessage: message,
     });
     return { status: "completed", maintenance: closed };
   }
@@ -232,18 +238,34 @@ export function createRouter({
       };
     }),
 
-    getMaintenance: os.getMaintenance.handler(async ({ input }) => {
+    getMaintenance: os.getMaintenance.handler(async ({ input, context }) => {
       const result = await cache.wrapMaintenance(input.id, () =>
         service.getMaintenance(input.id),
       );
       if (!result) {
-         
+
         return null;
       }
+      // Item 3/5: filter updates + hotlinks by the caller's audience
+      // SERVER-SIDE (never CSS). The cache stores the full record; visibility is
+      // applied per-request so an internal note or logged-in-only link never
+      // ships to an anonymous or non-manager caller.
+      const audience = await resolveMaintenanceAudience({
+        context: { user: context.user, auth: context.auth },
+        maintenanceId: input.id,
+      });
       // User-name resolution stays outside the cache: it's a foreign-system
       // lookup with its own freshness needs.
-      const updatesWithNames = await resolveUserNames(result.updates);
-      return { ...result, updates: updatesWithNames };
+      // Filter by current visibility, THEN strip the manager-only edit history
+      // (a prior version may have been internal before being made public).
+      const updatesWithNames = await resolveUserNames(
+        scopeEditHistory(filterByAudience(result.updates, audience), audience),
+      );
+      return {
+        ...result,
+        updates: updatesWithNames,
+        links: filterByAudience(result.links, audience),
+      };
     }),
 
     getMaintenancesForSystem: os.getMaintenancesForSystem.handler(
@@ -268,6 +290,47 @@ export function createRouter({
             );
           }),
         );
+        return { maintenances };
+      },
+    ),
+
+    getBulkMaintenanceUpdates: os.getBulkMaintenanceUpdates.handler(
+      async ({ input, context }) => {
+        const raw = await service.getBulkMaintenanceUpdates(
+          input.maintenanceIds,
+        );
+        // Mirror getMaintenance's per-maintenance audience filter (Item 3/5) so
+        // this bulk endpoint can never leak logged-in/internal updates - or
+        // author identity - to a caller who is not a manager of that
+        // maintenance. The public status-page widget re-filters to `public` on
+        // top; a trusted service call resolves as `manager` and sees all,
+        // exactly as getMaintenance does.
+        const updates: Record<string, MaintenanceUpdate[]> = {};
+        await Promise.all(
+          Object.entries(raw).map(async ([maintenanceId, list]) => {
+            const audience = await resolveMaintenanceAudience({
+              context: { user: context.user, auth: context.auth },
+              maintenanceId,
+            });
+            updates[maintenanceId] = await resolveUserNames(
+              scopeEditHistory(filterByAudience(list, audience), audience),
+            );
+          }),
+        );
+        return { updates };
+      },
+    ),
+
+    getMaintenanceWindowsForRange: os.getMaintenanceWindowsForRange.handler(
+      async ({ input }) => {
+        // Time-range overlap read (includes completed, excludes cancelled).
+        // Not cached: the [from, to] budget window is caller-specific and the
+        // per-system active cache does not model a historical range.
+        const maintenances = await service.getMaintenanceWindowsForRange({
+          systemIds: input.systemIds,
+          from: input.from,
+          to: input.to,
+        });
         return { maintenances };
       },
     ),
@@ -425,16 +488,25 @@ export function createRouter({
           action,
         });
 
-        // Send notifications when status actually changes
-        if (input.statusChange && previousStatus !== input.statusChange) {
+        // Notify subscribers on every update EXCEPT an internal-only operator
+        // note: an internal update (Item 3/5) must NEVER reach system
+        // subscribers. A status change picks the matching verb
+        // (started / completed); a message-only update (no status change) still
+        // reaches subscribers as an "updated" notification so the latest update
+        // text is delivered rather than silently swallowed (mirrors incident).
+        if (input.visibility !== "internal") {
+          const isStatusChange =
+            !!input.statusChange && previousStatus !== input.statusChange;
+
           // Determine notification action based on the actual status transition
           let notificationAction: "started" | "completed" | "updated";
           if (
+            isStatusChange &&
             input.statusChange === "in_progress" &&
             previousStatus !== "in_progress"
           ) {
             notificationAction = "started";
-          } else if (input.statusChange === "completed") {
+          } else if (isStatusChange && input.statusChange === "completed") {
             notificationAction = "completed";
           } else {
             notificationAction = "updated";
@@ -450,10 +522,95 @@ export function createRouter({
             systemIds: maintenance.systemIds,
             systemNames,
             action: notificationAction,
+            updateMessage: input.message,
           });
         }
       }
       return result;
+    }),
+
+    editUpdate: os.editUpdate.handler(async ({ input, context }) => {
+      // Drive the edit through the reactive `maintenance` entity: a
+      // `statusChange` edit on the LATEST update re-derives the maintenance
+      // status (service layer), so `apply` re-reads and returns the post-write
+      // reactive state. Editing an update never re-notifies subscribers.
+      let updateResult: MaintenanceUpdate | undefined;
+      let maintenance: Awaited<ReturnType<typeof service.getMaintenance>>;
+      await writeMaintenanceEntity({
+        handle: entityHandle,
+        maintenanceId: input.maintenanceId,
+        opts: { actor: resolveActor(context.user) },
+        apply: async () => {
+          updateResult = await service.editUpdate(input);
+          if (!updateResult) {
+            throw new ORPCError("NOT_FOUND", { message: "Update not found" });
+          }
+          maintenance = await service.getMaintenance(input.maintenanceId);
+          if (!maintenance) {
+            throw new ORPCError("NOT_FOUND", {
+              message: "Maintenance not found",
+            });
+          }
+          return toMaintenanceEntityState(maintenance);
+        },
+      });
+      if (!updateResult || !maintenance) {
+        throw new ORPCError("NOT_FOUND", { message: "Update not found" });
+      }
+
+      await cache.invalidateForMutation({
+        maintenanceId: input.maintenanceId,
+        systemIds: maintenance.systemIds,
+      });
+      await signalService.broadcast(MAINTENANCE_UPDATED, {
+        maintenanceId: input.maintenanceId,
+        systemIds: maintenance.systemIds,
+        action: "updated",
+      });
+      return updateResult;
+    }),
+
+    deleteUpdate: os.deleteUpdate.handler(async ({ input, context }) => {
+      // Probe first: a no-op delete (missing maintenance/update) must NOT drive
+      // an entity write. `getMaintenance` returns the FULL (unfiltered)
+      // timeline, so the presence check is visibility-independent.
+      const before = await service.getMaintenance(input.maintenanceId);
+      if (!before || !before.updates.some((u) => u.id === input.id)) {
+        return { success: false };
+      }
+
+      // Drive the delete through the reactive `maintenance` entity: deleting the
+      // latest status-bearing update re-derives the maintenance status (service
+      // layer), so `apply` re-reads and returns the post-write reactive state
+      // and the deriver fires the right change event (symmetric with editUpdate).
+      let maintenance: Awaited<ReturnType<typeof service.getMaintenance>>;
+      await writeMaintenanceEntity({
+        handle: entityHandle,
+        maintenanceId: input.maintenanceId,
+        opts: { actor: resolveActor(context.user) },
+        apply: async () => {
+          await service.deleteUpdate(input.id, input.maintenanceId);
+          maintenance = await service.getMaintenance(input.maintenanceId);
+          if (!maintenance) {
+            throw new ORPCError("NOT_FOUND", {
+              message: "Maintenance not found",
+            });
+          }
+          return toMaintenanceEntityState(maintenance);
+        },
+      });
+      if (maintenance) {
+        await cache.invalidateForMutation({
+          maintenanceId: input.maintenanceId,
+          systemIds: maintenance.systemIds,
+        });
+        await signalService.broadcast(MAINTENANCE_UPDATED, {
+          maintenanceId: input.maintenanceId,
+          systemIds: maintenance.systemIds,
+          action: "updated",
+        });
+      }
+      return { success: true };
     }),
 
     closeMaintenance: os.closeMaintenance.handler(
@@ -577,6 +734,21 @@ export function createRouter({
         maintenanceId: maintenance.id,
         systemIds: maintenance.systemIds,
       });
+      return link;
+    }),
+
+    updateLink: os.updateLink.handler(async ({ input }) => {
+      const link = await service.updateLink(input);
+      if (!link) {
+        throw new ORPCError("NOT_FOUND", { message: "Link not found" });
+      }
+      const maintenance = await service.getMaintenance(input.maintenanceId);
+      if (maintenance) {
+        await cache.invalidateForMutation({
+          maintenanceId: maintenance.id,
+          systemIds: maintenance.systemIds,
+        });
+      }
       return link;
     }),
 

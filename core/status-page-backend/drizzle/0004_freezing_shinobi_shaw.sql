@@ -1,0 +1,1 @@
+ALTER TABLE "status_pages" ADD COLUMN "email_subscribers_hourly_quota" integer;

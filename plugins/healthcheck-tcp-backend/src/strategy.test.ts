@@ -1,5 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
-import { TcpHealthCheckStrategy, TcpSocket, SocketFactory } from "./strategy";
+import { renderTemplatableConfig } from "@checkstack/backend-api";
+import {
+  TcpHealthCheckStrategy,
+  TcpSocket,
+  SocketFactory,
+  tcpConfigSchema,
+} from "./strategy";
 
 describe("TcpHealthCheckStrategy", () => {
   // Helper to create mock socket factory
@@ -87,6 +93,56 @@ describe("TcpHealthCheckStrategy", () => {
       expect(result.banner).toBe("SSH-2.0-OpenSSH");
 
       connectedClient.close();
+    });
+  });
+
+  describe("environment templating", () => {
+    // The `host` field is `x-templatable`, so the executor renders
+    // `{{ environment.* }}` into it PER environment (via renderTemplatableConfig)
+    // BEFORE createClient. These tests exercise that render pass + the
+    // post-render empty-host guard together.
+    const renderHost = (host: string, environment: Record<string, unknown>) => {
+      const rendered = renderTemplatableConfig({
+        config: { host, port: 443, timeout: 5000 },
+        schema: tcpConfigSchema,
+        context: { environment, check: {}, system: {} },
+      });
+      return rendered as { host: string; port: number; timeout: number };
+    };
+
+    it("renders a {{ environment.* }} host template against the env fields", () => {
+      const rendered = renderHost("{{ environment.host }}", {
+        host: "db.prod.internal",
+      });
+      expect(rendered.host).toBe("db.prod.internal");
+    });
+
+    it("connects to the rendered host", async () => {
+      const socket = createMockSocket();
+      const strategy = new TcpHealthCheckStrategy(socket);
+      const rendered = renderHost("{{ environment.host }}", {
+        host: "db.prod.internal",
+      });
+      const connectedClient = await strategy.createClient(rendered);
+      expect(connectedClient.client).toBeDefined();
+      connectedClient.close();
+    });
+
+    it("throws a transport failure when the host renders empty (no env)", async () => {
+      const strategy = new TcpHealthCheckStrategy(createMockSocket());
+      // An env-less run resolves `{{ environment.host }}` to "" (strict:false).
+      const rendered = renderHost("{{ environment.host }}", {});
+      expect(rendered.host).toBe("");
+      await expect(strategy.createClient(rendered)).rejects.toThrow(
+        /Rendered host is empty/,
+      );
+    });
+
+    it("throws a transport failure when the host renders whitespace-only", async () => {
+      const strategy = new TcpHealthCheckStrategy(createMockSocket());
+      await expect(
+        strategy.createClient({ host: "   ", port: 443, timeout: 5000 }),
+      ).rejects.toThrow(/Rendered host is empty/);
     });
   });
 

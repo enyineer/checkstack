@@ -1,19 +1,32 @@
 import { User } from "better-auth/types";
 import { SafeDatabase } from "@checkstack/backend-api";
 import { eq, inArray } from "drizzle-orm";
-import type { RealUser } from "@checkstack/backend-api";
+import type { RealUser, ScopedQueryRunner } from "@checkstack/backend-api";
+import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "../schema";
 
 /**
- * Enriches a better-auth User with roles, access rules, and team memberships from the database.
- * Returns a RealUser type for use in the RPC context.
+ * Resolve a better-auth User's roles, access rules, and team memberships into a
+ * `RealUser`, running every query on the supplied `runner`.
+ *
+ * `runner` is a {@link ScopedQueryRunner} — either the scoped database itself or
+ * a `ScopedTransaction` handle. Callers that batch several reads under one
+ * `SET LOCAL search_path` (the opaque-OAuth branch) pass their `tx`; the
+ * standalone {@link enrichUser} wrapper passes a `tx` it opens itself. The reads
+ * are pure DB work (roles -> access rules -> teams) so they are safe to run
+ * inside a single transaction.
+ *
+ * The per-role access-rule fan-out is collapsed into ONE set-based `inArray`
+ * query (mirroring `enrichApplicationPrincipal` / `resolveAllApplicationAccessRules`):
+ * the rules are grouped per role in JS afterwards so the merged `accessRules`
+ * preserve the same role-order insertion the old N+1 loop produced.
  */
-export const enrichUser = async (
+export const readEnrichedUser = async (
   user: User,
-  db: SafeDatabase<typeof schema>
+  runner: ScopedQueryRunner<typeof schema>
 ): Promise<RealUser> => {
   // 1. Get Roles
-  const userRoles = await db
+  const userRoles = await runner
     .select({
       roleName: schema.role.name,
       roleId: schema.role.id,
@@ -23,33 +36,42 @@ export const enrichUser = async (
     .where(eq(schema.userRole.userId, user.id));
 
   const roles = userRoles.map((r) => r.roleId);
-  const accessRulesSet = new Set<string>();
 
-  // 2. Get access rules for each role
-  for (const roleId of roles) {
-    if (roleId === "admin") {
-      accessRulesSet.add("*");
-      continue;
-    }
-
-    const roleAccessRules = await db
+  // 2. Get access rules for all non-admin roles in ONE set-based query, then
+  //    group per role in JS (the old loop issued one query per role: N+1).
+  const nonAdminRoleIds = roles.filter((roleId) => roleId !== "admin");
+  const rulesByRole = new Map<string, string[]>();
+  if (nonAdminRoleIds.length > 0) {
+    const roleAccessRules = await runner
       .select({
-        accessRuleId: schema.accessRule.id,
+        roleId: schema.roleAccessRule.roleId,
+        accessRuleId: schema.roleAccessRule.accessRuleId,
       })
       .from(schema.roleAccessRule)
       .innerJoin(
         schema.accessRule,
         eq(schema.accessRule.id, schema.roleAccessRule.accessRuleId)
       )
-      .where(eq(schema.roleAccessRule.roleId, roleId));
-
+      .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
     for (const p of roleAccessRules) {
-      accessRulesSet.add(p.accessRuleId);
+      const existing = rulesByRole.get(p.roleId);
+      if (existing) existing.push(p.accessRuleId);
+      else rulesByRole.set(p.roleId, [p.accessRuleId]);
     }
   }
 
+  // Merge in role order so `accessRules` matches the old per-role loop output.
+  const accessRulesSet = new Set<string>();
+  for (const roleId of roles) {
+    if (roleId === "admin") {
+      accessRulesSet.add("*");
+      continue;
+    }
+    for (const rule of rulesByRole.get(roleId) ?? []) accessRulesSet.add(rule);
+  }
+
   // 3. Get Team memberships
-  const userTeams = await db
+  const userTeams = await runner
     .select({ teamId: schema.userTeam.teamId })
     .from(schema.userTeam)
     .where(eq(schema.userTeam.userId, user.id));
@@ -68,6 +90,20 @@ export const enrichUser = async (
     teamIds,
   };
 };
+
+/**
+ * Enriches a better-auth User with roles, access rules, and team memberships from the database.
+ * Returns a RealUser type for use in the RPC context.
+ *
+ * Runs the three sequential reads inside a single `withScopedTransaction` so the
+ * scoped-db proxy pays ONE `BEGIN`/`SET LOCAL search_path`/`COMMIT` for the whole
+ * enrichment instead of one per query — this is the hottest authenticated path.
+ */
+export const enrichUser = async (
+  user: User,
+  db: SafeDatabase<typeof schema>
+): Promise<RealUser> =>
+  withScopedTransaction(db, (tx) => readEnrichedUser(user, tx));
 
 /**
  * The fields of an `ApplicationUser` resolved from the database.
@@ -93,45 +129,48 @@ export interface ApplicationPrincipalEnrichment {
 export const enrichApplicationPrincipal = async (
   applicationId: string,
   db: SafeDatabase<typeof schema>,
-): Promise<ApplicationPrincipalEnrichment | undefined> => {
-  const apps = await db
-    .select()
-    .from(schema.application)
-    .where(eq(schema.application.id, applicationId))
-    .limit(1);
-  const app = apps[0];
-  if (!app) return undefined;
+): Promise<ApplicationPrincipalEnrichment | undefined> =>
+  // The four reads are pure DB work, so batch them under a single
+  // `SET LOCAL search_path` instead of paying the proxy's per-query cycle.
+  withScopedTransaction(db, async (tx) => {
+    const apps = await tx
+      .select()
+      .from(schema.application)
+      .where(eq(schema.application.id, applicationId))
+      .limit(1);
+    const app = apps[0];
+    if (!app) return;
 
-  const appRoles = await db
-    .select({ roleId: schema.applicationRole.roleId })
-    .from(schema.applicationRole)
-    .where(eq(schema.applicationRole.applicationId, applicationId));
-  const roleIds = appRoles.map((r) => r.roleId);
+    const appRoles = await tx
+      .select({ roleId: schema.applicationRole.roleId })
+      .from(schema.applicationRole)
+      .where(eq(schema.applicationRole.applicationId, applicationId));
+    const roleIds = appRoles.map((r) => r.roleId);
 
-  const accessRulesSet = new Set<string>();
-  if (roleIds.includes("admin")) accessRulesSet.add("*");
-  const nonAdminRoleIds = roleIds.filter((r) => r !== "admin");
-  if (nonAdminRoleIds.length > 0) {
-    const rolePerms = await db
-      .select({ accessRuleId: schema.roleAccessRule.accessRuleId })
-      .from(schema.roleAccessRule)
-      .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
-    for (const rp of rolePerms) accessRulesSet.add(rp.accessRuleId);
-  }
+    const accessRulesSet = new Set<string>();
+    if (roleIds.includes("admin")) accessRulesSet.add("*");
+    const nonAdminRoleIds = roleIds.filter((r) => r !== "admin");
+    if (nonAdminRoleIds.length > 0) {
+      const rolePerms = await tx
+        .select({ accessRuleId: schema.roleAccessRule.accessRuleId })
+        .from(schema.roleAccessRule)
+        .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
+      for (const rp of rolePerms) accessRulesSet.add(rp.accessRuleId);
+    }
 
-  const appTeams = await db
-    .select({ teamId: schema.applicationTeam.teamId })
-    .from(schema.applicationTeam)
-    .where(eq(schema.applicationTeam.applicationId, applicationId));
+    const appTeams = await tx
+      .select({ teamId: schema.applicationTeam.teamId })
+      .from(schema.applicationTeam)
+      .where(eq(schema.applicationTeam.applicationId, applicationId));
 
-  return {
-    id: app.id,
-    name: app.name,
-    roles: roleIds,
-    accessRules: [...accessRulesSet],
-    teamIds: appTeams.map((t) => t.teamId),
-  };
-};
+    return {
+      id: app.id,
+      name: app.name,
+      roles: roleIds,
+      accessRules: [...accessRulesSet],
+      teamIds: appTeams.map((t) => t.teamId),
+    };
+  });
 
 /**
  * Resolve the effective access rules for EVERY application in a fixed number of

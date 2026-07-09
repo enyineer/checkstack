@@ -1,5 +1,6 @@
 import {
   createCollapseKeyBuilder,
+  createSubjectKindBuilder,
   createSubscriptionFactory,
 } from "@checkstack/notification-common";
 import {
@@ -16,6 +17,18 @@ import { pluginMetadata } from "./plugin-metadata";
 export const systemHealthCollapseKey = createCollapseKeyBuilder(
   pluginMetadata,
   "system-health",
+);
+
+/**
+ * Builder for the `healthcheck.healthcheck` notification subject kind. Used to
+ * name the failing check(s) that drove a system-health transition alongside
+ * the `catalog.system` subject, so subscribers see WHICH check triggered the
+ * alert, not just which system. The local kind matches the access-rule
+ * resource noun (`resourceType(pluginMetadata, "healthcheck")`).
+ */
+export const createHealthcheckSubject = createSubjectKindBuilder(
+  pluginMetadata,
+  "healthcheck",
 );
 
 const { defineSubscription } = createSubscriptionFactory(pluginMetadata);

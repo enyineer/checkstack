@@ -18,6 +18,8 @@ describe("HealthCheckService.getSystemHealthStatus - read batching", () => {
       enabled: true,
       paused: false,
       stateThresholds: null,
+      // All-environments selector; each check has only the env-less slice below.
+      environmentIds: null,
     }));
     const assocWhere = mock(() => Promise.resolve(associations));
     const assocInnerJoin = Object.assign(Promise.resolve([]), {
@@ -39,6 +41,11 @@ describe("HealthCheckService.getSystemHealthStatus - read batching", () => {
       orderBy: runsOrderBy,
     });
 
+    // Distinct env keys query per check: a single env-less (null) slice.
+    const distinctFrom = Object.assign(Promise.resolve([]), {
+      where: mock(() => Promise.resolve([{ environmentId: null }])),
+    });
+
     let selectCallCount = 0;
     const db = withTransactionMock({
       select: mock(() => {
@@ -46,6 +53,7 @@ describe("HealthCheckService.getSystemHealthStatus - read batching", () => {
         if (selectCallCount === 1) return { from: mock(() => assocFrom) };
         return { from: mock(() => runsFrom) };
       }),
+      selectDistinct: mock(() => ({ from: mock(() => distinctFrom) })),
       insert: mock(() => ({ values: mock(() => Promise.resolve()) })),
       update: mock(() => ({
         set: mock(() => ({ where: mock(() => Promise.resolve()) })),
