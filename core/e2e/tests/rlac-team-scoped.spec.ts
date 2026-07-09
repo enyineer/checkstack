@@ -10,7 +10,8 @@ import type { Page } from "@playwright/test";
  * picker filtering are supposed to deliver:
  *
  *  - before any grant, the member is blocked from `/catalog/config` and has no
- *    Incidents nav (route/nav capability gating);
+ *    "Manage Incidents" nav (route/nav capability gating; the read-gated public
+ *    "Incidents" overview stays visible to everyone);
  *  - after the grant, the member can reach catalog management and the incidents
  *    surface (`useCanAccessType` / `manageCapability`);
  *  - the incident "Affected Systems" picker offers ONLY the granted system, not
@@ -104,13 +105,15 @@ test("a team member manages only the systems their team is granted", async ({
     await registerMember(memberPage);
 
     // Baseline: with no grant, the member cannot reach catalog management and
-    // has no Incidents nav entry.
+    // has no incident-management nav entry. (The read-gated public "Incidents"
+    // overview is intentionally visible to everyone, so gate on the
+    // manageCapability-gated "Manage Incidents" nav instead.)
     await memberPage.goto("/catalog/config", { timeout: NAV });
     await expect(memberPage.getByText("Access Denied")).toBeVisible({
       timeout: NAV,
     });
     await expect(
-      memberPage.getByRole("link", { name: "Incidents" }),
+      memberPage.getByRole("link", { name: "Manage Incidents", exact: true }),
     ).toHaveCount(0);
 
     // --- ADMIN: create a team, add the member, grant MANAGE on SYS_MANAGED --

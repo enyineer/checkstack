@@ -1394,13 +1394,13 @@ export const StatusPageBuilderPage: React.FC = () => {
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label id="status-page-environments-label">
-                  Published environments
+                  Visible environments
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   Leave empty to show all environments. When set, the page shows
                   status, incidents, maintenance and uptime only for systems in
                   the selected environments (a system in several environments
-                  appears when any of them is published).
+                  appears when any of them is shown).
                 </p>
                 <SystemMultiSelect
                   systems={environments}
