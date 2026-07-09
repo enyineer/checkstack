@@ -77,7 +77,6 @@
     "minimatch": "^10.2.5",
     "postcss-selector-parser": "^7.1.4",
     "undici": "^7.28.0",
-    "tmp": "^0.2.7",
     "@astrojs/markdown-remark": "^7.2.0"
   },
   "resolutions": {
@@ -93,7 +92,6 @@
     "minimatch": "^10.2.5",
     "postcss-selector-parser": "^7.1.4",
     "undici": "^7.28.0",
-    "tmp": "^0.2.7",
     "@astrojs/markdown-remark": "^7.2.0"
   }
 }

@@ -64,14 +64,6 @@
       "reason": "Auto-remediated by Security Maintenance: undici 7.24.7 had fixable advisories; pinned to the fixed 7.x line.",
       "addedAt": "2026-06-19",
       "removeWhen": "No dependency resolves below 7.28.0 without this override."
-    },
-    "tmp": {
-      "safeFloor": "0.2.6",
-      "severity": "HIGH",
-      "advisory": "CVE-2026-44705: Trivy image scan flagged tmp 0.2.5 (HIGH); 0.2.6 is the first fixed release.",
-      "reason": "The cache-redis-backend / queue-bullmq-backend dev dependency ioredis-mock -> fengari pins tmp ^0.2.5, which the resolver hoisted to the vulnerable 0.2.5 (demoting testcontainers' safe 0.2.7 to nested). fengari accepts ^0.2.5, so pinning the whole tree to the already-present 0.2.7 remediates it.",
-      "addedAt": "2026-07-09",
-      "removeWhen": "fengari (via ioredis-mock) widens its tmp range to a fixed release, or no dependency resolves tmp below 0.2.6 without this override."
     }
   },
   "intentional": {
