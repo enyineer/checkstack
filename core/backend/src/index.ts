@@ -1148,6 +1148,12 @@ const init = async () => {
     { mode: "work-queue", workerGroup: "frontend-signal-deregistered" }
   );
 
+  // The anonymous access-rules cache now lives on the shared platform cache
+  // (auth-backend's scope); auth-backend DELETES the entry cluster-wide when the
+  // anonymous role changes, so there is no per-pod cache to broadcast to. The
+  // prior broadcast subscriber + `coreHooks.anonymousAccessRulesInvalidated`
+  // hook were removed.
+
   // 11. Create WebSocket handler for realtime signals
   wsHandler = createWebSocketHandler({
     eventBus,

@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { createExtensionPoint, type RpcClient } from "@checkstack/backend-api";
 import type { PluginMetadata } from "@checkstack/common";
-import type { WidgetBindingKind } from "@checkstack/status-page-common";
+import type {
+  WidgetBindingKind,
+  SubscriptionCategory,
+} from "@checkstack/status-page-common";
 
 /**
  * Extensible registry of status-page WIDGET TYPES. Mirrors the automation action
@@ -114,6 +117,17 @@ export interface WidgetTypeDefinition {
     config: unknown;
     ctx: WidgetResolveContext;
   }): Promise<Array<{ id: string; name: string }>>;
+  /**
+   * OPTIONAL: the subscriber notification CATEGORY whose systems this widget
+   * surfaces. The send-time fan-out scopes a notification to ONLY the widgets of
+   * its own category, so a health status change reaches a page's subscribers
+   * only through a HEALTH widget that shows the affected system, an incident
+   * only through an incident widget, and so on. A widget that omits it never
+   * contributes to a categorized notification's surfaced set (it still shows on
+   * the page). Set it on every widget that also implements
+   * {@link resolveScopedSystems}.
+   */
+  subscriptionCategory?: SubscriptionCategory;
 }
 
 export interface RegisteredWidgetType extends WidgetTypeDefinition {

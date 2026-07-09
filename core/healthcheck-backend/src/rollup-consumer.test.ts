@@ -35,7 +35,7 @@ interface Harness {
   changeHandler: (change: EntityChanged) => Promise<void>;
   getSystemHealthStatus: ReturnType<typeof mock>;
   broadcast: ReturnType<typeof mock>;
-  invalidateSystem: ReturnType<typeof mock>;
+  reconcile: ReturnType<typeof mock>;
 }
 
 async function setup(opts: {
@@ -75,7 +75,7 @@ async function setup(opts: {
   }) as unknown as OnEntityChanged;
 
   const broadcast = mock(async () => {});
-  const invalidateSystem = mock(async () => {});
+  const reconcile = mock(async () => {});
 
   await setupRollupConsumer({
     queueManager,
@@ -85,7 +85,7 @@ async function setup(opts: {
       withXactLock: async ({ fn }: { fn: () => Promise<unknown> }) => fn(),
     } as never,
     signalService: { broadcast } as never,
-    cache: { invalidateSystem } as never,
+    cache: { reconcile } as never,
     // No entity handle: writeHealthEntity runs `apply` directly.
     getHealthEntity: () => undefined,
     logger: {
@@ -103,7 +103,7 @@ async function setup(opts: {
     changeHandler,
     getSystemHealthStatus,
     broadcast,
-    invalidateSystem,
+    reconcile,
   };
 }
 
@@ -162,12 +162,21 @@ describe("setupRollupConsumer subscription", () => {
 });
 
 describe("setupRollupConsumer rollup recompute", () => {
-  it("broadcasts SYSTEM_STATUS_CHANGED + invalidates cache on a rollup status change", async () => {
+  it("reconciles the cache + broadcasts SYSTEM_STATUS_CHANGED on a rollup status change", async () => {
     const h = await setup({ statuses: ["healthy", "unhealthy"] });
     await h.consumeHandler({ data: { systemId: "s1" } });
 
     expect(h.getSystemHealthStatus).toHaveBeenCalled();
-    expect(h.invalidateSystem).toHaveBeenCalledWith("s1");
+    // Reconcile is handed the FULL prev/next states; the change-gating (evict +
+    // cluster broadcast only on a per-check vector change) lives inside the cache
+    // (see cache.test.ts), so recompute always calls it with both states.
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
+    expect(h.reconcile.mock.calls[0]![0]).toMatchObject({
+      systemId: "s1",
+      previous: { status: "healthy" },
+      next: { status: "unhealthy" },
+    });
+    // The frontend signal IS gated here on the rollup-enum transition.
     expect(h.broadcast).toHaveBeenCalledTimes(1);
     const payload = h.broadcast.mock.calls[0]![1] as {
       systemId: string;
@@ -181,11 +190,13 @@ describe("setupRollupConsumer rollup recompute", () => {
     });
   });
 
-  it("does NOT broadcast when the rollup status is unchanged", async () => {
+  it("does NOT broadcast the frontend signal when the rollup status is unchanged", async () => {
     const h = await setup({ statuses: ["degraded", "degraded"] });
     await h.consumeHandler({ data: { systemId: "s1" } });
 
+    // No enum transition ⇒ no SYSTEM_STATUS_CHANGED frontend signal. Reconcile is
+    // still invoked (its own fingerprint gate no-ops for an unchanged vector).
     expect(h.broadcast).not.toHaveBeenCalled();
-    expect(h.invalidateSystem).not.toHaveBeenCalled();
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
   });
 });

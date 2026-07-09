@@ -153,6 +153,14 @@ async function deleteExpiredRawRuns(params: DeleteExpiredRawRunsParams) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - rawRetentionDays);
 
+  // Status-cache note: this delete does NOT invalidate the system-health status
+  // cache, and deliberately need not. `evaluateHealthStatus` derives status from
+  // the most-recent-N runs (count-based, no time component), and the cutoff is
+  // days old, so for any ACTIVELY-running check the deleted rows are already
+  // outside the evaluation window — removing them cannot change the current
+  // derived status. The only case it could is a check that STOPPED running long
+  // enough for its entire history to age past the cutoff; that flip is bounded by
+  // the 15s status-cache TTL (an acceptable, rare edge for a stopped check).
   await db
     .delete(healthCheckRuns)
     .where(

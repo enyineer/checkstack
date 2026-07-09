@@ -47,6 +47,15 @@ export interface SystemsFanoutEvent {
    * mapped to a subscriber category to honor each subscriber's category scope.
    */
   sourcePluginId: string;
+  /**
+   * The catalog ENVIRONMENT id an env-scoped change (a per-environment health
+   * transition) originated in. When set, a page that publishes a SPECIFIC
+   * environment set is skipped unless it publishes this environment - so a
+   * `development` failure never reaches a prod-only page's subscribers. Absent
+   * for env-less sources (incident, maintenance, system-rollup health), which
+   * are delivered to every page that surfaces the system.
+   */
+  originEnvironmentId?: string;
   /** Optional deep link (the notification's primary action URL). */
   link?: string;
 }
@@ -613,8 +622,8 @@ export class SubscriberService {
   /**
    * Fan a notification (incident / maintenance / health) out to the VERIFIED
    * email subscribers of every PUBLISHED, public, email-ENABLED page that
-   * CURRENTLY surfaces at least one of the affected systems through an incident
-   * or maintenance widget.
+   * CURRENTLY surfaces at least one of the affected systems through a widget OF
+   * THE NOTIFICATION'S OWN CATEGORY.
    *
    * SEND-TIME SCOPING IS THE PRIVACY BOUNDARY, and it is SINGLE-SOURCE: for each
    * page we ask every event-feed widget for its CURRENT effective system scope
@@ -625,6 +634,19 @@ export class SubscriberService {
    * membership, or deleted page is honored by construction, never off a stale
    * snapshot or a parallel copy of group membership. status-page-backend never
    * imports the catalog - the owning domain plugin supplies the expansion.
+   *
+   * Two further gates make delivery reflect exactly what the author chose:
+   *  - PER-CATEGORY: only widgets whose `subscriptionCategory` matches the
+   *    notification contribute to the surfaced set, so a health change reaches a
+   *    page only through a HEALTH widget that shows the system - never because an
+   *    unrelated incident widget happens to list it. An UNCATEGORIZED source
+   *    (category null) falls back to every scoping widget (legacy behavior; it
+   *    reaches only legacy NULL-categories subscribers anyway).
+   *  - PER-ENVIRONMENT ORIGIN: when the notification carries an
+   *    `originEnvironmentId` (a per-environment health transition), a page that
+   *    publishes a specific environment set is skipped unless it publishes that
+   *    environment - so a change in an unpublished environment (e.g.
+   *    `development`) never reaches the page's subscribers.
    */
   async notifyForSystems(event: SystemsFanoutEvent): Promise<number> {
     if (event.systemIds.length === 0) return 0;
@@ -663,10 +685,22 @@ export class SubscriberService {
       ) {
         continue;
       }
+      const pubEnvs = effectivePublishedEnvironmentIds(page);
+      // Origin-environment gate: a per-environment health change must not reach a
+      // page that does not publish that environment. A page publishing ALL
+      // environments (pubEnvs undefined) and any env-less source (no
+      // originEnvironmentId) skip this gate and behave as before.
+      if (
+        event.originEnvironmentId &&
+        pubEnvs &&
+        !pubEnvs.includes(event.originEnvironmentId)
+      ) {
+        continue;
+      }
       const ctx: WidgetResolveContext = {
         rpcClient: this.deps.rpcClient,
         cache,
-        publishedEnvironmentIds: effectivePublishedEnvironmentIds(page),
+        publishedEnvironmentIds: pubEnvs,
       };
       // The affected systems this page CURRENTLY surfaces through its event-feed
       // widgets (affected ∩ surfaced), resolved from each widget's own live scope
@@ -679,6 +713,13 @@ export class SubscriberService {
       for (const block of page.publishedLayout) {
         const widget = this.deps.registry.get(block.type);
         if (!widget?.resolveScopedSystems) continue;
+        // Per-category scoping: a categorized notification is surfaced ONLY by
+        // widgets of its own category (a health change through a health widget,
+        // an incident through an incident widget). An uncategorized source
+        // (category === null) falls back to every scoping widget.
+        if (category !== null && widget.subscriptionCategory !== category) {
+          continue;
+        }
         try {
           const scope = await widget.resolveScopedSystems({
             config: block.config,

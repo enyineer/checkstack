@@ -5,16 +5,11 @@ import {
   recomputeSystemRollupHealth,
   type HealthCheckJobPayload,
 } from "./queue-executor";
-import type { HealthCheckCache } from "./cache";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 import { SuspectLane } from "./suspect-lane";
 import type { SlowCheckRuntime } from "./slow-check-config";
 
-const passthroughCache: HealthCheckCache = {
-  wrapSystemHealthStatus: (_systemId, loader) => loader(),
-  invalidateSystem: async () => {},
-  invalidateAllSystems: async () => 0,
-  scope: {} as HealthCheckCache["scope"],
-};
+const passthroughCache = createStubHealthCheckCache();
 
 // Pass-through advisory lock: these tests don't exercise cross-pod
 // serialization, so run the critical section directly.
@@ -248,16 +243,7 @@ describe("Queue-Based Health Check Executor", () => {
       (mockDb.select as any) = mock(() => {
         selectCallCount++;
         if (selectCallCount === 1) {
-          // First call: get previous system health status
-          return {
-            from: mock(() => ({
-              innerJoin: mock(() => ({
-                where: mock(() => Promise.resolve([])),
-              })),
-            })),
-          };
-        } else if (selectCallCount === 2) {
-          // Second call: fetch configuration (return paused config)
+          // First call: fetch configuration (return paused config)
           return {
             from: mock(() => ({
               innerJoin: mock(() => ({
@@ -371,7 +357,7 @@ describe("Queue-Based Health Check Executor", () => {
       let selectCallCount = 0;
       (mockDb.select as any) = mock(() => {
         selectCallCount++;
-        if (selectCallCount === 2) {
+        if (selectCallCount === 1) {
           return {
             from: mock(() => ({
               innerJoin: mock(() => ({
@@ -592,7 +578,7 @@ describe("Queue-Based Health Check Executor", () => {
       let selectCallCount = 0;
       (mockDb.select as any) = mock(() => {
         selectCallCount++;
-        if (selectCallCount === 2) {
+        if (selectCallCount === 1) {
           return {
             from: mock(() => ({
               innerJoin: mock(() => ({
@@ -762,7 +748,7 @@ describe("Queue-Based Health Check Executor", () => {
       let selectCallCount = 0;
       (mockDb.select as any) = mock((...args: unknown[]) => {
         selectCallCount++;
-        if (selectCallCount === 2) {
+        if (selectCallCount === 1) {
           return {
             from: mock(() => ({
               innerJoin: mock(() => ({
@@ -1129,7 +1115,7 @@ describe("Queue-Based Health Check Executor", () => {
       let selectCallCount = 0;
       (mockDb.select as any) = mock((...args: unknown[]) => {
         selectCallCount++;
-        if (selectCallCount === 2) {
+        if (selectCallCount === 1) {
           return {
             from: mock(() => ({
               innerJoin: mock(() => ({
@@ -1323,7 +1309,7 @@ describe("executeHealthCheckJob - structured assertion outcomes", () => {
     let selectCallCount = 0;
     (mockDb.select as any) = mock(() => {
       selectCallCount++;
-      if (selectCallCount === 2) {
+      if (selectCallCount === 1) {
         return {
           from: mock(() => ({
             innerJoin: mock(() => ({
@@ -1534,13 +1520,14 @@ describe("executeHealthCheckJob - slow-check bulkhead wiring", () => {
     (mockCatalogClient.getSystem as any) = mock(async () => ({ id: "system-1", name: "web-01" }));
     (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => []);
 
-    // Select call order: #1 getSystemHealthStatus (rollup prev), #2 config,
-    // #3 fetchRecentRunsForSlice. Everything else falls through to default.
+    // Select call order: #1 config, #2 fetchRecentRunsForSlice. Everything else
+    // falls through to default. (The eager rollup-prev read that used to be #1
+    // is now computed lazily only on the catastrophic-failure path.)
     const defaultSelect = mockDb.select;
     let selectCallCount = 0;
     (mockDb.select as any) = mock((...args: unknown[]) => {
       selectCallCount++;
-      if (selectCallCount === 2) {
+      if (selectCallCount === 1) {
         return {
           from: mock(() => ({
             innerJoin: mock(() => ({
@@ -1567,7 +1554,7 @@ describe("executeHealthCheckJob - slow-check bulkhead wiring", () => {
           })),
         };
       }
-      if (selectCallCount === 3) {
+      if (selectCallCount === 2) {
         return {
           from: mock(() => ({
             where: mock(() => ({

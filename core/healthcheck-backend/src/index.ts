@@ -230,6 +230,10 @@ export default createBackendPlugin({
           throw new Error("Catalog client not initialized");
         return gitopsCatalogClient;
       },
+      // Lazy: the cache is created in init() (after this register() call) and
+      // reconcile only runs post-init, so `healthCheckCache` is populated by the
+      // time GitOps mutations fire.
+      getCache: () => healthCheckCache,
     });
 
     env.registerInit({
@@ -461,18 +465,34 @@ export default createBackendPlugin({
           execute: deferredProjectionExecute,
         });
 
+        // Per-entity status cache shared between the router, queue executor,
+        // AI signals contributor, and afterPluginsReady cleanup hooks. It is the
+        // single sanctioned reader (compute-on-read via `service`) AND
+        // invalidator of a system's derived health status. It runs on the
+        // platform CacheManager, so cross-pod coherence comes from the SHARED
+        // backend (a distributed provider such as Redis makes an eviction
+        // visible to every pod); no application-level broadcast is needed.
+        const cache = createHealthCheckCache({
+          cacheManager,
+          logger,
+          service,
+        });
+        healthCheckCache = cache;
+
         // Contribute this plugin's per-system health problems to the AI
         // `system.issues` aggregator. PER-SOURCE access is OUR job: gate on the
         // principal's `healthcheck.status` grant and return {} (never throw)
-        // when not satisfied. The read derives from the durable
-        // `health_check_runs` / `system_health_checks` tables (global, identical
-        // on every pod) and reuses the SAME pure deriver as the dashboard
-        // filler, so backend signals match the UI's source/tone/label/detail.
+        // when not satisfied. The candidate set derives from the durable
+        // `system_health_checks` table (global, identical on every pod); the
+        // per-system status reads go through the SHARED CACHE (reusing the warm
+        // badge/dashboard entries) and reuse the SAME pure deriver as the
+        // dashboard filler, so backend signals match the UI.
         env
           .getExtensionPoint(systemSignalsExtensionPoint)
           .contribute(
             createHealthcheckSignalsContributor({
-              service,
+              candidateSource: service,
+              cache,
               resolver: createSystemAccessResolver(rpcClient),
             }),
           );
@@ -491,13 +511,6 @@ export default createBackendPlugin({
 
         // Create gitops client for provenance lock checks
         const gitOpsClient = rpcClient.forPlugin(GitOpsApi);
-
-        // Per-entity status cache shared between the router, queue executor,
-        // and afterPluginsReady cleanup hooks. Mutations / new check results
-        // invalidate by systemId BEFORE emitting signals so frontend
-        // refetches see fresh data.
-        const cache = createHealthCheckCache({ cacheManager, logger });
-        healthCheckCache = cache;
 
         // Setup queue-based health check worker
         await setupHealthCheckWorker({
@@ -630,6 +643,12 @@ export default createBackendPlugin({
       }) => {
         // Store emitHook for the queue worker (Closure-based Hook Getter pattern)
         storedEmitHook = emitHook;
+
+        // No cross-pod status-cache broadcast: the status cache runs on the
+        // platform CacheManager, so a distributed backend (Redis) makes every
+        // eviction visible to all pods through the shared store. The prior
+        // per-pod-cache + broadcast layer was removed in favour of that.
+
         // Converge the per-environment recurring job set at boot (schedule
         // desired (config, system, env) jobs, cancel orphans incl. old-format
         // ones). The periodic reconcile below keeps it converged as catalog

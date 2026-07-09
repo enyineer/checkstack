@@ -1,4 +1,5 @@
 export * from "./access";
+export * from "./cache-keys";
 export * from "./rpc-contract";
 export * from "./plugin-metadata";
 export * from "./schemas";

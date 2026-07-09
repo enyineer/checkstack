@@ -1,0 +1,1 @@
+CREATE INDEX "status_page_subscribers_page_verified_idx" ON "status_page_subscribers" USING btree ("status_page_id","verified");

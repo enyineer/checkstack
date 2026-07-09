@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   pgEnum,
@@ -84,7 +85,22 @@ export const anomalies = pgTable("anomalies", {
   suppressedValue: doublePrecision("suppressed_value"),
   suppressedBaseline: doublePrecision("suppressed_baseline"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
-});
+}, (t) => ({
+  // Serves the inline detector's per-run open-row lookup by
+  // (systemId, configurationId, environmentId, kind) — runs once per
+  // health-check run, the hottest anomaly path.
+  openLookupIdx: index("anomalies_open_lookup_idx").on(
+    t.systemId,
+    t.configurationId,
+    t.environmentId,
+    t.kind,
+  ),
+  // Serves the dashboard active-signal scan (non-suppressed rows, newest
+  // first) so it uses the partial index instead of a full table scan.
+  activeStartedIdx: index("anomalies_active_started_idx")
+    .on(t.startedAt.desc())
+    .where(sql`${t.suppressedAt} IS NULL`),
+}));
 
 export const anomalyBaselines = pgTable("anomaly_baselines", {
   id: uuid("id").primaryKey().defaultRandom(),

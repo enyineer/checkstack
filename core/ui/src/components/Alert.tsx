@@ -76,7 +76,13 @@ export const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
             className={cn("absolute inset-y-0 left-0 w-1", tone.stripe)}
             aria-hidden
           />
-          <div className="flex items-start gap-3 pl-2">{children}</div>
+          {/* `[&>svg]:shrink-0` guards the raw-icon usage (an icon passed as a
+              direct child instead of via `AlertIcon`): without it, flex shrinks
+              the icon horizontally when the body text is long, squishing it.
+              Icons wrapped in `AlertIcon` are already `shrink-0` and unaffected. */}
+          <div className="flex items-start gap-3 pl-2 [&>svg]:shrink-0">
+            {children}
+          </div>
         </div>
       </AlertVariantContext.Provider>
     );

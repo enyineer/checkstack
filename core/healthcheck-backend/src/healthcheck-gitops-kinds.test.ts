@@ -5,6 +5,7 @@ import {
   buildHealthcheckKind,
   buildSystemHealthcheckExtension,
 } from "./healthcheck-gitops-kinds";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 import type {
   HealthCheckConfiguration,
   CreateHealthCheckConfiguration,
@@ -248,10 +249,13 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
   let mockHCRegistry: ReturnType<typeof createMockHealthCheckRegistry>;
   let mockCollectorRegistry: ReturnType<typeof createMockCollectorRegistry>;
 
+  let mockCache: ReturnType<typeof createStubHealthCheckCache>;
+
   beforeEach(() => {
     mockService = createMockService();
     mockHCRegistry = createMockHealthCheckRegistry();
     mockCollectorRegistry = createMockCollectorRegistry();
+    mockCache = createStubHealthCheckCache();
   });
 
   function buildKind() {
@@ -262,6 +266,7 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
       getQueueManager: () => emptyReconcileQueueManager(),
       getDb: () => emptyReconcileDbStub(),
       getCatalogClient: () => emptyCatalogClient(),
+      getCache: () => mockCache,
     };
     return buildHealthcheckKind(mockDeps);
   }
@@ -601,6 +606,9 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
 
     expect(result.entityId).toBe("hc-1");
     expect(mockService.createConfiguration).toHaveBeenCalledTimes(1);
+    // Regression guard: GitOps must invalidate the status cache (a create could
+    // affect any system's rollup), otherwise every pod serves stale health.
+    expect(mockCache.invalidateAllSystems).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -608,9 +616,11 @@ describe("Healthcheck GitOps Kind: Healthcheck", () => {
 
 describe("Healthcheck GitOps Kind: System Extension", () => {
   let mockService: ReturnType<typeof createMockService>;
+  let mockCache: ReturnType<typeof createStubHealthCheckCache>;
 
   beforeEach(() => {
     mockService = createMockService();
+    mockCache = createStubHealthCheckCache();
   });
 
   function buildExtension() {
@@ -627,6 +637,7 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
       getQueueManager: () => emptyReconcileQueueManager(),
       getDb: () => emptyReconcileDbStub(),
       getCatalogClient: () => emptyCatalogClient(),
+      getCache: () => mockCache,
     });
   }
 
@@ -667,6 +678,9 @@ describe("Healthcheck GitOps Kind: System Extension", () => {
     expect(mockService.associations[0].systemId).toBe("sys-123");
     expect(mockService.associations[0].configurationId).toBe("hc-1");
     expect(mockService.associations[1].configurationId).toBe("hc-2");
+    // Regression guard: an association change must invalidate THIS system's
+    // cached status (rollup + env keys), else pods serve stale health.
+    expect(mockCache.invalidateSystem).toHaveBeenCalledWith("sys-123");
   });
 
   it("removes stale associations not in spec", async () => {

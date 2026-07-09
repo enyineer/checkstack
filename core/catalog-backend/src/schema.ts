@@ -8,6 +8,7 @@ import {
   integer,
   primaryKey,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 
 // Enums
@@ -137,6 +138,9 @@ export const systemsEnvironments = pgTable(
   },
   (t) => ({
     pk: primaryKey(t.systemId, t.environmentId),
+    environmentIdx: index("systems_environments_environment_idx").on(
+      t.environmentId,
+    ),
   }),
 );
 

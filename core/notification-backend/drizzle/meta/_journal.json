@@ -57,6 +57,13 @@
       "when": 1779822219628,
       "tag": "0007_funny_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783607766858,
+      "tag": "0008_third_paper_doll",
+      "breakpoints": true
     }
   ]
 }

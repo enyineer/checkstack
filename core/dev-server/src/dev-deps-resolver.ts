@@ -154,7 +154,7 @@ export function resolveCorePluginDeps({
   });
   ensureProvider({
     needle: "cache-memory-backend",
-    siblings: [], // no other cache provider exists yet
+    siblings: ["cache-redis-backend"], // don't force the memory default if Redis is wired
     resolved,
     pluginDir,
     readFile,

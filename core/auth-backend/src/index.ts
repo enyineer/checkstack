@@ -32,8 +32,12 @@ import {
   enrichApplicationPrincipal,
   readEnrichedUser,
 } from "./utils/user";
-import { ADMIN_ROLE_ID, createAuthRouter } from "./router";
+import { createAuthRouter } from "./router";
 import { validateStrategySchema } from "./utils/validate-schema";
+import { USERS_ROLE_ID } from "./role-ids";
+import { RoleMembershipStore } from "./role-membership-store";
+import { seedSystemRoles, syncAccessRulesToDb } from "./access-rule-sync";
+import { createAuthCache, type AuthCache } from "./auth-cache";
 import {
   strategyMetaConfigV1,
   STRATEGY_META_CONFIG_VERSION,
@@ -90,250 +94,15 @@ export const betterAuthExtensionPoint =
     "auth.betterAuthExtensionPoint",
   );
 
-/**
- * Sync access rules to database and assign to admin role.
- * @param fullSync - If true, also performs orphan cleanup and default role sync.
- *                   Should only be true when syncing ALL access rules (not per-plugin hooks).
- */
-async function syncAccessRulesToDb({
-  database,
-  logger,
-  accessRules,
-  fullSync = false,
-}: {
-  database: SafeDatabase<typeof schema>;
-  logger: { debug: (msg: string) => void };
-  accessRules: {
-    id: string;
-    description?: string;
-    isDefault?: boolean;
-    isPublic?: boolean;
-  }[];
-  fullSync?: boolean;
-}) {
-  logger.debug(`🔑 Syncing ${accessRules.length} access rules to database...`);
-
-  for (const rule of accessRules) {
-    // Map AccessRule fields to DB fields
-    const dbRecord = {
-      id: rule.id,
-      description: rule.description,
-      isAuthenticatedDefault: rule.isDefault,
-      isPublicDefault: rule.isPublic,
-    };
-    const existing = await database
-      .select()
-      .from(schema.accessRule)
-      .where(eq(schema.accessRule.id, rule.id));
-
-    if (existing.length === 0) {
-      await database.insert(schema.accessRule).values(dbRecord);
-      logger.debug(`   -> Created access rule: ${rule.id}`);
-    } else {
-      await database
-        .update(schema.accessRule)
-        .set({ description: rule.description })
-        .where(eq(schema.accessRule.id, rule.id));
-    }
-  }
-
-  // Assign all access rules to admin role
-  const adminRoleAccessRules = await database
-    .select()
-    .from(schema.roleAccessRule)
-    .where(eq(schema.roleAccessRule.roleId, "admin"));
-
-  for (const rule of accessRules) {
-    const hasAccess = adminRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id,
-    );
-
-    if (!hasAccess) {
-      await database
-        .insert(schema.roleAccessRule)
-        .values({
-          roleId: "admin",
-          accessRuleId: rule.id,
-        })
-        .onConflictDoNothing();
-      logger.debug(`   -> Assigned access rule ${rule.id} to admin role`);
-    }
-  }
-
-  // Only perform orphan cleanup and default sync when doing a full sync
-  // (i.e., when we have ALL access rules, not just one plugin's access rules from a hook)
-  if (!fullSync) {
-    return;
-  }
-
-  // Cleanup orphan access rules (no longer registered by any plugin)
-  const registeredIds = new Set(accessRules.map((r) => r.id));
-  const allDbAccessRules = await database.select().from(schema.accessRule);
-  const orphanAccessRules = allDbAccessRules.filter(
-    (p) => !registeredIds.has(p.id),
-  );
-
-  if (orphanAccessRules.length > 0) {
-    logger.debug(
-      `🧹 Removing ${orphanAccessRules.length} orphan access rule(s)...`,
-    );
-    for (const orphan of orphanAccessRules) {
-      // Delete role_access_rule entries first (FK doesn't cascade)
-      await database
-        .delete(schema.roleAccessRule)
-        .where(eq(schema.roleAccessRule.accessRuleId, orphan.id));
-      // Then delete the access rule itself
-      await database
-        .delete(schema.accessRule)
-        .where(eq(schema.accessRule.id, orphan.id));
-      logger.debug(`   -> Removed orphan access rule: ${orphan.id}`);
-    }
-  }
-
-  // Sync authenticated default access rules to users role
-  await syncAuthenticatedDefaultAccessRulesToUsersRole({
-    database,
-    logger,
-    accessRules,
-  });
-
-  // Sync public default access rules to anonymous role
-  await syncPublicDefaultAccessRulesToAnonymousRole({
-    database,
-    logger,
-    accessRules,
-  });
-}
-
-/**
- * Sync authenticated default access rules (isAuthenticatedDefault=true) to the "users" role.
- * Respects admin-disabled defaults stored in disabled_default_access_rule table.
- */
-async function syncAuthenticatedDefaultAccessRulesToUsersRole({
-  database,
-  logger,
-  accessRules,
-}: {
-  database: SafeDatabase<typeof schema>;
-  logger: { debug: (msg: string) => void };
-  accessRules: { id: string; isDefault?: boolean }[];
-}) {
-  // Debug: log all access rules with their isDefault status
-  logger.debug(
-    `[DEBUG] All access rules received (${accessRules.length} total):`,
-  );
-  for (const r of accessRules) {
-    logger.debug(`   -> ${r.id}: isDefault=${r.isDefault}`);
-  }
-
-  const defaultRules = accessRules.filter((r) => r.isDefault);
-  logger.debug(
-    `👥 Found ${defaultRules.length} authenticated default access rules to sync to users role`,
-  );
-  if (defaultRules.length === 0) {
-    logger.debug(
-      `   -> No authenticated default access rules found, skipping sync`,
-    );
-    return;
-  }
-
-  // Get already disabled defaults (admin has removed them)
-  const disabledDefaults = await database
-    .select()
-    .from(schema.disabledDefaultAccessRule);
-  const disabledIds = new Set(disabledDefaults.map((d) => d.accessRuleId));
-
-  // Get current users role access rules
-  const usersRoleAccessRules = await database
-    .select()
-    .from(schema.roleAccessRule)
-    .where(eq(schema.roleAccessRule.roleId, "users"));
-
-  for (const rule of defaultRules) {
-    // Skip if admin has disabled this default
-    if (disabledIds.has(rule.id)) {
-      logger.debug(`   -> Skipping disabled authenticated default: ${rule.id}`);
-      continue;
-    }
-
-    const hasAccess = usersRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id,
-    );
-
-    if (!hasAccess) {
-      await database.insert(schema.roleAccessRule).values({
-        roleId: "users",
-        accessRuleId: rule.id,
-      });
-      logger.debug(
-        `   -> Assigned authenticated default access rule ${rule.id} to users role`,
-      );
-    }
-  }
-}
-
-/**
- * Sync public default access rules (isPublic=true) to the "anonymous" role.
- * Respects admin-disabled defaults stored in disabled_public_default_access_rule table.
- */
-async function syncPublicDefaultAccessRulesToAnonymousRole({
-  database,
-  logger,
-  accessRules,
-}: {
-  database: SafeDatabase<typeof schema>;
-  logger: { debug: (msg: string) => void };
-  accessRules: { id: string; isPublic?: boolean }[];
-}) {
-  const publicDefaults = accessRules.filter((r) => r.isPublic);
-  logger.debug(
-    `🌐 Found ${publicDefaults.length} public default access rules to sync to anonymous role`,
-  );
-  if (publicDefaults.length === 0) {
-    logger.debug(`   -> No public default access rules found, skipping sync`);
-    return;
-  }
-
-  // Get already disabled public defaults (admin has removed them)
-  const disabledDefaults = await database
-    .select()
-    .from(schema.disabledPublicDefaultAccessRule);
-  const disabledIds = new Set(disabledDefaults.map((d) => d.accessRuleId));
-
-  // Get current anonymous role access rules
-  const anonymousRoleAccessRules = await database
-    .select()
-    .from(schema.roleAccessRule)
-    .where(eq(schema.roleAccessRule.roleId, "anonymous"));
-
-  for (const rule of publicDefaults) {
-    // Skip if admin has disabled this public default
-    if (disabledIds.has(rule.id)) {
-      logger.debug(`   -> Skipping disabled public default: ${rule.id}`);
-      continue;
-    }
-
-    const hasAccess = anonymousRoleAccessRules.some(
-      (rp) => rp.accessRuleId === rule.id,
-    );
-
-    if (!hasAccess) {
-      await database.insert(schema.roleAccessRule).values({
-        roleId: "anonymous",
-        accessRuleId: rule.id,
-      });
-      logger.debug(
-        `   -> Assigned public default access rule ${rule.id} to anonymous role`,
-      );
-    }
-  }
-}
-
 export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     let auth: ReturnType<typeof betterAuth> | undefined;
     let db: SafeDatabase<typeof schema> | undefined;
+    // Shared auth read-path cache (user->roles, role->rules, anon invalidation).
+    // Set during init once the CacheManager is available; the `validate` closure
+    // and the RoleMembershipStore instances read it from here.
+    let authCache: AuthCache | undefined;
 
     const strategies: AuthStrategy<unknown>[] = [];
 
@@ -391,14 +160,14 @@ export default createBackendPlugin({
 
     // Helper to fetch access rules
     const enrichUserLocal = async (user: User) => {
-      if (!db) return user;
-      return enrichUser(user, db);
+      if (!db || !authCache) return user;
+      return enrichUser({ user, db, authCache });
     };
 
     // 2. Register Authentication Strategy (used by Core AuthService)
     env.registerService(authenticationStrategyServiceRef, {
       validate: async (request: Request) => {
-        if (!db) {
+        if (!db || !authCache) {
           return; // Not initialized yet
         }
 
@@ -484,10 +253,15 @@ export default createBackendPlugin({
         // only PRODUCES the narrowed principal. A miss falls through to session.
         const opaqueToken = opaqueBearerToken(request);
         if (opaqueToken) {
+          // Capture the guarded `authCache` as a const so its non-undefined
+          // narrowing carries into the transaction closure below (a `let` from
+          // the outer scope would widen back inside a nested function).
+          const resolvedAuthCache = authCache;
           // introspect -> user -> enrich -> access-rule catalog are all pure
           // DB reads, so run the whole branch under a single scoped transaction
           // (one `SET LOCAL search_path`), threading the same `tx` down into
-          // `readEnrichedUser`.
+          // `readEnrichedUser`. The enrich reads are cache-first, so on a hit
+          // they touch neither the tx nor the DB.
           const narrowed = await withScopedTransaction(db, async (tx) => {
             const session = await introspectOpaqueToken({
               db: tx,
@@ -500,7 +274,11 @@ export default createBackendPlugin({
               .where(eq(schema.user.id, session.userId))
               .limit(1);
             if (userRow.length === 0) return;
-            const base = await readEnrichedUser(userRow[0], tx);
+            const base = await readEnrichedUser({
+              user: userRow[0],
+              runner: tx,
+              authCache: resolvedAuthCache,
+            });
             const catalogRows = await tx
               .select({ id: schema.accessRule.id })
               .from(schema.accessRule);
@@ -537,6 +315,7 @@ export default createBackendPlugin({
         config: coreServices.config,
         resourceResolverRegistry: coreServices.resourceResolverRegistry,
         queueManager: coreServices.queueManager,
+        cacheManager: coreServices.cacheManager,
       },
       init: async ({
         database,
@@ -547,10 +326,18 @@ export default createBackendPlugin({
         config,
         resourceResolverRegistry,
         queueManager,
+        cacheManager,
       }) => {
         logger.debug("[auth-backend] Initializing Auth Backend...");
 
         db = database;
+        // The shared auth read-path cache. Built on the platform CacheManager so
+        // invalidation is a `delete` on the shared backend (cluster-wide with a
+        // distributed provider), replacing the old broadcast-hook coherence.
+        // Held in a local const too so it can be passed where TS can't narrow the
+        // mutable module-level `authCache`.
+        const resolvedAuthCache = createAuthCache({ cacheManager, logger });
+        authCache = resolvedAuthCache;
 
         // Dev-auth seed: with CHECKSTACK_DEV_AUTH, every request authenticates
         // as a stable synthetic "dev-user" (see core/backend `dev-auth.ts`) that
@@ -843,11 +630,16 @@ export default createBackendPlugin({
                     return { data: user };
                   },
                   after: async (user) => {
-                    // Auto-assign "users" role to new users
+                    // Auto-assign "users" role to new users (via the store; a
+                    // just-created user cannot be cached yet, so no invalidation).
                     try {
-                      await database.insert(schema.userRole).values({
+                      await new RoleMembershipStore(
+                        database,
+                        resolvedAuthCache,
+                      ).grantInitialRoles({
+                        runner: database,
                         userId: user.id,
-                        roleId: "users",
+                        roleIds: [USERS_ROLE_ID],
                       });
                       logger.debug(
                         `[auth-backend] Assigned 'users' role to new user: ${user.id}`,
@@ -880,65 +672,10 @@ export default createBackendPlugin({
           logger.info("[auth-backend] ✅ Authentication reloaded successfully");
         };
 
-        // IMPORTANT: Seed roles BEFORE syncing access rules so default perms can be assigned
-        logger.debug("🌱 Checking for initial roles...");
-        const adminRole = await database
-          .select()
-          .from(schema.role)
-          .where(eq(schema.role.id, ADMIN_ROLE_ID));
-        if (adminRole.length === 0) {
-          await database.insert(schema.role).values({
-            id: ADMIN_ROLE_ID,
-            name: "Administrators",
-            isSystem: true,
-          });
-          logger.info("   -> Created 'admin' role.");
-        }
-
-        // Seed "users" role for default access rules
-        const usersRole = await database
-          .select()
-          .from(schema.role)
-          .where(eq(schema.role.id, "users"));
-        if (usersRole.length === 0) {
-          await database.insert(schema.role).values({
-            id: "users",
-            name: "Users",
-            description: "Default role for all authenticated users",
-            isSystem: true,
-          });
-          logger.info("   -> Created 'users' role.");
-        }
-
-        // Seed "anonymous" role for public access
-        const anonymousRole = await database
-          .select()
-          .from(schema.role)
-          .where(eq(schema.role.id, "anonymous"));
-        if (anonymousRole.length === 0) {
-          await database.insert(schema.role).values({
-            id: "anonymous",
-            name: "Anonymous Users",
-            description: "Access rules for unauthenticated (anonymous) users",
-            isSystem: true,
-          });
-          logger.info("   -> Created 'anonymous' role.");
-        }
-
-        // Seed "applications" role for external API applications
-        const applicationsRole = await database
-          .select()
-          .from(schema.role)
-          .where(eq(schema.role.id, "applications"));
-        if (applicationsRole.length === 0) {
-          await database.insert(schema.role).values({
-            id: "applications",
-            name: "Applications",
-            description: "Default role for external API applications",
-            isSystem: true,
-          });
-          logger.info("   -> Created 'applications' role.");
-        }
+        // IMPORTANT: Seed roles BEFORE syncing access rules so default perms can
+        // be assigned. Boot-time seeding lives in access-rule-sync.ts (the one
+        // sanctioned non-store writer of the role tables); see its header.
+        await seedSystemRoles({ database, logger });
 
         // Note: Access rule sync happens in afterPluginsReady (when all plugins have registered)
 
@@ -952,6 +689,7 @@ export default createBackendPlugin({
           () => auth,
           logger,
           resourceResolverRegistry,
+          resolvedAuthCache,
         );
         rpc.registerRouter(authRouter, authContract);
 
@@ -1076,6 +814,14 @@ export default createBackendPlugin({
       },
       // Phase 3: After all plugins are ready - sync all access rules including defaults
       afterPluginsReady: async ({ database, logger, onHook }) => {
+        // `init` (which sets `authCache`) always runs before this phase; assert
+        // it so the deregister-cleanup store below has a real cache to invalidate.
+        const resolvedAuthCache = authCache;
+        if (!resolvedAuthCache) {
+          throw new Error(
+            "[auth-backend] authCache not initialized before afterPluginsReady",
+          );
+        }
         // Now that all plugins are ready, sync access rules including defaults
         // This is critical because during init, other plugins haven't registered yet
         const allAccessRules = accessRuleRegistry.getAccessRules();
@@ -1087,6 +833,10 @@ export default createBackendPlugin({
           logger,
           accessRules: allAccessRules,
           fullSync: true,
+          // Shared cache: a later pod's boot / a redeploy runs this against a
+          // warm cluster cache, so evict when a default-rule change actually
+          // mutates a non-admin role's grants (idempotent no-change = no evict).
+          authCache: resolvedAuthCache,
         });
 
         // Subscribe to access rule registration hook for future registrations
@@ -1124,12 +874,15 @@ export default createBackendPlugin({
               p.id.startsWith(`${pluginId}.`),
             );
 
+            // Remove the role -> access-rule mappings via the store, which busts
+            // the role -> rules cache on the shared backend; then delete the
+            // access rules themselves (the `access_rule` table is not cached).
+            const accessRuleIds = pluginAccessRules.map((p) => p.id);
+            await new RoleMembershipStore(
+              database,
+              resolvedAuthCache,
+            ).removeAccessRuleMappings({ accessRuleIds });
             for (const perm of pluginAccessRules) {
-              // Delete role_access_rule entries first
-              await database
-                .delete(schema.roleAccessRule)
-                .where(eq(schema.roleAccessRule.accessRuleId, perm.id));
-              // Then delete the access rule itself
               await database
                 .delete(schema.accessRule)
                 .where(eq(schema.accessRule.id, perm.id));
@@ -1146,6 +899,11 @@ export default createBackendPlugin({
             maxRetries: 3,
           },
         );
+
+        // No cross-pod broadcast for the auth read-path caches: they run on the
+        // platform CacheManager, so a mutation's `invalidate` (a `delete` on the
+        // shared backend) is visible to every pod immediately with a distributed
+        // provider. The prior per-pod caches + broadcast hooks were removed.
 
         logger.debug("✅ Auth Backend afterPluginsReady complete.");
       },

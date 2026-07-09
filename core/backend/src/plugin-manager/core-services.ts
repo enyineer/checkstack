@@ -36,6 +36,11 @@ import {
   CoreReadinessRegistry,
   createScopedReadinessRegistry,
 } from "../services/readiness-registry";
+import { createScopedCache, type CacheProvider } from "@checkstack/cache-api";
+import {
+  AUTH_CACHE_PLUGIN_ID,
+  ANONYMOUS_ACCESS_RULES_CACHE_KEY,
+} from "@checkstack/auth-common";
 
 /**
  * Check if a PostgreSQL schema exists.
@@ -70,6 +75,27 @@ export function registerCoreServices({
   wsStore: WebSocketRouteStoreImpl;
   readinessRegistry: CoreReadinessRegistry;
 } {
+  // Anonymous access rules are read on every unauthenticated request that
+  // reaches a `public` endpoint, yet change only when an admin edits the
+  // anonymous role. We cache the resolved list on the shared platform cache
+  // under auth-backend's scope + key, so a distributed backend (Redis) gives a
+  // sub-ms, non-blocking read across every pod and auth-backend's edit deletes
+  // the same entry cluster-wide. Lazily built (the CacheManager is a service).
+  const ANONYMOUS_RULES_TTL_MS = 60_000;
+  let anonymousRulesCache: CacheProvider | undefined;
+  const getAnonymousRulesCache = async (): Promise<CacheProvider> => {
+    if (!anonymousRulesCache) {
+      const cacheManager = await registry.get(coreServices.cacheManager, {
+        pluginId: "core",
+      });
+      anonymousRulesCache = createScopedCache({
+        pluginId: AUTH_CACHE_PLUGIN_ID,
+        provider: cacheManager.getProvider(),
+      });
+    }
+    return anonymousRulesCache;
+  };
+
   // 1. Database Factory (Scoped)
   registry.registerFactory(coreServices.database, async (metadata) => {
     const { pluginId, previousPluginIds } = metadata;
@@ -118,11 +144,6 @@ export function registerCoreServices({
   });
 
   // 3. Auth Factory (Scoped)
-  // Cache for anonymous access rules to avoid repeated DB queries
-  let anonymousAccessRulesCache: string[] | undefined;
-  let anonymousCacheTime = 0;
-  const CACHE_TTL_MS = 60_000; // 1 minute cache
-
   registry.registerFactory(coreServices.auth, (metadata) => {
     const { pluginId } = metadata;
     const authService: AuthService = {
@@ -197,16 +218,29 @@ export function registerCoreServices({
       },
 
       getAnonymousAccessRules: async (): Promise<string[]> => {
-        const now = Date.now();
-        // Return cached value if still valid
-        if (
-          anonymousAccessRulesCache !== undefined &&
-          now - anonymousCacheTime < CACHE_TTL_MS
-        ) {
-          return anonymousAccessRulesCache;
+        // Serve from the shared platform cache. With a distributed backend the
+        // entry is written here and DELETED cluster-wide by auth-backend when the
+        // anonymous role changes, so no broadcast is needed (the old
+        // `coreHooks.anonymousAccessRulesInvalidated` hook was removed). A cache
+        // outage falls through to the RPC (fail open), never a failed request.
+        const cache = await getAnonymousRulesCache().catch(() => {
+          return; // cache unavailable → fall through to RPC (fail open)
+        });
+        if (cache) {
+          try {
+            const cached = await cache.get<string[]>(
+              ANONYMOUS_ACCESS_RULES_CACHE_KEY,
+            );
+            if (cached !== undefined) return cached;
+          } catch (error) {
+            rootLogger.warn(
+              `[auth] getAnonymousAccessRules: cache read failed, falling back to RPC. Error: ${error}`,
+            );
+          }
         }
 
-        // Use RPC client to call auth-backend's getAnonymousAccessRules endpoint
+        // Miss (or cache unavailable): resolve via RPC to auth-backend and, on
+        // success, populate the cache. Failures are NOT cached (no poisoning).
         try {
           const rpcClient = await registry.get(coreServices.rpcClient, {
             pluginId: "core",
@@ -214,9 +248,19 @@ export function registerCoreServices({
           const authClient = rpcClient.forPlugin(AuthApi);
           const accessRulesResult = await authClient.getAnonymousAccessRules();
 
-          // Update cache
-          anonymousAccessRulesCache = accessRulesResult;
-          anonymousCacheTime = now;
+          if (cache) {
+            try {
+              await cache.set(
+                ANONYMOUS_ACCESS_RULES_CACHE_KEY,
+                accessRulesResult,
+                ANONYMOUS_RULES_TTL_MS,
+              );
+            } catch (error) {
+              rootLogger.warn(
+                `[auth] getAnonymousAccessRules: cache write failed. Error: ${error}`,
+              );
+            }
+          }
 
           return accessRulesResult;
         } catch (error) {

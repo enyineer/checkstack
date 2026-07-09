@@ -57,6 +57,13 @@
       "when": 1782916259392,
       "tag": "0007_uneven_trauma",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783607705175,
+      "tag": "0008_soft_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

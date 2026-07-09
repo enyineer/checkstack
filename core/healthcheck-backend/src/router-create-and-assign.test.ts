@@ -2,7 +2,7 @@ import { describe, it, expect, mock } from "bun:test";
 import { createHealthCheckRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
-import type { HealthCheckCache } from "./cache";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 
 /**
  * Router-level tests for the atomic create+assign path and the
@@ -12,12 +12,7 @@ import type { HealthCheckCache } from "./cache";
  * `input.body.notificationPolicy`).
  */
 
-const passthroughCache: HealthCheckCache = {
-  wrapSystemHealthStatus: (_systemId, loader) => loader(),
-  invalidateSystem: async () => {},
-  invalidateAllSystems: async () => 0,
-  scope: {} as HealthCheckCache["scope"],
-};
+const passthroughCache = createStubHealthCheckCache();
 
 const mockUser = {
   type: "user" as const,

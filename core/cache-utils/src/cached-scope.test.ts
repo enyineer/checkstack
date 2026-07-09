@@ -258,6 +258,96 @@ describe("createCachedScope", () => {
     });
   });
 
+  describe("wrapManyBatched", () => {
+    it("serves hits and loads misses in ONE batched call, in input order", async () => {
+      const provider = createMemoryProvider();
+      const scope = createCachedScope({
+        cacheManager: createManager(provider),
+        pluginId: "hc",
+      });
+
+      // Warm 'a' only.
+      await provider.set("hc:e:a", "cached:a");
+
+      const load = mock(async (miss: string[]) => miss.map((id) => `db:${id}`));
+      const result = await scope.wrapManyBatched(["a", "b", "c"], {
+        keyFor: (id) => `e:${id}`,
+        load,
+      });
+
+      expect(result).toEqual(["cached:a", "db:b", "db:c"]);
+      // ONE batched load call, with exactly the miss ids (order preserved).
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(load.mock.calls[0]![0]).toEqual(["b", "c"]);
+      // Misses were written back.
+      expect(await provider.get<string>("hc:e:b")).toBe("db:b");
+      expect(await provider.get<string>("hc:e:c")).toBe("db:c");
+    });
+
+    it("returns [] for an empty id list without loading", async () => {
+      const provider = createMemoryProvider();
+      const scope = createCachedScope({
+        cacheManager: createManager(provider),
+        pluginId: "hc",
+      });
+      const load = mock(async () => []);
+      const result = await scope.wrapManyBatched<string, string>([], {
+        keyFor: (id) => id,
+        load,
+      });
+      expect(result).toEqual([]);
+      expect(load).not.toHaveBeenCalled();
+    });
+
+    it("fails open: a provider.get error treats the id as a miss", async () => {
+      const provider = createMemoryProvider();
+      provider.get = (async () => {
+        throw new Error("cache down");
+      }) as CacheProvider["get"];
+      const scope = createCachedScope({
+        cacheManager: createManager(provider),
+        pluginId: "hc",
+      });
+
+      const load = mock(async (miss: string[]) => miss.map((id) => `db:${id}`));
+      const result = await scope.wrapManyBatched(["a", "b"], {
+        keyFor: (id) => `e:${id}`,
+        load,
+      });
+      expect(result).toEqual(["db:a", "db:b"]); // all loaded from DB
+      expect(load.mock.calls[0]![0]).toEqual(["a", "b"]);
+    });
+
+    it("epoch check: an invalidate during the batched load blocks the stale write-back", async () => {
+      const provider = createMemoryProvider();
+      const scope = createCachedScope({
+        cacheManager: createManager(provider),
+        pluginId: "p",
+      });
+
+      const gate = deferred<string[]>();
+      const load = mock(() => gate.promise);
+
+      const reading = scope.wrapManyBatched(["k1", "k2"], {
+        keyFor: (id) => id,
+        load,
+      });
+      // Wait until the batched load has actually started (its epochs are now
+      // captured), THEN invalidate ONE of the two keys mid-load.
+      while (load.mock.calls.length === 0) await Promise.resolve();
+      await scope.invalidate("k1");
+      gate.resolve(["stale:k1", "fresh:k2"]);
+      const result = await reading;
+
+      // Caller still receives the loaded values (its read began pre-mutation)...
+      expect(result).toEqual(["stale:k1", "fresh:k2"]);
+      // ...but the invalidated key must NOT be repopulated with the stale value,
+      // while the untouched key IS written back.
+      expect(await provider.has("p:k1")).toBe(false);
+      expect(await provider.get<string>("p:k2")).toBe("fresh:k2");
+    });
+  });
+
   describe("invalidate / invalidatePrefix", () => {
     it("invalidate removes a single key so the next read re-loads", async () => {
       const provider = createMemoryProvider();

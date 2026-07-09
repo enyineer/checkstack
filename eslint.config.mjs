@@ -225,6 +225,81 @@ export default tseslint.config(
       "checkstack/prefer-gated-mutation": "warn",
     },
   },
+  // Enforced-by-design cache invalidation: the role-membership tables (`role`,
+  // `role_access_rule`, `user_role`) may only be written through
+  // `RoleMembershipStore`, which welds each write to its per-pod cache eviction
+  // + cross-pod broadcast (see that file's header). A raw drizzle write
+  // elsewhere would silently skip invalidation - a cross-pod authorization-
+  // staleness bug - so it is an error. The store file itself and the boot-time
+  // access-rule-sync seeder (cold cache) are exempt, as are tests.
+  {
+    files: ["core/auth-backend/src/**/*.ts"],
+    ignores: [
+      // The store IS the sanctioned writer; access-rule-sync is the one
+      // sanctioned BOOT-TIME seeder (cold cache, see its header). Tests are
+      // exempt (mock DBs / IT setup).
+      "core/auth-backend/src/role-membership-store.ts",
+      "core/auth-backend/src/access-rule-sync.ts",
+      "**/*.test.ts",
+    ],
+    rules: {
+      "checkstack/no-direct-role-membership-writes": [
+        "error",
+        { tables: ["role", "roleAccessRule", "userRole"] },
+      ],
+    },
+  },
+  // Enforced-by-design status-cache coherence for the healthcheck plugin. The
+  // derived per-system health status is served from a per-pod cache kept
+  // cluster-coherent by broadcast invalidation (SystemHealthStatusCache in
+  // cache.ts). Two fences keep it honest:
+  //  - Every READ goes through `cache.read`/`readBulk`/`readMatrix`, never a raw
+  //    `service.getSystemHealthStatus(...)`. Exempt: the cache facade (the one
+  //    wrapper) and the executor / entity-compute paths that MUST read live to
+  //    detect a transition.
+  //  - Every run INSERT goes through the executor or service ingest writer, which
+  //    weld the write to `cache.reconcile` / invalidation. Exempt: those two files.
+  // Tests are exempt (mock DBs / stub caches).
+  {
+    files: ["core/healthcheck-backend/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "checkstack/no-direct-system-status-read": [
+        "error",
+        { methods: ["getSystemHealthStatus"] },
+      ],
+    },
+  },
+  // Read-fence exemptions: the cache facade is the sanctioned wrapper; the
+  // executor + entity compute read live for transition detection; the service
+  // owns the raw compute (`this.getSystemHealthStatus`).
+  {
+    files: [
+      "core/healthcheck-backend/src/cache.ts",
+      "core/healthcheck-backend/src/queue-executor.ts",
+      "core/healthcheck-backend/src/health-entity.ts",
+      "core/healthcheck-backend/src/service.ts",
+    ],
+    rules: {
+      "checkstack/no-direct-system-status-read": "off",
+    },
+  },
+  // Run-insert fence: only the executor + service ingest may land runs (they
+  // reconcile/invalidate the status cache); a raw insert elsewhere is an error.
+  {
+    files: ["core/healthcheck-backend/src/**/*.ts"],
+    ignores: [
+      "core/healthcheck-backend/src/queue-executor.ts",
+      "core/healthcheck-backend/src/service.ts",
+      "**/*.test.ts",
+    ],
+    rules: {
+      "checkstack/no-direct-health-run-insert": [
+        "error",
+        { tables: ["healthCheckRuns"] },
+      ],
+    },
+  },
   // Frontend packages: ban console.* to enforce proper error handling
   {
     files: [

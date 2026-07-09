@@ -6,6 +6,7 @@ import {
   primaryKey,
   boolean,
   uniqueIndex,
+  index,
   jsonb,
 } from "drizzle-orm/pg-core";
 import type { MaintenanceUpdateEditSnapshot } from "@checkstack/maintenance-common";
@@ -60,35 +61,48 @@ export const maintenanceSystems = pgTable(
   },
   (t) => ({
     pk: primaryKey(t.maintenanceId, t.systemId),
+    // Reverse lookup by system (getMaintenancesForSystem, per-system render
+    // fan-out); the junction PK leads with the maintenance id.
+    systemIdx: index("maintenance_systems_system_idx").on(t.systemId),
   }),
 );
 
 /**
  * Status updates for maintenances
  */
-export const maintenanceUpdates = pgTable("maintenance_updates", {
-  id: text("id").primaryKey(),
-  maintenanceId: text("maintenance_id")
-    .notNull()
-    .references(() => maintenances.id, { onDelete: "cascade" }),
-  message: text("message").notNull(),
-  statusChange: maintenanceStatusEnum("status_change"),
-  visibility: maintenanceVisibilityEnum("visibility")
-    .notNull()
-    .default("public"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  // Set when the update is edited in place (null = never edited).
-  editedAt: timestamp("edited_at"),
-  // Prior versions archived on each in-place edit (oldest first). Durable,
-  // globally-readable history of edits (jsonb, defaults to an empty array so
-  // existing rows backfill cleanly). Manager-facing; the read path strips it
-  // for non-manager audiences (see read-visibility).
-  editHistory: jsonb("edit_history")
-    .$type<MaintenanceUpdateEditSnapshot[]>()
-    .notNull()
-    .default([]),
-  createdBy: text("created_by"),
-});
+export const maintenanceUpdates = pgTable(
+  "maintenance_updates",
+  {
+    id: text("id").primaryKey(),
+    maintenanceId: text("maintenance_id")
+      .notNull()
+      .references(() => maintenances.id, { onDelete: "cascade" }),
+    message: text("message").notNull(),
+    statusChange: maintenanceStatusEnum("status_change"),
+    visibility: maintenanceVisibilityEnum("visibility")
+      .notNull()
+      .default("public"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    // Set when the update is edited in place (null = never edited).
+    editedAt: timestamp("edited_at"),
+    // Prior versions archived on each in-place edit (oldest first). Durable,
+    // globally-readable history of edits (jsonb, defaults to an empty array so
+    // existing rows backfill cleanly). Manager-facing; the read path strips it
+    // for non-manager audiences (see read-visibility).
+    editHistory: jsonb("edit_history")
+      .$type<MaintenanceUpdateEditSnapshot[]>()
+      .notNull()
+      .default([]),
+    createdBy: text("created_by"),
+  },
+  (t) => ({
+    // Status derivation (ORDER BY created_at DESC LIMIT 1) + bulk timeline
+    // fetch, both keyed on maintenance id.
+    maintenanceCreatedIdx: index(
+      "maintenance_updates_maintenance_created_idx",
+    ).on(t.maintenanceId, t.createdAt),
+  }),
+);
 
 /**
  * Hotlinks attached to a maintenance — e.g. a change ticket, runbook, or

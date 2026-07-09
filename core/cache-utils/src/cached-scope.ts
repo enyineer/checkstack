@@ -49,6 +49,30 @@ export interface CachedScope {
   ): Promise<T[]>;
 
   /**
+   * Per-entity caching for bulk reads whose MISSES are loaded in ONE batched
+   * call (not one loader per id like {@link wrapMany}). For each id, returns the
+   * cached value if present; the misses are collected and passed to
+   * {@link load} as a single array, and {@link load} returns their values in the
+   * SAME ORDER as the miss array.
+   *
+   * Unlike a hand-rolled `provider.get` + batched query + `provider.set`, this
+   * carries the SAME epoch guard as {@link wrap}: the epoch of each miss key is
+   * captured before {@link load} runs, and a value is only written back if the
+   * key was not invalidated during the load. So a mutation that invalidates a
+   * key mid-load truly wins the race and cannot be clobbered by an in-flight
+   * loader's stale write - matching {@link wrap}'s guarantee for a batched read.
+   */
+  wrapManyBatched<Id, T>(
+    ids: readonly Id[],
+    options: {
+      keyFor: (id: Id) => string;
+      /** Load the miss ids in one call, returning values in the same order. */
+      load: (missIds: Id[]) => Promise<T[]>;
+      ttlMs?: number;
+    },
+  ): Promise<T[]>;
+
+  /**
    * Invalidate exactly one key. Safe to call from mutation paths.
    * Prefer this over prefix invalidation when you know the affected entity.
    */
@@ -180,6 +204,61 @@ export function createCachedScope({
     );
   }
 
+  async function wrapManyBatched<Id, T>(
+    ids: readonly Id[],
+    options: {
+      keyFor: (id: Id) => string;
+      load: (missIds: Id[]) => Promise<T[]>;
+      ttlMs?: number;
+    },
+  ): Promise<T[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const ttlMs = options.ttlMs ?? defaultTtlMs;
+    const keys = ids.map((id) => options.keyFor(id));
+
+    // Read every key in parallel; a get failure is treated as a MISS (fail open).
+    const cached = await Promise.all(
+      keys.map(async (key) => {
+        try {
+          return await provider.get<T>(key);
+        } catch (error) {
+          reportError("get", error);
+          return; // treat as a miss (fail open)
+        }
+      }),
+    );
+
+    const result = Array.from<T>({ length: ids.length });
+    const missIndices: number[] = [];
+    for (const [i, value] of cached.entries()) {
+      if (value === undefined) missIndices.push(i);
+      else result[i] = value;
+    }
+
+    if (missIndices.length > 0) {
+      // Capture each miss key's epoch BEFORE loading, so a concurrent
+      // invalidate during the load prevents its stale write (same guard as wrap).
+      const startEpochs = missIndices.map((i) => epochs.get(keys[i]!) ?? 0);
+      const loaded = await options.load(missIndices.map((i) => ids[i]!));
+      await Promise.all(
+        missIndices.map(async (i, j) => {
+          const value = loaded[j]!;
+          result[i] = value;
+          if ((epochs.get(keys[i]!) ?? 0) === startEpochs[j]) {
+            try {
+              await provider.set(keys[i]!, value, ttlMs);
+            } catch (error) {
+              reportError("set", error);
+            }
+          }
+        }),
+      );
+    }
+    return result;
+  }
+
   async function invalidate(key: string): Promise<void> {
     bumpEpoch(key);
     inflight.delete(key);
@@ -209,5 +288,12 @@ export function createCachedScope({
     }
   }
 
-  return { wrap, wrapMany, invalidate, invalidatePrefix, provider };
+  return {
+    wrap,
+    wrapMany,
+    wrapManyBatched,
+    invalidate,
+    invalidatePrefix,
+    provider,
+  };
 }

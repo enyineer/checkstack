@@ -1,0 +1,30 @@
+{
+  "name": "@checkstack/cache-redis-common",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "src/index.ts",
+  "checkstack": {
+    "type": "common"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "pack": "bunx @checkstack/scripts plugin-pack"
+  },
+  "description": "Checkstack cache-redis-common plugin",
+  "author": {
+    "name": "Checkstack contributors"
+  },
+  "license": "Elastic-2.0"
+}

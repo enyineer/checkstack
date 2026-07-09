@@ -415,6 +415,7 @@ export const createNotificationRouter = ({
       resourceKeys: string[];
       subjects?: NotificationPayload["subjects"];
       action?: { label: string; url: string };
+      originEnvironmentId?: string;
     };
   }): Promise<void> => {
     const sinks = getAudienceSinks();
@@ -432,6 +433,9 @@ export const createNotificationRouter = ({
       importance: input.importance ?? ("info" as const),
       systemIds,
       sourcePluginId: spec.ownerPlugin,
+      ...(input.originEnvironmentId
+        ? { originEnvironmentId: input.originEnvironmentId }
+        : {}),
       ...(input.action?.url ? { link: input.action.url } : {}),
     };
     await Promise.all(

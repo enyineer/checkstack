@@ -8,6 +8,7 @@
 @.claude/rules/docs-style.md
 @.claude/rules/healthcheck-collectors.md
 @.claude/rules/migrations.md
+@.claude/rules/optimization.md
 @.claude/rules/performance.md
 @.claude/rules/pr-preview.md
 @.claude/rules/rlac.md

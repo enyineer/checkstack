@@ -68,6 +68,48 @@ async function scopeToEnv(
   return ids.filter((id) => visible.has(id));
 }
 
+/*
+ * The CURRENT set of catalog system ids each health widget surfaces, resolved
+ * from the SAME config the DTO resolve reads and intersected with the page's
+ * published-environment scope. Shared by `resolvePublic` (what the widget shows)
+ * and `resolveScopedSystems` / `resolveScopedSystemsDetailed` (what the
+ * subscriber fan-out may email about), so the shown set and the emailed-about set
+ * can never drift.
+ */
+
+async function bannerScopedIds(
+  config: unknown,
+  ctx: WidgetResolveContext,
+): Promise<string[]> {
+  return scopeToEnv(ctx, BannerConfigSchema.parse(config).systemIds);
+}
+
+async function systemHealthScopedItems(
+  config: unknown,
+  ctx: WidgetResolveContext,
+) {
+  const c = SystemHealthConfigSchema.parse(config);
+  const visible = await envVisibleSystems(ctx);
+  return visible ? c.items.filter((i) => visible.has(i.systemId)) : c.items;
+}
+
+async function groupStatusScopedIds(
+  config: unknown,
+  ctx: WidgetResolveContext,
+): Promise<string[]> {
+  const c = GroupStatusConfigSchema.parse(config);
+  const groups = await allGroups(ctx);
+  const group = groups.find((g) => g.id === c.groupId);
+  return scopeToEnv(ctx, group?.systemIds ?? []);
+}
+
+async function uptimeScopedIds(
+  config: unknown,
+  ctx: WidgetResolveContext,
+): Promise<string[]> {
+  return scopeToEnv(ctx, [UptimeConfigSchema.parse(config).systemId]);
+}
+
 function uptimeToStatus(pct: number): PublicStatus {
   if (pct >= 99.5) return "operational";
   if (pct >= 95) return "degraded";
@@ -228,10 +270,18 @@ const banner: WidgetTypeDefinition = {
   assertBindingsReadable: assertSystems((c) => ({
     systemIds: BannerConfigSchema.parse(c).systemIds,
   })),
+  subscriptionCategory: "health",
+  resolveScopedSystems: async ({ config, ctx }) =>
+    new Set(await bannerScopedIds(config, ctx)),
+  async resolveScopedSystemsDetailed({ config, ctx }) {
+    const ids = await bannerScopedIds(config, ctx);
+    const names = await labelsFor(ctx, ids);
+    return ids.map((id) => ({ id, name: names.get(id) ?? id }));
+  },
   async resolvePublic({ config, ctx }) {
     const c = BannerConfigSchema.parse(config);
     // Omit systems outside the page's published environments before rolling up.
-    const ids = await scopeToEnv(ctx, c.systemIds);
+    const ids = await bannerScopedIds(config, ctx);
     const health = await healthPublicStatuses(ctx, ids);
     const maint = await inMaintenance(ctx, ids);
     const status = overallBannerStatus(
@@ -260,13 +310,26 @@ const systemHealth: WidgetTypeDefinition = {
   assertBindingsReadable: assertSystems((c) => ({
     systemIds: SystemHealthConfigSchema.parse(c).items.map((i) => i.systemId),
   })),
+  subscriptionCategory: "health",
+  async resolveScopedSystems({ config, ctx }) {
+    const items = await systemHealthScopedItems(config, ctx);
+    return new Set(items.map((i) => i.systemId));
+  },
+  async resolveScopedSystemsDetailed({ config, ctx }) {
+    const items = await systemHealthScopedItems(config, ctx);
+    const names = await labelsFor(
+      ctx,
+      items.map((i) => i.systemId),
+    );
+    return items.map((i) => ({
+      id: i.systemId,
+      name: i.label ?? names.get(i.systemId) ?? i.systemId,
+    }));
+  },
   async resolvePublic({ config, ctx }) {
     const c = SystemHealthConfigSchema.parse(config);
     // Drop rows for systems outside the page's published environments.
-    const visible = await envVisibleSystems(ctx);
-    const items = visible
-      ? c.items.filter((i) => visible.has(i.systemId))
-      : c.items;
+    const items = await systemHealthScopedItems(config, ctx);
     const ids = items.map((i) => i.systemId);
     const health = await healthPublicStatuses(ctx, ids);
     const maint = await inMaintenance(ctx, ids);
@@ -330,12 +393,20 @@ const groupStatus: WidgetTypeDefinition = {
   assertBindingsReadable: assertSystems((c) => ({
     groupIds: [GroupStatusConfigSchema.parse(c).groupId],
   })),
+  subscriptionCategory: "health",
+  resolveScopedSystems: async ({ config, ctx }) =>
+    new Set(await groupStatusScopedIds(config, ctx)),
+  async resolveScopedSystemsDetailed({ config, ctx }) {
+    const ids = await groupStatusScopedIds(config, ctx);
+    const names = await labelsFor(ctx, ids);
+    return ids.map((id) => ({ id, name: names.get(id) ?? id }));
+  },
   async resolvePublic({ config, ctx }) {
     const c = GroupStatusConfigSchema.parse(config);
     const groups = await allGroups(ctx);
     const group = groups.find((g) => g.id === c.groupId);
     // Omit group members outside the page's published environments.
-    const ids = await scopeToEnv(ctx, group?.systemIds ?? []);
+    const ids = await groupStatusScopedIds(config, ctx);
     const health = await healthPublicStatuses(ctx, ids);
     const maint = await inMaintenance(ctx, ids);
     const names = await labelsFor(ctx, ids);
@@ -366,6 +437,16 @@ const uptime: WidgetTypeDefinition = {
   assertBindingsReadable: assertSystems((c) => ({
     systemIds: [UptimeConfigSchema.parse(c).systemId],
   })),
+  subscriptionCategory: "health",
+  resolveScopedSystems: async ({ config, ctx }) =>
+    new Set(await uptimeScopedIds(config, ctx)),
+  async resolveScopedSystemsDetailed({ config, ctx }) {
+    const c = UptimeConfigSchema.parse(config);
+    const ids = await uptimeScopedIds(config, ctx);
+    if (ids.length === 0) return [];
+    const names = await labelsFor(ctx, ids);
+    return ids.map((id) => ({ id, name: c.label ?? names.get(id) ?? id }));
+  },
   async resolvePublic({ config, ctx }) {
     const c = UptimeConfigSchema.parse(config);
     const names = await labelsFor(ctx, [c.systemId]);
