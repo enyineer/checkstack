@@ -1,5 +1,30 @@
 # @checkstack/satellite-frontend
 
+## 0.7.0
+
+### Minor Changes
+
+- 43e4484: Add the ability to edit a satellite's name and region.
+
+  The satellite list only offered "Reset token" and "Delete" actions even though
+  the backend `updateSatellite` (PATCH) endpoint already existed. A new Edit
+  dialog (name + region, no credentials panel) is now available as a row action
+  and in the mobile card, respecting the GitOps provenance lock the same way
+  Delete does. The token is never touched by an edit.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/ui@1.26.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/satellite-common@0.9.4
+  - @checkstack/gitops-frontend@0.7.2
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.6.1
 
 ### Patch Changes

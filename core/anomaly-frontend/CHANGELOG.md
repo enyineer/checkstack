@@ -1,5 +1,32 @@
 # @checkstack/anomaly-frontend
 
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/notification-frontend@0.9.0
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/healthcheck-frontend@0.35.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/anomaly-common@1.7.1
+
 ## 0.6.7
 
 ### Patch Changes

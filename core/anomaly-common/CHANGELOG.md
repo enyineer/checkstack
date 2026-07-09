@@ -1,5 +1,24 @@
 # @checkstack/anomaly-common
 
+## 1.7.1
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/notification-common@1.6.0
+
 ## 1.7.0
 
 ### Minor Changes

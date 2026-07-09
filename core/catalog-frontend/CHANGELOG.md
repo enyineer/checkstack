@@ -1,5 +1,153 @@
 # @checkstack/catalog-frontend
 
+## 0.18.0
+
+### Minor Changes
+
+- 43e4484: Persist a browse order for catalog groups.
+
+  Groups gained a `sortOrder` column and a new `reorderGroups` procedure, so the
+  order you arrange groups in is saved to the database and returned by
+  `getGroups()` instead of being an ephemeral client-side header sort. The Groups
+  management tab now has up/down reorder controls (disabled while a search filter
+  is active, since reordering a filtered subset is ambiguous). A forward-only
+  migration backfills a deterministic order (`row_number()` over `created_at, id`)
+  for pre-existing groups. `reorderGroups` is gated on the global
+  `catalog.group.manage` rule, consistent with the other group mutations.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- 43e4484: Add `CatalogBrowseDataBoundarySlot` and eliminate the catalog browse view's per-row N+1 fetches.
+
+  The user (browse) catalog view mounts small contributions on every system row and group header (state badges, a notification bell) that each fetched their own data - one request per row, so a catalog with N systems issued O(N) health/incident/maintenance/subscription requests on open.
+
+  `catalog-common` now exposes `CatalogBrowseDataBoundarySlot`: a provider plugin fills it with a component that wraps the whole browse tree in a bulk-data provider keyed on the entire visible `systemIds`/`groupIds` set, so the per-row contributions read from that provider's context and issue no per-row request. `catalog-frontend` renders the new `CatalogBrowseDataBoundary`, which folds every registered filler around the tree (multiple providers nest; the tree renders exactly once) and, when no filler is installed, renders the tree unchanged so each contribution falls back to its own fetch. Catalog gains no dependency on any provider plugin - all coupling stays on the filler side, mirroring the existing `CatalogBrowseHealthSlot` pattern.
+
+  The catalog backend read was already fully batched (2 queries); this change is entirely on the frontend and is behavior-preserving.
+
+- 43e4484: Fix an N+1 in the catalog manager: the per-system "Health Checks" count badge
+  fired one `getSystemAssociations` request per system row, each holding a pooled
+  Postgres connection that contended with the background health-check run
+  executor and could exhaust the pool on large catalogs.
+
+  - Add `getBulkAssignedHealthCheckCounts({ systemIds })` to healthcheck, which
+    returns per-system assignment counts (0 for systems with no assignments) from
+    ONE grouped `COUNT(*) ... GROUP BY system_id` query. Read authorization
+    matches the per-system endpoint it replaces (`configuration.read` +
+    `catalog.system` read via `recordKey`), so a team-scoped user only sees counts
+    for systems they may read.
+  - `CatalogSystemActionsSlot` now passes `visibleSystemIds` (every system id in
+    the row's list) so a per-row filler can bulk-fetch for the whole visible set
+    in a single deduped request instead of one request per row. This mirrors how
+    `CatalogBrowseHealthSlot` / `SystemSignalsSlot` already pass `systemIds`.
+  - The health-check count badge now reads its count from that one deduped bulk
+    query. N visible rows cause 1 request instead of N.
+
+  State & scale: the counts are derived on read from the shared
+  `system_health_checks` table, so every pod returns the same answer; no
+  process-local or duplicated state is introduced.
+
+- 43e4484: Incidents and maintenance: richer, safer update timelines.
+
+  - **Markdown updates and descriptions.** Update messages and descriptions now
+    render sanitized Markdown (bold, links, lists) everywhere they appear -
+    detail pages, editors, the shared status-update timeline, and the public
+    status page (which stays sanitized via `rehype-sanitize`). An "Markdown
+    supported" hint is shown under the update composer.
+  - **Edit and delete published updates.** New `editUpdate` / `deleteUpdate`
+    procedures let a manager correct or remove an update in place; edited updates
+    are marked "edited". Editing the `statusChange` of the latest update
+    re-derives the incident/maintenance status. Deletion is irreversible and, on
+    the AI path, always routes through propose/apply. Both procedures are
+    object-scoped on the owning incident/maintenance (`idParam`), so team-scoped
+    managers can use them without a global rule.
+  - **Edit the published time of an update.** `editUpdate` now accepts an optional
+    `createdAt`, and the update editor exposes a date/time picker (the same
+    `DateTimePicker` used for maintenance windows) when editing an existing update.
+    Re-timing an update re-orders the timeline and re-derives the incident/
+    maintenance status (the header still follows the latest status-bearing
+    update), so moving an update never leaves the header and timeline diverged.
+  - **Per-update edit history (GitHub-style "history of edits").** Each in-place
+    edit now archives the prior version of the update into a new durable
+    `edit_history` `jsonb` column (a snapshot of message, status, visibility, and
+    the published time it carried, plus when it was superseded). The shared status
+    timeline turns the "edited" marker into an "edited (N)" disclosure that
+    expands to show those prior versions. History is **manager-facing only**: the
+    read path attaches `editHistory` solely for the manager audience and strips it
+    for public / logged-in readers, so a version that was `internal` before being
+    made `public` can never leak its prior internal content. A no-op edit
+    (nothing actually changed) neither archives a snapshot nor marks the update
+    "edited". Adds a forward-only, additive migration to each backend
+    (`edit_history jsonb NOT NULL DEFAULT '[]'`, backfilling existing rows).
+    We framed this as "either a delayed publish with undo OR a history of
+    edits"; edit history satisfies the ask, so undo-send / delayed-publish is
+    intentionally **deferred** (it would need a queue-delay + pending state and is
+    redundant with history).
+  - **Status updates are now editable from the editor dialog too, via one shared
+    implementation.** The status-updates surface (add / edit / delete an update,
+    including its published time and edit history) is extracted into a single
+    `IncidentUpdatesSection` / `MaintenanceUpdatesSection` used by BOTH the detail
+    page and the create/edit editor dialog, so the two surfaces can no longer
+    drift. Previously the editor dialog showed a read-only timeline with no way to
+    edit an existing update.
+  - **Editable hotlinks.** Added-links can now be edited in place (label, URL, and
+    visibility where applicable) instead of only added/removed. The shared
+    `LinksEditor` gains an inline edit affordance, backed by a new `updateLink`
+    procedure on incidents and maintenances and `updateSystemLink` on catalog
+    systems (so system links are editable too). Each is object-scoped on its
+    parent (`incidentId` / `maintenanceId` / `systemId`) with the same anti-spoof
+    WHERE-clause scoping as the remove path, so a link id cannot be paired with a
+    foreign parent the caller happens to manage. No migration is needed (the
+    columns already exist).
+  - **Per-update / per-link visibility.** A new shared visibility level
+    (`public` / `logged_in` / `internal`) can be set on both updates and hotlinks
+    via the same three-way visibility select in the editor (the update composer
+    previously exposed only a binary public/internal toggle, so `logged_in` was
+    unreachable for updates even though the backend already accepted and filtered
+    it). Filtering is enforced SERVER-SIDE on every read path: anonymous callers
+    and the public status-page projection see only `public`; authenticated
+    non-managers additionally see `logged_in`; managers see everything. Updates
+    still default to `public`, and `internal` updates never broadcast a
+    notification. Adds a forward-only migration to each backend (new visibility
+    enum + column, plus a nullable `edited_at` on updates).
+  - **"Keep Current" shows the current status**, e.g. "Keep Current
+    (Investigating)".
+  - **Status colors.** Adds a blue `--status-info` token and a shared
+    `StatusPillTone` / `pillToneStyles` in `@checkstack/ui`; incident "monitoring"
+    and maintenance "scheduled" now read as informational (blue) instead of grey.
+    The incident severity ramp is now blue(minor) -> amber(major) -> red(critical):
+    a minor incident uses the blue `info` hue instead of grey, with no minor/major
+    amber collision. This corrected ramp now also applies on the public status
+    page (active-incident cards, severity pills, and the incident detail page) and
+    in the system-detail active-incidents panel, which both previously still
+    rendered `minor` grey.
+  - **Logged-out overview.** Incidents and maintenance now expose a public,
+    read-gated overview page and sidebar entry (the manage-gated config page is
+    renamed "Manage ..."), so anonymous visitors who hold the default read rule
+    can browse them.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/notification-frontend@0.9.0
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/auth-frontend@0.13.1
+  - @checkstack/gitops-frontend@0.7.2
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.17.0
 
 ### Minor Changes

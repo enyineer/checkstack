@@ -1,5 +1,60 @@
 # @checkstack/slo-common
 
+## 0.9.0
+
+### Minor Changes
+
+- 43e4484: Exclude planned maintenance windows from the SLO error budget.
+
+  SLO objectives gained an opt-in `excludeMaintenanceWindows` flag (defaults to
+  false, so existing SLO numbers are preserved). When enabled, the portion of any
+  downtime that overlaps a non-cancelled maintenance window on the system is
+  subtracted from consumed budget, using pure, unit-tested interval math.
+
+  Because an error budget is a TRAILING window (for example the last 30 days),
+  maintenance is pulled by TIME-RANGE OVERLAP over that window via a new
+  `maintenance.getMaintenanceWindowsForRange` read query, which includes
+  already-completed windows and excludes only `cancelled` ones. This means "last
+  night's planned maintenance" keeps being subtracted after it completes, and the
+  consumed number does not jump as a window transitions
+  `scheduled -> in_progress -> completed`. The windows are injected into the SLO
+  engine like the existing health-status callback. The SLO editor now has a toggle
+  bound to the field, so the "exclude maintenance" help copy is finally accurate.
+
+  Note: historical `slo_daily_snapshots` are not rewritten, so a trend chart may
+  briefly differ from the live number after toggling this on.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Count incident-forced downtime against SLOs. When an incident forces a system to
+  degraded/unhealthy via its health override, that downtime is now recorded as an
+  SLO downtime event for each of the system's objectives (consuming the error
+  budget and appearing in the downtime history) and is closed when the incident is
+  resolved, deleted, or its override is cleared - and only once the system's health
+  checks are also healthy. Downtime is never double-counted with a concurrent
+  health-check outage, and one cause never closes downtime the other is still
+  holding open (resolving an incident while checks still fail, or checks recovering
+  while an override is still active, both leave the outage open).
+
+  Adds a nullable `source` column (`healthcheck` | `incident`, NULL read as
+  `healthcheck`) to `slo_downtime_events` and a `DowntimeSource` schema in
+  slo-common, so the cause of each downtime event is recorded and the orphan
+  self-heal skips incident-owned events. incident-backend now emits an
+  `incident.lifecycle.changed` hook (contract in incident-common) on every incident
+  lifecycle change - including override-only edits that the reactive `incident`
+  entity change does not surface - which slo-backend subscribes to with
+  exactly-once delivery to reconcile downtime.
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/frontend-api@0.14.1
+
 ## 0.8.3
 
 ### Patch Changes

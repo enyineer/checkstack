@@ -1,5 +1,127 @@
 # @checkstack/ai-backend
 
+## 0.10.10
+
+### Patch Changes
+
+- 43e4484: Regenerate the docs search index to reflect the "monitor across environments"
+  guide note that disabling an environment for a health-check assignment clears
+  its status from the system rollup immediately.
+- 43e4484: Regenerate the AI docs index to reflect the new "Resolve in bulk, never per
+  item" guidance in `developer-guide/architecture/status-pages`, which documents
+  the status-page bulk-by-id endpoints (`getBulkRunStats`,
+  `getBulkIncidentUpdates`, `getBulkMaintenanceUpdates`) resolvers use to avoid
+  N+1 RPC fan-outs.
+- 43e4484: Add a database query profiler to the OpenTelemetry/Prometheus metrics layer.
+
+  Two new scoped-db duration histograms answer "how long do queries take, and how long is a connection held", labelled by BOUNDED attributes only:
+
+  - `checkstack.db.query.duration` (`schema`, `operation`) — wall-clock of a standalone scoped query (`BEGIN` + `SET LOCAL search_path` + query + `COMMIT`), recorded at the scoped-db proxy seam for every `.then`/`.execute`/`$count` path.
+  - `checkstack.db.transaction.duration` (`schema`) — connection-hold time of a `withScopedTransaction` batch, the guard against a batch pinning a pooled connection (e.g. slow non-DB work wrapped in a transaction).
+
+  For the per-statement drill-down (which exact SQL is hot, not just which operation kind), the host optionally exports Postgres' `pg_stat_statements` view: `checkstack.db.statements.{calls,exec_time_ms,rows}` counters plus a `mean_exec_time_ms` gauge, bounded to the top-N statements by total execution time (`CHECKSTACK_DB_STATEMENTS_TOP_N`, default 25). It is self-disabling: when metrics are enabled the backend probes the connected database once and, if `pg_stat_statements` is not active (extension absent or the role cannot read the view), registers nothing and logs a single info line — a clean no-op with zero cost. The whole layer remains off unless `CHECKSTACK_METRICS_ENABLED` is set.
+
+  The `@checkstack/ai-backend` bump is the regenerated docs search index reflecting the expanded observability page.
+
+- 43e4484: Regenerate the AI docs index to reflect the updated
+  `CatalogSystemActionsSlot` contract documentation (the slot now passes
+  `visibleSystemIds` so per-row fillers can bulk-fetch per-system data without an
+  N+1) in `developer-guide/frontend/extension-points`.
+- 43e4484: Regenerate the AI docs search index to cover the new SNMP health-check page
+  (strategy/collector config, result metrics, transport-failure vs assertable-metric
+  semantics, and Counter64 handling) and the rewritten "connect a satellite" step
+  that sets execution per assignment via Catalog -> system -> Health Checks ->
+  Execution, rather than on the check template.
+- 43e4484: Regenerate the bundled docs search index to reflect updated documentation:
+  SLO downtime now counting incident-forced health overrides
+  (user-guide/concepts/slo), granular status-page email subscriptions
+  (developer-guide architecture + notifications/subscriptions), and status-page
+  environment publishing (user-guide/concepts/environments + status-pages
+  architecture).
+- 43e4484: Regenerate the AI docs search index to cover the new webhook notification
+  channel page (stable JSON payload contract, HMAC-SHA256 request signing, and the
+  SSRF egress guard on user-supplied webhook URLs) and the strategies-page best
+  practice on guarding user-supplied URLs against SSRF with `validateWebhookUrl`
+  plus `redirect: "error"`.
+- 43e4484: Extend `{{ … }}` environment templating across every built-in health-check type
+  and add editor UX for it, so one check config can cover N environments (mirrors
+  the existing HTTP `url` pattern).
+
+  Templatable connection/target fields now marked `x-templatable`:
+
+  - TLS: `host`, `servername`; TCP: `host`; Ping: `host`; gRPC: `host`, `service`.
+  - MySQL / Postgres: `host`, `database`, `user`, `query`.
+  - SSH: `host`, `username`, `command`; Redis: `host`, `args`; RCON: `host`,
+    `command`.
+  - DNS: `hostname`, `nameserver`; Jenkins: `url` (`baseUrl`), `jobName`;
+    Container: `endpoint`, `container`.
+  - SNMP: `host` (strategy), `oid` (collector).
+  - Script (shell): `cwd` (working directory).
+
+  This closes the last gaps so the coverage is now truly every built-in
+  health-check type. The Script collectors' `script` bodies are deliberately NOT
+  templatable: rendering `{{ … }}` into shell/TypeScript source would splice env
+  values into executed code. Per-environment data reaches those scripts safely via
+  the reserved `CHECKSTACK_ENV_*` shell vars (shell collector) and
+  `globalThis.context.environment` (inline collector) instead.
+
+  Because templating strips `{{ }}` and renders an undefined variable to an empty
+  string, every REQUIRED templatable field now has a post-render config-error
+  guard so an empty/invalid render is treated as a transport failure instead of a
+  silent "healthy" empty probe. Strategy connection fields (host, database, user,
+  endpoint, container, Jenkins base URL, SNMP host) throw from `createClient`;
+  collector target fields (query, command, hostname, jobName, SNMP oid) return a
+  `CollectorResult` with an `error`. Jenkins `baseUrl` moves its `.url()` validation to post-render.
+  Secret fields (passwords/tokens/keys) are never templatable; optional fields
+  (SNI `servername`, gRPC `service`, DNS `nameserver`, Redis `args`, Script `cwd`)
+  are templatable but not non-empty-guarded, since an empty render is a legitimate
+  "unset". SSRF/egress guards continue to run on the rendered host (rendering
+  happens before `createClient`).
+
+  Editor UX (`@checkstack/ui` + `@checkstack/healthcheck-frontend`):
+
+  - The environment "Preview as" picker + live preview line now also apply to the
+    strategy (connection) form, not just collector forms, so host/port templates
+    preview too.
+  - A single-line templatable field shows a small "Templating" badge next to its
+    label and, when a completion provider is supplied, renders a
+    `TemplateValueInput` with `{{ … }}` autocomplete. The health-check editor
+    seeds the provider with the fixed `environment.* / check.* / system.*`
+    namespace (`createReferenceCompletionProvider`, new `@checkstack/ui` export),
+    and `DynamicForm` gains a `templatableFieldsOnly` prop so only `x-templatable`
+    fields become template inputs (automation keeps templating every string field).
+
+  BREAKING CHANGE: none. Existing non-templatable configs and stored values are
+  unaffected; only fields explicitly marked `x-templatable` change behavior.
+
+  The `@checkstack/ai-backend` bump reflects the regenerated docs index for the
+  updated health-check collector and config-schema templating documentation.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Batch hot-path scoped-db reads/writes into single transactions to cut per-query round-trips.
+
+  The scoped-db proxy wraps every standalone query in its own `BEGIN → SET LOCAL search_path → query → COMMIT`, so a path issuing N sequential queries paid N round-trips and checked out a connection N times. These reads/writes now run under one `withScopedTransaction`, collapsing the batch to a single `SET LOCAL` on one connection. Behavior is unchanged:
+
+  - healthcheck: `getSystemHealthOverview`'s `1 + N·(2+E)` read fan-out.
+  - incident/maintenance: `getIncident`/`getMaintenance` (4 reads), `getManyEntityStates`, `listOpenIncidentsBySystem` / `getActiveMaintenancesBySystem`, `getMaintenanceWindowsForRange`; the `list*` / `*ForSystem` per-row `N+1` system lookups collapsed to a single set-based `inArray` read; maintenance `transitionStatus` update+insert made atomic; `addUpdate`/`editUpdate`/`addLink` use `.returning()` instead of a follow-up re-select.
+  - ai: `appendMessage`, memory `saveOrUpdate`.
+  - notification: `resolveInheritedGroups`.
+  - status-page: subscriber `verify` (4 reads) and `unsubscribe` (3 reads).
+  - announcement: `getActiveAnnouncements` / `dismissAnnouncement` / `createAnnouncement`.
+  - gitops: `upsertProvenance`.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/sdk@0.127.1
+  - @checkstack/integration-backend@0.7.4
+
 ## 0.10.9
 
 ### Patch Changes

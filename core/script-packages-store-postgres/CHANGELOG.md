@@ -1,5 +1,14 @@
 # @checkstack/script-packages-store-postgres
 
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/script-packages-backend@0.4.1
+
 ## 0.2.27
 
 ### Patch Changes

@@ -1,5 +1,299 @@
 # @checkstack/healthcheck-backend
 
+## 1.19.0
+
+### Minor Changes
+
+- 43e4484: Fix an N+1 in the catalog manager: the per-system "Health Checks" count badge
+  fired one `getSystemAssociations` request per system row, each holding a pooled
+  Postgres connection that contended with the background health-check run
+  executor and could exhaust the pool on large catalogs.
+
+  - Add `getBulkAssignedHealthCheckCounts({ systemIds })` to healthcheck, which
+    returns per-system assignment counts (0 for systems with no assignments) from
+    ONE grouped `COUNT(*) ... GROUP BY system_id` query. Read authorization
+    matches the per-system endpoint it replaces (`configuration.read` +
+    `catalog.system` read via `recordKey`), so a team-scoped user only sees counts
+    for systems they may read.
+  - `CatalogSystemActionsSlot` now passes `visibleSystemIds` (every system id in
+    the row's list) so a per-row filler can bulk-fetch for the whole visible set
+    in a single deduped request instead of one request per row. This mirrors how
+    `CatalogBrowseHealthSlot` / `SystemSignalsSlot` already pass `systemIds`.
+  - The health-check count badge now reads its count from that one deduped bulk
+    query. N visible rows cause 1 request instead of N.
+
+  State & scale: the counts are derived on read from the shared
+  `system_health_checks` table, so every pod returns the same answer; no
+  process-local or duplicated state is introduced.
+
+- 43e4484: Name the failing health check in system-health notifications. The notification
+  body now names the check that drove the transition (in addition to the system
+  and environment), and a `healthcheck.healthcheck` subject is pushed alongside
+  the `catalog.system` subject, deep-linked to the check's run history. Recovery
+  notifications stay system-level. Adds a `createHealthcheckSubject` builder to
+  `healthcheck-common`.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Status pages can now publish only a subset of catalog environments. The page
+  builder gains a "Published environments" picker (empty = all environments, the
+  backward-compatible default). When a non-empty set is selected, the page omits
+  status, incidents, maintenances and uptime for systems that belong to none of
+  the selected environments.
+
+  - Status pages store an optional `publishedEnvironmentIds` set (new nullable
+    `published_environment_ids` column; NULL = all environments, so existing pages
+    are unchanged) exposed on `StatusPage`, `createStatusPage`, and
+    `updateStatusPage`.
+  - The scope is threaded onto `WidgetResolveContext.publishedEnvironmentIds` as
+    opaque strings and passed identically to `resolvePublic`,
+    `resolveScopedSystems`, and `resolveScopedSystemsDetailed` (and the email
+    subscribe clamp + fan-out), so what a page shows, offers for subscription, and
+    emails about all agree.
+  - Health widgets recompute per environment: they read the per-environment health
+    matrix and roll up only the selected environments. `getBulkRunStats` and
+    `getRunStats` gain an optional `environmentIds` filter so uptime counts only
+    runs recorded in the selected environments.
+  - Incident and maintenance widgets filter their feed and scope by intersecting
+    each item's affected systems with the environment-visible systems. Incidents
+    and maintenance windows carry no environment of their own, so a system in
+    several environments makes its items visible on a page publishing ANY of them
+    (the multi-environment caveat).
+
+### Patch Changes
+
+- 43e4484: fix(healthcheck): disabling an environment for an assignment now clears its stale slice from the rollup and overview immediately
+
+  Disabling an environment for a health-check assignment (removing it from the
+  assignment's `environmentIds`) stopped that environment from fanning out, but a
+  check that was FAILING there kept dragging the system health rollup/badge to
+  unhealthy and kept showing as a live failing row in the system overview. Because
+  the rollup is recomputed by an event-driven consumer subscribed to per-env health
+  CHANGES, and a disabled env produces no further runs (so no change event fires),
+  the stale unhealthy status was never recomputed away - it only cleared
+  incidentally, once the disabled env's runs aged out of the bounded run window
+  (which needs the assignment's OTHER active environments to produce enough newer
+  runs first). With a single active/failing env, it could persist until retention.
+
+  Scope: this reconciles environments DISABLED/removed ON THE ASSIGNMENT (its
+  `systemHealthChecks.environmentIds` selector - switching to Specific and
+  deselecting, or None).
+
+  Fixes:
+
+  - The rollup aggregation (`getSystemHealthStatus`) and the per-check status in
+    `getSystemHealthOverview` now consider only CURRENTLY-EFFECTIVE environment
+    slices, derived from the durable `systemHealthChecks.environmentIds` selector
+    (catalog-free, identical on every pod). A slice whose environment was disabled
+    for the assignment, or the stale env-less slice of a check that now fans out,
+    no longer contributes.
+
+  Known limitation: under an "all-environments" assignment (`environmentIds` is
+  `null`), an environment removed only from the system's CATALOG MEMBERSHIP (rather
+  than disabled on the assignment) can still contribute to the backend rollup/badge
+  until the assignment is re-evaluated, because the rollup read path is
+  intentionally catalog-free for horizontal-scale correctness (it must return the
+  same answer on every pod without a per-read catalog lookup). This is pre-existing;
+  the frontend overview, which can see membership, still orphans such a slice.
+
+  - Each environment is now windowed by its OWN query in the rollup, instead of a
+    single shared `LIMIT` across the mixed-env pool. The old shared window
+    truncated per-env evaluation for checks that fan out to many environments (or
+    with large threshold windows); every environment now gets its full evaluation
+    depth.
+  - Changing an assignment's environment set now triggers an immediate rollup
+    recompute for that system, so the persisted `health` entity (badge + SLO
+    downtime) converges at once rather than waiting for stale runs to age out.
+  - The system-overview frontend tucks a slice whose environment was disabled for
+    the assignment under "Old checks" (system membership alone could not detect it,
+    since the environment is still part of the system). `getSystemHealthOverview`
+    now returns each check's `environmentIds` selector to drive this.
+
+  Shared pure helpers `selectorIncludesEnvironment` / `isEnvSliceEffective` /
+  `selectEffectiveEnvKeys` are added to `@checkstack/healthcheck-common` so the
+  backend and frontend agree on effective-slice detection.
+
+- 43e4484: Batch hot-path scoped-db reads/writes into single transactions to cut per-query round-trips.
+
+  The scoped-db proxy wraps every standalone query in its own `BEGIN → SET LOCAL search_path → query → COMMIT`, so a path issuing N sequential queries paid N round-trips and checked out a connection N times. These reads/writes now run under one `withScopedTransaction`, collapsing the batch to a single `SET LOCAL` on one connection. Behavior is unchanged:
+
+  - healthcheck: `getSystemHealthOverview`'s `1 + N·(2+E)` read fan-out.
+  - incident/maintenance: `getIncident`/`getMaintenance` (4 reads), `getManyEntityStates`, `listOpenIncidentsBySystem` / `getActiveMaintenancesBySystem`, `getMaintenanceWindowsForRange`; the `list*` / `*ForSystem` per-row `N+1` system lookups collapsed to a single set-based `inArray` read; maintenance `transitionStatus` update+insert made atomic; `addUpdate`/`editUpdate`/`addLink` use `.returning()` instead of a follow-up re-select.
+  - ai: `appendMessage`, memory `saveOrUpdate`.
+  - notification: `resolveInheritedGroups`.
+  - status-page: subscriber `verify` (4 reads) and `unsubscribe` (3 reads).
+  - announcement: `getActiveAnnouncements` / `dismissAnnouncement` / `createAnnouncement`.
+  - gitops: `upsertProvenance`.
+
+- 43e4484: Eliminate N+1 RPC fan-outs in the public status-page widget resolvers.
+
+  Each of these widgets renders a PUBLIC page, so every per-item RPC was real
+  external DB load. Three bulk-by-id endpoints replace the per-item fetches:
+
+  - `healthcheck-common`: new `getBulkRunStats({ systemIds, startDate, endDate,
+maxBuckets })` -> `{ stats: Record<systemId, RunStats> }`. The `systemHealth`
+    widget's uptime column now issues ONE request for all systems instead of one
+    `getRunStats` per system. Systems with no runs in the window are omitted, so
+    the resolver's output is unchanged.
+  - `incident-common`: new `getBulkIncidentUpdates({ incidentIds })` ->
+    `{ updates: Record<incidentId, IncidentUpdate[]> }`. The incidents widget now
+    fetches every selected incident's update timeline in ONE request instead of
+    one `getIncident` per incident.
+  - `maintenance-common`: new `getBulkMaintenanceUpdates({ maintenanceIds })` ->
+    `{ updates: Record<maintenanceId, MaintenanceUpdate[]> }` (symmetric with the
+    incident endpoint) for the maintenance widget.
+
+  The new update endpoints apply the same per-item audience filter as
+  `getIncident` / `getMaintenance`, so internal/logged-in updates and author
+  identity never leak to a non-manager caller. Each endpoint is keyed by the
+  resource id and gated with the record post-filter (`recordKey`) matching the
+  single endpoint's read scope, mirroring `getBulkSystemHealthStatus` /
+  `getBulkIncidentsForSystems`. Widget DTO output is unchanged - this is a pure
+  request-count optimization.
+
+- 43e4484: Status page enhancements:
+
+  - Group-status widget can collapse its member rows while every member is
+    operational (auto-expanding on any issue or maintenance).
+  - New "Announcements" status-page widget, contributed fully externally by the
+    announcement plugin: it surfaces active `visibility: "all"` announcements
+    through a public-safe DTO (title/message/severity/timestamps only) and never
+    affects the page status rollup.
+  - Incident and maintenance widgets can scope by catalog GROUPS with per-system
+    exceptions. Scope is resolved at read time (`(systemIds ∪ members(groupIds)) −
+excludedSystemIds`), so members added to a group later are reflected
+    automatically. The builder gets a nested group/system picker.
+  - Incident and maintenance items on a public page link to dedicated public
+    detail pages, gated server-side to items the page's published widgets actually
+    surface (no enumeration, no internal-field leak). The custom-domain public
+    bundle gains a minimal in-memory router for the two detail pages.
+  - Fix the custom-domain "Cannot connect to Checkstack backend" screen: a
+    configured-but-not-servable custom domain now serves the lean public
+    "not available" page instead of the admin shell; the public bundle skips the
+    cross-origin `/api/config` probe; CORS admits resolved custom domains; the
+    request origin is normalized for proxy scheme/port variance; and re-saving an
+    unchanged custom domain no longer clears its verification.
+  - Anonymous email subscriptions (double opt-in) for incident updates, opt-in per
+    status page (`emailSubscriptionsEnabled`, default off): a new
+    `status_page_subscribers` table, public subscribe/verify/unsubscribe
+    procedures with constant-time responses that fail closed when the page has not
+    enabled subscriptions, and team-scoped admin list/remove + an enable toggle in
+    the builder. Emails are delivered through a new `sendRawEmail` primitive in
+    notification-backend that sends to an arbitrary external address (no auth
+    account) via every enabled email strategy (SMTP), with a mandatory unsubscribe
+    link.
+  - Incident/maintenance update fan-out to subscribers via a new
+    `notificationAudienceExtensionPoint` in notification-backend. Every
+    notification funnelled through `notifyForSubscription` (incident, maintenance,
+    health - all unchanged) now also invokes each registered audience sink exactly
+    once, enriched with the affected systems and their catalog groups (resolved
+    from notification-backend's own resource-parent graph, never a domain import).
+    status-page-backend contributes a sink that, AT SEND TIME, matches each
+    notification's affected systems against the systems each published + public +
+    email-enabled page currently surfaces in its incident/maintenance widgets
+    (honoring group membership and per-system exclusions) and emails that page's
+    verified subscribers. Send-time scoping against the live layout is the privacy
+    boundary: a page only ever emails about systems its widgets surface right now.
+    Because `notifyForSubscription` is a single-pod point RPC, each notification
+    fans out exactly once cluster-wide.
+  - Subscriber reconcile on page deletion: the subscriber FK is `ON DELETE
+CASCADE` and page deletion also explicitly purges subscribers (invalidating
+    pending verify/unsubscribe tokens) - no orphan rows, no post-deletion send.
+    Removing all systems from a page or disabling email is intentionally NOT a
+    prune: send-time scoping plus the email-enabled gate make those subscribers
+    dormant with no data loss, and re-enabling restores the audience without a
+    re-subscribe.
+  - Send-time scoping is single-source: the fan-out asks each event-feed widget for
+    its CURRENT effective system scope (the same live catalog group expansion the
+    widget renders from) instead of a parallel copy of group membership, so it can
+    never over- or under-deliver relative to what the page shows.
+  - `sendRawEmail` in notification-backend is now `userType: "service"` (was an
+    authenticated procedure gated on `notification.send`). Sending to an arbitrary
+    address is an open-relay / email-bomb primitive, so it is callable only by a
+    trusted backend-to-backend caller (the status-page subscriber mailer), never by
+    an end user.
+  - Incident/maintenance widgets gain an optional per-system PUBLIC label override
+    (`systemLabels`), the same override path the system-health widget uses, so the
+    public incident/maintenance detail pages present clean labels instead of raw
+    catalog names.
+  - The anonymous subscribe endpoint adds a coarse per-page quota (max new
+    subscribers per rolling hour, counted over durable rows so it holds across
+    pods) on top of the per-(page,email) cooldown, capping verification-email
+    amplification. The quota is CONFIGURABLE per status page (new nullable
+    `email_subscribers_hourly_quota` column; null uses the default of 50, so
+    existing pages are unchanged), validated as a positive integer up to 5000,
+    editable in the builder next to the email opt-in toggle and gated by the same
+    page-manage capability.
+  - Email verification is now per-page configurable and backed by a platform-global
+    once-per-address registry:
+    - New `email_verification_required` column (boolean, default true) on
+      `status_pages`, exposed on the admin StatusPage DTO + `updateStatusPage`
+      input (same page-manage gate) with a builder toggle. When OFF, a new
+      subscriber is created active immediately - no verification email, and the
+      address is NOT written to the global registry (the operator's trust choice
+      for e.g. an internal page).
+    - New `status_page_verified_emails` table: one row per normalized address that
+      has completed verification on ANY page. When a verification-required page is
+      subscribed by an already-globally-verified address, the row is created active
+      immediately and a COURTESY email (with one-click unsubscribe) is sent instead
+      of a verification email, so a malicious add is always caught. `verify` upserts
+      the address into this registry and activates every other pending row for the
+      same address in one update (confirm once, all pages).
+    - Fan-out is unchanged: it still gates on the per-row `verified` flag; the
+      registry only governs whether a NEW subscribe short-circuits to active.
+
+  BREAKING CHANGE: `sendRawEmail` is now service-only. Any (non-existent in-tree)
+  authenticated caller must invoke it through a trusted service client instead.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/ai-backend@0.10.10
+  - @checkstack/automation-backend@0.11.1
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/catalog-backend@1.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/incident-common@1.10.0
+  - @checkstack/incident-backend@1.12.0
+  - @checkstack/maintenance-common@1.10.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/status-page-backend@0.5.0
+  - @checkstack/gitops-backend@0.5.22
+  - @checkstack/secrets-backend@0.3.4
+  - @checkstack/status-page-common@0.6.0
+  - @checkstack/satellite-backend@0.8.4
+  - @checkstack/sdk@0.127.1
+  - @checkstack/command-backend@0.2.22
+  - @checkstack/script-packages-backend@0.4.1
+
 ## 1.18.0
 
 ### Minor Changes

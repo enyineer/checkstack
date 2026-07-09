@@ -1,5 +1,58 @@
 # @checkstack/dependency-frontend
 
+## 0.8.2
+
+### Patch Changes
+
+- 43e4484: Eliminate the catalog browse view's per-row dependency-warning N+1.
+
+  The per-system `DependencyBadge` previously fetched its own `getWarningsForSystem` RPC on every catalog browse row, so a catalog with N systems issued O(N) dependency-warning requests on open.
+
+  dependency-frontend now fills catalog's `CatalogBrowseDataBoundarySlot` with `CatalogBrowseDependencyDataFiller`, which wraps the whole browse tree in a `DependencyBadgeDataProvider` that bulk-fetches warnings for every visible system via `getWarnings` and exposes them through context. When that provider is mounted, `DependencyBadge` reads its warning from context and disables its own per-system query. This is behavior-preserving and frontend-only: the bulk record's per-system entry is equivalent to the singular endpoint's result (both derive from the same warning evaluation), so a system with a warning renders identically and a system without one renders nothing. On surfaces with no filler (e.g. the system detail page) the fallback per-system query still runs exactly as before.
+
+- 43e4484: Clarify the dependency impact chips on the system overview so they read as an
+  impact classification, not a live status.
+
+  The Dependencies panel showed a red "Critical" / amber "Degraded" pill next to
+  each neighbour, which - beside the live health dot and using the same status
+  colours - looked like the dependency was down or degraded right now. It actually
+  describes what the edge does to the system if the neighbour fails.
+
+  The chip now:
+
+  - Drops the status (red/amber) palette entirely - impact is a static edge
+    attribute, so it uses a neutral chip ranked by emphasis, and the row's health
+    dot stays the only colour-coded live signal.
+  - Uses impact-framed labels ("Critical impact", "Degrading impact",
+    "Informational") instead of the bare status words.
+  - Leads with an impact icon (lightning / info) instead of a status dot.
+  - Carries a direction-aware tooltip spelling out the exact consequence with both
+    system names, e.g. "Critical dependency. If Payments goes down, Checkout is
+    treated as down." for an upstream edge, and the reverse for a "depended on by"
+    edge.
+
+  The wording lives in a new pure `presentDependencyImpact` helper with unit tests.
+  No behavior, API, or data changes.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/dashboard-frontend@0.10.6
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/dependency-common@1.7.2
+  - @checkstack/gitops-frontend@0.7.2
+
 ## 0.8.1
 
 ### Patch Changes

@@ -1,5 +1,322 @@
 # @checkstack/incident-backend
 
+## 1.12.0
+
+### Minor Changes
+
+- 43e4484: Incidents and maintenance: richer, safer update timelines.
+
+  - **Markdown updates and descriptions.** Update messages and descriptions now
+    render sanitized Markdown (bold, links, lists) everywhere they appear -
+    detail pages, editors, the shared status-update timeline, and the public
+    status page (which stays sanitized via `rehype-sanitize`). An "Markdown
+    supported" hint is shown under the update composer.
+  - **Edit and delete published updates.** New `editUpdate` / `deleteUpdate`
+    procedures let a manager correct or remove an update in place; edited updates
+    are marked "edited". Editing the `statusChange` of the latest update
+    re-derives the incident/maintenance status. Deletion is irreversible and, on
+    the AI path, always routes through propose/apply. Both procedures are
+    object-scoped on the owning incident/maintenance (`idParam`), so team-scoped
+    managers can use them without a global rule.
+  - **Edit the published time of an update.** `editUpdate` now accepts an optional
+    `createdAt`, and the update editor exposes a date/time picker (the same
+    `DateTimePicker` used for maintenance windows) when editing an existing update.
+    Re-timing an update re-orders the timeline and re-derives the incident/
+    maintenance status (the header still follows the latest status-bearing
+    update), so moving an update never leaves the header and timeline diverged.
+  - **Per-update edit history (GitHub-style "history of edits").** Each in-place
+    edit now archives the prior version of the update into a new durable
+    `edit_history` `jsonb` column (a snapshot of message, status, visibility, and
+    the published time it carried, plus when it was superseded). The shared status
+    timeline turns the "edited" marker into an "edited (N)" disclosure that
+    expands to show those prior versions. History is **manager-facing only**: the
+    read path attaches `editHistory` solely for the manager audience and strips it
+    for public / logged-in readers, so a version that was `internal` before being
+    made `public` can never leak its prior internal content. A no-op edit
+    (nothing actually changed) neither archives a snapshot nor marks the update
+    "edited". Adds a forward-only, additive migration to each backend
+    (`edit_history jsonb NOT NULL DEFAULT '[]'`, backfilling existing rows).
+    We framed this as "either a delayed publish with undo OR a history of
+    edits"; edit history satisfies the ask, so undo-send / delayed-publish is
+    intentionally **deferred** (it would need a queue-delay + pending state and is
+    redundant with history).
+  - **Status updates are now editable from the editor dialog too, via one shared
+    implementation.** The status-updates surface (add / edit / delete an update,
+    including its published time and edit history) is extracted into a single
+    `IncidentUpdatesSection` / `MaintenanceUpdatesSection` used by BOTH the detail
+    page and the create/edit editor dialog, so the two surfaces can no longer
+    drift. Previously the editor dialog showed a read-only timeline with no way to
+    edit an existing update.
+  - **Editable hotlinks.** Added-links can now be edited in place (label, URL, and
+    visibility where applicable) instead of only added/removed. The shared
+    `LinksEditor` gains an inline edit affordance, backed by a new `updateLink`
+    procedure on incidents and maintenances and `updateSystemLink` on catalog
+    systems (so system links are editable too). Each is object-scoped on its
+    parent (`incidentId` / `maintenanceId` / `systemId`) with the same anti-spoof
+    WHERE-clause scoping as the remove path, so a link id cannot be paired with a
+    foreign parent the caller happens to manage. No migration is needed (the
+    columns already exist).
+  - **Per-update / per-link visibility.** A new shared visibility level
+    (`public` / `logged_in` / `internal`) can be set on both updates and hotlinks
+    via the same three-way visibility select in the editor (the update composer
+    previously exposed only a binary public/internal toggle, so `logged_in` was
+    unreachable for updates even though the backend already accepted and filtered
+    it). Filtering is enforced SERVER-SIDE on every read path: anonymous callers
+    and the public status-page projection see only `public`; authenticated
+    non-managers additionally see `logged_in`; managers see everything. Updates
+    still default to `public`, and `internal` updates never broadcast a
+    notification. Adds a forward-only migration to each backend (new visibility
+    enum + column, plus a nullable `edited_at` on updates).
+  - **"Keep Current" shows the current status**, e.g. "Keep Current
+    (Investigating)".
+  - **Status colors.** Adds a blue `--status-info` token and a shared
+    `StatusPillTone` / `pillToneStyles` in `@checkstack/ui`; incident "monitoring"
+    and maintenance "scheduled" now read as informational (blue) instead of grey.
+    The incident severity ramp is now blue(minor) -> amber(major) -> red(critical):
+    a minor incident uses the blue `info` hue instead of grey, with no minor/major
+    amber collision. This corrected ramp now also applies on the public status
+    page (active-incident cards, severity pills, and the incident detail page) and
+    in the system-detail active-incidents panel, which both previously still
+    rendered `minor` grey.
+  - **Logged-out overview.** Incidents and maintenance now expose a public,
+    read-gated overview page and sidebar entry (the manage-gated config page is
+    renamed "Manage ..."), so anonymous visitors who hold the default read rule
+    can browse them.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Include the latest incident and maintenance update text in subscriber
+  notifications. The update message is now escaped, single-lined, truncated, and
+  appended to the notification body as a blockquote, so subscribers see WHAT
+  changed rather than a generic "has been updated"/"has been scheduled".
+  Message-only updates (no status change) now notify too, and an incident's
+  initial message is carried into its "reported" notification. Maintenance now has
+  full parity with incidents: its update text reaches subscribers, internal-only
+  operator notes never notify or leak text, and a completion note is carried into
+  the "completed" notification.
+
+  The escaping/truncation helper (`sanitizeUpdateMessage` /
+  `buildUpdateMessageSuffix`) now lives in `@checkstack/notification-common` so
+  both domain backends share one implementation.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Count incident-forced downtime against SLOs. When an incident forces a system to
+  degraded/unhealthy via its health override, that downtime is now recorded as an
+  SLO downtime event for each of the system's objectives (consuming the error
+  budget and appearing in the downtime history) and is closed when the incident is
+  resolved, deleted, or its override is cleared - and only once the system's health
+  checks are also healthy. Downtime is never double-counted with a concurrent
+  health-check outage, and one cause never closes downtime the other is still
+  holding open (resolving an incident while checks still fail, or checks recovering
+  while an override is still active, both leave the outage open).
+
+  Adds a nullable `source` column (`healthcheck` | `incident`, NULL read as
+  `healthcheck`) to `slo_downtime_events` and a `DowntimeSource` schema in
+  slo-common, so the cause of each downtime event is recorded and the orphan
+  self-heal skips incident-owned events. incident-backend now emits an
+  `incident.lifecycle.changed` hook (contract in incident-common) on every incident
+  lifecycle change - including override-only edits that the reactive `incident`
+  entity change does not surface - which slo-backend subscribes to with
+  exactly-once delivery to reconcile downtime.
+
+- 43e4484: Status pages can now publish only a subset of catalog environments. The page
+  builder gains a "Published environments" picker (empty = all environments, the
+  backward-compatible default). When a non-empty set is selected, the page omits
+  status, incidents, maintenances and uptime for systems that belong to none of
+  the selected environments.
+
+  - Status pages store an optional `publishedEnvironmentIds` set (new nullable
+    `published_environment_ids` column; NULL = all environments, so existing pages
+    are unchanged) exposed on `StatusPage`, `createStatusPage`, and
+    `updateStatusPage`.
+  - The scope is threaded onto `WidgetResolveContext.publishedEnvironmentIds` as
+    opaque strings and passed identically to `resolvePublic`,
+    `resolveScopedSystems`, and `resolveScopedSystemsDetailed` (and the email
+    subscribe clamp + fan-out), so what a page shows, offers for subscription, and
+    emails about all agree.
+  - Health widgets recompute per environment: they read the per-environment health
+    matrix and roll up only the selected environments. `getBulkRunStats` and
+    `getRunStats` gain an optional `environmentIds` filter so uptime counts only
+    runs recorded in the selected environments.
+  - Incident and maintenance widgets filter their feed and scope by intersecting
+    each item's affected systems with the environment-visible systems. Incidents
+    and maintenance windows carry no environment of their own, so a system in
+    several environments makes its items visible on a page publishing ANY of them
+    (the multi-environment caveat).
+
+### Patch Changes
+
+- 43e4484: Batch hot-path scoped-db reads/writes into single transactions to cut per-query round-trips.
+
+  The scoped-db proxy wraps every standalone query in its own `BEGIN → SET LOCAL search_path → query → COMMIT`, so a path issuing N sequential queries paid N round-trips and checked out a connection N times. These reads/writes now run under one `withScopedTransaction`, collapsing the batch to a single `SET LOCAL` on one connection. Behavior is unchanged:
+
+  - healthcheck: `getSystemHealthOverview`'s `1 + N·(2+E)` read fan-out.
+  - incident/maintenance: `getIncident`/`getMaintenance` (4 reads), `getManyEntityStates`, `listOpenIncidentsBySystem` / `getActiveMaintenancesBySystem`, `getMaintenanceWindowsForRange`; the `list*` / `*ForSystem` per-row `N+1` system lookups collapsed to a single set-based `inArray` read; maintenance `transitionStatus` update+insert made atomic; `addUpdate`/`editUpdate`/`addLink` use `.returning()` instead of a follow-up re-select.
+  - ai: `appendMessage`, memory `saveOrUpdate`.
+  - notification: `resolveInheritedGroups`.
+  - status-page: subscriber `verify` (4 reads) and `unsubscribe` (3 reads).
+  - announcement: `getActiveAnnouncements` / `dismissAnnouncement` / `createAnnouncement`.
+  - gitops: `upsertProvenance`.
+
+- 43e4484: Eliminate N+1 RPC fan-outs in the public status-page widget resolvers.
+
+  Each of these widgets renders a PUBLIC page, so every per-item RPC was real
+  external DB load. Three bulk-by-id endpoints replace the per-item fetches:
+
+  - `healthcheck-common`: new `getBulkRunStats({ systemIds, startDate, endDate,
+maxBuckets })` -> `{ stats: Record<systemId, RunStats> }`. The `systemHealth`
+    widget's uptime column now issues ONE request for all systems instead of one
+    `getRunStats` per system. Systems with no runs in the window are omitted, so
+    the resolver's output is unchanged.
+  - `incident-common`: new `getBulkIncidentUpdates({ incidentIds })` ->
+    `{ updates: Record<incidentId, IncidentUpdate[]> }`. The incidents widget now
+    fetches every selected incident's update timeline in ONE request instead of
+    one `getIncident` per incident.
+  - `maintenance-common`: new `getBulkMaintenanceUpdates({ maintenanceIds })` ->
+    `{ updates: Record<maintenanceId, MaintenanceUpdate[]> }` (symmetric with the
+    incident endpoint) for the maintenance widget.
+
+  The new update endpoints apply the same per-item audience filter as
+  `getIncident` / `getMaintenance`, so internal/logged-in updates and author
+  identity never leak to a non-manager caller. Each endpoint is keyed by the
+  resource id and gated with the record post-filter (`recordKey`) matching the
+  single endpoint's read scope, mirroring `getBulkSystemHealthStatus` /
+  `getBulkIncidentsForSystems`. Widget DTO output is unchanged - this is a pure
+  request-count optimization.
+
+- 43e4484: Status page enhancements:
+
+  - Group-status widget can collapse its member rows while every member is
+    operational (auto-expanding on any issue or maintenance).
+  - New "Announcements" status-page widget, contributed fully externally by the
+    announcement plugin: it surfaces active `visibility: "all"` announcements
+    through a public-safe DTO (title/message/severity/timestamps only) and never
+    affects the page status rollup.
+  - Incident and maintenance widgets can scope by catalog GROUPS with per-system
+    exceptions. Scope is resolved at read time (`(systemIds ∪ members(groupIds)) −
+excludedSystemIds`), so members added to a group later are reflected
+    automatically. The builder gets a nested group/system picker.
+  - Incident and maintenance items on a public page link to dedicated public
+    detail pages, gated server-side to items the page's published widgets actually
+    surface (no enumeration, no internal-field leak). The custom-domain public
+    bundle gains a minimal in-memory router for the two detail pages.
+  - Fix the custom-domain "Cannot connect to Checkstack backend" screen: a
+    configured-but-not-servable custom domain now serves the lean public
+    "not available" page instead of the admin shell; the public bundle skips the
+    cross-origin `/api/config` probe; CORS admits resolved custom domains; the
+    request origin is normalized for proxy scheme/port variance; and re-saving an
+    unchanged custom domain no longer clears its verification.
+  - Anonymous email subscriptions (double opt-in) for incident updates, opt-in per
+    status page (`emailSubscriptionsEnabled`, default off): a new
+    `status_page_subscribers` table, public subscribe/verify/unsubscribe
+    procedures with constant-time responses that fail closed when the page has not
+    enabled subscriptions, and team-scoped admin list/remove + an enable toggle in
+    the builder. Emails are delivered through a new `sendRawEmail` primitive in
+    notification-backend that sends to an arbitrary external address (no auth
+    account) via every enabled email strategy (SMTP), with a mandatory unsubscribe
+    link.
+  - Incident/maintenance update fan-out to subscribers via a new
+    `notificationAudienceExtensionPoint` in notification-backend. Every
+    notification funnelled through `notifyForSubscription` (incident, maintenance,
+    health - all unchanged) now also invokes each registered audience sink exactly
+    once, enriched with the affected systems and their catalog groups (resolved
+    from notification-backend's own resource-parent graph, never a domain import).
+    status-page-backend contributes a sink that, AT SEND TIME, matches each
+    notification's affected systems against the systems each published + public +
+    email-enabled page currently surfaces in its incident/maintenance widgets
+    (honoring group membership and per-system exclusions) and emails that page's
+    verified subscribers. Send-time scoping against the live layout is the privacy
+    boundary: a page only ever emails about systems its widgets surface right now.
+    Because `notifyForSubscription` is a single-pod point RPC, each notification
+    fans out exactly once cluster-wide.
+  - Subscriber reconcile on page deletion: the subscriber FK is `ON DELETE
+CASCADE` and page deletion also explicitly purges subscribers (invalidating
+    pending verify/unsubscribe tokens) - no orphan rows, no post-deletion send.
+    Removing all systems from a page or disabling email is intentionally NOT a
+    prune: send-time scoping plus the email-enabled gate make those subscribers
+    dormant with no data loss, and re-enabling restores the audience without a
+    re-subscribe.
+  - Send-time scoping is single-source: the fan-out asks each event-feed widget for
+    its CURRENT effective system scope (the same live catalog group expansion the
+    widget renders from) instead of a parallel copy of group membership, so it can
+    never over- or under-deliver relative to what the page shows.
+  - `sendRawEmail` in notification-backend is now `userType: "service"` (was an
+    authenticated procedure gated on `notification.send`). Sending to an arbitrary
+    address is an open-relay / email-bomb primitive, so it is callable only by a
+    trusted backend-to-backend caller (the status-page subscriber mailer), never by
+    an end user.
+  - Incident/maintenance widgets gain an optional per-system PUBLIC label override
+    (`systemLabels`), the same override path the system-health widget uses, so the
+    public incident/maintenance detail pages present clean labels instead of raw
+    catalog names.
+  - The anonymous subscribe endpoint adds a coarse per-page quota (max new
+    subscribers per rolling hour, counted over durable rows so it holds across
+    pods) on top of the per-(page,email) cooldown, capping verification-email
+    amplification. The quota is CONFIGURABLE per status page (new nullable
+    `email_subscribers_hourly_quota` column; null uses the default of 50, so
+    existing pages are unchanged), validated as a positive integer up to 5000,
+    editable in the builder next to the email opt-in toggle and gated by the same
+    page-manage capability.
+  - Email verification is now per-page configurable and backed by a platform-global
+    once-per-address registry:
+    - New `email_verification_required` column (boolean, default true) on
+      `status_pages`, exposed on the admin StatusPage DTO + `updateStatusPage`
+      input (same page-manage gate) with a builder toggle. When OFF, a new
+      subscriber is created active immediately - no verification email, and the
+      address is NOT written to the global registry (the operator's trust choice
+      for e.g. an internal page).
+    - New `status_page_verified_emails` table: one row per normalized address that
+      has completed verification on ANY page. When a verification-required page is
+      subscribed by an already-globally-verified address, the row is created active
+      immediately and a COURTESY email (with one-click unsubscribe) is sent instead
+      of a verification email, so a malicious add is always caught. `verify` upserts
+      the address into this registry and activates every other pending row for the
+      same address in one update (confirm once, all pages).
+    - Fan-out is unchanged: it still gates on the per-row `verified` flag; the
+      registry only governs whether a NEW subscribe short-circuits to active.
+
+  BREAKING CHANGE: `sendRawEmail` is now service-only. Any (non-existent in-tree)
+  authenticated caller must invoke it through a trusted service client instead.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/ai-backend@0.10.10
+  - @checkstack/automation-backend@0.11.1
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/catalog-backend@1.7.0
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/incident-common@1.10.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/status-page-backend@0.5.0
+  - @checkstack/status-page-common@0.6.0
+  - @checkstack/command-backend@0.2.22
+  - @checkstack/integration-backend@0.7.4
+
 ## 1.11.0
 
 ### Minor Changes

@@ -1,5 +1,52 @@
 # @checkstack/notification-frontend
 
+## 0.9.0
+
+### Minor Changes
+
+- 43e4484: Move "Your Subscriptions" off the notification settings page onto its own
+  `subscriptions` route with a dedicated nav entry (same authenticated-only
+  visibility). The settings page now focuses on channels and admin configuration.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- 43e4484: Catalog browse view: bulk-fetch notification subscription status for all visible
+  bells in one request instead of one per bell (performance-only, collapsed-trigger
+  behavior unchanged).
+
+  Every system row and group header on the catalog browse view mounts a
+  notification bell, and each collapsed bell previously issued its own
+  `getMySubscriptionStatus` request for its resource's primary group ids - an N+1
+  fan-out across the whole list. A new eager filler on catalog's
+  `CatalogBrowseDataBoundarySlot` (`BulkSubscriptionStatusProvider`) now wraps the
+  browse tree, computes the union of every visible resource's primary group ids
+  (from the registered specs and the `catalogSystemTarget` / `catalogGroupTarget`
+  resource keys), and fetches all of them in ONE request. Each collapsed bell reads
+  its subscribed state from that shared context and fires no request of its own.
+
+  The open-dialog path is unchanged: when the dialog is open (or no provider is
+  mounted, e.g. the single-resource system-detail bell), each bell keeps its own
+  per-bell query, its inheritance-augmented status batch, and all subscribe /
+  unsubscribe behavior. The collapsed trigger's rendered state
+  (subscribed / partial / none) is identical - only the data source changes.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/auth-frontend@0.13.1
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.8.1
 
 ### Patch Changes
