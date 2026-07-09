@@ -67,6 +67,10 @@ function scopeRegistry(scope: string[]): WidgetTypeRegistry {
     displayName: "Feed",
     description: "",
     category: "Events",
+    // Stands in for an incident event feed: the fan-out per-category gate only
+    // surfaces a widget whose subscriptionCategory matches the notification's
+    // source category, and the sole notifyForSystems test fans out an incident.
+    subscriptionCategory: "incident",
     binding: "systems",
     configSchema: z.unknown(),
     dtoSchema: z.object({}),
