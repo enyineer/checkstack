@@ -6,6 +6,7 @@ import {
   boolean,
   real,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -38,6 +39,9 @@ export const dependencies = pgTable(
       t.sourceSystemId,
       t.targetSystemId,
     ),
+    targetSystemIdx: index("dependencies_target_system_idx").on(
+      t.targetSystemId,
+    ),
   }),
 );
 
@@ -67,6 +71,11 @@ export const dependencyHealthCheckRules = pgTable(
     environmentId: text("environment_id"),
     overrideImpactType: impactTypeEnum("override_impact_type").notNull(),
   },
+  (t) => ({
+    dependencyIdx: index(
+      "dependency_health_check_rules_dependency_idx",
+    ).on(t.dependencyId),
+  }),
 );
 
 /**

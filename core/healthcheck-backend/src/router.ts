@@ -710,9 +710,10 @@ export const createHealthCheckRouter = (opts: {
     ),
     getSystemHealthStatus: os.getSystemHealthStatus.handler(
       async ({ input }) => {
-        const base = await cache.wrapSystemHealthStatus(input.systemId, () =>
-          service.getSystemHealthStatus(input.systemId),
-        );
+        // The cache holds the RAW (pre-override) status; incident overrides are
+        // folded downstream (always live) so an override lifts the instant its
+        // incident resolves. See ./cache.ts for the key/TTL/invalidation contract.
+        const base = await cache.read(input.systemId);
         const folded = await foldIncidentOverrides({
           [input.systemId]: base,
         });
@@ -724,24 +725,15 @@ export const createHealthCheckRouter = (opts: {
       async ({ input }) => {
         // Per-entity caching: each system's status is cached individually
         // and invalidated by id on mutations, so dashboards with overlapping
-        // (but non-identical) system sets share cache entries. See
-        // ./cache.ts for the key/TTL/invalidation contract.
-        const statuses: Record<string, SystemHealthStatusResponse> = {};
-        await Promise.all(
-          input.systemIds.map(async (systemId) => {
-            statuses[systemId] = await cache.wrapSystemHealthStatus(
-              systemId,
-              () => service.getSystemHealthStatus(systemId),
-            );
-          }),
-        );
+        // (but non-identical) system sets share cache entries.
+        const statuses = await cache.readBulk(input.systemIds);
         return { statuses: await foldIncidentOverrides(statuses) };
       },
     ),
 
     getBulkSystemHealthMatrix: os.getBulkSystemHealthMatrix.handler(
       async ({ input }) => {
-        const matrix = await service.getBulkSystemHealthMatrix(input.systemIds);
+        const matrix = await cache.readMatrix(input.systemIds);
 
         // Fold active incident overrides into each system's OVERALL rollup, so
         // an incident-forced status still propagates through dependencies (as

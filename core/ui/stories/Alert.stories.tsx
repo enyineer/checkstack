@@ -86,3 +86,28 @@ export const Error: Story = {
     </Alert>
   ),
 };
+
+/**
+ * Raw-icon usage (an icon passed as a DIRECT child instead of via `AlertIcon`),
+ * with a long body. Regression guard: the icon must keep its size and not be
+ * squished horizontally by the flex layout when the text wraps to several lines.
+ */
+export const RawIconLongBody: Story = {
+  args: { variant: "warning" },
+  render: (args) => (
+    <div style={{ maxWidth: 340 }}>
+      <Alert {...args}>
+        <AlertTriangle className="h-5 w-5" />
+        <div>
+          <AlertTitle>In-memory cache: single instance only</AlertTitle>
+          <AlertDescription>
+            The in-memory cache is per-pod: each instance keeps its own copy, so
+            it is only safe for development and single-instance deployments. For
+            any horizontally-scaled deployment, select a distributed backend such
+            as Redis so every instance shares one coherent cache.
+          </AlertDescription>
+        </div>
+      </Alert>
+    </div>
+  ),
+};

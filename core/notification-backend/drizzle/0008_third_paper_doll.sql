@@ -1,0 +1,1 @@
+CREATE INDEX "subscription_specs_owner_target_idx" ON "subscription_specs" USING btree ("owner_plugin","target_type_id");

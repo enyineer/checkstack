@@ -1,0 +1,2 @@
+CREATE INDEX "health_check_aggregates_system_bucket_idx" ON "health_check_aggregates" USING btree ("system_id","bucket_size","bucket_start");--> statement-breakpoint
+CREATE INDEX "system_health_checks_config_enabled_idx" ON "system_health_checks" USING btree ("configuration_id","enabled");

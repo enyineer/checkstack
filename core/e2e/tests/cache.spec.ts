@@ -130,7 +130,7 @@ test.describe("Cache admin", () => {
 
     // The default in-memory backend surfaces its warning alert.
     await expect(
-      page.getByText("In-Memory Cache Warning", { exact: true }),
+      page.getByText("In-memory cache: single instance only", { exact: true }),
     ).toBeVisible();
 
     // The always-present save control. Admin has manage access, so it is

@@ -165,18 +165,27 @@ export const notificationResourceParents = pgTable(
  * provisions one notification group per (spec × resource) pair where
  * `resource.targetTypeId == spec.targetTypeId`.
  */
-export const subscriptionSpecs = pgTable("subscription_specs", {
-  specId: text("spec_id").primaryKey(),
-  ownerPlugin: text("owner_plugin").notNull(),
-  localId: text("local_id").notNull(),
-  targetTypeId: text("target_type_id")
-    .notNull()
-    .references(() => notificationTargets.targetTypeId),
-  displayTitle: text("display_title").notNull(),
-  displayDescription: text("display_description").notNull(),
-  displayIconName: text("display_icon_name"),
-  registeredAt: timestamp("registered_at").defaultNow().notNull(),
-});
+export const subscriptionSpecs = pgTable(
+  "subscription_specs",
+  {
+    specId: text("spec_id").primaryKey(),
+    ownerPlugin: text("owner_plugin").notNull(),
+    localId: text("local_id").notNull(),
+    targetTypeId: text("target_type_id")
+      .notNull()
+      .references(() => notificationTargets.targetTypeId),
+    displayTitle: text("display_title").notNull(),
+    displayDescription: text("display_description").notNull(),
+    displayIconName: text("display_icon_name"),
+    registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    ownerTargetIdx: index("subscription_specs_owner_target_idx").on(
+      t.ownerPlugin,
+      t.targetTypeId,
+    ),
+  }),
+);
 
 /**
  * Tracks which legacy notification groups have already been migrated

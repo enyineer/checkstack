@@ -1166,8 +1166,9 @@ export class HealthCheckService {
 
       // Environment filter for the per-check run window. `undefined` (rollup)
       // adds no predicate; `null` filters to the env-less slice; a string
-      // filters to that environment. The lookup index leads with
-      // (system_id, environment_id, …) so the env-scoped query is index-efficient.
+      // filters to that environment. `health_check_runs_slice_recent_idx`
+      // (system_id, configuration_id, environment_id, timestamp) serves the
+      // env-scoped ORDER BY timestamp DESC LIMIT read as an index range scan.
       //
       // For the rollup, we deliberately do NOT apply a single envFilter to one
       // flat run list — see the per-association branch below for why.
@@ -1357,23 +1358,34 @@ export class HealthCheckService {
    * list and no process-local state.
    */
   async getAllUnhealthySystemStatuses(): Promise<HealthcheckSignalStatuses> {
-    // Distinct systemIds that have at least one ENABLED check association.
-    // `getSystemHealthStatus` already short-circuits to healthy for systems
-    // with no enabled associations, so this is the complete candidate set.
-    const rows = await this.db
-      .selectDistinct({ systemId: systemHealthChecks.systemId })
-      .from(systemHealthChecks)
-      .where(eq(systemHealthChecks.enabled, true));
-
+    const systemIds = await this.getUnhealthyCandidateSystemIds();
     const result: HealthcheckSignalStatuses = {};
     await Promise.all(
-      rows.map(async ({ systemId }) => {
+      systemIds.map(async (systemId) => {
         const status = await this.getSystemHealthStatus(systemId);
         if (status.status === "healthy") return; // problems only
         result[systemId] = status;
       }),
     );
     return result;
+  }
+
+  /**
+   * The candidate set for a global problem scan: distinct systemIds that have at
+   * least one ENABLED check association. `getSystemHealthStatus` already
+   * short-circuits to healthy for systems with no enabled associations, so this
+   * is the complete set of systems that could be degraded/unhealthy. Split out
+   * so callers can route the per-system status reads through the SHARED CACHE
+   * (`HealthCheckCache.readBulk`) instead of the uncached N+1 that
+   * {@link getAllUnhealthySystemStatuses} runs. Derives only from the durable
+   * `system_health_checks` table, so it answers identically on every pod.
+   */
+  async getUnhealthyCandidateSystemIds(): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ systemId: systemHealthChecks.systemId })
+      .from(systemHealthChecks)
+      .where(eq(systemHealthChecks.enabled, true));
+    return rows.map((r) => r.systemId);
   }
 
   /**
@@ -1485,95 +1497,26 @@ export class HealthCheckService {
   }
 
   /**
-   * Bulk per-(system, check, environment) health for the given systems.
-   *
-   * For each system returns the cross-environment rollup (status +
-   * checkStatuses, same as {@link getSystemHealthStatus}) PLUS a slice per
-   * environment the system has runs for. Consumers that scope by environment
-   * (the dependency map) must read the per-environment slice, because the
-   * rollup deliberately hides a single failing environment.
-   *
-   * Cost scales with the number of environments each system actually fans out
-   * to (`1 + #envs` status evaluations per system); systems with only env-less
-   * runs cost the same as a plain rollup read. Not on any per-run hot path.
+   * Distinct environment ids a system currently has runs for (the env-less
+   * slice is excluded — it is folded into the rollup and is never a real
+   * environment id). Used by the status cache's `readMatrix` to enumerate which
+   * per-environment slices to read (each slice is then served from the same
+   * per-env cache the badge path warms), so the bulk matrix no longer fans out
+   * uncached `getSystemHealthStatus` calls of its own.
    */
-  async getBulkSystemHealthMatrix(systemIds: string[]): Promise<
-    Record<
-      string,
-      {
-        status: HealthCheckStatus;
-        checkStatuses: SystemHealthStatusResponse["checkStatuses"];
-        environments: Record<
-          string,
-          {
-            status: HealthCheckStatus;
-            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
-          }
-        >;
-      }
-    >
-  > {
-    const result: Record<
-      string,
-      {
-        status: HealthCheckStatus;
-        checkStatuses: SystemHealthStatusResponse["checkStatuses"];
-        environments: Record<
-          string,
-          {
-            status: HealthCheckStatus;
-            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
-          }
-        >;
-      }
-    > = {};
-
-    await Promise.all(
-      systemIds.map(async (systemId) => {
-        const overall = await this.getSystemHealthStatus(systemId);
-
-        // Environments this system actually has runs for (env-less excluded -
-        // it is folded into the rollup and never a real environment id).
-        const envRows = await this.db
-          .selectDistinct({ environmentId: healthCheckRuns.environmentId })
-          .from(healthCheckRuns)
-          .where(
-            and(
-              eq(healthCheckRuns.systemId, systemId),
-              isNotNull(healthCheckRuns.environmentId),
-            ),
-          );
-
-        const environments: Record<
-          string,
-          {
-            status: HealthCheckStatus;
-            checkStatuses: SystemHealthStatusResponse["checkStatuses"];
-          }
-        > = {};
-        await Promise.all(
-          envRows.map(async ({ environmentId }) => {
-            if (!environmentId) return;
-            const envStatus = await this.getSystemHealthStatus(
-              systemId,
-              environmentId,
-            );
-            environments[environmentId] = {
-              status: envStatus.status,
-              checkStatuses: envStatus.checkStatuses,
-            };
-          }),
-        );
-
-        result[systemId] = {
-          status: overall.status,
-          checkStatuses: overall.checkStatuses,
-          environments,
-        };
-      }),
-    );
-
-    return result;
+  async getSystemEnvironmentIds(systemId: string): Promise<string[]> {
+    const envRows = await this.db
+      .selectDistinct({ environmentId: healthCheckRuns.environmentId })
+      .from(healthCheckRuns)
+      .where(
+        and(
+          eq(healthCheckRuns.systemId, systemId),
+          isNotNull(healthCheckRuns.environmentId),
+        ),
+      );
+    return envRows
+      .map((r) => r.environmentId)
+      .filter((id): id is string => id !== null);
   }
 
   /**
@@ -1648,9 +1591,9 @@ export class HealthCheckService {
         // Most recent HEALTHY run per environment, computed OUTSIDE the bounded
         // sparkline window so "last successful run" stays correct even when a
         // check has been failing for far longer than the last 25 runs. One
-        // grouped aggregate query per check (env-less = the `null` group). The
-        // (system_id, configuration_id, environment_id, timestamp) index makes
-        // this a cheap max-per-group scan.
+        // grouped aggregate query per check (env-less = the `null` group).
+        // `health_check_runs_slice_recent_idx` (system_id, configuration_id,
+        // environment_id, timestamp) makes this a cheap max-per-group scan.
         const lastHealthyRows = await tx
           .select({
             environmentId: healthCheckRuns.environmentId,

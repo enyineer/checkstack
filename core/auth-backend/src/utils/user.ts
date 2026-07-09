@@ -4,61 +4,87 @@ import { eq, inArray } from "drizzle-orm";
 import type { RealUser, ScopedQueryRunner } from "@checkstack/backend-api";
 import { withScopedTransaction } from "@checkstack/backend-api";
 import * as schema from "../schema";
+import type { AuthCache } from "../auth-cache";
 
 /**
  * Resolve a better-auth User's roles, access rules, and team memberships into a
- * `RealUser`, running every query on the supplied `runner`.
+ * `RealUser`, running any needed DB queries on the supplied `runner`.
  *
  * `runner` is a {@link ScopedQueryRunner} — either the scoped database itself or
- * a `ScopedTransaction` handle. Callers that batch several reads under one
- * `SET LOCAL search_path` (the opaque-OAuth branch) pass their `tx`; the
- * standalone {@link enrichUser} wrapper passes a `tx` it opens itself. The reads
- * are pure DB work (roles -> access rules -> teams) so they are safe to run
- * inside a single transaction.
+ * a `ScopedTransaction` handle. The opaque-OAuth branch passes its own `tx` (so
+ * its other reads share one `SET LOCAL search_path`); the standalone
+ * {@link enrichUser} wrapper passes the scoped `db` directly.
  *
- * The per-role access-rule fan-out is collapsed into ONE set-based `inArray`
- * query (mirroring `enrichApplicationPrincipal` / `resolveAllApplicationAccessRules`):
- * the rules are grouped per role in JS afterwards so the merged `accessRules`
- * preserve the same role-order insertion the old N+1 loop produced.
+ * The roles and role -> rules lookups are served CACHE-FIRST from `authCache`,
+ * so on a cache hit they issue NO query and the `runner` is only touched for the
+ * (always-uncached) team read. This is why {@link enrichUser} no longer wraps
+ * the whole thing in a transaction: there is nothing to batch on the hot (hit)
+ * path, and holding a transaction across the cache round-trip would check out a
+ * DB connection the hit does not need. Only a cache MISS falls back to the DB.
+ *
+ * The per-role access-rule miss fan-out is collapsed into ONE set-based
+ * `inArray` query (mirroring `enrichApplicationPrincipal` /
+ * `resolveAllApplicationAccessRules`): the rules are grouped per role in JS
+ * afterwards so the merged `accessRules` preserve the same role-order insertion
+ * the old N+1 loop produced.
  */
-export const readEnrichedUser = async (
-  user: User,
-  runner: ScopedQueryRunner<typeof schema>
-): Promise<RealUser> => {
-  // 1. Get Roles
-  const userRoles = await runner
-    .select({
-      roleName: schema.role.name,
-      roleId: schema.role.id,
-    })
-    .from(schema.userRole)
-    .innerJoin(schema.role, eq(schema.role.id, schema.userRole.roleId))
-    .where(eq(schema.userRole.userId, user.id));
+export const readEnrichedUser = async ({
+  user,
+  runner,
+  authCache,
+}: {
+  user: User;
+  runner: ScopedQueryRunner<typeof schema>;
+  authCache: AuthCache;
+}): Promise<RealUser> => {
+  // 1. Get the user's role ids, served cache-first (membership changes only on
+  //    rare admin edits, but this join ran on EVERY authenticated request). The
+  //    miss loader's join to `role` filters out orphaned `user_role` rows whose
+  //    role was deleted. Invalidated on mutation via `RoleMembershipStore` on
+  //    the shared cache (cluster-wide with a distributed backend).
+  const roles = await authCache.resolveUserRoles({
+    userId: user.id,
+    loadRoles: async () => {
+      const userRoles = await runner
+        .select({ roleId: schema.role.id })
+        .from(schema.userRole)
+        .innerJoin(schema.role, eq(schema.role.id, schema.userRole.roleId))
+        .where(eq(schema.userRole.userId, user.id));
+      return userRoles.map((r) => r.roleId);
+    },
+  });
 
-  const roles = userRoles.map((r) => r.roleId);
-
-  // 2. Get access rules for all non-admin roles in ONE set-based query, then
-  //    group per role in JS (the old loop issued one query per role: N+1).
+  // 2. Get access rules for all non-admin roles, served cache-first keyed by
+  //    role (the mapping changes only on rare admin edits, but this join ran on
+  //    EVERY authenticated request). Only cache-miss roles hit the DB, in ONE
+  //    set-based query grouped per role in JS (the old loop was N+1). Role
+  //    membership itself (step 1) is still resolved live, so cache staleness is
+  //    bounded to the role -> rules mapping, invalidated on mutation via
+  //    `RoleMembershipStore`.
   const nonAdminRoleIds = roles.filter((roleId) => roleId !== "admin");
-  const rulesByRole = new Map<string, string[]>();
-  if (nonAdminRoleIds.length > 0) {
-    const roleAccessRules = await runner
-      .select({
-        roleId: schema.roleAccessRule.roleId,
-        accessRuleId: schema.roleAccessRule.accessRuleId,
-      })
-      .from(schema.roleAccessRule)
-      .innerJoin(
-        schema.accessRule,
-        eq(schema.accessRule.id, schema.roleAccessRule.accessRuleId)
-      )
-      .where(inArray(schema.roleAccessRule.roleId, nonAdminRoleIds));
-    for (const p of roleAccessRules) {
-      const existing = rulesByRole.get(p.roleId);
-      if (existing) existing.push(p.accessRuleId);
-      else rulesByRole.set(p.roleId, [p.accessRuleId]);
-    }
-  }
+  const rulesByRole = await authCache.resolveRoleAccessRules({
+    nonAdminRoleIds,
+    loadMisses: async (missRoleIds) => {
+      const roleAccessRules = await runner
+        .select({
+          roleId: schema.roleAccessRule.roleId,
+          accessRuleId: schema.roleAccessRule.accessRuleId,
+        })
+        .from(schema.roleAccessRule)
+        .innerJoin(
+          schema.accessRule,
+          eq(schema.accessRule.id, schema.roleAccessRule.accessRuleId)
+        )
+        .where(inArray(schema.roleAccessRule.roleId, missRoleIds));
+      const loaded = new Map<string, string[]>();
+      for (const p of roleAccessRules) {
+        const existing = loaded.get(p.roleId);
+        if (existing) existing.push(p.accessRuleId);
+        else loaded.set(p.roleId, [p.accessRuleId]);
+      }
+      return loaded;
+    },
+  });
 
   // Merge in role order so `accessRules` matches the old per-role loop output.
   const accessRulesSet = new Set<string>();
@@ -70,7 +96,9 @@ export const readEnrichedUser = async (
     for (const rule of rulesByRole.get(roleId) ?? []) accessRulesSet.add(rule);
   }
 
-  // 3. Get Team memberships
+  // 3. Get Team memberships. Not cached — resolved live on every request as its
+  //    own auto-scoped statement (on a cache hit for steps 1-2, this is the ONLY
+  //    DB query the enrichment runs).
   const userTeams = await runner
     .select({ teamId: schema.userTeam.teamId })
     .from(schema.userTeam)
@@ -92,18 +120,25 @@ export const readEnrichedUser = async (
 };
 
 /**
- * Enriches a better-auth User with roles, access rules, and team memberships from the database.
+ * Enriches a better-auth User with roles, access rules, and team memberships.
  * Returns a RealUser type for use in the RPC context.
  *
- * Runs the three sequential reads inside a single `withScopedTransaction` so the
- * scoped-db proxy pays ONE `BEGIN`/`SET LOCAL search_path`/`COMMIT` for the whole
- * enrichment instead of one per query — this is the hottest authenticated path.
+ * Passes the scoped `db` directly as the runner (no wrapping transaction): the
+ * roles and role -> rules lookups are served cache-first from `authCache`, so on
+ * the hot (hit) path there is nothing to batch — only the team read touches the
+ * DB, as a single auto-scoped statement. A cache MISS falls back to a DB load
+ * for that one lookup. This keeps the Redis round-trips OFF the DB connection
+ * pool, which the previous single-transaction wrapper could not do.
  */
-export const enrichUser = async (
-  user: User,
-  db: SafeDatabase<typeof schema>
-): Promise<RealUser> =>
-  withScopedTransaction(db, (tx) => readEnrichedUser(user, tx));
+export const enrichUser = async ({
+  user,
+  db,
+  authCache,
+}: {
+  user: User;
+  db: SafeDatabase<typeof schema>;
+  authCache: AuthCache;
+}): Promise<RealUser> => readEnrichedUser({ user, runner: db, authCache });
 
 /**
  * The fields of an `ApplicationUser` resolved from the database.

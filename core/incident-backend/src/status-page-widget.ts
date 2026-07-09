@@ -138,6 +138,9 @@ const incidents: WidgetTypeDefinition = {
       groupIds: c.groupIds,
     });
   },
+  // This widget surfaces the INCIDENT category: a page emails incident
+  // subscribers about a system only when this widget shows it.
+  subscriptionCategory: "incident",
   // Send-time scoping for the subscriber fan-out uses the SAME expansion as the
   // DTO resolve, so a page never emails about a system its widget does not show.
   resolveScopedSystems: ({ config, ctx }) => effectiveScope(config, ctx),

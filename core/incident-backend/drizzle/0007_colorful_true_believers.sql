@@ -1,0 +1,2 @@
+CREATE INDEX "incident_systems_system_idx" ON "incident_systems" USING btree ("system_id");--> statement-breakpoint
+CREATE INDEX "incident_updates_incident_created_idx" ON "incident_updates" USING btree ("incident_id","created_at");

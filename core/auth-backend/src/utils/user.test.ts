@@ -1,17 +1,23 @@
 import { describe, it, expect, mock } from "bun:test";
 import { enrichUser, resolveAllApplicationAccessRules } from "./user";
+import { createNoopAuthCache } from "../auth-cache";
 import { User } from "better-auth/types";
+
+// The no-op auth cache always misses, so every `enrichUser` call below exercises
+// the DB loaders in full — the query sequence the mock drives. (The real
+// distributed cache is covered separately in `auth-cache.test.ts`.)
+const authCache = createNoopAuthCache();
 
 // Mock Drizzle DB.
 //
-// `enrichUser` now runs its reads inside `withScopedTransaction`, and the
+// `enrichUser` passes the scoped `db` directly (no wrapping transaction), and the
 // per-role N+1 loop is collapsed into ONE set-based `inArray` query, so the
 // query sequence is fixed regardless of role count:
 //   1. roles
 //   2. access rules (single query — ONLY when there is >=1 non-admin role)
 //   3. team memberships
 // The `transaction` method invokes the callback with the mock itself so the
-// same thenable drives the queries whether they run on `db` or the `tx` handle.
+// same thenable drives the queries whether they run on `db` or a `tx` handle.
 const createMockDb = (data: {
   roles?: unknown[];
   // Rows now carry `roleId` (grouped per role in JS) alongside `accessRuleId`.
@@ -65,10 +71,11 @@ describe("enrichUser", () => {
       teams: [{ teamId: "team-1" }],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.roles).toContain("admin");
     expect(result.accessRules).toContain("*");
@@ -82,10 +89,11 @@ describe("enrichUser", () => {
       teams: [],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.roles).toContain("editor");
     expect(result.accessRules).toContain("blog.edit");
@@ -107,10 +115,11 @@ describe("enrichUser", () => {
       teams: [{ teamId: "team-1" }],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.roles).toEqual(["editor", "reviewer"]);
     // Deduped union of both roles' rules, in role-insertion order.
@@ -125,10 +134,11 @@ describe("enrichUser", () => {
       teams: [],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.roles).toEqual(["admin", "editor"]);
     expect(result.accessRules).toEqual(["*", "blog.edit"]);
@@ -140,10 +150,11 @@ describe("enrichUser", () => {
       teams: [],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.roles).toEqual([]);
     expect(result.accessRules).toEqual([]);
@@ -156,10 +167,11 @@ describe("enrichUser", () => {
       teams: [{ teamId: "team-1" }, { teamId: "team-2" }, { teamId: "team-3" }],
     });
 
-    const result = await enrichUser(
-      baseUser,
-      mockDb as Parameters<typeof enrichUser>[1]
-    );
+    const result = await enrichUser({
+      user: baseUser,
+      db: mockDb as Parameters<typeof enrichUser>[0]["db"],
+      authCache,
+    });
 
     expect(result.teamIds).toHaveLength(3);
     expect(result.teamIds).toContain("team-1");

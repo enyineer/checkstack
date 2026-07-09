@@ -491,6 +491,18 @@ export const notificationContract = {
         action: NotificationActionInput,
         collapseKey: NotificationCollapseKeyInput,
         subjects: NotificationSubjectsInput,
+        originEnvironmentId: z
+          .string()
+          .optional()
+          .describe(
+            "Catalog environment id this notification originated in, when the " +
+              "source is an env-scoped change (a per-environment health " +
+              "transition). Opaque to notification-backend; a group-scoped " +
+              "audience sink (status page) uses it to drop a change that " +
+              "happened in an environment the page does not publish. Omit for " +
+              "env-less sources (incident, maintenance) and system-rollup " +
+              "health notifications.",
+          ),
       }),
     )
     .output(z.object({ notifiedCount: z.number() })),

@@ -301,3 +301,87 @@ describe("health widgets — no environment filter (unchanged behavior)", () => 
     expect(result.uptimePct).toBe(50);
   });
 });
+
+/**
+ * Send-time SCOPING regression: the subscriber fan-out only surfaces a HEALTH
+ * notification through a health widget, and only for the systems the widget
+ * CURRENTLY shows (its configured systems ∩ the page's published environments).
+ * Each health widget must therefore declare `subscriptionCategory: "health"` and
+ * a `resolveScopedSystems` that matches what `resolvePublic` renders.
+ */
+describe("health widgets — resolveScopedSystems (send-time scoping)", () => {
+  test("every health widget is tagged with the 'health' subscription category", () => {
+    const widgets = widgetsById();
+    for (const id of ["banner", "systemHealth", "groupStatus", "uptime"]) {
+      expect(widgets.get(id)!.subscriptionCategory).toBe("health");
+    }
+  });
+
+  const scoped = ["prod"];
+
+  test("banner scopes its systems to the published environments", async () => {
+    const widget = widgetsById().get("banner")!;
+    const ctx = makeCtx({ data: DATA, publishedEnvironmentIds: scoped });
+    const set = await widget.resolveScopedSystems!({
+      config: { systemIds: ["prod-sys", "stage-sys", "both-sys"] },
+      ctx,
+    });
+    expect([...set].toSorted()).toEqual(["both-sys", "prod-sys"]);
+  });
+
+  test("systemHealth scopes to env and applies per-row label overrides in the detailed list", async () => {
+    const widget = widgetsById().get("systemHealth")!;
+    const ctx = makeCtx({ data: DATA, publishedEnvironmentIds: scoped });
+    const config = {
+      items: [
+        { systemId: "prod-sys", label: "PROD!" },
+        { systemId: "stage-sys" },
+        { systemId: "both-sys" },
+      ],
+    };
+    const set = await widget.resolveScopedSystems!({ config, ctx });
+    expect([...set].toSorted()).toEqual(["both-sys", "prod-sys"]);
+    const detailed = await widget.resolveScopedSystemsDetailed!({ config, ctx });
+    expect(detailed).toEqual([
+      { id: "prod-sys", name: "PROD!" }, // label override wins over catalog name
+      { id: "both-sys", name: "Both System" },
+    ]);
+  });
+
+  test("groupStatus scopes its expanded members to the published environments", async () => {
+    const widget = widgetsById().get("groupStatus")!;
+    const ctx = makeCtx({ data: DATA, publishedEnvironmentIds: scoped });
+    const set = await widget.resolveScopedSystems!({
+      config: { groupId: "g1" },
+      ctx,
+    });
+    expect([...set]).toEqual(["prod-sys"]); // g1 = [prod-sys, stage-sys]; prod only
+  });
+
+  test("uptime scopes to its single system, emptying when it is out of scope", async () => {
+    const widget = widgetsById().get("uptime")!;
+    const ctx = makeCtx({ data: DATA, publishedEnvironmentIds: scoped });
+    expect([
+      ...(await widget.resolveScopedSystems!({
+        config: { systemId: "prod-sys", days: 30 },
+        ctx,
+      })),
+    ]).toEqual(["prod-sys"]);
+    expect([
+      ...(await widget.resolveScopedSystems!({
+        config: { systemId: "stage-sys", days: 30 },
+        ctx,
+      })),
+    ]).toEqual([]);
+  });
+
+  test("no environment filter surfaces every configured system", async () => {
+    const widget = widgetsById().get("banner")!;
+    const ctx = makeCtx({ data: DATA }); // all environments
+    const set = await widget.resolveScopedSystems!({
+      config: { systemIds: ["prod-sys", "stage-sys", "both-sys"] },
+      ctx,
+    });
+    expect([...set].toSorted()).toEqual(["both-sys", "prod-sys", "stage-sys"]);
+  });
+});

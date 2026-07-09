@@ -12,11 +12,15 @@ core/cache-api         → CacheProvider interface, CachePlugin contract, CacheM
 core/cache-common      → DTOs, RPC contract, access rules
 core/cache-backend     → RPC router for configuration endpoints
 core/cache-frontend    → Configuration tab (registered in Infrastructure Settings)
-plugins/cache-memory-backend  → Default in-memory implementation
+plugins/cache-memory-backend  → Default in-memory implementation (per-pod)
 plugins/cache-memory-common   → Access rules for the memory plugin
+plugins/cache-redis-backend   → Distributed Redis implementation (shared across pods)
+plugins/cache-redis-common    → Access rules for the redis plugin
 ```
 
-The core only depends on the `CacheProvider` and `CachePlugin` types - no backend implementation lives in `core/`. The default in-memory backend is a regular plugin, exactly the same as `queue-memory-backend`.
+The core only depends on the `CacheProvider` and `CachePlugin` types - no backend implementation lives in `core/`. Both the default in-memory backend and the Redis backend are regular plugins, exactly the same as `queue-memory-backend` / `queue-bullmq-backend`.
+
+Which backend is active is an operational choice with a correctness consequence: the in-memory backend is **per-pod** (each pod has its own Map), so it is only correct for single-instance deployments and dev. A horizontally-scaled cluster MUST select a distributed backend such as Redis - see [Distributed caching and horizontal scale](#distributed-caching-and-horizontal-scale).
 
 ## CacheProvider Interface
 
@@ -60,7 +64,7 @@ The factory follows the same shape as the rest of the codebase: object-destructu
 
 ## Instance namespacing
 
-The default memory cache is per-process, so two instances sharing infrastructure are already isolated - no namespacing is needed. A SHARED cache provider (e.g. a future redis-backed cache) that could be reached by more than one instance MUST namespace its keys so a secondary instance cannot collide with the default one. Fold `coreServices.instanceRuntime.namespace` into the key prefix your provider builds, exactly as the BullMQ queue backend does. See [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/).
+The default memory cache is per-process, so two instances sharing infrastructure are already isolated - no namespacing is needed. A SHARED cache provider (such as the Redis backend) that could be reached by more than one instance MUST namespace its keys so a secondary instance cannot collide with the default one. Fold `coreServices.instanceRuntime.namespace` into the key prefix your provider builds, exactly as the BullMQ queue backend does. The shipped `cache-redis-backend` does this: it folds the namespace into its `keyPrefix` (`<namespace>:cache:` for a secondary instance, `cache:` for the default), so the PR-preview instance and the default instance share one Redis without colliding. See [Parallel instances and namespacing](/checkstack/developer-guide/architecture/parallel-instances/).
 
 ## Using the Cache from a Backend Plugin
 
@@ -129,7 +133,10 @@ interface CachePlugin<Config = unknown> {
 
 The `InMemoryCachePlugin` ([plugins/cache-memory-backend/src/plugin.ts](../../plugins/cache-memory-backend/src/plugin.ts)) is the canonical example: ~30 lines, two configurable fields (`maxEntries`, `sweepIntervalMs`).
 
-### Authoring a New Cache Backend (e.g., Redis)
+### Authoring a New Cache Backend
+
+> [!NOTE]
+> A Redis backend already ships as `plugins/cache-redis-backend` - select it in the Infrastructure Configuration UI rather than writing your own. The example below is the general recipe for any other distributed store (Memcached, a managed KV, ...). For a real distributed provider, read [plugins/cache-redis-backend/src/redis-cache.ts](../../plugins/cache-redis-backend/src/redis-cache.ts): note that it serializes values with `v8.serialize` rather than JSON so `Date`/`Map`/`Set` survive the round trip (several cached payloads carry `Date`s that JSON would flatten to strings), and reports `scope: "cluster"` from `getStats` so the UI can flag which caches are shared.
 
 A new cache plugin is a regular backend plugin that registers itself with `cachePluginRegistry`:
 
@@ -223,7 +230,27 @@ Configuration:
 | `maxEntries` | `10_000` | Maximum number of cache entries before insertion-order eviction kicks in. |
 | `sweepIntervalMs` | `60_000` | Background sweep interval. Set to `0` to disable active sweeping. |
 
-This backend is appropriate for single-instance deployments and the dev environment. For multi-instance clusters, ship a Redis (or similar) plugin and select it in the Infrastructure Configuration UI.
+This backend is appropriate for single-instance deployments and the dev environment. For multi-instance clusters, select the shipped Redis backend (or another distributed plugin) in the Infrastructure Configuration UI - see the next section.
+
+## Distributed caching and horizontal scale
+
+The cache is not just a convenience for individual plugins - several **platform caches** sit on the hot request path and rely on the active backend for cross-pod coherence:
+
+- **System health status** (`healthcheck-backend`): the per-`(system, environment)` derived status behind dashboard badges, the bulk status endpoint, the dependency-map matrix, and the AI signals scan.
+- **Auth read path** (`auth-backend` + `core/backend`): `user -> role ids`, `role -> access-rule ids`, and the anonymous role's effective rules - resolved on essentially every authenticated (and every public) request.
+
+These caches are read-through with change-gated invalidation on mutation. Crucially, **their cross-pod coherence comes entirely from the active cache backend, not from any application-level broadcast**: an invalidation is a `delete` on the shared store, and a value written or deleted by one pod is immediately visible to all pods that share it.
+
+That design has a hard operational consequence:
+
+> [!CAUTION]
+> The default in-memory backend is **per-pod**. Under horizontal scale it gives each pod its OWN cache, so a mutation on pod A does not evict pod B's entry, and a user load-balanced to pod B can see a stale authorization decision or health status until the short TTL expires. **If you run more than one pod, you MUST select a distributed backend (Redis).** With Redis, every pod shares one store, so an invalidation is seen everywhere at once and the caches stay coherent.
+
+Why a distributed cache rather than pod-local caches kept coherent by an event-bus broadcast? Because the platform already runs a shared cache: reusing it means one coherence mechanism (a `delete` on the shared store) instead of two (a per-pod cache PLUS a broadcast to invalidate it), no broadcast-drop edge cases, and a read that is still far cheaper than the DB query it replaces - a cache `GET` is sub-millisecond, non-blocking, and does not consume a database connection. The trade-off is a network round-trip to the cache on a miss, which is the standard pattern for session/permission data in horizontally-scaled applications.
+
+The residual race - an in-flight loader that writes just after a concurrent `delete` - is bounded by the entry TTL (15s for health status, 60s for the auth caches), the same bound the broadcast design had. TTL is a safety net here, never the primary invalidation mechanism.
+
+When you add a query-heavy read path, prefer indexes plus this shared cache over inventing a new pod-local cache; a pod-local cache reintroduces the per-pod staleness this section warns about. See the repository rule `.claude/rules/optimization.md`.
 
 ## Configuration UI
 

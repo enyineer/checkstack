@@ -7,7 +7,8 @@ import type { AuthUser } from "@checkstack/backend-api";
 import type { SystemAccessResolver } from "@checkstack/ai-backend";
 import {
   createHealthcheckSignalsContributor,
-  type HealthcheckSignalsSource,
+  type HealthcheckCandidateSource,
+  type HealthcheckStatusCacheReader,
 } from "./system-signals-contributor";
 
 const unhealthyStatuses: HealthcheckSignalStatuses = {
@@ -27,10 +28,30 @@ const unhealthyStatuses: HealthcheckSignalStatuses = {
   },
 };
 
+/**
+ * Build a candidate source + cache reader pair from a fixed status map: the
+ * candidate ids are the map's keys, and `readBulk` returns the requested subset.
+ * This mirrors the real wiring (service scans candidates, cache serves statuses).
+ */
 function sourceReturning(statuses: HealthcheckSignalStatuses): {
-  source: HealthcheckSignalsSource;
+  candidateSource: HealthcheckCandidateSource;
+  cache: HealthcheckStatusCacheReader;
 } {
-  return { source: { getAllUnhealthySystemStatuses: async () => statuses } };
+  return {
+    candidateSource: {
+      getUnhealthyCandidateSystemIds: async () => Object.keys(statuses),
+    },
+    cache: {
+      readBulk: async (systemIds) => {
+        const out: HealthcheckSignalStatuses = {};
+        for (const id of systemIds) {
+          const s = statuses[id];
+          if (s) out[id] = s;
+        }
+        return out;
+      },
+    },
+  };
 }
 
 // The per-source gate is owned/tested by createGatedSystemSignalsContributor;
@@ -47,18 +68,20 @@ const userWith = (accessRules: string[]): AuthUser => ({
 
 describe("createHealthcheckSignalsContributor", () => {
   it("exposes the shared source id", () => {
-    const { source } = sourceReturning({});
+    const { candidateSource, cache } = sourceReturning({});
     const contributor = createHealthcheckSignalsContributor({
-      service: source,
+      candidateSource,
+      cache,
       resolver: allowAll,
     });
     expect(contributor.sourceId).toBe(HEALTHCHECK_SIGNAL_SOURCE_ID);
   });
 
   it("wires the service + shared deriver for an authorized principal", async () => {
-    const { source } = sourceReturning(unhealthyStatuses);
+    const { candidateSource, cache } = sourceReturning(unhealthyStatuses);
     const contributor = createHealthcheckSignalsContributor({
-      service: source,
+      candidateSource,
+      cache,
       resolver: allowAll,
     });
 
@@ -75,9 +98,10 @@ describe("createHealthcheckSignalsContributor", () => {
   });
 
   it("routes a non-global user through the team gate (no grants -> nothing)", async () => {
-    const { source } = sourceReturning(unhealthyStatuses);
+    const { candidateSource, cache } = sourceReturning(unhealthyStatuses);
     const contributor = createHealthcheckSignalsContributor({
-      service: source,
+      candidateSource,
+      cache,
       resolver: denyAll,
     });
 

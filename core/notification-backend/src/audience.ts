@@ -33,6 +33,14 @@ export interface NotificationAudienceEvent {
   systemIds: string[];
   /** The subscription spec's owning plugin (incident / maintenance / healthcheck). */
   sourcePluginId: string;
+  /**
+   * The catalog ENVIRONMENT id an env-scoped change (a per-environment health
+   * transition) originated in. OPAQUE to notification-backend. A group-scoped
+   * sink (status page) uses it to drop a change that happened in an environment
+   * the page does not publish. Absent for env-less sources (incident,
+   * maintenance) and system-rollup health notifications.
+   */
+  originEnvironmentId?: string;
   /** Optional deep link (the notification's primary action URL). */
   link?: string;
 }

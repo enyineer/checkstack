@@ -112,6 +112,9 @@ export default createBackendPlugin({
                   body: audienceEvent.body,
                   systemIds: audienceEvent.systemIds,
                   sourcePluginId: audienceEvent.sourcePluginId,
+                  ...(audienceEvent.originEnvironmentId
+                    ? { originEnvironmentId: audienceEvent.originEnvironmentId }
+                    : {}),
                   ...(audienceEvent.link ? { link: audienceEvent.link } : {}),
                 });
               },

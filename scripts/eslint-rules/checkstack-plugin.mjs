@@ -14,6 +14,9 @@ import { noUnmanagedEntityState } from "./no-unmanaged-entity-state.mjs";
 import { noPodLocalEntityState } from "./no-pod-local-entity-state.mjs";
 import { noUnguardedAnimation } from "./no-unguarded-animation.mjs";
 import { preferGatedMutation } from "./prefer-gated-mutation.mjs";
+import { noDirectRoleMembershipWrites } from "./no-direct-role-membership-writes.mjs";
+import { noDirectSystemStatusRead } from "./no-direct-system-status-read.mjs";
+import { noDirectHealthRunInsert } from "./no-direct-health-run-insert.mjs";
 
 export default {
   rules: {
@@ -27,5 +30,8 @@ export default {
     "no-pod-local-entity-state": noPodLocalEntityState,
     "no-unguarded-animation": noUnguardedAnimation,
     "prefer-gated-mutation": preferGatedMutation,
+    "no-direct-role-membership-writes": noDirectRoleMembershipWrites,
+    "no-direct-system-status-read": noDirectSystemStatusRead,
+    "no-direct-health-run-insert": noDirectHealthRunInsert,
   },
 };

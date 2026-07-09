@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -6,6 +7,7 @@ import {
   integer,
   json,
   boolean,
+  index,
 } from "drizzle-orm/pg-core";
 
 // =============================================================================
@@ -39,7 +41,10 @@ export const sloObjectives = pgTable("slo_objectives", {
     .default(5),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Objectives-for-system read on each SYSTEM_STATUS_CHANGED.
+  systemIdx: index("slo_objectives_system_id_idx").on(t.systemId),
+}));
 
 // =============================================================================
 // DOWNTIME EVENTS (event-sourced)
@@ -72,7 +77,21 @@ export const sloDowntimeEvents = pgTable("slo_downtime_events", {
    * Nullable for backward compatibility; a NULL row is read as "healthcheck".
    */
   source: text("source"),
-});
+}, (t) => ({
+  // Open-event lookup by objective, run several times per SYSTEM_STATUS_CHANGED.
+  openByObjectiveIdx: index("slo_downtime_events_open_by_objective_idx")
+    .on(t.objectiveId)
+    .where(sql`${t.endTime} IS NULL`),
+  // Open-event lookup by system, run several times per SYSTEM_STATUS_CHANGED.
+  openBySystemIdx: index("slo_downtime_events_open_by_system_idx")
+    .on(t.systemId)
+    .where(sql`${t.endTime} IS NULL`),
+  // Window / recent scans of events for an objective ordered by start time.
+  objectiveStartIdx: index("slo_downtime_events_objective_start_idx").on(
+    t.objectiveId,
+    t.startTime,
+  ),
+}));
 
 // =============================================================================
 // DAILY SNAPSHOTS
@@ -93,7 +112,13 @@ export const sloDailySnapshots = pgTable("slo_daily_snapshots", {
   budgetRemainingPercent: doublePrecision("budget_remaining_percent").notNull(),
   burnRate: doublePrecision("burn_rate"),
   streakDays: integer("streak_days").notNull().default(0),
-});
+}, (t) => ({
+  // Trend read per chart request: snapshots for an objective ordered by date.
+  objectiveDateIdx: index("slo_daily_snapshots_objective_date_idx").on(
+    t.objectiveId,
+    t.date,
+  ),
+}));
 
 // =============================================================================
 // STREAKS
@@ -127,4 +152,10 @@ export const sloAchievements = pgTable("slo_achievements", {
   systemId: text("system_id").notNull(),
   achievement: text("achievement").notNull(),
   unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Idempotency check before every insert + list-by-system.
+  systemAchievementIdx: index("slo_achievements_system_achievement_idx").on(
+    t.systemId,
+    t.achievement,
+  ),
+}));

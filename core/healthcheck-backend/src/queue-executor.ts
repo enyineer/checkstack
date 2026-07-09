@@ -379,18 +379,20 @@ export async function recomputeSystemRollupHealth(args: {
   // pure entity-recompute path (pause/resume) skips the extra prev read.
   const wantsSignal = signalService !== undefined || cache !== undefined;
   try {
-    let previousStatus: HealthCheckStatus | undefined;
+    // Capture the FULL rollup states (not just the status enum) so the cache
+    // reconcile can gate on the per-check vector while the frontend signal
+    // stays gated on the coarser rollup-enum transition.
+    let previousState: AggregatedHealth | undefined;
     if (wantsSignal) {
-      const previousState = await service.getSystemHealthStatus(systemId);
-      previousStatus = previousState.status;
+      previousState = await service.getSystemHealthStatus(systemId);
     }
-    let newStatus: HealthCheckStatus | undefined = previousStatus;
+    let newState: AggregatedHealth | undefined = previousState;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
         const rollupState = await service.getSystemHealthStatus(systemId);
-        newStatus = rollupState.status;
+        newState = rollupState;
         return toHealthEntityView(rollupState);
       },
       serialize: makeHealthSerializer(rollupEntityId),
@@ -401,21 +403,23 @@ export async function recomputeSystemRollupHealth(args: {
         ),
     });
 
-    if (
-      wantsSignal &&
-      previousStatus !== undefined &&
-      newStatus !== undefined &&
-      newStatus !== previousStatus
-    ) {
-      await cache?.invalidateSystem(systemId);
-      await signalService?.broadcast(SYSTEM_STATUS_CHANGED, {
-        systemId,
-        previousStatus,
-        newStatus,
-      });
+    if (wantsSignal && previousState !== undefined && newState !== undefined) {
+      // Cache: evict the rollup key + broadcast to the cluster on ANY per-check
+      // vector change — a check that flips while the rollup enum stays put still
+      // changes the rollup's `checkStatuses`, and a reader gets that vector.
+      await cache?.reconcile({ systemId, previous: previousState, next: newState });
+      // Frontend signal: only a rollup-enum transition moves the badge, so a
+      // per-check-only change needs no SYSTEM_STATUS_CHANGED refetch signal.
+      if (newState.status !== previousState.status) {
+        await signalService?.broadcast(SYSTEM_STATUS_CHANGED, {
+          systemId,
+          previousStatus: previousState.status,
+          newStatus: newState.status,
+        });
+      }
     }
-    return previousStatus !== undefined && newStatus !== undefined
-      ? { previousStatus, newStatus }
+    return previousState !== undefined && newState !== undefined
+      ? { previousStatus: previousState.status, newStatus: newState.status }
       : undefined;
   } catch (error) {
     // A recompute failure must never break the pause/resume RPC. The
@@ -692,13 +696,14 @@ async function executeHealthCheckJob(props: {
   // other.
   const makeHealthSerializer = createHealthEntitySerializer({ advisoryLock });
 
-  // The system-rollup status BEFORE this tick (all environments + env-less).
-  // Captured once so the post-loop rollup write (§7.4.3) — and the
-  // catastrophic-failure path — can record a correct prev → next rollup
-  // transition (environmentId = null). This is the system-wide aggregate read
-  // the executor has always taken first.
-  const rollupPreviousState = await service.getSystemHealthStatus(systemId);
-  const rollupPreviousStatus = rollupPreviousState.status;
+  // NOTE: the system-rollup status BEFORE this tick is computed LAZILY, only on
+  // the catastrophic-failure path that actually consumes it (see the `catch`
+  // below). It used to be captured here on EVERY run - a full worst-wins rollup
+  // (`getSystemHealthStatus(systemId)`, an N+1 across every check × environment)
+  // - even though the normal success/failure paths record their transition from
+  // the per-env pre-read (`previousState`, below) and never touch the rollup
+  // pre-state. Deferring it to the rare error path removes that whole recompute
+  // from the hot path of every check tick.
 
   // Slow-check lane admission (set when this run was admitted to the suspect
   // lane); released in the outer finally so the slot frees on any exit path.
@@ -954,14 +959,16 @@ async function executeHealthCheckJob(props: {
       const envEntityId = encodeHealthEntityId({ systemId, environmentId });
       const serializeEnvWrite = makeHealthSerializer(envEntityId);
 
-      // Per-env baseline status for the transition log: the env-scoped
-      // aggregate BEFORE this run. Computed per env so a transition row is
-      // recorded against the right (system, environment) streak.
-      const previousState = await service.getSystemHealthStatus(
-        systemId,
-        environmentId,
-      );
-      const previousStatus = previousState.status;
+      // Per-env baseline: the env-scoped aggregate BEFORE this run. Read INSIDE
+      // the serialized `apply` below (assigned to these vars), NOT here — so a
+      // concurrent same-slice run cannot commit between the baseline read and
+      // our own insert. If it were read here (outside the `health:<envEntityId>`
+      // lock), the cache change-gate could compare `next` against a baseline a
+      // sibling run already superseded and miss a real transition, stranding a
+      // stale cached status until the TTL. Assigned by whichever branch's
+      // `apply` runs; used for the transition log AND the cache reconcile.
+      let previousState!: AggregatedHealth;
+      let previousStatus!: HealthCheckStatus;
 
       // Curated, read-only run-context metadata exposed to collectors.
       // Metadata only - never secrets or config. `environment` carries the
@@ -1269,6 +1276,13 @@ async function executeHealthCheckJob(props: {
         handle: getHealthEntity?.(),
         entityId: envEntityId,
         apply: async () => {
+          // In-lock pre-run baseline (see the `previousState` declaration): read
+          // here, inside the serialized critical section, before the insert.
+          previousState = await service.getSystemHealthStatus(
+            systemId,
+            environmentId,
+          );
+          previousStatus = previousState.status;
           // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
           // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
           // which also makes the run and its aggregate commit atomically.
@@ -1316,9 +1330,18 @@ async function executeHealthCheckJob(props: {
         `Health check ${configId} for system ${systemId} failed: ${finalError}`,
       );
 
-      // Invalidate the per-system status cache before broadcasting so any
-      // frontend that refetches in response to the signal gets fresh data.
-      await cache.invalidateSystem(systemId);
+      // Reconcile this environment's cached status: evict + broadcast to the
+      // cluster ONLY when the per-check vector actually changed (a run that
+      // leaves every check's status unchanged keeps the cache warm instead of
+      // thrashing it every tick). The rollup key is reconciled separately by
+      // the debounced rollup consumer (recomputeSystemRollupHealth), also
+      // vector-gated.
+      await cache.reconcile({
+        systemId,
+        environmentId,
+        previous: previousState,
+        next: newState,
+      });
 
       await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
         systemId,
@@ -1427,6 +1450,13 @@ async function executeHealthCheckJob(props: {
       handle: getHealthEntity?.(),
       entityId: envEntityId,
       apply: async () => {
+        // In-lock pre-run baseline (see the `previousState` declaration): read
+        // here, inside the serialized critical section, before the insert.
+        previousState = await service.getSystemHealthStatus(
+          systemId,
+          environmentId,
+        );
+        previousStatus = previousState.status;
         // §perf: batch the run INSERT + aggregate SELECT/UPSERT under ONE
         // `SET LOCAL search_path` transaction (3 scoped-db transactions → 1),
         // which also makes the run and its aggregate commit atomically.
@@ -1473,9 +1503,16 @@ async function executeHealthCheckJob(props: {
       `Ran health check ${configId} for system ${systemId}: ${result.status}`,
     );
 
-    // Invalidate the per-system status cache before broadcasting so any
-    // frontend that refetches in response to the signal gets fresh data.
-    await cache.invalidateSystem(systemId);
+    // Reconcile this environment's cached status: evict + broadcast to the
+    // cluster ONLY when the per-check vector actually changed (a steady-state
+    // healthy run keeps the cache warm). The rollup key is reconciled by the
+    // debounced rollup consumer (recomputeSystemRollupHealth), also vector-gated.
+    await cache.reconcile({
+      systemId,
+      environmentId,
+      previous: previousState,
+      next: newState,
+    });
 
     // Broadcast enriched signal for realtime frontend updates (e.g., terminal feed)
     await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {
@@ -1582,12 +1619,19 @@ async function executeHealthCheckJob(props: {
     // the system-level health change still emits. Reuses the pre-tick
     // rollup status captured before the try block.
     const rollupEntityId = encodeHealthEntityId({ systemId });
-    const previousStatus = rollupPreviousStatus;
+    // The pre-failure rollup baseline. Read INSIDE `apply` (inside the
+    // `health:<systemId>` lock), before the failure-run insert, so a concurrent
+    // catastrophic tick for the same system can't commit between the baseline
+    // read and this insert and make the cache change-gate miss a transition.
+    let rollupPreState!: AggregatedHealth;
+    let previousStatus!: HealthCheckStatus;
     let newState!: AggregatedHealth;
     await writeHealthEntity({
       handle: getHealthEntity?.(),
       entityId: rollupEntityId,
       apply: async () => {
+        rollupPreState = await service.getSystemHealthStatus(systemId);
+        previousStatus = rollupPreState.status;
         // §perf: batch the failure run INSERT + aggregate SELECT/UPSERT under
         // ONE `SET LOCAL search_path` transaction (3 scoped-db transactions →
         // 1), which also makes them commit atomically.
@@ -1646,9 +1690,15 @@ async function executeHealthCheckJob(props: {
       // Use IDs as fallback
     }
 
-    // Invalidate the per-system status cache before broadcasting so any
-    // frontend that refetches in response to the signal gets fresh data.
-    await cache.invalidateSystem(systemId);
+    // Reconcile the rollup cache: evict + broadcast only on a real vector
+    // change. This catastrophic path writes the bare `<systemId>` entity (it IS
+    // the rollup), so it owns the rollup key directly — no debounced consumer
+    // runs for it.
+    await cache.reconcile({
+      systemId,
+      previous: rollupPreState,
+      next: newState,
+    });
 
     // Broadcast enriched failure signal for realtime frontend updates
     await signalService.broadcast(HEALTH_CHECK_RUN_COMPLETED, {

@@ -11,6 +11,12 @@
       "path": "../backend-api"
     },
     {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
       "path": "../command-backend"
     },
     {

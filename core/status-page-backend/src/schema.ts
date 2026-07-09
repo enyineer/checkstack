@@ -148,6 +148,9 @@ export const statusPageSubscribers = pgTable(
       "status_page_subscribers_page_email_unique",
     ).on(t.statusPageId, t.email),
     pageIdx: index("status_page_subscribers_page_idx").on(t.statusPageId),
+    pageVerifiedIdx: index(
+      "status_page_subscribers_page_verified_idx",
+    ).on(t.statusPageId, t.verified),
   }),
 );
 

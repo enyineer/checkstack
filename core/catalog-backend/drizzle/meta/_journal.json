@@ -57,6 +57,13 @@
       "when": 1783499098302,
       "tag": "0007_bright_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783607762083,
+      "tag": "0008_dry_gamma_corps",
+      "breakpoints": true
     }
   ]
 }

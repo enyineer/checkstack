@@ -106,6 +106,13 @@ export function buildHealthTransitionNotification(
     body,
     importance,
     action: { label: actionLabel, url: actionUrl },
+    // Carry the failing ENVIRONMENT so the status-page fan-out can drop this
+    // change for a page that does not publish that environment (e.g. a
+    // `development` failure never reaches a prod-only page's subscribers). Only
+    // set for an env-scoped slice; the system-rollup path stays env-less.
+    ...(typeof environmentId === "string"
+      ? { originEnvironmentId: environmentId }
+      : {}),
     // Env-qualified collapse key so two failing envs of one system generate
     // two independent notification cards (one per env) instead of merging.
     collapseKey: envScoped

@@ -1,0 +1,1 @@
+CREATE INDEX "systems_environments_environment_idx" ON "systems_environments" USING btree ("environment_id");

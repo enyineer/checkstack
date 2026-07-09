@@ -127,6 +127,13 @@ export const systemHealthChecks = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.systemId, t.configurationId] }),
+    // Reverse lookup for getSystemIdsForConfiguration on config-change
+    // recompute (WHERE configuration_id [AND enabled]). The PK leads with
+    // system_id, so a config-scoped scan cannot use it.
+    configEnabledIdx: index("system_health_checks_config_enabled_idx").on(
+      t.configurationId,
+      t.enabled,
+    ),
   }),
 );
 
@@ -186,37 +193,65 @@ export const healthCheckStateTransitions = pgTable(
   }),
 );
 
-export const healthCheckRuns = pgTable("health_check_runs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  configurationId: uuid("configuration_id")
-    .notNull()
-    .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
-  systemId: text("system_id").notNull(),
-  /**
-   * Environment this run was executed for (per-environment fan-out).
-   * null = ran with no environment (the opt-out / no-membership case,
-   * which is exactly the pre-feature behavior). Nullable text, NOT a FK
-   * to the catalog `environments` table (healthcheck and catalog are
-   * separate plugins with separate Postgres schemas, mirroring how
-   * `systemId` is a bare text with no FK to `systems`).
-   */
-  environmentId: text("environment_id"),
-  status: healthCheckStatusEnum("status").notNull(),
-  /** Execution duration in milliseconds */
-  latencyMs: integer("latency_ms"),
-  result: jsonb("result").$type<Record<string, unknown>>(),
-  /**
-   * Source identifier for result attribution.
-   * null = local core execution, UUID = satellite ID.
-   */
-  sourceId: text("source_id"),
-  /**
-   * Human-readable source label for UI display.
-   * e.g. "Local" or "EU West (eu-west-1)".
-   */
-  sourceLabel: text("source_label"),
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
-});
+export const healthCheckRuns = pgTable(
+  "health_check_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configurationId: uuid("configuration_id")
+      .notNull()
+      .references(() => healthCheckConfigurations.id, { onDelete: "cascade" }),
+    systemId: text("system_id").notNull(),
+    /**
+     * Environment this run was executed for (per-environment fan-out).
+     * null = ran with no environment (the opt-out / no-membership case,
+     * which is exactly the pre-feature behavior). Nullable text, NOT a FK
+     * to the catalog `environments` table (healthcheck and catalog are
+     * separate plugins with separate Postgres schemas, mirroring how
+     * `systemId` is a bare text with no FK to `systems`).
+     */
+    environmentId: text("environment_id"),
+    status: healthCheckStatusEnum("status").notNull(),
+    /** Execution duration in milliseconds */
+    latencyMs: integer("latency_ms"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    /**
+     * Source identifier for result attribution.
+     * null = local core execution, UUID = satellite ID.
+     */
+    sourceId: text("source_id"),
+    /**
+     * Human-readable source label for UI display.
+     * e.g. "Local" or "EU West (eu-west-1)".
+     */
+    sourceLabel: text("source_label"),
+    timestamp: timestamp("timestamp").defaultNow().notNull(),
+  },
+  (t) => ({
+    // The status read path reads the last N runs for a (system, check) slice
+    // ordered by timestamp DESC. Without a supporting index every such read
+    // sequential-scans the whole (multi-million-row) table and sorts. Postgres
+    // scans a plain btree backward, so an ASC index serves ORDER BY ... DESC.
+    //
+    // Cross-environment newest-run read (WHERE system_id, configuration_id
+    // ORDER BY timestamp DESC LIMIT n - the single hottest query) and the
+    // retention DELETE (WHERE system_id, configuration_id AND timestamp < cutoff).
+    checkRecentIdx: index("health_check_runs_check_recent_idx").on(
+      t.systemId,
+      t.configurationId,
+      t.timestamp,
+    ),
+    // Env-scoped slice read (WHERE system_id, configuration_id,
+    // environment_id [= ? | IS NULL] ORDER BY timestamp DESC LIMIT n), the
+    // per-check DISTINCT-environment discovery, and the per-env "last healthy"
+    // max(timestamp) GROUP BY environment_id.
+    sliceRecentIdx: index("health_check_runs_slice_recent_idx").on(
+      t.systemId,
+      t.configurationId,
+      t.environmentId,
+      t.timestamp,
+    ),
+  }),
+);
 
 /**
  * Bucket size enum for aggregated data.
@@ -286,5 +321,13 @@ export const healthCheckAggregates = pgTable(
       t.bucketSize,
       t.sourceId,
     ).nullsNotDistinct(),
+    // Health-state read with configuration_id absent (WHERE system_id,
+    // bucket_size, bucket_start ...). The unique index leads with
+    // configuration_id, so this query scans without a system-leading index.
+    systemBucketIdx: index("health_check_aggregates_system_bucket_idx").on(
+      t.systemId,
+      t.bucketSize,
+      t.bucketStart,
+    ),
   }),
 );

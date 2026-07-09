@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { createHealthCheckRouter } from "./router";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
-import type { HealthCheckCache } from "./cache";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 
 /**
  * Router-level tests for the pause/resume handlers' rollup-health recompute
@@ -14,12 +14,7 @@ import type { HealthCheckCache } from "./cache";
  * any degraded transition (see the resume handler comment for rationale).
  */
 
-const passthroughCache: HealthCheckCache = {
-  wrapSystemHealthStatus: (_systemId, loader) => loader(),
-  invalidateSystem: async () => {},
-  invalidateAllSystems: async () => 0,
-  scope: {} as HealthCheckCache["scope"],
-};
+const passthroughCache = createStubHealthCheckCache();
 
 const mockUser = {
   type: "user" as const,

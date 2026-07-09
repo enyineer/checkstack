@@ -110,6 +110,18 @@ export function withTransactionMock<T extends object>(
 export function createMockDbModule() {
   return {
     adminPool: { query: mock(() => Promise.resolve()) },
+    // Dedicated advisory-lock pool (mirrors the real `db` module's `lockPool`).
+    // Shaped as an AdvisoryLockPool: `connect()` yields a client the advisory-
+    // lock service drives (query/release/on/off), so a rotation critical section
+    // running through the default KeyStore does not crash under the mock.
+    lockPool: {
+      connect: mock(async () => ({
+        query: mock(async () => ({ rows: [] })),
+        release: mock(() => {}),
+        on: mock(() => {}),
+        off: mock(() => {}),
+      })),
+    },
     db: createMockDb(),
   };
 }

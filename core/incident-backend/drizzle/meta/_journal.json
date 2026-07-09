@@ -50,6 +50,13 @@
       "when": 1783535507970,
       "tag": "0006_last_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783607735789,
+      "tag": "0007_colorful_true_believers",
+      "breakpoints": true
     }
   ]
 }

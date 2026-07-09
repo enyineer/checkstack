@@ -15,6 +15,7 @@ import type {
 } from "@checkstack/backend-api";
 import { NotificationPolicySchema } from "@checkstack/healthcheck-common";
 import { HealthCheckService } from "./service";
+import type { HealthCheckCache } from "./cache";
 import { validateVersionedConfigStrict } from "./validate-configuration";
 import {
   DynamicOperators,
@@ -43,6 +44,15 @@ interface HealthcheckGitOpsKindsDeps {
   getQueueManager: () => QueueManager;
   getDb: () => SafeDatabase<typeof schema>;
   getCatalogClient: () => InferClient<typeof CatalogApi>;
+  /**
+   * Lazy accessor for the system-health status cache. GitOps writes configs /
+   * associations directly on the service (not through the router), so they MUST
+   * invalidate the cache themselves — otherwise a `git push` that changes a
+   * system's derived status leaves every pod serving the stale cached value
+   * until its 15s TTL. Mirrors the router's config-mutation invalidation. May be
+   * `undefined` before init completes (reconcile only runs post-init).
+   */
+  getCache: () => HealthCheckCache | undefined;
 }
 
 // ─── Healthcheck Spec Schema ───────────────────────────────────────────────
@@ -264,6 +274,11 @@ export function buildHealthcheckKind(
           // silently restored from the stored row (keep-existing is UI-only).
           { mergeSecrets: false },
         );
+        // A config change (thresholds, assertions, interval) can move the
+        // derived status of every system this check is assigned to. Match the
+        // router's `updateConfiguration` handler: drop every system's cached
+        // status (+ broadcast) so no pod serves stale health.
+        await deps.getCache()?.invalidateAllSystems();
         context.logger.info(
           `GitOps: updated Healthcheck "${displayName}" (id: ${existingEntityId})`,
         );
@@ -282,6 +297,9 @@ export function buildHealthcheckKind(
           assertions: c.assertions,
         })),
       });
+      // A new configuration could be associated with any system; match the
+      // router's `createConfiguration` handler and drop every cached status.
+      await deps.getCache()?.invalidateAllSystems();
       context.logger.info(
         `GitOps: created Healthcheck "${displayName}" (id: ${config.id})`,
       );
@@ -299,6 +317,9 @@ export function buildHealthcheckKind(
       if (!entityId) return;
       const service = deps.createService();
       await service.deleteConfiguration(entityId);
+      // Match the router's `deleteConfiguration` handler: drop every cached
+      // status since the removed check could have affected any system's rollup.
+      await deps.getCache()?.invalidateAllSystems();
       context.logger.info(`GitOps: deleted Healthcheck (id: ${entityId})`);
     },
   };
@@ -415,6 +436,12 @@ export function buildSystemHealthcheckExtension(
           );
         }
       }
+
+      // Every association add/remove above changes THIS system's derived
+      // rollup (a check enters/leaves worst-wins), so drop its cached status
+      // (rollup + all env keys) and broadcast — mirroring the router's
+      // associate/disassociate handlers.
+      await deps.getCache()?.invalidateSystem(systemEntityId);
     },
   };
 }

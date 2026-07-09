@@ -116,13 +116,20 @@ export const CacheConfigTab = ({ canUpdate }: { canUpdate: boolean }) => {
             <Alert variant="warning">
               <AlertTriangle className="h-5 w-5" />
               <div>
-                <AlertTitle>In-Memory Cache Warning</AlertTitle>
+                <AlertTitle>
+                  In-memory cache: single instance only
+                </AlertTitle>
                 <AlertDescription>
-                  The in-memory cache is suitable for development and
-                  single-instance deployments only. Data will not be shared
-                  across multiple instances and will be lost on restart. For
-                  production environments with multiple instances, consider
-                  using a persistent cache implementation like Redis.
+                  The in-memory cache is per-pod: each instance keeps its own
+                  copy, so it is only safe for development and single-instance
+                  deployments. If you run more than one instance, platform
+                  caches that sit on the hot path - system health status and the
+                  authenticated read path (user roles, role access rules,
+                  anonymous access) - can go stale on other pods until their
+                  short TTL expires, because a change on one pod cannot evict
+                  another pod&apos;s copy. For any horizontally-scaled
+                  deployment, select a distributed backend such as Redis so
+                  every instance shares one coherent cache.
                 </AlertDescription>
               </div>
             </Alert>

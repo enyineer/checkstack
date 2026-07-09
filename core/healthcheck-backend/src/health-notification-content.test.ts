@@ -74,6 +74,28 @@ describe("buildHealthTransitionNotification", () => {
     expect(payload.title).toContain("(Production)");
   });
 
+  it("carries the origin environment id for an env-scoped transition", () => {
+    const payload = buildHealthTransitionNotification({
+      ...base,
+      transition: "escalation",
+      environmentId: "env-prod",
+      environmentName: "Production",
+    });
+    // The status-page fan-out reads this to drop the change for a page that does
+    // not publish env-prod.
+    expect(payload.originEnvironmentId).toBe("env-prod");
+  });
+
+  it("omits the origin environment id for a system-rollup transition", () => {
+    const payload = buildHealthTransitionNotification({
+      ...base,
+      transition: "escalation",
+    });
+    // No environmentId => a whole-system rollup; it must reach every page that
+    // surfaces the system regardless of environment.
+    expect(payload.originEnvironmentId).toBeUndefined();
+  });
+
   it("stays system-level and omits the check subject on recovery", () => {
     const payload = buildHealthTransitionNotification({
       ...base,

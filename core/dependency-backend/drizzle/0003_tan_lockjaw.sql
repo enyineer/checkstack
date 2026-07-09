@@ -1,0 +1,2 @@
+CREATE INDEX "dependencies_target_system_idx" ON "dependencies" USING btree ("target_system_id");--> statement-breakpoint
+CREATE INDEX "dependency_health_check_rules_dependency_idx" ON "dependency_health_check_rules" USING btree ("dependency_id");

@@ -557,13 +557,15 @@ createSlotExtension(CatalogBrowseHealthSlot, {
 
 ##### `CatalogBrowseDataBoundarySlot` (bulk data for per-row contributions)
 
-The catalog browse view mounts small contributions on every system row and group
-header - state badges (`SystemStateBadgesSlot`), a notification bell, and so on.
-Rendered naively, each one fetches its own data, so a catalog with N systems
-issues O(N) requests on open (an N+1). This slot removes that without coupling
-catalog to any provider: catalog only **renders** the boundary, and a provider
-plugin **fills** it with a component that wraps the whole browse tree in a
-bulk-data provider.
+The catalog browse view AND the catalog management systems table mount small
+contributions on every system row - state badges (`SystemStateBadgesSlot`), a
+notification bell, and so on. Rendered naively, each one fetches its own data, so
+a catalog with N systems issues O(N) requests on open (an N+1). This slot removes
+that without coupling catalog to any provider: catalog only **renders** the
+boundary (around the browse tree and around the manage systems table), and a
+provider plugin **fills** it with a component that wraps the tree in a bulk-data
+provider. The manage table surfaces no group rows, so it passes an empty
+`groupIds`; a filler's group-badge provider then fetches nothing there.
 
 ```typescript
 export interface CatalogBrowseDataBoundarySlotContext {

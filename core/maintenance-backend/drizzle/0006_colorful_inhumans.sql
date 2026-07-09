@@ -1,0 +1,2 @@
+CREATE INDEX "maintenance_systems_system_idx" ON "maintenance_systems" USING btree ("system_id");--> statement-breakpoint
+CREATE INDEX "maintenance_updates_maintenance_created_idx" ON "maintenance_updates" USING btree ("maintenance_id","created_at");

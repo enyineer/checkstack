@@ -16,7 +16,7 @@ import {
   healthcheckSecretMarker,
   isHealthcheckSecretMarker,
 } from "./config-secrets";
-import type { HealthCheckCache } from "./cache";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 
 /**
  * Guards the SEC-1 fix: `createAndAssign` (the first-check wizard / AI propose
@@ -24,12 +24,7 @@ import type { HealthCheckCache } from "./cache";
  * and return a REDACTED config - never persist or echo a plaintext credential.
  */
 
-const passthroughCache: HealthCheckCache = {
-  wrapSystemHealthStatus: (_systemId, loader) => loader(),
-  invalidateSystem: async () => {},
-  invalidateAllSystems: async () => 0,
-  scope: {} as HealthCheckCache["scope"],
-};
+const passthroughCache = createStubHealthCheckCache();
 
 const mockUser = {
   type: "user" as const,

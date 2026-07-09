@@ -1,0 +1,2 @@
+CREATE INDEX "anomalies_open_lookup_idx" ON "anomalies" USING btree ("system_id","configuration_id","environment_id","kind");--> statement-breakpoint
+CREATE INDEX "anomalies_active_started_idx" ON "anomalies" USING btree ("started_at" DESC NULLS LAST) WHERE "anomalies"."suppressed_at" IS NULL;

@@ -1,11 +1,11 @@
 import { describe, it, expect, mock } from "bun:test";
+import { createAuthRouter } from "./router";
 import {
-  createAuthRouter,
   ADMIN_ROLE_ID,
   USERS_ROLE_ID,
   ANONYMOUS_ROLE_ID,
   APPLICATIONS_ROLE_ID,
-} from "./router";
+} from "./role-ids";
 import { createMockRpcContext } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";

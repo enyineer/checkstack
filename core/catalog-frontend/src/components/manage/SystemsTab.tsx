@@ -27,6 +27,10 @@ import { Plus, Server, Edit, Trash2, X, Trash } from "lucide-react";
 import type { Environment, Group, System } from "../../api";
 import { CatalogApi } from "../../api";
 import { AssignMenu } from "./AssignMenu";
+import { CatalogBrowseDataBoundary } from "../browse/CatalogBrowseDataBoundary";
+
+/** Stable empty group-id list: the manage systems table has no group rows. */
+const NO_GROUP_IDS: string[] = [];
 
 export interface SystemsTabProps {
   /** Systems after search/filter. */
@@ -326,45 +330,58 @@ export function SystemsTab(props: SystemsTabProps): React.ReactElement {
         </div>
       )}
 
-      <DataTable
-        data={systems}
-        columns={columns}
-        getRowId={(system) => system.id}
-        searchable={false}
-        defaultSort={{ columnId: "name", direction: "asc" }}
-        getRowProps={(system) => ({ selected: selected.has(system.id) })}
-        noResultsState={
-          <ListEmptyState
-            resource="systems"
-            description="No systems match the current search and filters."
-            actions={
-              <Button variant="outline" onClick={props.onClearFilters}>
-                Clear filters
-              </Button>
-            }
-          />
-        }
-        renderMobileCard={(system) => (
-          <SystemMobileCard
-            system={system}
-            canManage={canAccess(system.id)}
-            lock={getLock({ kind: "System", entityId: system.id })}
-            allGroups={allGroups}
-            allEnvironments={allEnvironments}
-            visibleSystemIds={visibleSystemIds}
-            assignedGroupIds={systemGroupMap.get(system.id) ?? []}
-            assignedEnvIds={systemEnvMap.get(system.id) ?? []}
-            selected={selected.has(system.id)}
-            onToggleSelected={() => toggle(system.id)}
-            onEdit={props.onEditSystem}
-            onDelete={props.onDeleteSystem}
-            onAddToGroup={onAddToGroup}
-            onRemoveFromGroup={onRemoveFromGroup}
-            onAddToEnvironment={onAddToEnvironment}
-            onRemoveFromEnvironment={onRemoveFromEnvironment}
-          />
-        )}
-      />
+      {/*
+       * Reuse catalog's shared badge-data boundary (the same one the browse view
+       * uses) so every per-row SystemStateBadgesSlot contribution - health, SLO,
+       * dependency, notification - reads its data from ONE bulk fetch per
+       * provider instead of firing a per-system query per row (the Health-column
+       * N+1). With no provider plugin installed it renders children unchanged.
+       * The manage table has no group rows, so no group ids are surfaced.
+       */}
+      <CatalogBrowseDataBoundary
+        systemIds={visibleSystemIds}
+        groupIds={NO_GROUP_IDS}
+      >
+        <DataTable
+          data={systems}
+          columns={columns}
+          getRowId={(system) => system.id}
+          searchable={false}
+          defaultSort={{ columnId: "name", direction: "asc" }}
+          getRowProps={(system) => ({ selected: selected.has(system.id) })}
+          noResultsState={
+            <ListEmptyState
+              resource="systems"
+              description="No systems match the current search and filters."
+              actions={
+                <Button variant="outline" onClick={props.onClearFilters}>
+                  Clear filters
+                </Button>
+              }
+            />
+          }
+          renderMobileCard={(system) => (
+            <SystemMobileCard
+              system={system}
+              canManage={canAccess(system.id)}
+              lock={getLock({ kind: "System", entityId: system.id })}
+              allGroups={allGroups}
+              allEnvironments={allEnvironments}
+              visibleSystemIds={visibleSystemIds}
+              assignedGroupIds={systemGroupMap.get(system.id) ?? []}
+              assignedEnvIds={systemEnvMap.get(system.id) ?? []}
+              selected={selected.has(system.id)}
+              onToggleSelected={() => toggle(system.id)}
+              onEdit={props.onEditSystem}
+              onDelete={props.onDeleteSystem}
+              onAddToGroup={onAddToGroup}
+              onRemoveFromGroup={onRemoveFromGroup}
+              onAddToEnvironment={onAddToEnvironment}
+              onRemoveFromEnvironment={onRemoveFromEnvironment}
+            />
+          )}
+        />
+      </CatalogBrowseDataBoundary>
     </div>
   );
 }

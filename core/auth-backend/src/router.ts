@@ -32,6 +32,8 @@ import {
   enrichApplicationPrincipal as resolveApplicationPrincipal,
   resolveAllApplicationAccessRules,
 } from "./utils/user";
+import { RoleMembershipStore } from "./role-membership-store";
+import { type AuthCache, createNoopAuthCache } from "./auth-cache";
 
 /**
  * Type guard to check if user is a RealUser (not a service).
@@ -54,10 +56,12 @@ import {
   MCP_OAUTH_CONFIG_ID,
 } from "./mcp-oauth-config";
 
-export const ADMIN_ROLE_ID = "admin";
-export const USERS_ROLE_ID = "users";
-export const ANONYMOUS_ROLE_ID = "anonymous";
-export const APPLICATIONS_ROLE_ID = "applications";
+import {
+  ADMIN_ROLE_ID,
+  USERS_ROLE_ID,
+  ANONYMOUS_ROLE_ID,
+  APPLICATIONS_ROLE_ID,
+} from "./role-ids";
 
 /**
  * Creates the auth router using contract-based implementation.
@@ -226,7 +230,19 @@ export const createAuthRouter = (
   resourceResolverRegistry?: {
     get(resourceType: string): ResourceResolver | undefined;
   },
+  /**
+   * Shared auth read-path cache. Defaults to a no-op cache (uncached, no-op
+   * invalidation) for test harnesses that don't exercise the role/user caches;
+   * production ALWAYS passes the real {@link createAuthCache}.
+   */
+  authCache: AuthCache = createNoopAuthCache(),
 ) => {
+  // The single sanctioned writer of role / role_access_rule / user_role. Every
+  // mutation of those tables MUST go through this store so the write and its
+  // shared-cache invalidation can never drift apart (enforced by the
+  // `no-direct-role-membership-writes` lint rule).
+  const roleMembershipStore = new RoleMembershipStore(internalDb, authCache);
+
   // Public endpoint for enabled strategies (no authentication required)
   const getEnabledStrategies = os.getEnabledStrategies.handler(async () => {
     const registeredStrategies = strategyRegistry.getStrategies();
@@ -376,8 +392,10 @@ export const createAuthRouter = (
     // Delete user and all related records in a transaction
     // Foreign keys are set to "ON DELETE no action", so we must manually delete related records
     await internalDb.transaction(async (tx) => {
-      // Delete user roles
-      await tx.delete(schema.userRole).where(eq(schema.userRole.userId, id));
+      // Delete user roles (via the store, which owns writes to `user_role`). No
+      // cache broadcast: a deleted user can never authenticate, so a stale
+      // user -> roles entry is never read and expires via the TTL.
+      await roleMembershipStore.deleteUserMemberships({ runner: tx, userId: id });
 
       // Delete sessions
       await tx.delete(schema.session).where(eq(schema.session.userId, id));
@@ -433,24 +451,13 @@ export const createAuthRouter = (
       activeAccessRules.has(p),
     );
 
-    await internalDb.transaction(async (tx) => {
-      // Create role
-      await tx.insert(schema.role).values({
-        id,
-        name,
-        description: description || undefined,
-        isSystem: false,
-      });
-
-      // Create role-access rule mappings
-      if (validAccessRules.length > 0) {
-        await tx.insert(schema.roleAccessRule).values(
-          validAccessRules.map((accessRuleId) => ({
-            roleId: id,
-            accessRuleId,
-          })),
-        );
-      }
+    // The store owns the write (+ any cache invalidation). A brand-new role
+    // cannot be cached yet, so createRole needs no invalidation.
+    await roleMembershipStore.createRole({
+      id,
+      name,
+      description: description || undefined,
+      accessRuleIds: validAccessRules,
     });
   });
 
@@ -598,34 +605,17 @@ export const createAuthRouter = (
       }
     }
 
-    await internalDb.transaction(async (tx) => {
-      // Update role name/description if provided (allowed for ALL roles including system and own roles)
-      if (name !== undefined || description !== undefined) {
-        const updates: { name?: string; description?: string | null } = {};
-        if (name !== undefined) updates.name = name;
-        if (description !== undefined) updates.description = description;
-
-        await tx.update(schema.role).set(updates).where(eq(schema.role.id, id));
-      }
-
-      // Skip access rule changes for admin role (wildcard) or user's own role (prevent access elevation)
-      if (isAdminRole || isUserOwnRole) {
-        return; // Don't modify access rules
-      }
-
-      // Replace access rule mappings for non-admin roles
-      await tx
-        .delete(schema.roleAccessRule)
-        .where(eq(schema.roleAccessRule.roleId, id));
-
-      if (validAccessRules.length > 0) {
-        await tx.insert(schema.roleAccessRule).values(
-          validAccessRules.map((accessRuleId) => ({
-            roleId: id,
-            accessRuleId,
-          })),
-        );
-      }
+    // Persist via the store, which owns the write + shared-cache invalidation
+    // (including the separate anonymous-role entry). Access rules are left
+    // untouched for the admin role (wildcard) and the caller's own role
+    // (prevents self-elevation); passing `undefined` skips the rule replace AND
+    // its invalidation, matching the previous early-return.
+    await roleMembershipStore.updateRole({
+      roleId: id,
+      name,
+      description,
+      replaceAccessRuleIds:
+        isAdminRole || isUserOwnRole ? undefined : validAccessRules,
     });
   });
 
@@ -663,19 +653,10 @@ export const createAuthRouter = (
       });
     }
 
-    // Delete role and related records in transaction
-    await internalDb.transaction(async (tx) => {
-      // Delete role-access-rule mappings
-      await tx
-        .delete(schema.roleAccessRule)
-        .where(eq(schema.roleAccessRule.roleId, id));
-
-      // Delete user-role mappings
-      await tx.delete(schema.userRole).where(eq(schema.userRole.roleId, id));
-
-      // Delete the role itself
-      await tx.delete(schema.role).where(eq(schema.role.id, id));
-    });
+    // The store deletes the role + its rule mappings + its user memberships in
+    // one transaction, then busts both caches (role -> rules for this role, and
+    // the whole user -> roles cache, since the cascade changed many users).
+    await roleMembershipStore.deleteRole({ roleId: id });
   });
 
   const updateUserRoles = os.updateUserRoles.handler(
@@ -698,19 +679,9 @@ export const createAuthRouter = (
         });
       }
 
-      await internalDb.transaction(async (tx) => {
-        await tx
-          .delete(schema.userRole)
-          .where(eq(schema.userRole.userId, userId));
-        if (roles.length > 0) {
-          await tx.insert(schema.userRole).values(
-            roles.map((roleId) => ({
-              userId,
-              roleId,
-            })),
-          );
-        }
-      });
+      // The store replaces the user's roles and busts the cached user -> roles
+      // entry.
+      await roleMembershipStore.setUserRoles({ userId, roleIds: roles });
     },
   );
 
@@ -938,10 +909,12 @@ export const createAuthRouter = (
           updatedAt: now,
         });
 
-        // Assign admin role
-        await tx.insert(schema.userRole).values({
+        // Assign admin role (via the store; a just-created user cannot be
+        // cached yet, so no invalidation).
+        await roleMembershipStore.grantInitialRoles({
+          runner: tx,
           userId,
-          roleId: ADMIN_ROLE_ID,
+          roleIds: [ADMIN_ROLE_ID],
         });
       });
 
@@ -1227,35 +1200,35 @@ export const createAuthRouter = (
         const rolesToAdd = [...validSyncRoleIds].filter(
           (id) => !currentRoleIds.has(id),
         );
+
+        // Remove roles that are managed but user no longer has in directory:
+        // currently has + is managed + NOT in sync roles.
+        const rolesToRemove =
+          managedRoleIds && managedRoleIds.length > 0
+            ? [...currentRoleIds].filter(
+                (id) => managedRoleIds.includes(id) && !syncRoleSet.has(id),
+              )
+            : [];
+
         if (rolesToAdd.length > 0) {
-          await internalDb
-            .insert(schema.userRole)
-            .values(rolesToAdd.map((roleId) => ({ userId, roleId })));
           context.logger.info(
             `Added ${rolesToAdd.length} roles for external user: ${email}`,
           );
         }
-
-        // Remove roles that are managed but user no longer has in directory
-        if (managedRoleIds && managedRoleIds.length > 0) {
-          // Roles to remove: currently has + is managed + NOT in sync roles
-          const rolesToRemove = [...currentRoleIds].filter(
-            (id) => managedRoleIds.includes(id) && !syncRoleSet.has(id),
+        if (rolesToRemove.length > 0) {
+          context.logger.info(
+            `Removed ${rolesToRemove.length} managed roles for external user: ${email}`,
           );
-          if (rolesToRemove.length > 0) {
-            await internalDb
-              .delete(schema.userRole)
-              .where(
-                and(
-                  eq(schema.userRole.userId, userId),
-                  inArray(schema.userRole.roleId, rolesToRemove),
-                ),
-              );
-            context.logger.info(
-              `Removed ${rolesToRemove.length} managed roles for external user: ${email}`,
-            );
-          }
         }
+
+        // The store applies the add/remove in one transaction and, only when
+        // something actually changed (this runs on every external login), busts
+        // the cached user -> roles entry.
+        await roleMembershipStore.syncUserRoles({
+          userId,
+          addRoleIds: rolesToAdd,
+          removeRoleIds: rolesToRemove,
+        });
       }
 
       return { userId, created };
@@ -1410,10 +1383,12 @@ export const createAuthRouter = (
           updatedAt: now,
         });
 
-        // Assign "users" role to new user
-        await tx.insert(schema.userRole).values({
+        // Assign "users" role to new user (via the store; a just-created user
+        // cannot be cached yet, so no invalidation).
+        await roleMembershipStore.grantInitialRoles({
+          runner: tx,
           userId,
-          roleId: USERS_ROLE_ID,
+          roleIds: [USERS_ROLE_ID],
         });
       });
 

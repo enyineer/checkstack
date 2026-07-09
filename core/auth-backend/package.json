@@ -17,6 +17,8 @@
   "dependencies": {
     "@checkstack/auth-common": "workspace:*",
     "@checkstack/backend-api": "workspace:*",
+    "@checkstack/cache-api": "workspace:*",
+    "@checkstack/cache-utils": "workspace:*",
     "@checkstack/notification-common": "workspace:*",
     "@checkstack/command-backend": "workspace:*",
     "better-auth": "^1.6.13",

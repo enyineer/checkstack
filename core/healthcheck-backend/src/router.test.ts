@@ -3,14 +3,9 @@ import { createHealthCheckRouter } from "./router";
 import { createMockRpcContext, Versioned } from "@checkstack/backend-api";
 import { call } from "@orpc/server";
 import { z } from "zod";
-import type { HealthCheckCache } from "./cache";
+import { createStubHealthCheckCache } from "./cache-test-stub";
 
-const passthroughCache: HealthCheckCache = {
-  wrapSystemHealthStatus: (_systemId, loader) => loader(),
-  invalidateSystem: async () => {},
-  invalidateAllSystems: async () => 0,
-  scope: {} as HealthCheckCache["scope"],
-};
+const passthroughCache = createStubHealthCheckCache();
 
 describe("HealthCheck Router", () => {
   const mockUser = {
