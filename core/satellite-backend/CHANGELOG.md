@@ -1,5 +1,25 @@
 # @checkstack/satellite-backend
 
+## 0.8.5
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/healthcheck-backend@1.20.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/script-packages-backend@0.4.2
+  - @checkstack/secrets-backend@0.3.5
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/satellite-common@0.9.5
+
 ## 0.8.4
 
 ### Patch Changes

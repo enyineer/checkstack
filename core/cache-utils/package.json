@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/cache-utils",
-  "version": "0.2.24",
+  "version": "0.3.0",
   "license": "Elastic-2.0",
   "checkstack": {
     "type": "tooling"

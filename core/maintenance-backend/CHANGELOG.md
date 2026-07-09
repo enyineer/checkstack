@@ -1,5 +1,74 @@
 # @checkstack/maintenance-backend
 
+## 1.11.0
+
+### Minor Changes
+
+- bd41130: perf(maintenance): add indexes for per-system reverse lookup and update timelines
+
+  Add two Postgres indexes to speed up hot read paths:
+
+  - `maintenance_systems_system_idx` on `maintenance_systems (system_id)` -
+    serves the reverse lookup (`getMaintenancesForSystem`) and per-system render
+    fan-out. The junction primary key leads with the maintenance id, so a lookup
+    by system had no usable index before.
+  - `maintenance_updates_maintenance_created_idx` on
+    `maintenance_updates (maintenance_id, created_at)` - serves status derivation
+    (`ORDER BY created_at DESC LIMIT 1`) and the bulk timeline fetch, both keyed
+    on the maintenance id.
+
+- bd41130: fix(status-page): scope email subscriptions to published environments and author-selected systems
+
+  Two correctness fixes to status-page email subscriptions:
+
+  - **Health notifications now respect the page's published environments.** A
+    per-environment health transition carries the environment it happened in
+    (`originEnvironmentId`, threaded through `notifyForSubscription` ->
+    `NotificationAudienceEvent` -> the status-page fan-out). A page that publishes
+    a specific environment set is now skipped for a change in an environment it
+    does not publish - so a `development` failure never emails a prod-only page's
+    subscribers, even for a system that is also shown in prod. Pages publishing all
+    environments, and env-less sources (incident, maintenance, whole-system health
+    rollup), are unaffected.
+  - **Notifications are scoped per category to the widgets the author placed.** The
+    send-time fan-out now surfaces a notification only through widgets of its own
+    category: a health status change reaches a page only through a HEALTH widget
+    (`banner` / `systemHealth` / `groupStatus` / `uptime`, which now implement
+    `resolveScopedSystems` and declare `subscriptionCategory: "health"`), an
+    incident only through an incident widget, and so on. A page that lists a
+    system's incidents but never its health no longer emails health subscribers
+    about it, and a health-only page now correctly surfaces its systems for
+    subscription. Health widgets also participate in the public subscribe picker.
+
+  BREAKING CHANGE: on a page publishing a specific environment set, health
+  subscribers now only receive changes that occurred in a published environment
+  (previously any environment of a surfaced system triggered a notification), and a
+  notification is surfaced only by a widget of its own category (previously any
+  scoping widget on the page could surface any category). Legacy subscribers (NULL
+  categories) and all-environment pages are unchanged; no data migration is needed.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/catalog-backend@1.8.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/status-page-backend@0.6.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/maintenance-common@1.10.1
+  - @checkstack/status-page-common@0.6.1
+
 ## 1.10.0
 
 ### Minor Changes

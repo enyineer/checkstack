@@ -1,5 +1,14 @@
 # @checkstack/anomaly-common
 
+## 1.7.2
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+
 ## 1.7.1
 
 ### Patch Changes

@@ -1,5 +1,37 @@
 # @checkstack/anomaly-backend
 
+## 1.5.0
+
+### Minor Changes
+
+- bd41130: perf(anomaly): add two Postgres indexes to the `anomalies` table for its hottest read paths.
+
+  - `anomalies_open_lookup_idx` on (system_id, configuration_id, environment_id, kind): serves the inline detector's per-run open-row lookup, which runs once per health-check run and is the hottest anomaly path.
+  - `anomalies_active_started_idx`, a partial index on (started_at DESC) WHERE suppressed_at IS NULL: serves the dashboard active-signal scan, which previously full-scanned the table.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/catalog-backend@1.8.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/healthcheck-backend@1.20.0
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/anomaly-common@1.7.2
+
 ## 1.4.8
 
 ### Patch Changes

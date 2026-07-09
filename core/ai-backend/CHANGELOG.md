@@ -1,5 +1,29 @@
 # @checkstack/ai-backend
 
+## 0.10.11
+
+### Patch Changes
+
+- bd41130: docs(ai): regenerate the docs search index for the cache-system architecture updates
+
+  The `cache-system` developer-guide page now documents the shipped Redis backend
+  and a "Distributed caching and horizontal scale" section (why the platform
+  caches use the shared `CacheManager` instead of pod-local caches, and that a
+  horizontally-scaled deployment must select a distributed backend). Regenerated
+  `core/ai-backend/src/generated/docs-index.ts` so the assistant's docs search
+  reflects the new content.
+
+- bd41130: Regenerate the docs search index for the status-pages architecture page (which
+  now documents the per-category and per-environment-origin gates on status-page
+  email subscription fan-out) and the frontend extension-points page (the catalog
+  badge-data boundary is now used by the management systems table too).
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/integration-backend@0.7.5
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/sdk@0.128.1
+
 ## 0.10.10
 
 ### Patch Changes

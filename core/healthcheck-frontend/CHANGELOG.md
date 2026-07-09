@@ -1,5 +1,39 @@
 # @checkstack/healthcheck-frontend
 
+## 0.35.1
+
+### Patch Changes
+
+- b80160a: perf(healthcheck): batch the system-access gate in the catalog "Health Checks"
+  action so it no longer N+1s per row
+
+  `SystemHealthCheckAssignment` (contributed once per system row to the catalog
+  `CatalogSystemActionsSlot`) gated its button with
+  `useResourceAccess({ resourceIds: [systemId] })` - a single id per row. Each
+  row's query key differed, so React Query could not dedupe them and N systems
+  fired N separate `listMyAccessibleResources` requests on every catalog-manager
+  render. It now passes the `visibleSystemIds` it already receives (the whole
+  visible list), so every row's identical-input query dedupes to ONE request and
+  the row still gates on `canAccess(systemId)` - the exact pattern the same file's
+  `getBulkAssignedHealthCheckCounts` counts query already uses.
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+  - @checkstack/ui@1.26.1
+  - @checkstack/catalog-frontend@0.19.0
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/auth-frontend@0.13.2
+  - @checkstack/dashboard-frontend@0.10.7
+  - @checkstack/gitops-frontend@0.7.3
+  - @checkstack/script-packages-frontend@0.4.12
+  - @checkstack/secrets-frontend@0.3.11
+  - @checkstack/tips-frontend@0.4.12
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/anomaly-common@1.7.2
+  - @checkstack/satellite-common@0.9.5
+
 ## 0.35.0
 
 ### Minor Changes

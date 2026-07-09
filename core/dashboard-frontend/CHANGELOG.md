@@ -1,5 +1,25 @@
 # @checkstack/dashboard-frontend
 
+## 0.10.7
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+- Updated dependencies [bd41130]
+  - @checkstack/ui@1.26.1
+  - @checkstack/catalog-frontend@0.19.0
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/command-frontend@0.5.9
+  - @checkstack/queue-frontend@0.7.3
+  - @checkstack/tips-frontend@0.4.12
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/incident-common@1.10.1
+  - @checkstack/maintenance-common@1.10.1
+
 ## 0.10.6
 
 ### Patch Changes

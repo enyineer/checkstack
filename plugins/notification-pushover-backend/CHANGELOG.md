@@ -1,5 +1,15 @@
 # @checkstack/notification-pushover-backend
 
+## 0.1.65
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/notification-backend@1.8.0
+
 ## 0.1.64
 
 ### Patch Changes

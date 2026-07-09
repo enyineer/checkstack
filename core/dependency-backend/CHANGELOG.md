@@ -1,5 +1,49 @@
 # @checkstack/dependency-backend
 
+## 1.7.0
+
+### Minor Changes
+
+- bd41130: perf(dependency): add indexes on dependency edge and rule lookups
+
+  Add two Postgres indexes to speed up hot dependency-graph queries fired on
+  every health-state change:
+
+  - `dependency_health_check_rules_dependency_idx` on
+    `dependency_health_check_rules(dependency_id)` - serves the
+    `inArray(dependency_id, ids)` FK filter behind every getDependencies /
+    getAllDependencies (topology and warning builds).
+  - `dependencies_target_system_idx` on `dependencies(target_system_id)` -
+    serves the downstream branch `eq(target_system_id, systemId)`
+    (getDownstreamSystemIds on every degrade/recover). The existing
+    `uq_dependency_edge` unique only covers the source_system_id direction, so
+    this plain index is added alongside it.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/catalog-backend@1.8.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/healthcheck-backend@1.20.0
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/dependency-common@1.7.3
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/incident-common@1.10.1
+  - @checkstack/maintenance-common@1.10.1
+
 ## 1.6.2
 
 ### Patch Changes

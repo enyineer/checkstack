@@ -1,5 +1,22 @@
 # @checkstack/anomaly-frontend
 
+## 0.6.9
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+- Updated dependencies [b80160a]
+- Updated dependencies [bd41130]
+  - @checkstack/ui@1.26.1
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/healthcheck-frontend@0.35.1
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/notification-frontend@0.9.1
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/anomaly-common@1.7.2
+
 ## 0.6.8
 
 ### Patch Changes

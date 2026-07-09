@@ -1,5 +1,15 @@
 # @checkstack/healthcheck-common
 
+## 1.16.1
+
+### Patch Changes
+
+- Updated dependencies [b80160a]
+- Updated dependencies [bd41130]
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/catalog-common@2.7.1
+
 ## 1.16.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @checkstack/healthcheck-ssh-backend
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/healthcheck-common@1.16.1
+
 ## 0.5.0
 
 ### Minor Changes

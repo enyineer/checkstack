@@ -1,5 +1,16 @@
 # @checkstack/test-utils-backend
 
+## 0.1.57
+
+### Patch Changes
+
+- bd41130: Add a `lockPool` to `createMockDbModule()`, mirroring the real `db` module's
+  advisory-lock pool. `connect()` yields a client the advisory-lock service can
+  drive (`query`/`release`/`on`/`off`), so a rotation critical section that runs
+  through the default KeyStore no longer crashes under the mock DB.
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+
 ## 0.1.56
 
 ### Patch Changes

@@ -1,5 +1,59 @@
 # @checkstack/status-page-backend
 
+## 0.6.0
+
+### Minor Changes
+
+- bd41130: fix(status-page): scope email subscriptions to published environments and author-selected systems
+
+  Two correctness fixes to status-page email subscriptions:
+
+  - **Health notifications now respect the page's published environments.** A
+    per-environment health transition carries the environment it happened in
+    (`originEnvironmentId`, threaded through `notifyForSubscription` ->
+    `NotificationAudienceEvent` -> the status-page fan-out). A page that publishes
+    a specific environment set is now skipped for a change in an environment it
+    does not publish - so a `development` failure never emails a prod-only page's
+    subscribers, even for a system that is also shown in prod. Pages publishing all
+    environments, and env-less sources (incident, maintenance, whole-system health
+    rollup), are unaffected.
+  - **Notifications are scoped per category to the widgets the author placed.** The
+    send-time fan-out now surfaces a notification only through widgets of its own
+    category: a health status change reaches a page only through a HEALTH widget
+    (`banner` / `systemHealth` / `groupStatus` / `uptime`, which now implement
+    `resolveScopedSystems` and declare `subscriptionCategory: "health"`), an
+    incident only through an incident widget, and so on. A page that lists a
+    system's incidents but never its health no longer emails health subscribers
+    about it, and a health-only page now correctly surfaces its systems for
+    subscription. Health widgets also participate in the public subscribe picker.
+
+  BREAKING CHANGE: on a page publishing a specific environment set, health
+  subscribers now only receive changes that occurred in a published environment
+  (previously any environment of a surfaced system triggered a notification), and a
+  notification is surfaced only by a widget of its own category (previously any
+  scoping widget on the page could surface any category). Legacy subscribers (NULL
+  categories) and all-environment pages are unchanged; no data migration is needed.
+
+- bd41130: perf(status-page): add composite index `status_page_subscribers_page_verified_idx` on (status_page_id, verified)
+
+  Serves the verified-subscriber email fan-out query
+  `WHERE status_page_id = ? AND verified = true`, run once per surfaced page per
+  incident/maintenance/health event. The existing plain
+  `status_page_subscribers_page_idx` on (status_page_id) left `verified` as a heap
+  filter; the composite index covers both predicates. The plain index is retained
+  (migrations are append-only).
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/notification-backend@1.8.0
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/status-page-common@0.6.1
+
 ## 0.5.0
 
 ### Minor Changes

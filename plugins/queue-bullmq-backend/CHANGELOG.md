@@ -1,5 +1,16 @@
 # @checkstack/queue-bullmq-backend
 
+## 0.5.8
+
+### Patch Changes
+
+- bd41130: Remove the unused `ioredis-mock` devDependency. It was declared but never
+  imported (the queue tests mock the `bullmq` module directly and the recurring-job
+  suite runs against a real Redis), so dropping it sheds the `fengari` Lua-VM
+  transitive surface it pulled in with no change to the package's behavior.
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+
 ## 0.5.7
 
 ### Patch Changes

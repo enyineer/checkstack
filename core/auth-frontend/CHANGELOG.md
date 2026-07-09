@@ -1,5 +1,20 @@
 # @checkstack/auth-frontend
 
+## 0.13.2
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+  - @checkstack/ui@1.26.1
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/incident-common@1.10.1
+  - @checkstack/maintenance-common@1.10.1
+
 ## 0.13.1
 
 ### Patch Changes
