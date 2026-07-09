@@ -36,11 +36,16 @@ export const SystemHealthCheckAssignment: React.FC<Props> = ({
     healthCheckAccess.configuration.manage,
   );
   // Assigning health checks to a system requires MANAGE on the target system
-  // (enforced backend-side by `associateSystem` / `createAndAssign`).
+  // (enforced backend-side by `associateSystem` / `createAndAssign`). Resolve the
+  // manageable subset for the WHOLE visible list in ONE request: every row passes
+  // the same `visibleSystemIds`, so these identical-input queries dedupe to a
+  // single `listMyAccessibleResources` call (same pattern as the counts query
+  // below), instead of one per-row single-id query. `canManageSystem(systemId)`
+  // then checks THIS row against that batched set.
   const { canAccess: canManageSystem } = accessApi.useResourceAccess({
     accessRule: catalogAccess.system.manage,
     objectType: catalogResourceTypes.system,
-    resourceIds: [systemId],
+    resourceIds: visibleSystemIds,
   });
   const navigate = useNavigate();
 

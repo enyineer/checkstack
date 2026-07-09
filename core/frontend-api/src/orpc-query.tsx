@@ -288,6 +288,51 @@ type WrappedClient<TContract extends AnyContractRouter, TClient> = {
  * };
  * ```
  */
+/**
+ * Cross-instance cache of wrapped plugin clients, keyed on the STABLE
+ * `pluginUtils` object (one per provider+plugin) and then the contract.
+ *
+ * `wrapPluginUtils` walks a plugin's ENTIRE contract and allocates a
+ * hook-wrapper closure per procedure (the AuthApi contract alone is ~80
+ * procedures). Memoizing that inside {@link usePluginClient} makes it cheap on
+ * re-render, but NOT across component instances: a page that gates many rows on
+ * auth (e.g. the catalog manager, where every system row mounts several
+ * auth-gated badges/actions) would otherwise rebuild the whole wrapper once per
+ * instance - hundreds of throwaway closures per navigation, a real main-thread
+ * GC storm. The wrappers are render-agnostic (their methods call React hooks at
+ * CALL time and close over only stable values), so the wrapped object is a pure
+ * function of `(pluginUtils, contract)` and safe to build ONCE and share. A
+ * WeakMap keyed on `pluginUtils` lets the whole cache fall away automatically
+ * when the provider re-creates its utils (new rpc client).
+ */
+const wrappedClientCache = new WeakMap<
+  object,
+  WeakMap<object, Record<string, unknown>>
+>();
+
+/**
+ * Return the shared wrapped client for `(pluginUtils, contract)`, building it
+ * once and reusing it for every subsequent caller. Exported for unit testing;
+ * production code reaches it through {@link usePluginClient}.
+ */
+export function getOrBuildWrappedClient(
+  pluginUtils: Record<string, unknown>,
+  contract: Record<string, unknown>,
+  pluginId: string,
+): Record<string, unknown> {
+  let byContract = wrappedClientCache.get(pluginUtils);
+  if (!byContract) {
+    byContract = new WeakMap();
+    wrappedClientCache.set(pluginUtils, byContract);
+  }
+  let wrapped = byContract.get(contract);
+  if (!wrapped) {
+    wrapped = wrapPluginUtils(pluginUtils, contract, pluginId);
+    byContract.set(contract, wrapped);
+  }
+  return wrapped;
+}
+
 export function usePluginClient<T extends ClientDefinition>(
   definition: T,
 ): WrappedClient<NonNullable<T["__contractType"]>, InferClient<T>> {
@@ -307,8 +352,11 @@ export function usePluginClient<T extends ClientDefinition>(
   // Get contract for operationType checking
   const contract = definition.contract as Record<string, unknown>;
 
+  // Shared across every instance (see wrappedClientCache): the useMemo keeps the
+  // reference stable per render; the cache keeps it stable ACROSS instances so a
+  // gate-heavy page doesn't rebuild the whole wrapper per row.
   return useMemo(() => {
-    return wrapPluginUtils(pluginUtils, contract, definition.pluginId);
+    return getOrBuildWrappedClient(pluginUtils, contract, definition.pluginId);
   }, [pluginUtils, contract, definition.pluginId]) as WrappedClient<
     NonNullable<T["__contractType"]>,
     InferClient<T>
