@@ -1,5 +1,185 @@
 # @checkstack/status-page-backend
 
+## 0.5.0
+
+### Minor Changes
+
+- 43e4484: Status pages can now publish only a subset of catalog environments. The page
+  builder gains a "Published environments" picker (empty = all environments, the
+  backward-compatible default). When a non-empty set is selected, the page omits
+  status, incidents, maintenances and uptime for systems that belong to none of
+  the selected environments.
+
+  - Status pages store an optional `publishedEnvironmentIds` set (new nullable
+    `published_environment_ids` column; NULL = all environments, so existing pages
+    are unchanged) exposed on `StatusPage`, `createStatusPage`, and
+    `updateStatusPage`.
+  - The scope is threaded onto `WidgetResolveContext.publishedEnvironmentIds` as
+    opaque strings and passed identically to `resolvePublic`,
+    `resolveScopedSystems`, and `resolveScopedSystemsDetailed` (and the email
+    subscribe clamp + fan-out), so what a page shows, offers for subscription, and
+    emails about all agree.
+  - Health widgets recompute per environment: they read the per-environment health
+    matrix and roll up only the selected environments. `getBulkRunStats` and
+    `getRunStats` gain an optional `environmentIds` filter so uptime counts only
+    runs recorded in the selected environments.
+  - Incident and maintenance widgets filter their feed and scope by intersecting
+    each item's affected systems with the environment-visible systems. Incidents
+    and maintenance windows carry no environment of their own, so a system in
+    several environments makes its items visible on a page publishing ANY of them
+    (the multi-environment caveat).
+
+- 43e4484: Granular status-page email subscriptions: subscribers now choose WHICH update
+  categories (Incidents, Scheduled maintenance, Health & status changes) and WHICH
+  systems (all systems on the page, or a chosen subset) they receive, instead of
+  the previous all-or-nothing fan-out.
+
+  - New subscriptions default to incidents + maintenance (health OFF) and all
+    systems. Legacy subscribers (NULL scope) keep receiving everything, so the
+    change is fully backward compatible.
+  - The subscribe endpoint clamps invalid categories and systems not surfaced by
+    the page silently, preserving its constant, non-enumerable response.
+  - Send-time fan-out (`notifyForSystems`) now honors each subscriber's category
+    scope (derived from the notification's source plugin: incident -> incident,
+    maintenance -> maintenance, healthcheck -> health) and system scope, on top of
+    the existing page-scope privacy boundary.
+  - The public subscribe form gains category checkboxes and an all/selected system
+    chooser; the admin subscriber list shows each subscriber's scope. The public
+    read exposes the page's subscribable systems, resolved from the same live scope
+    source the fan-out uses so the picker can never offer a hidden system.
+
+  Adds a nullable `categories` / `system_ids` column to `status_page_subscribers`
+  (forward-only migration; existing rows stay NULL = "everything").
+
+  Docs: updated the notifications subscriptions guide and the status-pages
+  architecture page to describe per-subscription category + system scope.
+
+- 43e4484: Status page enhancements:
+
+  - Group-status widget can collapse its member rows while every member is
+    operational (auto-expanding on any issue or maintenance).
+  - New "Announcements" status-page widget, contributed fully externally by the
+    announcement plugin: it surfaces active `visibility: "all"` announcements
+    through a public-safe DTO (title/message/severity/timestamps only) and never
+    affects the page status rollup.
+  - Incident and maintenance widgets can scope by catalog GROUPS with per-system
+    exceptions. Scope is resolved at read time (`(systemIds ∪ members(groupIds)) −
+excludedSystemIds`), so members added to a group later are reflected
+    automatically. The builder gets a nested group/system picker.
+  - Incident and maintenance items on a public page link to dedicated public
+    detail pages, gated server-side to items the page's published widgets actually
+    surface (no enumeration, no internal-field leak). The custom-domain public
+    bundle gains a minimal in-memory router for the two detail pages.
+  - Fix the custom-domain "Cannot connect to Checkstack backend" screen: a
+    configured-but-not-servable custom domain now serves the lean public
+    "not available" page instead of the admin shell; the public bundle skips the
+    cross-origin `/api/config` probe; CORS admits resolved custom domains; the
+    request origin is normalized for proxy scheme/port variance; and re-saving an
+    unchanged custom domain no longer clears its verification.
+  - Anonymous email subscriptions (double opt-in) for incident updates, opt-in per
+    status page (`emailSubscriptionsEnabled`, default off): a new
+    `status_page_subscribers` table, public subscribe/verify/unsubscribe
+    procedures with constant-time responses that fail closed when the page has not
+    enabled subscriptions, and team-scoped admin list/remove + an enable toggle in
+    the builder. Emails are delivered through a new `sendRawEmail` primitive in
+    notification-backend that sends to an arbitrary external address (no auth
+    account) via every enabled email strategy (SMTP), with a mandatory unsubscribe
+    link.
+  - Incident/maintenance update fan-out to subscribers via a new
+    `notificationAudienceExtensionPoint` in notification-backend. Every
+    notification funnelled through `notifyForSubscription` (incident, maintenance,
+    health - all unchanged) now also invokes each registered audience sink exactly
+    once, enriched with the affected systems and their catalog groups (resolved
+    from notification-backend's own resource-parent graph, never a domain import).
+    status-page-backend contributes a sink that, AT SEND TIME, matches each
+    notification's affected systems against the systems each published + public +
+    email-enabled page currently surfaces in its incident/maintenance widgets
+    (honoring group membership and per-system exclusions) and emails that page's
+    verified subscribers. Send-time scoping against the live layout is the privacy
+    boundary: a page only ever emails about systems its widgets surface right now.
+    Because `notifyForSubscription` is a single-pod point RPC, each notification
+    fans out exactly once cluster-wide.
+  - Subscriber reconcile on page deletion: the subscriber FK is `ON DELETE
+CASCADE` and page deletion also explicitly purges subscribers (invalidating
+    pending verify/unsubscribe tokens) - no orphan rows, no post-deletion send.
+    Removing all systems from a page or disabling email is intentionally NOT a
+    prune: send-time scoping plus the email-enabled gate make those subscribers
+    dormant with no data loss, and re-enabling restores the audience without a
+    re-subscribe.
+  - Send-time scoping is single-source: the fan-out asks each event-feed widget for
+    its CURRENT effective system scope (the same live catalog group expansion the
+    widget renders from) instead of a parallel copy of group membership, so it can
+    never over- or under-deliver relative to what the page shows.
+  - `sendRawEmail` in notification-backend is now `userType: "service"` (was an
+    authenticated procedure gated on `notification.send`). Sending to an arbitrary
+    address is an open-relay / email-bomb primitive, so it is callable only by a
+    trusted backend-to-backend caller (the status-page subscriber mailer), never by
+    an end user.
+  - Incident/maintenance widgets gain an optional per-system PUBLIC label override
+    (`systemLabels`), the same override path the system-health widget uses, so the
+    public incident/maintenance detail pages present clean labels instead of raw
+    catalog names.
+  - The anonymous subscribe endpoint adds a coarse per-page quota (max new
+    subscribers per rolling hour, counted over durable rows so it holds across
+    pods) on top of the per-(page,email) cooldown, capping verification-email
+    amplification. The quota is CONFIGURABLE per status page (new nullable
+    `email_subscribers_hourly_quota` column; null uses the default of 50, so
+    existing pages are unchanged), validated as a positive integer up to 5000,
+    editable in the builder next to the email opt-in toggle and gated by the same
+    page-manage capability.
+  - Email verification is now per-page configurable and backed by a platform-global
+    once-per-address registry:
+    - New `email_verification_required` column (boolean, default true) on
+      `status_pages`, exposed on the admin StatusPage DTO + `updateStatusPage`
+      input (same page-manage gate) with a builder toggle. When OFF, a new
+      subscriber is created active immediately - no verification email, and the
+      address is NOT written to the global registry (the operator's trust choice
+      for e.g. an internal page).
+    - New `status_page_verified_emails` table: one row per normalized address that
+      has completed verification on ANY page. When a verification-required page is
+      subscribed by an already-globally-verified address, the row is created active
+      immediately and a COURTESY email (with one-click unsubscribe) is sent instead
+      of a verification email, so a malicious add is always caught. `verify` upserts
+      the address into this registry and activates every other pending row for the
+      same address in one update (confirm once, all pages).
+    - Fan-out is unchanged: it still gates on the per-row `verified` flag; the
+      registry only governs whether a NEW subscribe short-circuits to active.
+
+  BREAKING CHANGE: `sendRawEmail` is now service-only. Any (non-existent in-tree)
+  authenticated caller must invoke it through a trusted service client instead.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- 43e4484: Batch hot-path scoped-db reads/writes into single transactions to cut per-query round-trips.
+
+  The scoped-db proxy wraps every standalone query in its own `BEGIN → SET LOCAL search_path → query → COMMIT`, so a path issuing N sequential queries paid N round-trips and checked out a connection N times. These reads/writes now run under one `withScopedTransaction`, collapsing the batch to a single `SET LOCAL` on one connection. Behavior is unchanged:
+
+  - healthcheck: `getSystemHealthOverview`'s `1 + N·(2+E)` read fan-out.
+  - incident/maintenance: `getIncident`/`getMaintenance` (4 reads), `getManyEntityStates`, `listOpenIncidentsBySystem` / `getActiveMaintenancesBySystem`, `getMaintenanceWindowsForRange`; the `list*` / `*ForSystem` per-row `N+1` system lookups collapsed to a single set-based `inArray` read; maintenance `transitionStatus` update+insert made atomic; `addUpdate`/`editUpdate`/`addLink` use `.returning()` instead of a follow-up re-select.
+  - ai: `appendMessage`, memory `saveOrUpdate`.
+  - notification: `resolveInheritedGroups`.
+  - status-page: subscriber `verify` (4 reads) and `unsubscribe` (3 reads).
+  - announcement: `getActiveAnnouncements` / `dismissAnnouncement` / `createAnnouncement`.
+  - gitops: `upsertProvenance`.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/notification-backend@1.7.0
+  - @checkstack/status-page-common@0.6.0
+  - @checkstack/command-backend@0.2.22
+
 ## 0.4.8
 
 ### Patch Changes

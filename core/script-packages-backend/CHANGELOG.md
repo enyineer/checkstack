@@ -1,5 +1,21 @@
 # @checkstack/script-packages-backend
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/secrets-backend@0.3.4
+  - @checkstack/sdk@0.127.1
+  - @checkstack/command-backend@0.2.22
+
 ## 0.4.0
 
 ### Minor Changes

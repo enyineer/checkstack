@@ -1,5 +1,48 @@
 # @checkstack/dashboard-frontend
 
+## 0.10.6
+
+### Patch Changes
+
+- 43e4484: Catalog browse view: wrap rows in the bulk badge-data provider so
+  health/incident/maintenance badges stop fetching per-row (performance-only,
+  behavior unchanged).
+
+  dashboard-frontend now fills catalog's `CatalogBrowseDataBoundarySlot` with an
+  eager filler that wraps the boundary's `children` (the whole browse tree) in its
+  existing `SystemBadgeDataProvider`, keyed on the visible `systemIds`. The
+  per-row `SystemHealthBadge` / `SystemIncidentBadge` / `SystemMaintenanceBadge`
+  already read `useSystemBadgeDataOptional()` and now resolve from that bulk
+  context instead of each issuing a singular per-system RPC, eliminating the
+  browse view's N+1. All cross-plugin coupling lives on the filler side; catalog
+  gains no new dependency.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/catalog-frontend@0.18.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/incident-common@1.10.0
+  - @checkstack/maintenance-common@1.10.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/command-frontend@0.5.8
+  - @checkstack/queue-frontend@0.7.2
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.10.5
 
 ### Patch Changes

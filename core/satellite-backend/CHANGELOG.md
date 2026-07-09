@@ -1,5 +1,31 @@
 # @checkstack/satellite-backend
 
+## 0.8.4
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/automation-backend@0.11.1
+  - @checkstack/healthcheck-backend@1.19.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/backend-api@0.31.1
+  - @checkstack/gitops-backend@0.5.22
+  - @checkstack/secrets-backend@0.3.4
+  - @checkstack/satellite-common@0.9.4
+  - @checkstack/command-backend@0.2.22
+  - @checkstack/script-packages-backend@0.4.1
+
 ## 0.8.3
 
 ### Patch Changes

@@ -1,5 +1,175 @@
 # @checkstack/healthcheck-frontend
 
+## 0.35.0
+
+### Minor Changes
+
+- 43e4484: Fix an N+1 in the catalog manager: the per-system "Health Checks" count badge
+  fired one `getSystemAssociations` request per system row, each holding a pooled
+  Postgres connection that contended with the background health-check run
+  executor and could exhaust the pool on large catalogs.
+
+  - Add `getBulkAssignedHealthCheckCounts({ systemIds })` to healthcheck, which
+    returns per-system assignment counts (0 for systems with no assignments) from
+    ONE grouped `COUNT(*) ... GROUP BY system_id` query. Read authorization
+    matches the per-system endpoint it replaces (`configuration.read` +
+    `catalog.system` read via `recordKey`), so a team-scoped user only sees counts
+    for systems they may read.
+  - `CatalogSystemActionsSlot` now passes `visibleSystemIds` (every system id in
+    the row's list) so a per-row filler can bulk-fetch for the whole visible set
+    in a single deduped request instead of one request per row. This mirrors how
+    `CatalogBrowseHealthSlot` / `SystemSignalsSlot` already pass `systemIds`.
+  - The health-check count badge now reads its count from that one deduped bulk
+    query. N visible rows cause 1 request instead of N.
+
+  State & scale: the counts are derived on read from the shared
+  `system_health_checks` table, so every pod returns the same answer; no
+  process-local or duplicated state is introduced.
+
+- 43e4484: Extend `{{ … }}` environment templating across every built-in health-check type
+  and add editor UX for it, so one check config can cover N environments (mirrors
+  the existing HTTP `url` pattern).
+
+  Templatable connection/target fields now marked `x-templatable`:
+
+  - TLS: `host`, `servername`; TCP: `host`; Ping: `host`; gRPC: `host`, `service`.
+  - MySQL / Postgres: `host`, `database`, `user`, `query`.
+  - SSH: `host`, `username`, `command`; Redis: `host`, `args`; RCON: `host`,
+    `command`.
+  - DNS: `hostname`, `nameserver`; Jenkins: `url` (`baseUrl`), `jobName`;
+    Container: `endpoint`, `container`.
+  - SNMP: `host` (strategy), `oid` (collector).
+  - Script (shell): `cwd` (working directory).
+
+  This closes the last gaps so the coverage is now truly every built-in
+  health-check type. The Script collectors' `script` bodies are deliberately NOT
+  templatable: rendering `{{ … }}` into shell/TypeScript source would splice env
+  values into executed code. Per-environment data reaches those scripts safely via
+  the reserved `CHECKSTACK_ENV_*` shell vars (shell collector) and
+  `globalThis.context.environment` (inline collector) instead.
+
+  Because templating strips `{{ }}` and renders an undefined variable to an empty
+  string, every REQUIRED templatable field now has a post-render config-error
+  guard so an empty/invalid render is treated as a transport failure instead of a
+  silent "healthy" empty probe. Strategy connection fields (host, database, user,
+  endpoint, container, Jenkins base URL, SNMP host) throw from `createClient`;
+  collector target fields (query, command, hostname, jobName, SNMP oid) return a
+  `CollectorResult` with an `error`. Jenkins `baseUrl` moves its `.url()` validation to post-render.
+  Secret fields (passwords/tokens/keys) are never templatable; optional fields
+  (SNI `servername`, gRPC `service`, DNS `nameserver`, Redis `args`, Script `cwd`)
+  are templatable but not non-empty-guarded, since an empty render is a legitimate
+  "unset". SSRF/egress guards continue to run on the rendered host (rendering
+  happens before `createClient`).
+
+  Editor UX (`@checkstack/ui` + `@checkstack/healthcheck-frontend`):
+
+  - The environment "Preview as" picker + live preview line now also apply to the
+    strategy (connection) form, not just collector forms, so host/port templates
+    preview too.
+  - A single-line templatable field shows a small "Templating" badge next to its
+    label and, when a completion provider is supplied, renders a
+    `TemplateValueInput` with `{{ … }}` autocomplete. The health-check editor
+    seeds the provider with the fixed `environment.* / check.* / system.*`
+    namespace (`createReferenceCompletionProvider`, new `@checkstack/ui` export),
+    and `DynamicForm` gains a `templatableFieldsOnly` prop so only `x-templatable`
+    fields become template inputs (automation keeps templating every string field).
+
+  BREAKING CHANGE: none. Existing non-templatable configs and stored values are
+  unaffected; only fields explicitly marked `x-templatable` change behavior.
+
+  The `@checkstack/ai-backend` bump reflects the regenerated docs index for the
+  updated health-check collector and config-schema templating documentation.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- 43e4484: Fix a console 400 when creating a new health check: the IDE config plugin slots
+  (e.g. the Anomaly "Template Anomaly Defaults" panel) mounted on the `"new"` route
+  sentinel and fired parent-scoped queries (`getAnomalyConfig` /
+  `getConfiguration`) with a non-existent id. The truthy `"new"` sentinel is now
+  collapsed to `undefined`, so those slots do not mount and every
+  `enabled: !!configurationId` guard works until the check is first saved. The
+  Anomaly Defaults tab still appears immediately after the first save.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: fix(healthcheck): disabling an environment for an assignment now clears its stale slice from the rollup and overview immediately
+
+  Disabling an environment for a health-check assignment (removing it from the
+  assignment's `environmentIds`) stopped that environment from fanning out, but a
+  check that was FAILING there kept dragging the system health rollup/badge to
+  unhealthy and kept showing as a live failing row in the system overview. Because
+  the rollup is recomputed by an event-driven consumer subscribed to per-env health
+  CHANGES, and a disabled env produces no further runs (so no change event fires),
+  the stale unhealthy status was never recomputed away - it only cleared
+  incidentally, once the disabled env's runs aged out of the bounded run window
+  (which needs the assignment's OTHER active environments to produce enough newer
+  runs first). With a single active/failing env, it could persist until retention.
+
+  Scope: this reconciles environments DISABLED/removed ON THE ASSIGNMENT (its
+  `systemHealthChecks.environmentIds` selector - switching to Specific and
+  deselecting, or None).
+
+  Fixes:
+
+  - The rollup aggregation (`getSystemHealthStatus`) and the per-check status in
+    `getSystemHealthOverview` now consider only CURRENTLY-EFFECTIVE environment
+    slices, derived from the durable `systemHealthChecks.environmentIds` selector
+    (catalog-free, identical on every pod). A slice whose environment was disabled
+    for the assignment, or the stale env-less slice of a check that now fans out,
+    no longer contributes.
+
+  Known limitation: under an "all-environments" assignment (`environmentIds` is
+  `null`), an environment removed only from the system's CATALOG MEMBERSHIP (rather
+  than disabled on the assignment) can still contribute to the backend rollup/badge
+  until the assignment is re-evaluated, because the rollup read path is
+  intentionally catalog-free for horizontal-scale correctness (it must return the
+  same answer on every pod without a per-read catalog lookup). This is pre-existing;
+  the frontend overview, which can see membership, still orphans such a slice.
+
+  - Each environment is now windowed by its OWN query in the rollup, instead of a
+    single shared `LIMIT` across the mixed-env pool. The old shared window
+    truncated per-env evaluation for checks that fan out to many environments (or
+    with large threshold windows); every environment now gets its full evaluation
+    depth.
+  - Changing an assignment's environment set now triggers an immediate rollup
+    recompute for that system, so the persisted `health` entity (badge + SLO
+    downtime) converges at once rather than waiting for stale runs to age out.
+  - The system-overview frontend tucks a slice whose environment was disabled for
+    the assignment under "Old checks" (system membership alone could not detect it,
+    since the environment is still part of the system). `getSystemHealthOverview`
+    now returns each check's `environmentIds` selector to drive this.
+
+  Shared pure helpers `selectorIncludesEnvironment` / `isEnvSliceEffective` /
+  `selectEffectiveEnvKeys` are added to `@checkstack/healthcheck-common` so the
+  backend and frontend agree on effective-slice detection.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/dashboard-frontend@0.10.6
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/catalog-frontend@0.18.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/anomaly-common@1.7.1
+  - @checkstack/auth-frontend@0.13.1
+  - @checkstack/satellite-common@0.9.4
+  - @checkstack/gitops-frontend@0.7.2
+  - @checkstack/script-packages-frontend@0.4.11
+  - @checkstack/secrets-frontend@0.3.10
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.34.0
 
 ### Minor Changes

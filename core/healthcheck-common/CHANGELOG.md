@@ -1,5 +1,155 @@
 # @checkstack/healthcheck-common
 
+## 1.16.0
+
+### Minor Changes
+
+- 43e4484: Fix an N+1 in the catalog manager: the per-system "Health Checks" count badge
+  fired one `getSystemAssociations` request per system row, each holding a pooled
+  Postgres connection that contended with the background health-check run
+  executor and could exhaust the pool on large catalogs.
+
+  - Add `getBulkAssignedHealthCheckCounts({ systemIds })` to healthcheck, which
+    returns per-system assignment counts (0 for systems with no assignments) from
+    ONE grouped `COUNT(*) ... GROUP BY system_id` query. Read authorization
+    matches the per-system endpoint it replaces (`configuration.read` +
+    `catalog.system` read via `recordKey`), so a team-scoped user only sees counts
+    for systems they may read.
+  - `CatalogSystemActionsSlot` now passes `visibleSystemIds` (every system id in
+    the row's list) so a per-row filler can bulk-fetch for the whole visible set
+    in a single deduped request instead of one request per row. This mirrors how
+    `CatalogBrowseHealthSlot` / `SystemSignalsSlot` already pass `systemIds`.
+  - The health-check count badge now reads its count from that one deduped bulk
+    query. N visible rows cause 1 request instead of N.
+
+  State & scale: the counts are derived on read from the shared
+  `system_health_checks` table, so every pod returns the same answer; no
+  process-local or duplicated state is introduced.
+
+- 43e4484: Name the failing health check in system-health notifications. The notification
+  body now names the check that drove the transition (in addition to the system
+  and environment), and a `healthcheck.healthcheck` subject is pushed alongside
+  the `catalog.system` subject, deep-linked to the check's run history. Recovery
+  notifications stay system-level. Adds a `createHealthcheckSubject` builder to
+  `healthcheck-common`.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+- 43e4484: Eliminate N+1 RPC fan-outs in the public status-page widget resolvers.
+
+  Each of these widgets renders a PUBLIC page, so every per-item RPC was real
+  external DB load. Three bulk-by-id endpoints replace the per-item fetches:
+
+  - `healthcheck-common`: new `getBulkRunStats({ systemIds, startDate, endDate,
+maxBuckets })` -> `{ stats: Record<systemId, RunStats> }`. The `systemHealth`
+    widget's uptime column now issues ONE request for all systems instead of one
+    `getRunStats` per system. Systems with no runs in the window are omitted, so
+    the resolver's output is unchanged.
+  - `incident-common`: new `getBulkIncidentUpdates({ incidentIds })` ->
+    `{ updates: Record<incidentId, IncidentUpdate[]> }`. The incidents widget now
+    fetches every selected incident's update timeline in ONE request instead of
+    one `getIncident` per incident.
+  - `maintenance-common`: new `getBulkMaintenanceUpdates({ maintenanceIds })` ->
+    `{ updates: Record<maintenanceId, MaintenanceUpdate[]> }` (symmetric with the
+    incident endpoint) for the maintenance widget.
+
+  The new update endpoints apply the same per-item audience filter as
+  `getIncident` / `getMaintenance`, so internal/logged-in updates and author
+  identity never leak to a non-manager caller. Each endpoint is keyed by the
+  resource id and gated with the record post-filter (`recordKey`) matching the
+  single endpoint's read scope, mirroring `getBulkSystemHealthStatus` /
+  `getBulkIncidentsForSystems`. Widget DTO output is unchanged - this is a pure
+  request-count optimization.
+
+- 43e4484: Status pages can now publish only a subset of catalog environments. The page
+  builder gains a "Published environments" picker (empty = all environments, the
+  backward-compatible default). When a non-empty set is selected, the page omits
+  status, incidents, maintenances and uptime for systems that belong to none of
+  the selected environments.
+
+  - Status pages store an optional `publishedEnvironmentIds` set (new nullable
+    `published_environment_ids` column; NULL = all environments, so existing pages
+    are unchanged) exposed on `StatusPage`, `createStatusPage`, and
+    `updateStatusPage`.
+  - The scope is threaded onto `WidgetResolveContext.publishedEnvironmentIds` as
+    opaque strings and passed identically to `resolvePublic`,
+    `resolveScopedSystems`, and `resolveScopedSystemsDetailed` (and the email
+    subscribe clamp + fan-out), so what a page shows, offers for subscription, and
+    emails about all agree.
+  - Health widgets recompute per environment: they read the per-environment health
+    matrix and roll up only the selected environments. `getBulkRunStats` and
+    `getRunStats` gain an optional `environmentIds` filter so uptime counts only
+    runs recorded in the selected environments.
+  - Incident and maintenance widgets filter their feed and scope by intersecting
+    each item's affected systems with the environment-visible systems. Incidents
+    and maintenance windows carry no environment of their own, so a system in
+    several environments makes its items visible on a page publishing ANY of them
+    (the multi-environment caveat).
+
+### Patch Changes
+
+- 43e4484: fix(healthcheck): disabling an environment for an assignment now clears its stale slice from the rollup and overview immediately
+
+  Disabling an environment for a health-check assignment (removing it from the
+  assignment's `environmentIds`) stopped that environment from fanning out, but a
+  check that was FAILING there kept dragging the system health rollup/badge to
+  unhealthy and kept showing as a live failing row in the system overview. Because
+  the rollup is recomputed by an event-driven consumer subscribed to per-env health
+  CHANGES, and a disabled env produces no further runs (so no change event fires),
+  the stale unhealthy status was never recomputed away - it only cleared
+  incidentally, once the disabled env's runs aged out of the bounded run window
+  (which needs the assignment's OTHER active environments to produce enough newer
+  runs first). With a single active/failing env, it could persist until retention.
+
+  Scope: this reconciles environments DISABLED/removed ON THE ASSIGNMENT (its
+  `systemHealthChecks.environmentIds` selector - switching to Specific and
+  deselecting, or None).
+
+  Fixes:
+
+  - The rollup aggregation (`getSystemHealthStatus`) and the per-check status in
+    `getSystemHealthOverview` now consider only CURRENTLY-EFFECTIVE environment
+    slices, derived from the durable `systemHealthChecks.environmentIds` selector
+    (catalog-free, identical on every pod). A slice whose environment was disabled
+    for the assignment, or the stale env-less slice of a check that now fans out,
+    no longer contributes.
+
+  Known limitation: under an "all-environments" assignment (`environmentIds` is
+  `null`), an environment removed only from the system's CATALOG MEMBERSHIP (rather
+  than disabled on the assignment) can still contribute to the backend rollup/badge
+  until the assignment is re-evaluated, because the rollup read path is
+  intentionally catalog-free for horizontal-scale correctness (it must return the
+  same answer on every pod without a per-read catalog lookup). This is pre-existing;
+  the frontend overview, which can see membership, still orphans such a slice.
+
+  - Each environment is now windowed by its OWN query in the rollup, instead of a
+    single shared `LIMIT` across the mixed-env pool. The old shared window
+    truncated per-env evaluation for checks that fan out to many environments (or
+    with large threshold windows); every environment now gets its full evaluation
+    depth.
+  - Changing an assignment's environment set now triggers an immediate rollup
+    recompute for that system, so the persisted `health` entity (badge + SLO
+    downtime) converges at once rather than waiting for stale runs to age out.
+  - The system-overview frontend tucks a slice whose environment was disabled for
+    the assignment under "Old checks" (system membership alone could not detect it,
+    since the environment is still part of the system). `getSystemHealthOverview`
+    now returns each check's `environmentIds` selector to drive this.
+
+  Shared pure helpers `selectorIncludesEnvironment` / `isEnvSliceEffective` /
+  `selectEffectiveEnvKeys` are added to `@checkstack/healthcheck-common` so the
+  backend and frontend agree on effective-slice detection.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/frontend-api@0.14.1
+
 ## 1.15.0
 
 ### Minor Changes

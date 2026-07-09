@@ -1,5 +1,33 @@
 # @checkstack/sdk
 
+## 0.127.1
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/incident-common@1.10.0
+  - @checkstack/maintenance-common@1.10.0
+  - @checkstack/notification-common@1.6.0
+  - @checkstack/slo-common@0.9.0
+  - @checkstack/announcement-common@0.7.0
+  - @checkstack/anomaly-common@1.7.1
+  - @checkstack/dependency-common@1.7.2
+  - @checkstack/satellite-common@0.9.4
+
 ## 0.126.1
 
 ### Patch Changes

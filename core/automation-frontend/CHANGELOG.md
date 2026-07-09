@@ -1,5 +1,23 @@
 # @checkstack/automation-frontend
 
+## 0.12.1
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/auth-frontend@0.13.1
+  - @checkstack/gitops-frontend@0.7.2
+  - @checkstack/script-packages-frontend@0.4.11
+  - @checkstack/secrets-frontend@0.3.10
+
 ## 0.12.0
 
 ### Minor Changes

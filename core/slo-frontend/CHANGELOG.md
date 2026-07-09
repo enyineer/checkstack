@@ -1,5 +1,80 @@
 # @checkstack/slo-frontend
 
+## 0.11.0
+
+### Minor Changes
+
+- 43e4484: Exclude planned maintenance windows from the SLO error budget.
+
+  SLO objectives gained an opt-in `excludeMaintenanceWindows` flag (defaults to
+  false, so existing SLO numbers are preserved). When enabled, the portion of any
+  downtime that overlaps a non-cancelled maintenance window on the system is
+  subtracted from consumed budget, using pure, unit-tested interval math.
+
+  Because an error budget is a TRAILING window (for example the last 30 days),
+  maintenance is pulled by TIME-RANGE OVERLAP over that window via a new
+  `maintenance.getMaintenanceWindowsForRange` read query, which includes
+  already-completed windows and excludes only `cancelled` ones. This means "last
+  night's planned maintenance" keeps being subtracted after it completes, and the
+  consumed number does not jump as a window transitions
+  `scheduled -> in_progress -> completed`. The windows are injected into the SLO
+  engine like the existing health-status callback. The SLO editor now has a toggle
+  bound to the field, so the "exclude maintenance" help copy is finally accurate.
+
+  Note: historical `slo_daily_snapshots` are not rewritten, so a trend chart may
+  briefly differ from the live number after toggling this on.
+
+  Thanks to [@stuajnht](https://github.com/stuajnht) for the valuable feedback.
+
+### Patch Changes
+
+- 43e4484: Eliminate the catalog browse view's per-row SLO N+1.
+
+  `SystemSloBadge` previously fetched `getObjectivesForSystem` once per system row, so a catalog with N systems issued O(N) SLO requests on open. slo-frontend now fills `CatalogBrowseDataBoundarySlot` with a `SloBadgeDataProvider` that bulk-fetches `getBulkObjectivesForSystems` keyed on the whole visible `systemIds` set; the per-row badges read their objectives from that provider's context and issue no per-row request. This is behavior-preserving and frontend-only. On surfaces without the filler (e.g. the system detail page) the badge's fallback per-system query runs exactly as before.
+
+- 43e4484: Make the "active incidents" and "SLO" panels on the system overview use the
+  shared card design instead of thin banner strips.
+
+  Both panels rendered as flat `rounded-md` strips (`bg-card` / status-tinted
+  `bg-*/5`, `px-3 py-2`, no elevation) that looked inconsistent next to the
+  maintenance, dependencies, health-checks and anomaly cards. They now use the
+  same card recipe as those surfaces: `rounded-[var(--d-card-r)]`, the
+  `from-surface-2 to-surface` gradient, `p-[var(--d-pad)]`, and the shared panel
+  shadow.
+
+  - Incidents: matches its sibling maintenance banner - a status-colored left
+    accent bar, a large count number, and an "active incident(s)" caption, with
+    the severity pills preserved. Loading/empty states adopt the same rounding
+    and border.
+  - SLO: becomes a proper card with a gradient surface, elevation, and an
+    `h-4 w-4` icon + `text-sm font-semibold` header, with the objective rows
+    aligned to the card padding.
+
+  Visual-only; no behavior, API, or data changes.
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/dashboard-frontend@0.10.6
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/slo-common@0.9.0
+  - @checkstack/frontend-api@0.14.1
+  - @checkstack/auth-frontend@0.13.1
+  - @checkstack/dependency-common@1.7.2
+  - @checkstack/tips-frontend@0.4.11
+
 ## 0.10.0
 
 ### Minor Changes

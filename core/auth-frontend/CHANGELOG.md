@@ -1,5 +1,28 @@
 # @checkstack/auth-frontend
 
+## 0.13.1
+
+### Patch Changes
+
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+- Updated dependencies [43e4484]
+  - @checkstack/catalog-common@2.7.0
+  - @checkstack/healthcheck-common@1.16.0
+  - @checkstack/ui@1.26.0
+  - @checkstack/incident-common@1.10.0
+  - @checkstack/maintenance-common@1.10.0
+  - @checkstack/frontend-api@0.14.1
+
 ## 0.13.0
 
 ### Minor Changes
