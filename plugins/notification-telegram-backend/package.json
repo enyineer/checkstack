@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/notification-telegram-backend",
-  "version": "0.0.72",
+  "version": "0.0.73",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

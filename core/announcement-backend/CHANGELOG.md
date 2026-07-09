@@ -1,5 +1,19 @@
 # @checkstack/announcement-backend
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-backend@0.11.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/status-page-backend@0.6.0
+  - @checkstack/command-backend@0.2.23
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,195 @@
 # @checkstack/healthcheck-backend
 
+## 1.20.0
+
+### Minor Changes
+
+- bd41130: perf(healthcheck): stop recomputing the full system rollup on every check run
+
+  The queue run executor captured the system-wide rollup health
+  (`getSystemHealthStatus(systemId)`) at the start of EVERY check tick - a
+  worst-wins aggregate that fans out an N+1 of windowed `health_check_runs` reads
+  across every check × environment of the system. That value was only ever
+  consumed on the rare catastrophic-failure path (a job that throws before running
+  any probe); the normal success/failure paths record their transition from the
+  per-environment pre-read and never touched it. Under load this was one of the
+  heaviest repeated reads on the hot path.
+
+  The rollup pre-status is now computed lazily, only inside the catastrophic-
+  failure branch that actually uses it. Behavior is unchanged - the catastrophic
+  path reads the same pre-tick rollup (it is reached only when the run threw before
+  inserting anything, so nothing changed in between) - but every normal check tick
+  no longer pays for a full rollup recompute it discards.
+
+- bd41130: perf(healthcheck): add system-leading aggregate and config-reverse indexes
+
+  Add two Postgres indexes (migration 0020) to serve reads that the existing
+  keys cannot cover:
+
+  - `health_check_aggregates_system_bucket_idx` on
+    `(system_id, bucket_size, bucket_start)`. The health-state read omits
+    `configuration_id`, so the leading-`configuration_id` unique index could
+    not be used and the query scanned the aggregates table. This index leads
+    with `system_id` so those reads use an index instead.
+  - `system_health_checks_config_enabled_idx` on `(configuration_id, enabled)`.
+    The reverse lookup in `getSystemIdsForConfiguration` (config-change
+    recompute) filters by `configuration_id`, but the primary key leads with
+    `system_id` and could not serve it. This index makes the config-scoped
+    lookup an index scan.
+
+- bd41130: perf(healthcheck): add the missing composite indexes on health_check_runs
+
+  The status read path reads the last N runs for a (system, check[, environment])
+  slice ordered by `timestamp DESC` on every status read AND on every check
+  execution, but `health_check_runs` had NO secondary indexes - only its primary
+  key. Every such read was a full sequential scan of the (multi-million-row) table
+  plus an in-memory sort, so point reads averaged 50-320 ms and dominated total DB
+  time. Two composite indexes now back these access patterns:
+
+  - `health_check_runs_check_recent_idx` (system_id, configuration_id, timestamp) -
+    the cross-environment newest-run reads and the retention `DELETE`.
+  - `health_check_runs_slice_recent_idx` (system_id, configuration_id,
+    environment_id, timestamp) - the env-scoped slice reads, the per-check
+    DISTINCT-environment discovery, and the per-env last-healthy `max(timestamp)`
+    group-by.
+
+  Both turn full-table seq-scans into index range scans (Postgres scans the btree
+  backward for the `DESC` order).
+
+  > [!IMPORTANT]
+  > Deploy note: the migration builds the indexes with a plain (non-CONCURRENT)
+  > `CREATE INDEX`, which briefly locks writes to `health_check_runs` while each
+  > index builds (the migrator runs every migration in one transaction, so
+  > `CREATE INDEX CONCURRENTLY` is not possible through it). On a very large table
+  > you can build them `CONCURRENTLY` by hand (same names) before deploying; the
+  > migration uses `IF NOT EXISTS`, so it then no-ops.
+
+- bd41130: perf(healthcheck): cache system health status on the shared distributed cache with per-check-vector invalidation
+
+  The per-system derived health status (`getSystemHealthStatus`) is an N+1 over
+  `health_check_runs` across every check × environment, and it backs the highest
+  call-count read paths: the dashboard badges, the bulk status endpoint, the
+  per-(system, check, environment) matrix the dependency map and status-page
+  widgets consume, and the AI system-signals scan. It was only cached for the
+  single/bulk rollup, was invalidated UNCONDITIONALLY on every check run (so a
+  steady-state healthy system evicted its own cache every tick), the matrix
+  endpoint was not cached at all, and the AI signals scan bypassed the cache with
+  its own uncached N+1.
+
+  All four reads now go through a single `HealthCheckCache` facade - built on the
+  **platform `CacheManager`** - that is the ONE sanctioned reader AND invalidator
+  of a system's status:
+
+  - **Reads** (`read` / `readBulk` / `readMatrix`) are served read-through, keyed
+    per `(system, environment)`, holding the RAW (pre-incident-override) status;
+    the router folds incident overrides downstream, so an incident change never
+    touches this cache. The matrix reuses the same per-environment entries the
+    badge path warms. The AI signals contributor now scans candidate systems from
+    the durable table and resolves their statuses through `readBulk`, reusing the
+    warm cache instead of a fresh N+1.
+  - **Invalidation is change-gated on the per-check status VECTOR**, not the run:
+    `reconcile(previous, next)` evicts only when a check actually flipped status
+    (or its slice-failure composition changed) - a `statusFingerprint` invariant
+    to the volatile `evaluatedAt` / `lastRunAt` / `runsConsidered`. A run that
+    leaves the vector unchanged keeps the cache warm. This also catches a per-check
+    flip that leaves the rollup enum unchanged (which the reactive `health` entity
+    view would miss). A per-environment run that changes its slice evicts BOTH its
+    env key AND the system rollup key (the slice feeds the worst-wins rollup), so a
+    simultaneous slice swap - one env recovering as another fails, which the
+    rollup's own fingerprint is blind to - still refreshes the rollup. Sibling
+    environment keys stay warm.
+
+  Cross-pod coherence comes from the SHARED cache backend, not from an application
+  broadcast: with a distributed provider (Redis) an eviction is a `delete` every
+  pod sees immediately. On the default in-memory backend the cache is per-pod and
+  therefore single-instance-only (the Infrastructure Cache UI now warns about
+  this). The cached value is a derivation of the shared `health_check_runs` tables,
+  so a miss recomputes the same answer on every pod; the 15s TTL is only a
+  natural-refresh safety net.
+
+  Enforced by design, not convention:
+
+  - Every status-mutating writer invalidates through the facade: the run executor,
+    the router config/assignment/satellite handlers, the system/satellite lifecycle
+    hooks, AND the GitOps apply path (create/update/delete/associate/disassociate),
+    which writes configs directly on the service rather than through the router and
+    would otherwise have stranded a stale status until the TTL.
+  - A `checkstack/no-direct-system-status-read` lint rule (error) forbids raw
+    `service.getSystemHealthStatus(...)` reads anywhere except the cache facade and
+    the executor / entity-compute paths that must read live to detect a transition.
+  - A `checkstack/no-direct-health-run-insert` lint rule (error) forbids raw
+    `insert(healthCheckRuns)` outside the executor / service run writers.
+
+  The executor's per-run change-gate reads its pre-run baseline INSIDE the
+  per-(system, environment) advisory-lock critical section (not before the probe),
+  so a concurrent same-slice run cannot commit between the baseline read and the
+  insert and cause the gate to miss a real transition.
+
+  Behavior is unchanged for readers (same values, strictly fresher than the prior
+  15s-stale-on-quiet-systems behavior). The `getSystemHealthStatus` /
+  `getBulkSystemHealthStatus` / `getBulkSystemHealthMatrix` RPC contracts are
+  untouched, so cross-plugin callers (dependency, SLO, status-page) need no change.
+
+- bd41130: fix(status-page): scope email subscriptions to published environments and author-selected systems
+
+  Two correctness fixes to status-page email subscriptions:
+
+  - **Health notifications now respect the page's published environments.** A
+    per-environment health transition carries the environment it happened in
+    (`originEnvironmentId`, threaded through `notifyForSubscription` ->
+    `NotificationAudienceEvent` -> the status-page fan-out). A page that publishes
+    a specific environment set is now skipped for a change in an environment it
+    does not publish - so a `development` failure never emails a prod-only page's
+    subscribers, even for a system that is also shown in prod. Pages publishing all
+    environments, and env-less sources (incident, maintenance, whole-system health
+    rollup), are unaffected.
+  - **Notifications are scoped per category to the widgets the author placed.** The
+    send-time fan-out now surfaces a notification only through widgets of its own
+    category: a health status change reaches a page only through a HEALTH widget
+    (`banner` / `systemHealth` / `groupStatus` / `uptime`, which now implement
+    `resolveScopedSystems` and declare `subscriptionCategory: "health"`), an
+    incident only through an incident widget, and so on. A page that lists a
+    system's incidents but never its health no longer emails health subscribers
+    about it, and a health-only page now correctly surfaces its systems for
+    subscription. Health widgets also participate in the public subscribe picker.
+
+  BREAKING CHANGE: on a page publishing a specific environment set, health
+  subscribers now only receive changes that occurred in a published environment
+  (previously any environment of a surfaced system triggered a notification), and a
+  notification is surfaced only by a widget of its own category (previously any
+  scoping widget on the page could surface any category). Legacy subscribers (NULL
+  categories) and all-environment pages are unchanged; no data migration is needed.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/catalog-backend@1.8.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/incident-backend@1.13.0
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/status-page-backend@0.6.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/satellite-backend@0.8.5
+  - @checkstack/script-packages-backend@0.4.2
+  - @checkstack/secrets-backend@0.3.5
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/sdk@0.128.1
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/incident-common@1.10.1
+  - @checkstack/maintenance-common@1.10.1
+  - @checkstack/status-page-common@0.6.1
+
 ## 1.19.0
 
 ### Minor Changes

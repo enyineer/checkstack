@@ -1,5 +1,18 @@
 # @checkstack/script-packages-backend
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/secrets-backend@0.3.5
+  - @checkstack/sdk@0.128.1
+
 ## 0.4.1
 
 ### Patch Changes

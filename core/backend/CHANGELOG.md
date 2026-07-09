@@ -1,5 +1,98 @@
 # @checkstack/backend
 
+## 0.25.0
+
+### Minor Changes
+
+- bd41130: perf(auth): cache the authenticated read path on the shared distributed cache
+
+  `readEnrichedUser` ran three joins on EVERY authenticated request - user -> roles,
+  role -> access rules, and (for guests) the anonymous role's rules - which were
+  among the highest-call-count queries in production even though the underlying
+  mappings change only on rare admin edits. These are now served read-through from
+  the **platform `CacheManager`** (the same shared cache every plugin uses):
+
+  - `user -> role ids` and `role -> access-rule ids` (`auth-backend/src/auth-cache.ts`)
+  - anonymous role -> effective rules (read in `core/backend`'s
+    `getAnonymousAccessRules`, under auth-backend's cache scope)
+
+  Cross-pod correctness comes from the SHARED backend, not from an application
+  broadcast: with a distributed provider (Redis) an invalidation is a `delete`
+  every pod sees immediately, so a user load-balanced to any pod always gets an
+  up-to-date authorization decision. On the default in-memory backend the caches
+  are per-pod and therefore single-instance-only (the Infrastructure Cache UI now
+  warns about this). The 60s TTL is only a natural-refresh safety net. User role
+  membership itself is still resolved live per request; only the rarely-changing
+  derived mappings are cached.
+
+  The reads happen CACHE-FIRST, OUTSIDE any database transaction: `enrichUser` no
+  longer wraps its lookups in `withScopedTransaction`, so on a cache hit it issues
+  NO query for roles/rules and never holds a pooled DB connection across the cache
+  round-trip - only the always-uncached team read touches the DB.
+
+  The invalidation is enforced by design, not by convention: all writes to the
+  `role` / `role_access_rule` / `user_role` tables go through a single
+  `RoleMembershipStore` that now takes the shared cache as a required constructor
+  argument and welds each write to its `delete`, so the two cannot drift. The
+  `checkstack/no-direct-role-membership-writes` lint rule (error) still forbids raw
+  `insert`/`update`/`delete` on those tables anywhere else in `auth-backend`.
+
+  Invalidation completeness (from an adversarial review):
+
+  - `RoleMembershipStore.removeAccessRuleMappings` (plugin-deregister cleanup) now
+    also evicts the anonymous-access-rules entry, since a removed rule may have
+    been granted to the anonymous role.
+  - `access-rule-sync`'s boot `fullSync` now evicts the affected shared entries
+    when a default-rule change actually mutates a non-admin role's grants - a later
+    pod's boot / a redeploy runs it against a cache the cluster already warmed, so
+    the old "runs against a cold cache" assumption no longer holds under the shared
+    cache. An idempotent no-change sync evicts nothing.
+  - The batched `role -> access-rule ids` read now runs through
+    `CachedScope.wrapManyBatched`, so it carries the same epoch guard as the
+    single-key path: a role-rules revoke racing an in-flight load can no longer be
+    clobbered by the loader's stale write.
+
+  BREAKING CHANGE: the internal cache-invalidation hooks
+  `authHooks.roleAccessRulesInvalidated`, `authHooks.userRolesInvalidated`, and
+  `coreHooks.anonymousAccessRulesInvalidated` are removed, along with their
+  per-pod broadcast subscribers. They existed only to keep the old per-pod caches
+  coherent; the shared cache makes them redundant. These were internal signals,
+  never a plugin-facing extension contract. `@checkstack/auth-common` now exports
+  `AUTH_CACHE_PLUGIN_ID` and `ANONYMOUS_ACCESS_RULES_CACHE_KEY` so `core/backend`
+  and `auth-backend` agree on the shared scope + key for the anonymous entry.
+
+- bd41130: perf(auth): cache JWT keys per-pod, lock rotation, and prune orphaned keys
+
+  The keystore hit the database on every request: `getPublicJWKS()` on every token
+  verification and `getSigningKey()` on every service-to-service token mint - the
+  two highest-call-count queries in production (~1.6M calls each). It also grew the
+  `jwt_keys` table without bound: `revoked_at` was never set, rotation expired only
+  the single observed active key, and rotation held no lock - so multi-pod races
+  left keys with `expires_at = NULL` that could never be pruned and were returned on
+  every JWKS read (hundreds of rows per call, still climbing).
+
+  The keystore now:
+
+  - Caches the JWKS (60 s TTL) and the signing key (5 min TTL) per pod, with
+    single-flight refresh so a TTL expiry cannot stampede the DB. `verify` forces a
+    one-time JWKS refresh when a token's `kid` is absent from the cached set, so a
+    key freshly rotated on another pod is never spuriously rejected.
+  - Rotates under a cross-pod advisory lock, double-checked so a pod that lost the
+    race adopts the winner's key instead of minting a duplicate.
+  - Expires EVERY currently-active key on rotation (not just one), so keys orphaned
+    by earlier races get a grace expiry and are reclaimed by cleanup - self-healing
+    the accumulated `jwt_keys` growth over the next rotation cycle.
+
+  Behavior is unchanged for callers; the effect is far fewer DB round-trips on the
+  hot auth path and a `jwt_keys` table that stops growing.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/signal-backend@0.3.23
+
 ## 0.24.1
 
 ### Patch Changes

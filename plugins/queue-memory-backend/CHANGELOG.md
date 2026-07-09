@@ -1,5 +1,12 @@
 # @checkstack/queue-memory-backend
 
+## 0.4.32
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+
 ## 0.4.31
 
 ### Patch Changes

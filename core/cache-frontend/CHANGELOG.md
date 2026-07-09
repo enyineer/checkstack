@@ -1,5 +1,22 @@
 # @checkstack/cache-frontend
 
+## 0.6.3
+
+### Patch Changes
+
+- bd41130: Strengthen the in-memory cache warning on the Infrastructure Cache tab. The
+  alert now explains that the in-memory backend is per-pod, so under horizontal
+  scaling the hot-path platform caches (system health status and the
+  authenticated read path - user roles, role access rules, anonymous access) can
+  serve stale data on other pods until their short TTL expires, and directs
+  operators to a distributed backend such as Redis for any multi-instance
+  deployment.
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+  - @checkstack/ui@1.26.1
+  - @checkstack/frontend-api@0.14.2
+  - @checkstack/infrastructure-common@0.3.19
+
 ## 0.6.2
 
 ### Patch Changes

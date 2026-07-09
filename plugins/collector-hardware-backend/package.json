@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/collector-hardware-backend",
-  "version": "0.1.61",
+  "version": "0.1.62",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {

@@ -1,5 +1,12 @@
 # @checkstack/infrastructure-common
 
+## 0.3.19
+
+### Patch Changes
+
+- Updated dependencies [b80160a]
+  - @checkstack/frontend-api@0.14.2
+
 ## 0.3.18
 
 ### Patch Changes

@@ -1,5 +1,31 @@
 # @checkstack/catalog-backend
 
+## 1.8.0
+
+### Minor Changes
+
+- bd41130: perf(catalog): add index systems_environments_environment_idx on systems_environments(environment_id)
+
+  The systems_environments junction table's primary key leads with system_id, leaving the environment_id direction unindexed. Reverse lookups (inArray(environment_id, ids)) used by the environment and system detail views had to scan the table. This adds a btree index on environment_id to serve those reverse-lookup queries.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/auth-backend@0.11.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/notification-common@1.7.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/catalog-common@2.7.1
+
 ## 1.7.0
 
 ### Minor Changes

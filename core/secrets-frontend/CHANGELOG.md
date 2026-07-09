@@ -1,5 +1,14 @@
 # @checkstack/secrets-frontend
 
+## 0.3.11
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [b80160a]
+  - @checkstack/ui@1.26.1
+  - @checkstack/frontend-api@0.14.2
+
 ## 0.3.10
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @checkstack/satellite
 
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/script-packages-backend@0.4.2
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/satellite-common@0.9.5
+
 ## 0.6.4
 
 ### Patch Changes

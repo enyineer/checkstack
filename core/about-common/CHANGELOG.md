@@ -1,5 +1,12 @@
 # @checkstack/about-common
 
+## 0.3.5
+
+### Patch Changes
+
+- Updated dependencies [b80160a]
+  - @checkstack/frontend-api@0.14.2
+
 ## 0.3.4
 
 ### Patch Changes

@@ -1,5 +1,52 @@
 # @checkstack/slo-backend
 
+## 0.12.0
+
+### Minor Changes
+
+- bd41130: perf(slo): add indexes for hot SLO read paths
+
+  Adds Postgres indexes serving the queries run on every SYSTEM_STATUS_CHANGED
+  and per chart request:
+
+  - `slo_downtime_events` partial `(objective_id) WHERE end_time IS NULL` -
+    open-event lookup by objective, run several times per status change.
+  - `slo_downtime_events` partial `(system_id) WHERE end_time IS NULL` -
+    open-event lookup by system, run several times per status change.
+  - `slo_downtime_events` composite `(objective_id, start_time)` - window and
+    recent event scans for an objective.
+  - `slo_objectives` `(system_id)` - objectives-for-system read per status change.
+  - `slo_daily_snapshots` `(objective_id, date)` - trend read per chart request.
+  - `slo_achievements` `(system_id, achievement)` - idempotency check before every
+    insert plus list-by-system.
+
+### Patch Changes
+
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+- Updated dependencies [bd41130]
+  - @checkstack/backend-api@0.32.0
+  - @checkstack/cache-utils@0.3.0
+  - @checkstack/catalog-backend@1.8.0
+  - @checkstack/ai-backend@0.10.11
+  - @checkstack/healthcheck-backend@1.20.0
+  - @checkstack/automation-backend@0.11.2
+  - @checkstack/command-backend@0.2.23
+  - @checkstack/gitops-backend@0.5.23
+  - @checkstack/catalog-common@2.7.1
+  - @checkstack/dependency-common@1.7.3
+  - @checkstack/healthcheck-common@1.16.1
+  - @checkstack/incident-common@1.10.1
+  - @checkstack/maintenance-common@1.10.1
+  - @checkstack/slo-common@0.9.1
+
 ## 0.11.0
 
 ### Minor Changes
