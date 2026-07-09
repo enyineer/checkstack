@@ -42,17 +42,24 @@ const anomaliesKey = (input: unknown): string =>
 const baselinesKey = (input: unknown): string =>
   `${BASELINES_PREFIX}${stableStringify(input ?? {})}`;
 
-export interface AnomalyRouterCache {
-  wrapAnomalies: <T>(input: unknown, loader: () => Promise<T>) => Promise<T>;
-  wrapBaselines: <T>(input: unknown, loader: () => Promise<T>) => Promise<T>;
-
+/**
+ * The narrow slice of {@link AnomalyRouterCache} the write paths need. The
+ * detector and the drift evaluator take this instead of the full cache so they
+ * can only drop entries, never read through them.
+ */
+export interface AnomalyCacheInvalidator {
   /**
-   * Drop every cached anomaly list. Called by the detector after any
-   * insert/update/delete on the anomalies table, before the
-   * `ANOMALY_STATE_CHANGED` signal goes out, so frontend refetches see
-   * fresh data.
+   * Drop every cached anomaly list. Called by the detector and the drift
+   * evaluator after any insert/update/delete on the anomalies table, before the
+   * `ANOMALY_STATE_CHANGED` signal goes out, so frontend refetches triggered by
+   * that signal see fresh data rather than the pre-transition list.
    */
   invalidateAnomalies: () => Promise<number>;
+}
+
+export interface AnomalyRouterCache extends AnomalyCacheInvalidator {
+  wrapAnomalies: <T>(input: unknown, loader: () => Promise<T>) => Promise<T>;
+  wrapBaselines: <T>(input: unknown, loader: () => Promise<T>) => Promise<T>;
 
   /**
    * Drop cached baseline list shapes — used after detector writes that

@@ -22,6 +22,7 @@ import type { AnomalySettings, AnomalyDirection } from "@checkstack/anomaly-comm
 import type { SignalService } from "@checkstack/signal-common";
 import { ANOMALY_STATE_CHANGED } from "@checkstack/anomaly-common";
 import { dispatchAnomalyNotification } from "./notification";
+import type { AnomalyCacheInvalidator } from "./router-cache";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline Fast Detector (Phase 1)
@@ -65,9 +66,7 @@ export async function processCheckCompleted({
   environmentId?: string | null;
   db: SafeDatabase<typeof schema>;
   cache: CacheProvider;
-  routerCache?: {
-    invalidateAnomalies: () => Promise<number>;
-  };
+  routerCache?: AnomalyCacheInvalidator;
   logger: Logger;
   catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<typeof NotificationApi>;
@@ -506,6 +505,20 @@ export async function processCheckCompleted({
           await db
             .delete(schema.anomalies)
             .where(eq(schema.anomalies.id, existingAnomaly.id));
+
+          // A cleared suspicion is a dashboard-visible state going away, so it
+          // needs the same cache-drop + signal every other transition does —
+          // otherwise the "Suspicious behaviour" badge/signal sticks around
+          // until an incidental refetch.
+          await routerCache?.invalidateAnomalies();
+
+          if (signalService) {
+            await signalService.broadcast(ANOMALY_STATE_CHANGED, {
+              systemId,
+              anomalyId: existingAnomaly.id,
+              newState: "cleared",
+            });
+          }
         } else if (existingAnomaly.state === "anomaly") {
           await db
             .update(schema.anomalies)

@@ -106,6 +106,12 @@ export const plugin = createBackendPlugin({
         const catalogClient = rpcClient.forPlugin(CatalogApi);
         const notificationClient = rpcClient.forPlugin(NotificationApi);
 
+        // Created before the analyzer job so the drift evaluator can drop the
+        // cached anomaly lists on every row write, the same way the inline
+        // spike detector does.
+        const cacheForRouter = createAnomalyRouterCache({ cacheManager, logger });
+        routerCache = cacheForRouter;
+
         await setupBaselineAnalyzerJob({
           db: typedDb,
           cache,
@@ -116,6 +122,7 @@ export const plugin = createBackendPlugin({
           catalogClient,
           notificationClient,
           collectorRegistry,
+          routerCache: cacheForRouter,
         });
 
         const service = new AnomalyService(typedDb);
@@ -134,8 +141,7 @@ export const plugin = createBackendPlugin({
             }),
           );
 
-        routerCache = createAnomalyRouterCache({ cacheManager, logger });
-        const router = createRouter(service, logger, routerCache);
+        const router = createRouter(service, logger, cacheForRouter);
         rpc.registerRouter(router, anomalyContract);
 
         logger.debug("Anomaly Detection Backend initialized.");

@@ -18,6 +18,7 @@ import {
 import { and, eq, isNull } from "drizzle-orm";
 import * as schema from "./schema";
 import { dispatchAnomalyNotification } from "./notification";
+import type { AnomalyCacheInvalidator } from "./router-cache";
 
 /** Minimum analyzer-run count required before suspicious drift is confirmed. */
 const DRIFT_CONFIRMATION_THRESHOLD = 2;
@@ -75,6 +76,12 @@ export interface EvaluateDriftInput {
   catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<typeof NotificationApi>;
   signalService?: SignalService;
+  /**
+   * Router-level anomaly list cache. Dropped after every write so a dashboard
+   * refetching in response to `ANOMALY_STATE_CHANGED` does not read the
+   * pre-transition list back out of the 15s cache.
+   */
+  routerCache?: AnomalyCacheInvalidator;
   systemId: string;
   configurationId: string;
   /**
@@ -131,6 +138,7 @@ export async function evaluateDrift({
   catalogClient,
   notificationClient,
   signalService,
+  routerCache,
   systemId,
   configurationId,
   environmentId,
@@ -231,6 +239,10 @@ export async function evaluateDrift({
         })
         .returning({ id: schema.anomalies.id });
 
+      if (inserted) {
+        await routerCache?.invalidateAnomalies();
+      }
+
       if (signalService && inserted) {
         await signalService.broadcast(ANOMALY_STATE_CHANGED, {
           systemId,
@@ -254,6 +266,8 @@ export async function evaluateDrift({
           })
           .where(eq(schema.anomalies.id, existing.id));
         logger.debug(`Drift confirmed for ${systemId} on ${fieldPath}`);
+
+        await routerCache?.invalidateAnomalies();
 
         if (signalService) {
           await signalService.broadcast(ANOMALY_STATE_CHANGED, {
@@ -326,6 +340,8 @@ export async function evaluateDrift({
           `Drift self-resolved (settled at new level) for ${systemId} on ${fieldPath}`,
         );
 
+        await routerCache?.invalidateAnomalies();
+
         if (signalService) {
           await signalService.broadcast(ANOMALY_STATE_CHANGED, {
             systemId,
@@ -370,6 +386,20 @@ export async function evaluateDrift({
 
   if (existing.state === "suspicious") {
     await db.delete(schema.anomalies).where(eq(schema.anomalies.id, existing.id));
+
+    // A cleared suspicion is a dashboard-visible state going away, so it needs
+    // the same cache-drop + signal every other transition does — otherwise the
+    // "Suspicious behaviour" badge/signal sticks around until an incidental
+    // refetch.
+    await routerCache?.invalidateAnomalies();
+
+    if (signalService) {
+      await signalService.broadcast(ANOMALY_STATE_CHANGED, {
+        systemId,
+        anomalyId: existing.id,
+        newState: "cleared",
+      });
+    }
     return;
   }
 
@@ -386,6 +416,8 @@ export async function evaluateDrift({
       })
       .where(eq(schema.anomalies.id, existing.id));
     logger.debug(`Drift recovered for ${systemId} on ${fieldPath}`);
+
+    await routerCache?.invalidateAnomalies();
 
     if (signalService) {
       await signalService.broadcast(ANOMALY_STATE_CHANGED, {

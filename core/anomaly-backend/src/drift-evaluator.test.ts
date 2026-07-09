@@ -371,6 +371,97 @@ describe("evaluateDrift", () => {
       expect(db._deleteCalls.length).toBe(1);
     });
 
+    // Regression: the delete used to happen silently — no cache drop, no
+    // signal — so the dashboard's "Suspicious behaviour" signal survived a
+    // drift suspicion that never confirmed.
+    test("invalidates the router cache and broadcasts 'cleared' when a drift suspicion clears", async () => {
+      const existing = {
+        id: "drift-1",
+        state: "suspicious",
+        suspiciousRunCount: 1,
+        confirmationThreshold: 2,
+      };
+      const db = createMockDb({ existingAnomaly: existing });
+      const signalService = createMockSignalService();
+      const invalidateAnomalies = mock(async () => 0);
+      const notificationClient = createMockNotificationClient();
+
+      await evaluateDrift({
+        ...baseProps,
+        baseline: stableBaseline,
+        schemaDirection: "lower-is-better",
+        templateConfig: defaultTemplate,
+        db: db as never,
+        catalogClient: createMockCatalogClient() as never,
+        notificationClient: notificationClient as never,
+        logger: createMockLogger() as never,
+        signalService: signalService as never,
+        routerCache: { invalidateAnomalies },
+      });
+
+      expect(db._deleteCalls.length).toBe(1);
+      expect(invalidateAnomalies).toHaveBeenCalledTimes(1);
+      expect(signalService.broadcast).toHaveBeenCalledTimes(1);
+      const args = signalService.broadcast.mock.calls[0] as unknown[];
+      expect(args[1] as Record<string, unknown>).toMatchObject({
+        systemId: baseProps.systemId,
+        anomalyId: "drift-1",
+        newState: "cleared",
+      });
+      // A never-confirmed suspicion never notified, so clearing must not either.
+      expect(notificationClient.notifyForSubscription).not.toHaveBeenCalled();
+    });
+
+    test("invalidates the router cache on every drift row write", async () => {
+      // create → confirm → recover: each is a dashboard-visible transition and
+      // must drop the 15s router-level anomaly list cache, or a dashboard that
+      // refetches in response to the signal reads the pre-transition list.
+      const cases: Array<{
+        label: string;
+        existingAnomaly?: Record<string, unknown>;
+        baseline: FieldBaseline;
+      }> = [
+        { label: "create suspicious", baseline: driftingBaseline },
+        {
+          label: "confirm",
+          existingAnomaly: {
+            id: "drift-1",
+            state: "suspicious",
+            suspiciousRunCount: 1,
+            confirmationThreshold: 2,
+          },
+          baseline: driftingBaseline,
+        },
+        {
+          label: "recover",
+          existingAnomaly: {
+            id: "drift-1",
+            state: "anomaly",
+            suspiciousRunCount: 2,
+            confirmationThreshold: 2,
+          },
+          baseline: stableBaseline,
+        },
+      ];
+
+      for (const { label, existingAnomaly, baseline } of cases) {
+        const db = createMockDb({ existingAnomaly });
+        const invalidateAnomalies = mock(async () => 0);
+        await evaluateDrift({
+          ...baseProps,
+          baseline,
+          schemaDirection: "lower-is-better",
+          templateConfig: defaultTemplate,
+          db: db as never,
+          catalogClient: createMockCatalogClient() as never,
+          notificationClient: createMockNotificationClient() as never,
+          logger: createMockLogger() as never,
+          routerCache: { invalidateAnomalies },
+        });
+        expect(invalidateAnomalies, label).toHaveBeenCalledTimes(1);
+      }
+    });
+
     test("transitions anomaly → recovered when drift clears + dispatches recovery", async () => {
       const existing = {
         id: "drift-1",
