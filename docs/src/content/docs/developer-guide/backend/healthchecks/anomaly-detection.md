@@ -323,7 +323,7 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
                           [N consecutive│      │ [returns
                             confirmations]    │  to normal]
                                         ▼      │
-                                     anomaly ──┘   ← suspicious cleared silently
+                                     anomaly ──┘   ← suspicious cleared (no notification)
                                         │
                           [returns to normal]
                                         ▼
@@ -338,9 +338,23 @@ Plugin authors should pick conservative defaults for `x-anomaly-sensitivity`, `x
 |---|---|---|
 | `normal → suspicious` | Silent | Transient noise is absorbed without alerting operators. |
 | `suspicious → anomaly` | **Confirmed** notification | Fires after the confirmation window is met (default 3 for spikes, 2 for drifts). |
-| `suspicious → normal` | Silent | The row is deleted - transient spike absorbed. |
+| `suspicious → normal` | Silent | The row is deleted - transient spike absorbed. Emits `ANOMALY_STATE_CHANGED` with `newState: "cleared"` (see below). |
 | `anomaly → recovered` | **Recovered** notification | Importance: `info` ("Good news"). Fires on either the baseline-relative path or the self-resolution path (see [5.5](#55-self-resolution-new-normal)). |
 | `recovered → archived` | None | Retained for historical analysis (default 30 days). |
+
+"Silent" above means **no operator notification**. Every transition - including
+`suspicious → normal` - still drops the router-level anomaly cache and
+broadcasts `ANOMALY_STATE_CHANGED`, because a suspicious row is rendered on the
+dashboard (the "Suspicious behaviour" badge and system signal) and must
+disappear the moment it clears. A suspicious row is DELETED rather than moved to
+`recovered`, so it has no persisted state left to report; the signal carries the
+dedicated `newState: "cleared"` for that case.
+
+> [!IMPORTANT]
+> Do not treat `cleared` as `recovered` when deciding whether to alert. A
+> `suspicious` row never produced a "confirmed" notification, so clearing it must
+> not produce a "recovered" one. The two values are distinct precisely so an
+> automation subscribed to `recovered` does not fire for a transient suspicion.
 
 ### 5.3 Confirmation Windows
 
@@ -434,7 +448,7 @@ The anomaly plugin broadcasts three signals on the platform signal bus ([core/an
 
 | Signal | Payload | When |
 |---|---|---|
-| `ANOMALY_STATE_CHANGED` | `{ systemId, anomalyId, newState }` | Any anomaly row transitions state (suspicious / anomaly / recovered). |
+| `ANOMALY_STATE_CHANGED` | `{ systemId, anomalyId, newState }` | Any anomaly row transitions state. `newState` is `suspicious` / `anomaly` / `recovered` / `cleared` - the last means an unconfirmed suspicious row was deleted, so it has no persisted state (see [5.2](#52-state-machine-shared-by-spike--drift)). |
 | `ANOMALY_BASELINE_UPDATED` | `{ systemId, configurationId, fieldPath, mean, stdDev, sampleCount }` | The hourly analyzer has recomputed a baseline. |
 | `ANOMALY_TREND_DETECTED` | `{ systemId, anomalyId, fieldPath }` | A drift row transitioned to confirmed `anomaly`. Phase 2 only. |
 

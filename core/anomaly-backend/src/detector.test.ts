@@ -545,6 +545,84 @@ describe("Anomaly Detector — processCheckCompleted", () => {
     expect(db._deleteCalls.length).toBe(1);
   });
 
+  // Regression: a cleared suspicion is a dashboard-visible state going away.
+  // It used to delete the row silently — no cache drop, no signal — so the
+  // "Suspicious behaviour" badge/signal stayed on screen until an incidental
+  // refetch. It must invalidate and broadcast like every other transition.
+  test("invalidates the router cache and broadcasts 'cleared' when a suspicion clears", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const broadcast = mock(async () => {});
+    const signalService = { broadcast } as never;
+    const invalidateAnomalies = mock(async () => 0);
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-transient",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "suspicious",
+        suspiciousRunCount: 1,
+        confirmationThreshold: 3,
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: normalResult,
+      db: db as never,
+      cache,
+      routerCache: { invalidateAnomalies },
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: createMockNotificationClient() as never,
+      signalService,
+    });
+
+    expect(db._deleteCalls.length).toBe(1);
+    expect(invalidateAnomalies).toHaveBeenCalledTimes(1);
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    const broadcastArgs = (broadcast as Mock<(...args: unknown[]) => unknown>).mock.calls[0] as unknown[];
+    expect(broadcastArgs[1] as Record<string, unknown>).toMatchObject({
+      systemId,
+      anomalyId: "anomaly-transient",
+      newState: "cleared",
+    });
+  });
+
+  // A suspicion that never fired a "confirmed" notification must not fire a
+  // "recovered" one either — hence `cleared` rather than reusing `recovered`.
+  test("clearing a suspicion sends no notification", async () => {
+    const baseline = createBaseline({ mean: 100, stdDev: 10 });
+    const cache = createMockCache(new Map([[cacheKeyPrefix, baseline]]));
+    const notificationClient = createMockNotificationClient();
+    const db = createMockDb({
+      existingAnomaly: {
+        id: "anomaly-transient",
+        systemId,
+        configurationId,
+        fieldPath: "collectors.http.request.responseTimeMs",
+        state: "suspicious",
+        suspiciousRunCount: 1,
+        confirmationThreshold: 3,
+      },
+    });
+
+    await processCheckCompleted({
+      ...baseProps,
+      latencyMs: 50,
+      result: normalResult,
+      db: db as never,
+      cache,
+      logger: createMockLogger() as never,
+      catalogClient: createMockCatalogClient() as never,
+      notificationClient: notificationClient as never,
+    });
+
+    expect(notificationClient.notifyForSubscription).not.toHaveBeenCalled();
+  });
+
   // ─── Config disabled ──────────────────────────────────────────────────
 
   test("skips processing when config is disabled", async () => {

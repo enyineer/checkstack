@@ -15,13 +15,30 @@ import { z } from "zod";
 import { AnomalyStateSchema } from "./schema";
 import { pluginMetadata } from "./plugin-metadata";
 
+/**
+ * States a broadcast anomaly transition can carry. A superset of the persisted
+ * {@link AnomalyStateSchema}: a `suspicious` row that never reaches its
+ * confirmation threshold is DELETED rather than moved to `recovered`, so it has
+ * no persisted state left to report. `cleared` is that transition. Consumers
+ * must treat it exactly like `recovered` for the purpose of dropping the row
+ * from any active feed, but it is deliberately a distinct value so an
+ * automation that fires on `recovered` ("the anomaly we alerted about is over")
+ * does not also fire for a transient suspicion that was never confirmed and
+ * therefore never notified about.
+ */
+export const AnomalyStateChangeSchema = z.enum([
+  ...AnomalyStateSchema.options,
+  "cleared",
+]);
+export type AnomalyStateChange = z.infer<typeof AnomalyStateChangeSchema>;
+
 export const ANOMALY_STATE_CHANGED = createSignal({
   pluginMetadata,
   event: "state_changed",
   payloadSchema: z.object({
     systemId: z.string(),
     anomalyId: z.string(),
-    newState: AnomalyStateSchema,
+    newState: AnomalyStateChangeSchema,
   }),
 });
 

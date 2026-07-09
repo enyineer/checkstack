@@ -29,6 +29,7 @@ import type { z } from "zod";
 import * as schema from "../schema";
 import { AnomalyService, anomalyAssignmentKey } from "../service";
 import { evaluateDrift, loadExistingDriftRows } from "../drift-evaluator";
+import type { AnomalyCacheInvalidator } from "../router-cache";
 
 export const BASELINE_ANALYZER_QUEUE = "anomaly-baseline-analyzer";
 
@@ -45,6 +46,7 @@ export async function setupBaselineAnalyzerJob({
   catalogClient,
   notificationClient,
   collectorRegistry,
+  routerCache,
 }: {
   db: SafeDatabase<typeof schema>;
   cache: CacheProvider;
@@ -55,6 +57,8 @@ export async function setupBaselineAnalyzerJob({
   catalogClient: InferClient<typeof CatalogApi>;
   notificationClient: InferClient<typeof NotificationApi>;
   collectorRegistry: CollectorRegistry;
+  /** Dropped by the drift evaluator after every anomaly-row write. */
+  routerCache?: AnomalyCacheInvalidator;
 }) {
   const queue = queueManager.getQueue(BASELINE_ANALYZER_QUEUE);
   const anomalyService = new AnomalyService(db);
@@ -339,6 +343,7 @@ export async function setupBaselineAnalyzerJob({
               catalogClient,
               notificationClient,
               signalService,
+              routerCache,
               systemId: assignment.systemId,
               configurationId: assignment.configurationId,
               environmentId,
