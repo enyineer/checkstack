@@ -2,6 +2,7 @@
   "name": "checkstack-monorepo",
   "license": "Elastic-2.0",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "workspaces": [
     "core/*",
     "plugins/*",

@@ -1,0 +1,93 @@
+name: Renovate Changeset
+
+# Renovate's lock-file-maintenance PR rewrites ONLY `bun.lock`. That file lives
+# at the repo root, so the Changeset Coverage guard (which maps changed files to
+# the package directory containing them) never fires - the PR passes CI with no
+# changeset. But `release.yml` builds the Docker image only when
+# `changesets/action` actually PUBLISHED a package, and `inject-release.ts` only
+# bumps `@checkstack/release` (the image tag) when some changeset exists. So a
+# lockfile-only merge would ship nothing: the refreshed, patched resolutions
+# would sit on main and never reach `ghcr.io/<owner>/checkstack`.
+#
+# This workflow closes that hole by writing a changeset attributing each changed
+# transitive dependency to the public workspace packages that reach it through a
+# PROD edge. It is IDEMPOTENT: it rewrites a single fixed filename on every
+# `synchronize`, so a Renovate force-push (lockFileMaintenance runs with
+# `recreateWhen: always`) cannot drop the changeset.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+concurrency:
+  group: renovate-changeset-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  # The push below authenticates with SECURITY_BOT_TOKEN, not GITHUB_TOKEN - a
+  # GITHUB_TOKEN push does NOT trigger workflow runs, so pr-checks would never
+  # re-run against the tree that actually merges.
+  contents: read
+
+jobs:
+  changeset:
+    name: Generate lock-file changeset
+    if: >-
+      github.actor == 'renovate[bot]' &&
+      github.head_ref == 'renovate/lock-file-maintenance'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.SECURITY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # Guard BEFORE `bun install`, so a branch that smuggled in anything beyond
+      # the lockfile can never reach the install/execute steps below. Renovate
+      # only ever touches bun.lock here; the changeset file is ours.
+      - name: Verify the PR touches only the lockfile
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          echo "Changed files:"; echo "${changed}" | sed 's/^/  /'
+          unexpected=$(echo "${changed}" | grep -v -x -e 'bun.lock' \
+            -e '.changeset/renovate-lock-file-maintenance.md' || true)
+          if [ -n "${unexpected}" ]; then
+            echo "::error::Refusing to run. Unexpected files on a lock-file-maintenance branch:"
+            echo "${unexpected}" | sed 's/^/  /'
+            exit 1
+          fi
+
+      - name: Extract the base lockfile
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git show "origin/${BASE_REF}:bun.lock" > /tmp/base-bun.lock
+
+      - name: Setup Bun and install dependencies
+        uses: ./.github/actions/bun-install
+
+      - name: Generate changeset
+        run: |
+          bun run scripts/renovate-changeset.ts \
+            --base /tmp/base-bun.lock \
+            --head bun.lock \
+            --out .changeset/renovate-lock-file-maintenance.md
+
+      - name: Commit changeset if it changed
+        run: |
+          set -euo pipefail
+          git config user.name  "checkstack-security-bot"
+          git config user.email "security-bot@users.noreply.github.com"
+          git add -A .changeset/renovate-lock-file-maintenance.md
+          if git diff --cached --quiet; then
+            echo "Changeset already up to date - nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore(deps): add changeset for lock-file maintenance"
+          git push origin "HEAD:${{ github.head_ref }}"

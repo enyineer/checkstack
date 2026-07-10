@@ -162,6 +162,116 @@ Drop `--dry-run` to apply the range bumps, override edits, changeset, and
 lockfile refresh into your working tree - the same change set the daily
 `remediate` job opens as a PR.
 
+## PR-time gates: dependency graph vs container
+
+Every PR runs two Trivy gates with disjoint responsibilities, so a finding is
+reported once and each gate reproduces locally on its own.
+
+`security_deps` scans the **whole npm dependency graph** from `bun.lock`,
+including devDependencies (`TRIVY_INCLUDE_DEV_DEPS`). It runs first, does **no**
+`bun install` and **no** build - Trivy parses `bun.lock` directly - and every
+job that runs `bun install` on the runner `needs:` it. That ordering is the
+point: a dev-dependency with a fixable CVE never executes in a job holding
+`GITHUB_TOKEN` or registry credentials. Reproduce it with `bun run
+audit:security`.
+
+`security` scans the built image but is restricted to the **container layer**
+(`TRIVY_PKG_TYPES=os`): OS/apk packages (alpine, openssl, bubblewrap, ...) and
+the base image, which `bun.lock` does not describe. The npm graph is a strict
+superset already covered by `security_deps`, so scanning language packages here
+too would only double-report. Reproduce it with `bun run audit:image`. It runs
+**in parallel** with `security_deps`, not gated behind it: the container layer
+is independent of the npm graph, and its build is Docker-isolated with no
+`GITHUB_TOKEN` in the build steps, so it is not the token-bearing surface the
+installing jobs are.
+
+Both gates apply the same policy: a finding with an **upgrade path** (a fixed
+version exists) fails the build; a finding with no upstream fix yet is surfaced
+as a `::warning::` annotation but does not gate, and is carried by the daily
+workflow until a fix ships.
+
+## Lock-file maintenance
+
+Trivy only reports a vulnerability its database knows about, and for npm that
+database is the GitHub Advisory Database. A CVE that is published to NVD but
+has no GHSA entry yet is invisible to the scans above, so a fixable finding can
+sit in `bun.lock` while PR CI stays green. Keeping resolutions fresh is the
+control that does not depend on any advisory feed: if the lockfile already
+holds the newest version each range permits, most CVEs are fixed before anyone
+maps them to a package.
+
+Renovate handles this. [`renovate.json`](https://github.com/enyineer/checkstack/blob/main/renovate.json)
+enables `lockFileMaintenance` on a daily schedule and disables every ordinary
+version-bump update type - `package.json` ranges stay hand-curated, and
+transitive pins stay in `security/managed-overrides.json`. Renovate deletes
+`bun.lock`, runs `bun install`, and force-pushes a single long-lived branch
+(`renovate/lock-file-maintenance`), so there is at most one open PR.
+
+> [!IMPORTANT]
+> Merging that PR does not release anything. It lands a changeset; the release
+> happens when you merge the resulting **Version Packages** PR.
+
+### The supply-chain cooldown
+
+Refreshing to "whatever the registry serves right now" would adopt a
+compromised release the hour it lands. The cooldown lives in
+[`bunfig.toml`](https://github.com/enyineer/checkstack/blob/main/bunfig.toml):
+
+```toml
+[install]
+minimumReleaseAge = 259200 # 3 days
+minimumReleaseAgeExcludes = []
+```
+
+This is the only place it can live. Renovate's own `minimumReleaseAge` does
+**not** apply to lock-file maintenance - Renovate delegates to the package
+manager - and unlike npm there is no `--before` flag it can pass to bun. Since
+Renovate runs a bare `bun install`, bun reads `bunfig.toml` and enforces the
+gate itself. `--frozen-lockfile` installs (CI, Docker) resolve nothing and are
+unaffected.
+
+> [!WARNING]
+> A bun older than the release that added `minimumReleaseAge` ignores the key
+> **silently**, leaving no cooldown at all. `packageManager` in the root
+> `package.json` pins the version Renovate resolves; keep the two in step.
+
+### Why the PR needs a changeset
+
+`lockFileMaintenance` rewrites only `bun.lock`, which lives at the repo root.
+The Changeset Coverage guard maps changed files to the package directory that
+contains them, so a root-level file matches nothing and the PR passes with no
+changeset. That is a trap: `release.yml` builds the Docker image only when
+`changesets/action` published a package, and `inject-release.ts` bumps
+`@checkstack/release` (which stamps the image tag) only when a changeset
+exists. A lockfile-only merge would therefore publish nothing, rebuild nothing,
+and never ship the refreshed resolutions.
+
+Nothing changes for npm consumers - `bun.lock` is not published, so they
+resolve each range themselves. The image is the artifact that bakes in the
+lockfile, via `bun install --frozen-lockfile`.
+
+[`renovate-changeset.yml`](https://github.com/enyineer/checkstack/blob/main/.github/workflows/renovate-changeset.yml)
+closes the hole. On every `synchronize` of the Renovate branch it diffs the
+lockfile against `main` and writes one fixed-name changeset, so a force-push
+cannot drop it. `scripts/renovate-changeset.ts` attributes each changed package
+to its **nearest workspace ancestors** - the workspace packages that directly
+declare the external dependency through which it is reached:
+
+```bash
+bun run scripts/renovate-changeset.ts --base <base-lock> --head bun.lock --dry-run
+```
+
+For example `fast-uri` is reached only through `ajv`, so it is charged to the
+packages declaring `ajv` rather than to the whole monorepo. Two filters keep
+the set honest:
+
+- **Private packages are excluded.** They never publish, so they cannot flip
+  the `published` output that gates the image build.
+- **`devDependencies`-only edges are excluded.** The image is built with
+  `--production`, so a dev-only resolution change alters no shipped artifact.
+  When a refresh touches only dev-only deps, no changeset is written and no
+  release happens - which is the correct outcome.
+
 ## See also
 
 - [Changesets](/checkstack/developer-guide/tooling/changesets/) - how the

@@ -26,6 +26,17 @@ if (!existsSync(reportsDir)) {
 const TRIVY_IMAGE = "ghcr.io/aquasecurity/trivy:latest";
 const commonFlags = ["--ignore-unfixed", "--severity", "CRITICAL,HIGH,MEDIUM"];
 
+// Mirror the split enforced by the two CI gates in pr-checks.yml so these local
+// commands reproduce them exactly:
+//   - fs   -> the `security_deps` gate: the WHOLE dependency graph, incl.
+//             devDependencies (`--include-dev-deps`). Without this, a dev-only
+//             CVE that fails CI would not appear locally.
+//   - image -> the `security` gate: the CONTAINER layer only (`--pkg-types os`).
+//             The npm graph is covered by the fs scan above, so scanning
+//             language packages here too would only double-report.
+const modeFlags = mode === "fs" ? ["--include-dev-deps"] : ["--pkg-types", "os"];
+const scanFlags = [...commonFlags, ...modeFlags];
+
 async function runAudit() {
   console.log(`🔎 Starting Security Audit (${mode})...`);
 
@@ -41,7 +52,7 @@ async function runAudit() {
       mode,
       "--format", "table",
       "--exit-code", "1",
-      ...commonFlags,
+      ...scanFlags,
       target
     ];
     
@@ -58,7 +69,7 @@ async function runAudit() {
       ${mode} \
       --format json \
       -o /root/reports/${mode}-audit.json \
-      ${commonFlags} \
+      ${scanFlags} \
       ${target}`.quiet();
 
     // 3. HTML Report
@@ -72,7 +83,7 @@ async function runAudit() {
       --format template \
       --template "@contrib/html.tpl" \
       -o /root/reports/${mode}-audit.html \
-      ${commonFlags} \
+      ${scanFlags} \
       ${target}`.quiet();
 
     console.log(`\n✅ Audit Complete! Reports generated in ./reports/${mode}-audit.*`);

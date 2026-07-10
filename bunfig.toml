@@ -1,4 +1,23 @@
 # Bun workspace configuration for tests
+
+[install]
+# Supply-chain cooldown. Refuse any package version published less than 3 days
+# ago, so a compromised release (the event-stream / ua-parser-js class) is
+# yanked before it can ever be resolved into bun.lock.
+#
+# This is the ONLY place a cooldown can live for this repo: Renovate's own
+# `minimumReleaseAge` explicitly does NOT apply to lockFileMaintenance ("we
+# delegate to the package manager"), and unlike npm there is no `--before` flag
+# Renovate can pass to bun. Renovate runs a bare `bun install`, which reads this
+# file - so the gate is enforced there, and for every local `bun add` too.
+#
+# `--frozen-lockfile` installs (CI, Docker) resolve nothing and are unaffected.
+# Requires a bun that knows the key; see `packageManager` in package.json - an
+# older bun ignores it SILENTLY and you get no cooldown at all.
+minimumReleaseAge = 259200 # 3 days, in seconds
+# Escape hatch: packages exempted from the cooldown when a fix must land now.
+minimumReleaseAgeExcludes = []
+
 [test]
 # Preload mocks before any test file runs - this ensures mock.module()
 # is called before the module is first imported anywhere
