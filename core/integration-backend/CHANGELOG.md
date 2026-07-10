@@ -1,5 +1,13 @@
 # @checkstack/integration-backend
 
+## 0.7.6
+
+### Patch Changes
+
+- @checkstack/backend-api@0.32.1
+- @checkstack/command-backend@0.2.24
+- @checkstack/secrets-backend@0.3.6
+
 ## 0.7.5
 
 ### Patch Changes

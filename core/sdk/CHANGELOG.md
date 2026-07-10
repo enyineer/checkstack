@@ -1,5 +1,19 @@
 # @checkstack/sdk
 
+## 0.129.1
+
+### Patch Changes
+
+- Updated dependencies [1f20b5a]
+  - @checkstack/anomaly-common@1.8.0
+  - @checkstack/catalog-common@2.7.2
+  - @checkstack/dependency-common@1.7.4
+  - @checkstack/healthcheck-common@1.16.2
+  - @checkstack/incident-common@1.10.2
+  - @checkstack/maintenance-common@1.10.2
+  - @checkstack/slo-common@0.9.2
+  - @checkstack/satellite-common@0.9.6
+
 ## 0.128.1
 
 ### Patch Changes

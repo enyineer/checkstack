@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/auth-frontend",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

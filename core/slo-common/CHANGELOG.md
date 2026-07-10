@@ -1,5 +1,13 @@
 # @checkstack/slo-common
 
+## 0.9.2
+
+### Patch Changes
+
+- Updated dependencies [5e704cd]
+  - @checkstack/frontend-api@0.15.0
+  - @checkstack/catalog-common@2.7.2
+
 ## 0.9.1
 
 ### Patch Changes

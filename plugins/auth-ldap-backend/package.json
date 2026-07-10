@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/auth-ldap-backend",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "type": "module",
   "main": "src/index.ts",
   "checkstack": {
