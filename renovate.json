@@ -28,10 +28,8 @@
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 4am"],
-    "commitMessageAction": "refresh",
-    "commitMessageTopic": "bun.lock",
-    "prTitle": "chore(deps): refresh bun.lock (lock-file maintenance)",
-    "prBodyDefinition": "{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{controls}}}{{{footer}}}",
+    "commitMessageAction": "Refresh",
+    "commitMessageTopic": "bun.lock (lock-file maintenance)",
     "labels": ["dependencies", "security-maintenance"],
     "rebaseWhen": "behind-base-branch"
   }
