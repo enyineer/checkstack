@@ -16,6 +16,9 @@ permissions:
 jobs:
   typecheck:
     name: Typecheck
+    # Gated behind the dependency-graph scan: no dependency code executes until
+    # security_deps confirms no fixable CVE in the graph.
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -110,6 +113,7 @@ jobs:
 
   lint:
     name: Lint
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -142,6 +146,7 @@ jobs:
 
   deps:
     name: Deps
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -195,6 +200,7 @@ jobs:
 
   test:
     name: Test
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -260,6 +266,7 @@ jobs:
   # `describe.skipIf(!process.env.CHECKSTACK_IT)`.
   integration:
     name: Integration
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     services:
@@ -456,6 +463,7 @@ jobs:
   # guard as the e2e job, so a release branch skips the build too.
   e2e_build:
     name: E2E Build
+    needs: [security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -497,7 +505,9 @@ jobs:
   # `run-all.ts` unchanged.
   e2e:
     name: E2E
-    needs: [e2e_matrix, e2e_build]
+    # security_deps is transitively required via e2e_build, but named
+    # explicitly so the gate survives a future change to e2e_build's needs.
+    needs: [e2e_matrix, e2e_build, security_deps]
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     # Shard the suite across independent runners. Each leg gets its OWN ephemeral
@@ -591,8 +601,116 @@ jobs:
             exit 1
           fi
 
+  # Dependency-graph gate. Scans the WHOLE bun.lock (incl. devDependencies) for
+  # vulnerabilities BEFORE any INSTALLING job runs. Every job that runs `bun
+  # install` on the runner `needs:` this, so a dev-dependency with a fixable CVE
+  # can never execute in a context that holds GITHUB_TOKEN / ghcr credentials -
+  # the supply-chain surface a runtime image scan cannot see (dev deps are
+  # stripped from the image). The `security` (container) job runs in PARALLEL,
+  # not gated: its build is Docker-isolated and produces a throwaway artifact.
+  # Deliberately does NO `bun install` and NO build: Trivy parses bun.lock
+  # directly, so this job itself runs zero dependency code.
+  security_deps:
+    name: Security (dependency graph)
+    if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Trivy filesystem scan (full graph incl. devDependencies)
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          # The full dependency graph from bun.lock, INCLUDING devDependencies
+          # (vite, eslint, vitest, playwright, ...). `bun install --production`
+          # strips these from the image, so the image scan in `security` never
+          # sees them - but they DO execute in typecheck/lint/test/e2e. No
+          # dedicated trivy-action input exists; Trivy reads the flag from this
+          # env var (verified: toggles 906 -> 2020 packages on this lockfile).
+          TRIVY_INCLUDE_DEV_DEPS: "true"
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          output: /tmp/trivy-fs.json
+
+      # Same policy as the image gate below: an upgrade path (a FixedVersion
+      # exists) FAILS; a finding with no upstream fix yet is surfaced as a
+      # ::warning:: annotation but does NOT gate. The daily security-maintenance
+      # workflow + Renovate lock-file maintenance carry the fix once one ships.
+      - name: Evaluate findings (gate on an upgrade path, warn otherwise)
+        id: security_deps
+        run: |
+          set -euo pipefail
+          [ -s /tmp/trivy-fs.json ] || echo '{"Results":[]}' > /tmp/trivy-fs.json
+
+          jq '
+            [ .Results[]?.Vulnerabilities[]?
+              | { id:.VulnerabilityID, pkg:.PkgName, installed:.InstalledVersion,
+                  fixed:(.FixedVersion // ""), sev:.Severity } ]
+            | unique_by(.id + "|" + .pkg + "|" + .installed)
+          ' /tmp/trivy-fs.json > /tmp/vulns.json
+
+          jq -r '[.[] | select(.fixed != "")]
+            | sort_by(.sev) | reverse[]
+            | "  [\(.sev)] \(.pkg) \(.installed) -> fixed in \(.fixed)  (\(.id))"' \
+            /tmp/vulns.json > /tmp/fixable.txt || true
+          jq -r '[.[] | select(.fixed == "")]
+            | sort_by(.sev) | reverse[]
+            | "  [\(.sev)] \(.pkg) \(.installed)  (\(.id)) — no upstream fix yet"' \
+            /tmp/vulns.json > /tmp/unfixed.txt || true
+
+          fixable_count=$(jq '[.[] | select(.fixed != "")] | length' /tmp/vulns.json)
+          unfixed_count=$(jq '[.[] | select(.fixed == "")] | length' /tmp/vulns.json)
+
+          {
+            echo "🔎 Security Audit (dependency graph, incl. devDependencies)"
+            echo ""
+            echo "❌ Fixable vulnerabilities ($fixable_count) — an upgrade path exists, so these fail the build:"
+            [ "$fixable_count" -gt 0 ] && cat /tmp/fixable.txt || echo "  (none)"
+            echo ""
+            echo "⚠️  Known unfixed vulnerabilities ($unfixed_count) — surfaced, not gated:"
+            [ "$unfixed_count" -gt 0 ] && cat /tmp/unfixed.txt || echo "  (none)"
+          } > /tmp/security-deps-output.txt
+
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::warning title=Unfixed vulnerability (dependency graph)::${line# }"
+          done < /tmp/unfixed.txt
+
+          cat /tmp/security-deps-output.txt
+          if [ "$fixable_count" -gt 0 ]; then
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-deps-output
+          path: /tmp/security-deps-output.txt
+
+      - name: Set outcome
+        if: always()
+        run: |
+          if [ "${{ steps.security_deps.outputs.exit_code }}" != "0" ]; then
+            exit 1
+          fi
+
   security:
     name: Security
+    # Runs in PARALLEL with security_deps (no `needs:`). This job scans only the
+    # CONTAINER layer (OS/apk packages), which is independent of the npm graph
+    # security_deps gates - so there is nothing to wait for. Its image build
+    # executes build tooling inside Docker isolation with no GITHUB_TOKEN in the
+    # RUN steps, and the image is a throwaway PR artifact (load-only, never
+    # pushed), so it is not the token-bearing supply-chain surface the installing
+    # jobs are; those stay gated behind security_deps.
     if: github.head_ref != 'changeset-release/main' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     # `packages: read` lets the build pull the release-produced registry
@@ -640,17 +758,17 @@ jobs:
           tags: checkstack-prod:latest
           cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/checkstack:buildcache-linux-amd64
 
-      # TWO scans, both emitting JSON and NEVER failing on their own
-      # (exit-code 0): the gating decision is made in the evaluate step below.
-      #  - image: the runtime attack surface (OS packages + production deps).
-      #  - fs: the WHOLE dependency graph from bun.lock, INCLUDING
-      #    devDependencies that `bun install --production` strips from the
-      #    image. This fs scan is what closes the gap that let dev-only CVEs
-      #    (e.g. vite, postcss-selector-parser) stay invisible to the image
-      #    scan. We deliberately do NOT pass ignore-unfixed here so unfixed
-      #    findings are captured too, then surfaced as warnings (not failures).
-      - name: Trivy image scan (JSON)
+      # Image scan, restricted to the CONTAINER layer: OS/apk packages (alpine,
+      # openssl, bubblewrap, ...) and the base image. This is the ONLY thing the
+      # image scan uniquely covers - `bun.lock` does not describe OS packages.
+      # The npm graph (production AND dev) is a strict superset scanned earlier
+      # by `security_deps`, so scanning language packages here too would only
+      # double-report; TRIVY_PKG_TYPES=os drops them. exit-code 0: the gating
+      # decision is made in the evaluate step below.
+      - name: Trivy image scan (OS/container packages, JSON)
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_PKG_TYPES: os
         with:
           scan-type: image
           image-ref: checkstack-prod:latest
@@ -659,37 +777,25 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
           output: /tmp/trivy-image.json
 
-      - name: Trivy filesystem scan (JSON)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: json
-          exit-code: "0"
-          severity: CRITICAL,HIGH,MEDIUM
-          output: /tmp/trivy-fs.json
-
       # Gate policy:
       #  - FIXABLE findings (a fixed version exists) FAIL the job — they are
       #    actionable, so they must be remediated.
       #  - UNFIXED findings (no upstream fix yet, e.g. the alpine openssl
-      #    CRITICAL or vite) are surfaced as ::warning:: annotations but DO
-      #    NOT fail. The daily security-maintenance workflow re-checks these
-      #    and auto-opens a remediation PR the moment a fix ships.
+      #    CRITICAL) are surfaced as ::warning:: annotations but DO NOT fail.
+      #    The daily security-maintenance workflow re-checks these and auto-opens
+      #    a remediation PR the moment a fix ships.
       - name: Evaluate findings (fail on fixable, warn on unfixed)
         id: security
         run: |
           set -euo pipefail
-          for f in /tmp/trivy-image.json /tmp/trivy-fs.json; do
-            [ -s "$f" ] || echo '{"Results":[]}' > "$f"
-          done
+          [ -s /tmp/trivy-image.json ] || echo '{"Results":[]}' > /tmp/trivy-image.json
 
-          jq -s '
-            [ .[].Results[]?.Vulnerabilities[]?
+          jq '
+            [ .Results[]?.Vulnerabilities[]?
               | { id:.VulnerabilityID, pkg:.PkgName, installed:.InstalledVersion,
                   fixed:(.FixedVersion // ""), sev:.Severity } ]
             | unique_by(.id + "|" + .pkg + "|" + .installed)
-          ' /tmp/trivy-image.json /tmp/trivy-fs.json > /tmp/vulns.json
+          ' /tmp/trivy-image.json > /tmp/vulns.json
 
           jq -r '[.[] | select(.fixed != "")]
             | sort_by(.sev) | reverse[]
@@ -704,7 +810,7 @@ jobs:
           unfixed_count=$(jq '[.[] | select(.fixed == "")] | length' /tmp/vulns.json)
 
           {
-            echo "🔎 Security Audit (image + filesystem)"
+            echo "🔎 Security Audit (container / OS packages)"
             echo ""
             echo "❌ Fixable vulnerabilities ($fixable_count) — these fail the build:"
             [ "$fixable_count" -gt 0 ] && cat /tmp/fixable.txt || echo "  (none)"
@@ -741,7 +847,7 @@ jobs:
 
   report:
     name: Report
-    needs: [typecheck, lint, deps, test, integration, security, e2e, e2e_matrix, e2e_build]
+    needs: [typecheck, lint, deps, test, integration, security_deps, security, e2e, e2e_matrix, e2e_build]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
@@ -783,6 +889,14 @@ jobs:
         with:
           name: integration-output
           path: /tmp/artifacts/integration
+        continue-on-error: true
+
+      - name: Download Security (dependency graph) Output
+        if: always()
+        uses: actions/download-artifact@v8
+        with:
+          name: security-deps-output
+          path: /tmp/artifacts/security-deps
         continue-on-error: true
 
       - name: Download Security Output
@@ -840,6 +954,7 @@ jobs:
             const depsResult = '${{ needs.deps.result }}';
             const testResult = '${{ needs.test.result }}';
             const integrationResult = '${{ needs.integration.result }}';
+            const securityDepsResult = '${{ needs.security_deps.result }}';
             const securityResult = '${{ needs.security.result }}';
             const e2eResult = '${{ needs.e2e.result }}';
             // E2E prerequisites: if either fails, `e2e` is SKIPPED (unsatisfied
@@ -851,11 +966,15 @@ jobs:
             const depsPassed = depsResult === 'success' || depsResult === 'skipped';
             const testPassed = testResult === 'success' || testResult === 'skipped';
             const integrationPassed = integrationResult === 'success' || integrationResult === 'skipped';
+            // security_deps gates every installing job. When it FAILS, those
+            // jobs are SKIPPED - which reads as `passed` above - so this result
+            // MUST be checked on its own or a dep-graph CVE would false-green.
+            const securityDepsPassed = securityDepsResult === 'success' || securityDepsResult === 'skipped';
             const securityPassed = securityResult === 'success' || securityResult === 'skipped';
             const e2ePassed = e2eResult === 'success' || e2eResult === 'skipped';
             const e2eMatrixPassed = e2eMatrixResult === 'success' || e2eMatrixResult === 'skipped';
             const e2eBuildPassed = e2eBuildResult === 'success' || e2eBuildResult === 'skipped';
-            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityPassed && e2ePassed && e2eMatrixPassed && e2eBuildPassed;
+            const allPassed = typecheckPassed && lintPassed && depsPassed && testPassed && integrationPassed && securityDepsPassed && securityPassed && e2ePassed && e2eMatrixPassed && e2eBuildPassed;
 
             // Read output files
             function readOutput(name) {
@@ -903,7 +1022,8 @@ jobs:
                 '| Deps | ✅ Passed |',
                 '| Test | ✅ Passed |',
                 '| Integration | ✅ Passed |',
-                '| Security | ✅ Passed |',
+                '| Security (deps) | ✅ Passed |',
+                '| Security (container) | ✅ Passed |',
                 '| E2E | ✅ Passed |',
                 '',
                 '',
@@ -999,17 +1119,33 @@ jobs:
                 ].join('\n'));
               }
 
-              if (!securityPassed) {
-                const output = readOutput('security');
+              if (!securityDepsPassed) {
+                const output = readOutput('security-deps');
                 sections.push([
                   '<details>',
-                  '<summary>❌ Security Audit Failures</summary>',
+                  '<summary>❌ Security Audit Failures (dependency graph)</summary>',
                   '',
                   '```',
                   output,
                   '```',
                   '',
-                  '**How to fix:** Only **fixable** findings (a patched version exists) fail the build; unfixed findings are surfaced as warnings, not gated. Run `bun run audit:image` (production image) and `bun run audit:security` (filesystem / full dependency graph incl. devDependencies) locally to reproduce. Bump the affected direct dependency, or for a transitive package add a documented entry to `security/managed-overrides.json` plus matching `overrides`/`resolutions` in `package.json` (then `bun install`). Re-run `bun run audit:overrides:check` to confirm the override is consistent.',
+                  '**How to fix:** This gate scans the whole dependency graph (incl. devDependencies) and fails only on findings with an **upgrade path** (a fixed version exists); unfixed findings are warnings, not gated. Run `bun run audit:security` locally to reproduce. Bump the affected direct dependency, or for a transitive package add a documented entry to `security/managed-overrides.json` plus matching `overrides`/`resolutions` in `package.json` (then `bun install`). Re-run `bun run audit:overrides:check` to confirm the override is consistent.',
+                  '',
+                  '</details>',
+                ].join('\n'));
+              }
+
+              if (!securityPassed) {
+                const output = readOutput('security');
+                sections.push([
+                  '<details>',
+                  '<summary>❌ Security Audit Failures (container / OS)</summary>',
+                  '',
+                  '```',
+                  output,
+                  '```',
+                  '',
+                  '**How to fix:** Only **fixable** findings (a patched version exists) fail the build; unfixed findings are surfaced as warnings, not gated. Run `bun run audit:image` to reproduce the production-image scan locally. These are OS/container packages (alpine, openssl, ...) - bump the base image or the `apk add` set in the `Dockerfile`. npm dependency findings are handled by the Security (deps) gate above, not here.',
                   '',
                   '</details>',
                 ].join('\n'));
@@ -1048,7 +1184,8 @@ jobs:
                 `| Deps | ${icon(depsPassed)} |`,
                 `| Test | ${icon(testPassed)} |`,
                 `| Integration | ${icon(integrationPassed)} |`,
-                `| Security | ${icon(securityPassed)} |`,
+                `| Security (deps) | ${icon(securityDepsPassed)} |`,
+                `| Security (container) | ${icon(securityPassed)} |`,
                 `| E2E | ${icon(e2ePassed)} |`,
                 '',
                 ...sections,

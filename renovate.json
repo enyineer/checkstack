@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "UTC",
+
+  "constraints": {
+    "bun": "1.3.14"
+  },
+
+  "packageRules": [
+    {
+      "description": "Lock-file maintenance is the ONLY update this repo wants from Renovate. Ordinary version-bump PRs are disabled: package.json ranges are curated by hand, and transitive pins live in security/managed-overrides.json.",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest",
+        "bump",
+        "rollback",
+        "replacement"
+      ],
+      "enabled": false
+    }
+  ],
+
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 4am"],
+    "commitMessageAction": "refresh",
+    "commitMessageTopic": "bun.lock",
+    "prTitle": "chore(deps): refresh bun.lock (lock-file maintenance)",
+    "prBodyDefinition": "{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{controls}}}{{{footer}}}",
+    "labels": ["dependencies", "security-maintenance"],
+    "rebaseWhen": "behind-base-branch"
+  }
+}
