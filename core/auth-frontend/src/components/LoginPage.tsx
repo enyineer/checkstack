@@ -5,7 +5,7 @@ import {
   useApi,
   ExtensionSlot,
   usePluginClient,
-  UserMenuItemsBottomSlot,
+  UserMenuItemsSlot,
   UserMenuItemsContext,
 } from "@checkstack/frontend-api";
 import { AuthApi, authRoutes } from "@checkstack/auth-common";
@@ -473,9 +473,10 @@ export const LoginNavbarAction = () => {
   }
 
   if (session?.user) {
-    // The user menu is account-only now: profile header (rendered by UserMenu)
-    // plus the bottom slot (About, theme, low-power, logout). Feature navigation
-    // lives in the left sidebar (routes that declare `nav` metadata).
+    // The user menu is account-only: profile header (rendered by UserMenu) plus
+    // the item slot (help, theme, low-power, density, about, logout), ordered by
+    // each extension's `priority`. Feature navigation lives in the left sidebar
+    // (routes that declare `nav` metadata).
     const menuContext: UserMenuItemsContext = {
       accessRules,
       hasCredentialAccount,
@@ -486,7 +487,7 @@ export const LoginNavbarAction = () => {
         user={session.user}
         profileHref={resolveRoute(authRoutes.routes.profile)}
       >
-        <ExtensionSlot slot={UserMenuItemsBottomSlot} context={menuContext} />
+        <ExtensionSlot slot={UserMenuItemsSlot} context={menuContext} />
       </UserMenu>
     );
   }

@@ -67,7 +67,6 @@ import {
   defaultAuthApi,
 } from "@checkstack/auth-frontend";
 import { Sidebar } from "./components/Sidebar";
-import { HelpMenu } from "./components/HelpMenu";
 import { InstanceNamespaceBanner } from "./components/InstanceNamespaceBanner";
 import { PageSkeleton, ShellSkeleton } from "./components/AppSkeletons";
 import { usePluginLifecycle } from "./hooks/usePluginLifecycle";
@@ -329,9 +328,10 @@ function AppShellLayout() {
                 </button>
                 <Link to="/" className="flex items-center gap-2">
                   <img src="/favicon.svg" alt="Checkstack" className="w-7 h-7" />
-                  {/* The wordmark is dropped on small screens to de-clutter the
-                      navbar; the logo still anchors the home link. */}
-                  <h1 className="hidden text-xl font-bold text-primary sm:block">
+                  {/* The wordmark is dropped below `sm`: it fits, but it is the
+                      widest low-value element in the bar, and the logo already
+                      anchors the home link. */}
+                  <h1 className="hidden text-lg font-bold text-primary sm:block sm:text-xl">
                     Checkstack
                   </h1>
                 </Link>
@@ -342,8 +342,11 @@ function AppShellLayout() {
               <div className="flex-1 flex justify-center max-w-md">
                 <ExtensionSlot slot={NavbarCenterSlot} />
               </div>
+              {/* Help used to sit here as a standalone `?` popover. It now lives
+                  in the user menu (contributed by tips-frontend): a static
+                  utility is not a peer of the notification bell (a stateful
+                  indicator) or the avatar (identity). */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                <HelpMenu />
                 <ExtensionSlot slot={NavbarRightSlot} />
               </div>
             </div>

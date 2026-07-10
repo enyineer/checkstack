@@ -507,7 +507,6 @@ Core slots are available from `@checkstack/frontend-api`:
 import {
   DashboardSlot,
   UserMenuItemsSlot,
-  UserMenuItemsBottomSlot,
   NavbarRightSlot,
   NavbarLeftSlot,
 } from "@checkstack/frontend-api";
@@ -524,6 +523,8 @@ extensions: [
   {
     id: "myplugin.user-menu.items",
     slot: UserMenuItemsSlot,
+    // Orders the item within the menu; see the extension-points guide.
+    metadata: { priority: 50 },
     component: MyUserMenuItems,
   },
 ]

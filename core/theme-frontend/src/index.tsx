@@ -1,7 +1,7 @@
 import {
   createFrontendPlugin,
   NavbarRightSlot,
-  UserMenuItemsBottomSlot,
+  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { pluginMetadata } from "@checkstack/theme-common";
 import { ThemeToggleMenuItem } from "./components/ThemeToggleMenuItem";
@@ -15,22 +15,27 @@ export const themePlugin = createFrontendPlugin({
   metadata: pluginMetadata,
   routes: [],
   extensions: [
-    // Theme toggle in user menu (for logged-in users)
+    // Appearance toggles in the user menu (for logged-in users). The explicit
+    // priorities keep the trio together and in a stable order, between the Help
+    // section (-10) and About (40).
     {
       id: "theme.user-menu.theme.toggle",
-      slot: UserMenuItemsBottomSlot,
+      slot: UserMenuItemsSlot,
+      metadata: { priority: 10 },
       component: ThemeToggleMenuItem,
     },
     // Performance toggle in user menu
     {
       id: "theme.user-menu.performance.toggle",
-      slot: UserMenuItemsBottomSlot,
+      slot: UserMenuItemsSlot,
+      metadata: { priority: 20 },
       component: PerformanceToggleMenuItem,
     },
     // Density toggle in user menu (comfortable vs compact)
     {
       id: "theme.user-menu.density.toggle",
-      slot: UserMenuItemsBottomSlot,
+      slot: UserMenuItemsSlot,
+      metadata: { priority: 30 },
       component: DensityToggleMenuItem,
     },
     // Theme synchronizer - headless component that syncs theme from backend on load

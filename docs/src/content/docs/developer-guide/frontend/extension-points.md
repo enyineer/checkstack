@@ -475,7 +475,6 @@ import {
   NavbarRightSlot,
   NavbarLeftSlot,
   UserMenuItemsSlot,
-  UserMenuItemsBottomSlot,
 } from "@checkstack/frontend-api";
 ```
 
@@ -737,14 +736,15 @@ Extensions use the `slot:` property with a `SlotDefinition` object:
 
 **To a core slot:**
 ```typescript
-import { UserMenuItemsBottomSlot } from "@checkstack/frontend-api";
+import { UserMenuItemsSlot } from "@checkstack/frontend-api";
 
 export const myPlugin = createFrontendPlugin({
   name: "myplugin-frontend",
   extensions: [
     {
       id: "myplugin.user-menu.account-item",
-      slot: UserMenuItemsBottomSlot,
+      slot: UserMenuItemsSlot,
+      metadata: { priority: 50 },
       component: MyAccountMenuItem,
     },
   ],
@@ -906,7 +906,7 @@ gating logic.
 
 #### Example: User Menu Extension
 
-User menu slots (`UserMenuItemsSlot`, `UserMenuItemsBottomSlot`) receive a `UserMenuItemsContext` with pre-fetched user data for synchronous rendering:
+The user menu slot (`UserMenuItemsSlot`) receives a `UserMenuItemsContext` with pre-fetched user data for synchronous rendering:
 
 ```typescript
 interface UserMenuItemsContext {
@@ -951,29 +951,36 @@ export default createFrontendPlugin({
   extensions: [
     createSlotExtension(UserMenuItemsSlot, {
       id: "myplugin.user-menu.items",
+      metadata: { priority: 50 },
       component: MyPluginMenuItems,
-      group: "Configuration", // Optional: bucket the item into a UserMenu section
     }),
   ],
 });
 ```
 
-**Grouping menu items**
+**Ordering menu items**
 
-The user menu groups `UserMenuItemsSlot` extensions by their optional
-`group` field and renders each group under a labeled header. Canonical
-groups (rendered in this order) are:
+Extensions render below the profile header, ordered by their optional
+`priority` (ascending, lower first). Extensions that omit it default to `0`
+and keep their registration order, which depends on plugin load order - so
+declare a `priority` whenever position matters. The core contributions leave
+gaps for third-party plugins to slot between them:
 
-- `"Workspace"` - domain-level browsing (catalogs, dashboards, dependency graphs)
-- `"Reliability"` - operational signals (health checks, incidents, maintenances, SLOs)
-- `"Configuration"` - admin/setup pages (auth, infrastructure, integrations, plugins)
-- `"Documentation"` - reference material (API docs, kind registry)
-- `"Account"` - personal items (profile)
+| Priority | Contribution |
+|---|---|
+| `-10` | Help (`tips-frontend`) |
+| `10` / `20` / `30` | Theme, Low Power, Density (`theme-frontend`) |
+| `40` | About (`about-frontend`) |
+| `100` | Logout (`auth-frontend`) |
 
-Extensions without a `group` are rendered last (no header), and any custom
-group strings introduced by plugins are rendered after the canonical groups
-in alphabetical order. `UserMenuItemsBottomSlot` always renders below the
-top section, separated by a divider - no `group` is honored there.
+To render a visual divider above your section, emit a `DropdownMenuSeparator`
+as your component's first child.
+
+> [!NOTE]
+> The desktop user menu is a two-column grid. A menu item that should occupy
+> the full width (a section header, a legend, a separator) needs
+> `col-span-full`. `DropdownMenuLabel` and `DropdownMenuSeparator` already
+> carry it.
 
 #### Example: Dashboard Widget
 

@@ -1,6 +1,6 @@
 import {
   createFrontendPlugin,
-  UserMenuItemsBottomSlot,
+  UserMenuItemsSlot,
 } from "@checkstack/frontend-api";
 import { createRoutes } from "@checkstack/common";
 import { pluginMetadata } from "@checkstack/about-common";
@@ -21,7 +21,9 @@ export const aboutPlugin = createFrontendPlugin({
   extensions: [
     {
       id: "about.user-menu.link",
-      slot: UserMenuItemsBottomSlot,
+      slot: UserMenuItemsSlot,
+      // Sits below the appearance toggles, above Logout.
+      metadata: { priority: 40 },
       component: AboutMenuItem,
     },
   ],

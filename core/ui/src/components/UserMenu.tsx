@@ -50,8 +50,14 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 
   const trigger = (
     <button
+      // The name label is hidden below `md` and the avatar is decorative, so
+      // without this the trigger has no accessible name at mobile widths.
+      aria-label={`Account menu for ${user.name || user.email || "user"}`}
       className={cn(
-        "flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-accent transition-all border border-transparent hover:border-border",
+        // Below `md` the trigger collapses to a bare avatar: the name label and
+        // the chevron are both dropped, so the pill's horizontal padding would
+        // otherwise leave a lopsided tap target around a single 24px circle.
+        "flex items-center gap-2 px-1.5 py-1.5 md:px-3 rounded-full hover:bg-accent transition-all border border-transparent hover:border-border",
         isOpen && "bg-accent border-border",
         className,
       )}
@@ -68,13 +74,16 @@ export const UserMenu: React.FC<UserMenuProps> = ({
           <User size={14} />
         )}
       </div>
-      <span className="text-sm font-medium text-foreground hidden sm:inline-block max-w-[120px] truncate">
+      <span className="text-sm font-medium text-foreground hidden md:inline-block max-w-[120px] truncate">
         {user.name || user.email}
       </span>
+      {/* The chevron signals "this opens a menu" next to a text label. With the
+          label gone on mobile it only adds a second glyph to an already-crowded
+          bar, and the avatar alone reads as a menu affordance. */}
       <ChevronDown
         size={14}
         className={cn(
-          "text-muted-foreground transition-transform",
+          "hidden md:block text-muted-foreground transition-transform",
           isOpen && "rotate-180",
         )}
       />
