@@ -72,20 +72,25 @@ export interface UserMenuItemsContext {
 }
 
 /**
- * Metadata for user-menu top-section extensions. The optional `group` key
- * lets the menu render extensions under labeled headers (Workspace,
- * Reliability, Configuration, Documentation, Account, or any custom label
- * supplied by a third-party plugin). Extensions without a group render in
- * an unlabeled bucket at the bottom of the top section.
+ * Metadata for user-menu extensions. `priority` orders them ascending (lower
+ * first); extensions that omit it default to 0 and keep their registration
+ * order. Declare it whenever an extension's position must not depend on plugin
+ * load order - e.g. the Help section pins itself above the appearance toggles
+ * and About, and Logout pins itself last.
  */
 export interface UserMenuItemsMetadata {
-  group?: string;
+  priority?: number;
 }
 
+/**
+ * The user menu's single item slot, rendered below the profile header and its
+ * divider. There is deliberately only ONE: an earlier design had this slot plus
+ * a `UserMenuItemsBottomSlot` for a second, divider-separated section, but the
+ * top slot was never rendered by anything and every real contribution landed in
+ * the bottom one. Order within the menu is expressed by `priority`, not by
+ * choosing between two slots.
+ */
 export const UserMenuItemsSlot = createSlot<
   UserMenuItemsContext,
   UserMenuItemsMetadata
 >("core.layout.navbar.user-menu.items");
-export const UserMenuItemsBottomSlot = createSlot<UserMenuItemsContext>(
-  "core.layout.navbar.user-menu.items.bottom"
-);

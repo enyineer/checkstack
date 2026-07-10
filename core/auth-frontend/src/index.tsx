@@ -4,7 +4,7 @@ import {
   createFrontendPlugin,
   createSlotExtension,
   NavbarRightSlot,
-  UserMenuItemsBottomSlot,
+  UserMenuItemsSlot,
   NavbarLeftSlot,
 } from "@checkstack/frontend-api";
 import {
@@ -245,8 +245,10 @@ export const authPlugin = createFrontendPlugin({
       slot: NavbarRightSlot,
       component: LoginNavbarAction,
     },
-    createSlotExtension(UserMenuItemsBottomSlot, {
+    createSlotExtension(UserMenuItemsSlot, {
       id: "auth.user-menu.logout",
+      // Logout is the terminal action, so it is pinned last in the section.
+      metadata: { priority: 100 },
       component: LogoutMenuItem,
     }),
     createSlotExtension(NavbarLeftSlot, {

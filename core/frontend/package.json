@@ -34,7 +34,6 @@
     "@checkstack/signal-frontend": "workspace:*",
     "@checkstack/status-page-common": "workspace:*",
     "@checkstack/status-page-frontend": "workspace:*",
-    "@checkstack/tips-frontend": "workspace:*",
     "@checkstack/ui": "workspace:*",
     "@module-federation/runtime": "^2.5",
     "@module-federation/vite": "^1.16",
