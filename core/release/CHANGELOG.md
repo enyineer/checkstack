@@ -1,5 +1,16 @@
 # @checkstack/release
 
+## 0.130.0
+
+### Minor Changes
+
+- 5e704cd: chore(ai-backend): regenerate docs index
+
+  Picks up the frontend extension-points and plugins pages, which now document a
+  single `UserMenuItemsSlot` ordered by `priority`, in place of the removed
+  `UserMenuItemsBottomSlot` and a `group`-based grouping system that was never
+  implemented.
+
 ## 0.129.0
 
 ### Minor Changes

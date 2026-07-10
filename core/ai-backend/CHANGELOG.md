@@ -1,5 +1,27 @@
 # @checkstack/ai-backend
 
+## 0.10.12
+
+### Patch Changes
+
+- 1f20b5a: chore(ai-backend): regenerate docs index
+
+  Picks up the anomaly-detection page's updated state-machine and signals
+  sections, which now document the `cleared` transition emitted when an
+  unconfirmed suspicious anomaly row is deleted.
+
+- 5e704cd: chore(ai-backend): regenerate docs index
+
+  Picks up the frontend extension-points and plugins pages, which now document a
+  single `UserMenuItemsSlot` ordered by `priority`, in place of the removed
+  `UserMenuItemsBottomSlot` and a `group`-based grouping system that was never
+  implemented.
+
+  - @checkstack/sdk@0.129.1
+  - @checkstack/catalog-common@2.7.2
+  - @checkstack/backend-api@0.32.1
+  - @checkstack/integration-backend@0.7.6
+
 ## 0.10.11
 
 ### Patch Changes

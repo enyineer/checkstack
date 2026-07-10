@@ -1,5 +1,14 @@
 # @checkstack/announcement-backend
 
+## 0.6.2
+
+### Patch Changes
+
+- @checkstack/backend-api@0.32.1
+- @checkstack/status-page-backend@0.6.1
+- @checkstack/auth-backend@0.11.1
+- @checkstack/command-backend@0.2.24
+
 ## 0.6.1
 
 ### Patch Changes

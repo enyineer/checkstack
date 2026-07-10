@@ -1,5 +1,12 @@
 # @checkstack/auth-backend
 
+## 0.11.1
+
+### Patch Changes
+
+- @checkstack/backend-api@0.32.1
+- @checkstack/command-backend@0.2.24
+
 ## 0.11.0
 
 ### Minor Changes
