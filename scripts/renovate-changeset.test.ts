@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   CHANGESET_STAMPED_PACKAGES,
+  checkChangeset,
   diffPackages,
+  expectedChangeset,
   owningWorkspaces,
   parseLock,
   renderChangeset,
@@ -181,5 +183,60 @@ describe("renderChangeset", () => {
     });
     expect(md).toStartWith('---\n"@x/backend": patch\n"@x/ui": patch\n---');
     expect(md).toContain("- `tar` 7.5.16 -> 7.5.19");
+  });
+});
+
+describe("expectedChangeset", () => {
+  it("produces content when a public prod owner is affected", () => {
+    const base = parseLock({ raw: BASE_LOCK });
+    const head = parseLock({ raw: HEAD_LOCK });
+    const { owners, content } = expectedChangeset({ base, head, isPublic });
+    expect(owners).toEqual(["@x/backend", "@x/ui"]);
+    expect(content).toContain('"@x/backend": patch');
+  });
+
+  it("returns null content when nothing resolvable changed", () => {
+    const lock = parseLock({ raw: BASE_LOCK });
+    expect(expectedChangeset({ base: lock, head: lock, isPublic }).content).toBeNull();
+  });
+
+  it("returns null content when only a dev-only dependency moved", () => {
+    const base = parseLock({ raw: BASE_LOCK });
+    const head = parseLock({ raw: BASE_LOCK.replace("typescript@5.7.2", "typescript@5.7.3") });
+    expect(expectedChangeset({ base, head, isPublic }).content).toBeNull();
+  });
+});
+
+describe("checkChangeset (the automerge drift guard)", () => {
+  const content = "---\n\"@x/backend\": patch\n---\n\nbody\n";
+
+  it("passes when committed matches a fresh generation", () => {
+    expect(checkChangeset({ expected: content, actual: content })).toEqual({ ok: true });
+  });
+
+  it("passes when none is expected and none is committed", () => {
+    expect(checkChangeset({ expected: null, actual: null })).toEqual({ ok: true });
+  });
+
+  it("FAILS when a changeset is expected but missing (the silent no-release hole)", () => {
+    const v = checkChangeset({ expected: content, actual: null });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("no changeset is committed");
+  });
+
+  it("FAILS when the committed changeset drifted from a fresh run", () => {
+    const v = checkChangeset({ expected: content, actual: content.replace("@x/backend", "@x/wrong") });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("drift");
+  });
+
+  it("FAILS when a stale changeset exists but none is warranted", () => {
+    const v = checkChangeset({ expected: null, actual: content });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("should be removed");
+  });
+
+  it("ignores trailing-whitespace differences", () => {
+    expect(checkChangeset({ expected: content, actual: content + "\n\n" })).toEqual({ ok: true });
   });
 });

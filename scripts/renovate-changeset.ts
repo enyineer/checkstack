@@ -264,11 +264,59 @@ export function resolveOwners({
   return [...owners].toSorted();
 }
 
+/**
+ * The changeset content the current lockfiles SHOULD produce - or `null` when no
+ * changeset is warranted (no resolution changes, or only private / dev-only
+ * owners). Pure over its inputs so both write and `--check` share one source of
+ * truth.
+ */
+export function expectedChangeset({
+  base,
+  head,
+  isPublic,
+}: {
+  base: ParsedLock;
+  head: ParsedLock;
+  isPublic: (workspaceName: string) => boolean;
+}): { changes: DepChange[]; owners: string[]; content: string | null } {
+  const changes = diffPackages({ base, head });
+  if (changes.length === 0) return { changes, owners: [], content: null };
+  const owners = resolveOwners({ head, changes, isPublic });
+  const content = owners.length === 0 ? null : renderChangeset({ owners, changes });
+  return { changes, owners, content };
+}
+
+/**
+ * Verdict of comparing the committed changeset against a fresh generation.
+ * `ok: false` is a hard CI failure - the guard that keeps automerge from
+ * shipping a lockfile refresh whose changeset is missing, stale, or drifted.
+ */
+export function checkChangeset({
+  expected,
+  actual,
+}: {
+  expected: string | null;
+  actual: string | null;
+}): { ok: boolean; reason?: string } {
+  if (expected === null) {
+    return actual === null
+      ? { ok: true }
+      : { ok: false, reason: "a changeset is committed but none is warranted (no public prod owner changed); it should be removed" };
+  }
+  if (actual === null) {
+    return { ok: false, reason: "no changeset is committed, but this refresh affects public prod packages; the generator must run" };
+  }
+  return actual.trim() === expected.trim()
+    ? { ok: true }
+    : { ok: false, reason: "the committed changeset does not match a fresh generation (drift); re-run the generator" };
+}
+
 interface Args {
   base: string;
   head: string;
   out: string;
   dryRun: boolean;
+  check: boolean;
 }
 
 function parseArgs({ argv }: { argv: string[] }): Args {
@@ -279,30 +327,19 @@ function parseArgs({ argv }: { argv: string[] }): Args {
   const base = read("--base");
   const head = read("--head");
   if (!base || !head) {
-    throw new Error("usage: renovate-changeset.ts --base <lock> --head <lock> [--out <md>] [--dry-run]");
+    throw new Error("usage: renovate-changeset.ts --base <lock> --head <lock> [--out <md>] [--dry-run|--check]");
   }
   return {
     base,
     head,
     out: read("--out") ?? ".changeset/renovate-lock-file-maintenance.md",
     dryRun: argv.includes("--dry-run"),
+    check: argv.includes("--check"),
   };
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs({ argv: Bun.argv.slice(2) });
-
-  const base = parseLock({ raw: await readFile(args.base, "utf8") });
-  const head = parseLock({ raw: await readFile(args.head, "utf8") });
-  const changes = diffPackages({ base, head });
-
-  if (changes.length === 0) {
-    console.log("No resolution changes in bun.lock - nothing to do.");
-    if (!args.dryRun && existsSync(args.out)) await rm(args.out);
-    return;
-  }
-
-  // Privacy is read from disk: bun.lock does not record it.
+/** Read each workspace's `private` flag from disk (bun.lock does not record it). */
+async function readIsPublic({ head }: { head: ParsedLock }): Promise<(name: string) => boolean> {
   const privateByName = new Map<string, boolean>();
   for (const ws of head.workspaces) {
     const manifest = path.join(ws.dir, "package.json");
@@ -312,31 +349,47 @@ async function main(): Promise<void> {
       .parse(JSON.parse(await readFile(manifest, "utf8")));
     privateByName.set(ws.name, parsed.private);
   }
-  const isPublic = (name: string): boolean => privateByName.get(name) === false;
+  return (name: string): boolean => privateByName.get(name) === false;
+}
 
-  const owners = resolveOwners({ head, changes, isPublic });
+async function main(): Promise<void> {
+  const args = parseArgs({ argv: Bun.argv.slice(2) });
 
-  console.log(`${changes.length} resolution change(s):`);
-  for (const c of changes) console.log(`  ${c.name} ${c.from} -> ${c.to}`);
+  const base = parseLock({ raw: await readFile(args.base, "utf8") });
+  const head = parseLock({ raw: await readFile(args.head, "utf8") });
+  const isPublic = await readIsPublic({ head });
+  const { changes, owners, content } = expectedChangeset({ base, head, isPublic });
 
-  if (owners.length === 0) {
-    console.log(
-      "\nNo public workspace package reaches any changed dependency through a\n" +
-        "prod edge. Nothing shippable changed; writing no changeset.",
-    );
+  console.log(`${changes.length} resolution change(s), ${owners.length} public prod owner(s).`);
+
+  // --check: the CI drift guard. The committed changeset MUST match a fresh
+  // generation, or automerge could ship a lockfile refresh that never releases.
+  if (args.check) {
+    const actual = existsSync(args.out) ? await readFile(args.out, "utf8") : null;
+    const verdict = checkChangeset({ expected: content, actual });
+    if (!verdict.ok) {
+      console.error(`\n❌ changeset check failed: ${verdict.reason}`);
+      console.error(`   run: bun run scripts/renovate-changeset.ts --base <base bun.lock> --head bun.lock`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log("✓ committed changeset matches a fresh generation.");
+    return;
+  }
+
+  if (content === null) {
+    console.log("Nothing shippable changed (no resolution changes, or only private / dev-only owners); no changeset.");
     if (!args.dryRun && existsSync(args.out)) await rm(args.out);
     return;
   }
 
-  console.log(`\nowners (${owners.length}): ${owners.join(", ")}`);
-  const content = renderChangeset({ owners, changes });
-
   if (args.dryRun) {
+    console.log(`\nowners (${owners.length}): ${owners.join(", ")}`);
     console.log(`\n--- ${args.out} ---\n${content}`);
     return;
   }
   await writeFile(args.out, content, "utf8");
-  console.log(`\nwrote ${args.out}`);
+  console.log(`wrote ${args.out} (${owners.length} owners)`);
 }
 
 if (import.meta.main) {

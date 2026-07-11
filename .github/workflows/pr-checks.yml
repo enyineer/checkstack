@@ -162,15 +162,24 @@ jobs:
       # into one lockfile). syncpack enforces a single shared range for the
       # unified set declared in `.syncpackrc.json`. Run `bun run deps:fix`
       # locally to auto-align, then `bun install`.
-      # Two gates share this job:
+      # Three gates share this job:
       #  1. syncpack alignment (issue #245) — one shared range per external dep.
       #  2. managed-override drift — every SECURITY override in package.json
       #     `overrides`/`resolutions` is documented in
       #     security/managed-overrides.json and still sits at/above its
       #     safeFloor. Stops undocumented security pins (which rot silently)
       #     from sneaking in. See scripts/audit-overrides.ts.
+      #  3. lock-file changeset drift (Renovate lock-file-maintenance PRs only) —
+      #     the committed changeset MUST match a fresh generation. This feeds the
+      #     required `Report` check, so AUTOMERGE can never ship a lockfile
+      #     refresh whose changeset is missing/stale/drifted (which would merge a
+      #     patched lockfile that never triggers a release). HEAD_REF/BASE_REF are
+      #     passed via env, never interpolated into the shell (injection safety).
       - name: Check Dependency Alignment
         id: deps
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set +e
           : > /tmp/deps-output.txt
@@ -182,6 +191,15 @@ jobs:
           echo "── managed-override drift ──" | tee -a /tmp/deps-output.txt
           bun run audit:overrides:check 2>&1 | tee -a /tmp/deps-output.txt
           [ "${PIPESTATUS[0]}" != "0" ] && rc=1
+          if [ "$HEAD_REF" = "renovate/lock-file-maintenance" ]; then
+            echo "" | tee -a /tmp/deps-output.txt
+            echo "── lock-file changeset drift ──" | tee -a /tmp/deps-output.txt
+            git fetch origin "$BASE_REF" --depth=1 -q
+            git show "origin/${BASE_REF}:bun.lock" > /tmp/base-bun.lock
+            bun run scripts/renovate-changeset.ts \
+              --base /tmp/base-bun.lock --head bun.lock --check 2>&1 | tee -a /tmp/deps-output.txt
+            [ "${PIPESTATUS[0]}" != "0" ] && rc=1
+          fi
           echo "exit_code=$rc" >> $GITHUB_OUTPUT
 
       - name: Upload Output
