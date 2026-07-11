@@ -10,6 +10,7 @@
     "docs"
   ],
   "scripts": {
+    "predev": "bun run scripts/ensure-deps.ts",
     "dev": "bun run core/scripts/src/cockpit/cli.tsx",
     "preview": "bun run core/scripts/src/cockpit/cli.tsx preview",
     "preview:prs": "bun run core/scripts/src/cockpit/cli.tsx",
