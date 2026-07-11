@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  CHANGESET_STAMPED_PACKAGES,
   diffPackages,
   owningWorkspaces,
   parseLock,
@@ -133,6 +134,24 @@ describe("owningWorkspaces", () => {
     const lock = parseLock({ raw: HEAD_LOCK });
     // @x/e2e reaches ajv only through devDependencies.
     expect(owningWorkspaces({ lock, target: "fast-uri", isPublic })).not.toContain("@x/e2e");
+  });
+
+  it("excludes version-stamped packages (@checkstack/sdk) - forbidden in changesets (§7.3)", () => {
+    // @checkstack/sdk is PUBLIC but its version is stamped from @checkstack/release,
+    // so a changeset must never name it even though it declares a changed prod dep.
+    const raw = `{
+      "lockfileVersion": 1,
+      "workspaces": {
+        "core/sdk": { "name": "@checkstack/sdk", "dependencies": { "tar": "^7.0.0" } },
+        "core/backend": { "name": "@checkstack/backend", "dependencies": { "tar": "^7.0.0" } }
+      },
+      "packages": { "tar": ["tar@7.5.19", "", {}, "sha"] }
+    }`;
+    const lock = parseLock({ raw });
+    const owners = owningWorkspaces({ lock, target: "tar", isPublic: () => true });
+    expect(owners).toContain("@checkstack/backend");
+    expect(owners).not.toContain("@checkstack/sdk");
+    expect(CHANGESET_STAMPED_PACKAGES.has("@checkstack/sdk")).toBe(true);
   });
 });
 

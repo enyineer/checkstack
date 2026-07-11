@@ -42,6 +42,18 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
+/**
+ * Published packages whose version is STAMPED from `@checkstack/release`, not
+ * driven by changesets - a changeset must NEVER reference them (plan §7.3, and
+ * enforced by `generate:sdk:check`). They are public, so the `isPublic` filter
+ * does not catch them; they must be excluded explicitly. `@checkstack/release`
+ * is itself private (already excluded) but is listed for clarity.
+ */
+export const CHANGESET_STAMPED_PACKAGES = new Set<string>([
+  "@checkstack/sdk",
+  "@checkstack/release",
+]);
+
 const DepMapSchema = z.record(z.string(), z.string());
 
 const WorkspaceEntrySchema = z.object({
@@ -202,6 +214,7 @@ export function owningWorkspaces({
   const owners = new Set<string>();
   for (const ws of lock.workspaces) {
     if (!isPublic(ws.name)) continue;
+    if (CHANGESET_STAMPED_PACKAGES.has(ws.name)) continue;
     if (ws.prodDeps.some((dep) => ancestors.has(dep))) owners.add(ws.name);
   }
   return [...owners].toSorted();
