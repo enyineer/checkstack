@@ -35,6 +35,9 @@
     "commitMessageAction": "Refresh",
     "commitMessageTopic": "bun.lock (lock-file maintenance)",
     "labels": ["dependencies", "security-maintenance"],
-    "rebaseWhen": "behind-base-branch"
+    "rebaseWhen": "behind-base-branch",
+    "automerge": true,
+    "platformAutomerge": true,
+    "automergeStrategy": "squash"
   }
 }
