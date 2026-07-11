@@ -82,7 +82,12 @@ export type Environment = z.infer<typeof EnvironmentSchema>;
 export const CreateEnvironmentSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Free-form key/value custom fields for this environment (e.g. baseUrl, region, tier). Each key becomes available in the health-check config templates of systems assigned to this environment as `{{ environment.<key> }}` - e.g. set `baseUrl` so a check's URL can reference `{{ environment.baseUrl }}`. Only set keys the user explicitly asks to store; do not invent keys.",
+    ),
 });
 export type CreateEnvironment = z.infer<typeof CreateEnvironmentSchema>;
 

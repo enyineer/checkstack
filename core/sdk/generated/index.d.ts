@@ -117,6 +117,13 @@ interface HealthCheckScriptContext {
     readonly id: string;
     /** The system's display name (falls back to the id). */
     readonly name: string;
+    /**
+     * The system's free-form custom fields, with the original
+     * (non-normalized) keys — so you read `metadata.baseUrl` directly.
+     * Values are arbitrary JSON (metadata only, never secrets); narrow
+     * each before use, e.g. `typeof metadata.baseUrl === "string"`.
+     */
+    readonly metadata: Record<string, unknown>;
   };
   /**
    * The environment this run resolved to, when the check fanned out into

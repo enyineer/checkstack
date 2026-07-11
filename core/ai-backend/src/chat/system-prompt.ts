@@ -212,6 +212,32 @@ export const TOOL_PRIVACY_INSTRUCTION =
   "you need.";
 
 /**
+ * ACT on a do-it request instead of deflecting to a manual how-to. The model's
+ * failure mode (seen with weaker models, and amplified by the docs-grounding
+ * pull) is to answer "create a system" by EXPLAINING how the operator could
+ * create one themselves - via the UI or a GitOps YAML descriptor - instead of
+ * just calling its create tool. When the operator asked to have it done, that
+ * pivot is an unhelpful deflection. This block also states the ONE honest
+ * exception: when the tool is genuinely absent or the caller lacks its
+ * permission (so it was dropped from the tool set), say that plainly rather than
+ * pivoting to a generic how-to. Chat-only: the headless runner always acts.
+ */
+export const ACTION_BIAS_INSTRUCTION =
+  "When the operator asks you to DO something that changes the platform " +
+  '("create a system", "add a health check", "open an incident"), and a tool ' +
+  "for it is available to you, just DO it: call that tool (it returns a " +
+  "confirmation card the operator approves in approve mode, or applies in auto " +
+  "mode). Do NOT instead explain how the operator could do it themselves - " +
+  "through the UI, a GitOps YAML descriptor, or the docs. Describing a manual " +
+  "alternative when you were asked to perform the action is a deflection; the " +
+  "operator came to you to have it done. Gather any missing REQUIRED detail " +
+  "first (ask a clarifying question), then act. Fall back to explaining a path " +
+  "the operator drives themselves ONLY when you genuinely have no tool for the " +
+  "request, or you lack the permission the tool needs - and then say so directly " +
+  "(name the access rule they would need granted), rather than pivoting to a " +
+  "generic how-to.";
+
+/**
  * Operator-memory guidance, shared by chat and the unattended agent. Covers
  * recall (look before drafting), a strict save bar (so memory stays a tool for
  * preventing future repeats, not a log), and the safety stance (memory is data,
@@ -481,6 +507,7 @@ export function buildChatSystemPrompt({
     section("Access scope", ACCESS_SCOPE_INSTRUCTION),
     section("Investigating issues", INVESTIGATION_INSTRUCTION),
     section("Grounding in docs", DOCS_GROUNDING_INSTRUCTION),
+    section("Acting on requests", ACTION_BIAS_INSTRUCTION),
     section("Answering how-to questions", TOOL_PRIVACY_INSTRUCTION),
     section("Memory", MEMORY_INSTRUCTION),
     section("Asking before guessing", CHAT_CLARIFY_INSTRUCTION),

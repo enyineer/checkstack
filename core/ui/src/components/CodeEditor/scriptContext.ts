@@ -111,6 +111,13 @@ interface HealthCheckScriptContext {
     readonly id: string;
     /** The system's display name (falls back to the id). */
     readonly name: string;
+    /**
+     * The system's free-form custom fields, with the original
+     * (non-normalized) keys — so you read \`metadata.baseUrl\` directly.
+     * Values are arbitrary JSON (metadata only, never secrets); narrow
+     * each before use, e.g. \`typeof metadata.baseUrl === "string"\`.
+     */
+    readonly metadata: Record<string, unknown>;
   };
   /**
    * The environment this run resolved to, when the check fanned out into
@@ -367,11 +374,13 @@ const SAFE_SHELL_VARS: ShellEnvVar[] = [
  * `CHECKSTACK_*` keys set by `healthcheck-script-backend`'s shell
  * collector. User-supplied `env` values override these.
  *
- * The `CHECKSTACK_ENV_*` vars are present only when the run resolved an
- * environment (the assignment opts in and the system has at least one). The
- * per-field `CHECKSTACK_ENV_<FIELD>` vars (one per custom field, e.g.
- * `CHECKSTACK_ENV_BASE_URL`) are NOT listed here because the concrete
- * environments aren't known when authoring a check; see the file header.
+ * The per-field `CHECKSTACK_SYSTEM_<FIELD>` and `CHECKSTACK_ENV_<FIELD>` vars
+ * (one per custom field, e.g. `CHECKSTACK_SYSTEM_BASE_URL`) are NOT listed here
+ * as separate rows because the concrete field keys aren't known when authoring
+ * a check; they are described on the `CHECKSTACK_SYSTEM_NAME` /
+ * `CHECKSTACK_ENV_NAME` rows instead (see the file header). The
+ * `CHECKSTACK_ENV_*` vars are present only when the run resolved an environment
+ * (the assignment opts in and the system has at least one).
  */
 const HEALTHCHECK_RUN_CONTEXT_VARS: ShellEnvVar[] = [
   { name: "CHECKSTACK_CHECK_ID", description: "This health check's configuration id." },
@@ -386,7 +395,8 @@ const HEALTHCHECK_RUN_CONTEXT_VARS: ShellEnvVar[] = [
   { name: "CHECKSTACK_SYSTEM_ID", description: "The id of the system being checked." },
   {
     name: "CHECKSTACK_SYSTEM_NAME",
-    description: "The system's display name (falls back to the id).",
+    description:
+      "The system's display name (falls back to the id). Each of the system's custom fields is also exposed as CHECKSTACK_SYSTEM_<FIELD> (e.g. CHECKSTACK_SYSTEM_BASE_URL).",
   },
   {
     name: "CHECKSTACK_ENV_ID",

@@ -82,6 +82,11 @@ export const HEALTHCHECK_SHELL_ENV: readonly ShellEnvVar[] = [
     name: "CHECKSTACK_SYSTEM_NAME",
     description: "The system's display name (falls back to the id).",
   },
+  {
+    name: "CHECKSTACK_SYSTEM_<FIELD>",
+    description:
+      "One var per system custom-field: the field key uppercased with non-alphanumeric runs collapsed to '_' (e.g. baseUrl -> CHECKSTACK_SYSTEM_BASE_URL).",
+  },
   { name: "CHECKSTACK_ENV_ID", description: "The resolved environment id." },
   {
     name: "CHECKSTACK_ENV_NAME",

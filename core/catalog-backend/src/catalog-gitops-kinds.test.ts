@@ -24,6 +24,7 @@ interface MockSystem {
   id: string;
   name: string;
   description?: string;
+  metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -98,18 +99,33 @@ function createMockEntityService() {
     getEnvironmentsForSystem: mock(async (_systemId: string) => {
       return [] as { environmentId: string; systemId: string }[];
     }),
-    createSystem: mock(async (data: { name: string; description?: string }) => {
-      const system: MockSystem = {
-        id: `sys-${systems.length + 1}`,
-        name: data.name,
-        description: data.description,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      systems.push(system);
-      return system;
-    }),
-    updateSystem: mock(async (id: string, data: Partial<{ name: string; description?: string }>) => {
+    createSystem: mock(
+      async (data: {
+        name: string;
+        description?: string;
+        metadata?: Record<string, unknown>;
+      }) => {
+        const system: MockSystem = {
+          id: `sys-${systems.length + 1}`,
+          name: data.name,
+          description: data.description,
+          metadata: data.metadata,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        systems.push(system);
+        return system;
+      },
+    ),
+    updateSystem: mock(
+      async (
+        id: string,
+        data: Partial<{
+          name: string;
+          description?: string;
+          metadata?: Record<string, unknown>;
+        }>,
+      ) => {
       const system = systems.find((s) => s.id === id);
       if (system) {
         Object.assign(system, data);
@@ -168,7 +184,9 @@ const mockContext: ReconcileContext = {
 describe("Catalog GitOps Kind: System", () => {
   let mockService: ReturnType<typeof createMockEntityService>;
 
-  const systemSpecSchema = z.object({});
+  const systemSpecSchema = z.object({
+    fields: z.record(z.string(), z.unknown()).optional(),
+  });
   type SystemSpec = z.infer<typeof systemSpecSchema>;
 
   function buildSystemKind(
@@ -181,11 +199,13 @@ describe("Catalog GitOps Kind: System", () => {
       reconcile: async ({ entity, existingEntityId, context }) => {
         const displayName = entity.metadata.title ?? entity.metadata.name;
         const description = entity.metadata.description;
+        const metadata = entity.spec.fields ?? {};
 
         if (existingEntityId) {
           await svc.updateSystem(existingEntityId, {
             name: displayName,
             description,
+            metadata,
           });
           context.logger.info(`Updated system (id: ${existingEntityId})`);
           return { entityId: existingEntityId };
@@ -194,6 +214,7 @@ describe("Catalog GitOps Kind: System", () => {
         const system = await svc.createSystem({
           name: displayName,
           description,
+          metadata,
         });
         context.logger.info(`Created system (id: ${system.id})`);
         return { entityId: system.id };
@@ -230,6 +251,67 @@ describe("Catalog GitOps Kind: System", () => {
     expect(mockService.systems).toHaveLength(1);
     expect(mockService.systems[0].name).toBe("Payment Service");
     expect(mockService.systems[0].description).toBe("Handles payments");
+  });
+
+  it("creates a system with free-form custom fields from spec.fields", async () => {
+    const kind = buildSystemKind(mockService);
+
+    await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        metadata: { name: "payments", title: "Payments" },
+        spec: { fields: { baseUrl: "https://pay.example.com", tier: "1" } },
+      },
+      context: mockContext,
+    });
+
+    expect(mockService.systems[0].metadata).toEqual({
+      baseUrl: "https://pay.example.com",
+      tier: "1",
+    });
+  });
+
+  it("defaults system metadata to {} when spec.fields is absent", async () => {
+    const kind = buildSystemKind(mockService);
+
+    await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        metadata: { name: "no-fields" },
+        spec: {},
+      },
+      context: mockContext,
+    });
+
+    expect(mockService.systems[0].metadata).toEqual({});
+  });
+
+  it("replaces system custom fields on update from spec.fields", async () => {
+    const kind = buildSystemKind(mockService);
+
+    mockService.systems.push({
+      id: "sys-existing",
+      name: "Old",
+      metadata: { region: "eu" },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await kind.reconcile({
+      entity: {
+        apiVersion: CHECKSTACK_API_VERSION,
+        kind: "System",
+        metadata: { name: "payments", title: "Payments" },
+        spec: { fields: { region: "us" } },
+      },
+      existingEntityId: "sys-existing",
+      context: mockContext,
+    });
+
+    expect(mockService.updateSystem).toHaveBeenCalledTimes(1);
+    expect(mockService.systems[0].metadata).toEqual({ region: "us" });
   });
 
   it("uses metadata.description for the catalog description", async () => {

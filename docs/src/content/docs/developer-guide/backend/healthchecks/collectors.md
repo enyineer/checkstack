@@ -201,6 +201,8 @@ collector `execute`) against a fixed context:
 - `{{ environment.<key> }}` - the resolved environment's custom fields.
 - `{{ check.id }}` / `{{ check.name }}` / `{{ check.intervalSeconds }}`.
 - `{{ system.id }}` / `{{ system.name }}`.
+- `{{ system.metadata.<key> }}` - the system's own custom fields, namespaced
+  under `.metadata` so a field cannot shadow `system.id` / `system.name`.
 
 An undefined reference renders to an empty string (the engine runs with
 `strict: false`), so a required target field can render EMPTY - for example an

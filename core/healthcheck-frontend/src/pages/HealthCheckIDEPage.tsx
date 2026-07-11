@@ -130,6 +130,7 @@ const HealthCheckIDEPageContent = () => {
         id: s.id,
         name: s.name,
         description: s.description,
+        metadata: s.metadata ?? {},
       })),
     [systemsData],
   );
@@ -396,12 +397,14 @@ const HealthCheckIDEPageContent = () => {
     });
     if (!selectedEnv) return;
 
+    const selectedSystem = systemIdFromUrl
+      ? systems.find((s) => s.id === systemIdFromUrl)
+      : undefined;
     const systemMeta = systemIdFromUrl
       ? {
           id: systemIdFromUrl,
-          name:
-            systems.find((s) => s.id === systemIdFromUrl)?.name ??
-            systemIdFromUrl,
+          name: selectedSystem?.name ?? systemIdFromUrl,
+          metadata: selectedSystem?.metadata ?? {},
         }
       : undefined;
 
@@ -434,14 +437,21 @@ const HealthCheckIDEPageContent = () => {
       environments: previewEnvironments,
       selectedId: previewEnvironmentId,
     });
+    // Only a concrete single system (opened from a system) can enumerate its
+    // `system.metadata.<key>` completions; a shared-config authoring flow has
+    // none, and edit mode does not load the systems list.
+    const selectedSystem = systemIdFromUrl
+      ? systems.find((s) => s.id === systemIdFromUrl)
+      : undefined;
     return createReferenceCompletionProvider(
       buildHealthCheckTemplateProperties({
         environmentFields: selectedEnv
           ? environmentToPreviewFields(selectedEnv)
           : {},
+        systemFields: selectedSystem?.metadata,
       }),
     );
-  }, [previewEnvironments, previewEnvironmentId]);
+  }, [previewEnvironments, previewEnvironmentId, systemIdFromUrl, systems]);
 
   // --- Save ---
 

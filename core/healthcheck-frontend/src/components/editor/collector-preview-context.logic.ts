@@ -65,6 +65,12 @@ export interface PreviewCheckMeta {
 export interface PreviewSystemMeta {
   id: string;
   name: string;
+  /**
+   * The system's free-form custom fields, surfaced to templating as
+   * `{{ system.metadata.<key> }}`. Present only when a concrete system is in
+   * context (the editor may be authoring a config several systems will share).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -100,6 +106,9 @@ export function buildTemplatePreviewContext({
  *     (none when no environment is picked).
  *   - `check.id` / `check.name` / `check.intervalSeconds` (always).
  *   - `system.id` / `system.name` (always).
+ *   - `system.metadata.<key>` for each custom field of the concrete system
+ *     (only when a single system is in context; the authoring flow that has no
+ *     concrete system offers just the `system.metadata` namespace).
  *
  * Feed the result to `createReferenceCompletionProvider` from `@checkstack/ui`
  * and pass that provider to `DynamicForm`. Typing `{{` then offers these paths
@@ -107,8 +116,15 @@ export function buildTemplatePreviewContext({
  */
 export function buildHealthCheckTemplateProperties({
   environmentFields,
+  systemFields,
 }: {
   environmentFields: Record<string, unknown>;
+  /**
+   * The concrete system's custom fields, when a single system is in context.
+   * Each becomes a `system.metadata.<key>` completion. Omit when the editor
+   * has no concrete system (authoring a shared config).
+   */
+  systemFields?: Record<string, unknown>;
 }): TemplateProperty[] {
   const envProperties: TemplateProperty[] = Object.keys(environmentFields).map(
     (key) => ({
@@ -135,6 +151,13 @@ export function buildHealthCheckTemplateProperties({
       type: "string",
       description: "Monitored system name",
     },
+    ...Object.keys(systemFields ?? {}).map(
+      (key): TemplateProperty => ({
+        path: `system.metadata.${key}`,
+        type: templateValueType(systemFields?.[key]),
+        description: "System custom field",
+      }),
+    ),
   ];
 
   return [...envProperties, ...checkProperties, ...systemProperties];

@@ -19,9 +19,19 @@ import type { RegisteredAiTool } from "@checkstack/ai-backend";
 export const CatalogUpdateSystemInputSchema = z.object({
   id: z.string(),
   data: z.object({
-    name: z.string().optional(),
-    description: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    name: z.string().optional().describe("New display name for the system."),
+    description: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("New description; pass null to clear it."),
+    metadata: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .optional()
+      .describe(
+        "REPLACES the system's free-form key/value custom fields. Each key becomes available in health-check config templates as `{{ system.metadata.<key> }}` (e.g. `{{ system.metadata.baseUrl }}`). Pass the FULL desired set (it is not merged); pass null or {} to clear all fields. ONLY set keys the user explicitly asks to store - do NOT invent keys and do NOT use this to tag/label/group systems (use Groups and Environments). Omit this field to leave the existing fields unchanged.",
+      ),
   }),
 });
 export type CatalogUpdateSystemInput = z.infer<

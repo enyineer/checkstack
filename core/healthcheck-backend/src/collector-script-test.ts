@@ -32,7 +32,13 @@ export type CollectorScriptTestKind = "typescript" | "shell";
 /** Curated check/system/environment metadata a collector script can read. */
 export interface CollectorTestRunContext {
   check?: { id: string; name: string; intervalSeconds: number };
-  system?: { id: string; name: string };
+  /**
+   * The system being checked. `metadata` is its free-form custom fields,
+   * mirroring the runtime `CollectorRunContext.system` so the test panel
+   * previews the `CHECKSTACK_SYSTEM_*` / `context.system.metadata` surface the
+   * real run exposes.
+   */
+  system?: { id: string; name: string; metadata?: Record<string, unknown> };
   /**
    * The resolved environment for the previewed run. `fields` is the
    * environment's free-form custom metadata. Mirrors the runtime
@@ -85,22 +91,49 @@ export interface CollectorScriptTestDeps {
 }
 
 const CHECKSTACK_ENV_PREFIX = "CHECKSTACK_ENV_";
+const CHECKSTACK_SYSTEM_PREFIX = "CHECKSTACK_SYSTEM_";
 
 /**
- * Derive the `CHECKSTACK_ENV_<KEY>` shell var name for a custom field key.
- * Mirrors `toEnvFieldShellKey` in `@checkstack/healthcheck-script-backend`
- * (kept local - we don't import across plugins) so the test panel and the
- * real run produce identical var names. Splits camelCase, uppercases,
- * collapses non-alphanumeric runs to `_`, trims leading/trailing `_` using a
- * ReDoS-safe negative look-behind.
+ * Derive the `<prefix><KEY>` shell var name for a custom field key. Mirrors
+ * `toFieldShellKey` in `@checkstack/healthcheck-script-backend` (kept local -
+ * we don't import across plugins) so the test panel and the real run produce
+ * identical var names. Splits camelCase, uppercases, collapses non-alphanumeric
+ * runs to `_`, trims leading/trailing `_` using a ReDoS-safe negative
+ * look-behind.
  */
-function toEnvFieldShellKey(key: string): string {
+function toFieldShellKey(key: string, prefix: string): string {
   const normalized = key
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toUpperCase()
     .replaceAll(/[^A-Z0-9]+/g, "_")
     .replaceAll(/^_+|(?<!_)_+$/g, "");
-  return `${CHECKSTACK_ENV_PREFIX}${normalized}`;
+  return `${prefix}${normalized}`;
+}
+
+/**
+ * Expand a set of custom fields into `<prefix><KEY>` shell vars, mirroring
+ * `buildFieldShellEnv` in the script plugin: skip empty-normalized names, skip
+ * the reserved structural id/name vars, first-key-wins on collisions.
+ */
+function addFieldShellVars({
+  env,
+  fields,
+  prefix,
+}: {
+  env: Record<string, string>;
+  fields: Record<string, unknown>;
+  prefix: string;
+}): void {
+  const reserved = new Set([`${prefix}ID`, `${prefix}NAME`]);
+  const claimed = new Set<string>();
+  for (const [key, value] of Object.entries(fields)) {
+    const shellKey = toFieldShellKey(key, prefix);
+    if (shellKey === prefix || reserved.has(shellKey) || claimed.has(shellKey)) {
+      continue;
+    }
+    env[shellKey] = stringifyFieldValue(value);
+    claimed.add(shellKey);
+  }
 }
 
 /** Stringify a custom-field value for a shell env var. */
@@ -135,17 +168,22 @@ export function buildShellRunContextEnv(
   if (runContext?.system) {
     env.CHECKSTACK_SYSTEM_ID = runContext.system.id;
     env.CHECKSTACK_SYSTEM_NAME = runContext.system.name;
+    if (runContext.system.metadata) {
+      addFieldShellVars({
+        env,
+        fields: runContext.system.metadata,
+        prefix: CHECKSTACK_SYSTEM_PREFIX,
+      });
+    }
   }
   if (runContext?.environment) {
     env.CHECKSTACK_ENV_ID = runContext.environment.id;
     env.CHECKSTACK_ENV_NAME = runContext.environment.name;
-    const claimed = new Set<string>();
-    for (const [key, value] of Object.entries(runContext.environment.fields)) {
-      const shellKey = toEnvFieldShellKey(key);
-      if (shellKey === CHECKSTACK_ENV_PREFIX || claimed.has(shellKey)) continue;
-      env[shellKey] = stringifyFieldValue(value);
-      claimed.add(shellKey);
-    }
+    addFieldShellVars({
+      env,
+      fields: runContext.environment.fields,
+      prefix: CHECKSTACK_ENV_PREFIX,
+    });
   }
   return env;
 }

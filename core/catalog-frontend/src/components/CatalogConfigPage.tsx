@@ -357,9 +357,17 @@ export const CatalogConfigPage = () => {
     name: string;
     description?: string;
     teamId?: string;
+    metadata?: Record<string, string>;
   }) => {
     if (editingSystem) {
-      updateSystemMutation.mutate({ id: editingSystem.id, data: { name: data.name, description: data.description } });
+      updateSystemMutation.mutate({
+        id: editingSystem.id,
+        data: {
+          name: data.name,
+          description: data.description,
+          metadata: data.metadata,
+        },
+      });
     } else {
       // mutateAsync so errors propagate to SystemEditor's catch block, which
       // routes team-create errors inline to the TeamOwnershipPicker.
@@ -608,6 +616,7 @@ export const CatalogConfigPage = () => {
                 id: editingSystem.id,
                 name: editingSystem.name,
                 description: editingSystem.description ?? undefined,
+                metadata: editingSystem.metadata,
               }
             : undefined
         }

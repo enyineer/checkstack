@@ -30,12 +30,29 @@ import { SystemLinksEditor } from "./SystemLinksEditor";
 import { SystemEnvironmentsEditor } from "./SystemEnvironmentsEditor";
 import { ExtensionSlot } from "@checkstack/frontend-api";
 import { SystemEditorSlot } from "@checkstack/catalog-common";
+import {
+  metadataToRows,
+  rowsToMetadata,
+  hasDuplicateKeys,
+  type CustomFieldRow,
+} from "./environment-fields.logic";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
 
 interface SystemEditorProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: { name: string; description?: string; teamId?: string }) => Promise<void>;
-  initialData?: { id: string; name: string; description?: string };
+  onSave: (data: {
+    name: string;
+    description?: string;
+    teamId?: string;
+    metadata?: Record<string, string>;
+  }) => Promise<void>;
+  initialData?: {
+    id: string;
+    name: string;
+    description?: string;
+    metadata?: Record<string, unknown> | null;
+  };
 }
 
 export const SystemEditor: React.FC<SystemEditorProps> = ({
@@ -50,6 +67,9 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
   );
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
+  const [fields, setFields] = useState<CustomFieldRow[]>(() =>
+    metadataToRows(initialData?.metadata),
+  );
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
@@ -63,12 +83,17 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
       setDescription(initialData?.description || "");
       setOwnerTeamId(null);
       setOwnerTeamError(null);
+      setFields(metadataToRows(initialData?.metadata));
     }
   }, [open, initialData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    if (hasDuplicateKeys(fields)) {
+      toast.error("Custom field keys must be unique");
+      return;
+    }
 
     setLoading(true);
     setOwnerTeamError(null);
@@ -76,6 +101,7 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
       await onSave({
         name: name.trim(),
         description: description.trim() || undefined,
+        metadata: rowsToMetadata(fields),
         ...(initialData?.id ? {} : { teamId: ownerTeamId ?? undefined }),
       });
       onClose();
@@ -129,6 +155,19 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
                 rows={3}
               />
             </div>
+
+            <CustomFieldsEditor
+              fields={fields}
+              onChange={setFields}
+              description={
+                <>
+                  Free-form key/value pairs. Each key surfaces to health-check
+                  config templates as{" "}
+                  <code>{"{{ system.metadata.<key> }}"}</code> (for example a
+                  per-system {"{{ system.metadata.baseUrl }}"}).
+                </>
+              }
+            />
 
             {/* Modelling hint - only when creating a new system. Steers new
                 users away from "one system per environment", which is the most

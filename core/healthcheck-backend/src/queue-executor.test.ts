@@ -347,10 +347,11 @@ describe("Queue-Based Health Check Executor", () => {
       const mockIncidentClient = createMockIncidentClient();
       const mockSignalService = createMockSignalService();
 
-      // Catalog resolves the system name.
+      // Catalog resolves the system name + free-form metadata.
       (mockCatalogClient.getSystem as any) = mock(async () => ({
         id: "system-1",
         name: "web-01",
+        metadata: { baseUrl: "https://web-01.example.com" },
       }));
 
       // configName is null -> run-context check.name must fall back to id.
@@ -470,7 +471,11 @@ describe("Queue-Based Health Check Executor", () => {
       expect(collectorExecute).toHaveBeenCalled();
       expect(capturedRunContext).toEqual({
         check: { id: "config-1", name: "config-1", intervalSeconds: 45 },
-        system: { id: "system-1", name: "web-01" },
+        system: {
+          id: "system-1",
+          name: "web-01",
+          metadata: { baseUrl: "https://web-01.example.com" },
+        },
       });
     });
 
@@ -694,6 +699,7 @@ describe("Queue-Based Health Check Executor", () => {
       collectorConfig = {},
       collectorConfigSchema = z.object({}),
       failCatalogResolution = false,
+      systemMetadata = {},
     }: {
       /** The env this job runs (`null` = an env-less job). */
       payloadEnvironmentId: string | null;
@@ -710,9 +716,11 @@ describe("Queue-Based Health Check Executor", () => {
       collectorConfigSchema?: z.ZodType<unknown>;
       /** When true, the catalog membership read REJECTS (fail-open path). */
       failCatalogResolution?: boolean;
+      /** The system's free-form catalog metadata (`{{ system.metadata.* }}`). */
+      systemMetadata?: Record<string, unknown>;
     }): Promise<{
       /** Run-context captured for the single run (empty when skipped). */
-      runs: Array<{ environment?: unknown; config?: unknown }>;
+      runs: Array<{ environment?: unknown; system?: unknown; config?: unknown }>;
       /** Payloads broadcast on `healthcheck.run.completed`, in order. */
       runCompletedPayloads: Array<Record<string, unknown>>;
     }> {
@@ -728,6 +736,7 @@ describe("Queue-Based Health Check Executor", () => {
       (mockCatalogClient.getSystem as any) = mock(async () => ({
         id: "system-1",
         name: "web-01",
+        metadata: systemMetadata,
       }));
       (mockCatalogClient as any).resolveSystemEnvironments = mock(async () => {
         if (failCatalogResolution) throw new Error("catalog unavailable");
@@ -970,6 +979,51 @@ describe("Queue-Based Health Check Executor", () => {
       // Missing path renders empty (strict: false) - the HTTP collector's
       // post-render .url() check turns this into a clear config error.
       expect((captured[0]?.config as { url: string }).url).toBe("/healthz");
+    });
+
+    it("renders {{ system.metadata.<key> }} from the system's catalog custom fields", async () => {
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: null,
+        environmentIds: [],
+        membership: [{ id: "prod", name: "Production", metadata: {} }],
+        systemMetadata: { baseUrl: "https://sys.example.com" },
+        collectorConfig: { url: "{{ system.metadata.baseUrl }}/healthz" },
+        collectorConfigSchema: z.object({
+          url: configString({ "x-templatable": true }),
+        }),
+      });
+
+      expect(captured).toHaveLength(1);
+      expect((captured[0]?.config as { url: string }).url).toBe(
+        "https://sys.example.com/healthz",
+      );
+    });
+
+    it("namespaces metadata under .metadata so a custom field cannot shadow system.name", async () => {
+      // A metadata key literally named `name` must NOT override the structural
+      // `{{ system.name }}`; it is only reachable at `{{ system.metadata.name }}`.
+      const { runs: captured } = await runSingleEnv({
+        payloadEnvironmentId: null,
+        environmentIds: [],
+        membership: [{ id: "prod", name: "Production", metadata: {} }],
+        systemMetadata: { name: "shadow-attempt" },
+        collectorConfig: {
+          structural: "{{ system.name }}",
+          custom: "{{ system.metadata.name }}",
+        },
+        collectorConfigSchema: z.object({
+          structural: configString({ "x-templatable": true }),
+          custom: configString({ "x-templatable": true }),
+        }),
+      });
+
+      expect(captured).toHaveLength(1);
+      const config = captured[0]?.config as {
+        structural: string;
+        custom: string;
+      };
+      expect(config.structural).toBe("web-01");
+      expect(config.custom).toBe("shadow-attempt");
     });
 
     it("runs the explicit-subset environment the payload targets", async () => {
