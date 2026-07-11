@@ -5,11 +5,10 @@ import {
   useSelectionHandler,
   useTerminalDimensions,
 } from "@opentui/react";
-import { createSupervisor } from "../dev-tui/supervisor.ts";
-import { getProcessDefs, type ProcessDef } from "../dev-tui/process-config.ts";
-import { createProcessStore, type ProcessStore } from "./process-store.ts";
+import type { ProcessDef } from "../dev-tui/process-config.ts";
+import { type ProcessStore } from "./process-store.ts";
 import { CockpitSessionProvider, type CockpitSession } from "./session.ts";
-import { DevRunView } from "./views/DevRunView.tsx";
+import { DevRunView, type DevInstance } from "./views/DevRunView.tsx";
 import { PrPreviewView, type PreviewInfo } from "./views/PrPreviewView.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import {
@@ -17,16 +16,9 @@ import {
   type TeardownInstance,
 } from "./components/ShutdownScreen.tsx";
 import { copyToClipboard } from "./clipboard.ts";
-import { attachBrowserAutoOpen } from "./open-browser.ts";
 import { ACCENT } from "./theme.ts";
 
 type View = "home" | "dev" | "pr-preview";
-
-interface DevInstance {
-  store: ProcessStore;
-  defs: readonly ProcessDef[];
-  unregister: () => void;
-}
 
 interface PreviewInstance {
   store: ProcessStore;
@@ -82,19 +74,10 @@ export function App({
     setPreviewState(v);
   };
 
+  // Just reveal the dev view; DevRunView installs dependencies (with progress),
+  // then creates + starts the instance and lifts it back via `setDev`. Guarded
+  // so a running instance is never re-prepared.
   const startDev = () => {
-    if (!devRef.current) {
-      const defs = getProcessDefs(session.args.devMode);
-      const supervisor = createSupervisor({
-        cwd: session.repoRoot,
-        mode: session.args.devMode,
-      });
-      const store = createProcessStore(supervisor);
-      const unregister = session.registerShutdown(() => supervisor.shutdown());
-      attachBrowserAutoOpen({ supervisor });
-      store.start();
-      setDev({ store, defs, unregister });
-    }
     setView("dev");
   };
 
@@ -197,8 +180,13 @@ export function App({
         <box flexGrow={1}>
           {view === "home" ? (
             <HomeView dev={dev !== null} preview={preview !== null} />
-          ) : view === "dev" && dev ? (
-            <DevRunView store={dev.store} defs={dev.defs} active />
+          ) : view === "dev" ? (
+            <DevRunView
+              store={dev?.store ?? null}
+              defs={dev?.defs ?? null}
+              active
+              onReady={setDev}
+            />
           ) : view === "pr-preview" ? (
             <PrPreviewView
               store={preview?.store ?? null}
