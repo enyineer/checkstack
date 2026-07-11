@@ -14,7 +14,8 @@ describe("HEALTHCHECK_SHELL_ENV drift guard", () => {
   test("the static table describes every reserved var the producer emits", () => {
     const produced = buildShellRunContextEnv({
       check: { id: "c1", name: "Check One", intervalSeconds: 60 },
-      system: { id: "s1", name: "System One" },
+      // A custom field exercises the CHECKSTACK_SYSTEM_<FIELD> derivation.
+      system: { id: "s1", name: "System One", metadata: { baseUrl: "https://x" } },
       environment: {
         id: "e1",
         name: "prod",
@@ -24,8 +25,9 @@ describe("HEALTHCHECK_SHELL_ENV drift guard", () => {
     });
 
     const tableNames = new Set(HEALTHCHECK_SHELL_ENV.map((v) => v.name));
-    // The dynamic per-field var is covered by the wildcard descriptor.
+    // The dynamic per-field vars are covered by the wildcard descriptors.
     tableNames.add("CHECKSTACK_ENV_REGION");
+    tableNames.add("CHECKSTACK_SYSTEM_BASE_URL");
 
     for (const producedName of Object.keys(produced)) {
       expect(tableNames.has(producedName)).toBe(true);

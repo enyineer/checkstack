@@ -23,6 +23,7 @@ export function buildRunContext({
     system: {
       id: assignment.systemId,
       name: assignment.systemName ?? assignment.systemId,
+      metadata: assignment.systemMetadata ?? {},
     },
   };
 }

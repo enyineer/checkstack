@@ -83,6 +83,29 @@ describe("buildShellRunContextEnv", () => {
     });
     expect(env.CHECKSTACK_ENV_BASE_URL).toBe("first");
   });
+
+  test("emits CHECKSTACK_SYSTEM_<FIELD> vars for the system's custom fields", () => {
+    const env = buildShellRunContextEnv({
+      system: {
+        id: "s1",
+        name: "web-1",
+        metadata: { baseUrl: "https://sys.example.com", tier: "1" },
+      },
+    });
+    expect(env).toEqual({
+      CHECKSTACK_SYSTEM_ID: "s1",
+      CHECKSTACK_SYSTEM_NAME: "web-1",
+      CHECKSTACK_SYSTEM_BASE_URL: "https://sys.example.com",
+      CHECKSTACK_SYSTEM_TIER: "1",
+    });
+  });
+
+  test("a system field named id/name cannot clobber the structural var", () => {
+    const env = buildShellRunContextEnv({
+      system: { id: "s1", name: "web-1", metadata: { name: "nope" } },
+    });
+    expect(env.CHECKSTACK_SYSTEM_NAME).toBe("web-1");
+  });
 });
 
 describe("buildCollectorContext", () => {
@@ -124,6 +147,20 @@ describe("buildCollectorContext", () => {
         name: "production",
         fields: { baseUrl: "https://prod.example.com" },
       },
+    });
+  });
+
+  test("passes the system's metadata through to context.system", () => {
+    const ctx = buildCollectorContext({
+      config: {},
+      runContext: {
+        system: { id: "s1", name: "web-1", metadata: { baseUrl: "https://s" } },
+      },
+    });
+    expect(ctx.system).toEqual({
+      id: "s1",
+      name: "web-1",
+      metadata: { baseUrl: "https://s" },
     });
   });
 });

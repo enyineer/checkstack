@@ -120,6 +120,7 @@ The values you can reference are:
 - `{{ environment.<key> }}` - the resolved environment's custom fields for this run, for example `{{ environment.baseUrl }}` or `{{ environment.region }}`.
 - `{{ check.id }}`, `{{ check.name }}`, `{{ check.intervalSeconds }}` - the running check.
 - `{{ system.id }}`, `{{ system.name }}` - the system being checked.
+- `{{ system.metadata.<key> }}` - the system's own custom fields, for example `{{ system.metadata.baseUrl }}`. These are namespaced under `.metadata` so a custom field can never shadow `{{ system.name }}` or `{{ system.id }}`. Use environment fields for values that differ per deployment stage, and system fields for values intrinsic to the system itself.
 
 For example, an HTTP check whose URL is:
 

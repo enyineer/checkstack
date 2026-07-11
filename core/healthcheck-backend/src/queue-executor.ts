@@ -767,12 +767,16 @@ async function executeHealthCheckJob(props: {
       return;
     }
 
-    // Fetch system name for signal payload
+    // Fetch system name + metadata for signal payload and run-context. The
+    // metadata is the system's free-form catalog custom fields, surfaced to
+    // config templating as `{{ system.metadata.<key> }}`.
     let systemName = systemId;
+    let systemMetadata: Record<string, unknown> = {};
     try {
       const system = await catalogClient.getSystem({ systemId });
       if (system) {
         systemName = system.name;
+        systemMetadata = system.metadata ?? {};
       }
     } catch {
       // Fall back to systemId if catalog lookup fails
@@ -980,7 +984,7 @@ async function executeHealthCheckJob(props: {
           name: configRow.configName || configId,
           intervalSeconds: configRow.interval,
         },
-        system: { id: systemId, name: systemName },
+        system: { id: systemId, name: systemName, metadata: systemMetadata },
         ...(environment
           ? {
               environment: {

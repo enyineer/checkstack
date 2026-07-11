@@ -42,6 +42,13 @@ export const SatelliteAssignmentSchema = z.object({
   /** Curated run-context metadata. Optional for version-skew safety. */
   configName: z.string().optional(),
   systemName: z.string().optional(),
+  /**
+   * The system's free-form catalog custom fields, surfaced to config
+   * templating as `{{ system.metadata.<key> }}`. Metadata only, never secrets.
+   * Optional for version-skew safety; an older core omits it and the satellite
+   * treats it as `{}`.
+   */
+  systemMetadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type SatelliteAssignment = z.infer<typeof SatelliteAssignmentSchema>;

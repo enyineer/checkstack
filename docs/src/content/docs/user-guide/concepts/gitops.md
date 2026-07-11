@@ -32,8 +32,10 @@ metadata:
   tags:                       # optional string tags
     - tier-1
 spec:
-  # fields defined by the kind, e.g. the System kind has no required spec
-  # but plugins can extend it (healthcheck assignments, dependencies, ...)
+  # fields defined by the kind. The System kind has no REQUIRED spec, but
+  # accepts optional spec.fields (free-form custom fields surfaced to
+  # templating as {{ system.metadata.<key> }}), and plugins can extend it
+  # (healthcheck assignments, dependencies, ...)
 ```
 
 You write one descriptor per resource. They can live in one big file, in per-resource files, in per-team subdirectories, whatever shape your repo prefers. The reconciler walks every YAML file it finds.

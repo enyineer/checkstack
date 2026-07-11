@@ -11,5 +11,5 @@
     "tsconfig.json",
     "tsconfig.tsbuildinfo"
   ],
-  "ignoredPackages": ["@checkstack/release"]
+  "ignoredPackages": ["@checkstack/release", "@checkstack/sdk"]
 }

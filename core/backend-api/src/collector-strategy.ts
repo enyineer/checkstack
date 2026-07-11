@@ -23,7 +23,14 @@ export interface CollectorResult<TResult> {
  */
 export interface CollectorRunContext {
   check: { id: string; name: string; intervalSeconds: number };
-  system: { id: string; name: string };
+  /**
+   * The monitored system. `metadata` is the system's free-form catalog custom
+   * fields (verbatim values) - metadata only, never secrets. Exposed to
+   * templating as `{{ system.metadata.<key> }}` (namespaced under `.metadata`
+   * so a custom field can never shadow the structural `id`/`name`). Optional
+   * for version-skew / test-fixture safety; treat an absent value as `{}`.
+   */
+  system: { id: string; name: string; metadata?: Record<string, unknown> };
   /**
    * The resolved environment for THIS run, when the check fanned out into
    * one. Absent when the assignment opts out or the system has no

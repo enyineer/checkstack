@@ -29,7 +29,10 @@ import {
 import {
   CHECKSTACK_ENV_ID,
   CHECKSTACK_ENV_NAME,
+  CHECKSTACK_SYSTEM_ID,
+  CHECKSTACK_SYSTEM_NAME,
   buildEnvironmentShellEnv,
+  buildSystemShellEnv,
 } from "./shell-env";
 
 // ============================================================================
@@ -44,27 +47,29 @@ import {
 const CHECKSTACK_CHECK_ID = "CHECKSTACK_CHECK_ID";
 const CHECKSTACK_CHECK_NAME = "CHECKSTACK_CHECK_NAME";
 const CHECKSTACK_CHECK_INTERVAL_SECONDS = "CHECKSTACK_CHECK_INTERVAL_SECONDS";
-const CHECKSTACK_SYSTEM_ID = "CHECKSTACK_SYSTEM_ID";
-const CHECKSTACK_SYSTEM_NAME = "CHECKSTACK_SYSTEM_NAME";
 
 /**
  * Map curated run-context metadata to the reserved `CHECKSTACK_*` env
- * vars exposed to the shell script. When the run carries a resolved
- * environment (post-fan-out), its id, name, and each custom field are
- * additionally exposed as `CHECKSTACK_ENV_*` vars.
+ * vars exposed to the shell script. The system's custom fields are exposed as
+ * `CHECKSTACK_SYSTEM_<KEY>` vars; when the run carries a resolved environment
+ * (post-fan-out), its id, name, and each custom field are additionally exposed
+ * as `CHECKSTACK_ENV_*` vars. The structural id/name vars are spread AFTER the
+ * custom fields so they always win (the field builder also guards these
+ * reserved names, so this is belt-and-suspenders).
  */
 function runContextEnv(ctx: CollectorRunContext): Record<string, string> {
   return {
     [CHECKSTACK_CHECK_ID]: ctx.check.id,
     [CHECKSTACK_CHECK_NAME]: ctx.check.name,
     [CHECKSTACK_CHECK_INTERVAL_SECONDS]: String(ctx.check.intervalSeconds),
+    ...buildSystemShellEnv(ctx.system.metadata ?? {}),
     [CHECKSTACK_SYSTEM_ID]: ctx.system.id,
     [CHECKSTACK_SYSTEM_NAME]: ctx.system.name,
     ...(ctx.environment
       ? {
+          ...buildEnvironmentShellEnv(ctx.environment.fields),
           [CHECKSTACK_ENV_ID]: ctx.environment.id,
           [CHECKSTACK_ENV_NAME]: ctx.environment.name,
-          ...buildEnvironmentShellEnv(ctx.environment.fields),
         }
       : {}),
   };

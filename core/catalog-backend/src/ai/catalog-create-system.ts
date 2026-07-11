@@ -16,9 +16,17 @@ import type { RegisteredAiTool } from "@checkstack/ai-backend";
  * description and free-form metadata.
  */
 export const CatalogCreateSystemInputSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  name: z.string().min(1).describe('Display name of the system, e.g. "Payments API".'),
+  description: z
+    .string()
+    .optional()
+    .describe("Optional human-readable description of what the system does."),
+  metadata: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Optional free-form key/value custom fields for THIS system. Each key becomes available in health-check config templates as `{{ system.metadata.<key> }}` - e.g. set `baseUrl` so a check's URL can reference `{{ system.metadata.baseUrl }}`. ONLY set keys the user explicitly asks to store; do NOT invent keys and do NOT use this to tag, label, categorize, or group systems (use Groups and Environments to organize). Omit this field entirely when the user gives no specific key/value pairs.",
+    ),
 });
 export type CatalogCreateSystemInput = z.infer<
   typeof CatalogCreateSystemInputSchema
@@ -62,7 +70,7 @@ export function createCatalogCreateSystemTool(): RegisteredAiTool<
   return {
     name: "catalog.createSystem",
     description:
-      "Create a new system (a service or resource) in the catalog with a name and optional description and metadata. A system usually pairs 1-1 with a single health check (create and assign it with healthcheck.propose + assignToSystemId). To monitor the same system across deployment stages, attach ENVIRONMENTS (catalog.createEnvironment + catalog.setSystemEnvironments) - do NOT create a separate system per environment. Never creates directly; a person must approve unless the conversation is in auto mode.",
+      "Create a new system (a service or resource) in the catalog with a name, optional description, and optional free-form metadata custom fields (which surface in health-check config templates as {{ system.metadata.<key> }}; set them only when the user names specific key/value pairs). A system usually pairs 1-1 with a single health check (create and assign it with healthcheck.propose + assignToSystemId). To monitor the same system across deployment stages, attach ENVIRONMENTS (catalog.createEnvironment + catalog.setSystemEnvironments) - do NOT create a separate system per environment. Never creates directly; a person must approve unless the conversation is in auto mode.",
     effect: "mutate",
     input: CatalogCreateSystemInputSchema,
     requiredAccessRules: [

@@ -168,17 +168,24 @@ export default createBackendPlugin({
     kindRegistry.registerKind({
       apiVersion: CHECKSTACK_API_VERSION,
       kind: "System",
-      specSchema: z.object({}),
+      // Free-form custom fields (mirror "Environment"). `z.record` keeps GitOps
+      // in step with the free-form metadata decision: `spec.fields` surface to
+      // health-check config templating as `{{ system.metadata.<key> }}`.
+      specSchema: z.object({
+        fields: z.record(z.string(), z.unknown()).optional(),
+      }),
       reconcile: async ({ entity, existingEntityId, context }) => {
         if (!gitopsDb) throw new Error("Catalog database not initialized");
         const entityService = new EntityService(gitopsDb);
         const displayName = entity.metadata.title ?? entity.metadata.name;
         const description = entity.metadata.description;
+        const metadata = entity.spec.fields ?? {};
 
         if (existingEntityId) {
           await entityService.updateSystem(existingEntityId, {
             name: displayName,
             description,
+            metadata,
           });
           context.logger.info(
             `GitOps: updated System "${displayName}" (id: ${existingEntityId})`,
@@ -189,6 +196,7 @@ export default createBackendPlugin({
         const system = await entityService.createSystem({
           name: displayName,
           description,
+          metadata,
         });
         context.logger.info(
           `GitOps: created System "${displayName}" (id: ${system.id})`,

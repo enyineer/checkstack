@@ -2659,25 +2659,37 @@ export class HealthCheckService {
 
     if (matchingAssociations.length === 0) return [];
 
-    // Resolve human-readable system names once per distinct systemId.
-    // Falls back to the systemId when no catalog client is wired or the
-    // lookup fails, mirroring the queue-executor's resolution behaviour.
-    const systemNameCache = new Map<string, string>();
-    const resolveSystemName = async (systemId: string): Promise<string> => {
-      const cached = systemNameCache.get(systemId);
+    // Resolve human-readable system name + free-form metadata once per distinct
+    // systemId. Falls back to the systemId (and empty metadata) when no catalog
+    // client is wired or the lookup fails, mirroring the queue-executor's
+    // resolution behaviour. The metadata rides the assignment so satellite runs
+    // template `{{ system.metadata.<key> }}` identically to local runs.
+    const systemCache = new Map<
+      string,
+      { name: string; metadata: Record<string, unknown> }
+    >();
+    const resolveSystem = async (
+      systemId: string,
+    ): Promise<{ name: string; metadata: Record<string, unknown> }> => {
+      const cached = systemCache.get(systemId);
       if (cached !== undefined) return cached;
 
-      let systemName = systemId;
+      let resolved: { name: string; metadata: Record<string, unknown> } = {
+        name: systemId,
+        metadata: {},
+      };
       if (this.catalogClient) {
         try {
           const system = await this.catalogClient.getSystem({ systemId });
-          if (system) systemName = system.name;
+          if (system) {
+            resolved = { name: system.name, metadata: system.metadata ?? {} };
+          }
         } catch {
           // Fall back to systemId if catalog lookup fails.
         }
       }
-      systemNameCache.set(systemId, systemName);
-      return systemName;
+      systemCache.set(systemId, resolved);
+      return resolved;
     };
 
     // Get configurations for each matching association
@@ -2690,6 +2702,7 @@ export class HealthCheckService {
 
       if (!config || config.paused) continue;
 
+      const system = await resolveSystem(assoc.systemId);
       assignments.push({
         configId: config.id,
         systemId: assoc.systemId,
@@ -2699,7 +2712,8 @@ export class HealthCheckService {
         intervalSeconds: config.intervalSeconds,
         // Curated run-context metadata exposed to satellite collectors.
         configName: config.name,
-        systemName: await resolveSystemName(assoc.systemId),
+        systemName: system.name,
+        systemMetadata: system.metadata,
       });
     }
 

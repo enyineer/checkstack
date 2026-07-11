@@ -9,6 +9,7 @@ import {
   HEADLESS_BASELINE_PROMPT,
   INVESTIGATION_INSTRUCTION,
   TOOL_PRIVACY_INSTRUCTION,
+  ACTION_BIAS_INSTRUCTION,
   buildChatSystemPrompt,
   buildDateTimeContext,
   buildHeadlessSystemPrompt,
@@ -226,6 +227,18 @@ describe("buildChatSystemPrompt", () => {
     // how-to is answered in product terms or by offering to do it.
     expect(prompt).toMatch(/NOT a public API/);
     expect(prompt).toMatch(/offer to do it for them/i);
+  });
+
+  test("tells the model to ACT on a do-it request instead of deflecting to a how-to", () => {
+    const prompt = buildChatSystemPrompt({ mode: "approve" });
+    expect(prompt).toContain("## Acting on requests");
+    expect(prompt).toContain(ACTION_BIAS_INSTRUCTION);
+    // The key intent: use the tool rather than explaining a manual GitOps/UI path.
+    expect(prompt).toMatch(/GitOps/);
+    expect(prompt).toMatch(/deflection/i);
+    // The honest exception: a genuinely missing tool / permission is stated, not
+    // papered over with a generic how-to.
+    expect(prompt).toMatch(/lack the permission/i);
   });
 
   test("tells the model to ASK rather than guess a missing value", () => {

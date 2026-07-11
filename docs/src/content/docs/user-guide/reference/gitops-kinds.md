@@ -55,7 +55,7 @@ When a secret is rotated, all entities referencing it are automatically flagged 
 
 ### `kind: System` (catalog)
 
-Top-level system, the unit of organisation in Checkstack.
+Top-level system, the unit of organisation in Checkstack. Optional `spec.fields` holds free-form custom fields (arbitrary key/value pairs) that surface in health-check config templating as `{{ system.metadata.<key> }}`.
 
 ```yaml
 apiVersion: checkstack.io/v1alpha1
@@ -63,8 +63,13 @@ kind: System
 metadata:
   name: payment-api
   title: Payment API
-spec: {}
+spec:
+  fields:
+    baseUrl: https://payments.example.com
+    tier: "1"
 ```
+
+On reconcile the system is upserted by provenance entity ID, so renames preserve identity. `spec.fields` replaces the system's custom-field set on every reconcile. Omit `spec.fields` to clear all custom fields. Use environment `spec.fields` for values that differ per deployment stage and system `spec.fields` for values intrinsic to the system itself.
 
 ### `kind: Healthcheck` (healthcheck)
 

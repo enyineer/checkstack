@@ -12,14 +12,13 @@ import {
   useToast,
   toastError,
 } from "@checkstack/ui";
-import { Plus, Trash2 } from "lucide-react";
 import {
   metadataToRows,
   rowsToMetadata,
   hasDuplicateKeys,
-  emptyRow,
   type CustomFieldRow,
 } from "./environment-fields.logic";
+import { CustomFieldsEditor } from "./CustomFieldsEditor";
 
 export interface EnvironmentEditorInitialData {
   name: string;
@@ -67,20 +66,6 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
       setFields(metadataToRows(initialData?.metadata));
     }
   }, [open, initialData]);
-
-  const updateField = (rowId: string, patch: Partial<CustomFieldRow>) => {
-    setFields((prev) =>
-      prev.map((row) => (row.rowId === rowId ? { ...row, ...patch } : row)),
-    );
-  };
-
-  const removeField = (rowId: string) => {
-    setFields((prev) => prev.filter((row) => row.rowId !== rowId));
-  };
-
-  const addField = () => {
-    setFields((prev) => [...prev, emptyRow()]);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,61 +129,11 @@ export const EnvironmentEditor: React.FC<EnvironmentEditorProps> = ({
               />
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Custom fields</Label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={addField}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add field
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Free-form key/value pairs (baseUrl, region, tier, ...). These
-                surface to checks assigned to systems in this environment.
-              </p>
-              {fields.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">
-                  No custom fields yet.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {fields.map((row) => (
-                    <div key={row.rowId} className="flex items-center gap-2">
-                      <Input
-                        aria-label="Field key"
-                        placeholder="key"
-                        value={row.key}
-                        onChange={(e) =>
-                          updateField(row.rowId, { key: e.target.value })
-                        }
-                      />
-                      <Input
-                        aria-label="Field value"
-                        placeholder="value"
-                        value={row.value}
-                        onChange={(e) =>
-                          updateField(row.rowId, { value: e.target.value })
-                        }
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => removeField(row.rowId)}
-                        aria-label="Remove field"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <CustomFieldsEditor
+              fields={fields}
+              onChange={setFields}
+              description="Free-form key/value pairs (baseUrl, region, tier, ...). These surface to checks assigned to systems in this environment."
+            />
           </div>
 
           <DialogFooter>
