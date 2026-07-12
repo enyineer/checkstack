@@ -19,6 +19,7 @@ import {
   maintenanceAccess,
   maintenanceResourceTypes,
   MaintenanceDetailsSlot,
+  MaintenanceVisibilityEnum,
 } from "@checkstack/maintenance-common";
 import { catalogRoutes, CatalogApi } from "@checkstack/catalog-common";
 import {
@@ -36,7 +37,10 @@ import {
   useToast,
   toastError,
   MarkdownBlock,
+  LinksEditor,
 } from "@checkstack/ui";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
+import { MAINTENANCE_VISIBILITY_OPTIONS } from "../utils/visibilityOptions";
 import {
   Calendar,
   Clock,
@@ -102,6 +106,36 @@ const MaintenanceDetailPageContent: React.FC = () => {
     },
   });
 
+  // Hotlink mutations - self-persisting on this detail page (moved off the edit
+  // dialog). Each refetches the maintenance so the links list reflects the
+  // change.
+  const addLinkMutation = maintenanceClient.addLink.useMutation({
+    onSuccess: () => {
+      void refetchMaintenance();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to add link", error);
+    },
+  });
+
+  const updateLinkMutation = maintenanceClient.updateLink.useMutation({
+    onSuccess: () => {
+      void refetchMaintenance();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to update link", error);
+    },
+  });
+
+  const removeLinkMutation = maintenanceClient.removeLink.useMutation({
+    onSuccess: () => {
+      void refetchMaintenance();
+    },
+    onError: (error) => {
+      toastError(toast, "Failed to remove link", error);
+    },
+  });
+
   // Called by the shared updates section after an add / edit / delete.
   const handleUpdatesChanged = () => {
     void refetchMaintenance();
@@ -144,8 +178,9 @@ const MaintenanceDetailPageContent: React.FC = () => {
 
   // Use 'from' query param for back navigation, fallback to first affected system
   const sourceSystemId = searchParams.get("from") ?? maintenance.systemIds[0];
+  const canManage = canAccess(maintenanceId);
   const canComplete =
-    canAccess(maintenanceId) &&
+    canManage &&
     maintenance.status !== "completed" &&
     maintenance.status !== "cancelled";
 
@@ -277,7 +312,9 @@ const MaintenanceDetailPageContent: React.FC = () => {
               </div>
             </div>
 
-            {maintenance.links.length > 0 && (
+            {/* Read-only hotlinks for viewers who cannot manage. Managers get
+                the self-persisting LinksEditor card below instead. */}
+            {!canManage && maintenance.links.length > 0 && (
               <div>
                 <h4 className="text-sm font-medium text-muted-foreground mb-2">
                   Hotlinks
@@ -314,6 +351,68 @@ const MaintenanceDetailPageContent: React.FC = () => {
             />
           </CardContent>
         </Card>
+
+        {/* Hotlinks editor - self-persisting, managers only. Moved off the edit
+            dialog so the living data lives on the detail page. */}
+        {canManage && (
+          <Card>
+            <CardContent className="p-6">
+              <LinksEditor
+                title="Hotlinks"
+                description="Attach change tickets, runbooks, dashboards, or any URL relevant to this maintenance."
+                links={maintenance.links}
+                visibility={{
+                  options: MAINTENANCE_VISIBILITY_OPTIONS,
+                  default: "public",
+                  renderBadge: (v) => <VisibilityBadge visibility={v} />,
+                }}
+                busy={
+                  addLinkMutation.isPending ||
+                  updateLinkMutation.isPending ||
+                  removeLinkMutation.isPending
+                }
+                onAdd={async ({ label, url, visibility }) => {
+                  await addLinkMutation.mutateAsync({
+                    maintenanceId,
+                    label,
+                    url,
+                    visibility: MaintenanceVisibilityEnum.parse(
+                      visibility ?? "public",
+                    ),
+                  });
+                }}
+                onEdit={async ({ id, label, url, visibility }) => {
+                  await updateLinkMutation.mutateAsync({
+                    id,
+                    maintenanceId,
+                    label,
+                    url,
+                    visibility: visibility
+                      ? MaintenanceVisibilityEnum.parse(visibility)
+                      : undefined,
+                  });
+                }}
+                onRemove={async (link) => {
+                  await removeLinkMutation.mutateAsync({
+                    id: link.id,
+                    maintenanceId,
+                  });
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Team access editor - self-persisting, managers only. Renders its own
+            card (nothing when the maintenance is not team-scopable). */}
+        {canManage && (
+          <TeamAccessEditor
+            resourceType="maintenance.maintenance"
+            resourceId={maintenanceId}
+            compact
+            expanded
+          />
+        )}
       </div>
     </PageLayout>
   );

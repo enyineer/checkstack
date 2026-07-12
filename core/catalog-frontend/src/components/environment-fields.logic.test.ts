@@ -4,7 +4,6 @@ import {
   rowsToMetadata,
   hasDuplicateKeys,
   emptyRow,
-  toggleSelectedId,
   type CustomFieldRow,
 } from "./environment-fields.logic";
 
@@ -77,22 +76,6 @@ describe("rowsToMetadata", () => {
     expect(rowsToMetadata([row("k", "first"), row("k", "second")])).toEqual({
       k: "second",
     });
-  });
-});
-
-describe("toggleSelectedId", () => {
-  it("adds an id that is not selected", () => {
-    expect(toggleSelectedId({ selected: ["a"], id: "b" })).toEqual(["a", "b"]);
-  });
-
-  it("removes an id that is already selected", () => {
-    expect(toggleSelectedId({ selected: ["a", "b"], id: "a" })).toEqual(["b"]);
-  });
-
-  it("does not mutate the input array", () => {
-    const selected = ["a"];
-    toggleSelectedId({ selected, id: "b" });
-    expect(selected).toEqual(["a"]);
   });
 });
 

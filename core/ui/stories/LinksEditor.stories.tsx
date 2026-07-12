@@ -9,7 +9,13 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
-const Demo = ({ canManage }: { canManage: boolean }) => {
+const Demo = ({
+  canManage,
+  hideTitle,
+}: {
+  canManage: boolean;
+  hideTitle?: boolean;
+}) => {
   const [links, setLinks] = useState<HotLink[]>([
     { id: "1", label: "Runbook", url: "https://example.com/runbook" },
     { id: "2", label: null, url: "https://example.com/dashboards/api" },
@@ -19,6 +25,7 @@ const Demo = ({ canManage }: { canManage: boolean }) => {
       <LinksEditor
         links={links}
         canManage={canManage}
+        hideTitle={hideTitle}
         onAdd={({ label, url }) => {
           setLinks((prev) => [
             ...prev,
@@ -35,3 +42,7 @@ const Demo = ({ canManage }: { canManage: boolean }) => {
 
 export const Editable: Story = { render: () => <Demo canManage /> };
 export const ReadOnly: Story = { render: () => <Demo canManage={false} /> };
+/** For hosts (e.g. a "Manage links" dialog) whose own title names the surface. */
+export const HiddenTitle: Story = {
+  render: () => <Demo canManage hideTitle />,
+};

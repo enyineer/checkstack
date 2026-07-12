@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   usePluginClient,
   useApi,
   useQueryClient,
   accessApiRef,
 } from "@checkstack/frontend-api";
+import { resolveRoute } from "@checkstack/common";
 import { IncidentApi } from "../api";
 import type {
   IncidentWithSystems,
   IncidentSeverity,
   IncidentHealthOverride,
-  IncidentUpdate,
 } from "@checkstack/incident-common";
-import {
-  incidentAccess,
-  IncidentVisibilityEnum,
-} from "@checkstack/incident-common";
+import { incidentAccess, incidentRoutes } from "@checkstack/incident-common";
 import type { System } from "@checkstack/catalog-common";
 import {
   catalogAccess,
@@ -39,18 +37,13 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
-  LinksEditor,
   toastError,
   FormError,
   ConfirmationModal,
   SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
-import { IncidentUpdatesSection } from "./IncidentUpdatesSection";
-import { VisibilityBadge } from "../utils/visibilityBadge";
-import { INCIDENT_VISIBILITY_OPTIONS } from "../utils/visibilityOptions";
 import {
-  TeamAccessEditor,
   TeamOwnershipPicker,
   teamCreateErrorMessage,
   useManageableResources,
@@ -124,10 +117,6 @@ export const IncidentEditor: React.FC<Props> = ({
     allowAllOverride: allowGlobal,
   });
 
-  // Status updates seeded from the detail query and handed to the shared
-  // IncidentUpdatesSection, which owns the add / edit / delete affordances.
-  const [updates, setUpdates] = useState<IncidentUpdate[]>([]);
-
   // Inline validation: a per-field error map is the single source of truth for
   // both the inline FormError messages and submit-validity. Errors are only
   // revealed for fields the user has touched (or after a submit attempt) so the
@@ -170,47 +159,6 @@ export const IncidentEditor: React.FC<Props> = ({
     },
   });
 
-  const addLinkMutation = incidentClient.addLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to add link", error);
-    },
-  });
-
-  const updateLinkMutation = incidentClient.updateLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to update link", error);
-    },
-  });
-
-  const removeLinkMutation = incidentClient.removeLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to remove link", error);
-    },
-  });
-
-  // Query for incident details (only when editing)
-  const { data: incidentDetail, refetch: refetchDetail } =
-    incidentClient.getIncident.useQuery(
-      { id: incident?.id ?? "" },
-      { enabled: !!incident?.id && open },
-    );
-
-  // Sync updates from query
-  useEffect(() => {
-    if (incidentDetail) {
-      setUpdates(incidentDetail.updates);
-    }
-  }, [incidentDetail]);
-
   // Reset form when incident changes
   useEffect(() => {
     setTouched({});
@@ -230,7 +178,6 @@ export const IncidentEditor: React.FC<Props> = ({
       setHealthOverride("none");
       setSelectedSystemIds(new Set());
       setSuppressNotifications(false);
-      setUpdates([]);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
@@ -245,9 +192,9 @@ export const IncidentEditor: React.FC<Props> = ({
     touched[field] || submitAttempted ? fieldErrors[field] : undefined;
 
   // Dirty tracking: compare the live editor fields against the incident's
-  // persisted values (or the create-mode defaults). The status-update and
-  // hotlink sub-editors persist via their own mutations, so they are not part
-  // of this dialog's "unsaved" surface.
+  // persisted values (or the create-mode defaults). Status updates, hotlinks
+  // and team access are self-persisting on the detail page, so they are not
+  // part of this dialog's "unsaved" surface.
   const isDirty = (() => {
     const initialSystemIds = incident ? incident.systemIds.toSorted() : [];
     const currentSystemIds = [...selectedSystemIds].toSorted();
@@ -345,17 +292,6 @@ export const IncidentEditor: React.FC<Props> = ({
     }
   };
 
-  const handleUpdateSuccess = () => {
-    // An update may carry a status change that lifts/applies a health override
-    // (healthcheck's derived data), so invalidate it too (Pillar 2).
-    invalidateSystemHealth();
-    if (incident) {
-      void refetchDetail();
-    }
-    // Notify parent to refresh list (status may have changed).
-    onSave();
-  };
-
   const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -369,7 +305,7 @@ export const IncidentEditor: React.FC<Props> = ({
         onOpenChange(true);
       }}
     >
-      <DialogContent size="xl">
+      <DialogContent size="lg">
         <form onSubmit={handleSubmit}>
         <DialogHeader>
           <DialogTitle>
@@ -520,79 +456,23 @@ export const IncidentEditor: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Status Updates Section - Only show when editing. Uses the SAME
-              shared section the detail page renders, so add/edit/delete
-              (including editing the published time + edit history) behave
-              identically in both surfaces. */}
+          {/* Editing this incident's status updates, hotlinks and team access is
+              done on its detail page — the living data lives there, not in this
+              deferred-save form. */}
           {incident && (
-            <div className="border-t pt-4">
-              <IncidentUpdatesSection
-                incidentId={incident.id}
-                currentStatus={incident.status}
-                updates={updates}
-                onChanged={handleUpdateSuccess}
-                showTimeline={false}
-                maxHeight="max-h-48"
-              />
-            </div>
-          )}
-
-          {/* Hotlinks (Jira tickets, runbooks, ...) — editing only */}
-          {incident && (
-            <div className="border-t pt-4">
-              <LinksEditor
-                title="Hotlinks"
-                description="Attach Jira tickets, runbooks, dashboards, or any URL relevant to this incident."
-                links={incidentDetail?.links ?? []}
-                visibility={{
-                  options: INCIDENT_VISIBILITY_OPTIONS,
-                  default: "public",
-                  renderBadge: (v) => <VisibilityBadge visibility={v} />,
-                }}
-                busy={
-                  addLinkMutation.isPending ||
-                  updateLinkMutation.isPending ||
-                  removeLinkMutation.isPending
-                }
-                onAdd={async ({ label, url, visibility }) => {
-                  await addLinkMutation.mutateAsync({
-                    incidentId: incident.id,
-                    label,
-                    url,
-                    visibility: IncidentVisibilityEnum.parse(
-                      visibility ?? "public",
-                    ),
-                  });
-                }}
-                onEdit={async ({ id, label, url, visibility }) => {
-                  await updateLinkMutation.mutateAsync({
-                    id,
-                    incidentId: incident.id,
-                    label,
-                    url,
-                    visibility: visibility
-                      ? IncidentVisibilityEnum.parse(visibility)
-                      : undefined,
-                  });
-                }}
-                onRemove={async (link) => {
-                  await removeLinkMutation.mutateAsync({
-                    id: link.id,
-                    incidentId: incident.id,
-                  });
-                }}
-              />
-            </div>
-          )}
-
-          {/* Team Access Editor - only shown when editing existing incident */}
-          {incident?.id && (
-            <TeamAccessEditor
-              resourceType="incident.incident"
-              resourceId={incident.id}
-              compact
-              expanded
-            />
+            <p className="border-t pt-4 text-xs text-muted-foreground">
+              Status updates, hotlinks and team access are managed on the{" "}
+              <Link
+                to={resolveRoute(incidentRoutes.routes.detail, {
+                  incidentId: incident.id,
+                })}
+                onClick={() => onOpenChange(false)}
+                className="text-primary underline underline-offset-2 hover:no-underline"
+              >
+                incident's detail page
+              </Link>
+              .
+            </p>
           )}
         </div>
 

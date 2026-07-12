@@ -69,20 +69,6 @@ export function rowsToMetadata(
   return out;
 }
 
-/**
- * Toggle an environment id in/out of a selected-id set. Returns a new
- * array (does not mutate). Used by the per-system environment picker.
- */
-export function toggleSelectedId(props: {
-  selected: ReadonlyArray<string>;
-  id: string;
-}): string[] {
-  const { selected, id } = props;
-  return selected.includes(id)
-    ? selected.filter((existing) => existing !== id)
-    : [...selected, id];
-}
-
 /** True when any row has a non-blank key that duplicates another row's key. */
 export function hasDuplicateKeys(
   rows: ReadonlyArray<CustomFieldRow>,

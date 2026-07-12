@@ -18,18 +18,14 @@ import {
   toastError,
 } from "@checkstack/ui";
 import { Layers } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
-  TeamAccessEditor,
   TeamOwnershipPicker,
   teamCreateErrorMessage,
 } from "@checkstack/auth-frontend";
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
-import { catalogAccess } from "@checkstack/catalog-common";
-import { ContactsEditor } from "./ContactsEditor";
-import { SystemLinksEditor } from "./SystemLinksEditor";
-import { SystemEnvironmentsEditor } from "./SystemEnvironmentsEditor";
-import { ExtensionSlot } from "@checkstack/frontend-api";
-import { SystemEditorSlot } from "@checkstack/catalog-common";
+import { resolveRoute } from "@checkstack/common";
+import { catalogAccess, catalogRoutes } from "@checkstack/catalog-common";
 import {
   metadataToRows,
   rowsToMetadata,
@@ -204,33 +200,23 @@ export const SystemEditor: React.FC<SystemEditorProps> = ({
               </div>
             )}
 
-            {/* Contacts Editor - only shown for existing systems */}
-            {initialData?.id && <ContactsEditor systemId={initialData.id} />}
-
-            {/* Additional Links - only shown for existing systems */}
-            {initialData?.id && <SystemLinksEditor systemId={initialData.id} />}
-
-            {/* Environment membership - only shown for existing systems */}
+            {/* The living data (contacts, links, dependencies, team access,
+                environment membership) is managed on the system's detail page,
+                not in this deferred-save identity form. */}
             {initialData?.id && (
-              <SystemEnvironmentsEditor systemId={initialData.id} />
-            )}
-
-            {/* Team Access Editor - only shown for existing systems */}
-            {initialData?.id && (
-              <TeamAccessEditor
-                resourceType="catalog.system"
-                resourceId={initialData.id}
-                compact
-                expanded
-              />
-            )}
-
-            {/* Plugin-injected editor sections — only for existing systems */}
-            {initialData?.id && (
-              <ExtensionSlot
-                slot={SystemEditorSlot}
-                context={{ systemId: initialData.id }}
-              />
+              <p className="text-xs text-muted-foreground">
+                Contacts, links, dependencies and team access are managed on the{" "}
+                <Link
+                  to={resolveRoute(catalogRoutes.routes.systemDetail, {
+                    systemId: initialData.id,
+                  })}
+                  onClick={onClose}
+                  className="text-primary hover:underline"
+                >
+                  system page
+                </Link>
+                .
+              </p>
             )}
           </div>
 

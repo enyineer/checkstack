@@ -97,7 +97,7 @@ A maintenance is visible from several places depending on its status:
 
 ## Hotlinks
 
-Standard hotlink slots, identical to incidents: free-form URL labels for change tickets, runbooks, chat threads, or anything else worth attaching.
+Standard hotlink slots, identical to incidents: free-form URL labels for change tickets, runbooks, chat threads, or anything else worth attaching. The maintenance detail page has a **Links** section for managing them; each change saves immediately.
 
 ## Maintenances and integrations
 
@@ -126,7 +126,7 @@ qualified (already completed/cancelled, deleted, or not yours to manage).
 | **Dashboard** | See the soonest upcoming (scheduled) maintenances at a glance. |
 | **Maintenances** (list) | See scheduled, in-progress, and past maintenances. Filter by status. Select rows for mass complete / mass delete. |
 | **Schedule Maintenance** | Create one. Pick the time window, attach systems, decide on suppression. |
-| **Maintenance detail** | Edit, cancel, post updates, manage hotlinks. |
+| **Maintenance detail** | Complete, post updates, manage hotlinks, and restrict team access - all self-persisting. Use the edit dialog for the deferred-save fields (title, schedule, affected systems). |
 | **System detail** | See the upcoming and active maintenances for this system. |
 
 ## Where to go next

@@ -5,7 +5,11 @@ import {
   useApi,
   accessApiRef,
 } from "@checkstack/frontend-api";
-import { CatalogApi, catalogAccess } from "@checkstack/catalog-common";
+import {
+  CatalogApi,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 
 interface Props {
   systemId: string;
@@ -21,7 +25,15 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
   const accessApi = useApi(accessApiRef);
   const toast = useToast();
 
-  const { allowed: canManage } = accessApi.useAccess(catalogAccess.system.manage);
+  // Per-RESOURCE verdict (global rule OR a team grant on this system) - a
+  // global-only `useAccess` here rendered the editor read-only for
+  // team-scoped system managers.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: [systemId],
+  });
+  const canManage = canAccess(systemId);
 
   const { data: links = [], refetch } =
     catalogClient.getSystemLinks.useQuery({ systemId });
@@ -55,7 +67,8 @@ export const SystemLinksEditor: React.FC<Props> = ({ systemId }) => {
 
   return (
     <LinksEditor
-      title="Additional Links"
+      // Hosted by the "Manage links" dialog, whose title names the surface.
+      hideTitle
       description="Jira boards, ticket tools, dashboards, or any URL related to this system."
       links={links}
       canManage={canManage}

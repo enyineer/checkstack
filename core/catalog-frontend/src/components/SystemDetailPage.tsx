@@ -11,7 +11,10 @@ import {
   SystemDetailsTopSlot,
   SystemStateBadgesSlot,
   SystemMetaSlot,
+  SystemEditorSlot,
   catalogSystemTarget,
+  catalogAccess,
+  catalogResourceTypes,
 } from "@checkstack/catalog-common";
 import { NotificationSubscriptionsManager } from "@checkstack/notification-frontend";
 import {
@@ -20,15 +23,61 @@ import {
   PageLayout,
   LoadingSpinner,
   NotFound,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "@checkstack/ui";
+import { accessApiRef } from "@checkstack/frontend-api";
+import {
+  useProvenanceLock,
+  GitOpsLockBanner,
+} from "@checkstack/gitops-frontend";
+import { TeamAccessEditor } from "@checkstack/auth-frontend";
 import { formatDate } from "../utils/formatDate.logic";
 import {
   normalizeMetadata,
   type MetadataEntry,
 } from "../utils/normalizeMetadata.logic";
+import { ContactsEditor } from "./ContactsEditor";
+import { SystemLinksEditor } from "./SystemLinksEditor";
 import { authApiRef } from "@checkstack/auth-frontend/api";
 
-import { Activity, Calendar, ExternalLink, Mail, User } from "lucide-react";
+import {
+  Activity,
+  Calendar,
+  ExternalLink,
+  Mail,
+  Pencil,
+  User,
+} from "lucide-react";
+
+/**
+ * Which per-section manage dialog is open. The sidebar itself always renders
+ * the compact READ view (identical for every visitor); managers get a small
+ * pencil per section that opens a focused, single-purpose dialog - one small
+ * form per concern instead of one crammed surface.
+ */
+type ManageDialog = "contacts" | "links" | "access" | "dependencies";
+
+/** Small pencil affordance shown in a sidebar section header for managers. */
+const SectionEditButton: React.FC<{
+  label: string;
+  onClick: () => void;
+}> = ({ label, onClick }) => (
+  <Button
+    variant="ghost"
+    size="icon"
+    className="-my-1 h-6 w-6 text-muted-foreground hover:text-foreground"
+    onClick={onClick}
+    aria-label={label}
+    title={label}
+  >
+    <Pencil className="h-3.5 w-3.5" />
+  </Button>
+);
 
 const MetadataSection: React.FC<{
   metadata: Record<string, unknown> | null | undefined;
@@ -61,8 +110,27 @@ export const SystemDetailPage: React.FC = () => {
   const { systemId } = useParams<{ systemId: string }>();
   const catalogClient = usePluginClient(CatalogApi);
   const authApi = useApi(authApiRef);
+  const accessApi = useApi(accessApiRef);
   const { data: session } = authApi.useSession();
 
+  // Can the caller manage THIS system (global manage rule OR a team grant on it)?
+  // Drives whether the living-data sections render as editors or read-only twins.
+  const { canAccess } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: systemId ? [systemId] : [],
+  });
+  const canManage = !!systemId && canAccess(systemId);
+
+  // GitOps-managed systems are edited in Git, not here: lock the editors and
+  // show the manager a banner explaining why.
+  const { isLocked, provenance } = useProvenanceLock({
+    kind: "System",
+    entityId: systemId,
+  });
+  const canEdit = canManage && !isLocked;
+
+  const [manageDialog, setManageDialog] = useState<ManageDialog | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [notFound, setNotFound] = useState(false);
 
@@ -161,6 +229,12 @@ export const SystemDetailPage: React.FC = () => {
       {/* Alert strip — incidents, maintenances, dependency alerts */}
       <ExtensionSlot slot={SystemDetailsTopSlot} context={{ system }} />
 
+      {/* GitOps lock banner — only a manager who could otherwise edit needs to
+          understand why the manage controls are read-only. */}
+      {canManage && isLocked && provenance && (
+        <GitOpsLockBanner provenance={provenance} />
+      )}
+
       {/* Two-Column Layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         {/* Left Column — Monitoring */}
@@ -206,11 +280,20 @@ export const SystemDetailPage: React.FC = () => {
               nothing when the system is not team-scoped). */}
           <ExtensionSlot slot={SystemMetaSlot} context={{ system }} />
 
-          {/* Contacts */}
+          {/* Contacts — the compact read view for EVERYONE; managers of an
+              unlocked system get a pencil opening the focused manage dialog. */}
           <div className="space-y-2 border-t border-border/60 pt-4">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Contacts
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Contacts
+              </h3>
+              {canEdit && (
+                <SectionEditButton
+                  label="Manage contacts"
+                  onClick={() => setManageDialog("contacts")}
+                />
+              )}
+            </div>
             {!contactsData || contactsData.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No contacts assigned
@@ -246,11 +329,19 @@ export const SystemDetailPage: React.FC = () => {
             )}
           </div>
 
-          {/* Additional Links */}
+          {/* Additional Links — read view for everyone; pencil for managers. */}
           <div className="space-y-2 border-t border-border/60 pt-4">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Additional Links
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Additional Links
+              </h3>
+              {canEdit && (
+                <SectionEditButton
+                  label="Manage links"
+                  onClick={() => setManageDialog("links")}
+                />
+              )}
+            </div>
             {!linksData || linksData.length === 0 ? (
               <p className="text-sm text-muted-foreground">No links</p>
             ) : (
@@ -274,6 +365,46 @@ export const SystemDetailPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Team Access — the read-only "who can change this" summary above
+              (SystemMetaSlot) serves everyone; managers additionally get a
+              pencil opening the grant editor. Grants are not GitOps-managed,
+              so this stays available on locked systems. */}
+          {canManage && (
+            <div className="space-y-1 border-t border-border/60 pt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Team Access
+                </h3>
+                <SectionEditButton
+                  label="Manage team access"
+                  onClick={() => setManageDialog("access")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Grant teams view or manage access to this system.
+              </p>
+            </div>
+          )}
+
+          {/* Plugin-contributed configuration (e.g. dependencies) — managed in
+              a focused dialog; the read views live in the main column. */}
+          {canManage && (
+            <div className="space-y-1 border-t border-border/60 pt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Dependencies
+                </h3>
+                <SectionEditButton
+                  label="Manage dependencies"
+                  onClick={() => setManageDialog("dependencies")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Model what this system depends on and what depends on it.
+              </p>
+            </div>
+          )}
 
           {/* Groups */}
           <div className="space-y-2 border-t border-border/60 pt-4">
@@ -302,6 +433,73 @@ export const SystemDetailPage: React.FC = () => {
           <MetadataSection metadata={system.metadata} />
         </div>
       </div>
+
+      {/* Focused per-section manage dialogs. Each hosts exactly ONE
+          self-persisting editor - a small modal per concern instead of one
+          crammed surface. Edits invalidate the catalog queries automatically,
+          so the read sections behind the dialog stay current. */}
+      <Dialog
+        open={manageDialog === "contacts"}
+        onOpenChange={(open) => !open && setManageDialog(null)}
+      >
+        <DialogContent size="default">
+          <DialogHeader>
+            <DialogTitle>Manage contacts</DialogTitle>
+            <DialogDescription>
+              People and mailboxes to reach about {system.name}.
+            </DialogDescription>
+          </DialogHeader>
+          <ContactsEditor systemId={system.id} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={manageDialog === "links"}
+        onOpenChange={(open) => !open && setManageDialog(null)}
+      >
+        <DialogContent size="default">
+          <DialogHeader>
+            <DialogTitle>Manage links</DialogTitle>
+          </DialogHeader>
+          <SystemLinksEditor systemId={system.id} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={manageDialog === "access"}
+        onOpenChange={(open) => !open && setManageDialog(null)}
+      >
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Team access</DialogTitle>
+            <DialogDescription>
+              Teams granted here can view {system.name}; ticking Manage also
+              lets them change it.
+            </DialogDescription>
+          </DialogHeader>
+          <TeamAccessEditor
+            resourceType={catalogResourceTypes.system}
+            resourceId={system.id}
+            compact
+            expanded
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={manageDialog === "dependencies"}
+        onOpenChange={(open) => !open && setManageDialog(null)}
+      >
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Manage dependencies</DialogTitle>
+          </DialogHeader>
+          <ExtensionSlot
+            slot={SystemEditorSlot}
+            context={{ systemId: system.id }}
+          />
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   );
 };
