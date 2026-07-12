@@ -23,6 +23,28 @@
  * the nearest-ancestor set is small and semantically right (`fast-uri` arrives
  * via `ajv`, so it lands on the frontend packages that declare `ajv`).
  *
+ * Accumulation across an unreleased window: the changeset uses a single fixed
+ * filename that this script OVERWRITES on every refresh. If the diff base were
+ * the current base branch, a still-PENDING refresh (one merged to main whose
+ * `changeset-release/main` "Version Packages" PR has not merged yet) would be
+ * silently clobbered: main already carries the previous refresh's resolutions,
+ * so a fresh diff sees only the small incremental delta and the overwrite drops
+ * the ~100 pending entries - in the worst case (empty/dev-only delta) deleting
+ * the pending changeset and CANCELLING a needed release. So the caller passes
+ * the changeset as it currently exists ON THE BASE BRANCH via `--pending`, and
+ * the incremental diff is UNIONED into its dep list (`mergeChangeset`): every
+ * still-unreleased bump is preserved and this refresh's changes are chained on
+ * top, so the audit body is complete across the whole window. The presence of a
+ * pending changeset also keeps the file alive when THIS refresh is a no-op /
+ * dev-only, which is what actually closes the release-cancelling hole. The
+ * result stays a pure function of (base lock, head lock, pending changeset) so
+ * the `--check` drift guard is unaffected; and because the pending file is read
+ * from the base branch and NOT from the branch's own prior output, re-running on
+ * a Renovate force-push does not double-accumulate. (The frontmatter owners are
+ * always the fixed image anchors - see `CHANGESET_IMAGE_ANCHORS` - not the
+ * unioned pending owners, so re-anchoring shrinks an over-fanned pending release
+ * down to the anchors on the next regeneration.)
+ *
  * Two filters keep the result honest:
  *   - PRIVATE workspace packages are excluded. They never publish, so they
  *     cannot flip `changesets/action`'s `published` output, and naming them
@@ -53,6 +75,24 @@ export const CHANGESET_STAMPED_PACKAGES = new Set<string>([
   "@checkstack/sdk",
   "@checkstack/release",
 ]);
+
+/**
+ * The public package(s) the changeset bumps purely to TRIGGER the Docker image
+ * rebuild. `release.yml` builds the image only when `changesets/action` actually
+ * PUBLISHED a public package, so the changeset needs at least one public bump to
+ * fire. It does NOT need one per affected package: every workspace publishes RAW
+ * SOURCE and resolves its transitive deps from `package.json` ranges at the
+ * consumer's install time, so a lock-file refresh changes NO published artifact
+ * - only the image, which is built `--frozen-lockfile`. Charging every reachable
+ * owner would republish ~100 packages with identical code per refresh for zero
+ * consumer benefit; a fixed anchor set representing the deployable (server + web)
+ * is the minimal honest trigger. The changed dependencies are still itemised in
+ * the changeset BODY as the audit trail - they just land in these anchors'
+ * changelogs instead of a hundred. The owner-attribution graph below is retained
+ * ONLY as the shippability gate: "does any changed dep reach a PUBLIC PROD
+ * package?" (i.e. is the production image affected at all).
+ */
+export const CHANGESET_IMAGE_ANCHORS = ["@checkstack/backend", "@checkstack/frontend"] as const;
 
 const DepMapSchema = z.record(z.string(), z.string());
 
@@ -97,6 +137,12 @@ export interface DepChange {
   name: string;
   from: string;
   to: string;
+}
+
+/** The load-bearing content of a rendered changeset: its owners and dep bumps. */
+export interface PendingChangeset {
+  owners: string[];
+  changes: DepChange[];
 }
 
 const isWorkspaceLink = (range: string): boolean => range.startsWith("workspace:");
@@ -245,6 +291,66 @@ export function renderChangeset({
   ].join("\n");
 }
 
+/**
+ * Recover the `{ owners, changes }` from a previously-rendered changeset. This
+ * is the inverse of `renderChangeset` over the load-bearing fields: frontmatter
+ * `"name": patch` lines become owners and `- \`name\` from -> to` body lines
+ * become dep changes. Robust to an empty/absent file (`git show` of a path that
+ * does not exist on the base branch) - returns an empty pending set.
+ */
+export function parsePendingChangeset({ raw }: { raw: string }): PendingChangeset {
+  const owners: string[] = [];
+  const changes: DepChange[] = [];
+
+  const frontmatter = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (frontmatter) {
+    for (const line of frontmatter[1].split("\n")) {
+      const owner = line.match(/^"(.+)":\s*patch\s*$/);
+      if (owner) owners.push(owner[1]);
+    }
+  }
+  for (const line of raw.split("\n")) {
+    const change = line.match(/^- `([^`]+)` (\S+) -> (\S+)\s*$/);
+    if (change) changes.push({ name: change[1], from: change[2], to: change[3] });
+  }
+
+  return {
+    owners: [...new Set(owners)].toSorted(),
+    changes: changes.toSorted((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/**
+ * Union a still-pending changeset with this refresh's incremental diff. Owners
+ * are the sorted union of both lists. Dep bumps are keyed by name: a dep in BOTH
+ * chains the pending `from` to the incremental `to` (the true span across the
+ * unreleased window); a dep in only one side is carried as-is. A bump that nets
+ * to `from === to` (an incremental rollback of a pending bump) is dropped so the
+ * list never shows a no-op `x -> x` line.
+ */
+export function mergeChangeset({
+  pending,
+  incremental,
+}: {
+  pending: PendingChangeset;
+  incremental: PendingChangeset;
+}): PendingChangeset {
+  const owners = [...new Set([...pending.owners, ...incremental.owners])].toSorted();
+
+  const byName = new Map<string, DepChange>();
+  for (const change of pending.changes) byName.set(change.name, change);
+  for (const change of incremental.changes) {
+    const prev = byName.get(change.name);
+    byName.set(change.name, { name: change.name, from: prev?.from ?? change.from, to: change.to });
+  }
+
+  const changes = [...byName.values()]
+    .filter((change) => change.from !== change.to)
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+
+  return { owners, changes };
+}
+
 /** Owners for the whole change set, unioned across every changed package. */
 export function resolveOwners({
   head,
@@ -274,14 +380,42 @@ export function expectedChangeset({
   base,
   head,
   isPublic,
+  pending = null,
+  anchors = CHANGESET_IMAGE_ANCHORS,
 }: {
   base: ParsedLock;
   head: ParsedLock;
   isPublic: (workspaceName: string) => boolean;
+  /** The changeset as it exists on the BASE branch, so a pending (unreleased)
+   *  refresh is unioned in rather than clobbered. Omit / null when none exists. */
+  pending?: PendingChangeset | null;
+  /** Public packages bumped to trigger the image rebuild (see
+   *  `CHANGESET_IMAGE_ANCHORS`). Injectable for tests. */
+  anchors?: readonly string[];
 }): { changes: DepChange[]; owners: string[]; content: string | null } {
-  const changes = diffPackages({ base, head });
-  if (changes.length === 0) return { changes, owners: [], content: null };
-  const owners = resolveOwners({ head, changes, isPublic });
+  const incrementalChanges = diffPackages({ base, head });
+  // Gate only: does this refresh move a dep that reaches a PUBLIC PROD package,
+  // i.e. is the production image affected? The owners themselves are discarded -
+  // the emitted owner set is the fixed anchor(s), not the reachable closure.
+  const incrementalAffectsImage =
+    resolveOwners({ head, changes: incrementalChanges, isPublic }).length > 0;
+
+  const pendingSet = pending ?? { owners: [], changes: [] };
+  // BODY: union the full lockfile diff across the unreleased window as the audit
+  // trail (prod + dev lines, chained, net-zero rollbacks dropped). Owners are
+  // ignored here; they are the fixed anchors below.
+  const { changes } = mergeChangeset({
+    pending: { owners: [], changes: pendingSet.changes },
+    incremental: { owners: [], changes: incrementalChanges },
+  });
+
+  // A pending changeset is an in-flight, still-unreleased refresh we must never
+  // silently cancel, so its mere presence keeps the changeset alive even when
+  // THIS refresh is a no-op / dev-only. Combined with the image gate above, this
+  // is what closes the release-cancelling hole.
+  const pendingIsShippable = pendingSet.owners.length > 0 || pendingSet.changes.length > 0;
+  const owners = incrementalAffectsImage || pendingIsShippable ? [...anchors] : [];
+
   const content = owners.length === 0 ? null : renderChangeset({ owners, changes });
   return { changes, owners, content };
 }
@@ -315,6 +449,7 @@ interface Args {
   base: string;
   head: string;
   out: string;
+  pending?: string;
   dryRun: boolean;
   check: boolean;
 }
@@ -327,12 +462,13 @@ function parseArgs({ argv }: { argv: string[] }): Args {
   const base = read("--base");
   const head = read("--head");
   if (!base || !head) {
-    throw new Error("usage: renovate-changeset.ts --base <lock> --head <lock> [--out <md>] [--dry-run|--check]");
+    throw new Error("usage: renovate-changeset.ts --base <lock> --head <lock> [--out <md>] [--pending <md>] [--dry-run|--check]");
   }
   return {
     base,
     head,
     out: read("--out") ?? ".changeset/renovate-lock-file-maintenance.md",
+    pending: read("--pending"),
     dryRun: argv.includes("--dry-run"),
     check: argv.includes("--check"),
   };
@@ -358,9 +494,17 @@ async function main(): Promise<void> {
   const base = parseLock({ raw: await readFile(args.base, "utf8") });
   const head = parseLock({ raw: await readFile(args.head, "utf8") });
   const isPublic = await readIsPublic({ head });
-  const { changes, owners, content } = expectedChangeset({ base, head, isPublic });
 
-  console.log(`${changes.length} resolution change(s), ${owners.length} public prod owner(s).`);
+  // The changeset as it currently exists on the base branch. A pending
+  // (unreleased) refresh MUST be unioned in, not clobbered - see file header.
+  const pending =
+    args.pending && existsSync(args.pending)
+      ? parsePendingChangeset({ raw: await readFile(args.pending, "utf8") })
+      : null;
+
+  const { changes, owners, content } = expectedChangeset({ base, head, isPublic, pending });
+
+  console.log(`${changes.length} resolution change(s), ${owners.length} image anchor(s).`);
 
   // --check: the CI drift guard. The committed changeset MUST match a fresh
   // generation, or automerge could ship a lockfile refresh that never releases.

@@ -196,8 +196,14 @@ jobs:
             echo "── lock-file changeset drift ──" | tee -a /tmp/deps-output.txt
             git fetch origin "$BASE_REF" --depth=1 -q
             git show "origin/${BASE_REF}:bun.lock" > /tmp/base-bun.lock
+            # Union base for the drift guard: same pending changeset the generator
+            # reads, so a still-unreleased refresh's entries are expected, not
+            # flagged as drift. Absent on the first refresh after a release.
+            git show "origin/${BASE_REF}:.changeset/renovate-lock-file-maintenance.md" \
+              > /tmp/pending-changeset.md 2>/dev/null || : > /tmp/pending-changeset.md
             bun run scripts/renovate-changeset.ts \
-              --base /tmp/base-bun.lock --head bun.lock --check 2>&1 | tee -a /tmp/deps-output.txt
+              --base /tmp/base-bun.lock --head bun.lock \
+              --pending /tmp/pending-changeset.md --check 2>&1 | tee -a /tmp/deps-output.txt
             [ "${PIPESTATUS[0]}" != "0" ] && rc=1
           fi
           echo "exit_code=$rc" >> $GITHUB_OUTPUT

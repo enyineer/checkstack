@@ -64,10 +64,18 @@ jobs:
             exit 1
           fi
 
-      - name: Extract the base lockfile
+      - name: Extract the base lockfile and pending changeset
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: git show "origin/${BASE_REF}:bun.lock" > /tmp/base-bun.lock
+        run: |
+          git show "origin/${BASE_REF}:bun.lock" > /tmp/base-bun.lock
+          # The changeset as it exists on the base branch. When a previous refresh
+          # is merged to main but not yet released (its Version Packages PR is
+          # still open), this file still lists those pending owners/bumps; the
+          # generator UNIONs them in so the overwrite cannot drop them. Absent on
+          # the first refresh after a release - then the file simply does not exist.
+          git show "origin/${BASE_REF}:.changeset/renovate-lock-file-maintenance.md" \
+            > /tmp/pending-changeset.md 2>/dev/null || : > /tmp/pending-changeset.md
 
       - name: Setup Bun and install dependencies
         uses: ./.github/actions/bun-install
@@ -77,6 +85,7 @@ jobs:
           bun run scripts/renovate-changeset.ts \
             --base /tmp/base-bun.lock \
             --head bun.lock \
+            --pending /tmp/pending-changeset.md \
             --out .changeset/renovate-lock-file-maintenance.md
 
       - name: Commit changeset if it changed
