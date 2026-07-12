@@ -312,7 +312,7 @@ Updated dependencies:
 - `nan` 2.26.2 -> 2.28.0
 - `nanoid` 3.3.12 -> 3.3.15
 - `nanostores` 1.2.0 -> 1.4.0
-- `node-releases` 2.0.37 -> 2.0.50
+- `node-releases` 2.0.37 -> 2.0.51
 - `nodemailer` 9.0.1 -> 9.0.3
 - `obug` 2.1.1 -> 2.1.3
 - `oxc-resolver` 11.20.0 -> 11.23.0
