@@ -232,6 +232,7 @@ Updated dependencies:
 - `@tybys/wasm-util` 0.10.1 -> 0.10.3
 - `@types/d3-random` 3.0.3 -> 3.0.4
 - `@types/estree` 1.0.8 -> 1.0.9
+- `@types/hast` 3.0.4 -> 3.0.5
 - `@types/inquirer` 8.2.12 -> 8.2.13
 - `@types/mdx` 2.0.13 -> 2.0.14
 - `@types/node` 20.19.39 -> 20.19.43
