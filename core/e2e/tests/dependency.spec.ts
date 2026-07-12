@@ -13,13 +13,17 @@ import { test, expect } from "@checkstack/test-utils-frontend/playwright";
  * verify chain).
  *
  * Routes under test:
- *   - /dependency/map           (interactive topology graph)
- *   - /catalog/config           (system creation + the dependency editor slot)
+ *   - /dependency/map            (interactive topology graph)
+ *   - /catalog/config            (system creation)
+ *   - /catalog/system/:systemId  (the "Manage dependencies" dialog hosting the
+ *                                 dependency editor slot)
  *
  * Source of selectors:
  *   - DependencyMapPage.tsx  → heading "Dependency Map", graph toolbar buttons
- *   - CatalogConfigPage.tsx / SystemEditor.tsx → "Add System", "Create System"
- *   - DependencyEditor.tsx   → "Dependencies", "Add", "Create" inside the editor
+ *   - CatalogConfigPage.tsx / SystemEditor.tsx → "Add System", "Create System",
+ *     the editor's "system page" wayfinding link
+ *   - SystemDetailPage.tsx   → the "Manage dependencies" pencil + dialog
+ *   - DependencyEditor.tsx   → "Add", "Create", "Depends On (1)" inside it
  */
 test.describe.configure({ mode: "serial" });
 
@@ -113,8 +117,11 @@ test.describe("dependency map", () => {
     await createSystem({ page, name: SOURCE_SYSTEM });
     await createSystem({ page, name: TARGET_SYSTEM });
 
-    // Open the source system's editor and add an upstream dependency on the
-    // target via the dependency editor slot (DependencyEditor.tsx).
+    // Dependencies are managed from the system DETAIL page's focused
+    // "Manage dependencies" dialog (the dependency editor slot moved there
+    // when the Edit System dialog was slimmed down). Reach the detail page
+    // through the slimmed editor's wayfinding link - the real user path from
+    // the management table.
     await page.goto("/catalog/config");
     await expect(
       page.getByRole("heading", { name: "Catalog Management" }),
@@ -122,17 +129,29 @@ test.describe("dependency map", () => {
 
     await page.getByRole("button", { name: `Edit ${SOURCE_SYSTEM}` }).click();
 
+    const editDialog = page.getByRole("dialog");
+    await expect(
+      editDialog.getByRole("heading", { name: "Edit System" }),
+    ).toBeVisible();
+
+    // The slimmed editor links to the detail page for the living data
+    // (contacts, links, dependencies, team access); it closes the dialog.
+    await editDialog.getByRole("link", { name: "system page" }).click();
+    await expect(page).toHaveURL(/\/catalog\/system\//, { timeout: 30_000 });
+    await expect(
+      page.getByRole("heading", { name: SOURCE_SYSTEM }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    // Open the focused per-section dialog via the sidebar pencil
+    // (SystemDetailPage.tsx SectionEditButton).
+    await page.getByRole("button", { name: "Manage dependencies" }).click();
+
     const dialog = page.getByRole("dialog");
     await expect(
-      dialog.getByRole("heading", { name: "Edit System" }),
+      dialog.getByRole("heading", { name: "Manage dependencies" }),
     ).toBeVisible();
 
-    // The dependency editor section is injected into the system editor.
-    await expect(
-      dialog.getByText("Dependencies", { exact: true }),
-    ).toBeVisible();
-
-    // Reveal the add-dependency form.
+    // Reveal the add-dependency form (DependencyEditor.tsx, unchanged).
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
 
     // Pick the target system as the upstream dependency. The system picker is
@@ -149,8 +168,8 @@ test.describe("dependency map", () => {
     // The new upstream row renders under "Depends On".
     await expect(dialog.getByText("Depends On (1)")).toBeVisible();
 
-    // Close the editor.
-    await dialog.getByRole("button", { name: "Cancel" }).click();
+    // Close the focused dialog (it has no Cancel - it is not a form).
+    await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toBeHidden();
 
     // The map now shows BOTH of our namespaced systems as graph nodes. The
