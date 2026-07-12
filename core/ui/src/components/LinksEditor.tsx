@@ -87,6 +87,12 @@ export interface LinksEditorProps<T extends HotLink> {
   /** Help text under the heading. */
   description?: string;
   /**
+   * Suppress the heading row entirely - for hosts (e.g. a "Manage links"
+   * dialog) whose own title already names the surface. `description` still
+   * renders when provided.
+   */
+  hideTitle?: boolean;
+  /**
    * Opt-in per-link visibility control. Omit for surfaces (e.g. catalog) that
    * have no audience concept - the editor then behaves exactly as before.
    */
@@ -126,6 +132,7 @@ export function LinksEditor<T extends HotLink>({
   busy,
   title = "Hotlinks",
   description,
+  hideTitle = false,
   visibility,
 }: LinksEditorProps<T>) {
   const [label, setLabel] = useState("");
@@ -192,12 +199,14 @@ export function LinksEditor<T extends HotLink>({
 
   return (
     <div className="space-y-3">
-      <div>
-        <Label>{title}</Label>
-        {description && (
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
-        )}
-      </div>
+      {(!hideTitle || description) && (
+        <div>
+          {!hideTitle && <Label>{title}</Label>}
+          {description && (
+            <p className="text-xs text-muted-foreground mt-1">{description}</p>
+          )}
+        </div>
+      )}
 
       {links.length > 0 ? (
         <div className="border rounded-lg divide-y">

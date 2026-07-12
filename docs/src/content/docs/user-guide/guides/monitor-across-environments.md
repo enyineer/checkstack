@@ -38,12 +38,10 @@ Open **Catalog management** from the sidebar, then select the **Environments** t
 
 ## 2. Attach the system to both environments
 
-1. Navigate to the system you want to monitor (for example `Payments API`) in the catalog.
-2. In the system editor, open the **Environments** section.
-3. Select both `staging` and `production`.
-4. Save the system.
+1. Open **Configuration -> Catalog** and go to the **Systems** tab.
+2. Find the system you want to monitor (for example `Payments API`) and use its **environment chips** (the attach menu on the row) to add both `staging` and `production`. You can also work the other way round from the **Environments** tab and attach systems to an environment there.
 
-The system now belongs to both environments. On the next health check run the executor reads this membership from the catalog and fans out accordingly.
+Membership saves immediately as you toggle it. The system now belongs to both environments; on the next health check run the executor reads this membership from the catalog and fans out accordingly.
 
 > [!NOTE]
 > Environment membership is many-to-many and lives only in the catalog's Postgres tables. Every pod re-reads it on every tick via the catalog RPC, so there is no pod-local membership state.
@@ -86,7 +84,7 @@ Templating is not limited to HTTP. Most connection and target fields across the 
 
 ## 4. Configure the environment fan-out
 
-Navigate to the system's health check assignments (**Health Checks** > select the system > **Assignments**), select the `Payments API /healthz` assignment, and open the **Execution** panel.
+Open the `Payments API /healthz` check from the **Health Checks** list. The editor's **Assignment** section lists the `Payments API` system with its per-system panels - open its **Execution** panel.
 
 The **Environments** section offers three modes:
 

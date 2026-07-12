@@ -37,6 +37,39 @@ export const OPERATOR_LABELS: Record<string, string> = {
   notExists: "Not Exists",
 };
 
+/**
+ * Sentence-INFIX operator labels for the AssertionBuilder's "must …" rows
+ * ("Status Code must **be less than** 500"). Kept beside `OPERATOR_LABELS`
+ * so the builder's phrasing and the run-detail Assertions view evolve
+ * together - a parity test asserts both maps cover the same operators.
+ * Boolean operators get field-specific phrasing in the builder (the
+ * collector's `x-chart-true-label`/`x-chart-false-label`); these entries are
+ * the fallback.
+ */
+export const OPERATOR_SENTENCE_LABELS: Record<string, string> = {
+  equals: "equal",
+  notEquals: "not equal",
+  contains: "contain",
+  startsWith: "start with",
+  endsWith: "end with",
+  matches: "match pattern",
+  isEmpty: "be empty",
+  isNotEmpty: "not be empty",
+  lessThan: "be less than",
+  lessThanOrEqual: "be at most",
+  greaterThan: "be greater than",
+  greaterThanOrEqual: "be at least",
+  isTrue: "be true",
+  isFalse: "be false",
+  includes: "include",
+  notIncludes: "not include",
+  lengthEquals: "have length",
+  lengthGreaterThan: "have more entries than",
+  lengthLessThan: "have fewer entries than",
+  exists: "be present",
+  notExists: "be absent",
+};
+
 /** Sentence-case operator for inline labels ("statusCode equals 200"). */
 export function operatorSentence({ operator }: { operator: string }): string {
   const label = OPERATOR_LABELS[operator];

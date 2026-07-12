@@ -1,13 +1,12 @@
 import React, { useId, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { usePluginClient, useApi, accessApiRef } from "@checkstack/frontend-api";
+import { resolveRoute } from "@checkstack/common";
 import { MaintenanceApi } from "../api";
-import type {
-  MaintenanceWithSystems,
-  MaintenanceUpdate,
-} from "@checkstack/maintenance-common";
+import type { MaintenanceWithSystems } from "@checkstack/maintenance-common";
 import {
   maintenanceAccess,
-  MaintenanceVisibilityEnum,
+  maintenanceRoutes,
 } from "@checkstack/maintenance-common";
 import type { System } from "@checkstack/catalog-common";
 import {
@@ -28,18 +27,13 @@ import {
   Checkbox,
   useToast,
   DateTimePicker,
-  LinksEditor,
   toastError,
   FormError,
   ConfirmationModal,
   SystemMultiSelect,
   useUnsavedChanges,
 } from "@checkstack/ui";
-import { MaintenanceUpdatesSection } from "./MaintenanceUpdatesSection";
-import { VisibilityBadge } from "../utils/visibilityBadge";
-import { MAINTENANCE_VISIBILITY_OPTIONS } from "../utils/visibilityOptions";
 import {
-  TeamAccessEditor,
   TeamOwnershipPicker,
   teamCreateErrorMessage,
   useManageableResources,
@@ -105,10 +99,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
     allowAllOverride: allowGlobal,
   });
 
-  // Status updates seeded from the detail query and handed to the shared
-  // MaintenanceUpdatesSection, which owns the add / edit / delete affordances.
-  const [updates, setUpdates] = useState<MaintenanceUpdate[]>([]);
-
   // Inline validation: a per-field error map is the single source of truth for
   // both the inline FormError messages and submit-validity. Errors are only
   // revealed for fields the user has touched (or after a submit attempt) so the
@@ -121,13 +111,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
   // Unsaved-changes guard: a dirty form intercepts close/navigation and routes
   // through a discard-confirmation modal.
   const [discardOpen, setDiscardOpen] = useState(false);
-
-  // Query for maintenance details (only when editing)
-  const { data: maintenanceDetail, refetch: refetchDetail } =
-    maintenanceClient.getMaintenance.useQuery(
-      { id: maintenance?.id ?? "" },
-      { enabled: !!maintenance?.id && open },
-    );
 
   // Mutations
   const createMutation = maintenanceClient.createMaintenance.useMutation({
@@ -155,40 +138,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
     },
   });
 
-  const addLinkMutation = maintenanceClient.addLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to add link", error);
-    },
-  });
-
-  const updateLinkMutation = maintenanceClient.updateLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to update link", error);
-    },
-  });
-
-  const removeLinkMutation = maintenanceClient.removeLink.useMutation({
-    onSuccess: () => {
-      void refetchDetail();
-    },
-    onError: (error) => {
-      toastError(toast, "Failed to remove link", error);
-    },
-  });
-
-  // Sync updates from query
-  useEffect(() => {
-    if (maintenanceDetail) {
-      setUpdates(maintenanceDetail.updates);
-    }
-  }, [maintenanceDetail]);
-
   // Reset form when maintenance changes
   useEffect(() => {
     setTouched({});
@@ -212,7 +161,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
       setEndAt(end);
       setSelectedSystemIds(new Set());
       setSuppressNotifications(false);
-      setUpdates([]);
       setOwnerTeamId(null);
       setOwnerTeamError(null);
     }
@@ -232,9 +180,9 @@ export const MaintenanceEditor: React.FC<Props> = ({
     setTouched((prev) => ({ ...prev, [field]: true }));
 
   // Dirty tracking: compare the live editor fields against the maintenance's
-  // persisted values (or the create-mode defaults). The status-update and
-  // hotlink sub-editors persist via their own mutations, so they are not part
-  // of this dialog's "unsaved" surface.
+  // persisted values (or the create-mode defaults). Status updates, hotlinks
+  // and team access are self-persisting on the detail page, so they are not
+  // part of this dialog's "unsaved" surface.
   const isDirty = (() => {
     const currentSystemIds = [...selectedSystemIds].toSorted();
     if (maintenance) {
@@ -339,14 +287,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
     }
   };
 
-  const handleUpdateSuccess = () => {
-    if (maintenance) {
-      void refetchDetail();
-    }
-    // Notify parent to refresh list (status may have changed).
-    onSave();
-  };
-
   const saving = createMutation.isPending || updateMutation.isPending;
 
   const titleError = showError("title");
@@ -366,7 +306,7 @@ export const MaintenanceEditor: React.FC<Props> = ({
           onOpenChange(true);
         }}
       >
-        <DialogContent size="xl">
+        <DialogContent size="lg">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle>
@@ -495,71 +435,6 @@ export const MaintenanceEditor: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Status Updates Section - Only show when editing. Uses the
-                  SAME shared section the detail page renders, so add/edit/delete
-                  (including editing the published time + edit history) behave
-                  identically in both surfaces. */}
-              {maintenance && (
-                <div className="border-t pt-4">
-                  <MaintenanceUpdatesSection
-                    maintenanceId={maintenance.id}
-                    currentStatus={maintenance.status}
-                    updates={updates}
-                    onChanged={handleUpdateSuccess}
-                    showTimeline={false}
-                    maxHeight="max-h-48"
-                  />
-                </div>
-              )}
-
-              {/* Hotlinks (change tickets, runbooks, ...) — editing only */}
-              {maintenance && (
-                <div className="border-t pt-4">
-                  <LinksEditor
-                    title="Hotlinks"
-                    description="Attach change tickets, runbooks, dashboards, or any URL relevant to this maintenance."
-                    links={maintenanceDetail?.links ?? []}
-                    visibility={{
-                      options: MAINTENANCE_VISIBILITY_OPTIONS,
-                      default: "public",
-                      renderBadge: (v) => <VisibilityBadge visibility={v} />,
-                    }}
-                    busy={
-                      addLinkMutation.isPending ||
-                      updateLinkMutation.isPending ||
-                      removeLinkMutation.isPending
-                    }
-                    onAdd={async ({ label, url, visibility }) => {
-                      await addLinkMutation.mutateAsync({
-                        maintenanceId: maintenance.id,
-                        label,
-                        url,
-                        visibility: MaintenanceVisibilityEnum.parse(
-                          visibility ?? "public",
-                        ),
-                      });
-                    }}
-                    onEdit={async ({ id, label, url, visibility }) => {
-                      await updateLinkMutation.mutateAsync({
-                        id,
-                        maintenanceId: maintenance.id,
-                        label,
-                        url,
-                        visibility: visibility
-                          ? MaintenanceVisibilityEnum.parse(visibility)
-                          : undefined,
-                      });
-                    }}
-                    onRemove={async (link) => {
-                      await removeLinkMutation.mutateAsync({
-                        id: link.id,
-                        maintenanceId: maintenance.id,
-                      });
-                    }}
-                  />
-                </div>
-              )}
-
               {/* Owning-team picker - only shown when creating a new maintenance */}
               {!maintenance?.id && (
                 <div className="border-t pt-4">
@@ -577,14 +452,23 @@ export const MaintenanceEditor: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* Team Access Editor - only shown when editing existing maintenance */}
-              {maintenance?.id && (
-                <TeamAccessEditor
-                  resourceType="maintenance.maintenance"
-                  resourceId={maintenance.id}
-                  compact
-                  expanded
-                />
+              {/* Editing this maintenance's status updates, hotlinks and team
+                  access is done on its detail page — the living data lives
+                  there, not in this deferred-save form. */}
+              {maintenance && (
+                <p className="border-t pt-4 text-xs text-muted-foreground">
+                  Status updates, hotlinks and team access are managed on the{" "}
+                  <Link
+                    to={resolveRoute(maintenanceRoutes.routes.detail, {
+                      maintenanceId: maintenance.id,
+                    })}
+                    onClick={() => onOpenChange(false)}
+                    className="text-primary underline underline-offset-2 hover:no-underline"
+                  >
+                    maintenance's detail page
+                  </Link>
+                  .
+                </p>
               )}
             </div>
 

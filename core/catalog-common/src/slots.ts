@@ -296,9 +296,10 @@ export const SystemSignalsSlot = createSlot<SystemSignalsSlotContext>(
 );
 
 /**
- * Slot for extending the System Editor dialog with additional sections.
- * Only rendered when editing an existing system (not during creation).
- * Extensions receive the system ID.
+ * Slot for extending a system's editable surface with additional sections
+ * (e.g. the dependency editor). Mounts on the system detail page's manage
+ * area, only for callers who can manage the system. Extensions receive the
+ * system ID.
  *
  * @example
  * // In your plugin

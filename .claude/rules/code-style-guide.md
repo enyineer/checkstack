@@ -16,6 +16,19 @@ ALWAYS keep the code well structured and modular.
 
 ALWAYS use typed objects for function arguments, try to avoid positional arguments. ALWAYS use object destructuring in functions to destructure the "props" given to the function.
 
+# Opaque surfaces
+
+Card-like containers (anything with a border/rounded box holding content)
+must declare their OWN opaque background (`bg-card`, `bg-surface`,
+`bg-surface-inset`, ...) - NEVER rely on inheriting the page behind them.
+Several pages render decorative backdrops (e.g. the detail pages' grid
+pattern); a bordered box without a background lets the backdrop bleed through
+the content, which badly hurts readability. A component styled inside an
+opaque parent (a Dialog, a Card) may look fine there and still be broken the
+first time someone mounts it on a page - so the container itself carries the
+background. Translucent backgrounds (`bg-*/50`) are only acceptable for
+accents INSIDE an already-opaque surface, never for the surface itself.
+
 # Frontend query invalidation
 
 Every oRPC `useMutation()` already invalidates its owning plugin's

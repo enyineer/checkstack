@@ -211,8 +211,10 @@ function extractSingleField(
 
 /**
  * Convert camelCase or snake_case field name to human-readable label.
+ * Shared with the assertion builder's field extraction (same fallback when a
+ * field carries no `x-chart-label`).
  */
-function formatFieldName(name: string): string {
+export function formatFieldName(name: string): string {
   // Extract just the field name if it's a path
   const baseName = name.includes(".") ? name.split(".").pop()! : name;
   return baseName

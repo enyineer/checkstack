@@ -233,12 +233,24 @@ export const healthCheckContract = {
     z.object({ configurations: z.array(HealthCheckConfigurationSchema) }),
   ),
 
+  /**
+   * Single-configuration read (the editor's loader). AUTHORIZED IN THE
+   * HANDLER, not declaratively: global `configuration.read`/`.manage` (or
+   * wildcard/service), a team READ grant on the configuration, OR read access
+   * to a system the configuration is ASSIGNED to - a system's team may
+   * inspect the checks that run on their system, the same exposure
+   * {@link getSystemConfigurations} already allows. That OR over a parent
+   * relation is not expressible with the middleware's instanceAccess modes
+   * (`idParam` would lock out pure system managers), so `access` is
+   * deliberately empty and the router enforces the rule via
+   * `assignment-access.ts` (fail-closed). An unauthorized caller gets the
+   * same `undefined` as a missing id, so configuration ids don't leak
+   * existence.
+   */
   getConfiguration: proc({
     operationType: "query",
     userType: "authenticated",
-    access: [healthCheckAccess.configuration.read],
-    // Single-config read scoped by the configuration's own id.
-    instanceAccess: { idParam: "id" },
+    access: [],
   })
     .input(z.object({ id: z.string() }))
     .output(HealthCheckConfigurationSchema.optional()),
@@ -409,6 +421,53 @@ export const healthCheckContract = {
     .route({ method: "POST" })
     .input(z.object({ systemIds: z.array(z.string()) }))
     .output(z.object({ counts: z.record(z.string(), z.number()) })),
+
+  /**
+   * Configuration-centric inverse of {@link getSystemAssociations}: every
+   * system a configuration is assigned to, with the per-assignment settings.
+   * Powers the check editor's Assignment section.
+   *
+   * AUTHORIZED IN THE HANDLER, not declaratively: global
+   * `configuration.read`/`.manage` (or wildcard/service) or a team grant on
+   * the CONFIGURATION sees every row (a check's owning team may see where
+   * their check runs, mirroring the run-history feed's scoping); otherwise
+   * rows are filtered to the systems the caller may READ (a system's team
+   * sees the assignments that run on their system); a caller with neither is
+   * forbidden. That OR-with-row-filtering is not expressible with the
+   * middleware's instanceAccess modes (`idParam` on the config would lock out
+   * pure system managers; `listKey` post-filters by each row's OWN id, but
+   * rows are keyed by systemId while the grant anchors on the configuration),
+   * so `access` is deliberately empty and the router enforces the rule via
+   * `assignment-access.ts` (fail-closed).
+   */
+  getConfigurationAssignments: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [],
+  })
+    .input(z.object({ configId: z.string() }))
+    .output(
+      z.array(
+        z.object({
+          systemId: z.string(),
+          /** Resolved display name; falls back to the id when unresolvable. */
+          systemName: z.string(),
+          enabled: z.boolean(),
+          stateThresholds: StateThresholdsSchema.optional(),
+          /** IDs of satellites assigned to execute this health check */
+          satelliteIds: z.array(z.string()).optional(),
+          /**
+           * Per-assignment environment selector. null = all current
+           * environments; [] = opt out (env-less); non-empty = those ids.
+           */
+          environmentIds: z.array(z.string()).nullable().optional(),
+          /** Whether to also run this check locally on the core (default: true) */
+          includeLocal: z.boolean(),
+          /** Per-association notification policy (omitted = platform defaults) */
+          notificationPolicy: NotificationPolicySchema.optional(),
+        }),
+      ),
+    ),
 
   associateSystem: proc({
     operationType: "mutation",

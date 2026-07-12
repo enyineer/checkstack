@@ -3,12 +3,11 @@ import { Button, Checkbox, Label } from "@checkstack/ui";
 import { ExternalLink, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { resolveRoute } from "@checkstack/common";
-import { healthcheckRoutes } from "@checkstack/healthcheck-common";
+import { catalogRoutes } from "@checkstack/catalog-common";
 
 interface GeneralPanelProps {
-  configurationName: string;
-  strategyId: string;
-  configurationId: string;
+  systemId: string;
+  systemName: string;
   enabled: boolean;
   onToggleEnabled: () => void;
   onUnassign: () => void;
@@ -17,20 +16,22 @@ interface GeneralPanelProps {
 }
 
 /**
- * Panel showing general assignment info: toggle enabled + link to config editor.
+ * Panel showing general assignment info: toggle enabled + link to the
+ * assigned system. Hosted inside the check editor's Assignment section, so
+ * the check side of the pair is already on screen - the system is the
+ * context worth linking out to.
  */
 export const GeneralPanel: React.FC<GeneralPanelProps> = ({
-  configurationName,
-  strategyId,
-  configurationId,
+  systemId,
+  systemName,
   enabled,
   onToggleEnabled,
   onUnassign,
   saving,
   isLocked,
 }) => {
-  const editUrl = resolveRoute(healthcheckRoutes.routes.edit, {
-    configId: configurationId,
+  const systemUrl = resolveRoute(catalogRoutes.routes.systemDetail, {
+    systemId,
   });
 
   return (
@@ -59,25 +60,22 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
         </div>
       </div>
 
-      {/* Config Info */}
-      <div className="p-4 bg-surface-inset rounded-lg border space-y-2">
+      {/* System Info */}
+      <div className="p-4 bg-surface-inset rounded-lg border">
         <div className="flex items-center justify-between">
           <div>
-            <Label className="text-sm font-medium">Configuration</Label>
+            <Label className="text-sm font-medium">System</Label>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {configurationName}
+              {systemName}
             </p>
           </div>
           <Link
-            to={editUrl}
+            to={systemUrl}
             className="text-xs text-primary hover:underline flex items-center gap-1"
           >
-            Edit configuration
+            View system
             <ExternalLink className="h-3 w-3" />
           </Link>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          Strategy: <code className="bg-muted px-1 py-0.5 rounded text-foreground">{strategyId}</code>
         </div>
       </div>
 
@@ -88,14 +86,15 @@ export const GeneralPanel: React.FC<GeneralPanelProps> = ({
           size="sm"
           onClick={onUnassign}
           disabled={saving || isLocked}
-          title={isLocked ? "Managed by GitOps" : undefined}
+          title={isLocked ? "Managed by GitOps or not manageable" : undefined}
           className="text-destructive hover:text-destructive hover:bg-destructive/10"
         >
           <Trash2 className="h-3.5 w-3.5 mr-1.5" />
           Remove Assignment
         </Button>
         <p className="text-xs text-muted-foreground mt-1">
-          This will unassign the health check from this system entirely.
+          This will unassign the health check from this system entirely. The
+          check stops running there; its configuration is kept.
         </p>
       </div>
     </div>

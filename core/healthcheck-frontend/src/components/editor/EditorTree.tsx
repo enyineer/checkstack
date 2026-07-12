@@ -36,6 +36,20 @@ interface EditorTreeProps {
   configId?: string;
   showSystemsNode?: boolean;
   selectedSystemCount?: number;
+  /**
+   * EDIT mode: the fully-rendered "Assignment" tree section (per-system
+   * assignment nodes + the assign picker). Kept opaque so the tree stays
+   * dumb; create mode uses the simpler `showSystemsNode` multi-select
+   * instead.
+   */
+  assignmentSection?: React.ReactNode;
+  /**
+   * Whether to show the Access Control node. Hidden for callers without any
+   * config-plane capability (a pure system manager reaches the editor for
+   * its Assignment section but cannot read or edit the configuration's team
+   * grants).
+   */
+  showAccessNode?: boolean;
 }
 
 // =============================================================================
@@ -52,6 +66,8 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
   configId,
   showSystemsNode = false,
   selectedSystemCount = 0,
+  assignmentSection,
+  showAccessNode = true,
 }) => {
   // Check if there are addable collectors remaining
   const hasAddableCollectors = useMemo(() => {
@@ -131,17 +147,24 @@ export const EditorTree: React.FC<EditorTreeProps> = ({
         </>
       )}
 
-      {/* Access Control */}
-      <IDETreeSection label="Permissions" />
+      {/* Edit-mode assignment management (per-system nodes + assign picker). */}
+      {assignmentSection}
 
-      <IDETreeNode
-        nodeId="access"
-        label="Access Control"
-        icon={Shield}
-        selected={selectedNode === "access"}
-        onClick={() => onSelectNode("access")}
-        issues={validationIssues}
-      />
+      {/* Access Control */}
+      {showAccessNode && (
+        <>
+          <IDETreeSection label="Permissions" />
+
+          <IDETreeNode
+            nodeId="access"
+            label="Access Control"
+            icon={Shield}
+            selected={selectedNode === "access"}
+            onClick={() => onSelectNode("access")}
+            issues={validationIssues}
+          />
+        </>
+      )}
 
       {/* Plugin Configuration Slots */}
       {configId && (

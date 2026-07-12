@@ -42,8 +42,8 @@ Team membership alone does not grant access. You have to attach the team to spec
 
 Most resources expose a **Who can change this** editor in their detail page:
 
-1. Open a system from the **Catalog**.
-2. Scroll to the **Who can change this** section in the system editor (or open the system editor by clicking **Edit**).
+1. Open a system's detail page from the **Catalog**.
+2. In the sidebar, find the **Team Access** section and click its pencil - a focused **Team access** dialog opens. (Contacts, links, dependencies, and team access are all managed from the system page this way; the **Edit** dialog only carries the system's name, description, and custom fields.)
 3. Click **Add a team that can change this**.
 4. Pick the team. By default the team gets **Manage**: its members can view and change the resource, even members who do not hold the global permission, and anyone who could already read it still can. Untick **Manage** to make the grant read-only (members can view but not change it), or use the **Private** toggle to hide the resource from everyone outside the team.
 5. The change saves immediately.
@@ -88,7 +88,7 @@ What the user should NOT see:
 
 From here you can:
 
-- Grant the team access to multiple systems at once by opening each system editor.
+- Grant the team access to multiple systems at once from each system's detail page (or wire one team across many resources at once from **Configuration -> Teams**).
 - Demote a manager back to regular member if their workflow changes.
 - Delete the team to revoke every grant attached to it. Members retain any roles they hold from other sources.
 

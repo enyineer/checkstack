@@ -45,6 +45,9 @@ Click **Create**. The maintenance lands with status `scheduled`. It will transit
 
 The Catalog system detail page now shows a "Scheduled maintenance" badge on each affected system, with the start time and a link to the maintenance.
 
+> [!NOTE]
+> The create/edit dialog carries only the deferred-save fields (title, description, schedule, affected systems, and notification suppression). Status updates, hotlinks, and team access are living data that you manage on the maintenance's **detail page** - each change there saves immediately. The dialog links you to the detail page when you are editing an existing maintenance.
+
 ## 5. Recurring vs one-off windows
 
 Checkstack treats every maintenance as a single window. A "recurring weekly backup" is not modelled as a recurrence rule; it is one window per occurrence.
@@ -59,9 +62,9 @@ Two ways to handle this:
 
 ## 6. Post updates as work progresses
 
-Just like incidents, maintenances have a status timeline. Post updates from the editor:
+Just like incidents, maintenances have a status timeline. Post updates from the detail page:
 
-1. Open the maintenance from the list (or stay in the editor).
+1. Open the maintenance's detail page (click it in the list).
 2. In the **Status Updates** section, click **Add Update**.
 3. Fill in:
    - **Update message** - what is happening or what changed.
@@ -95,7 +98,7 @@ The system detail pages now show a "Recent maintenance" history entry instead of
 
 ## 9. Manage access
 
-By default, anyone with `maintenance.maintenances.read` can see this window. Restrict it via the **Team access** editor on the maintenance if it should only be visible to a specific team.
+By default, anyone with `maintenance.maintenances.read` can see this window. Restrict it via the **Team access** editor on the maintenance's detail page if it should only be visible to a specific team.
 
 ## See also
 

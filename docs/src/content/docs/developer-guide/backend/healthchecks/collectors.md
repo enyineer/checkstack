@@ -429,6 +429,15 @@ These keys are valid on both per-run (`healthResult*`) and aggregated
 | `x-chart-true-label` | Optional | Prose for a boolean field's `true` value wherever it surfaces in text, e.g. `"successful"` so a dominance chip reads "Usually successful (98%)" instead of "Usually true". Falls back to a humanized form of the field name. |
 | `x-chart-false-label` | Optional | Counterpart for `false`, e.g. `"failing"`. |
 
+> [!IMPORTANT]
+> These annotations also drive the **assertion builder**: `x-chart-label` is
+> the field name operators pick from, `x-chart-unit` renders as the value
+> suffix ("must be less than `500` ms"), the boolean labels phrase the
+> conditions ("must be successful"), and `x-chart-priority` orders the field
+> picker and seeds new conditions. A well-annotated result schema is what
+> makes your collector's assertions readable to non-technical operators - a
+> field without `x-chart-label` falls back to a humanized field name.
+
 > [!TIP]
 > When `x-chart-good-direction` is unset, the frontend falls back to
 > `x-anomaly-direction`: `higher-is-better` reads as `"up"` and

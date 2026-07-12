@@ -39,11 +39,14 @@ In the **Suppress notifications** section of the incident editor, toggle the fla
 
 Click **Update** to save.
 
+> [!NOTE]
+> The create/edit dialog carries only the deferred-save fields (title, description, severity, affected systems, health override, and notification suppression). Status updates, hotlinks, and team access are living data that you manage on the incident's **detail page** - each change there saves immediately. The dialog links you to the detail page when you are editing an existing incident.
+
 ## 4. Post a status update with the first transition
 
 Once you have started investigating, post your first update:
 
-1. Reopen the incident from the list (or stay in the editor).
+1. Open the incident's detail page (click it in the list).
 2. In the **Status Updates** section, click **Add Update**.
 3. Fill in:
    - **Update message** - what you have learned so far, for example "Saw a spike in 502s starting 14:02. Looking at the load balancer logs."
@@ -76,7 +79,7 @@ Each status update is its own entry in the timeline; subscribers receive a notif
 
 ## 6. Attach links
 
-Click **Hotlinks** in the incident editor to attach external context: the Jira ticket tracking the postmortem, the runbook you followed, the dashboard you used to confirm recovery. Links live on the incident permanently and are surfaced in the incident detail page.
+On the incident's detail page, use the **Hotlinks** section to attach external context: the Jira ticket tracking the postmortem, the runbook you followed, the dashboard you used to confirm recovery. Each link you add saves immediately. Links live on the incident permanently and are surfaced to everyone who can read the incident.
 
 ## 7. Resolve the incident
 
@@ -90,13 +93,13 @@ Posting an update with status `resolved` closes the incident:
 
 By default, anyone with the global `incident.incidents.read` rule can see this incident. If the incident contains sensitive context (security disclosures, customer-identifying details), restrict it:
 
-1. Open the incident editor.
+1. Open the incident's detail page.
 2. Scroll to **Team access**.
 3. Click **Add team grant** and pick the team that should see it.
 4. The incident becomes invisible to users who lack both a global role and a team grant.
 
 > [!TIP]
-> The same Team access editor is on every editable resource. See [Create your first team](/checkstack/user-guide/guides/create-a-team/) for the team management workflow.
+> The same Team access editor is on every resource's detail page. See [Create your first team](/checkstack/user-guide/guides/create-a-team/) for the team management workflow.
 
 ## See also
 

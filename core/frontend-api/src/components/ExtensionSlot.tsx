@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { memo, type ComponentType } from "react";
 import type { Extension, SlotContext } from "../plugin";
 import type { SlotDefinition } from "../slots";
 import { useSlotExtensions } from "../use-slot-extensions";
@@ -42,6 +42,53 @@ export function ExtensionComponent<
   }
   return null;
 }
+
+/**
+ * Shallow equality over a slot context's OWN enumerable values: same key set,
+ * `Object.is`-equal values. Slot call sites build the context object inline
+ * (`context={{ systemId, ... }}`), so object identity changes every parent
+ * render even when nothing meaningful did - comparing the VALUES lets the
+ * memoized extension renderer bail out. Exported for the regression test.
+ */
+export function slotContextEquals(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(
+    (key) => Object.hasOwn(b, key) && Object.is(a[key], b[key]),
+  );
+}
+
+/**
+ * Memoized extension renderer used by {@link ExtensionSlot}. A slot mounted
+ * per ROW (e.g. the catalog manager's system actions, where every visible row
+ * hosts several plugin fillers, each running auth/query hooks) would
+ * otherwise re-render EVERY filler on EVERY parent render - typing in the
+ * table's filter re-ran hundreds of hook trees and profiled as a
+ * GC-dominated main-thread storm. Extensions are registry-stable and contexts
+ * compare by value, so an unchanged row costs nothing on a parent render.
+ *
+ * For the bail-out to work, slot call sites must keep context VALUES
+ * referentially stable: primitives are free; memoize arrays/objects/functions
+ * (e.g. `visibleSystemIds` via `useMemo`).
+ */
+const MemoizedExtensionComponent = memo(
+  ExtensionComponent,
+  (prev, next) =>
+    prev.extension === next.extension &&
+    slotContextEquals(
+      // The generic context is erased to a props bag at render time (see
+      // ExtensionComponent); the comparator reads it the same way.
+      prev.context as Record<string, unknown> | undefined,
+      next.context as Record<string, unknown> | undefined,
+    ),
+  // React.memo erases ExtensionComponent's generic signature; restore it so
+  // call sites keep full slot-context type checking.
+) as typeof ExtensionComponent;
 
 /**
  * Type-safe props for ExtensionSlot.
@@ -93,7 +140,11 @@ export function ExtensionSlot<TSlot extends SlotDefinition<unknown, unknown>>({
   return (
     <>
       {sorted.map((ext) => (
-        <ExtensionComponent key={ext.id} extension={ext} context={context} />
+        <MemoizedExtensionComponent
+          key={ext.id}
+          extension={ext}
+          context={context}
+        />
       ))}
     </>
   );

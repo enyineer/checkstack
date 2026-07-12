@@ -60,24 +60,34 @@ export class AuthAccessApi implements AccessApi {
     objectType: string,
     parentType?: string,
   ): { loading: boolean; allowed: boolean } {
-    // Global RBAC path grants the surface outright.
-    const global = this.useAccess(accessRule);
+    // ONE `useAccessRules` serves both the global-RBAC check and the
+    // authenticated gate. This hook runs once per gated control - on
+    // gate-heavy pages (e.g. a per-row slot filler on the catalog manager)
+    // that is once per ROW - so a redundant session/rules observer pair per
+    // call multiplies into real allocation churn (see the ExtensionSlot memo
+    // note in frontend-api).
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
+    const rulesState = useAccessRules();
+    const { accessRules, loading: rulesLoading, isAuthenticated } = rulesState;
+    // Global RBAC path grants the surface outright (empty rules never satisfy).
+    const globalAllowed =
+      !rulesLoading &&
+      accessRules.length > 0 &&
+      isAccessRuleSatisfied(accessRules, accessRule);
 
     // Team-derived path: the set of types the caller can create/manage-any of.
     // Only fetched when the global path hasn't already granted access. One small
     // query serves every surface gate on the page (React Query dedupes the key).
     // Anonymous callers never fetch: the procedure is authenticated-only.
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
-    const { isAuthenticated } = useAccessRules();
-    // eslint-disable-next-line react-hooks/rules-of-hooks -- Class adapter delegates to hook; consumed as API, not a component
     const authClient = usePluginClient(AuthApi);
     const { data, isLoading } = authClient.myManageableTypes.useQuery(
       {},
-      { enabled: !global.loading && !global.allowed && isAuthenticated },
+      { enabled: !rulesLoading && !globalAllowed && isAuthenticated },
     );
 
-    if (global.allowed) return { loading: false, allowed: true };
-    if (global.loading) return { loading: true, allowed: false };
+    if (globalAllowed) return { loading: false, allowed: true };
+    if (rulesLoading) return { loading: true, allowed: false };
     const types = new Set(data?.types);
     const allowed =
       types.has(objectType) ||

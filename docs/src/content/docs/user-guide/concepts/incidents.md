@@ -179,7 +179,7 @@ qualified (already resolved, deleted, or not yours to manage).
 |-------------|-------------------|
 | **Incidents** (list) | See all incidents, filter by status, severity, or affected system. Select rows for mass resolve / mass delete. |
 | **Open Incident** | Create a new incident. Set title, description, severity, attach systems, optionally override system health. |
-| **Incident detail** | Post updates, change status, edit affected systems, manage hotlinks. |
+| **Incident detail** | Post updates, change status, manage hotlinks, and restrict team access - all self-persisting. Use the edit dialog for the deferred-save fields (title, severity, affected systems, health override). |
 | **System detail** | See the active incidents currently touching this system. |
 
 ## Where to go next

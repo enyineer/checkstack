@@ -28,7 +28,7 @@ Custom fields are free-form in this release: any key, any string-ish value. Ther
 
 You can manage environments from the catalog config page, or declaratively with [GitOps](/checkstack/user-guide/concepts/gitops/).
 
-In the UI, open **Catalog management**, use the **Environments** panel to create, edit, and delete environments and their custom fields, and use the **Environments** picker on a system to set which environments it belongs to.
+In the UI, open **Catalog management**, use the **Environments** panel to create, edit, and delete environments and their custom fields, and set which environments a system belongs to from the **Systems** tab (the per-row environment chips) or by attaching systems from the **Environments** panel.
 
 With GitOps, declare an environment with the `Environment` kind and attach systems with the `System.environments` extension:
 

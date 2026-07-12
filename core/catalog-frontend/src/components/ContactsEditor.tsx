@@ -160,7 +160,8 @@ export const ContactsEditor: React.FC<ContactsEditorProps> = ({ systemId }) => {
 
   return (
     <div className="space-y-4">
-      <Label>Contacts</Label>
+      {/* No own heading: the editor is hosted by the "Manage contacts"
+          dialog, whose DialogTitle already names the surface. */}
 
       {/* Existing Contacts List */}
       {contacts.length > 0 && (

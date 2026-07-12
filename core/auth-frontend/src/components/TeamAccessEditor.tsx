@@ -412,7 +412,11 @@ export const TeamAccessEditor: React.FC<TeamAccessEditorProps> = ({
   // Compact inline mode
   if (compact) {
     return (
-      <div className="border rounded-lg p-4 space-y-4">
+      // bg-card, not transparent: this container renders directly on page
+      // backdrops (detail pages have a decorative grid) - a bordered box
+      // without its own opaque background lets the backdrop bleed through
+      // the content (see .claude/rules/code-style-guide.md, opaque surfaces).
+      <div className="border rounded-lg p-4 space-y-4 bg-card">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-muted-foreground" />

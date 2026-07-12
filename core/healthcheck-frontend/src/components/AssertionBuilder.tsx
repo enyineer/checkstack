@@ -1,9 +1,11 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   Button,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
   Input,
@@ -12,274 +14,99 @@ import type {
   JsonSchemaBase,
   JsonSchemaPropertyBase,
 } from "@checkstack/common";
-import { Plus, Trash2 } from "lucide-react";
-import { OPERATOR_LABELS } from "./assertion-display.logic";
+import type { CollectorAssertion } from "@checkstack/healthcheck-common";
+import { Plus, X } from "lucide-react";
+import {
+  extractAssertableFields,
+  findFieldByPath,
+  operatorOptionsForField,
+  seedAssertion,
+  validateAssertion,
+  duplicateAssertionIndexes,
+  assertionsAreValid,
+  VALUE_LESS_OPERATORS,
+  type AssertableField,
+} from "./assertion-builder.logic";
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-// Use base types for assertion building - works with any JSON Schema
 type JsonSchema = JsonSchemaBase<JsonSchemaPropertyBase>;
-type JsonSchemaProperty = JsonSchemaPropertyBase;
-
-type FieldType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "enum"
-  | "array"
-  | "jsonpath";
-
-export interface AssertableField {
-  path: string;
-  displayName: string;
-  type: FieldType;
-  enumValues?: unknown[];
-  /** For jsonpath fields, the original field path (e.g., "body") */
-  sourceField?: string;
-}
-
-export interface Assertion {
-  field: string;
-  operator: string;
-  value?: unknown;
-  /** JSONPath expression for jsonpath-type fields */
-  jsonPath?: string;
-}
 
 interface AssertionBuilderProps {
   resultSchema: JsonSchema;
-  assertions: Assertion[];
-  onChange: (assertions: Assertion[]) => void;
+  assertions: CollectorAssertion[];
+  onChange: (assertions: CollectorAssertion[]) => void;
+  /**
+   * Reports whether every condition is complete/savable. Incomplete rows
+   * (missing value, bad regex, blank JSONPath) block the editor's Save via
+   * the same validity plumbing as the collector config form.
+   */
+  onValidChange?: (isValid: boolean) => void;
 }
 
-// ============================================================================
-// OPERATORS BY FIELD TYPE
-// ============================================================================
+/** Compact inline control sizing shared by the sentence-row parts. */
+const inlineTrigger = "h-8 w-auto min-w-28 gap-1 text-sm";
+const inlineInput = "h-8 text-sm";
 
-// Labels come from the shared map so the builder's dropdowns and the
-// run-detail Assertions view always describe operators identically.
-const op = (value: string) => ({
-  value,
-  label: OPERATOR_LABELS[value] ?? value,
-});
-
-const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
-  string: [
-    op("equals"),
-    op("notEquals"),
-    op("contains"),
-    op("startsWith"),
-    op("endsWith"),
-    op("matches"),
-    op("isEmpty"),
-  ],
-  number: [
-    op("equals"),
-    op("notEquals"),
-    op("lessThan"),
-    op("lessThanOrEqual"),
-    op("greaterThan"),
-    op("greaterThanOrEqual"),
-  ],
-  boolean: [op("isTrue"), op("isFalse")],
-  enum: [op("equals")],
-  array: [
-    op("includes"),
-    op("notIncludes"),
-    op("lengthEquals"),
-    op("lengthGreaterThan"),
-    op("lengthLessThan"),
-    op("isEmpty"),
-    op("isNotEmpty"),
-    op("exists"),
-    op("notExists"),
-  ],
-  jsonpath: [
-    op("exists"),
-    op("notExists"),
-    // Empty = [] / {} / "". A missing path is also "empty": combine with an
-    // `exists` assertion on the same path to require "present but empty".
-    op("isEmpty"),
-    op("isNotEmpty"),
-    op("equals"),
-    op("notEquals"),
-    op("contains"),
-    op("greaterThan"),
-    op("lessThan"),
-  ],
-};
-
-// Operators that don't need a value input
-const VALUE_LESS_OPERATORS = new Set([
-  "isEmpty",
-  "isNotEmpty",
-  "isTrue",
-  "isFalse",
-  "exists",
-  "notExists",
-]);
-
-// ============================================================================
-// SCHEMA EXTRACTION
-// ============================================================================
+const renderFieldOptions = (list: AssertableField[]) =>
+  list.map((f) => (
+    <SelectItem key={f.path} value={f.path}>
+      {f.label}
+    </SelectItem>
+  ));
 
 /**
- * Extract assertable fields from a JSON Schema, supporting nested objects.
- * Reuses the JsonSchemaProperty type from @checkstack/ui DynamicForm.
- */
-export function extractAssertableFields(
-  schema: JsonSchema,
-  prefix = ""
-): AssertableField[] {
-  const fields: AssertableField[] = [];
-
-  if (!schema.properties) return fields;
-
-  for (const [key, prop] of Object.entries(schema.properties)) {
-    const path = prefix ? `${prefix}.${key}` : key;
-    const displayName = path
-      .split(".")
-      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-      .join(" → ");
-
-    // Handle enum type
-    if (prop.enum && prop.enum.length > 0) {
-      fields.push({
-        path,
-        displayName,
-        type: "enum",
-        enumValues: prop.enum,
-      });
-      continue;
-    }
-
-    // Determine type (handle type arrays like ["string", "null"] if present)
-    const type = prop.type;
-
-    switch (type) {
-      case "string": {
-        // Check for x-jsonpath metadata
-        const hasJsonPath =
-          (prop as Record<string, unknown>)["x-jsonpath"] === true;
-        if (hasJsonPath) {
-          fields.push({
-            path: `${path}.$`,
-            displayName: `${displayName} (JSONPath)`,
-            type: "jsonpath",
-            sourceField: path,
-          });
-        }
-        fields.push({ path, displayName, type: "string" });
-        break;
-      }
-      case "number":
-      case "integer": {
-        fields.push({ path, displayName, type: "number" });
-        break;
-      }
-      case "boolean": {
-        fields.push({ path, displayName, type: "boolean" });
-        break;
-      }
-      case "array": {
-        // Add array-level assertions
-        fields.push({ path, displayName, type: "array" });
-        // If array has typed items with properties, add item-level fields
-        if (
-          prop.items &&
-          typeof prop.items === "object" &&
-          "properties" in prop.items
-        ) {
-          const itemsWithProps = prop.items as JsonSchemaProperty;
-          if (itemsWithProps.properties) {
-            const itemFields = extractAssertableFields(
-              { properties: itemsWithProps.properties },
-              `${path}[*]`
-            );
-            fields.push(...itemFields);
-          }
-        }
-        break;
-      }
-      case "object": {
-        // Recurse into nested objects
-        if (prop.properties) {
-          const nestedFields = extractAssertableFields(
-            { properties: prop.properties },
-            path
-          );
-          fields.push(...nestedFields);
-        }
-        break;
-      }
-      default: {
-        // Unknown type - treat as string for flexibility
-        if (type) {
-          fields.push({ path, displayName, type: "string" });
-        }
-      }
-    }
-  }
-
-  return fields;
-}
-
-// ============================================================================
-// COMPONENT
-// ============================================================================
-
-/**
- * AssertionBuilder component for creating assertions based on JSON Schema.
- * Automatically derives available fields and operators from the result schema.
+ * Assertion builder: each condition reads as a sentence with inline
+ * controls - `[Response Time ▾] must [be less than ▾] [500] ms`. Field
+ * names, units, and boolean phrasing come from the collector's chart
+ * annotations (`x-chart-label`, `x-chart-unit`, true/false labels), so the
+ * builder speaks the collector's language instead of raw paths. JSONPath
+ * conditions are grouped under "Advanced".
  */
 export const AssertionBuilder: React.FC<AssertionBuilderProps> = ({
   resultSchema,
   assertions,
   onChange,
+  onValidChange,
 }) => {
-  // Extract assertable fields from schema
   const fields = useMemo(
-    () => extractAssertableFields(resultSchema),
-    [resultSchema]
+    () => extractAssertableFields({ schema: resultSchema }),
+    [resultSchema],
+  );
+  const plainFields = fields.filter((f) => !f.advanced);
+  const advancedFields = fields.filter((f) => f.advanced);
+
+  const duplicates = useMemo(
+    () => duplicateAssertionIndexes({ assertions }),
+    [assertions],
   );
 
-  const getFieldByPath = (path: string) => {
-    return fields.find((f) => f.path === path);
+  const allValid = useMemo(
+    () => assertionsAreValid({ assertions, fields }),
+    [assertions, fields],
+  );
+  useEffect(() => {
+    onValidChange?.(allValid);
+  }, [allValid, onValidChange]);
+
+  const handleAdd = () => {
+    const seeded = seedAssertion({ fields });
+    if (!seeded) return;
+    onChange([...assertions, seeded]);
   };
 
-  const handleAddAssertion = () => {
-    if (fields.length === 0) return;
-
-    const firstField = fields[0];
-    const operators = OPERATORS[firstField.type];
-
-    onChange([
-      ...assertions,
-      {
-        field: firstField.path,
-        operator: operators[0].value,
-        value: undefined,
-      },
-    ]);
-  };
-
-  const handleRemoveAssertion = (index: number) => {
+  const handleRemove = (index: number) => {
     const updated = [...assertions];
     updated.splice(index, 1);
     onChange(updated);
   };
 
   const handleFieldChange = (index: number, fieldPath: string) => {
-    const field = getFieldByPath(fieldPath);
+    const field = findFieldByPath({ fields, path: fieldPath });
     if (!field) return;
-
-    const operators = OPERATORS[field.type];
+    const [firstOperator] = operatorOptionsForField({ field });
     const updated = [...assertions];
     updated[index] = {
       field: fieldPath,
-      operator: operators[0].value,
+      operator: firstOperator.value,
       value: undefined,
     };
     onChange(updated);
@@ -288,7 +115,6 @@ export const AssertionBuilder: React.FC<AssertionBuilderProps> = ({
   const handleOperatorChange = (index: number, operator: string) => {
     const updated = [...assertions];
     updated[index] = { ...updated[index], operator };
-    // Clear value if operator doesn't need one
     if (VALUE_LESS_OPERATORS.has(operator)) {
       updated[index].value = undefined;
     }
@@ -310,139 +136,204 @@ export const AssertionBuilder: React.FC<AssertionBuilderProps> = ({
   if (fields.length === 0) {
     return (
       <div className="text-muted-foreground text-sm">
-        No assertable fields available in result schema.
+        This check item does not expose any fields to assert on.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {assertions.map((assertion, index) => {
-        const field = getFieldByPath(assertion.field);
-        // Safely get operators with fallback to empty array
-        const operators = field ? OPERATORS[field.type] ?? [] : [];
-        const needsValue = !VALUE_LESS_OPERATORS.has(assertion.operator);
+    <div className="space-y-3">
+      {assertions.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          This check item passes as long as the probe succeeds. Add conditions
+          to also assert on the result - for example that the status code
+          equals 200 or the response time stays low.
+        </p>
+      ) : (
+        <div className="rounded-md border divide-y">
+          {assertions.map((assertion, index) => {
+            const field = findFieldByPath({ fields, path: assertion.field });
+            const operators = field ? operatorOptionsForField({ field }) : [];
+            const needsValue = !VALUE_LESS_OPERATORS.has(assertion.operator);
+            const issue = validateAssertion({ assertion, fields });
+            const isDuplicate = duplicates.has(index);
 
-        // Check if current values match available options (prevents Radix UI crash)
-        const fieldValueValid = fields.some((f) => f.path === assertion.field);
-        const operatorValueValid = operators.some(
-          (op) => op.value === assertion.operator
-        );
+            // Guard Radix against values that no longer exist as options
+            // (e.g. a field removed from the collector's schema).
+            const fieldValueValid = !!field;
+            const operatorValueValid = operators.some(
+              (op) => op.value === assertion.operator,
+            );
 
-        return (
-          <div key={index} className="flex items-start gap-2 flex-wrap">
-            {/* Field selector */}
-            <div className="flex-1 min-w-[120px]">
-              <Select
-                value={fieldValueValid ? assertion.field : undefined}
-                onValueChange={(v) => handleFieldChange(index, v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select field..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {fields.map((f) => (
-                    <SelectItem key={f.path} value={f.path}>
-                      {f.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* JSONPath input (for jsonpath fields) */}
-            {field?.type === "jsonpath" && (
-              <div className="flex-1 min-w-[120px]">
-                <Input
-                  value={assertion.jsonPath ?? ""}
-                  onChange={(e) => handleJsonPathChange(index, e.target.value)}
-                  placeholder="$.path.to.value"
-                />
-              </div>
-            )}
-
-            {/* Operator selector */}
-            <div className="flex-1 min-w-[100px]">
-              <Select
-                value={operatorValueValid ? assertion.operator : undefined}
-                onValueChange={(v) => handleOperatorChange(index, v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select operator..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {operators.map((op) => (
-                    <SelectItem key={op.value} value={op.value}>
-                      {op.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Value input */}
-            {needsValue && (
-              <div className="flex-1 min-w-[120px]">
-                {field?.type === "enum" && field.enumValues ? (
+            return (
+              <div key={index} className="p-3 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Field */}
                   <Select
-                    value={String(assertion.value ?? "")}
-                    onValueChange={(v) => handleValueChange(index, v)}
+                    value={fieldValueValid ? assertion.field : undefined}
+                    onValueChange={(v) => handleFieldChange(index, v)}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select value..." />
+                    <SelectTrigger
+                      className={inlineTrigger}
+                      aria-label="Field"
+                    >
+                      <SelectValue placeholder="Pick a field…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {field.enumValues.map((v) => (
-                        <SelectItem key={String(v)} value={String(v)}>
-                          {String(v)}
+                      <SelectGroup>{renderFieldOptions(plainFields)}</SelectGroup>
+                      {advancedFields.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel>Advanced</SelectLabel>
+                          {renderFieldOptions(advancedFields)}
+                        </SelectGroup>
+                      )}
+                    </SelectContent>
+                  </Select>
+
+                  {/* JSONPath expression (advanced fields only) */}
+                  {field?.type === "jsonpath" && (
+                    <>
+                      <span className="text-sm text-muted-foreground">at</span>
+                      <Input
+                        value={assertion.jsonPath ?? ""}
+                        onChange={(e) =>
+                          handleJsonPathChange(index, e.target.value)
+                        }
+                        placeholder="$.path.to.value"
+                        aria-label="JSONPath expression"
+                        className={`${inlineInput} w-44 font-mono`}
+                      />
+                    </>
+                  )}
+
+                  <span className="text-sm text-muted-foreground">must</span>
+
+                  {/* Condition */}
+                  <Select
+                    value={
+                      operatorValueValid ? assertion.operator : undefined
+                    }
+                    onValueChange={(v) => handleOperatorChange(index, v)}
+                  >
+                    <SelectTrigger
+                      className={inlineTrigger}
+                      aria-label="Condition"
+                    >
+                      <SelectValue placeholder="Pick a condition…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {operators.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>
+                          {op.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                ) : field?.type === "number" ? (
-                  <Input
-                    type="number"
-                    value={(assertion.value as number) ?? ""}
-                    onChange={(e) =>
-                      handleValueChange(
-                        index,
-                        e.target.value ? Number(e.target.value) : undefined
-                      )
-                    }
-                    placeholder="Value"
-                  />
-                ) : (
-                  <Input
-                    value={String(assertion.value ?? "")}
-                    onChange={(e) => handleValueChange(index, e.target.value)}
-                    placeholder="Value"
-                  />
+
+                  {/* Expected value */}
+                  {needsValue &&
+                    (field?.type === "enum" && field.enumValues ? (
+                      <Select
+                        value={String(assertion.value ?? "")}
+                        onValueChange={(v) => handleValueChange(index, v)}
+                      >
+                        <SelectTrigger
+                          className={inlineTrigger}
+                          aria-label="Expected value"
+                        >
+                          <SelectValue placeholder="Pick a value…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {field.enumValues.map((v) => (
+                            <SelectItem key={String(v)} value={String(v)}>
+                              {String(v)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : field?.type === "number" ? (
+                      <>
+                        <Input
+                          type="number"
+                          value={(assertion.value as number) ?? ""}
+                          onChange={(e) =>
+                            handleValueChange(
+                              index,
+                              e.target.value
+                                ? Number(e.target.value)
+                                : undefined,
+                            )
+                          }
+                          placeholder="0"
+                          aria-label="Expected value"
+                          className={`${inlineInput} w-24`}
+                        />
+                        {field.unit && (
+                          <span className="text-sm text-muted-foreground">
+                            {field.unit}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <Input
+                        value={String(assertion.value ?? "")}
+                        onChange={(e) =>
+                          handleValueChange(index, e.target.value)
+                        }
+                        placeholder={
+                          assertion.operator === "matches"
+                            ? "regex pattern"
+                            : "value"
+                        }
+                        aria-label="Expected value"
+                        className={`${inlineInput} w-36 ${
+                          assertion.operator === "matches" ? "font-mono" : ""
+                        }`}
+                      />
+                    ))}
+
+                  {/* Remove */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleRemove(index)}
+                    aria-label="Remove condition"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {/* Row hints */}
+                {issue && <p className="text-xs text-destructive">{issue}</p>}
+                {!issue && isDuplicate && (
+                  <p className="text-xs text-muted-foreground">
+                    Duplicate of an earlier condition - it has no extra effect.
+                  </p>
+                )}
+                {!issue && field?.type === "jsonpath" && (
+                  <p className="text-xs text-muted-foreground">
+                    Reads a value out of {field.label} as JSON, e.g.{" "}
+                    <code className="rounded bg-muted px-1">
+                      $.data.items[0].status
+                    </code>
+                  </p>
+                )}
+                {!issue && assertion.operator === "matches" && (
+                  <p className="text-xs text-muted-foreground">
+                    Regular expression, e.g.{" "}
+                    <code className="rounded bg-muted px-1">^2\d\d$</code>
+                  </p>
                 )}
               </div>
-            )}
+            );
+          })}
+        </div>
+      )}
 
-            {/* Remove button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-destructive hover:text-destructive"
-              onClick={() => handleRemoveAssertion(index)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        );
-      })}
-
-      {/* Add assertion button */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={handleAddAssertion}
-      >
+      <Button type="button" variant="ghost" size="sm" onClick={handleAdd}>
         <Plus className="h-4 w-4 mr-2" />
-        Add Assertion
+        Add condition
       </Button>
     </div>
   );

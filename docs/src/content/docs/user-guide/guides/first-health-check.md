@@ -79,7 +79,7 @@ The HTTP strategy ships with a built-in **Request collector**. Add it from the *
 
 ## 6. Attach the check to your system
 
-Below the configuration tree, the editor shows an **Assignments** section listing the systems this check applies to.
+The editor tree shows an **Assignment** section with a **Systems** node listing the systems this check will apply to.
 
 > [!NOTE]
 > **What is an assignment, and why does a check need one?**
@@ -102,13 +102,14 @@ flowchart LR
     S --> R3["Run · no environment"]
 ```
 
-1. Click **Add assignment**.
-2. Select the `Payments API` system you created in step 2.
-3. Optional: override the default state thresholds if this system needs a faster or slower failover. Defaults are 1 failure to mark degraded, 3 failures to mark unhealthy.
+1. Select the **Systems** node in the tree.
+2. Tick the `Payments API` system you created in step 2.
+
+Per-system settings (state thresholds, environment fan-out, notifications, retention) are tuned after saving, in the saved check's **Assignment** section. The threshold defaults are 1 failure to mark degraded, 3 failures to mark unhealthy.
 
 ## 7. Save
 
-Click **Save** in the top-right corner. The editor validates the config, persists it, and schedules the first run. You return to the Health Checks list with a toast confirming success.
+Click **Save** in the top-right corner. The editor validates the config, persists it, creates the assignment, and schedules the first run. You land in the saved check's editor, where the **Assignment** section now lists `Payments API` with its per-system panels.
 
 ## 8. Watch the first result
 

@@ -148,10 +148,10 @@ Managers see a **Manage catalog** link in the header that jumps to the managemen
 | Where to go | What you do there |
 |-------------|-------------------|
 | **Catalog** (home) | Browse, search, and filter every system, grouped by team or domain. Read-only. |
-| **Catalog -> Systems** | Create, edit, and delete systems. Set contacts and hotlinks. |
+| **Catalog -> Systems** | Create, edit, and delete systems. The **Edit** dialog carries a system's name, description, and custom fields; attach environments from the row's environment chips. |
 | **Catalog -> Groups** | Create groups, drag systems in and out. |
 | **Catalog -> Dependencies** | Visual graph editor. Click a system to connect it to another. |
-| **System detail page** | See attached health checks, recent runs, contacts, links, and the systems that depend on it. |
+| **System detail page** | See attached health checks and recent runs, and - if you can manage the system - set its contacts, hotlinks, dependencies, and team access, plus see the systems that depend on it. |
 
 ## Where this maps in the data model
 

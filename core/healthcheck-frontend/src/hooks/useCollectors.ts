@@ -16,8 +16,15 @@ interface UseCollectorsResult {
 /**
  * Hook to fetch collectors for a given strategy.
  * @param strategyId - The strategy ID to fetch collectors for
+ * @param options.enabled - Extra fetch gate ANDed with the strategy-id guard.
+ *   `getCollectors` is typeScoped on the healthcheck type, so callers gate it
+ *   off for users without config-plane capability (e.g. a pure system
+ *   manager in the editor) instead of surfacing a guaranteed 403.
  */
-export function useCollectors(strategyId: string): UseCollectorsResult {
+export function useCollectors(
+  strategyId: string,
+  options?: { enabled?: boolean },
+): UseCollectorsResult {
   const healthCheckClient = usePluginClient(HealthCheckApi);
 
   const {
@@ -28,7 +35,7 @@ export function useCollectors(strategyId: string): UseCollectorsResult {
     refetch,
   } = healthCheckClient.getCollectors.useQuery(
     { strategyId },
-    { enabled: !!strategyId }
+    { enabled: !!strategyId && (options?.enabled ?? true) }
   );
 
   const collectors = data ?? [];
