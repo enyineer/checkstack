@@ -1,18 +1,26 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   usePluginClient,
   wrapInSuspense,
   ExtensionSlot,
+  useApi,
+  accessApiRef,
 } from "@checkstack/frontend-api";
 import { HealthCheckApi } from "../api";
 import { HealthCheckConfigIDEPanelSlot } from "../slots";
 import {
   healthcheckRoutes,
+  healthCheckAccess,
+  healthCheckResourceTypes,
   type CollectorConfigEntry,
   DEFAULT_STATE_THRESHOLDS,
 } from "@checkstack/healthcheck-common";
-import { CatalogApi } from "@checkstack/catalog-common";
+import {
+  CatalogApi,
+  catalogAccess,
+  catalogResourceTypes,
+} from "@checkstack/catalog-common";
 import {
   PageLayout,
   Button,
@@ -24,9 +32,14 @@ import {
   useUnsavedChanges,
   ConfirmationModal,
   createReferenceCompletionProvider,
+  Alert,
+  AlertIcon,
+  AlertContent,
+  AlertTitle,
+  AlertDescription,
   type ValidationIssue,
 } from "@checkstack/ui";
-import { Save, Settings } from "lucide-react";
+import { Save, Settings, ShieldAlert, Unplug } from "lucide-react";
 import { resolveRoute } from "@checkstack/common";
 import { useCollectors } from "../hooks/useCollectors";
 import { EditorTree, type TreeNodeId } from "../components/editor/EditorTree";
@@ -43,6 +56,14 @@ import {
 import { SaveBlockersSummary } from "../components/editor/SaveBlockersSummary";
 import { teamCreateErrorMessage } from "@checkstack/auth-frontend";
 import { resolvePersistedConfigId } from "./configEditing.logic";
+import { useAssignmentEditor } from "../hooks/useAssignmentEditor";
+import { AssignmentTreeSection } from "../components/assignments/AssignmentTreeSection";
+import { AssignmentPanels } from "../components/assignments/AssignmentPanels";
+import {
+  ASSIGNMENT_PICKER_NODE,
+  buildAssignmentNodeId,
+  parseAssignmentNodeId,
+} from "../components/assignments/assignment-node.logic";
 
 
 // =============================================================================
@@ -83,11 +104,46 @@ const HealthCheckIDEPageContent = () => {
     entityId: isEditMode ? configId : undefined,
   });
 
+  // --- Access (the editor hosts TWO authorization planes) ---
+  //
+  // CONFIG plane (`healthcheck.healthcheck` grants / global configuration
+  // rule): the check's definition, the strategy/collector catalogs,
+  // retention, and Access Control. SYSTEM plane (`catalog.system` manage):
+  // everything in the Assignment section - the backend authorizes assignment
+  // writes via a `catalog.system` parent gate, per system. A pure system
+  // manager reaches this page (route manageCapability declares
+  // `parentType: system`) and gets a read-only config side plus writable
+  // assignment panels for THEIR systems.
+  const accessApi = useApi(accessApiRef);
+  const { allowed: canReadGlobal, loading: readGlobalLoading } =
+    accessApi.useAccess(healthCheckAccess.configuration.read);
+  const { allowed: hasConfigCapability, loading: configCapabilityLoading } =
+    accessApi.useCanAccessType({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+    });
+  const configAccessLoading = readGlobalLoading || configCapabilityLoading;
+  /** Any config-plane capability: global read, or a team grant/creator on the type. */
+  const configPlaneReader = canReadGlobal || hasConfigCapability;
+  /** May the caller WRITE this configuration? (Save gate, edit mode only.) */
+  const { canAccess: canAccessConfig } = accessApi.useResourceAccess({
+    accessRule: healthCheckAccess.configuration.manage,
+    objectType: healthCheckResourceTypes.configuration,
+    resourceIds: persistedConfigId ? [persistedConfigId] : [],
+  });
+  const canManageConfigInstance =
+    !isEditMode || (!!persistedConfigId && canAccessConfig(persistedConfigId));
+
   // --- Data Fetching ---
 
-  // Fetch all strategies (needed for both modes)
+  // Fetch all strategies (needed for both modes). typeScoped on the
+  // healthcheck type, so gated off for callers without config-plane
+  // capability (a pure system manager) instead of a guaranteed 403.
   const { data: strategies = [], isSuccess: strategiesLoaded } =
-    healthCheckClient.getStrategies.useQuery({});
+    healthCheckClient.getStrategies.useQuery(
+      {},
+      { enabled: configPlaneReader },
+    );
 
   // Fetch single configuration for edit mode.
   //
@@ -114,12 +170,13 @@ const HealthCheckIDEPageContent = () => {
     [strategies, activeStrategyId],
   );
 
-  // Fetch collectors for the active strategy
+  // Fetch collectors for the active strategy (same typeScoped gate as
+  // getStrategies above).
   const {
     collectors: availableCollectors,
     loading: collectorsLoading,
     loaded: collectorsLoaded,
-  } = useCollectors(activeStrategyId ?? "");
+  } = useCollectors(activeStrategyId ?? "", { enabled: configPlaneReader });
 
   // Fetch systems for assignment (only in create mode)
   const { data: systemsData, isLoading: systemsLoading } =
@@ -179,6 +236,55 @@ const HealthCheckIDEPageContent = () => {
   // Owning-team selection for create mode only. null = global (no team).
   const [ownerTeamId, setOwnerTeamId] = useState<string | null>(null);
   const [ownerTeamError, setOwnerTeamError] = useState<string | null>(null);
+
+  // --- Assignment section (edit mode) ---
+
+  const parsedAssignmentNode = useMemo(
+    () => parseAssignmentNodeId(selectedNode),
+    [selectedNode],
+  );
+  const assignmentEditor = useAssignmentEditor({
+    // Empty in create mode - every query inside is gated on a non-empty id.
+    configId: persistedConfigId ?? "",
+    activeSystemId:
+      parsedAssignmentNode && parsedAssignmentNode.kind !== "picker"
+        ? parsedAssignmentNode.systemId
+        : undefined,
+    activePanel:
+      parsedAssignmentNode?.kind === "panel"
+        ? parsedAssignmentNode.panel
+        : undefined,
+  });
+  // Assignment writes are system-plane: ONE batched verdict over every
+  // assigned system, consumed per-node by the tree and panels.
+  const { canAccess: canManageSystem } = accessApi.useResourceAccess({
+    accessRule: catalogAccess.system.manage,
+    objectType: catalogResourceTypes.system,
+    resourceIds: assignmentEditor.assignments.map((a) => a.systemId),
+  });
+
+  // A caller WITHOUT config-plane capability (a pure system manager) came
+  // for the Assignment section - land them there instead of on a read-only
+  // General panel. One-shot so their own navigation is never overridden.
+  const autoSelectedAssignmentRef = useRef(false);
+  useEffect(() => {
+    if (autoSelectedAssignmentRef.current) return;
+    if (!isEditMode || configAccessLoading || configPlaneReader) return;
+    if (!assignmentEditor.assignmentsSettled) return;
+    autoSelectedAssignmentRef.current = true;
+    const first = assignmentEditor.assignments[0];
+    setSelectedNode(
+      first
+        ? buildAssignmentNodeId({ systemId: first.systemId, panel: "general" })
+        : ASSIGNMENT_PICKER_NODE,
+    );
+  }, [
+    isEditMode,
+    configAccessLoading,
+    configPlaneReader,
+    assignmentEditor.assignmentsSettled,
+    assignmentEditor.assignments,
+  ]);
 
   // Initialize form from existing configuration (edit mode).
   //
@@ -283,7 +389,13 @@ const HealthCheckIDEPageContent = () => {
 
   const handleCollectorValidChange = useCallback(
     (collectorEntryId: string, isValid: boolean) => {
-      setCollectorsValidity((prev) => ({ ...prev, [collectorEntryId]: isValid }));
+      // Bail on no-op reports (same value) so a child effect re-firing with
+      // an unchanged verdict can never feed a render loop.
+      setCollectorsValidity((prev) =>
+        prev[collectorEntryId] === isValid
+          ? prev
+          : { ...prev, [collectorEntryId]: isValid },
+      );
     },
     [],
   );
@@ -491,14 +603,15 @@ const HealthCheckIDEPageContent = () => {
         toastSuccess(toast, "Health check created");
       }
 
-      // Where to land: prefer back to the originating system's assignment IDE
-      // when the user came from there, otherwise the config list. Defer to the
-      // next tick so the cleared dirty flag has committed and the
-      // unsaved-changes guard doesn't block the post-save navigation.
+      // Where to land: when systems were assigned, open the new check's
+      // editor - its Assignment section now shows (and manages) the result.
+      // Otherwise back to the config list. Defer to the next tick so the
+      // cleared dirty flag has committed and the unsaved-changes guard
+      // doesn't block the post-save navigation.
       const destination =
-        systemIdFromUrl && selectedSystemIds.includes(systemIdFromUrl)
-          ? resolveRoute(healthcheckRoutes.routes.assignments, {
-              systemId: systemIdFromUrl,
+        selectedSystemIds.length > 0 && created?.id
+          ? resolveRoute(healthcheckRoutes.routes.edit, {
+              configId: created.id,
             })
           : resolveRoute(healthcheckRoutes.routes.config);
       setTimeout(() => navigate(destination), 0);
@@ -592,7 +705,14 @@ const HealthCheckIDEPageContent = () => {
           />
           <Button
             onClick={handleSave}
-            disabled={!isValid || isSaving || isLocked}
+            disabled={
+              !isValid || isSaving || isLocked || !canManageConfigInstance
+            }
+            title={
+              canManageConfigInstance
+                ? undefined
+                : "The check's configuration is managed by its owning team"
+            }
           >
             <Save className="mr-2 h-4 w-4" />
             {isSaving ? "Saving..." : "Save"}
@@ -605,6 +725,53 @@ const HealthCheckIDEPageContent = () => {
           <GitOpsLockBanner provenance={provenance} />
         </div>
       )}
+      {/* Persona banner: a system manager without any config-plane capability
+          manages assignments here but not the check itself. */}
+      {isEditMode && !configAccessLoading && !configPlaneReader && (
+        <div className="mb-4">
+          <Alert variant="info">
+            <AlertIcon>
+              <ShieldAlert className="h-4 w-4" />
+            </AlertIcon>
+            <AlertContent>
+              <AlertTitle>
+                You manage this check&apos;s system assignments
+              </AlertTitle>
+              <AlertDescription>
+                The check&apos;s configuration (probe, check items, interval)
+                is managed by its owning team - it reads as-is here. The
+                Assignment section is fully editable for systems you manage.
+              </AlertDescription>
+            </AlertContent>
+          </Alert>
+        </div>
+      )}
+      {/* Dormant-check banner: a check does not run until it is assigned. */}
+      {isEditMode &&
+        assignmentEditor.assignmentsSettled &&
+        assignmentEditor.assignments.length === 0 && (
+          <div className="mb-4">
+            <Alert variant="warning">
+              <AlertIcon>
+                <Unplug className="h-4 w-4" />
+              </AlertIcon>
+              <AlertContent>
+                <AlertTitle>This check is not running</AlertTitle>
+                <AlertDescription>
+                  A health check only runs once it is assigned to a system.{" "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:no-underline"
+                    onClick={() => setSelectedNode(ASSIGNMENT_PICKER_NODE)}
+                  >
+                    Assign it to a system
+                  </button>{" "}
+                  to start it.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+          </div>
+        )}
       <IDELayout
         tree={
           <EditorTree
@@ -618,9 +785,36 @@ const HealthCheckIDEPageContent = () => {
             configId={persistedConfigId}
             showSystemsNode={!isEditMode}
             selectedSystemCount={selectedSystemIds.length}
+            showAccessNode={!isEditMode || configPlaneReader}
+            assignmentSection={
+              isEditMode && persistedConfigId ? (
+                <AssignmentTreeSection
+                  configId={persistedConfigId}
+                  assignments={assignmentEditor.assignments.map((a) => ({
+                    systemId: a.systemId,
+                    systemName: a.systemName,
+                    enabled: a.enabled,
+                    satelliteCount: a.satelliteIds?.length ?? 0,
+                  }))}
+                  selectedNode={selectedNode}
+                  onSelectNode={setSelectedNode}
+                  canManageSystem={canManageSystem}
+                  showRetention={canManageConfigInstance}
+                />
+              ) : undefined
+            }
           />
         }
         panel={
+          parsedAssignmentNode && persistedConfigId ? (
+            <AssignmentPanels
+              configId={persistedConfigId}
+              parsedNode={parsedAssignmentNode}
+              editor={assignmentEditor}
+              onSelectNode={setSelectedNode}
+              canManageSystem={canManageSystem}
+            />
+          ) : (
           <>
             <EditorPanel
               selectedNode={selectedNode}
@@ -678,6 +872,7 @@ const HealthCheckIDEPageContent = () => {
               />
             )}
           </>
+          )
         }
         issues={validationIssues}
         onIssueClick={(nodeId) => setSelectedNode(nodeId as TreeNodeId)}

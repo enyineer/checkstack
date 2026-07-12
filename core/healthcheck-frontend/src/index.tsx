@@ -52,8 +52,15 @@ export default createFrontendPlugin({
       title: "Health Checks",
       accessRule: healthCheckAccess.configuration.manage,
       // Team-scoped: creating/managing a health check via a team unlocks the
-      // management route even without the global manage rule.
-      manageCapability: { objectType: healthCheckResourceTypes.configuration },
+      // management route even without the global manage rule. `parentType`
+      // additionally admits SYSTEM managers: the catalog's per-system
+      // "Manage health checks" link lands here (filtered to their system),
+      // and the filtered view loads via the system-read-gated
+      // `getSystemConfigurations`.
+      manageCapability: {
+        objectType: healthCheckResourceTypes.configuration,
+        parentType: catalogResourceTypes.system,
+      },
       nav: {
         group: "Reliability",
         icon: Activity,
@@ -86,20 +93,11 @@ export default createFrontendPlugin({
       title: "Edit Health Check",
       accessRule: healthCheckAccess.configuration.manage,
       // Team-scoped: managing an existing health check via a team grant unlocks
-      // its edit route without the global manage rule.
-      manageCapability: { objectType: healthCheckResourceTypes.configuration },
-    },
-    {
-      route: healthcheckRoutes.routes.assignments,
-      load: () =>
-        import("./pages/AssignmentIDEPage").then((m) => ({
-          default: m.AssignmentIDEPage,
-        })),
-      title: "Health Check Assignments",
-      accessRule: healthCheckAccess.configuration.manage,
-      // Team-scoped: assignment is reached per-system and the backend authorizes
-      // it via a `catalog.system` parent gate, so a system manager (or a
-      // health-check manager) can reach it without the global manage rule.
+      // its edit route without the global manage rule. `parentType`
+      // additionally admits SYSTEM managers: the editor hosts the per-system
+      // Assignment section, and the backend authorizes those writes via a
+      // `catalog.system` parent gate - a system manager must reach it. The
+      // config side renders read-only for them (per-node gating inside).
       manageCapability: {
         objectType: healthCheckResourceTypes.configuration,
         parentType: catalogResourceTypes.system,

@@ -990,6 +990,63 @@ export class HealthCheckService {
   }
 
   /**
+   * Configuration-centric inverse of {@link getSystemAssociations}: the
+   * per-system assignment rows of ONE configuration. System NAMES are
+   * resolved by the router via the catalog S2S client (they live in the
+   * catalog plugin's storage); rows here carry ids only.
+   */
+  async getConfigurationAssignments(configurationId: string) {
+    const rows = await this.db
+      .select({
+        systemId: systemHealthChecks.systemId,
+        enabled: systemHealthChecks.enabled,
+        stateThresholds: systemHealthChecks.stateThresholds,
+        satelliteIds: systemHealthChecks.satelliteIds,
+        environmentIds: systemHealthChecks.environmentIds,
+        includeLocal: systemHealthChecks.includeLocal,
+        notificationPolicy: systemHealthChecks.notificationPolicy,
+      })
+      .from(systemHealthChecks)
+      .where(eq(systemHealthChecks.configurationId, configurationId));
+
+    // Migrate and extract thresholds for each assignment (same treatment as
+    // getSystemAssociations).
+    const results = [];
+    for (const row of rows) {
+      let thresholds: StateThresholds | undefined;
+      if (row.stateThresholds) {
+        thresholds = await stateThresholds.parse(row.stateThresholds);
+      }
+      results.push({
+        systemId: row.systemId,
+        enabled: row.enabled,
+        stateThresholds: thresholds,
+        satelliteIds: row.satelliteIds ?? undefined,
+        // Preserve the null/[]/list distinction (null = all envs, [] = opt
+        // out). Do NOT collapse null to undefined via `??`.
+        environmentIds: row.environmentIds,
+        includeLocal: row.includeLocal,
+        notificationPolicy: row.notificationPolicy ?? undefined,
+      });
+    }
+    return results;
+  }
+
+  /**
+   * The system ids a configuration is assigned to. Authorization helper for
+   * the relaxed `getConfiguration` read (see assignment-access.ts) - kept as
+   * a bare id select so the auth path never pays for the full assignment
+   * rows.
+   */
+  async getAssignedSystemIds(configurationId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ systemId: systemHealthChecks.systemId })
+      .from(systemHealthChecks)
+      .where(eq(systemHealthChecks.configurationId, configurationId));
+    return rows.map((row) => row.systemId);
+  }
+
+  /**
    * Count of health-check assignments for each of `systemIds`, keyed by
    * systemId. ONE grouped query (no per-system fan-out) so the catalog manager
    * can badge the whole visible list without an N+1 of {@link

@@ -41,9 +41,13 @@ carries:
 > and a single assignment fans out into one run per environment. See
 > [Per-environment fan-out](/checkstack/user-guide/concepts/environments/#per-environment-fan-out).
 
-You manage assignments from the **System detail page** (attach a check to this
-system) or from a check's editor (the **Assignments** section lists every
-system it runs against). The hands-on
+You manage assignments in the **check editor's Assignment section**: open a
+check from the Health Checks list and the section lists every system it runs
+against, each with its own General / Thresholds / Execution / Notifications
+panels, plus an **Assign to system...** picker. From the catalog side, each
+system row offers a **Manage health checks** shortcut that opens the Health
+Checks list pre-filtered to that system - it is a wayfinding link, not a
+separate management surface. The hands-on
 [Set up your first health check](/checkstack/user-guide/guides/first-health-check/)
 walks through creating one.
 
@@ -207,9 +211,10 @@ run time; runs fail clearly when the referenced secret is missing.
 ## Asserting on JSON response bodies
 
 Collectors that return a raw body (for example the HTTP strategy's Request
-collector) expose a **Body (JSONPath)** assertion field. Enter a JSONPath
-expression (like `$.status` or `$.data[0].id`), pick an operator, and the run
-parses the body as JSON, extracts the value at that path, and grades it.
+collector) expose a JSONPath assertion field, listed under the **Advanced**
+group of the condition field picker. Enter a JSONPath expression (like
+`$.status` or `$.data[0].id`), pick an operator, and the run parses the body
+as JSON, extracts the value at that path, and grades it.
 
 Useful patterns:
 

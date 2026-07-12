@@ -28,6 +28,13 @@ import {
   listTeamManageableConfigurationIds,
   resolveHistoryScope,
 } from "./history-access";
+import {
+  canReadConfigurationScope,
+  hasConfigurationReadGrant,
+  hasGlobalConfigurationRead,
+  listReadableSystemIds,
+  resolveAssignmentRowScope,
+} from "./assignment-access";
 import { collectConfigurationIssues } from "./validate-configuration";
 import { runCollectorScriptTest } from "./collector-script-test";
 import { healthCheckHooks } from "./hooks";
@@ -340,9 +347,26 @@ export const createHealthCheckRouter = (opts: {
       return { configurations: await service.getConfigurationsRedacted() };
     }),
 
-    getConfiguration: os.getConfiguration.handler(async ({ input }) => {
-      return service.getConfigurationRedacted(input.id);
-    }),
+    getConfiguration: os.getConfiguration.handler(
+      async ({ input, context }) => {
+        // Handler-side authorization (the contract's `access` is deliberately
+        // empty - see the contract doc): global configuration read, a team
+        // grant on the configuration, or read access to an ASSIGNED system.
+        // An unauthorized caller gets the same `undefined` as a missing id,
+        // so configuration ids don't leak existence. Fail-closed via
+        // assignment-access.ts.
+        const configuration = await service.getConfigurationRedacted(input.id);
+        if (!configuration) return;
+        const allowed = await canReadConfigurationScope({
+          auth: context.auth,
+          user: context.user,
+          configurationId: input.id,
+          getAssignedSystemIds: () => service.getAssignedSystemIds(input.id),
+        });
+        if (!allowed) return;
+        return configuration;
+      },
+    ),
 
     createConfiguration: os.createConfiguration.handler(async ({ input }) => {
       const created = await service.createConfiguration(input);
@@ -491,6 +515,66 @@ export const createHealthCheckRouter = (opts: {
     getSystemAssociations: os.getSystemAssociations.handler(
       async ({ input }) => {
         return service.getSystemAssociations(input.systemId);
+      },
+    ),
+
+    getConfigurationAssignments: os.getConfigurationAssignments.handler(
+      async ({ input, context }) => {
+        // Handler-side authorization (the contract's `access` is deliberately
+        // empty - see the contract doc): global configuration read or a team
+        // grant on the CONFIGURATION sees every row; otherwise rows are
+        // filtered to the systems the caller may read; neither is forbidden.
+        // Fail-closed via assignment-access.ts.
+        const user = context.user;
+        const rows = await service.getConfigurationAssignments(input.configId);
+
+        let visibleRows = rows;
+        if (!hasGlobalConfigurationRead(user)) {
+          if (!user || (user.type !== "user" && user.type !== "application")) {
+            throw new ORPCError("FORBIDDEN", {
+              message:
+                "Assignment details require health check read access (globally, or via a team grant on the configuration or an assigned system)",
+            });
+          }
+          const hasConfigGrant = await hasConfigurationReadGrant({
+            auth: context.auth,
+            user,
+            configurationId: input.configId,
+          });
+          const readableSystemIds = hasConfigGrant
+            ? []
+            : await listReadableSystemIds({
+                auth: context.auth,
+                user,
+                allSystemIds: rows.map((row) => row.systemId),
+              });
+          const scope = resolveAssignmentRowScope({
+            user,
+            hasConfigurationGrant: hasConfigGrant,
+            readableSystemIds,
+          });
+          if (scope.kind === "forbidden") {
+            throw new ORPCError("FORBIDDEN", {
+              message:
+                "Assignment details require health check read access (globally, or via a team grant on the configuration or an assigned system)",
+            });
+          }
+          if (scope.kind === "scoped") {
+            const readable = new Set(scope.systemIds);
+            visibleRows = rows.filter((row) => readable.has(row.systemId));
+          }
+        }
+
+        if (visibleRows.length === 0) return [];
+
+        // Resolve system display names in ONE trusted S2S call (names live in
+        // the catalog plugin); fall back to the id if a system vanished.
+        const { systems } = await catalogClient.getSystems();
+        const nameById = new Map(systems.map((s) => [s.id, s.name]));
+        return visibleRows.map((row) => ({
+          ...row,
+          systemName: nameById.get(row.systemId) ?? row.systemId,
+        }));
       },
     ),
 

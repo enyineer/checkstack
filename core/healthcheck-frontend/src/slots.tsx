@@ -53,12 +53,22 @@ export interface AssignmentIDEContext {
 }
 
 /**
- * Extension slot for adding items to the Assignment IDE tree
+ * Extension slot for adding per-assignment items to the check editor's
+ * Assignment section (one slot mount per assigned system). The context keeps
+ * the historic `(systemId, configurationId)` pair; `selectedNode` /
+ * `onSelectNode` are ADAPTED per system - an extension sees its own node ids
+ * unchanged (e.g. `anomaly:<configId>`), while the editor namespaces them by
+ * system so identical extension ids under different systems don't collide.
+ * See `components/assignments/assignment-node.logic.ts`.
  */
 export const AssignmentIDENodeSlot = createSlot<AssignmentIDEContext>(
   "healthcheck.assignment.ide.node"
 );
 
+/**
+ * Panel counterpart of {@link AssignmentIDENodeSlot}: rendered when a
+ * per-system extension node is selected, with the same adapted context.
+ */
 export const AssignmentIDEPanelSlot = createSlot<AssignmentIDEContext>(
   "healthcheck.assignment.ide.panel"
 );

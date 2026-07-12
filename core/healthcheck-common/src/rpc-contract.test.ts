@@ -120,10 +120,27 @@ describe("healthcheck configuration-scoped procs carry the right instanceAccess"
     });
   });
 
-  test("getConfiguration keys the per-config read on its `id` input field", () => {
-    expect(metaFor("getConfiguration").instanceAccess).toEqual({
-      idParam: "id",
-    });
+  test("getConfiguration is handler-authorized (empty access, no declarative scoping)", () => {
+    // Deliberately NOT `idParam: "id"`: the read is authorized in the router
+    // via `assignment-access.ts` (global read, a team grant on the config, OR
+    // read access to an ASSIGNED system) - an OR over a parent relation the
+    // declarative modes cannot express. An empty `access` with no
+    // instanceAccess means the middleware enforces nothing, so this pin
+    // exists to catch both regressions: "tidying" the proc back to idParam
+    // (which locks pure system managers out of the editor) and adding a rule
+    // without keeping the handler-side authorization.
+    expect(metaFor("getConfiguration").access).toEqual([]);
+    expect(metaFor("getConfiguration").instanceAccess).toBeUndefined();
+  });
+
+  test("getConfigurationAssignments is handler-authorized (empty access, no declarative scoping)", () => {
+    // Same reasoning as getConfiguration: rows are keyed by systemId while
+    // the grant anchors on the configuration, so the router filters rows via
+    // `assignment-access.ts` (fail-closed) instead of a declarative mode.
+    expect(metaFor("getConfigurationAssignments").access).toEqual([]);
+    expect(
+      metaFor("getConfigurationAssignments").instanceAccess,
+    ).toBeUndefined();
   });
 
   test("updateConfiguration keys the per-config check on its `id` input field", () => {

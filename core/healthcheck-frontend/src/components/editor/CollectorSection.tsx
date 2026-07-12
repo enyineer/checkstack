@@ -21,7 +21,7 @@ import {
   EnvironmentPreviewPicker,
   type Environment,
 } from "@checkstack/catalog-frontend";
-import { AssertionBuilder, type Assertion } from "../AssertionBuilder";
+import { AssertionBuilder } from "../AssertionBuilder";
 import { createCollectorScriptTestRenderer } from "./CollectorScriptTestRenderer";
 import { schemaHasTemplatableFields } from "./collector-preview-context.logic";
 
@@ -88,6 +88,20 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
     () => createCollectorScriptTestRenderer(entry.config),
     [entry.config],
   );
+  // The section's validity is the AND of the config form and the assertion
+  // rows - an incomplete assertion blocks Save exactly like an invalid
+  // config field. Held locally so either source can change independently.
+  const [configValid, setConfigValid] = React.useState(true);
+  const [assertionsValid, setAssertionsValid] = React.useState(true);
+  const sectionValid = configValid && assertionsValid;
+  // Report through a ref'd callback: the parent recreates `onValidChange`
+  // every render, and depending on it directly would re-fire (and loop via
+  // the parent's setState) even when validity did not change.
+  const onValidChangeRef = React.useRef(onValidChange);
+  onValidChangeRef.current = onValidChange;
+  React.useEffect(() => {
+    onValidChangeRef.current(sectionValid);
+  }, [sectionValid]);
   // Lazy ATA: collector scripts get package IntelliSense (incl. `@types/*`)
   // on demand for whatever npm packages they import. `importablePackages`
   // drives import-specifier name completion before any module is registered.
@@ -153,7 +167,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 schema={collectorDef.configSchema}
                 value={entry.config}
                 onChange={onConfigChange}
-                onValidChange={onValidChange}
+                onValidChange={setConfigValid}
                 templatePreviewContext={templatePreviewContext}
                 {...ctx}
                 // After `ctx`: the fixed `environment.*/check.*/system.*`
@@ -186,19 +200,14 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
           <div>
             <Label className="text-sm font-semibold">Assertions</Label>
             <p className="text-xs text-muted-foreground">
-              Define conditions that must be met for this check to pass.
+              All conditions must pass for this check item to be healthy.
             </p>
           </div>
           <AssertionBuilder
             resultSchema={collectorDef.resultSchema}
-            assertions={
-              (entry.assertions as unknown as Assertion[]) ?? []
-            }
-            onChange={(assertions) =>
-              onAssertionsChange(
-                assertions as unknown as CollectorConfigEntry["assertions"],
-              )
-            }
+            assertions={entry.assertions ?? []}
+            onChange={onAssertionsChange}
+            onValidChange={setAssertionsValid}
           />
         </div>
       )}

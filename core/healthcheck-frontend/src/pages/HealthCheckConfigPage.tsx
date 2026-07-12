@@ -15,7 +15,7 @@ import {
   healthCheckResourceTypes,
   pluginMetadata as healthcheckPluginMetadata,
 } from "@checkstack/healthcheck-common";
-import { CatalogApi } from "@checkstack/catalog-common";
+import { CatalogApi, catalogResourceTypes } from "@checkstack/catalog-common";
 import { Tip, TipBanner } from "@checkstack/tips-frontend";
 import {
   HealthCheckList,
@@ -95,13 +95,28 @@ const HealthCheckConfigPageContent = () => {
   // user (a create-capability grant, or a per-config team grant) has no GLOBAL
   // read rule, so gating the page on `canRead` alone showed them "Access Denied"
   // even though the route let them in. `useCanAccessType` resolves the same
-  // capability the route uses, so the page and the route agree.
+  // capability the route uses, so the page and the route agree. `parentType`
+  // additionally admits SYSTEM managers (the catalog's "Manage health checks"
+  // link lands here with a ?system= filter).
   const { allowed: canManageSurface, loading: surfaceLoading } =
     accessApi.useCanAccessType({
       accessRule: healthCheckAccess.configuration.manage,
       objectType: healthCheckResourceTypes.configuration,
+      parentType: catalogResourceTypes.system,
     });
-  const accessLoading = readLoading || surfaceLoading;
+  // Config-PLANE capability (no parentType): may the caller read/list
+  // configurations at all? `getConfigurations` is listKey-gated on healthcheck
+  // grants - for a PURE system manager it is a guaranteed 403, so the list
+  // query below only runs for config-plane callers and the system-filtered
+  // view renders from `getSystemConfigurations` (system-read gated) instead.
+  const { allowed: hasConfigCapability, loading: configCapabilityLoading } =
+    accessApi.useCanAccessType({
+      accessRule: healthCheckAccess.configuration.manage,
+      objectType: healthCheckResourceTypes.configuration,
+    });
+  const configPlaneReader = canRead || hasConfigCapability;
+  const accessLoading =
+    readLoading || surfaceLoading || configCapabilityLoading;
   const { allowed: canManage } = accessApi.useProcedureAccess(
     HealthCheckApi.contract.createConfiguration,
   );
@@ -124,16 +139,25 @@ const HealthCheckConfigPageContent = () => {
     [],
   );
 
-  // Fetch configurations with useQuery
-  const configurationsQuery = healthCheckClient.getConfigurations.useQuery({});
+  // Fetch configurations with useQuery. Gated on config-plane capability:
+  // for a pure system manager the listKey-filtered proc is a guaranteed 403
+  // (they hold no healthcheck grants), and their view is the system-filtered
+  // one below anyway.
+  const configurationsQuery = healthCheckClient.getConfigurations.useQuery(
+    {},
+    { enabled: configPlaneReader },
+  );
   const {
     data: configurationsData,
     refetch: refetchConfigurations,
   } = configurationsQuery;
 
-  // Fetch strategies with useQuery
+  // Fetch strategies with useQuery (typeScoped on the healthcheck type -
+  // same config-plane gate as the list; the strategy filter/labels degrade
+  // gracefully to raw ids without it).
   const { data: strategies = [] } = healthCheckClient.getStrategies.useQuery(
     {},
+    { enabled: configPlaneReader },
   );
 
   const configurations = useMemo(
@@ -141,47 +165,50 @@ const HealthCheckConfigPageContent = () => {
     [configurationsData],
   );
 
-  // Systems list for the "assigned to system X" filter. Lazily loaded: the
-  // query is only enabled once the user has read access AND there are
-  // configurations to filter, so a fresh install with no checks doesn't ping
-  // the catalog backend.
-  const systemsQuery = catalogClient.getSystems.useQuery(
-    {},
-    { enabled: canRead && configurations.length > 0 },
-  );
-  const systems = systemsQuery.data?.systems ?? [];
-
-  // When a system filter is active, resolve the set of config ids assigned to
-  // that system via `getSystemConfigurations`. A configuration carries no
-  // system field of its own — the assignment is a separate entity — so the
-  // filter intersects this id set with the loaded configurations. `undefined`
-  // while loading (the filter logic shows nothing until the set resolves, to
-  // avoid a flash of the unfiltered superset).
+  // When a system filter is active, the list renders DIRECTLY from
+  // `getSystemConfigurations` (full configuration objects, authorized by
+  // system READ) instead of intersecting with `getConfigurations`. This is
+  // what makes the catalog's per-system wayfinding link work for a pure
+  // system manager, whose `getConfigurations` is empty/forbidden - an
+  // intersection would always come up empty for them.
   const systemFilterActive = listState.systemId !== null;
   const systemConfigsQuery =
     healthCheckClient.getSystemConfigurations.useQuery(
       { systemId: listState.systemId ?? "" },
       { enabled: systemFilterActive },
     );
-  const assignedConfigIds = useMemo((): Set<string> | null | undefined => {
-    if (!systemFilterActive) return null;
-    if (systemConfigsQuery.isLoading) return;
-    return new Set((systemConfigsQuery.data ?? []).map((c) => c.id));
+
+  // Systems list for the "assigned to system X" filter. Lazily loaded: only
+  // once there are configurations to filter (so a fresh install with no
+  // checks doesn't ping the catalog backend), or immediately when a system
+  // filter is already in the URL (to resolve its display name).
+  const systemsQuery = catalogClient.getSystems.useQuery(
+    {},
+    {
+      enabled:
+        (configPlaneReader && configurations.length > 0) || systemFilterActive,
+    },
+  );
+  const systems = systemsQuery.data?.systems ?? [];
+
+  const filteredConfigurations = useMemo(() => {
+    const base = systemFilterActive
+      ? (systemConfigsQuery.data ?? [])
+      : configurations;
+    return filterAndSortHealthChecks({
+      configurations: base,
+      // The base list is ALREADY system-scoped when the filter is active, so
+      // the pure filter only applies query/strategy/status on top.
+      state: { ...listState, query: debouncedQuery, systemId: null },
+      assignedConfigIds: null,
+    });
   }, [
     systemFilterActive,
-    systemConfigsQuery.isLoading,
     systemConfigsQuery.data,
+    configurations,
+    listState,
+    debouncedQuery,
   ]);
-
-  const filteredConfigurations = useMemo(
-    () =>
-      filterAndSortHealthChecks({
-        configurations,
-        state: { ...listState, query: debouncedQuery },
-        assignedConfigIds,
-      }),
-    [configurations, listState, debouncedQuery, assignedConfigIds],
-  );
 
   const hasActiveFilter = hasActiveHealthCheckFilter({
     ...listState,
@@ -375,15 +402,29 @@ const HealthCheckConfigPageContent = () => {
         }
       />
 
-      {configurationsQuery.isLoading ? (
+      {(systemFilterActive
+        ? systemConfigsQuery.isLoading
+        : configurationsQuery.isLoading) ? (
         <HealthCheckListSkeleton />
-      ) : configurationsQuery.isError ? (
+      ) : (
+          systemFilterActive
+            ? systemConfigsQuery.isError
+            : configurationsQuery.isError
+        ) ? (
         <QueryErrorState
-          error={configurationsQuery.error}
-          onRetry={() => void configurationsQuery.refetch()}
+          error={
+            systemFilterActive
+              ? systemConfigsQuery.error
+              : configurationsQuery.error
+          }
+          onRetry={() =>
+            void (systemFilterActive
+              ? systemConfigsQuery.refetch()
+              : configurationsQuery.refetch())
+          }
           resource="health checks"
         />
-      ) : configurations.length === 0 ? (
+      ) : !systemFilterActive && configurations.length === 0 ? (
         <ListEmptyState
           resource="health checks"
           description="The quickest way to start is the guided setup: name a system, paste a URL, and we create and start monitoring it for you."
@@ -412,9 +453,7 @@ const HealthCheckConfigPageContent = () => {
             hasActiveFilter={hasActiveFilter}
           />
 
-          {systemFilterActive && systemConfigsQuery.isLoading ? (
-            <HealthCheckListSkeleton />
-          ) : filteredConfigurations.length === 0 ? (
+          {filteredConfigurations.length === 0 ? (
             <ListEmptyState
               resource="health checks"
               description="No health checks match the current search or filters."

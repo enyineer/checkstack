@@ -34,7 +34,7 @@ Each sheet has its own actions (create incident, schedule maintenance, edit chec
 
 ### Health check editor (IDE)
 
-The full-screen editor for a single health check assignment: pick a strategy (HTTP, TCP, DNS, script, etc.), fill in the strategy-specific config, set the run schedule, and choose which satellite the check should run on (if any). The right-hand pane previews the most recent runs while you tune the config so you can validate without leaving the editor.
+The full-screen editor for a health check configuration: pick a strategy (HTTP, TCP, DNS, script, etc.), fill in the strategy-specific config, set the run schedule, and define the assertions that grade each run. The editor's **Assignment** section manages which systems the check runs against, each with its per-system settings (state thresholds, environment fan-out, satellites, notifications). The catalog's per-system **Manage health checks** button leads here via the filtered Health Checks list.
 
 ### Health check history
 
@@ -46,7 +46,7 @@ Single-run page. Shows the strategy-specific result payload (status code, stdout
 
 ### Strategy picker
 
-A small page that lists every health check strategy registered by an installed plugin and lets you pick one to start a new assignment. The pickers shown depend on which `healthcheck-*` plugins are installed.
+A small page that lists every health check strategy registered by an installed plugin and lets you pick one to start a new check. The pickers shown depend on which `healthcheck-*` plugins are installed.
 
 ## Incidents
 
