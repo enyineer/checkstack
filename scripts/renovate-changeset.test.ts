@@ -4,8 +4,10 @@ import {
   checkChangeset,
   diffPackages,
   expectedChangeset,
+  mergeChangeset,
   owningWorkspaces,
   parseLock,
+  parsePendingChangeset,
   renderChangeset,
   resolveOwners,
   reachableAncestors,
@@ -187,23 +189,134 @@ describe("renderChangeset", () => {
 });
 
 describe("expectedChangeset", () => {
-  it("produces content when a public prod owner is affected", () => {
+  const anchors = ["@x/app"] as const;
+
+  it("emits the fixed anchors (NOT the reachable owners) when the image is affected", () => {
     const base = parseLock({ raw: BASE_LOCK });
     const head = parseLock({ raw: HEAD_LOCK });
-    const { owners, content } = expectedChangeset({ base, head, isPublic });
-    expect(owners).toEqual(["@x/backend", "@x/ui"]);
-    expect(content).toContain('"@x/backend": patch');
+    const { owners, content } = expectedChangeset({ base, head, isPublic, anchors });
+    // @x/backend and @x/ui reach the changed deps, but the frontmatter is the anchor.
+    expect(owners).toEqual(["@x/app"]);
+    expect(content).toContain('"@x/app": patch');
+    expect(content).not.toContain('"@x/backend": patch');
+    // ...while the changed deps stay itemised in the body as the audit trail.
+    expect(content).toContain("- `tar` 7.5.16 -> 7.5.19");
+    expect(content).toContain("- `fast-uri` 3.1.2 -> 3.1.3");
   });
 
   it("returns null content when nothing resolvable changed", () => {
     const lock = parseLock({ raw: BASE_LOCK });
-    expect(expectedChangeset({ base: lock, head: lock, isPublic }).content).toBeNull();
+    expect(expectedChangeset({ base: lock, head: lock, isPublic, anchors }).content).toBeNull();
   });
 
-  it("returns null content when only a dev-only dependency moved", () => {
+  it("returns null content when only a dev-only dependency moved (image built --production)", () => {
     const base = parseLock({ raw: BASE_LOCK });
     const head = parseLock({ raw: BASE_LOCK.replace("typescript@5.7.2", "typescript@5.7.3") });
-    expect(expectedChangeset({ base, head, isPublic }).content).toBeNull();
+    expect(expectedChangeset({ base, head, isPublic, anchors }).content).toBeNull();
+  });
+});
+
+describe("parsePendingChangeset", () => {
+  it("is the inverse of renderChangeset over owners and dep bumps", () => {
+    const md = renderChangeset({
+      owners: ["@x/backend", "@x/ui"],
+      changes: [
+        { name: "fast-uri", from: "3.1.2", to: "3.1.3" },
+        { name: "tar", from: "7.5.16", to: "7.5.19" },
+      ],
+    });
+    expect(parsePendingChangeset({ raw: md })).toEqual({
+      owners: ["@x/backend", "@x/ui"],
+      changes: [
+        { name: "fast-uri", from: "3.1.2", to: "3.1.3" },
+        { name: "tar", from: "7.5.16", to: "7.5.19" },
+      ],
+    });
+  });
+
+  it("returns an empty set for an absent/empty base-branch file", () => {
+    expect(parsePendingChangeset({ raw: "" })).toEqual({ owners: [], changes: [] });
+  });
+
+  it("does not mistake body prose for a frontmatter owner", () => {
+    const md = renderChangeset({ owners: ["@x/backend"], changes: [{ name: "tar", from: "1", to: "2" }] });
+    // The body sentence mentions `package.json`; only the fenced frontmatter counts.
+    expect(parsePendingChangeset({ raw: md }).owners).toEqual(["@x/backend"]);
+  });
+});
+
+describe("mergeChangeset", () => {
+  it("chains a dep changed in BOTH windows from pending.from to incremental.to", () => {
+    const merged = mergeChangeset({
+      pending: { owners: ["@x/ui"], changes: [{ name: "tar", from: "7.5.16", to: "7.5.19" }] },
+      incremental: { owners: ["@x/backend"], changes: [{ name: "tar", from: "7.5.19", to: "7.5.22" }] },
+    });
+    expect(merged.owners).toEqual(["@x/backend", "@x/ui"]);
+    expect(merged.changes).toEqual([{ name: "tar", from: "7.5.16", to: "7.5.22" }]);
+  });
+
+  it("carries deps that appear in only one window", () => {
+    const merged = mergeChangeset({
+      pending: { owners: ["@x/ui"], changes: [{ name: "ajv", from: "8.0.0", to: "8.1.0" }] },
+      incremental: { owners: ["@x/backend"], changes: [{ name: "tar", from: "7.5.16", to: "7.5.19" }] },
+    });
+    expect(merged.changes).toEqual([
+      { name: "ajv", from: "8.0.0", to: "8.1.0" },
+      { name: "tar", from: "7.5.16", to: "7.5.19" },
+    ]);
+  });
+
+  it("drops a bump the incremental refresh rolled back to a no-op", () => {
+    const merged = mergeChangeset({
+      pending: { owners: ["@x/ui"], changes: [{ name: "tar", from: "7.5.16", to: "7.5.19" }] },
+      incremental: { owners: [], changes: [{ name: "tar", from: "7.5.19", to: "7.5.16" }] },
+    });
+    // Net change is zero across the window -> no misleading `x -> x` line.
+    expect(merged.changes).toEqual([]);
+    expect(merged.owners).toEqual(["@x/ui"]);
+  });
+});
+
+describe("expectedChangeset with a pending (unreleased) changeset", () => {
+  const anchors = ["@x/app"] as const;
+  // The base lock already carries a previous refresh's resolutions (as main does
+  // when a Version Packages PR is still open), so the incremental diff is tiny.
+  const MAIN_LOCK = HEAD_LOCK; // main = base already refreshed tar + fast-uri
+  const NEXT_HEAD = MAIN_LOCK.replace("tar@7.5.19", "tar@7.5.22");
+  // A previous refresh's committed changeset - its BODY is the audit trail we
+  // must not lose; its (older, fanned-out) owners are irrelevant now.
+  const pending = parsePendingChangeset({
+    raw: renderChangeset({
+      owners: ["@x/backend", "@x/ui"],
+      changes: [
+        { name: "fast-uri", from: "3.1.2", to: "3.1.3" },
+        { name: "tar", from: "7.5.16", to: "7.5.19" },
+      ],
+    }),
+  });
+
+  it("preserves the pending dep list, chains the new refresh, and re-anchors the owners", () => {
+    const base = parseLock({ raw: MAIN_LOCK });
+    const head = parseLock({ raw: NEXT_HEAD });
+    const { owners, content } = expectedChangeset({ base, head, isPublic, pending, anchors });
+    expect(owners).toEqual(["@x/app"]); // fixed anchors, not the pending fan-out
+    // fast-uri survives (pending only), tar chains 7.5.16 -> 7.5.22 across the window.
+    expect(content).toContain("- `fast-uri` 3.1.2 -> 3.1.3");
+    expect(content).toContain("- `tar` 7.5.16 -> 7.5.22");
+  });
+
+  it("does NOT delete a pending changeset when the new refresh is a no-op (the release-cancelling hole)", () => {
+    const base = parseLock({ raw: MAIN_LOCK });
+    const { owners, content } = expectedChangeset({ base, head: base, isPublic, pending, anchors });
+    // Incremental diff is empty, but the pending refresh is still unreleased.
+    expect(content).not.toBeNull();
+    expect(owners).toEqual(["@x/app"]);
+    expect(content).toContain("- `tar` 7.5.16 -> 7.5.19");
+  });
+
+  it("still yields null when there is no pending changeset and nothing changed", () => {
+    const base = parseLock({ raw: MAIN_LOCK });
+    expect(expectedChangeset({ base, head: base, isPublic, pending: null }).content).toBeNull();
   });
 });
 
