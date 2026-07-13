@@ -1,9 +1,23 @@
 // DOM setup FIRST: the package bunfig preloads this, but the ROOT runner does
 // not - importing it here (idempotent) makes the test pass in both contexts.
 import "@checkstack/test-utils-frontend/setup";
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect } from "bun:test";
 import React, { useState } from "react";
-import { render, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  fireEvent,
+  act,
+  waitFor,
+  within,
+  cleanup,
+} from "@testing-library/react";
+
+// The shared setup registers cleanup too, but CI's full-suite parallel runner
+// has shown leaked DOM between this file's tests (a body-wide getByRole then
+// matches the previous test's tree). Register it locally as well, and scope
+// every query to the render's own container below, so the tests never depend
+// on which runner context they execute in.
+afterEach(cleanup);
 
 import { DynamicForm } from "./DynamicForm";
 import { DynamicOptionsField } from "./DynamicOptionsField";
@@ -47,7 +61,7 @@ function renderNumericField({
   const resolvers: Record<string, OptionsResolver> = {
     vars: async () => VARIABLE_OPTIONS,
   };
-  return render(
+  const { container } = render(
     <DynamicOptionsField
       id="variableIndex"
       label="VariableIndex"
@@ -61,6 +75,9 @@ function renderNumericField({
       onChange={onChange}
     />,
   );
+  // Queries scoped to THIS render's container: render() returns body-wide
+  // queries, which see any tree a previous test leaked into document.body.
+  return within(container);
 }
 
 describe("DynamicOptionsField numeric value handling", () => {
