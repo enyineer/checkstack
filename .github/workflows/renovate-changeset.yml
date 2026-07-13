@@ -93,7 +93,16 @@ jobs:
           set -euo pipefail
           git config user.name  "checkstack-security-bot"
           git config user.email "security-bot@users.noreply.github.com"
-          git add -A .changeset/renovate-lock-file-maintenance.md
+          # `git add -A <path>` exits 128 when the path is neither in the working
+          # tree nor in the index - the generator's legitimate no-op case (no
+          # resolution changes, no pending changeset, so no file was ever
+          # written). Only add when there is something to stage; a tracked file
+          # deleted by the generator still passes `git ls-files --error-unmatch`,
+          # so staging the deletion keeps working.
+          if [ -e .changeset/renovate-lock-file-maintenance.md ] || \
+             git ls-files --error-unmatch .changeset/renovate-lock-file-maintenance.md >/dev/null 2>&1; then
+            git add -A .changeset/renovate-lock-file-maintenance.md
+          fi
           if git diff --cached --quiet; then
             echo "Changeset already up to date - nothing to commit."
             exit 0
