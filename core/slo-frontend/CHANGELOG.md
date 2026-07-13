@@ -1,5 +1,30 @@
 # @checkstack/slo-frontend
 
+## 0.11.3
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/auth-frontend@0.13.4
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/dashboard-frontend@0.10.9
+  - @checkstack/tips-frontend@0.5.1
+  - @checkstack/common@0.22.0
+  - @checkstack/dependency-common@1.7.5
+  - @checkstack/signal-frontend@0.3.6
+  - @checkstack/slo-common@0.9.3
+
 ## 0.11.2
 
 ### Patch Changes

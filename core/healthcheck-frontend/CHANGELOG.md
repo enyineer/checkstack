@@ -1,5 +1,181 @@
 # @checkstack/healthcheck-frontend
 
+## 0.36.0
+
+### Minor Changes
+
+- a74fa01: Redesign the assertion builder for readability by non-technical operators.
+  Conditions now read as sentences with inline controls -
+  "[Response Time] must [be less than] [500] ms" - driven by the collector
+  metadata that already powers the auto-charts:
+
+  - Field names come from `x-chart-label` (with a humanized fallback) instead
+    of machine-derived paths like "Body → Status"; nested fields compose as
+    "TLS › Days Left".
+  - Numeric values render their `x-chart-unit` suffix; boolean conditions use
+    the collector's `x-chart-true-label`/`x-chart-false-label` prose ("must be
+    successful" instead of "Is True").
+  - The field picker sorts by `x-chart-priority` and groups JSONPath fields
+    under "Advanced" (with an inline expression input and example help);
+    "Add condition" seeds the highest-priority field instead of the first one.
+  - Incomplete conditions (missing value, invalid regex, blank JSONPath) show
+    an inline explanation and block Save through the editor's existing
+    validity plumbing; duplicate conditions get a hint.
+  - Persisted data is untouched: field paths, operator strings, and the
+    `CollectorAssertion` shape are byte-for-byte unchanged, so existing checks
+    round-trip as-is. The builder is now typed against `CollectorAssertion`
+    directly (the duplicated local `Assertion` type and its casts are gone),
+    and the dead `CollectorList` component was removed.
+
+  The `@checkstack/ai-backend` patch is the regenerated docs index for the
+  documentation pages updated in this release (assignment flow, assertions,
+  and the slimmed system/incident/maintenance edit dialogs).
+
+- a74fa01: Relocate health-check assignment management from the catalog-entered,
+  system-centric Assignment IDE into the check editor itself, so a check's
+  settings AND its assignments (with their per-system settings) are managed in
+  one place. Users think in terms of "Health Checks", not the catalog - the
+  old flow was discovered through a catalog system row and inverted that mental
+  model.
+
+  - **Check editor Assignment section** (edit mode): lists every assigned
+    system as a tree group with the per-assignment panels (General, Thresholds,
+    Retention, Execution with satellites + environment fan-out, Notifications)
+    plus an "Assign to system..." picker that only offers systems the caller
+    can manage. The `AssignmentIDENodeSlot`/`AssignmentIDEPanelSlot` extension
+    points keep their names and context shape - extension node ids are
+    namespaced per system internally so config-keyed ids (e.g. the anomaly
+    panels) no longer collide across systems.
+  - **New procedure `getConfigurationAssignments`** (config → systems, the
+    inverse of `getSystemAssociations`), handler-authorized fail-closed: global
+    configuration read or a team grant on the configuration sees every row;
+    otherwise rows filter to systems the caller may read.
+  - **`getConfiguration` relaxed** (handler-authorized): a reader of an
+    ASSIGNED system may load the (redacted) configuration - the same exposure
+    `getSystemConfigurations` already allowed - so system managers can open the
+    editor. Unauthorized callers still get the same `undefined` as a missing id.
+  - **RLAC**: the edit and config routes now declare
+    `manageCapability.parentType: catalog.system`, so a pure system manager
+    reaches the editor for its Assignment section; the config side renders
+    read-only for them (Save disabled, strategies/collectors/access-control
+    gated per-node) while their systems' assignment panels stay writable.
+    GitOps-locked systems lock exactly their own assignment nodes.
+  - **Catalog wayfinding**: the per-system row button is now a
+    "Manage health checks" link opening the Health Checks list pre-filtered to
+    that system (`?system=<id>`); the filtered list loads via the
+    system-read-gated `getSystemConfigurations`, so it also works for system
+    managers without healthcheck grants.
+
+  BREAKING CHANGES: the standalone system-centric assignment page is removed -
+  the `healthcheck` plugin's `assignments` route (`/assignments/:systemId`) no
+  longer exists and `healthcheckRoutes.routes.assignments` is gone from
+  `@checkstack/healthcheck-common`. Deep links to the old page now 404; use the
+  check editor's Assignment section (or the filtered Health Checks list)
+  instead.
+
+- 4568dcc: Render the log-stream health-check config as real dropdowns. The check editor
+  now forwards dynamic-option resolvers to its strategy and collector config
+  forms, so the `logstream` strategy's **stream** field and the
+  `pattern-occurrence` collector's **pattern** field become pickers instead of
+  plain text inputs.
+
+  The health-check editor gains a contribution point,
+  `HealthCheckConfigOptionsResolverSlot`: a plugin that registers a strategy whose
+  config declares `x-options-resolver` fields contributes a factory that turns the
+  editor's generic context (the RPC api plus the current strategy config) into the
+  concrete resolvers. The editor stays ignorant of any specific strategy - the
+  owning plugin supplies the resolvers, mirroring the backend extension-point
+  pattern. Because the editor passes the strategy config down to the collector
+  forms, a collector-field resolver can read a selection made in the sibling
+  strategy form (the pattern picker lists the chosen stream's Drain patterns).
+
+  `logstream-frontend` contributes the `logstreamStreamId` and
+  `logstreamPatternId` resolvers, backed by the `typeScoped` `listStreamsForPicker`
+  and `listPatterns` procedures, and `logstream-common` now exports the shared
+  strategy id and resolver-name constants so the backend annotations and the
+  frontend resolvers reference one source and cannot drift.
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/ui@1.28.0
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/auth-frontend@0.13.4
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/satellite-common@0.10.0
+  - @checkstack/catalog-frontend@0.20.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/dashboard-frontend@0.10.9
+  - @checkstack/gitops-frontend@0.7.5
+  - @checkstack/script-packages-frontend@0.4.14
+  - @checkstack/secrets-frontend@0.3.13
+  - @checkstack/tips-frontend@0.5.1
+  - @checkstack/anomaly-common@1.8.1
+  - @checkstack/common@0.22.0
+  - @checkstack/signal-frontend@0.3.6
+
 ## 0.35.2
 
 ### Patch Changes

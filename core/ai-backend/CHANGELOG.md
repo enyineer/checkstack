@@ -1,5 +1,128 @@
 # @checkstack/ai-backend
 
+## 0.11.0
+
+### Minor Changes
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- 4568dcc: Regenerate the bundled docs index so the assistant's docs search reflects the
+  new satellite telemetry documentation: the satellite concept page's telemetry
+  forwarding and scraping section, the ship-logs and ship-metrics satellite
+  sections, the connect-a-satellite telemetry env-flag reference, and the new
+  developer-guide "Satellite telemetry" reference page (capability extension
+  point, protocol envelopes, backpressure, just-in-time secrets, and
+  binding-based authorization).
+- a74fa01: Redesign the assertion builder for readability by non-technical operators.
+  Conditions now read as sentences with inline controls -
+  "[Response Time] must [be less than] [500] ms" - driven by the collector
+  metadata that already powers the auto-charts:
+
+  - Field names come from `x-chart-label` (with a humanized fallback) instead
+    of machine-derived paths like "Body → Status"; nested fields compose as
+    "TLS › Days Left".
+  - Numeric values render their `x-chart-unit` suffix; boolean conditions use
+    the collector's `x-chart-true-label`/`x-chart-false-label` prose ("must be
+    successful" instead of "Is True").
+  - The field picker sorts by `x-chart-priority` and groups JSONPath fields
+    under "Advanced" (with an inline expression input and example help);
+    "Add condition" seeds the highest-priority field instead of the first one.
+  - Incomplete conditions (missing value, invalid regex, blank JSONPath) show
+    an inline explanation and block Save through the editor's existing
+    validity plumbing; duplicate conditions get a hint.
+  - Persisted data is untouched: field paths, operator strings, and the
+    `CollectorAssertion` shape are byte-for-byte unchanged, so existing checks
+    round-trip as-is. The builder is now typed against `CollectorAssertion`
+    directly (the duplicated local `Assertion` type and its casts are gone),
+    and the dead `CollectorList` component was removed.
+
+  The `@checkstack/ai-backend` patch is the regenerated docs index for the
+  documentation pages updated in this release (assignment flow, assertions,
+  and the slimmed system/incident/maintenance edit dialogs).
+
+- d9f2771: Regenerate the assistant's docs index to cover the new security-maintenance
+  content: Renovate `lockFileMaintenance`, the `bunfig.toml` supply-chain
+  cooldown, why the lockfile PR needs a changeset to rebuild the production
+  image, and the PR-time split between the dependency-graph gate
+  (`security_deps`, full npm graph incl. devDependencies) and the container gate
+  (`security`, OS/apk packages only).
+- 4568dcc: Regenerate the assistant's docs index to cover the new log-streams content: the
+  Log streams concept page (tiered storage, Drain patterns, important events,
+  source tokens, log health checks, absence, retention), the Ship logs to a stream
+  guide (OTel Collector, Fluent Bit, Vector, curl, and rsyslog configs plus
+  backpressure and size limits), and the Log streams backend architecture
+  reference (ingestion pipeline, state-and-scale answers, Drain convergence, health
+  integration, retention jobs, RLAC, and the token cache convention).
+- 4568dcc: Regenerate the docs index for the new Metric Streams documentation (concept
+  page, ship-metrics guide, and the backend architecture reference).
+- 4568dcc: Regenerate the assistant's docs index to cover the new "Realtime signals: scope
+  to a resource when a signal is high-frequency" section of the query-invalidation
+  developer guide: declaring a signal `resourceKey`, registering resource-scoped
+  signals on a frontend plugin, how a query is matched (input-keyed detail queries
+  vs the `signalScopeMeta` opt-in for resource-agnostic lists), per-resource
+  coalescing, and why foreign signals stay blanket.
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/backend-api@0.33.0
+  - @checkstack/sdk@0.130.1
+  - @checkstack/ai-common@0.6.6
+  - @checkstack/auth-common@0.14.0
+  - @checkstack/common@0.22.0
+  - @checkstack/integration-backend@0.7.7
+
 ## 0.10.12
 
 ### Patch Changes

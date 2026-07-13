@@ -1,6 +1,6 @@
 {
   "name": "@checkstack/pluginmanager-frontend",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "license": "Elastic-2.0",
   "type": "module",
   "sideEffects": [

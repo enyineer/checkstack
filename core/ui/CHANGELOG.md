@@ -1,5 +1,112 @@
 # @checkstack/ui
 
+## 1.28.0
+
+### Minor Changes
+
+- 4568dcc: DynamicForm now passes row-scoped form values to `x-options-resolver` fields
+  inside array-of-object items, so an item field's dynamic options can depend on
+  its own row's sibling fields (in addition to the whole-form values). Previously
+  a resolver inside an array item only ever saw the top-level form values, so a
+  `{ key, value }` filter row could not resolve its `value` options from that
+  row's own `key`.
+
+  The row's own fields are merged OVER the whole-form values (a row field shadows
+  a same-named top-level field), and the `x-depends-on` refetch tracking reads the
+  same merged object, so a `value` field declaring `x-depends-on: ["metricName",
+"key"]` refetches when its row's `key` changes. Backward compatible: existing
+  top-level resolver reads are unchanged; only array-item resolvers gain the extra
+  row scope. Exposed as the pure helper `scopeArrayItemFormValues` (unit-tested)
+  with a new `ArrayOfDynamicObjects` Storybook story demonstrating the pattern.
+
+- a74fa01: Opaque card surfaces and a heading opt-out for dialog-hosted editors:
+
+  - `TeamAccessEditor`'s compact container now carries its own `bg-card`
+    background. It was a bordered box with no background - fine inside the old
+    opaque dialog, but transparent when mounted on a page with a decorative
+    backdrop (the detail pages' grid bled through the content). Card-like
+    containers must always declare their own opaque background.
+  - `LinksEditor` gains an optional `hideTitle` prop so hosts whose own title
+    already names the surface (e.g. a "Manage links" dialog) can suppress the
+    built-in heading; the description still renders. Default behavior is
+    unchanged.
+
+- d00e099: Make a catalog System's free-form `metadata` (custom fields) genuinely usable
+  end to end, mirroring how Environment custom fields already work. Previously a
+  System's `metadata` column was writable but nothing consumed it - it did not
+  surface in templating, could not be set via GitOps, and had no UI editor, so
+  models (and users) had no way to understand what it was for.
+
+  Now a system's custom fields are surfaced everywhere an environment's already
+  are:
+
+  - **Config templating**: a system's fields render as
+    `{{ system.metadata.<key> }}` in templatable health-check config (e.g. an
+    HTTP URL). They are namespaced under `.metadata` so a field named `id`/`name`
+    can never shadow the structural `{{ system.id }}` / `{{ system.name }}`.
+  - **Satellites**: the fields ride the satellite assignment
+    (`SatelliteAssignment.systemMetadata`) so satellite runs template
+    `{{ system.metadata.<key> }}` identically to local runs.
+  - **UI**: the System editor gains a free-form key/value custom-fields editor
+    (extracted into a shared `CustomFieldsEditor` used by both the System and
+    Environment editors).
+  - **GitOps**: the `System` kind accepts optional `spec.fields`, replaced on
+    every reconcile (same shape as the `Environment` kind).
+  - **Script collectors**: inline TS collectors read `context.system.metadata`
+    (SDK editor types updated), and shell collectors get one
+    `CHECKSTACK_SYSTEM_<FIELD>` env var per field, mirroring
+    `CHECKSTACK_ENV_<FIELD>`. A field that normalizes to a reserved name
+    (`CHECKSTACK_SYSTEM_ID`/`_NAME`) is now skipped with a warning rather than
+    clobbering the built-in; the same reserved-name guard was added to the
+    environment shell-env builder (previously a custom field named `id`/`name`
+    could shadow the structural var).
+  - **Editor autocomplete/preview**: the health-check editor offers
+    `{{ system.metadata.<key> }}` completions and previews their values when a
+    concrete system is in context.
+
+  The AI assistant is corrected on two fronts:
+
+  - The catalog create/update-system (and create-environment) tool schemas now
+    `.describe()` their `metadata` field, so a model knows it is free-form custom
+    fields that surface in templating - not a tagging/labeling mechanism - and
+    should only set keys the user explicitly asks for.
+  - A new "Acting on requests" chat system-prompt rule tells the assistant to
+    perform a requested change via its tool instead of deflecting to a manual
+    GitOps/UI how-to, and to name the missing permission when a tool is genuinely
+    unavailable. (This entry also covers the regenerated docs index reflecting the
+    updated GitOps/templating docs.)
+
+  State & scale: a system's metadata continues to live solely in the
+  `catalog.systems.metadata` Postgres column and is read via the existing
+  `getSystem` RPC, so every pod reads the same value. The satellite assignment
+  carries a per-dispatch snapshot for the duration of that run (ephemeral,
+  re-read on the next dispatch), not a second source of truth. No new table or
+  migration.
+
+### Patch Changes
+
+- 4568dcc: Fix the chart-card toolbar clipping its controls off the right edge. `ChartCard`
+  rendered its `actions` slot in a non-wrapping, `shrink-0` header row inside an
+  `overflow-hidden` card, so a wide actions cluster (notably a `DateRangeFilter` in
+  "Custom" mode, which reveals two datetime pickers) ran past the clipped edge -
+  the end datetime picker was unreachable and the card title was squeezed to
+  nothing.
+
+  - `ChartCard`: the header now wraps (`flex-wrap` + `min-w-0` on the actions
+    wrapper), so a wide actions cluster drops onto its own line instead of
+    overflowing. This also fixes the log-stream overview's "Severity over time"
+    card, which uses the same pattern.
+  - Metric stream overview (`MetricQuickChart`): the search + metric-select
+    controls are grouped as one wrapping unit and the time-range filter as another,
+    so the toolbar wraps into tidy groups and both custom datetime pickers stay
+    reachable at every viewport (they stack vertically on mobile).
+
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+  - @checkstack/frontend-api@0.16.0
+  - @checkstack/common@0.22.0
+  - @checkstack/template-engine@0.4.11
+
 ## 1.27.0
 
 ### Minor Changes

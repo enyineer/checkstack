@@ -1,5 +1,20 @@
 # @checkstack/anomaly-common
 
+## 1.8.1
+
+### Patch Changes
+
+- Updated dependencies [a74fa01]
+- Updated dependencies [4568dcc]
+- Updated dependencies [4568dcc]
+- Updated dependencies [a74fa01]
+- Updated dependencies [d00e099]
+  - @checkstack/healthcheck-common@1.17.0
+  - @checkstack/signal-common@0.3.0
+  - @checkstack/catalog-common@2.7.3
+  - @checkstack/common@0.22.0
+  - @checkstack/notification-common@1.7.1
+
 ## 1.8.0
 
 ### Minor Changes

@@ -1,5 +1,53 @@
 # @checkstack/frontend-api
 
+## 0.16.0
+
+### Minor Changes
+
+- a74fa01: Fix the catalog manage page render storm: with many visible systems, every
+  parent render (typing in the filter, any query refresh, opening a dialog)
+  re-rendered every row's slot fillers - rows x fillers x auth/query hook trees
+
+  - profiling as a GC-dominated main thread.
+
+  - `ExtensionSlot` now renders each extension through a memoized component
+    that bails out on SHALLOW slot-context equality (`slotContextEquals`,
+    regression-tested): inline context objects keep working, but an unchanged
+    row no longer re-runs its fillers. Call sites must keep context VALUES
+    referentially stable - primitives are free, memoize arrays/objects (the
+    catalog already memoizes `visibleSystemIds`).
+  - `useCanAccessType`/`useSurfaceAccess` (`useTypeSurface`) now resolve the
+    global rule and the authenticated gate from ONE `useAccessRules` call
+    instead of two, halving the session/rules query observers each gated
+    control allocates - noticeable when the gate is mounted once per row.
+
+- 4568dcc: Add per-resource scoping to realtime signal auto-invalidation. Signals may now
+  declare an optional `resourceKey` extractor (`createSignal({ ..., resourceKey })`);
+  when a received signal carries one and it yields an id, `SignalAutoInvalidator`
+  narrows invalidation from the whole owning plugin's react-query cache to only
+  the queries whose key contains that resource id, plus queries that opted into
+  whole-plugin refresh with `meta: { signalScope: "plugin" }` (exported as
+  `signalScopeMeta`). A plugin registers its resource-scoped signal defs on its
+  frontend config's new `signals` field so the invalidator can recover the
+  extractor from a received signal's id. The invalidation coalescer now buckets on
+  `pluginId` + `resourceId`, so bursts for different resources stay independent.
+
+  This is fully backward compatible: a signal WITHOUT a `resourceKey` keeps the
+  original blanket-plugin invalidation, so every existing signal behaves exactly
+  as before. Foreign (`foreignSignals`) invalidation also stays blanket.
+
+  Logstream adopts it: `LOGSTREAM_ACTIVITY` and `LOGSTREAM_IMPORTANT_EVENT` scope
+  to their `streamId`, so a viewer on one stream's detail page is no longer
+  refetched (including the heavy list-page summaries) whenever any other stream
+  ingests. The stream list page opts its two resource-agnostic queries back into
+  whole-plugin refresh with `signalScopeMeta`.
+
+### Patch Changes
+
+- Updated dependencies [4568dcc]
+  - @checkstack/signal-common@0.3.0
+  - @checkstack/common@0.22.0
+
 ## 0.15.0
 
 ### Minor Changes
