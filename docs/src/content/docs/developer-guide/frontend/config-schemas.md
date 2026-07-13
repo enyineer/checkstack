@@ -242,6 +242,33 @@ const schema = z.object({
 - `x-depends-on`: Array of field names that trigger refetch when changed
 - `x-searchable`: When true, renders a searchable dropdown with filter input inside
 
+> [!IMPORTANT]
+> If a resolver reads a SIBLING field of the same form (e.g. a variable picker
+> that resolves against the form's own `patternId`), that sibling MUST be
+> listed in `x-depends-on` - the form only re-fetches options when a declared
+> dependency changes. Without it the fetch runs once at mount (before the
+> sibling has a value) and the dropdown stays empty forever.
+
+`configNumber` fields support `x-options-resolver` too. Resolver options
+always carry string `value`s; for a `number`/`integer` field the form coerces
+the picked option back to a number before storing it (and matches a stored
+number against its string option), so the saved config passes the backend's
+`z.number()` schema:
+
+```typescript
+import { configNumber } from "@checkstack/backend-api";
+
+const schema = z.object({
+  variableIndex: configNumber({
+    "x-options-resolver": "logstreamVariableIndex",
+    "x-depends-on": ["patternId"],
+  })
+    .int()
+    .min(0)
+    .describe("Which wildcard position to aggregate"),
+});
+```
+
 **Implementation requirements:**
 The provider must implement `getConnectionOptions()` to handle resolver calls. See [Integration Providers](/checkstack/developer-guide/backend/integrations/providers/#connection-based-providers-with-dynamic-options) for details.
 

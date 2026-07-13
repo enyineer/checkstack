@@ -19,7 +19,7 @@ import {
 } from "../../index";
 
 import type { DynamicOptionsFieldProps, ResolverOption } from "./types";
-import { getCleanDescription, NONE_SENTINEL } from "./utils";
+import { getCleanDescription, NONE_SENTINEL, coerceNumberInput } from "./utils";
 import { extractErrorMessage } from "@checkstack/common";
 
 /**
@@ -37,10 +37,32 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   dependsOn,
   searchable,
   optionsStyle,
+  valueType,
   formValues,
   optionsResolvers,
   onChange,
 }) => {
+  // Resolver options always carry STRING values, but a number/integer field
+  // stores a NUMBER. Bridge both directions here: `valueString` is what option
+  // matching and the Select compare against (so a stored 0 shows as selected),
+  // and `emitValue` parses a picked option back to a number before emitting
+  // (so the saved config passes the backend's z.number() schema). String
+  // fields keep the raw pass-through.
+  const isNumericValue = valueType === "number" || valueType === "integer";
+  const valueString =
+    value === undefined || value === null ? "" : String(value);
+  const emitValue = (raw?: string): void => {
+    if (raw === undefined) {
+      onChange();
+      return;
+    }
+    if (!isNumericValue) {
+      onChange(raw);
+      return;
+    }
+    onChange(coerceNumberInput({ raw, isInteger: valueType === "integer" }));
+  };
+
   const [options, setOptions] = React.useState<ResolverOption[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | undefined>();
@@ -113,9 +135,9 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
 
   // Get the selected option label
   const selectedLabel = React.useMemo(() => {
-    const selected = options.find((opt) => opt.value === value);
+    const selected = options.find((opt) => opt.value === valueString);
     return selected?.label;
-  }, [options, value]);
+  }, [options, valueString]);
 
   const cleanDesc = getCleanDescription(description);
 
@@ -124,7 +146,7 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
   // more than a one-word label (e.g. picking an AI skill). Falls back to the
   // loading/error chrome the Select style uses.
   if (optionsStyle === "catalog") {
-    const selected = options.find((opt) => opt.value === value);
+    const selected = options.find((opt) => opt.value === valueString);
     return (
       <div className="space-y-2">
         <div>
@@ -170,11 +192,11 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    onChange();
+                    emitValue();
                     setCatalogOpen(false);
                   }}
                   className={`w-full rounded-md border px-3 py-2 text-left text-sm text-muted-foreground hover:border-primary ${
-                    value ? "" : "border-primary bg-primary/5"
+                    valueString ? "" : "border-primary bg-primary/5"
                   }`}
                 >
                   None
@@ -185,16 +207,16 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
                   key={opt.value}
                   type="button"
                   onClick={() => {
-                    onChange(opt.value);
+                    emitValue(opt.value);
                     setCatalogOpen(false);
                   }}
                   className={`flex w-full flex-col gap-1 rounded-md border p-3 text-left transition-colors hover:border-primary ${
-                    opt.value === value ? "border-primary bg-primary/5" : ""
+                    opt.value === valueString ? "border-primary bg-primary/5" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{opt.label}</span>
-                    {opt.value === value && (
+                    {opt.value === valueString && (
                       <Badge variant="secondary" className="ml-auto">
                         Selected
                       </Badge>
@@ -265,12 +287,12 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          onChange();
+                          emitValue();
                           setOpen(false);
                           setSearchQuery("");
                         }}
                         className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground text-muted-foreground ${
-                          value ? "" : "bg-accent text-accent-foreground"
+                          valueString ? "" : "bg-accent text-accent-foreground"
                         }`}
                       >
                         None
@@ -281,12 +303,12 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
                         key={opt.value}
                         type="button"
                         onClick={() => {
-                          onChange(opt.value);
+                          emitValue(opt.value);
                           setOpen(false);
                           setSearchQuery("");
                         }}
                         className={`w-full text-left px-3 py-1.5 text-sm rounded-sm hover:bg-accent hover:text-accent-foreground ${
-                          opt.value === value
+                          opt.value === valueString
                             ? "bg-accent text-accent-foreground"
                             : ""
                         }`}
@@ -329,9 +351,9 @@ export const DynamicOptionsField: React.FC<DynamicOptionsFieldProps> = ({
           </div>
         ) : (
           <Select
-            value={(value as string) || ""}
+            value={valueString}
             onValueChange={(val) =>
-              onChange(val === NONE_SENTINEL ? undefined : val)
+              emitValue(val === NONE_SENTINEL ? undefined : val)
             }
             disabled={options.length === 0}
           >

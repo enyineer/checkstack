@@ -310,6 +310,15 @@ export interface DynamicOptionsFieldProps {
   searchable?: boolean;
   /** Render style: compact `select` (default) or a browsable `catalog` modal. */
   optionsStyle?: "select" | "catalog";
+  /**
+   * The field's JSON-schema value type. Resolver options always carry STRING
+   * values (`ResolverOption.value`), so a `number`/`integer` field must coerce
+   * the picked option back to a number before emitting it (or the backend zod
+   * schema rejects the saved string) and stringify its stored value for option
+   * matching (or a stored `0` never shows as selected). Omitted/`"string"`
+   * keeps the historical pass-through behavior.
+   */
+  valueType?: "string" | "number" | "integer";
   formValues: Record<string, unknown>;
   optionsResolvers: Record<string, OptionsResolver>;
   /** Callback when value changes. Omit val to clear the field. */

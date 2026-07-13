@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { evaluateAssertion } from "@checkstack/backend-api";
+import { evaluateAssertion, toJsonSchema } from "@checkstack/backend-api";
 import type { StreamSeverityTotals } from "@checkstack/logstream-common";
 import type { CollectorRunContext } from "@checkstack/backend-api";
 import type { LogStreamHealthClient } from "./strategy";
@@ -233,6 +233,24 @@ describe("PatternOccurrenceCollector", () => {
 });
 
 describe("PatternMetricCollector", () => {
+  it("declares the variable picker's dependency on patternId in the config schema", () => {
+    // The variableIndex resolver reads `patternId` from the SAME form, and the
+    // editor only re-fetches a picker's options when a field listed in
+    // `x-depends-on` changes. Without this annotation the options fetch runs
+    // once at mount (patternId still empty) and the picker stays permanently
+    // at "No options available".
+    const collector = new PatternMetricCollector(() => NOW);
+    const jsonSchema = toJsonSchema(collector.config.schema);
+    expect(jsonSchema).toMatchObject({
+      properties: {
+        variableIndex: {
+          "x-options-resolver": "logstreamVariableIndex",
+          "x-depends-on": ["patternId"],
+        },
+      },
+    });
+  });
+
   it("aggregates a variable window into avg/min/max/sampleCount", async () => {
     const collector = new PatternMetricCollector(() => NOW);
     const { result } = await collector.execute({
