@@ -117,12 +117,17 @@ describe.skipIf(!process.env.CHECKSTACK_IT)(
         await setupPool.query(`CREATE SCHEMA IF NOT EXISTS "${SCHEMA}"`);
         // The satellites table the service reads/writes. Only the columns the
         // service touches are needed.
+        // Mirror every column the schema declares - the service's
+        // `.returning()` selects ALL of them, so a column missing here (e.g.
+        // `capabilities`, added by the telemetry work) fails the query even
+        // though the service never reads it.
         await setupPool.query(`
           CREATE TABLE "${SCHEMA}".satellites (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             name text NOT NULL,
             region text NOT NULL,
             tags jsonb NOT NULL DEFAULT '{}',
+            capabilities jsonb NOT NULL DEFAULT '[]',
             token_hash text NOT NULL,
             last_heartbeat_at timestamp,
             version text,

@@ -39,6 +39,12 @@ export {
   type RunSecretsMessage,
   type RequestConfigSecretsMessage,
   type ConfigSecretsMessage,
+  type TelemetryBatchMessage,
+  type CapabilityStatusMessage,
+  type CapabilitySecretRequestMessage,
+  type TelemetryAckMessage,
+  type CapabilityConfigMessage,
+  type CapabilitySecretResponseMessage,
 } from "./protocol";
 export {
   SATELLITE_STATUS_CHANGED,
@@ -50,6 +56,13 @@ export {
   RESULT_BUFFER_CAPACITY,
   RECONNECT_BASE_MS,
   RECONNECT_MAX_MS,
+  TELEMETRY_MAX_INFLIGHT,
+  TELEMETRY_BATCH_MAX_ITEMS,
+  TELEMETRY_BATCH_MAX_BYTES,
+  TELEMETRY_DEDUPE_WINDOW,
+  TELEMETRY_BUDGET_BYTES_PER_MIN,
+  TELEMETRY_ACK_TIMEOUT_MS,
+  TELEMETRY_PUMP_INTERVAL_MS,
 } from "./constants";
 export * from "./plugin-metadata";
 export { satelliteRoutes } from "./routes";

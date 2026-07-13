@@ -1,7 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  jest,
+  setDefaultTimeout,
+} from "bun:test";
 import { InMemoryQueue } from "./memory-queue";
 import type { QueueJob } from "@checkstack/queue-api";
 import type { Logger } from "@checkstack/backend-api";
+
+// Retry/backoff tests poll real timers, which fire arbitrarily late when the
+// full repo suite saturates the machine. Generous ceiling; assertions unchanged.
+setDefaultTimeout(30_000);
 
 // Suppress console.error output during tests for failed jobs
 const testLogger: Logger = {
@@ -191,27 +203,41 @@ describe("InMemoryQueue Consumer Groups", () => {
 
       await queue.enqueue("test");
 
-      // Wait for retries (with delayMultiplier=0.01: 20ms + 40ms = 60ms + buffer)
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // Wait for all three attempts by POLLING instead of a fixed sleep.
+      // Nominal schedule (delayMultiplier=0.01) is 20ms + 40ms = 60ms, but
+      // under full-suite machine load timers fire late (observed >5s when a
+      // dev stack runs alongside the suite), so a fixed window flaked. The
+      // generous deadline still guards a broken multiplier: full-scale
+      // delays (2s + 4s + more retries) exhaust it.
+      const deadline = Date.now() + 15_000;
+      while (attempts < 3 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
 
       // Should have tried 3 times (initial + 2 retries)
       expect(attempts).toBe(3);
 
-      // Check exponential backoff (delays should increase)
+      // Check the exponential backoff SCHEDULE via lower bounds only.
+      // Measured delays can only ever EXCEED the scheduled delay (late
+      // timers), so lower bounds are load-immune: delay2 >= 35 proves the
+      // second retry was scheduled at ~40ms (2^2), not at the first retry's
+      // ~20ms (2^1). Upper bounds / direct delay2 > delay1 comparisons were
+      // scheduler-jitter noise, not backoff-logic guards, and flaked under
+      // parallel-suite load.
       if (attemptTimestamps.length >= 3) {
         const delay1 = attemptTimestamps[1] - attemptTimestamps[0];
         const delay2 = attemptTimestamps[2] - attemptTimestamps[1];
 
-        // With delayMultiplier=0.01: first retry after 2^1 * 1000 * 0.01 = 20ms
+        // First retry scheduled after 2^1 * 1000 * 0.01 = 20ms
         expect(delay1).toBeGreaterThanOrEqual(15); // Allow tolerance
-        expect(delay1).toBeLessThanOrEqual(50);
-
-        // Second retry after 2^2 * 1000 * 0.01 = 40ms
+        // Second retry scheduled after 2^2 * 1000 * 0.01 = 40ms
         expect(delay2).toBeGreaterThanOrEqual(35);
-        expect(delay2).toBeLessThanOrEqual(80);
-
-        // Verify exponential growth (delay2 should be roughly 2x delay1)
-        expect(delay2).toBeGreaterThan(delay1);
+        // NO upper bound on measured delays: wall-clock ceilings cannot
+        // distinguish a delayMultiplier regression (seconds) from timer
+        // lateness under machine load (also seconds), so any ceiling is
+        // either a flake or a no-op. The multiplier being APPLIED is
+        // guarded by the delayed-enqueue test below, which fails if a
+        // 2s-configured delay does not become ~20ms.
       }
     });
 

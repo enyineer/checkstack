@@ -589,6 +589,21 @@ export const createHealthCheckRouter = (opts: {
         return { counts };
       }),
 
+    resolveEnqueueEnvironments: os.resolveEnqueueEnvironments.handler(
+      async ({ input }) => {
+        // Delegates to the same resolution the run_now automation + scheduler
+        // use, so a cross-plugin one-off run (e.g. logstream fast-path) targets
+        // exactly the environment slices the executor accepts.
+        const environmentIds = await service.resolveEnqueueEnvironmentIds({
+          systemId: input.systemId,
+          configurationId: input.configId,
+          catalogClient,
+          logger,
+        });
+        return { environmentIds };
+      },
+    ),
+
     associateSystem: os.associateSystem.handler(async ({ input, context }) => {
       await enforceNotGitOpsLocked("System", input.systemId);
       await service.associateSystem({

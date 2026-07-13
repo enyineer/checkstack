@@ -17,6 +17,7 @@ import { TeamAccessEditor, TeamOwnershipPicker } from "@checkstack/auth-frontend
 import { useApi, accessApiRef } from "@checkstack/frontend-api";
 import type { Environment } from "@checkstack/catalog-frontend";
 import type { TemplateCompletionProvider } from "@checkstack/ui";
+import { useConfigOptionsResolvers } from "./options-resolvers";
 
 // =============================================================================
 // TYPES
@@ -139,6 +140,15 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   const { allowed: allowGlobal } = accessApi.useAccess(
     healthCheckAccess.configuration.manage,
   );
+  // Dropdown resolvers for `x-options-resolver` config fields, contributed by
+  // the plugin that owns this strategy (e.g. the log-stream stream/pattern
+  // pickers). Stable object; shared by the strategy and collector config forms.
+  // The collector forms get the SAME strategy config so a collector-field
+  // resolver can read a selection made in the strategy form.
+  const configOptionsResolvers = useConfigOptionsResolvers({
+    strategyId,
+    strategyConfig: formState.strategyConfig,
+  });
   // --- General Section ---
   if (selectedNode === "general") {
     return (
@@ -157,6 +167,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           }
           templatePreviewContext={templatePreviewContext}
           templateCompletionProvider={templateCompletionProvider}
+          optionsResolvers={configOptionsResolvers}
           onNameChange={onNameChange}
           onIntervalChange={onIntervalChange}
           onStrategyConfigChange={onStrategyConfigChange}
@@ -276,6 +287,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
           }
           templatePreviewContext={templatePreviewContext}
           templateCompletionProvider={templateCompletionProvider}
+          optionsResolvers={configOptionsResolvers}
         />
       </div>
     );

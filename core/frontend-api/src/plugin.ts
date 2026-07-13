@@ -240,6 +240,17 @@ export interface FrontendPlugin {
    * automatically and must not be listed here.
    */
   foreignSignals?: Signal<unknown>[];
+
+  /**
+   * The plugin's OWN signal definitions that carry a `resourceKey`, registered
+   * so the auto-invalidator can recover the extractor from a received signal's
+   * id and scope invalidation to the matching resource instead of the whole
+   * plugin cache. Only signals with a `resourceKey` benefit from being listed;
+   * a signal without one keeps the default blanket-plugin invalidation whether
+   * listed or not. Same-plugin auto-invalidation still works for unlisted
+   * signals - listing only unlocks the narrower resource-scoped path.
+   */
+  signals?: Signal<unknown>[];
 }
 
 export function createFrontendPlugin(plugin: FrontendPlugin): FrontendPlugin {

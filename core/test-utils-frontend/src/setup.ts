@@ -9,9 +9,15 @@
  * preload = ["@checkstack/test-utils-frontend/setup"]
  */
 
-// Register Happy DOM globals first (document, window, etc.)
+// Register Happy DOM globals first (document, window, etc.). Idempotent: a
+// test FILE may import this setup directly (so it also runs under the ROOT
+// test runner, whose bunfig does not preload it), while the package-level
+// bunfig preload has already registered the DOM in package-scoped runs -
+// registering twice throws, so guard on an existing document.
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-GlobalRegistrator.register();
+if (!("document" in globalThis)) {
+  GlobalRegistrator.register();
+}
 
 // Then set up Testing Library
 import { afterEach, expect } from "bun:test";

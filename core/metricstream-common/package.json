@@ -1,0 +1,34 @@
+{
+  "name": "@checkstack/metricstream-common",
+  "version": "0.0.1",
+  "description": "Metric stream contracts, schemas, access rules and signals",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": { "import": "./src/index.ts" }
+  },
+  "checkstack": {
+    "type": "common",
+    "pluginId": "metricstream"
+  },
+  "scripts": {
+    "pack": "checkstack-scripts plugin-pack",
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@checkstack/common": "workspace:*",
+    "@checkstack/otlp-wire": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "typescript": "^5.7.2"
+  }
+}

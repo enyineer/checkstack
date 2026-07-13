@@ -169,6 +169,9 @@
       "path": "./core/infrastructure-frontend"
     },
     {
+      "path": "./core/ingest-utils"
+    },
+    {
       "path": "./core/integration-backend"
     },
     {
@@ -176,6 +179,15 @@
     },
     {
       "path": "./core/integration-frontend"
+    },
+    {
+      "path": "./core/logstream-backend"
+    },
+    {
+      "path": "./core/logstream-common"
+    },
+    {
+      "path": "./core/logstream-frontend"
     },
     {
       "path": "./core/maintenance-backend"
@@ -187,6 +199,15 @@
       "path": "./core/maintenance-frontend"
     },
     {
+      "path": "./core/metricstream-backend"
+    },
+    {
+      "path": "./core/metricstream-common"
+    },
+    {
+      "path": "./core/metricstream-frontend"
+    },
+    {
       "path": "./core/notification-backend"
     },
     {
@@ -194,6 +215,9 @@
     },
     {
       "path": "./core/notification-frontend"
+    },
+    {
+      "path": "./core/otlp-wire"
     },
     {
       "path": "./core/pluginmanager-common"

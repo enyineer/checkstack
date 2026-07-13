@@ -4,6 +4,10 @@ import {
   type SatelliteResultHandler,
   type SatelliteScriptPackageSink,
 } from "./satellite-ws-handler";
+import {
+  SatelliteCapabilityRegistryImpl,
+  type SatelliteCapabilityHandler,
+} from "./capability-registry";
 import { createMockLogger } from "@checkstack/test-utils-backend";
 import type { SatelliteService } from "./service";
 import type { ConfigRelay } from "./config-relay";
@@ -15,6 +19,7 @@ const MOCK_SATELLITE: SatelliteWithStatus = {
   name: "EU West",
   region: "eu-west-1",
   tags: {},
+  capabilities: [],
   status: "online",
   createdAt: new Date(),
 };
@@ -44,6 +49,7 @@ function createMockService(
       return undefined;
     }),
     updateHeartbeat: mock(async () => {}),
+    updateCapabilities: mock(async () => {}),
   } as unknown as SatelliteService;
 }
 
@@ -709,6 +715,340 @@ describe("SatelliteWsHandler", () => {
       expect(msg.type).toBe("sandbox_policy");
       expect(msg.policy.network.mode).toBe("allowlist");
       expect(msg.policy.network.allow).toEqual(["10.0.0.1"]);
+    });
+  });
+
+  describe("telemetry + capability routing", () => {
+    async function authedWithRouter(
+      handlerDef: Partial<SatelliteCapabilityHandler> & { kind: string },
+    ) {
+      const registry = new SatelliteCapabilityRegistryImpl();
+      registry.registerCapability(handlerDef, {
+        pluginId: "test",
+      } as unknown as Parameters<typeof registry.registerCapability>[1]);
+      const h = new SatelliteWsHandler(
+        service,
+        configRelay,
+        resultHandler,
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        registry,
+      );
+      const ws = createMockWs();
+      const { onMessage } = h.onConnection(ws);
+      await onMessage(
+        JSON.stringify({
+          type: "authenticate",
+          clientId: "sat-1",
+          token: "csat_valid-token",
+          capabilities: ["telemetry"],
+        }),
+      );
+      return { h, ws, onMessage, registry };
+    }
+
+    function lastMessageOfType(ws: ReturnType<typeof createMockWs>, type: string) {
+      const found = [...ws.messages]
+        .reverse()
+        .map((m) => JSON.parse(m))
+        .find((m) => m.type === type);
+      return found;
+    }
+
+    it("persists advertised capabilities on authenticate", async () => {
+      await authedWithRouter({ kind: "telemetry" });
+      expect(service.updateCapabilities).toHaveBeenCalledWith("sat-1", [
+        "telemetry",
+      ]);
+    });
+
+    it("routes a telemetry_batch to its handler and acks the handler's counts", async () => {
+      const handleTelemetryBatch = mock(async () => ({
+        accepted: 4,
+        rejected: 1,
+      }));
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "logstream",
+        handleTelemetryBatch,
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "telemetry_batch",
+          batchId: "0",
+          kind: "logstream",
+          payload: [{ line: "a" }],
+        }),
+      );
+      expect(handleTelemetryBatch).toHaveBeenCalledTimes(1);
+      const ack = lastMessageOfType(ws, "telemetry_ack");
+      expect(ack).toMatchObject({
+        batchId: "0",
+        accepted: 4,
+        rejected: 1,
+        retryable: false,
+      });
+    });
+
+    it("dedupes a resent batchId: re-acks the same counts, handler runs once", async () => {
+      const handleTelemetryBatch = mock(async () => ({
+        accepted: 2,
+        rejected: 0,
+      }));
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "logstream",
+        handleTelemetryBatch,
+      });
+      const send = () =>
+        onMessage(
+          JSON.stringify({
+            type: "telemetry_batch",
+            batchId: "7",
+            kind: "logstream",
+            payload: [{ line: "a" }],
+          }),
+        );
+      await send();
+      await send();
+      expect(handleTelemetryBatch).toHaveBeenCalledTimes(1);
+      const acks = ws.messages
+        .map((m) => JSON.parse(m))
+        .filter((m) => m.type === "telemetry_ack");
+      expect(acks).toHaveLength(2);
+      expect(acks[0]).toMatchObject({ batchId: "7", accepted: 2 });
+      expect(acks[1]).toMatchObject({ batchId: "7", accepted: 2 });
+    });
+
+    it("drops a resend that RACES an in-flight batch: handler runs once, one ack", async () => {
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((r) => {
+        release = () => r();
+      });
+      const handleTelemetryBatch = mock(async () => {
+        await gate;
+        return { accepted: 3, rejected: 0 };
+      });
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "logstream",
+        handleTelemetryBatch,
+      });
+      ws.messages.length = 0;
+      const batch = {
+        type: "telemetry_batch",
+        batchId: "9",
+        kind: "logstream",
+        payload: [{ line: "a" }],
+      };
+      // Start the first batch (suspends inside the handler on `gate`), then send
+      // a resend of the SAME batchId while it is still in flight.
+      const first = onMessage(JSON.stringify(batch));
+      await onMessage(JSON.stringify(batch));
+      release?.();
+      await first;
+      expect(handleTelemetryBatch).toHaveBeenCalledTimes(1);
+      const acks = ws.messages
+        .map((m) => JSON.parse(m))
+        .filter((m) => m.type === "telemetry_ack");
+      expect(acks).toHaveLength(1);
+      expect(acks[0]).toMatchObject({ batchId: "9", accepted: 3, retryable: false });
+    });
+
+    it("re-processes a retryable batch on resend (transient outcome not remembered)", async () => {
+      let call = 0;
+      const handleTelemetryBatch = mock(async () => {
+        call += 1;
+        return call === 1
+          ? { accepted: 0, rejected: 0, retryable: true }
+          : { accepted: 2, rejected: 0 };
+      });
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "logstream",
+        handleTelemetryBatch,
+      });
+      ws.messages.length = 0;
+      const batch = {
+        type: "telemetry_batch",
+        batchId: "11",
+        kind: "logstream",
+        payload: [{ line: "a" }],
+      };
+      await onMessage(JSON.stringify(batch));
+      await onMessage(JSON.stringify(batch));
+      expect(handleTelemetryBatch).toHaveBeenCalledTimes(2);
+      const acks = ws.messages
+        .map((m) => JSON.parse(m))
+        .filter((m) => m.type === "telemetry_ack");
+      expect(acks[0]).toMatchObject({ batchId: "11", retryable: true });
+      expect(acks[1]).toMatchObject({ batchId: "11", accepted: 2, retryable: false });
+    });
+
+    it("acks a non-retryable drop when no handler is registered for the kind", async () => {
+      const { ws, onMessage } = await authedWithRouter({ kind: "logstream" });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "telemetry_batch",
+          batchId: "1",
+          kind: "unknown-kind",
+          payload: [],
+        }),
+      );
+      const ack = lastMessageOfType(ws, "telemetry_ack");
+      expect(ack).toMatchObject({ batchId: "1", retryable: false });
+    });
+
+    it("acks retryable when the handler throws (transient failure)", async () => {
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "logstream",
+        handleTelemetryBatch: mock(async () => {
+          throw new Error("sink down");
+        }),
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "telemetry_batch",
+          batchId: "2",
+          kind: "logstream",
+          payload: [],
+        }),
+      );
+      const ack = lastMessageOfType(ws, "telemetry_ack");
+      expect(ack).toMatchObject({ batchId: "2", retryable: true });
+    });
+
+    it("routes a capability_status to its handler (no ack)", async () => {
+      const handleCapabilityStatus = mock(async () => {});
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "metric-scrape",
+        handleCapabilityStatus,
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "capability_status",
+          kind: "metric-scrape",
+          payload: { targetId: "t1" },
+        }),
+      );
+      expect(handleCapabilityStatus).toHaveBeenCalledWith({
+        satelliteId: "sat-1",
+        payload: { targetId: "t1" },
+      });
+      expect(lastMessageOfType(ws, "telemetry_ack")).toBeUndefined();
+    });
+
+    it("pushes capability_config right after authenticated", async () => {
+      const { ws } = await authedWithRouter({
+        kind: "metric-scrape",
+        buildCapabilityConfig: mock(async () => ({ targets: ["t1"] })),
+      });
+      const cfg = lastMessageOfType(ws, "capability_config");
+      expect(cfg).toMatchObject({
+        kind: "metric-scrape",
+        payload: { targets: ["t1"] },
+      });
+    });
+
+    it("re-pushes capability_config via pushCapabilityConfig", async () => {
+      const build = mock(async () => ({ targets: ["t2"] }));
+      const { h, ws } = await authedWithRouter({
+        kind: "metric-scrape",
+        buildCapabilityConfig: build,
+      });
+      ws.messages.length = 0;
+      await h.pushCapabilityConfig({ kind: "metric-scrape", satelliteId: "sat-1" });
+      const cfg = lastMessageOfType(ws, "capability_config");
+      expect(cfg).toMatchObject({ kind: "metric-scrape", payload: { targets: ["t2"] } });
+    });
+
+    it("routes a capability_secret_request to resolveSecret and replies with its payload", async () => {
+      const resolveSecret = mock(async () => ({
+        payload: { bearerToken: "tok-123" },
+      }));
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "metric-scrape",
+        resolveSecret,
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "capability_secret_request",
+          requestId: "r1",
+          kind: "metric-scrape",
+          payload: { targetId: "t1" },
+        }),
+      );
+      expect(resolveSecret).toHaveBeenCalledWith({
+        satelliteId: "sat-1",
+        payload: { targetId: "t1" },
+      });
+      const reply = lastMessageOfType(ws, "capability_secret_response");
+      expect(reply).toMatchObject({
+        requestId: "r1",
+        payload: { bearerToken: "tok-123" },
+      });
+      expect(reply.error).toBeUndefined();
+    });
+
+    it("replies with the resolver's error (e.g. binding mismatch) and no payload", async () => {
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "metric-scrape",
+        resolveSecret: mock(async () => ({ error: "not bound to this satellite" })),
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "capability_secret_request",
+          requestId: "r2",
+          kind: "metric-scrape",
+          payload: { targetId: "other" },
+        }),
+      );
+      const reply = lastMessageOfType(ws, "capability_secret_response");
+      expect(reply).toMatchObject({ requestId: "r2", error: "not bound to this satellite" });
+      expect(reply.payload).toBeUndefined();
+    });
+
+    it("errors a capability_secret_request when the kind has no resolveSecret", async () => {
+      const { ws, onMessage } = await authedWithRouter({ kind: "metric-scrape" });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "capability_secret_request",
+          requestId: "r3",
+          kind: "metric-scrape",
+          payload: { targetId: "t1" },
+        }),
+      );
+      const reply = lastMessageOfType(ws, "capability_secret_response");
+      expect(reply).toMatchObject({ requestId: "r3" });
+      expect(reply.error).toContain("No secret resolver");
+      expect(reply.payload).toBeUndefined();
+    });
+
+    it("replies with an error when resolveSecret throws (never leaks the throw)", async () => {
+      const { ws, onMessage } = await authedWithRouter({
+        kind: "metric-scrape",
+        resolveSecret: mock(async () => {
+          throw new Error("resolver exploded");
+        }),
+      });
+      ws.messages.length = 0;
+      await onMessage(
+        JSON.stringify({
+          type: "capability_secret_request",
+          requestId: "r4",
+          kind: "metric-scrape",
+          payload: { targetId: "t1" },
+        }),
+      );
+      const reply = lastMessageOfType(ws, "capability_secret_response");
+      expect(reply).toMatchObject({ requestId: "r4" });
+      expect(reply.error).toContain("resolver exploded");
     });
   });
 });

@@ -22,3 +22,18 @@ export const satelliteHooks = {
     satelliteId: string;
   }>("satellite.removed"),
 } as const;
+
+/**
+ * Fired (via `notifyCapabilityConfigChanged`) when a domain plugin's capability
+ * configuration for a satellite changes (e.g. a scrape-target CRUD mutation).
+ *
+ * satellite-backend subscribes in `broadcast` mode so EVERY pod receives it and
+ * re-pushes `capability_config` to its OWN connected satellites - mirroring the
+ * script-packages / sandbox-policy relays. Best-effort liveness; the config is
+ * rebuilt fresh from the domain plugin's durable tables on the next connect
+ * regardless, so a missed event self-heals.
+ */
+export const satelliteCapabilityConfigChangedHook = createHook<{
+  kind: string;
+  satelliteId?: string;
+}>("satellite.capabilityConfigChanged");

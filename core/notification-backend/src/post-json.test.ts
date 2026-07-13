@@ -1,4 +1,9 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, setDefaultTimeout } from "bun:test";
+
+// These spin real local HTTP servers per test - instant in isolation, but
+// bun's 5s default trips when the full repo suite saturates the machine.
+// Generous ceiling; the assertions are unchanged.
+setDefaultTimeout(30_000);
 import type { Logger } from "@checkstack/backend-api";
 import { postJson } from "./post-json";
 

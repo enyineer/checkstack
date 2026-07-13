@@ -14,6 +14,7 @@ import {
   detectEditorType,
   coerceNumberInput,
   isArrayItemNonTrivial,
+  scopeArrayItemFormValues,
   type EditorType,
 } from "./utils";
 
@@ -595,5 +596,39 @@ describe("isArrayItemNonTrivial", () => {
     expect(isArrayItemNonTrivial({ nested: { value: "set" } })).toBe(true);
     expect(isArrayItemNonTrivial([{ a: "" }, { a: "" }])).toBe(false);
     expect(isArrayItemNonTrivial([{ a: "" }, { a: "x" }])).toBe(true);
+  });
+});
+
+describe("scopeArrayItemFormValues", () => {
+  it("merges an object item's fields over the top-level form values", () => {
+    const merged = scopeArrayItemFormValues({
+      formValues: { metricName: "http_requests_total", other: 1 },
+      item: { key: "method", value: "GET" },
+    });
+    // top-level field still visible
+    expect(merged.metricName).toBe("http_requests_total");
+    expect(merged.other).toBe(1);
+    // the row's own fields are now visible to the row's resolvers
+    expect(merged.key).toBe("method");
+    expect(merged.value).toBe("GET");
+  });
+
+  it("lets a row field shadow a same-named top-level field", () => {
+    const merged = scopeArrayItemFormValues({
+      formValues: { key: "top-level", metricName: "m" },
+      item: { key: "row-level" },
+    });
+    expect(merged.key).toBe("row-level");
+    expect(merged.metricName).toBe("m");
+  });
+
+  it("passes non-object items through unchanged (referential identity)", () => {
+    const formValues = { metricName: "m" };
+    expect(scopeArrayItemFormValues({ formValues, item: "x" })).toBe(formValues);
+    expect(scopeArrayItemFormValues({ formValues, item: 3 })).toBe(formValues);
+    expect(scopeArrayItemFormValues({ formValues, item: null })).toBe(formValues);
+    expect(scopeArrayItemFormValues({ formValues, item: ["a"] })).toBe(
+      formValues,
+    );
   });
 });

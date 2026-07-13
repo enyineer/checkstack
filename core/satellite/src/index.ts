@@ -20,6 +20,10 @@ import {
   applyConfigSecretValues,
 } from "./config-secrets";
 import { SatelliteScriptPackages } from "./satellite-script-packages";
+import { TelemetryClient } from "./telemetry-client";
+import { AgentCapabilityRegistry } from "./capability-config-registry";
+import { computeCapabilities, isTelemetryEnabled } from "./capabilities";
+import { startTelemetryReceivers } from "./telemetry/receivers";
 
 // =============================================================================
 // Environment validation — fail fast if required vars are missing
@@ -369,12 +373,23 @@ async function executeAssignment(
 logger.info(`Core URL: ${CORE_URL}`);
 logger.info(`Client ID: ${CLIENT_ID}`);
 
+// Telemetry / capability plumbing (additive; entirely off the health-result
+// path). Capabilities are advertised from env flags; the telemetry client +
+// capability registry are instantiated only when at least one capability is
+// enabled. SAT-B wires the concrete receivers/scrapers into these instances.
+const capabilities = computeCapabilities(process.env);
+const telemetryEnabled = isTelemetryEnabled(capabilities);
+if (capabilities.length > 0) {
+  logger.info(`Advertising capabilities: ${capabilities.join(", ")}`);
+}
+
 const client = new SatelliteClient({
   coreUrl: CORE_URL,
   clientId: CLIENT_ID,
   token: TOKEN,
   version: VERSION,
   logger,
+  ...(telemetryEnabled ? { capabilities } : {}),
   onAssignments: (assignments: SatelliteAssignment[]) => {
     scheduler.updateAssignments(assignments);
   },
@@ -387,8 +402,20 @@ const client = new SatelliteClient({
     sandboxPolicyCache.set(policy);
     logger.info("Applied relayed global sandbox policy");
   },
+  onConnected: () => {
+    // Resume the telemetry credit window once the socket is authenticated.
+    telemetryClient?.onConnected();
+  },
+  onTelemetryAck: (ack) => {
+    telemetryClient?.handleAck(ack);
+  },
+  onCapabilityConfig: (input) => {
+    capabilityRegistry?.handleCapabilityConfig(input);
+  },
   onDisconnect: () => {
     scheduler.stop();
+    // Requeue in-flight batches + reset the credit window for the next socket.
+    telemetryClient?.onDisconnected();
   },
 });
 
@@ -438,6 +465,44 @@ const scheduler = new Scheduler({
   },
 });
 
+// Telemetry sender + agent capability registry. Instantiated after `client`
+// so their send/status closures reference the live socket (same forward-
+// reference style as `scheduler` above). SAT-B registers receivers/scrapers
+// against these: `telemetryClient.enqueue({ kind, items, estimateBytes })` to
+// forward, `capabilityRegistry.register({ kind, onCapabilityConfig })` to
+// consume pushed config, and `capabilityRegistry.emitStatus({ kind, payload })`
+// to source status back to core.
+const telemetryClient = telemetryEnabled
+  ? new TelemetryClient({
+      send: (msg) => client.sendTelemetry(msg),
+      logger,
+    })
+  : undefined;
+
+const capabilityRegistry = telemetryEnabled
+  ? new AgentCapabilityRegistry({
+      sendStatus: (input) => client.sendCapabilityStatus(input),
+      logger,
+    })
+  : undefined;
+
+telemetryClient?.start();
+
+// Local telemetry receivers (HTTP logs/metrics + syslog), each behind its own
+// capability flag. They forward into the ONE telemetry client above; nothing
+// here touches the health-result path. Only started when the telemetry client
+// exists (i.e. at least one capability is advertised).
+const telemetryReceivers =
+  telemetryClient !== undefined && capabilityRegistry !== undefined
+    ? startTelemetryReceivers({
+        capabilities,
+        telemetryClient,
+        capabilityRegistry,
+        fetchSecret: (input) => client.requestCapabilitySecret(input),
+        logger,
+      })
+    : undefined;
+
 // Start the connection
 void client.connect();
 
@@ -445,6 +510,8 @@ void client.connect();
 process.on("SIGTERM", () => {
   logger.info("Received SIGTERM, shutting down...");
   scheduler.stop();
+  telemetryReceivers?.stop();
+  telemetryClient?.stop();
   client.disconnect();
   process.exit(0);
 });
@@ -452,6 +519,8 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   logger.info("Received SIGINT, shutting down...");
   scheduler.stop();
+  telemetryReceivers?.stop();
+  telemetryClient?.stop();
   client.disconnect();
   process.exit(0);
 });

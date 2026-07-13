@@ -33,51 +33,66 @@ export const globalTimerScheduler: TimerScheduler<TimerHandle> = {
   clear: ({ handle }) => clearTimeout(handle),
 };
 
-export interface CreateInvalidationCoalescerProps<THandle> {
-  /** Invoked once per target when its trailing window elapses. */
-  flush: (props: { target: string }) => void;
+export interface CreateInvalidationCoalescerProps<TJob, THandle> {
+  /** Invoked once per bucket when its trailing window elapses. */
+  flush: (props: { job: TJob }) => void;
+  /**
+   * Derive the coalesce bucket key for a job. Jobs sharing a key collapse into
+   * one trailing flush; distinct keys are tracked independently. The LAST job
+   * scheduled for a key is the one flushed.
+   */
+  keyOf: (job: TJob) => string;
   /** Trailing debounce window, in milliseconds. */
   windowMs: number;
   /** Timer seam; use {@link globalTimerScheduler} in production. */
   scheduler: TimerScheduler<THandle>;
 }
 
-export interface InvalidationCoalescer {
+export interface InvalidationCoalescer<TJob> {
   /**
-   * Register an invalidation for `target`. Repeated calls for the same target
-   * within `windowMs` reset the timer, so a burst flushes exactly once (after
-   * the burst quiets). Distinct targets are tracked independently.
+   * Register an invalidation `job`. Repeated calls whose `keyOf` matches within
+   * `windowMs` reset the timer, so a burst flushes exactly once (after the
+   * burst quiets), with the last scheduled job winning. Distinct keys are
+   * tracked independently.
    */
-  schedule: (props: { target: string }) => void;
+  schedule: (props: { job: TJob }) => void;
   /** Cancel every pending flush. Call on unmount to avoid leaked timers. */
   dispose: () => void;
 }
 
-export function createInvalidationCoalescer<THandle>({
+interface PendingEntry<TJob, THandle> {
+  handle: THandle;
+  job: TJob;
+}
+
+export function createInvalidationCoalescer<TJob, THandle>({
   flush,
+  keyOf,
   windowMs,
   scheduler,
-}: CreateInvalidationCoalescerProps<THandle>): InvalidationCoalescer {
-  const pending = new Map<string, THandle>();
+}: CreateInvalidationCoalescerProps<TJob, THandle>): InvalidationCoalescer<TJob> {
+  const pending = new Map<string, PendingEntry<TJob, THandle>>();
 
-  const schedule = ({ target }: { target: string }): void => {
-    const existing = pending.get(target);
+  const schedule = ({ job }: { job: TJob }): void => {
+    const key = keyOf(job);
+    const existing = pending.get(key);
     if (existing !== undefined) {
-      scheduler.clear({ handle: existing });
+      scheduler.clear({ handle: existing.handle });
     }
     const handle = scheduler.set({
       delayMs: windowMs,
       handler: () => {
-        pending.delete(target);
-        flush({ target });
+        const entry = pending.get(key);
+        pending.delete(key);
+        if (entry) flush({ job: entry.job });
       },
     });
-    pending.set(target, handle);
+    pending.set(key, { handle, job });
   };
 
   const dispose = (): void => {
-    for (const handle of pending.values()) {
-      scheduler.clear({ handle });
+    for (const entry of pending.values()) {
+      scheduler.clear({ handle: entry.handle });
     }
     pending.clear();
   };

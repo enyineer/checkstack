@@ -1,5 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, setDefaultTimeout } from "bun:test";
 import { pickFreePorts, DEFAULT_DEV_PORTS } from "./ports.ts";
+
+// These bind real sockets, which is instant in isolation but can exceed bun's
+// 5s default when the full repo suite (or a dev stack) saturates the machine.
+// Generous ceiling; the assertions are unchanged.
+setDefaultTimeout(30_000);
 
 describe("pickFreePorts", () => {
   it("returns the requested count of distinct ports", async () => {

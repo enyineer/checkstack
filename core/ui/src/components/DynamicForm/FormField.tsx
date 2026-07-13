@@ -32,6 +32,7 @@ import {
   nestedChildrenRequired,
   coerceNumberInput,
   isArrayItemNonTrivial,
+  scopeArrayItemFormValues,
 } from "./utils";
 import { DynamicOptionsField } from "./DynamicOptionsField";
 import { JsonField } from "./JsonField";
@@ -593,7 +594,13 @@ export const FormField: React.FC<FormFieldProps> = ({
           </p>
         )}
         <div className="space-y-4">
-          {items.map((item: unknown, index: number) => (
+          {items.map((item: unknown, index: number) => {
+            // Row-scope the form values so a resolver inside this item can read
+            // its OWN row's siblings (e.g. a `{key,value}` filter row's value
+            // dropdown depending on that row's `key`) alongside the whole-form
+            // values. The object branch forwards this unchanged to child fields.
+            const itemFormValues = scopeArrayItemFormValues({ formValues, item });
+            return (
             <ArrayItemRow
               key={index}
               item={item}
@@ -609,7 +616,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                 label={`${label} #${index + 1}`}
                 propSchema={itemSchema}
                 value={item}
-                formValues={formValues}
+                formValues={itemFormValues}
                 optionsResolvers={optionsResolvers}
                 templateProperties={templateProperties}
                 templateCompletionProvider={templateCompletionProvider}
@@ -632,7 +639,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                 }}
               />
             </ArrayItemRow>
-          ))}
+            );
+          })}
         </div>
       </div>
     );

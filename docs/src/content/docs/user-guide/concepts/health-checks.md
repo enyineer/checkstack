@@ -152,6 +152,12 @@ If none of the bundled strategies fit, the **script health check** lets you writ
 
 See [Script health checks](/checkstack/user-guide/reference/script-health-checks/) for the runtime contract and security model.
 
+## Log stream checks
+
+Some checks do not probe a target at all. The **Log Stream** strategy monitors logs you push to Checkstack: instead of connecting to a service each interval, it reads a [log stream's](/checkstack/user-guide/concepts/log-streams/) pre-aggregated per-minute metrics and emits one run per tick. You assert on windowed log-derived metrics such as `errorCount` over the window, the occurrence count of a specific message pattern, or `secondsSinceLastLog` to alert when a stream goes silent. Everything else on this page (states, thresholds, anomaly detection, assertion analytics, incidents, status pages) applies unchanged.
+
+See [Log streams](/checkstack/user-guide/concepts/log-streams/) for how streams are ingested and [Ship logs to a stream](/checkstack/user-guide/guides/ship-logs/) to send your first logs.
+
 ## From collection to status
 
 This is the pipeline a single check goes through, from the assignment down to a

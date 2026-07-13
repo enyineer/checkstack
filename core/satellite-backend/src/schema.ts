@@ -17,6 +17,13 @@ export const satellites = pgTable("satellites", {
   region: text("region").notNull(),
   /** Key-value tags for flexible grouping and filtering */
   tags: jsonb("tags").$type<Record<string, string>>().default({}).notNull(),
+  /**
+   * Capabilities the satellite last advertised on connect/heartbeat (e.g.
+   * "telemetry", "scrape", "log-receivers", "syslog"). Drives capability-aware
+   * UI (a scrape target can only bind to a satellite that advertised "scrape")
+   * and assignment gating. Empty for a satellite that never advertised any.
+   */
+  capabilities: jsonb("capabilities").$type<string[]>().default([]).notNull(),
   /** Bcrypt hash of the satellite's API token */
   tokenHash: text("token_hash").notNull(),
   /**

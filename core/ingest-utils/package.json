@@ -1,0 +1,26 @@
+{
+  "name": "@checkstack/ingest-utils",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "checkstack": {
+    "type": "tooling"
+  },
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@checkstack/cache-api": "workspace:*",
+    "@checkstack/cache-utils": "workspace:*",
+    "@checkstack/otlp-wire": "workspace:*"
+  },
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  }
+}

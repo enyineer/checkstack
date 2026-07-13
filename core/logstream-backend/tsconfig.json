@@ -1,0 +1,53 @@
+{
+  "extends": "@checkstack/tsconfig/backend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../auth-common"
+    },
+    {
+      "path": "../backend"
+    },
+    {
+      "path": "../backend-api"
+    },
+    {
+      "path": "../cache-api"
+    },
+    {
+      "path": "../cache-utils"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../dev-server"
+    },
+    {
+      "path": "../drizzle-helper"
+    },
+    {
+      "path": "../healthcheck-common"
+    },
+    {
+      "path": "../ingest-utils"
+    },
+    {
+      "path": "../logstream-common"
+    },
+    {
+      "path": "../queue-api"
+    },
+    {
+      "path": "../satellite-backend"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../test-utils-backend"
+    }
+  ]
+}

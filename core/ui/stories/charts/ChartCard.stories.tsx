@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import React from "react";
+import React, { useState } from "react";
 import { ChartCard, Sparkline } from "../../src/components/charts";
 import { Badge } from "../../src/components/Badge";
+import { Input } from "../../src/components/Input";
+import {
+  DateRangeFilter,
+  type DateRange,
+} from "../../src/components/DateRangeFilter";
 import { sparkValues } from "./sample-data";
 
 const meta: Meta<typeof ChartCard> = {
@@ -47,6 +52,51 @@ export const WithActions: Story = {
       </ChartCard>
     </div>
   ),
+};
+
+/**
+ * A wide actions cluster (search + a date-range filter in "Custom" mode, which
+ * reveals two datetime pickers) must WRAP onto its own line inside the
+ * overflow-hidden card, not run off the clipped right edge. Rendered in a
+ * constrained width so the wrap is visible; both custom pickers stay reachable.
+ */
+export const WideActionsWrap: Story = {
+  render: () => {
+    const WideActions = () => {
+      // A non-preset (~10 day) window so the filter starts in Custom mode with
+      // both datetime pickers visible - the exact crowded state to verify.
+      const [range, setRange] = useState<DateRange>(() => {
+        const endDate = new Date();
+        return {
+          startDate: new Date(endDate.getTime() - 10 * 24 * 60 * 60 * 1000),
+          endDate,
+        };
+      });
+      return (
+        <div className="max-w-6xl">
+          <ChartCard
+            title="Metric explorer"
+            actions={
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Input
+                  placeholder="Search metrics..."
+                  className="h-9 w-44"
+                  readOnly
+                />
+                <DateRangeFilter value={range} onChange={setRange} />
+              </div>
+            }
+          >
+            <Sparkline
+              values={values}
+              ariaLabel="Latency over the last 40 buckets"
+            />
+          </ChartCard>
+        </div>
+      );
+    };
+    return <WideActions />;
+  },
 };
 
 export const LightAndDark: Story = {

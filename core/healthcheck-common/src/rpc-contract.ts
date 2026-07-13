@@ -469,6 +469,31 @@ export const healthCheckContract = {
       ),
     ),
 
+  /**
+   * Resolve the per-environment slices a (system, configuration) assignment
+   * should enqueue for a ONE-OFF run. Returns the environment ids to run, or
+   * `[null]` (a single env-less run) when the assignment has no effective
+   * environments. This is the SAME fan-out the `run_now` automation and the
+   * recurring scheduler use, exposed so cross-plugin callers (e.g. the log-stream
+   * fast-path health trigger) enqueue exactly the slices the executor will accept
+   * - an env-less job for an env-assigned system is skipped as stale, so a caller
+   * that hardcodes `environmentId: null` is a silent no-op.
+   *
+   * A no-instance utility read reached by a team-scoped healthcheck manager (and
+   * by the trusted service principal the fast-path uses), so it is gated by ANY
+   * healthcheck read capability (`typeScoped` read), matching the utility reads
+   * (`getNotificationDefaults`) rather than the global rule. Fail-open: a catalog
+   * resolution failure collapses to a single env-less run.
+   */
+  resolveEnqueueEnvironments: proc({
+    operationType: "query",
+    userType: "authenticated",
+    access: [healthCheckAccess.configuration.read],
+    instanceAccess: { typeScoped: {} },
+  })
+    .input(z.object({ configId: z.string(), systemId: z.string() }))
+    .output(z.object({ environmentIds: z.array(z.string().nullable()) })),
+
   associateSystem: proc({
     operationType: "mutation",
     userType: "authenticated",

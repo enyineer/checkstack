@@ -9,6 +9,8 @@ import type {
   SatelliteToCoreMessage,
   ResultMessage,
   ScriptPackageSyncStateMessage,
+  TelemetryBatchMessage,
+  TelemetryAckMessage,
 } from "@checkstack/satellite-common";
 import type { SandboxPolicy } from "@checkstack/backend-api";
 import { ResultBuffer } from "./result-buffer";
@@ -39,6 +41,22 @@ interface SatelliteClientConfig {
    * the satellite FAILS CLOSED (denies egress).
    */
   onSandboxPolicy?: (policy: SandboxPolicy) => void;
+  /**
+   * Capabilities this satellite advertises (e.g. "telemetry", "scrape"). Sent
+   * in every `authenticate` and `heartbeat` so the core can gate features and
+   * surface them in the UI. Omitted from the wire when empty/undefined.
+   */
+  capabilities?: string[];
+  /**
+   * Called when the socket has authenticated (connection is usable). Used to
+   * resume the telemetry sender's credit window. Distinct from `onAssignments`,
+   * which carries health-check config only.
+   */
+  onConnected?: () => void;
+  /** Called when the core acks a forwarded telemetry batch. */
+  onTelemetryAck?: (ack: TelemetryAckMessage) => void;
+  /** Called when the core pushes a capability's configuration. */
+  onCapabilityConfig?: (input: { kind: string; payload: unknown }) => void;
   logger?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -89,6 +107,20 @@ export class SatelliteClient {
       }) => void;
       reject: (error: Error) => void;
     }
+  >();
+  // Pending capability-secret requests (e.g. a scrape target's JIT bearer),
+  // keyed by requestId, settled when the matching `capability_secret_response`
+  // arrives. Unlike run/config secrets this NEVER rejects: a resolution/binding
+  // failure comes back on the envelope's `error` field, and a timeout resolves
+  // an `error` too, so the caller (the scrape scheduler) always gets a verdict
+  // object and decides whether to skip.
+  // The value is an OBJECT with a literal `settle` method (not a bare function)
+  // so the response handler invokes a statically-named method - never a callee
+  // resolved purely from the untrusted `requestId` lookup, which reads as an
+  // unvalidated dynamic call (CodeQL js/unvalidated-dynamic-method-call).
+  private readonly pendingCapabilitySecrets = new Map<
+    string,
+    { settle: (result: { payload?: unknown; error?: string }) => void }
   >();
 
   constructor(config: SatelliteClientConfig) {
@@ -218,6 +250,43 @@ export class SatelliteClient {
     });
   }
 
+  /**
+   * Request a capability's just-in-time secret from core (e.g. a scrape
+   * target's bearer token). The `payload` names the resource whose secret is
+   * needed (handler-validated - e.g. `{ targetId }` for "metric-scrape"); core
+   * verifies the binding, resolves the secret, and replies with a
+   * `capability_secret_response`. Resolves to `{ payload?, error? }` and NEVER
+   * rejects: a resolution/binding failure comes back as `error`, and a timeout
+   * also resolves an `error`, so the caller always gets a verdict and decides
+   * whether to skip. The secret is held in memory only for the poll interval.
+   */
+  requestCapabilitySecret(
+    input: { kind: string; payload: unknown },
+    timeoutMs = 30_000,
+  ): Promise<{ payload?: unknown; error?: string }> {
+    return new Promise((resolve) => {
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pendingCapabilitySecrets.delete(requestId);
+        resolve({
+          error: `Capability secret request timed out (kind ${input.kind})`,
+        });
+      }, timeoutMs);
+      this.pendingCapabilitySecrets.set(requestId, {
+        settle: (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+      });
+      this.sendMessage({
+        type: "capability_secret_request",
+        requestId,
+        kind: input.kind,
+        payload: input.payload,
+      });
+    });
+  }
+
   /** Report this satellite's script-package reconcile state to core. */
   reportScriptPackageSyncState(
     state: Omit<ScriptPackageSyncStateMessage, "type">,
@@ -241,6 +310,9 @@ export class SatelliteClient {
           type: "authenticate",
           clientId: this.config.clientId,
           token: this.config.token,
+          ...(this.config.capabilities && this.config.capabilities.length > 0
+            ? { capabilities: this.config.capabilities }
+            : {}),
         });
       });
 
@@ -279,6 +351,26 @@ export class SatelliteClient {
     }
   }
 
+  /**
+   * Forward a telemetry batch to the core. Unlike `sendResult`, telemetry is
+   * NOT buffered here - the TelemetryClient owns bounded per-kind buffering and
+   * the credit window, and only pumps while connected. A send while
+   * disconnected is a no-op (the batch stays in the TelemetryClient's buffer /
+   * in-flight set and is resent on reconnect).
+   */
+  sendTelemetry(msg: TelemetryBatchMessage): void {
+    this.sendMessage(msg);
+  }
+
+  /** Forward a fire-and-forget capability status update to the core. */
+  sendCapabilityStatus(input: { kind: string; payload: unknown }): void {
+    this.sendMessage({
+      type: "capability_status",
+      kind: input.kind,
+      payload: input.payload,
+    });
+  }
+
   /** Gracefully disconnect */
   disconnect(): void {
     this.stopHeartbeat();
@@ -304,6 +396,7 @@ export class SatelliteClient {
         this.reconnectAttempt = 0;
         this.startHeartbeat();
         this.flushBuffer();
+        this.config.onConnected?.();
         this.config.onAssignments(msg.assignments);
         // Durable backstop: reconcile to the assignment-carried hash on
         // every (re)connect, even if a refresh push was missed offline.
@@ -405,6 +498,28 @@ export class SatelliteClient {
         break;
       }
 
+      case "capability_secret_response": {
+        // Settle the pending request with a verdict object (never throws): the
+        // handler may report success (`payload`) or failure (`error`).
+        const pending = this.pendingCapabilitySecrets.get(msg.requestId);
+        this.pendingCapabilitySecrets.delete(msg.requestId);
+        pending?.settle({ payload: msg.payload, error: msg.error });
+        break;
+      }
+
+      case "telemetry_ack": {
+        this.config.onTelemetryAck?.(msg);
+        break;
+      }
+
+      case "capability_config": {
+        this.config.onCapabilityConfig?.({
+          kind: msg.kind,
+          payload: msg.payload,
+        });
+        break;
+      }
+
       case "shutdown": {
         this.config.logger?.warn(`Shutdown requested: ${msg.reason}`);
         this.disconnect();
@@ -449,6 +564,9 @@ export class SatelliteClient {
           type: "heartbeat",
           version: this.config.version,
           uptimeSeconds: Math.round((Date.now() - this.startTime) / 1000),
+          ...(this.config.capabilities && this.config.capabilities.length > 0
+            ? { capabilities: this.config.capabilities }
+            : {}),
         });
       }
     }, HEARTBEAT_INTERVAL_MS);

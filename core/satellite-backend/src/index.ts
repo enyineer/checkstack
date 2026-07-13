@@ -43,6 +43,11 @@ import {
   type SatelliteConnectionState,
 } from "./entity";
 import { satelliteTriggers } from "./automations";
+import {
+  SatelliteCapabilityRegistryImpl,
+  satelliteCapabilityExtensionPoint,
+} from "./capability-registry";
+import { satelliteCapabilityConfigChangedHook } from "./hooks";
 
 // Queue and job constants
 const HEARTBEAT_QUEUE = "satellite-heartbeat";
@@ -53,6 +58,20 @@ export default createBackendPlugin({
   metadata: pluginMetadata,
   register(env) {
     env.registerAccessRules(satelliteAccessRules);
+
+    // ─── Satellite capability extension point (dependency inversion) ─────
+    // satellite-backend OWNS the telemetry/capability contract; domain plugins
+    // (logstream / metricstream) CONTRIBUTE handlers by kind. Registration is
+    // buffered here (register phase) so load order does not matter; the WS
+    // handler + the broadcast config-change relay are wired in
+    // afterPluginsReady. See capability-registry.ts.
+    const capabilityRegistry = new SatelliteCapabilityRegistryImpl();
+    env.registerExtensionPoint(satelliteCapabilityExtensionPoint, {
+      registerCapability: (handler, meta) =>
+        capabilityRegistry.registerCapability(handler, meta),
+      notifyCapabilityConfigChanged: (input) =>
+        capabilityRegistry.notifyCapabilityConfigChanged(input),
+    });
 
     // ─── Automation Platform: reactive connection entity ─────────────
     // Satellite connection state is the `satellite-connection` entity
@@ -183,6 +202,7 @@ export default createBackendPlugin({
         healthCheckRegistry,
         collectorRegistry,
         onHook,
+        emitHook,
       }) => {
         const service = new SatelliteService(
           database as SafeDatabase<typeof schema>,
@@ -310,6 +330,10 @@ export default createBackendPlugin({
               return spClient.getSandboxPolicy();
             },
           },
+          // Telemetry / capability routing: buffered handler registry from the
+          // register phase. Routes telemetry_batch / capability_status by kind
+          // and builds capability_config; entirely off the health-result path.
+          capabilityRegistry,
         );
 
         // Register satellite WebSocket endpoint via the scoped WS registry
@@ -409,6 +433,23 @@ export default createBackendPlugin({
           { mode: "broadcast" },
         );
 
+        // Capability-config relay: a domain plugin's
+        // `notifyCapabilityConfigChanged` emits this domain event; every pod
+        // receives it (broadcast) and re-pushes `capability_config` to its OWN
+        // connected satellites (mirrors the sandbox-policy relay above). The
+        // config is rebuilt fresh from the domain plugin's durable tables, so a
+        // missed event self-heals on the next connect.
+        capabilityRegistry.bindConfigChangeEmitter((input) => {
+          void emitHook(satelliteCapabilityConfigChangedHook, input);
+        });
+        onHook(
+          satelliteCapabilityConfigChangedHook,
+          async (input) => {
+            await wsHandler.pushCapabilityConfig(input);
+          },
+          { mode: "broadcast" },
+        );
+
         logger.debug("✅ Satellite Backend afterPluginsReady complete.");
       },
     });
@@ -417,3 +458,11 @@ export default createBackendPlugin({
 
 // Re-export hooks for other plugins to use
 export { satelliteHooks } from "./hooks";
+
+// Satellite capability extension point: domain plugins (logstream /
+// metricstream) import these to contribute telemetry/capability handlers.
+export {
+  satelliteCapabilityExtensionPoint,
+  type SatelliteCapabilityHandler,
+  type SatelliteCapabilityRegistry,
+} from "./capability-registry";

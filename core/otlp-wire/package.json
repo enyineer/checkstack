@@ -1,0 +1,22 @@
+{
+  "name": "@checkstack/otlp-wire",
+  "version": "0.0.0",
+  "license": "Elastic-2.0",
+  "checkstack": {
+    "type": "tooling"
+  },
+  "type": "module",
+  "main": "src/index.ts",
+  "devDependencies": {
+    "@checkstack/tsconfig": "workspace:*",
+    "@checkstack/scripts": "workspace:*",
+    "@types/bun": "^1.0.0",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0",
+    "test": "bun test"
+  }
+}

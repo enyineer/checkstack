@@ -7,6 +7,7 @@ import {
   Markdown,
   listSecretFieldKeys,
   type TemplateCompletionProvider,
+  type OptionsResolver,
 } from "@checkstack/ui";
 import {
   EnvironmentPreviewPicker,
@@ -42,6 +43,12 @@ interface GeneralSectionProps {
    */
   templateCompletionProvider?: TemplateCompletionProvider;
   /**
+   * Resolvers for the strategy config's `x-options-resolver` dropdown fields,
+   * contributed by the plugin owning this strategy (e.g. a log-stream picker).
+   * A stable object; omit for strategies with no dynamic-option fields.
+   */
+  optionsResolvers?: Record<string, OptionsResolver>;
+  /**
    * EDIT mode: the loaded config is REDACTED (x-secret fields absent), so a
    * blank secret input means "keep the stored value" and must count as
    * valid. CREATE mode leaves blank secrets genuinely required.
@@ -73,6 +80,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
   onPreviewEnvironmentChange,
   templatePreviewContext,
   templateCompletionProvider,
+  optionsResolvers,
   onNameChange,
   onIntervalChange,
   onStrategyConfigChange,
@@ -174,6 +182,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({
             onValidChange={onStrategyConfigValidChange}
             templatePreviewContext={templatePreviewContext}
             templateCompletionProvider={templateCompletionProvider}
+            optionsResolvers={optionsResolvers}
             templatableFieldsOnly
             keepExistingSecretFields={
               isEditMode

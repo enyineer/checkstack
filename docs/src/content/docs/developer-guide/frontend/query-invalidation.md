@@ -111,3 +111,97 @@ The alternative - calling
 `onSuccess` - works but couples the mutator to the loader's query key
 and has to be repeated for every editor that reads the same data. The
 `gcTime: 0` approach localises the contract to the editor itself.
+
+## Pillar 4 - Realtime signals: scope to a resource when a signal is high-frequency
+
+Pillars 1 to 3 cover mutation-driven invalidation. Realtime signals are a
+second invalidation source:
+[`SignalAutoInvalidator`](https://github.com/enyineer/checkstack/blob/main/core/frontend/src/components/SignalAutoInvalidator.tsx)
+subscribes to every incoming signal and, by default, invalidates the whole
+owning plugin's cache (`[[pluginId]]`) - the realtime analogue of Pillar 1.
+For most signals that is exactly right and needs no wiring.
+
+It becomes a problem when a signal is BOTH high-frequency AND per-resource. A
+log stream broadcasts an activity signal every couple of seconds per active
+stream; with blanket invalidation, a user watching stream A's detail page
+refetches every logstream query - including the list page's heavy grouped
+summaries - each time ANY stream ingests. TanStack refetches active queries on
+invalidation regardless of `staleTime`, so a larger `staleTime` does not help.
+
+### Declare a `resourceKey` on the signal
+
+A signal can carry an optional `resourceKey` extractor. When present and it
+yields an id from the payload, the auto-invalidator narrows invalidation from
+the whole plugin to only the queries that concern that resource.
+
+```ts
+export const LOGSTREAM_ACTIVITY = createSignal({
+  pluginMetadata,
+  event: "activity",
+  payloadSchema: z.object({ streamId: z.string(), linesDelta: z.number() }),
+  // Scope invalidation to the ingesting stream.
+  resourceKey: (payload) => payload.streamId,
+});
+```
+
+A signal WITHOUT a `resourceKey` keeps the blanket-plugin behavior unchanged,
+so adding one to a single signal never affects any other signal. Register the
+plugin's resource-scoped signals on its frontend plugin config so the
+invalidator can recover the extractor from a received signal's id:
+
+```ts
+export default createFrontendPlugin({
+  metadata: pluginMetadata,
+  signals: [LOGSTREAM_ACTIVITY, LOGSTREAM_IMPORTANT_EVENT],
+  // ...
+});
+```
+
+### How a query is matched
+
+For a resource-scoped signal, a query under `[[pluginId]]` is invalidated when
+EITHER:
+
+- its query key contains the resource id - detail queries whose input carries
+  the id (e.g. `getStreamOverview({ streamId })`) match automatically, with no
+  extra wiring, and only for their own resource; OR
+- it opted in with `meta: { signalScope: "plugin" }` - for resource-agnostic
+  queries that must refresh on ANY resource's activity.
+
+The id is matched as a substring of TanStack's serialized query hash. Resource
+ids are UUIDs, so an accidental collision is negligible, and a false positive
+would only cause one extra harmless refetch - never a missed one. The bias is
+deliberate: over-invalidation is safe, under-invalidation is the only real bug.
+
+### Opt resource-agnostic list queries back in
+
+A list or summary query spans all resources and cannot match a single id, so
+it must opt into whole-plugin refresh with the ready-made `signalScopeMeta`:
+
+```ts
+import { signalScopeMeta } from "@checkstack/signal-common";
+
+// Refreshes on ANY stream's activity - it shows per-row activity for all.
+const { data } = client.listStreamSummaries.useQuery({}, { meta: signalScopeMeta });
+```
+
+> [!IMPORTANT]
+> Only add `signalScopeMeta` to a query that genuinely needs to refresh on any
+> resource's activity (list/summary/aggregate queries). A detail query whose
+> input already contains the resource id must NOT opt in - it already matches
+> its own resource, and opting in would drag it back to refetching on every
+> resource's signal, defeating the scoping.
+
+### Coalescing is per resource
+
+Invalidations are still coalesced through a 300ms trailing debounce, but the
+coalesce bucket is now keyed on `pluginId` + `resourceId`. A burst for stream A
+and a burst for stream B stay in independent buckets - they neither collapse
+into each other nor degrade into a blanket invalidation.
+
+### Foreign signals stay blanket
+
+The cross-plugin `foreignSignals` opt-in (Pillar 2's realtime analogue) is
+always blanket: a foreign subscriber opts into a plugin's reactivity wholesale
+and its own queries are not keyed on the originating plugin's resource ids.
+Resource scoping applies only to the signal's OWNING plugin.

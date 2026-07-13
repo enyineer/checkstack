@@ -263,29 +263,43 @@ describe("generate-docs-index --check drift guard", () => {
     );
   }
 
-  test("--check passes on a clean tree (committed index matches a fresh run)", () => {
-    expect(runCheck().status).toBe(0);
-  });
+  // These spawn the real generator as a subprocess (up to twice per test).
+  // That is fast in isolation but can exceed bun's 5s default timeout when
+  // the full repo suite saturates the machine, so give the subprocess room —
+  // the assertions themselves are unchanged.
+  const SUBPROCESS_TIMEOUT_MS = 60_000;
 
-  test("--check exits nonzero when the committed index is mutated", () => {
-    const target = path.join(
-      ROOT,
-      "core",
-      "ai-backend",
-      "src",
-      "generated",
-      "docs-index.ts",
-    );
-    const before = readFileSync(target, "utf8");
-    try {
-      writeFileSync(target, before + "\n// drift\n", "utf8");
-      const result = runCheck();
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("out of sync");
-    } finally {
-      writeFileSync(target, before, "utf8");
-    }
-    // Tree restored → clean again.
-    expect(runCheck().status).toBe(0);
-  });
+  test(
+    "--check passes on a clean tree (committed index matches a fresh run)",
+    () => {
+      expect(runCheck().status).toBe(0);
+    },
+    SUBPROCESS_TIMEOUT_MS,
+  );
+
+  test(
+    "--check exits nonzero when the committed index is mutated",
+    () => {
+      const target = path.join(
+        ROOT,
+        "core",
+        "ai-backend",
+        "src",
+        "generated",
+        "docs-index.ts",
+      );
+      const before = readFileSync(target, "utf8");
+      try {
+        writeFileSync(target, before + "\n// drift\n", "utf8");
+        const result = runCheck();
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("out of sync");
+      } finally {
+        writeFileSync(target, before, "utf8");
+      }
+      // Tree restored → clean again.
+      expect(runCheck().status).toBe(0);
+    },
+    SUBPROCESS_TIMEOUT_MS,
+  );
 });

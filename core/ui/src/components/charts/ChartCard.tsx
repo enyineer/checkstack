@@ -51,7 +51,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({
   return (
     <div className={cn(chartCardChromeClass({ isLowPower }), className)}>
       <CardHeader className="pb-2">
-        <div className="flex items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
           <div className="min-w-0">
             {heroValue !== undefined && (
               <span className="block text-3xl font-bold leading-none tabular-nums text-foreground">
@@ -67,8 +67,13 @@ export const ChartCard: React.FC<ChartCardProps> = ({
               {title}
             </CardTitle>
           </div>
+          {/* min-w-0 + flex-wrap lets a wide actions cluster (e.g. a date-range
+              filter with custom pickers) wrap onto its own line instead of
+              overflowing the overflow-hidden card and becoming unreachable. */}
           {actions && (
-            <div className="flex shrink-0 items-center gap-2">{actions}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {actions}
+            </div>
           )}
         </div>
       </CardHeader>
