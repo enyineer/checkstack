@@ -304,7 +304,7 @@ Updated dependencies:
 - `js-yaml` 4.2.0 -> 4.3.0
 - `ldapts` 8.1.7 -> 8.1.8
 - `lru-cache` 11.3.6 -> 11.5.2
-- `lucide-react` 1.17.0 -> 1.23.0
+- `lucide-react` 1.17.0 -> 1.24.0
 - `magicast` 0.5.2 -> 0.5.3
 - `micromark-extension-directive` 3.0.2 -> 4.0.0
 - `msgpackr` 1.11.5 -> 2.0.4
