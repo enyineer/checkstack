@@ -352,6 +352,7 @@ export function createPatternOperations({
     },
 
     async listPatternVariables({ streamId, patternId }) {
+      const summaryWindowSeconds = VARIABLE_SUMMARY_WINDOW_MS / 1000;
       const [pattern] = await db
         .select({ template: logPatterns.template })
         .from(logPatterns)
@@ -362,14 +363,18 @@ export function createPatternOperations({
           ),
         )
         .limit(1);
-      if (!pattern) return { variables: [] };
+      if (!pattern) return { variables: [], summaryWindowSeconds };
 
-      // Wildcard positions of the template define the varIndex space (0-based,
-      // left to right) - the same order ingest folds `wildcardValues` into.
-      const wildcardCount = templateToTokens(pattern.template).filter(
+      // STANDALONE wildcard tokens of the template define the varIndex space
+      // (0-based, left to right) - the same order ingest folds
+      // `wildcardValues` into. A wildcard embedded inside a token (`db-<*>`)
+      // is part of the masked static text; its value is never extracted, so
+      // it is not a variable (see `extractWildcardValues` in drain/engine.ts).
+      const templateTokens = templateToTokens(pattern.template);
+      const wildcardCount = templateTokens.filter(
         (t) => t === WILDCARD,
       ).length;
-      if (wildcardCount === 0) return { variables: [] };
+      if (wildcardCount === 0) return { variables: [], summaryWindowSeconds };
 
       // Cheap, honest summary from the pre-aggregated buckets over a recent
       // window: the variable buckets hold ONLY numeric samples (count/sum/min/
@@ -433,10 +438,15 @@ export function createPatternOperations({
       for (let varIndex = 0; varIndex < wildcardCount; varIndex++) {
         const agg = byIndex.get(varIndex);
         variables.push(
-          buildVariableSample({ varIndex, agg, totalOccurrences }),
+          buildVariableSample({
+            varIndex,
+            context: variableContextSnippet({ templateTokens, varIndex }),
+            agg,
+            totalOccurrences,
+          }),
         );
       }
-      return { variables };
+      return { variables, summaryWindowSeconds };
     },
   };
 }
@@ -578,15 +588,17 @@ interface VariableAggregate {
  */
 export function buildVariableSample({
   varIndex,
+  context,
   agg,
   totalOccurrences,
 }: {
   varIndex: number;
+  context: string;
   agg: VariableAggregate | undefined;
   totalOccurrences: number;
 }): PatternVariableSample {
   if (!agg || agg.count === 0) {
-    return { varIndex, sampleValues: [], numericShare: 0 };
+    return { varIndex, context, sampleValues: [], numericShare: 0 };
   }
   const mean = agg.sum / agg.count;
   const rawSamples = [agg.min, mean, agg.max].filter(
@@ -601,7 +613,43 @@ export function buildVariableSample({
       : agg.count > 0
         ? 1
         : 0;
-  return { varIndex, sampleValues, numericShare };
+  return { varIndex, context, sampleValues, numericShare };
+}
+
+/**
+ * Short template snippet locating the `varIndex`-th STANDALONE `<*>` token:
+ * one token of context each side, `…`-elided where the template continues.
+ * This is what lets an operator tell WHICH `<*>` a variable is when the
+ * template also contains embedded wildcards (`db-<*>`) that are not
+ * variables - e.g. varIndex 0 of
+ * `Failed to connect to database db-<*> after <*> retries` reads
+ * `… after <*> retries`, unambiguously NOT the `db-<*>`.
+ */
+export function variableContextSnippet({
+  templateTokens,
+  varIndex,
+}: {
+  templateTokens: readonly string[];
+  varIndex: number;
+}): string {
+  let seen = -1;
+  let position = -1;
+  for (const [i, token] of templateTokens.entries()) {
+    if (token !== WILDCARD) continue;
+    seen += 1;
+    if (seen === varIndex) {
+      position = i;
+      break;
+    }
+  }
+  if (position === -1) return "";
+
+  const start = Math.max(0, position - 1);
+  const end = Math.min(templateTokens.length, position + 2);
+  const snippet = templateTokens.slice(start, end).join(" ");
+  const prefix = start > 0 ? "… " : "";
+  const suffix = end < templateTokens.length ? " …" : "";
+  return `${prefix}${snippet}${suffix}`;
 }
 
 /** Format a numeric sample tidily (integers stay integers; else 2 decimals). */

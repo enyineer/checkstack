@@ -86,47 +86,70 @@ describe("readCollectorPatternId", () => {
 });
 
 describe("variableToOption", () => {
+  const WINDOW_24H = 24 * 3600;
   const make = (
     over: Partial<PatternVariableSample> = {},
   ): PatternVariableSample => ({
     varIndex: 2,
+    context: "latency <*> ms",
     sampleValues: ["12", "40", "3"],
     numericShare: 1,
     ...over,
   });
+  const toOption = (
+    over: Partial<PatternVariableSample> = {},
+    summaryWindowSeconds: number = WINDOW_24H,
+  ) => variableToOption({ variable: make(over), summaryWindowSeconds });
 
-  it("labels a numeric position with its index and sample preview", () => {
-    expect(variableToOption(make())).toEqual({
+  it("labels a numeric position with its index, template context, and sample preview", () => {
+    expect(toOption()).toEqual({
       value: "2",
-      label: "Variable 2 - samples: 12, 40, 3",
+      label: "Variable 2 (latency <*> ms) - samples: 12, 40, 3",
     });
   });
 
-  it("flags a non-numeric-majority position", () => {
-    expect(variableToOption(make({ numericShare: 0.4 })).label).toBe(
-      "Variable 2 - samples: 12, 40, 3 (not numeric)",
+  it("omits the context parenthetical when the backend sent none", () => {
+    expect(toOption({ context: "" }).label).toBe(
+      "Variable 2 - samples: 12, 40, 3",
+    );
+  });
+
+  it("flags a non-numeric-majority position that HAS samples", () => {
+    expect(toOption({ numericShare: 0.4 }).label).toBe(
+      "Variable 2 (latency <*> ms) - samples: 12, 40, 3 (not numeric)",
     );
   });
 
   it("treats an exactly-half numeric share as numeric", () => {
-    expect(variableToOption(make({ numericShare: 0.5 })).label).not.toContain(
+    expect(toOption({ numericShare: 0.5 }).label).not.toContain(
       "(not numeric)",
     );
   });
 
   it("caps the preview at three samples", () => {
-    expect(
-      variableToOption(make({ sampleValues: ["1", "2", "3", "4", "5"] })).label,
-    ).toBe("Variable 2 - samples: 1, 2, 3");
+    expect(toOption({ sampleValues: ["1", "2", "3", "4", "5"] }).label).toBe(
+      "Variable 2 (latency <*> ms) - samples: 1, 2, 3",
+    );
   });
 
   it("reads the index as the option value (stored 0-based)", () => {
-    expect(variableToOption(make({ varIndex: 0 })).value).toBe("0");
+    expect(toOption({ varIndex: 0 }).value).toBe("0");
   });
 
-  it("handles a position with no recent samples", () => {
-    expect(variableToOption(make({ sampleValues: [], numericShare: 0 })).label).toBe(
-      "Variable 2 - no recent samples (not numeric)",
+  it("says 'no samples in the last <window>' - never '(not numeric)' - for an empty summary", () => {
+    // No samples is not evidence of non-numericness: the values may be
+    // perfectly numeric but simply older than the summary window.
+    expect(toOption({ sampleValues: [], numericShare: 0 }).label).toBe(
+      "Variable 2 (latency <*> ms) - no samples in the last 24h",
     );
+  });
+
+  it("renders the ACTUAL summary window, not a hardcoded 24h", () => {
+    expect(
+      toOption({ sampleValues: [], numericShare: 0 }, 2 * 86_400).label,
+    ).toContain("in the last 2d");
+    expect(
+      toOption({ sampleValues: [], numericShare: 0 }, 5_400).label,
+    ).toContain("in the last 90m");
   });
 });

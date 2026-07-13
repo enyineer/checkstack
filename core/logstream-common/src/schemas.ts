@@ -391,11 +391,19 @@ export type ListPatternVariables = z.infer<typeof ListPatternVariablesSchema>;
 
 /**
  * Recent-sample summary for one `<*>` position (`varIndex`, 0-based over the
- * template's wildcard positions). Drives the pattern-metric collector's
- * variable picker, which labels e.g. "Variable 2 - samples: 12, 40, 3 (numeric)".
+ * template's STANDALONE wildcard tokens - a wildcard embedded inside a word,
+ * like `db-<*>`, is not a variable; its value is never captured). Drives the
+ * pattern-metric collector's variable picker, which labels e.g.
+ * `Variable 0 (… after <*> retries) - samples: 12, 40, 3`.
  */
 export const PatternVariableSampleSchema = z.object({
   varIndex: z.number().int().min(0),
+  /**
+   * Short template snippet around this position (one token of context each
+   * side, `…`-elided), so an operator can tell WHICH `<*>` this is even when
+   * the template also contains embedded, non-assertable wildcards.
+   */
+  context: z.string(),
   /** A few recent raw values seen at this wildcard position. */
   sampleValues: z.array(z.string()),
   /** Fraction (0..1) of recent samples that parsed as a finite number. */
@@ -405,6 +413,12 @@ export type PatternVariableSample = z.infer<typeof PatternVariableSampleSchema>;
 
 export const ListPatternVariablesResultSchema = z.object({
   variables: z.array(PatternVariableSampleSchema),
+  /**
+   * The window (in seconds, ending now) the sample summary covered. The picker
+   * uses it to say "no samples in the last 24h" with the REAL window instead
+   * of a hardcoded claim.
+   */
+  summaryWindowSeconds: z.number().int().positive(),
 });
 export type ListPatternVariablesResult = z.infer<
   typeof ListPatternVariablesResultSchema

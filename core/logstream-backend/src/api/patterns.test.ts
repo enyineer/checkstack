@@ -1,6 +1,10 @@
 import { describe, it, expect } from "bun:test";
 import { createHash } from "node:crypto";
-import { computeUserPatternId, buildVariableSample } from "./patterns";
+import {
+  computeUserPatternId,
+  buildVariableSample,
+  variableContextSnippet,
+} from "./patterns";
 import { createDrainEngine } from "../drain/engine";
 import type { Storage } from "../storage";
 
@@ -61,13 +65,24 @@ describe("computeUserPatternId", () => {
 describe("buildVariableSample", () => {
   it("reports no samples and 0 share for a position with no numeric buckets", () => {
     expect(
-      buildVariableSample({ varIndex: 1, agg: undefined, totalOccurrences: 50 }),
-    ).toEqual({ varIndex: 1, sampleValues: [], numericShare: 0 });
+      buildVariableSample({
+        varIndex: 1,
+        context: "path <*>",
+        agg: undefined,
+        totalOccurrences: 50,
+      }),
+    ).toEqual({
+      varIndex: 1,
+      context: "path <*>",
+      sampleValues: [],
+      numericShare: 0,
+    });
   });
 
   it("derives min/mean/max samples and a real numericShare", () => {
     const sample = buildVariableSample({
       varIndex: 0,
+      context: "latency <*> ms",
       agg: { count: 4, sum: 120, min: 10, max: 50 },
       totalOccurrences: 8,
     });
@@ -80,6 +95,7 @@ describe("buildVariableSample", () => {
   it("de-duplicates identical min/mean/max and clamps share to 1", () => {
     const sample = buildVariableSample({
       varIndex: 2,
+      context: "code <*>",
       agg: { count: 3, sum: 15, min: 5, max: 5 },
       totalOccurrences: 2, // fewer than numeric count (cross-window skew)
     });
@@ -90,10 +106,65 @@ describe("buildVariableSample", () => {
   it("formats a fractional mean to two decimals", () => {
     const sample = buildVariableSample({
       varIndex: 0,
+      context: "latency <*> ms",
       agg: { count: 3, sum: 10, min: 1, max: 6 },
       totalOccurrences: 3,
     });
     // mean = 3.333... -> "3.33"
     expect(sample.sampleValues).toEqual(["1", "3.33", "6"]);
+  });
+});
+
+describe("variableContextSnippet", () => {
+  const tokens = (template: string) => template.split(" ");
+
+  it("locates a variable by counting only STANDALONE wildcards", () => {
+    // The embedded `db-<*>` is NOT a variable: varIndex 0 is the retries
+    // count, and the snippet proves it to the operator.
+    expect(
+      variableContextSnippet({
+        templateTokens: tokens(
+          "Failed to connect to database db-<*> after <*> retries",
+        ),
+        varIndex: 0,
+      }),
+    ).toBe("… after <*> retries");
+  });
+
+  it("elides both sides for a mid-template variable", () => {
+    expect(
+      variableContextSnippet({
+        templateTokens: tokens("request took <*> ms total"),
+        varIndex: 0,
+      }),
+    ).toBe("… took <*> ms …");
+  });
+
+  it("keeps the template edges without ellipses", () => {
+    expect(
+      variableContextSnippet({
+        templateTokens: tokens("<*> ms"),
+        varIndex: 0,
+      }),
+    ).toBe("<*> ms");
+  });
+
+  it("distinguishes multiple standalone variables by position", () => {
+    const templateTokens = tokens("latency <*> ms path <*>");
+    expect(variableContextSnippet({ templateTokens, varIndex: 0 })).toBe(
+      "latency <*> ms …",
+    );
+    expect(variableContextSnippet({ templateTokens, varIndex: 1 })).toBe(
+      "… path <*>",
+    );
+  });
+
+  it("returns an empty snippet for an out-of-range index", () => {
+    expect(
+      variableContextSnippet({
+        templateTokens: tokens("latency <*> ms"),
+        varIndex: 3,
+      }),
+    ).toBe("");
   });
 });
