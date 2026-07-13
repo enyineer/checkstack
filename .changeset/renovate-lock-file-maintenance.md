@@ -275,7 +275,7 @@ Updated dependencies:
 - `brace-expansion` 5.0.6 -> 5.0.7
 - `browserslist` 4.28.2 -> 4.28.5
 - `builtin-modules` 5.1.0 -> 5.3.0
-- `bullmq` 5.74.1 -> 5.79.3
+- `bullmq` 5.74.1 -> 5.80.0
 - `caniuse-lite` 1.0.30001788 -> 1.0.30001803
 - `chardet` 2.1.1 -> 2.2.0
 - `cluster-key-slot` 1.1.2 -> 1.1.1
