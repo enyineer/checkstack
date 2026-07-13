@@ -77,19 +77,45 @@ export function readCollectorPatternId(
 }
 
 /**
- * Map a wildcard-position summary to a picker option. The label names the
- * position and previews a few recent values so an operator can tell which
- * `<*>` slot carries the metric they want (e.g. response time vs. status code);
- * a non-numeric-majority slot is flagged so they know the aggregate will be thin.
+ * Render the sample-summary window compactly for the "no samples" label:
+ * whole days as `Nd` (but a single day stays `24h` - the more natural unit
+ * for a day-long lookback), whole hours as `Nh`, anything else in minutes.
  */
-export function variableToOption(
-  variable: PatternVariableSample,
-): ResolverOption {
+export function formatSummaryWindow(seconds: number): string {
+  if (seconds % 86_400 === 0 && seconds > 86_400) return `${seconds / 86_400}d`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  return `${Math.round(seconds / 60)}m`;
+}
+
+/**
+ * Map a wildcard-position summary to a picker option. The label names the
+ * position, quotes its template context (so the operator can tell WHICH `<*>`
+ * this is - templates can also contain embedded wildcards like `db-<*>` that
+ * are not variables), and previews a few recent values. A slot with samples
+ * but a non-numeric majority is flagged; a slot with NO samples in the
+ * summary window says so with the actual window instead - no samples is not
+ * evidence of non-numericness.
+ */
+export function variableToOption({
+  variable,
+  summaryWindowSeconds,
+}: {
+  variable: PatternVariableSample;
+  summaryWindowSeconds: number;
+}): ResolverOption {
+  const position = variable.context
+    ? `Variable ${variable.varIndex} (${variable.context})`
+    : `Variable ${variable.varIndex}`;
   const samples = variable.sampleValues.slice(0, 3);
-  const sampleText =
-    samples.length > 0 ? `samples: ${samples.join(", ")}` : "no recent samples";
+  if (samples.length === 0) {
+    const window = formatSummaryWindow(summaryWindowSeconds);
+    return {
+      value: String(variable.varIndex),
+      label: `${position} - no samples in the last ${window}`,
+    };
+  }
   const isNumeric = variable.numericShare >= NUMERIC_MAJORITY_THRESHOLD;
-  const label = `Variable ${variable.varIndex} - ${sampleText}${
+  const label = `${position} - samples: ${samples.join(", ")}${
     isNumeric ? "" : " (not numeric)"
   }`;
   return { value: String(variable.varIndex), label };
@@ -138,11 +164,14 @@ export function buildLogstreamOptionsResolvers({
     const streamId = readSelectedStreamId(strategyConfig);
     const patternId = readCollectorPatternId(formValues);
     if (!streamId || !patternId) return [];
-    const { variables } = await client.listPatternVariables({
-      streamId,
-      patternId,
-    });
-    return variables.map((variable) => variableToOption(variable));
+    const { variables, summaryWindowSeconds } =
+      await client.listPatternVariables({
+        streamId,
+        patternId,
+      });
+    return variables.map((variable) =>
+      variableToOption({ variable, summaryWindowSeconds }),
+    );
   };
 
   return {

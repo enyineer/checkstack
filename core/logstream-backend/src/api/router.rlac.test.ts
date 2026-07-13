@@ -109,7 +109,10 @@ function stubService(overrides: Partial<LogstreamService> = {}): LogstreamServic
     deletePattern: async () => {},
     testPattern: async () => ({ matchCount: 0, samples: [] }),
     maskLine: async ({ body }) => ({ template: body }),
-    listPatternVariables: async () => ({ variables: [] }),
+    listPatternVariables: async () => ({
+      variables: [],
+      summaryWindowSeconds: 86_400,
+    }),
     listImportantEvents: async () => ({ events: [], nextBefore: null }),
     getStreamOverview: notImplemented("getStreamOverview"),
     ...overrides,

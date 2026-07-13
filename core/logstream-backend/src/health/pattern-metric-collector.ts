@@ -71,10 +71,13 @@ const patternMetricConfigSchema = z.object({
     .int()
     .min(0)
     .describe(
-      "Which `<*>` wildcard position of the pattern to aggregate (0-based, " +
-        "left to right). The picker lists each position with a few recent " +
-        "sample values and whether they look numeric - only numeric samples " +
-        "are aggregated.",
+      "Which standalone `<*>` wildcard of the pattern to aggregate (0-based, " +
+        "left to right, counting only whole-word `<*>` tokens). A wildcard " +
+        "embedded inside a word (e.g. `db-<*>`) keeps its surrounding text " +
+        "and its value is never captured, so it cannot be aggregated and is " +
+        "not offered here. The picker shows each position with its " +
+        "surrounding template text and a few recent sample values - only " +
+        "numeric samples are aggregated.",
     ),
   windowSeconds: configNumber({})
     .int()
