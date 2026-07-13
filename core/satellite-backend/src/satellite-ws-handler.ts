@@ -10,11 +10,20 @@ import type { ConfigRelay } from "./config-relay";
 import type { SatelliteConnectionEvent } from "./entity";
 import {
   SatelliteToCoreMessageSchema,
+  TELEMETRY_DEDUPE_WINDOW,
+  TELEMETRY_BUDGET_BYTES_PER_MIN,
   type CoreToSatelliteMessage,
   type ResultMessage,
   type SatelliteWithStatus,
+  type TelemetryBatchMessage,
+  type CapabilityStatusMessage,
+  type CapabilitySecretRequestMessage,
 } from "@checkstack/satellite-common";
 import type { SandboxPolicy } from "@checkstack/common";
+import type {
+  SatelliteCapabilityHandler,
+  SatelliteCapabilityRouter,
+} from "./capability-registry";
 
 /**
  * Optional plug-point for driving a satellite connection lifecycle edge into
@@ -129,10 +138,35 @@ export interface SatelliteSandboxPolicySink {
  * lives in the durable healthcheck tables and is re-read on each push. The key
  * is `configId\u0000systemId` (NUL separator can't occur in an id).
  */
+/**
+ * A telemetry dedupe-window entry: `processing` while the handler is in flight
+ * (a racing resend is dropped), `done` once a TERMINAL outcome is known (a later
+ * resend is re-acked with these counts).
+ */
+type TelemetryDedupeEntry =
+  | { status: "processing" }
+  | { status: "done"; accepted: number; rejected: number };
+
 interface SatelliteConnection {
   satellite: SatelliteWithStatus;
   ws: WsConnection;
   allowedResults: Set<string>;
+  /**
+   * Per-connection telemetry batchId dedupe window. An entry is created at
+   * RECEIVE time as `{ status: "processing" }` BEFORE the handler is awaited, so
+   * a resend that races a still-in-flight batch is dropped instead of
+   * re-processed (the handlers are NOT idempotent). When the handler settles the
+   * entry becomes `{ status: "done", accepted, rejected }` for a TERMINAL
+   * outcome (a later resend is idempotently re-acked with the same counts), or is
+   * DELETED for a transient/retryable outcome (so a legitimate resend
+   * re-processes). Bounded to {@link TELEMETRY_DEDUPE_WINDOW} `done` entries
+   * (oldest evicted). Pod-local transport bookkeeping, never a source of truth.
+   */
+  telemetryDedupe: Map<string, TelemetryDedupeEntry>;
+  /** Start (ms epoch) of the current per-connection telemetry budget minute. */
+  telemetryBudgetWindowStart: number;
+  /** Bytes of telemetry ingested in the current budget minute. */
+  telemetryBudgetBytesUsed: number;
 }
 
 /** Build the per-connection authorization key for a (configId, systemId). */
@@ -195,6 +229,14 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
      * When unset, the field is omitted and the satellite stays fail-closed.
      */
     private sandboxPolicySink?: SatelliteSandboxPolicySink,
+    /**
+     * Optional. Routes inbound `telemetry_batch` / `capability_status` envelopes
+     * to the registered capability handler for their `kind`, and builds the
+     * `capability_config` pushed on connect / on change. When unset, telemetry
+     * batches are answered with a non-retryable ack (no handler) and status
+     * updates are dropped - the health-result path is unaffected either way.
+     */
+    private capabilityRouter?: SatelliteCapabilityRouter,
   ) {}
 
   /**
@@ -248,12 +290,32 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         const assignments =
           await this.configRelay.getAssignmentsForSatellite(satellite.id);
 
-        // Track connection (with the seeded result-authorization cache).
+        // Track connection (with the seeded result-authorization cache and
+        // fresh telemetry dedupe/budget state).
         this.connections.set(satellite.id, {
           satellite,
           ws,
           allowedResults: buildAllowedResults(assignments),
+          telemetryDedupe: new Map(),
+          telemetryBudgetWindowStart: Date.now(),
+          telemetryBudgetBytesUsed: 0,
         });
+
+        // Persist advertised capabilities (best-effort - never block auth on it)
+        // so the read model / UI reflect what this satellite can do.
+        if (parsed.capabilities !== undefined) {
+          try {
+            await this.service.updateCapabilities(
+              satellite.id,
+              parsed.capabilities,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to persist capabilities for ${satellite.name}:`,
+              error,
+            );
+          }
+        }
 
         // Drive the `connected` edge into the reactive entity (best-effort —
         // never block the auth handshake on a mirror failure). `apply` sets
@@ -301,6 +363,11 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
         this.logger.info(
           `Satellite authenticated: ${satellite.name} (${satellite.region})`,
         );
+
+        // Push each capability's initial config right after `authenticated`
+        // (e.g. the scrape targets bound to this satellite). Best-effort; a
+        // build failure for one kind never blocks the others or the handshake.
+        await this.pushAllCapabilityConfigs(satellite.id);
         return;
       }
 
@@ -310,6 +377,28 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
           await this.service.updateHeartbeat(authenticatedSatellite.id, {
             version: parsed.version,
           });
+          // Re-advertised capabilities converge without a reconnect.
+          if (parsed.capabilities !== undefined) {
+            await this.service.updateCapabilities(
+              authenticatedSatellite.id,
+              parsed.capabilities,
+            );
+          }
+          break;
+        }
+        case "telemetry_batch": {
+          await this.handleTelemetryBatch(authenticatedSatellite, parsed, message);
+          break;
+        }
+        case "capability_status": {
+          await this.handleCapabilityStatus(authenticatedSatellite, parsed);
+          break;
+        }
+        case "capability_secret_request": {
+          await this.handleCapabilitySecretRequest(
+            authenticatedSatellite,
+            parsed,
+          );
           break;
         }
         case "result": {
@@ -563,6 +652,280 @@ export class SatelliteWsHandler implements WebSocketRouteHandler {
     this.logger.debug(
       `Pushed sandbox_policy to ${this.connections.size} satellite(s)`,
     );
+  }
+
+  // ─── Telemetry / capability routing ───────────────────────────────────────
+
+  /**
+   * Route one inbound `telemetry_batch`: dedupe by batchId, enforce the
+   * per-connection byte budget, route to the registered handler for `kind`, and
+   * ack. NOTHING here touches the health-result path. `raw` is the serialized
+   * frame, used only to size the batch against the budget.
+   */
+  private async handleTelemetryBatch(
+    satellite: SatelliteWithStatus,
+    msg: TelemetryBatchMessage,
+    raw: string,
+  ): Promise<void> {
+    const conn = this.connections.get(satellite.id);
+    if (!conn) return;
+
+    // Dedupe by batchId. `done` -> idempotently re-ack the remembered terminal
+    // counts. `processing` -> a resend raced the in-flight original; DROP it
+    // (no re-route, no ack) so the handler runs exactly once - the agent settles
+    // on the original's ack. Only a batchId NOT in the window is processed.
+    const remembered = conn.telemetryDedupe.get(msg.batchId);
+    if (remembered) {
+      if (remembered.status === "done") {
+        this.sendMessage(conn.ws, {
+          type: "telemetry_ack",
+          batchId: msg.batchId,
+          accepted: remembered.accepted,
+          rejected: remembered.rejected,
+          retryable: false,
+        });
+      }
+      return;
+    }
+
+    // Per-connection bytes/min budget: over-budget -> retryable ack + warn,
+    // NEVER a disconnect. The window rolls once per minute. Checked BEFORE the
+    // `processing` marker so an over-budget batch stays fully resend-eligible.
+    const now = Date.now();
+    if (now - conn.telemetryBudgetWindowStart >= 60_000) {
+      conn.telemetryBudgetWindowStart = now;
+      conn.telemetryBudgetBytesUsed = 0;
+    }
+    const bytes = Buffer.byteLength(raw, "utf8");
+    if (
+      conn.telemetryBudgetBytesUsed + bytes >
+      TELEMETRY_BUDGET_BYTES_PER_MIN
+    ) {
+      this.logger.warn(
+        `Satellite ${satellite.name} exceeded its telemetry byte budget; ` +
+          `asking it to retry (kind=${msg.kind})`,
+      );
+      // Over-budget before any `processing` marker was set: send a plain
+      // retryable ack (nothing to finalize; the batch stays resend-eligible).
+      this.finalizeTelemetry(conn, msg.batchId, {
+        accepted: 0,
+        rejected: 0,
+        retryable: true,
+      });
+      return;
+    }
+    conn.telemetryBudgetBytesUsed += bytes;
+
+    const handler = this.capabilityRouter?.getHandler(msg.kind);
+    if (!handler?.handleTelemetryBatch) {
+      // No handler will ever accept this kind -> terminal, non-retryable.
+      this.logger.warn(
+        `Satellite ${satellite.name} sent telemetry for unhandled kind ` +
+          `"${msg.kind}"; dropping (non-retryable)`,
+      );
+      this.finalizeTelemetry(conn, msg.batchId, {
+        accepted: 0,
+        rejected: 0,
+        retryable: false,
+      });
+      return;
+    }
+
+    // Mark the batch in-flight BEFORE awaiting the handler so a resend that
+    // races the (non-idempotent) handler is dropped by the dedupe check above
+    // instead of being processed a second time.
+    conn.telemetryDedupe.set(msg.batchId, { status: "processing" });
+
+    try {
+      const outcome = await handler.handleTelemetryBatch({
+        satelliteId: satellite.id,
+        payload: msg.payload,
+        // Forward the envelope's per-group in-transit drop counts so the handler
+        // can attribute the loss to the exact stream (a satellite-buffer drop,
+        // distinct from any core drop).
+        droppedByGroup: msg.droppedByGroup,
+      });
+      this.finalizeTelemetry(conn, msg.batchId, {
+        accepted: outcome.accepted,
+        rejected: outcome.rejected,
+        retryable: outcome.retryable ?? false,
+      });
+    } catch (error) {
+      // A throw is a TRANSIENT failure -> retryable, so the agent resends.
+      this.logger.error(
+        `Telemetry handler for kind "${msg.kind}" threw ` +
+          `(satellite ${satellite.name}):`,
+        error,
+      );
+      this.finalizeTelemetry(conn, msg.batchId, {
+        accepted: 0,
+        rejected: 0,
+        retryable: true,
+      });
+    }
+  }
+
+  /**
+   * Settle a telemetry batch and ack it. A TERMINAL outcome is remembered as
+   * `done` (bounded window, oldest evicted) so a later resend is idempotently
+   * re-acked; a RETRYABLE outcome DELETES the `processing` marker so a
+   * legitimate resend re-processes (a delete of an absent key - e.g. the
+   * over-budget path that never marked `processing` - is a harmless no-op).
+   */
+  private finalizeTelemetry(
+    conn: SatelliteConnection,
+    batchId: string,
+    ack: { accepted: number; rejected: number; retryable: boolean },
+  ): void {
+    if (ack.retryable) {
+      conn.telemetryDedupe.delete(batchId);
+    } else {
+      conn.telemetryDedupe.set(batchId, {
+        status: "done",
+        accepted: ack.accepted,
+        rejected: ack.rejected,
+      });
+      // Bound the window: evict oldest (Map preserves insertion order). A
+      // `processing` entry is never the oldest here (it was just re-set to
+      // `done`), so eviction only removes settled entries.
+      while (conn.telemetryDedupe.size > TELEMETRY_DEDUPE_WINDOW) {
+        const oldest = conn.telemetryDedupe.keys().next().value;
+        if (oldest === undefined) break;
+        conn.telemetryDedupe.delete(oldest);
+      }
+    }
+    this.sendMessage(conn.ws, { type: "telemetry_ack", batchId, ...ack });
+  }
+
+  /**
+   * Answer a `capability_secret_request` by routing it to the registered
+   * handler's `resolveSecret` for `kind`, then replying with a
+   * `capability_secret_response` (same requestId). No handler / no resolver for
+   * the kind -> an error reply, so the agent skips that poll clearly rather than
+   * hanging on a reply that never comes. Mirrors the health-check
+   * `request_run_secrets` path: the handler enforces the binding (the satellite
+   * names a resource; it does not choose an arbitrary secret), and the value
+   * rides only this authenticated channel.
+   */
+  private async handleCapabilitySecretRequest(
+    satellite: SatelliteWithStatus,
+    msg: CapabilitySecretRequestMessage,
+  ): Promise<void> {
+    const conn = this.connections.get(satellite.id);
+    if (!conn) return;
+    const handler = this.capabilityRouter?.getHandler(msg.kind);
+    if (!handler?.resolveSecret) {
+      this.sendMessage(conn.ws, {
+        type: "capability_secret_response",
+        requestId: msg.requestId,
+        error: `No secret resolver for capability "${msg.kind}" on this core instance.`,
+      });
+      return;
+    }
+    try {
+      const resolved = await handler.resolveSecret({
+        satelliteId: satellite.id,
+        payload: msg.payload,
+      });
+      this.sendMessage(conn.ws, {
+        type: "capability_secret_response",
+        requestId: msg.requestId,
+        ...(resolved.payload === undefined ? {} : { payload: resolved.payload }),
+        ...(resolved.error === undefined ? {} : { error: resolved.error }),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Capability secret resolver for kind "${msg.kind}" threw ` +
+          `(satellite ${satellite.name}):`,
+        error,
+      );
+      this.sendMessage(conn.ws, {
+        type: "capability_secret_response",
+        requestId: msg.requestId,
+        error: extractErrorMessage(error),
+      });
+    }
+  }
+
+  /** Route a fire-and-forget `capability_status` to its handler (no ack). */
+  private async handleCapabilityStatus(
+    satellite: SatelliteWithStatus,
+    msg: CapabilityStatusMessage,
+  ): Promise<void> {
+    const handler = this.capabilityRouter?.getHandler(msg.kind);
+    if (!handler?.handleCapabilityStatus) return;
+    try {
+      await handler.handleCapabilityStatus({
+        satelliteId: satellite.id,
+        payload: msg.payload,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Capability status handler for kind "${msg.kind}" threw ` +
+          `(satellite ${satellite.name}):`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Rebuild + push `capability_config` for `kind` to the given satellite (or to
+   * all connected satellites when `satelliteId` is omitted). Called by the
+   * broadcast handler for the `satellite.capabilityConfigChanged` domain event
+   * so whichever pod holds the socket does the push.
+   */
+  async pushCapabilityConfig(input: {
+    kind: string;
+    satelliteId?: string;
+  }): Promise<void> {
+    const handler = this.capabilityRouter?.getHandler(input.kind);
+    if (!handler?.buildCapabilityConfig) return;
+
+    const targets: SatelliteConnection[] = [];
+    if (input.satelliteId === undefined) {
+      targets.push(...this.connections.values());
+    } else {
+      const conn = this.connections.get(input.satelliteId);
+      if (conn) targets.push(conn);
+    }
+    for (const conn of targets) {
+      await this.pushCapabilityConfigForHandler(conn, handler);
+    }
+  }
+
+  /** Push every registered capability's config to one freshly-connected socket. */
+  private async pushAllCapabilityConfigs(satelliteId: string): Promise<void> {
+    if (!this.capabilityRouter) return;
+    const conn = this.connections.get(satelliteId);
+    if (!conn) return;
+    for (const handler of this.capabilityRouter.listHandlers()) {
+      await this.pushCapabilityConfigForHandler(conn, handler);
+    }
+  }
+
+  /** Build one handler's config for one connection and push it if non-null. */
+  private async pushCapabilityConfigForHandler(
+    conn: SatelliteConnection,
+    handler: SatelliteCapabilityHandler,
+  ): Promise<void> {
+    if (!handler.buildCapabilityConfig) return;
+    try {
+      const payload = await handler.buildCapabilityConfig({
+        satelliteId: conn.satellite.id,
+      });
+      if (payload === null || payload === undefined) return;
+      this.sendMessage(conn.ws, {
+        type: "capability_config",
+        kind: handler.kind,
+        payload,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to build capability_config for kind "${handler.kind}" ` +
+          `(satellite ${conn.satellite.name}):`,
+        error,
+      );
+    }
   }
 
   /**

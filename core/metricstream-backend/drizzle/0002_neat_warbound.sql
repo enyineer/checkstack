@@ -1,0 +1,1 @@
+ALTER TABLE "metric_stream_activity" ADD COLUMN "dropped_in_transit_count" bigint DEFAULT 0 NOT NULL;

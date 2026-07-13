@@ -61,12 +61,88 @@ const AuthenticateMessageSchema = z.object({
   type: z.literal("authenticate"),
   clientId: z.string(),
   token: z.string(),
+  /**
+   * Capabilities the satellite advertises (e.g. "telemetry", "scrape",
+   * "log-receivers", "syslog"). Optional for version-skew safety: an older
+   * agent omits it and the core treats it as no advertised capabilities. The
+   * core persists this on the satellite row for UI + assignment gating.
+   */
+  capabilities: z.array(z.string()).optional(),
 });
 
 const HeartbeatMessageSchema = z.object({
   type: z.literal("heartbeat"),
   version: z.string(),
   uptimeSeconds: z.number(),
+  /**
+   * Re-advertised capabilities (see {@link AuthenticateMessageSchema}). Repeated
+   * on heartbeat so a capability change (env re-config on restart, or a future
+   * dynamic toggle) converges without waiting for a reconnect. Optional for
+   * version-skew safety.
+   */
+  capabilities: z.array(z.string()).optional(),
+});
+
+// =============================================================================
+// TELEMETRY (satellite -> core) — additive, generic envelopes. The domain
+// payload is opaque here and validated by the registered capability handler for
+// `kind`; keeping it `unknown` lets satellite-common stay a leaf (no dependency
+// on any domain plugin's schemas).
+// =============================================================================
+
+/**
+ * A batch of normalized telemetry items forwarded from a satellite. `batchId`
+ * is monotonic PER CONNECTION so the core can dedupe resends within its
+ * per-connection window; the core MUST reply with a `telemetry_ack` for every
+ * batch (the agent's credit window blocks until acked).
+ *
+ * `droppedByGroup` carries how many items this kind's bounded agent buffer
+ * dropped since the previous batch of the same kind, **keyed by the group the
+ * loss belongs to** so the core can surface it on the exact stream that lost
+ * data rather than spreading a single connection-level count across every
+ * stream in the batch. The group key is an opaque DOMAIN string the capability
+ * handler for `kind` interprets: the per-stream source token for the forward
+ * paths (`logstream`, `metricstream`), the scrape target id for `metric-scrape`.
+ * Omitted entirely when nothing was dropped.
+ */
+const TelemetryBatchMessageSchema = z.object({
+  type: z.literal("telemetry_batch"),
+  batchId: z.string(),
+  kind: z.string(),
+  payload: z.unknown(),
+  droppedByGroup: z.record(z.string(), z.number()).optional(),
+});
+
+/**
+ * A satellite -> core status update for a capability (e.g. per-scrape-target
+ * lastScrapeAt / lastError). Fire-and-forget: no ack. Routed to the registered
+ * handler's `handleCapabilityStatus` for `kind`.
+ */
+const CapabilityStatusMessageSchema = z.object({
+  type: z.literal("capability_status"),
+  kind: z.string(),
+  payload: z.unknown(),
+});
+
+/**
+ * Satellite -> core just-in-time request for a capability's secret (e.g. the
+ * bearer token of a scrape target the satellite is about to poll). The GENERIC
+ * analogue of `request_run_secrets` / `request_config_secrets` for the
+ * capability channel: the core routes it to the registered handler's
+ * `resolveSecret` for `kind`, which resolves the secret from ITS OWN durable
+ * state (the satellite does not get to choose which secret - it names a resource
+ * it is bound to, e.g. `{ targetId }`, and the handler validates the binding).
+ *
+ * Secrets NEVER ride the `capability_config` push (which re-crosses on every
+ * reconnect); they are delivered ONLY over this per-request channel and held in
+ * agent memory for the poll/scrape interval. `requestId` correlates the reply;
+ * `payload` is the opaque, handler-validated request body.
+ */
+const CapabilitySecretRequestMessageSchema = z.object({
+  type: z.literal("capability_secret_request"),
+  requestId: z.string(),
+  kind: z.string(),
+  payload: z.unknown(),
 });
 
 const ResultMessageSchema = z.object({
@@ -180,6 +256,9 @@ export const SatelliteToCoreMessageSchema = z.discriminatedUnion("type", [
   RequestScriptPackageBlobMessageSchema,
   RequestRunSecretsMessageSchema,
   RequestConfigSecretsMessageSchema,
+  TelemetryBatchMessageSchema,
+  CapabilityStatusMessageSchema,
+  CapabilitySecretRequestMessageSchema,
 ]);
 
 export type SatelliteToCoreMessage = z.infer<
@@ -205,6 +284,15 @@ export type RequestRunSecretsMessage = z.infer<
 >;
 export type RequestConfigSecretsMessage = z.infer<
   typeof RequestConfigSecretsMessageSchema
+>;
+export type TelemetryBatchMessage = z.infer<
+  typeof TelemetryBatchMessageSchema
+>;
+export type CapabilityStatusMessage = z.infer<
+  typeof CapabilityStatusMessageSchema
+>;
+export type CapabilitySecretRequestMessage = z.infer<
+  typeof CapabilitySecretRequestMessageSchema
 >;
 
 // =============================================================================
@@ -339,6 +427,56 @@ const ConfigSecretsMessageSchema = z.object({
   error: z.string().optional(),
 });
 
+// =============================================================================
+// TELEMETRY (core -> satellite) — additive, generic envelopes.
+// =============================================================================
+
+/**
+ * Core acknowledgement of a `telemetry_batch`. REQUIRED for every batch: the
+ * agent's credit window holds the batch inflight until this arrives. `accepted`
+ * / `rejected` mirror the handler's per-item outcome. `retryable` decides the
+ * agent's action: `true` means a transient failure (over-budget, sink hiccup,
+ * no handler yet) - keep the batch and resend later by the same batchId; `false`
+ * means a terminal rejection (auth-rejected, no such handler will ever accept) -
+ * drop the batch and count the loss.
+ */
+const TelemetryAckMessageSchema = z.object({
+  type: z.literal("telemetry_ack"),
+  batchId: z.string(),
+  accepted: z.number(),
+  rejected: z.number(),
+  retryable: z.boolean(),
+});
+
+/**
+ * Core -> satellite push of a capability's configuration (e.g. the scrape
+ * targets bound to this satellite). Pushed right after `authenticated` and again
+ * whenever a domain plugin calls `notifyCapabilityConfigChanged`. The payload is
+ * opaque here and consumed by the agent's registered capability consumer for
+ * `kind`.
+ */
+const CapabilityConfigMessageSchema = z.object({
+  type: z.literal("capability_config"),
+  kind: z.string(),
+  payload: z.unknown(),
+});
+
+/**
+ * Core -> satellite reply to `capability_secret_request`. Carries the handler's
+ * resolved secret on success (`payload`, e.g. `{ bearerToken }`), or an `error`
+ * when the secret could not be resolved / the binding check failed. The satellite
+ * uses the value memory-only for the poll/scrape and never persists it; on
+ * `error` it skips that poll and surfaces the failure via `capability_status`.
+ * `requestId` correlates with the originating request; `payload` is opaque here
+ * and validated by the agent's capability consumer for the request's `kind`.
+ */
+const CapabilitySecretResponseMessageSchema = z.object({
+  type: z.literal("capability_secret_response"),
+  requestId: z.string(),
+  payload: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
 /**
  * Discriminated union of all messages that the core can send to a satellite.
  */
@@ -353,6 +491,9 @@ export const CoreToSatelliteMessageSchema = z.discriminatedUnion("type", [
   ScriptPackageBlobMessageSchema,
   RunSecretsMessageSchema,
   ConfigSecretsMessageSchema,
+  TelemetryAckMessageSchema,
+  CapabilityConfigMessageSchema,
+  CapabilitySecretResponseMessageSchema,
 ]);
 
 export type CoreToSatelliteMessage = z.infer<
@@ -376,3 +517,10 @@ export type ScriptPackageBlobMessage = z.infer<
 >;
 export type RunSecretsMessage = z.infer<typeof RunSecretsMessageSchema>;
 export type ConfigSecretsMessage = z.infer<typeof ConfigSecretsMessageSchema>;
+export type TelemetryAckMessage = z.infer<typeof TelemetryAckMessageSchema>;
+export type CapabilityConfigMessage = z.infer<
+  typeof CapabilityConfigMessageSchema
+>;
+export type CapabilitySecretResponseMessage = z.infer<
+  typeof CapabilitySecretResponseMessageSchema
+>;

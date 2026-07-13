@@ -21,6 +21,12 @@ export const SatelliteSchema = z.object({
   name: z.string(),
   region: z.string(),
   tags: z.record(z.string(), z.string()),
+  /**
+   * Capabilities the satellite last advertised (e.g. "telemetry", "scrape").
+   * Defaults to an empty array for a satellite that never advertised any, so
+   * older records / version-skewed agents surface as "no capabilities".
+   */
+  capabilities: z.array(z.string()).default([]),
   lastHeartbeatAt: z.date().optional(),
   version: z.string().optional(),
   createdAt: z.date(),

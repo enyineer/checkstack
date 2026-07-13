@@ -18,6 +18,18 @@
       "path": "../healthcheck-common"
     },
     {
+      "path": "../ingest-utils"
+    },
+    {
+      "path": "../logstream-common"
+    },
+    {
+      "path": "../metricstream-common"
+    },
+    {
+      "path": "../otlp-wire"
+    },
+    {
       "path": "../satellite-common"
     },
     {

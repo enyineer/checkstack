@@ -22,7 +22,7 @@
  * (e.g. `bun run test --bail`).
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const passthroughArgs = process.argv.slice(2);
 
@@ -31,6 +31,12 @@ const allFiles = (
     "git",
     [
       "ls-files",
+      // Include UNTRACKED (but not ignored) files: a brand-new package's tests
+      // must run before anyone remembers to `git add` it, or the "full" suite
+      // silently excludes exactly the newest work.
+      "--cached",
+      "--others",
+      "--exclude-standard",
       "core/*.test.ts",
       "core/*.test.tsx",
       "plugins/*.test.ts",
@@ -47,7 +53,11 @@ const allFiles = (
     (file) =>
       file.length > 0 &&
       !file.includes(".it.test.") &&
-      !file.startsWith("core/e2e/"),
+      !file.startsWith("core/e2e/") &&
+      // `git ls-files` reads the INDEX: a tracked/staged file that was since
+      // deleted or moved on disk (mid-refactor working tree) would otherwise
+      // crash discovery with ENOENT. Run what actually exists.
+      existsSync(file),
   );
 
 // `ink` imports `yoga-layout`, which crashes under Bun's per-file isolation.
@@ -59,12 +69,33 @@ const inkFiles = new Set(
 );
 const parallelFiles = allFiles.filter((file) => !inkFiles.has(file));
 
+// Default per-test timeout for FULL-SUITE runs. Bun's built-in 5s default is
+// too tight when 800+ files run in parallel on a loaded machine: timers and
+// subprocess spawns get starved by seconds, and a rotating cast of perfectly
+// healthy tests flakes at ~5s (docs-index drift guard, tarball extraction,
+// container-transport HTTP, tree GC, script-runner subprocesses, ...). 30s
+// changes NO assertion - it only stops treating scheduler starvation as a
+// failure. (A bunfig `[test] timeout` is silently ignored by this bun
+// version, so the flag lives here.) A caller-supplied --timeout in
+// passthroughArgs wins because later flags override earlier ones.
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 function run(label: string, args: string[]): boolean {
   console.log(`\n==> bun test ${label} (${args.filter((a) => a.endsWith(".tsx") || a.endsWith(".ts")).length} files)`);
   return (
-    spawnSync("bun", ["test", ...args, ...passthroughArgs], {
-      stdio: "inherit",
-    }).status === 0
+    spawnSync(
+      "bun",
+      [
+        "test",
+        "--timeout",
+        String(DEFAULT_TIMEOUT_MS),
+        ...args,
+        ...passthroughArgs,
+      ],
+      {
+        stdio: "inherit",
+      },
+    ).status === 0
   );
 }
 

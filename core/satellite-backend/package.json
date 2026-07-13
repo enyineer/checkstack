@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@checkstack/drizzle-helper": "workspace:*",
+    "@checkstack/satellite": "workspace:*",
     "@checkstack/scripts": "workspace:*",
     "@checkstack/test-utils-backend": "workspace:*",
     "@checkstack/tsconfig": "workspace:*",

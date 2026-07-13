@@ -1,0 +1,39 @@
+{
+  "name": "@checkstack/logstream-frontend",
+  "version": "0.0.1",
+  "description": "Log stream management and viewer UI",
+  "author": "Checkstack contributors",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "src/index.tsx",
+  "checkstack": {
+    "type": "frontend",
+    "pluginId": "logstream"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "lint": "bun run lint:code",
+    "lint:code": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@checkstack/auth-frontend": "workspace:*",
+    "@checkstack/common": "workspace:*",
+    "@checkstack/frontend-api": "workspace:*",
+    "@checkstack/healthcheck-frontend": "workspace:*",
+    "@checkstack/logstream-common": "workspace:*",
+    "@checkstack/signal-common": "workspace:*",
+    "@checkstack/ui": "workspace:*",
+    "lucide-react": "^1.17.0",
+    "react": "19.2.7",
+    "react-router-dom": "^7.16.0"
+  },
+  "devDependencies": {
+    "@checkstack/scripts": "workspace:*",
+    "@checkstack/tsconfig": "workspace:*",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}

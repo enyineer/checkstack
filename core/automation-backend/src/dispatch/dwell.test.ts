@@ -1,5 +1,11 @@
-import { describe, it, expect, setSystemTime } from "bun:test";
+import { describe, it, expect, setSystemTime, setDefaultTimeout } from "bun:test";
 import { SYSTEM_ACTOR } from "@checkstack/common";
+
+// These tests are deterministic (no real timer waits), but some run 20+
+// sequential handleTriggerFiring awaits, which crawl past bun's 5s default
+// timeout when the full repo suite saturates the machine. Generous ceiling;
+// the assertions are unchanged.
+setDefaultTimeout(30_000);
 import {
   AutomationDefinitionSchema,
   type Automation,

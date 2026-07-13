@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, setDefaultTimeout } from "bun:test";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
@@ -8,6 +8,11 @@ import {
   readTarEntries,
 } from "./tarball-utils";
 import type { InstallPackageMetadata } from "@checkstack/common";
+
+// Real tarball build + extraction per test: instant in isolation but can
+// exceed bun's 5s default when the full repo suite saturates the machine.
+// Generous ceiling; the assertions are unchanged.
+setDefaultTimeout(30_000);
 
 // `tar` has a known initialization conflict with Bun's `mock.module` chain
 // loaded by test-preload.ts: when tests mocking other node modules run

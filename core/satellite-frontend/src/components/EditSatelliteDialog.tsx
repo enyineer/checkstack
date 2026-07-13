@@ -17,6 +17,7 @@ import {
   useToast,
   toastError,
 } from "@checkstack/ui";
+import { CapabilityExplainer } from "./CapabilityExplainer";
 
 interface Props {
   satellite: SatelliteWithStatus | undefined;
@@ -113,6 +114,15 @@ export const EditSatelliteDialog: React.FC<Props> = ({
               &quot;eu-west-1&quot;, &quot;us-east-2&quot;, or
               &quot;datacenter-fra&quot;.
             </p>
+          </div>
+
+          <div className="grid gap-2 rounded-lg border bg-card p-3">
+            <Label>Capabilities</Label>
+            <p className="text-xs text-muted-foreground">
+              Advertised by the satellite agent on connect. Read-only - enable
+              them via the agent&apos;s environment configuration.
+            </p>
+            <CapabilityExplainer capabilities={satellite.capabilities} />
           </div>
         </div>
 

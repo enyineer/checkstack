@@ -14,7 +14,49 @@ export interface Signal<T = unknown> {
   id: string;
   pluginId: string;
   payloadSchema: z.ZodType<T>;
+  /**
+   * Optional per-resource scoping for cache invalidation. When present and it
+   * yields an id from the signal's payload, the frontend auto-invalidator
+   * narrows invalidation from the whole `[[pluginId]]` cache to only the
+   * queries whose key contains that id (plus any query that opted into the
+   * whole-plugin refresh via `meta: { signalScope: "plugin" }`). Signals
+   * WITHOUT this extractor keep the original blanket-plugin invalidation, so
+   * adding it to one signal never changes another's behavior.
+   *
+   * Return `undefined` to fall back to blanket invalidation for a given
+   * payload (e.g. a payload variant that carries no resource id).
+   *
+   * Stored as a `(payload: unknown) => ...` so `T` never appears in a
+   * contravariant position on `Signal<T>` - that would break the covariant
+   * `Signal<T>` assignability the `SignalService.broadcast<T>(signal, payload)`
+   * overloads rely on. Authors still write a `T`-typed extractor via
+   * {@link createSignal}; it is wrapped to parse the wire payload back to `T`.
+   */
+  resourceKey?: (payload: unknown) => string | undefined;
 }
+
+/**
+ * Query `meta` value that opts a query into whole-plugin invalidation even when
+ * a received signal is resource-scoped (has a `resourceKey`). Use it on
+ * resource-agnostic list queries that must refresh on ANY resource's activity
+ * (e.g. a "list all streams" query that shows per-row activity counters).
+ * Detail queries whose input already contains the resource id do NOT need it -
+ * they match the resource-scoped predicate on their own.
+ *
+ * @example
+ * ```tsx
+ * client.listStreams.useQuery({}, { meta: signalScopeMeta });
+ * ```
+ */
+export const PLUGIN_SIGNAL_SCOPE = "plugin" as const;
+
+/** The query-meta key the auto-invalidator inspects for the opt-in above. */
+export const SIGNAL_SCOPE_META_KEY = "signalScope" as const;
+
+/** Ready-made `meta` object for the whole-plugin invalidation opt-in. */
+export const signalScopeMeta = {
+  [SIGNAL_SCOPE_META_KEY]: PLUGIN_SIGNAL_SCOPE,
+} as const;
 
 /**
  * Factory function for creating type-safe signals.
@@ -38,12 +80,23 @@ export function createSignal<T>(props: {
   pluginMetadata: PluginMetadata;
   event: string;
   payloadSchema: z.ZodType<T>;
+  /** See {@link Signal.resourceKey}. Omit for the default blanket invalidation. */
+  resourceKey?: (payload: T) => string | undefined;
 }): Signal<T> {
-  const { pluginMetadata, event, payloadSchema } = props;
+  const { pluginMetadata, event, payloadSchema, resourceKey } = props;
   return {
     id: `${pluginMetadata.pluginId}.${event}`,
     pluginId: pluginMetadata.pluginId,
     payloadSchema,
+    // Bridge the author's T-typed extractor to the stored `unknown`-typed one
+    // by parsing the wire payload back to T through the payload schema - no
+    // cast, and a malformed payload throws (the caller degrades to blanket).
+    ...(resourceKey
+      ? {
+          resourceKey: (payload: unknown): string | undefined =>
+            resourceKey(payloadSchema.parse(payload)),
+        }
+      : {}),
   };
 }
 

@@ -2,9 +2,16 @@
   "extends": "@checkstack/tsconfig/frontend.json",
   "include": [
     "tests",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "satellite-telemetry.e2e.it.test.ts"
   ],
   "references": [
+    {
+      "path": "../ingest-utils"
+    },
+    {
+      "path": "../logstream-common"
+    },
     {
       "path": "../test-utils-frontend"
     }

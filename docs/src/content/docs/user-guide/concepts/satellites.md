@@ -57,6 +57,69 @@ Each result is tagged with its **source**: `null` for local execution, the satel
 > [!TIP]
 > Running both local and satellite execution in parallel is the typical pattern when adding a satellite to an existing check. You see the local result you already trusted alongside the new per-region result; once the satellite is proven you can toggle local off.
 
+## Forwarding telemetry and scraping metrics
+
+Beyond executing health checks, a satellite can act as a telemetry relay for the
+network zone it lives in. Because the satellite already holds one authenticated,
+outbound WebSocket to the core, it lets shippers and exporters inside the zone
+reach Checkstack without punching an inbound firewall hole to the core. The
+satellite is the single outbound connection; everything inside the zone talks to
+the satellite, and the satellite forwards to the core.
+
+There are two shapes to this:
+
+- **Receive and forward.** The satellite runs local receivers (OTLP and native
+  HTTP for logs and metrics, plus an optional RFC 5424 syslog listener). A
+  shipper inside the zone points at the satellite instead of at the core, and
+  the satellite forwards the received telemetry over its WebSocket channel. This
+  is the push model, moved one hop closer to the source.
+- **Scrape and forward.** The core cannot reach a Prometheus exporter inside the
+  zone, but the satellite can. Bind a metric-stream scrape target to a
+  satellite, and the satellite polls the exporter on its interval and forwards
+  the datapoints. This is the pull model, executed from inside the zone.
+
+A satellite advertises which of these it can do as **capabilities**, shown as
+badges on its detail page: `telemetry` (the forwarding channel is enabled),
+`log-receivers` (the HTTP log and metric receivers are listening), `syslog` (the
+syslog listener is listening), and `scrape` (satellite-side scraping is enabled).
+Capabilities come from the satellite's environment configuration; see
+[Connect a satellite](/checkstack/user-guide/guides/connect-a-satellite/) for the
+flags.
+
+### How forwarded telemetry is authorized
+
+The two shapes are authorized differently, because they carry different proof of
+who is allowed to write:
+
+- **Receiver forwarding is authorized by the stream token.** A shipper hands the
+  satellite the same per-stream source token it would send to the HTTP push
+  endpoint (`ckls_` for a log stream, `ckms_` for a metric stream). The satellite
+  forwards that token unchanged, and the core verifies it exactly as it verifies
+  the direct HTTP push, honoring revocation. The satellite is a relay, not a new
+  trust boundary; it never mints authority of its own.
+- **Scraping is authorized by the target binding.** A scrape target is bound to a
+  specific satellite in the UI. The core accepts scraped datapoints only for a
+  target whose bound satellite matches the satellite that sent them, so a
+  satellite cannot forward metrics for a target it was never bound to. Binding a
+  target to a satellite requires read access to that satellite and that the
+  satellite advertise `scrape`.
+
+> [!NOTE]
+> Bearer secrets for authenticated scrape targets are never stored on the
+> satellite and never travel in the scrape configuration pushed to it. The core
+> delivers the secret just in time over the secure channel for each scrape, and
+> the satellite holds it in memory only for that poll. The pushed config carries
+> only an advisory flag that a bearer is required.
+
+### Reliability and dropped telemetry
+
+The satellite buffers telemetry in bounded, in-memory buffers that drop the
+oldest items when full, and a credit window with per-batch acknowledgements paces
+delivery to the core. If a satellite disconnects, buffered items may be dropped
+rather than held indefinitely. The count of items dropped this way is surfaced as
+**Dropped in transit** on the log-stream and metric-stream overview pages, so a
+gap caused by a satellite outage is visible rather than silent.
+
 ## Heartbeats and online status
 
 The satellite emits a heartbeat on its WebSocket connection. The core keeps a `last_heartbeat_at` per satellite. A satellite is considered **online** while its connection is open; if the connection drops or stops heartbeating, it goes **offline** and the core stops queuing jobs to it. Pending jobs surface as failed runs with a clear "satellite offline" message instead of silently never executing.
@@ -89,7 +152,7 @@ Satellites report their version on connect. The core does not auto-update satell
 | Where to go | What you do there |
 |-------------|-------------------|
 | **Infrastructure -> Satellites** | List, create, delete, and rotate tokens for satellites. |
-| **Satellite detail** | See online status, last heartbeat, version, and tags. Rotate the token. |
+| **Satellite detail** | See online status, last heartbeat, version, tags, and capability badges. Rotate the token. |
 | **System detail -> Health check assignment** | Pick which satellites execute the check. Toggle `Include local`. |
 | **Health check run row** | See the source label per result (Local, EU West, ...). |
 

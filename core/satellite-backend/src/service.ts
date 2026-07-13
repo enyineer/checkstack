@@ -69,6 +69,7 @@ export class SatelliteService {
       name: row.name,
       region: row.region,
       tags: row.tags,
+      capabilities: row.capabilities,
       lastHeartbeatAt: row.lastHeartbeatAt ?? undefined,
       version: row.version ?? undefined,
       createdAt: row.createdAt,
@@ -211,6 +212,21 @@ export class SatelliteService {
         lastHeartbeatAt: new Date(),
         version: props.version ?? undefined,
       })
+      .where(eq(satellites.id, id));
+  }
+
+  /**
+   * Persist the capabilities a satellite advertised on connect/heartbeat.
+   * Idempotent; called whenever an `authenticate` / `heartbeat` carries a
+   * capabilities list (an older agent omits it and we leave the column as-is).
+   */
+  async updateCapabilities(
+    id: string,
+    capabilities: string[],
+  ): Promise<void> {
+    await this.db
+      .update(satellites)
+      .set({ capabilities })
       .where(eq(satellites.id, id));
   }
 
@@ -363,6 +379,7 @@ export class SatelliteService {
       name: row.name,
       region: row.region,
       tags: row.tags,
+      capabilities: row.capabilities,
       lastHeartbeatAt: row.lastHeartbeatAt ?? undefined,
       version: row.version ?? undefined,
       createdAt: row.createdAt,

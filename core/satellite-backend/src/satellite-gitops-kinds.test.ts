@@ -46,6 +46,7 @@ const stubService = (initial?: SatelliteWithStatus | undefined) => {
         name: props.name,
         region: props.region,
         tags: props.tags,
+        capabilities: [],
         createdAt: new Date(),
         status: "offline",
       };
@@ -141,6 +142,7 @@ describe("buildSatelliteKind", () => {
       name: "eu-west-1",
       region: "eu-west-1",
       tags: {},
+      capabilities: [],
       createdAt: new Date(),
       status: "online",
     };
@@ -172,6 +174,7 @@ describe("buildSatelliteKind", () => {
       name: "renamed",
       region: "eu-west-1",
       tags: {},
+      capabilities: [],
       createdAt: new Date(),
       status: "online",
     };
@@ -195,6 +198,7 @@ describe("buildSatelliteKind", () => {
       name: "eu-west-1",
       region: "eu-west-1",
       tags: {},
+      capabilities: [],
       createdAt: new Date(),
       status: "online",
     };

@@ -103,27 +103,27 @@ describe("CoreReadinessRegistry", () => {
     expect(snapshot.checks[0].ok).toBe(true);
   });
 
-  it("runs probes in parallel (total time ~ slowest probe)", async () => {
+  it("runs probes in parallel (both probes in flight at once)", async () => {
+    // A wall-clock bound (elapsed < 95ms) flaked under full-suite machine
+    // load. Prove parallelism structurally instead: each probe records how
+    // many probes were in flight when it started. Sequential evaluation
+    // (await one probe, then start the next) can never overlap, so
+    // maxInFlight === 2 discriminates parallel from sequential regardless
+    // of how slowly the machine schedules timers.
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    registry.register({
-      name: "slow-1",
-      check: async () => {
-        await delay(50);
-        return { ok: true };
-      },
-    });
-    registry.register({
-      name: "slow-2",
-      check: async () => {
-        await delay(50);
-        return { ok: true };
-      },
-    });
-    const start = Date.now();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const probe = async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await delay(50);
+      inFlight--;
+      return { ok: true };
+    };
+    registry.register({ name: "slow-1", check: probe });
+    registry.register({ name: "slow-2", check: probe });
     await registry.evaluate();
-    const elapsed = Date.now() - start;
-    // Sequential would be ~100ms; parallel should be ~50ms.
-    expect(elapsed).toBeLessThan(95);
+    expect(maxInFlight).toBe(2);
   });
 
   it("scoped registry forwards register() to the global", () => {

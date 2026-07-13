@@ -200,3 +200,110 @@ describe("sandbox-policy protocol extensions", () => {
     }
   });
 });
+
+describe("telemetry protocol extensions (additive envelopes)", () => {
+  test("telemetry_batch round-trips with per-group drop counts", () => {
+    const msg = {
+      type: "telemetry_batch" as const,
+      batchId: "3",
+      kind: "logstream",
+      payload: { streamToken: "ckls_x", lines: [{ body: "hi" }] },
+      droppedByGroup: { ckls_x: 7, ckls_y: 2 },
+    };
+    const parsed = SatelliteToCoreMessageSchema.parse(msg);
+    expect(parsed).toEqual(msg);
+  });
+
+  test("telemetry_batch parses without the optional droppedByGroup", () => {
+    const parsed = SatelliteToCoreMessageSchema.parse({
+      type: "telemetry_batch",
+      batchId: "1",
+      kind: "metricstream",
+      payload: null,
+    });
+    if (parsed.type === "telemetry_batch") {
+      expect(parsed.droppedByGroup).toBeUndefined();
+    }
+  });
+
+  test("capability_status round-trips (sat -> core)", () => {
+    const msg = {
+      type: "capability_status" as const,
+      kind: "metric-scrape",
+      payload: { targetId: "t1", lastError: null },
+    };
+    expect(SatelliteToCoreMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  test("telemetry_ack round-trips (core -> sat)", () => {
+    const msg = {
+      type: "telemetry_ack" as const,
+      batchId: "9",
+      accepted: 5,
+      rejected: 2,
+      retryable: true,
+    };
+    expect(CoreToSatelliteMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  test("capability_config round-trips (core -> sat)", () => {
+    const msg = {
+      type: "capability_config" as const,
+      kind: "metric-scrape",
+      payload: { targets: [{ id: "t1", url: "http://x/metrics" }] },
+    };
+    expect(CoreToSatelliteMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  test("authenticate carries optional capabilities[]", () => {
+    const parsed = SatelliteToCoreMessageSchema.parse({
+      type: "authenticate",
+      clientId: "c1",
+      token: "csat_x",
+      capabilities: ["telemetry", "scrape"],
+    });
+    if (parsed.type === "authenticate") {
+      expect(parsed.capabilities).toEqual(["telemetry", "scrape"]);
+    }
+  });
+
+  test("heartbeat WITHOUT capabilities parses (version-skew safe)", () => {
+    const parsed = SatelliteToCoreMessageSchema.parse({
+      type: "heartbeat",
+      version: "1.0.0",
+      uptimeSeconds: 10,
+    });
+    if (parsed.type === "heartbeat") {
+      expect(parsed.capabilities).toBeUndefined();
+    }
+  });
+});
+
+describe("protocol forward-compatibility (version skew)", () => {
+  test("unknown extra fields on a known message are stripped, not fatal", () => {
+    const parsed = SatelliteToCoreMessageSchema.parse({
+      type: "heartbeat",
+      version: "1.0.0",
+      uptimeSeconds: 5,
+      somethingBrandNew: { nested: true },
+    });
+    expect(parsed).toEqual({
+      type: "heartbeat",
+      version: "1.0.0",
+      uptimeSeconds: 5,
+    });
+  });
+
+  test("an unknown message type fails safeParse cleanly (no throw)", () => {
+    // The WS handlers guard parse and DROP on failure, so an unknown type from
+    // a newer peer is ignored without tearing down the socket.
+    expect(
+      SatelliteToCoreMessageSchema.safeParse({ type: "future_msg", x: 1 })
+        .success,
+    ).toBe(false);
+    expect(
+      CoreToSatelliteMessageSchema.safeParse({ type: "future_msg", x: 1 })
+        .success,
+    ).toBe(false);
+  });
+});

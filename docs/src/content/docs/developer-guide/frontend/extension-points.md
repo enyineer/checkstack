@@ -618,6 +618,51 @@ createSlotExtension(CatalogBrowseDataBoundarySlot, {
 });
 ```
 
+##### `HealthCheckConfigOptionsResolverSlot` (check-editor dropdown resolvers)
+
+The health-check editor renders every strategy's config and collector forms
+generically via `DynamicForm`. A schema field annotated with
+`x-options-resolver: "<name>"` renders as a dropdown only when a matching
+resolver function is supplied - and the editor cannot know any strategy's
+resolvers without importing the strategy's plugin (a forbidden dependency
+direction). This slot inverts that: healthcheck-frontend defines the point and
+the strategy's owning plugin contributes the resolvers as static metadata.
+
+```typescript
+import { createSlotExtension } from "@checkstack/frontend-api";
+import { HealthCheckConfigOptionsResolverSlot } from "@checkstack/healthcheck-frontend";
+
+createSlotExtension(HealthCheckConfigOptionsResolverSlot, {
+  id: "logstream.healthcheck.options-resolvers",
+  component: () => null, // metadata-only contribution, never rendered
+  metadata: {
+    strategyId: "logstream",
+    buildResolvers: ({ rpcApi, strategyConfig }) => ({
+      logstreamStreamId: async () => {
+        const client = rpcApi.forPlugin(LogstreamApi);
+        const streams = await client.listStreamsForPicker();
+        return streams.map((s) => ({ value: s.id, label: s.name }));
+      },
+    }),
+  },
+});
+```
+
+Contract rules:
+
+- `strategyId` is the unqualified strategy id; the editor only invokes factories
+  whose id matches the strategy being edited.
+- `buildResolvers` is a plain synchronous function (no hooks). It receives the
+  generic `rpcApi` (scope it with `rpcApi.forPlugin(...)`) and the CURRENT
+  strategy-config values, which is how a collector-field resolver can depend on
+  a sibling strategy-form selection (the log-stream pattern picker reads the
+  chosen `streamId` this way).
+- Backend procedures called by resolvers should be `typeScoped` (or otherwise
+  reachable by team-scoped managers), so the dropdown populates for every user
+  who can legitimately edit the check.
+- When no contribution matches, the annotated field degrades to a plain text
+  input; the editor stays fully functional.
+
 ##### `SystemSignalsSlot` (dashboard "needs attention" overview)
 
 The dashboard overview lists only the systems that need attention and hides

@@ -35,6 +35,9 @@
       "path": "../queue-api"
     },
     {
+      "path": "../satellite"
+    },
+    {
       "path": "../satellite-common"
     },
     {

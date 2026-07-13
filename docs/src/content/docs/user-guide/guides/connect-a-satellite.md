@@ -135,6 +135,57 @@ Only network strategies can run remotely (HTTP, TCP, ping, DNS, and similar). A 
 
 The next run executes on the satellite. The result returns through the WebSocket and lands in the check history alongside core-executed runs. The history detail page shows which satellite produced each run.
 
+## Telemetry forwarding and scraping
+
+A satellite can also relay logs and metrics for the zone it runs in, so shippers
+and exporters inside a private network reach Checkstack over the satellite's
+single outbound connection rather than needing their own hole to the core. This
+is off by default and turned on with environment flags. For the concept and the
+two authorization models, see
+[Forwarding telemetry and scraping metrics](/checkstack/user-guide/concepts/satellites/#forwarding-telemetry-and-scraping-metrics).
+
+Set any of these on the satellite container. Enabling any receiver or scrape flag
+implies the telemetry channel, so you do not set `CHECKSTACK_SATELLITE_TELEMETRY`
+by hand unless you want the channel with no local receiver:
+
+```env
+# Forwarding channel (implied by any flag below).
+CHECKSTACK_SATELLITE_TELEMETRY=1
+
+# HTTP log + metric receivers: /v1/logs, /ingest, /v1/metrics, /ingest/metrics.
+CHECKSTACK_SATELLITE_LOG_RECEIVERS=1
+CHECKSTACK_SATELLITE_RECEIVER_PORT=4318
+CHECKSTACK_SATELLITE_RECEIVER_HOST=0.0.0.0
+
+# RFC 5424 syslog listener.
+CHECKSTACK_SATELLITE_SYSLOG=1
+CHECKSTACK_SATELLITE_SYSLOG_PORT=6514
+CHECKSTACK_SATELLITE_SYSLOG_HOST=0.0.0.0
+CHECKSTACK_SATELLITE_SYSLOG_TLS_CERT=/etc/checkstack/syslog.crt
+CHECKSTACK_SATELLITE_SYSLOG_TLS_KEY=/etc/checkstack/syslog.key
+CHECKSTACK_SATELLITE_SYSLOG_MAX_CONNECTIONS=1024
+
+# Satellite-side scraping of bound Prometheus targets.
+CHECKSTACK_SATELLITE_SCRAPE=1
+```
+
+Whichever you enable, publish the matching ports so producers inside the zone can
+reach them, for example `-p 4318:4318` for the HTTP receivers and `-p 6514:6514`
+for syslog when you boot the container in step 6. The satellite advertises the
+capabilities it can serve (`telemetry`, `log-receivers`, `syslog`, `scrape`) to
+the core, and they appear as badges on the satellite detail page.
+
+> [!NOTE]
+> Scraping needs no port published: the satellite polls the exporter outbound and
+> forwards datapoints over its existing WebSocket. Only bind scrape targets to the
+> satellite in the metric-stream UI. See
+> [Scrape or forward metrics through a satellite](/checkstack/user-guide/guides/ship-metrics/#scrape-or-forward-metrics-through-a-satellite).
+
+To wire shippers and exporters against these surfaces, follow
+[Ship logs to a stream](/checkstack/user-guide/guides/ship-logs/#forward-logs-through-a-satellite)
+and
+[Ship metrics to a stream](/checkstack/user-guide/guides/ship-metrics/#scrape-or-forward-metrics-through-a-satellite).
+
 ## 9. Manage the satellite over time
 
 - **Reset token** - the key icon next to the satellite in the list mints a new token and invalidates the old one. Update the running container's env var and restart.

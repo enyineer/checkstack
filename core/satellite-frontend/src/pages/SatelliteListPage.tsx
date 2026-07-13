@@ -31,6 +31,7 @@ import {
 } from "@checkstack/ui";
 import { Plus, Satellite, Trash2, MapPin, KeyRound, Pencil } from "lucide-react";
 import { SatelliteStatusBadge } from "../components/SatelliteStatusBadge";
+import { CapabilityBadges } from "../components/CapabilityBadges";
 import { FleetSummaryStrip } from "../components/FleetSummaryStrip";
 import { SatelliteMobileCard } from "../components/SatelliteMobileCard";
 import { CreateSatelliteDialog } from "../components/CreateSatelliteDialog";
@@ -155,6 +156,13 @@ const SatelliteListPageContent: React.FC = () => {
           {sat.version ?? "—"}
         </span>
       ),
+    },
+    {
+      id: "capabilities",
+      header: "Capabilities",
+      desktopOnly: true,
+      searchValue: (sat) => sat.capabilities.join(" "),
+      cell: (sat) => <CapabilityBadges capabilities={sat.capabilities} />,
     },
     {
       id: "actions",

@@ -36,6 +36,15 @@ export {
   type TypedAggregatedBucket,
 } from "./slots";
 
+// Contribution point for editor dropdown resolvers: a plugin owning a strategy
+// with `x-options-resolver` config fields contributes a factory here.
+export {
+  HealthCheckConfigOptionsResolverSlot,
+  type ConfigOptionsResolverContext,
+  type ConfigOptionsResolverFactory,
+  type ConfigOptionsResolverMetadata,
+} from "./components/editor/options-resolvers";
+
 // Export hooks for reusable data fetching
 export { useHealthCheckData } from "./hooks";
 export { useStrategySchemas } from "./auto-charts/useStrategySchemas";

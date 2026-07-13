@@ -10,6 +10,7 @@ import {
   healthcheckScriptContext,
   listSecretFieldKeys,
   type TemplateCompletionProvider,
+  type OptionsResolver,
 } from "@checkstack/ui";
 import { Trash2 } from "lucide-react";
 import {
@@ -67,6 +68,13 @@ interface CollectorSectionProps {
    * collector fields only.
    */
   templateCompletionProvider?: TemplateCompletionProvider;
+  /**
+   * Resolvers for this collector config's `x-options-resolver` dropdown fields,
+   * contributed by the plugin owning the strategy (e.g. a log-stream pattern
+   * picker). Built with the STRATEGY config as context, so a collector-field
+   * resolver can read a selection made in the sibling strategy form.
+   */
+  optionsResolvers?: Record<string, OptionsResolver>;
 }
 
 export const CollectorSection: React.FC<CollectorSectionProps> = ({
@@ -83,6 +91,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
   onPreviewEnvironmentChange,
   templatePreviewContext,
   templateCompletionProvider,
+  optionsResolvers,
 }) => {
   const scriptTestRenderer = React.useMemo(
     () => createCollectorScriptTestRenderer(entry.config),
@@ -169,6 +178,7 @@ export const CollectorSection: React.FC<CollectorSectionProps> = ({
                 onChange={onConfigChange}
                 onValidChange={setConfigValid}
                 templatePreviewContext={templatePreviewContext}
+                optionsResolvers={optionsResolvers}
                 {...ctx}
                 // After `ctx`: the fixed `environment.*/check.*/system.*`
                 // completion is wired ONLY to `x-templatable` collector fields

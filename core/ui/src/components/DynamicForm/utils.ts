@@ -169,6 +169,33 @@ export function isArrayItemNonTrivial(item: unknown): boolean {
   return true;
 }
 
+/**
+ * Compute the `formValues` a resolver inside an ARRAY ITEM should see. Array
+ * items are objects whose own fields (e.g. a `labelFilters` row's `key`) must be
+ * visible to that row's `x-options-resolver` fields ALONGSIDE the top-level form
+ * values (e.g. `metricName`). We merge the row's own fields OVER the top-level
+ * values so a row field shadows a same-named top-level field (correct row
+ * scoping). Non-object items (primitive arrays) pass the top-level values
+ * through unchanged.
+ *
+ * This is what lets an item field's dynamic options depend on its own row's
+ * siblings: the `value` dropdown of a `{ key, value }` filter row resolves from
+ * both the whole-form `metricName` and its OWN row's `key`. Its refetch also
+ * tracks the row's `key` because `x-depends-on` reads the same merged object.
+ */
+export function scopeArrayItemFormValues({
+  formValues,
+  item,
+}: {
+  formValues: Record<string, unknown>;
+  item: unknown;
+}): Record<string, unknown> {
+  if (item === null || typeof item !== "object" || Array.isArray(item)) {
+    return formValues;
+  }
+  return { ...formValues, ...(item as Record<string, unknown>) };
+}
+
 /** Sentinel value used to represent "None" selection in Select components */
 export const NONE_SENTINEL = "__none__";
 

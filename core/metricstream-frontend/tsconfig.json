@@ -1,0 +1,32 @@
+{
+  "extends": "@checkstack/tsconfig/frontend.json",
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../auth-frontend"
+    },
+    {
+      "path": "../common"
+    },
+    {
+      "path": "../frontend-api"
+    },
+    {
+      "path": "../healthcheck-frontend"
+    },
+    {
+      "path": "../metricstream-common"
+    },
+    {
+      "path": "../satellite-common"
+    },
+    {
+      "path": "../signal-common"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}

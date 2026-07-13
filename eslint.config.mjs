@@ -150,6 +150,12 @@ export default tseslint.config(
             // naming shape but are not entity-change events.
             "auth.user.deleted",
             "healthcheck.assignment.changed",
+            // logstream user-pattern cross-pod cache-sync broadcast (a sibling
+            // of logstream.tokens.invalidated): keeps each pod's in-memory Drain
+            // tree in step after a user pattern is created/deleted. NOT a
+            // reactive entity — the durable source of truth is the log_patterns
+            // row; this hook only invalidates a process-local throughput cache.
+            "logstream.patterns.changed",
           ],
           // Migrated-domain former state columns to flag direct writes to.
           // EMPTY at this phase — no domain is migrated yet (plan §16 step 4

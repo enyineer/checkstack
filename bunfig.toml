@@ -23,3 +23,7 @@ minimumReleaseAgeExcludes = []
 # is called before the module is first imported anywhere
 # Path is relative to workspace root
 preload = ["./core/backend/src/test-preload.ts"]
+# NOTE: do NOT add `timeout` here - this bun version silently ignores a
+# bunfig [test] timeout (verified: a 6s sleep still died at the built-in 5s).
+# The repo-wide default lives in scripts/run-tests.ts as `--timeout`, which
+# bun test DOES honor.

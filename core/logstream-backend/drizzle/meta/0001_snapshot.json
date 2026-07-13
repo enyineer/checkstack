@@ -1,0 +1,997 @@
+{
+  "id": "5f7219ad-ca5f-4d2d-8817-b8a13c0b5ed1",
+  "prevId": "20a51f33-3812-4b6d-990c-db1323cb0fef",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.log_events": {
+      "name": "log_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "log_events_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "severity_number": {
+          "name": "severity_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "severity_text": {
+          "name": "severity_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "band": {
+          "name": "band",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attributes": {
+          "name": "attributes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource": {
+          "name": "resource",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "span_id": {
+          "name": "span_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "log_events_stream_ts_idx": {
+          "name": "log_events_stream_ts_idx",
+          "columns": [
+            {
+              "expression": "stream_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_events_stream_pattern_ts_idx": {
+          "name": "log_events_stream_pattern_ts_idx",
+          "columns": [
+            {
+              "expression": "stream_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pattern_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_events_ts_idx": {
+          "name": "log_events_ts_idx",
+          "columns": [
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_important_events": {
+      "name": "log_important_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ts": {
+          "name": "ts",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "severity_number": {
+          "name": "severity_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "log_important_events_stream_ts_idx": {
+          "name": "log_important_events_stream_ts_idx",
+          "columns": [
+            {
+              "expression": "stream_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_pattern_buckets": {
+      "name": "log_pattern_buckets",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "log_pattern_buckets_ts_idx": {
+          "name": "log_pattern_buckets_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_pattern_buckets_stream_id_bucket_start_pattern_id_pk": {
+          "name": "log_pattern_buckets_stream_id_bucket_start_pattern_id_pk",
+          "columns": [
+            "stream_id",
+            "bucket_start",
+            "pattern_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_pattern_hourly": {
+      "name": "log_pattern_hourly",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "log_pattern_hourly_ts_idx": {
+          "name": "log_pattern_hourly_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_pattern_hourly_stream_id_bucket_start_pattern_id_pk": {
+          "name": "log_pattern_hourly_stream_id_bucket_start_pattern_id_pk",
+          "columns": [
+            "stream_id",
+            "bucket_start",
+            "pattern_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_pattern_variable_buckets": {
+      "name": "log_pattern_variable_buckets",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "var_index": {
+          "name": "var_index",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "sum": {
+          "name": "sum",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "min": {
+          "name": "min",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max": {
+          "name": "max",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "log_pattern_variable_buckets_ts_idx": {
+          "name": "log_pattern_variable_buckets_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_pattern_variable_buckets_stream_id_pattern_id_var_index_bucket_start_pk": {
+          "name": "log_pattern_variable_buckets_stream_id_pattern_id_var_index_bucket_start_pk",
+          "columns": [
+            "stream_id",
+            "pattern_id",
+            "var_index",
+            "bucket_start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_pattern_variable_hourly": {
+      "name": "log_pattern_variable_hourly",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pattern_id": {
+          "name": "pattern_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "var_index": {
+          "name": "var_index",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "sum": {
+          "name": "sum",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "min": {
+          "name": "min",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max": {
+          "name": "max",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "log_pattern_variable_hourly_ts_idx": {
+          "name": "log_pattern_variable_hourly_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_pattern_variable_hourly_stream_id_pattern_id_var_index_bucket_start_pk": {
+          "name": "log_pattern_variable_hourly_stream_id_pattern_id_var_index_bucket_start_pk",
+          "columns": [
+            "stream_id",
+            "pattern_id",
+            "var_index",
+            "bucket_start"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_patterns": {
+      "name": "log_patterns",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_count": {
+          "name": "token_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sample_body": {
+          "name": "sample_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_count": {
+          "name": "total_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "severity_max": {
+          "name": "severity_max",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'mined'"
+        }
+      },
+      "indexes": {
+        "log_patterns_stream_last_seen_idx": {
+          "name": "log_patterns_stream_last_seen_idx",
+          "columns": [
+            {
+              "expression": "stream_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_seen_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_severity_buckets": {
+      "name": "log_severity_buckets",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "band": {
+          "name": "band",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "log_severity_buckets_ts_idx": {
+          "name": "log_severity_buckets_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_severity_buckets_stream_id_bucket_start_band_pk": {
+          "name": "log_severity_buckets_stream_id_bucket_start_band_pk",
+          "columns": [
+            "stream_id",
+            "bucket_start",
+            "band"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_severity_hourly": {
+      "name": "log_severity_hourly",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bucket_start": {
+          "name": "bucket_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "band": {
+          "name": "band",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "log_severity_hourly_ts_idx": {
+          "name": "log_severity_hourly_ts_idx",
+          "columns": [
+            {
+              "expression": "bucket_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "log_severity_hourly_stream_id_bucket_start_band_pk": {
+          "name": "log_severity_hourly_stream_id_bucket_start_band_pk",
+          "columns": [
+            "stream_id",
+            "bucket_start",
+            "band"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_stream_activity": {
+      "name": "log_stream_activity",
+      "schema": "",
+      "columns": {
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "last_received_at": {
+          "name": "last_received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_flush_at": {
+          "name": "last_flush_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approx_rate_per_minute": {
+          "name": "approx_rate_per_minute",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "silence_event_at": {
+          "name": "silence_event_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_stream_tokens": {
+      "name": "log_stream_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_prefix": {
+          "name": "token_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "log_stream_tokens_hash_uq": {
+          "name": "log_stream_tokens_hash_uq",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "log_stream_tokens_stream_idx": {
+          "name": "log_stream_tokens_stream_idx",
+          "columns": [
+            {
+              "expression": "stream_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.log_streams": {
+      "name": "log_streams",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

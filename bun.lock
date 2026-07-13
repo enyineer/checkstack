@@ -938,12 +938,15 @@
       "name": "@checkstack/e2e",
       "version": "0.0.0",
       "devDependencies": {
+        "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/logstream-common": "workspace:*",
         "@checkstack/scripts": "workspace:*",
         "@checkstack/test-utils-frontend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@playwright/test": "^1.60.0",
         "@testcontainers/postgresql": "^12.0.3",
         "typescript": "^5.0.0",
+        "zod": "^4.2.1",
       },
     },
     "core/frontend": {
@@ -989,6 +992,7 @@
         "postcss": "^8.5.15",
         "rollup-plugin-visualizer": "^7.0.1",
         "vite": "^8.0.16",
+        "zod": "^4.4.3",
       },
     },
     "core/frontend-api": {
@@ -1302,6 +1306,21 @@
         "typescript": "^5.7.2",
       },
     },
+    "core/ingest-utils": {
+      "name": "@checkstack/ingest-utils",
+      "version": "0.0.0",
+      "dependencies": {
+        "@checkstack/cache-api": "workspace:*",
+        "@checkstack/cache-utils": "workspace:*",
+        "@checkstack/otlp-wire": "workspace:*",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/integration-backend": {
       "name": "@checkstack/integration-backend",
       "version": "0.7.6",
@@ -1352,6 +1371,73 @@
         "@checkstack/integration-common": "workspace:*",
         "@checkstack/signal-frontend": "workspace:*",
         "@checkstack/tips-frontend": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^1.17.0",
+        "react": "19.2.7",
+        "react-router-dom": "^7.16.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^19.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/logstream-backend": {
+      "name": "@checkstack/logstream-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/auth-common": "workspace:*",
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/cache-api": "workspace:*",
+        "@checkstack/cache-utils": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/logstream-common": "workspace:*",
+        "@checkstack/queue-api": "workspace:*",
+        "@checkstack/satellite-backend": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@orpc/server": "^1.14.4",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/backend": "workspace:*",
+        "@checkstack/dev-server": "workspace:*",
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/logstream-common": {
+      "name": "@checkstack/logstream-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/otlp-wire": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/logstream-frontend": {
+      "name": "@checkstack/logstream-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/healthcheck-frontend": "workspace:*",
+        "@checkstack/logstream-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
         "@checkstack/ui": "workspace:*",
         "lucide-react": "^1.17.0",
         "react": "19.2.7",
@@ -1447,6 +1533,78 @@
         "typescript": "^5.0.0",
       },
     },
+    "core/metricstream-backend": {
+      "name": "@checkstack/metricstream-backend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/auth-common": "workspace:*",
+        "@checkstack/backend-api": "workspace:*",
+        "@checkstack/cache-api": "workspace:*",
+        "@checkstack/cache-utils": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/metricstream-common": "workspace:*",
+        "@checkstack/queue-api": "workspace:*",
+        "@checkstack/satellite-backend": "workspace:*",
+        "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/secrets-backend": "workspace:*",
+        "@checkstack/secrets-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@orpc/client": "^1.14.4",
+        "@orpc/server": "^1.14.4",
+        "drizzle-orm": "^0.45.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/backend": "workspace:*",
+        "@checkstack/dev-server": "workspace:*",
+        "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/test-utils-backend": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "drizzle-kit": "^0.31.10",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/metricstream-common": {
+      "name": "@checkstack/metricstream-common",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/common": "workspace:*",
+        "@checkstack/otlp-wire": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
+    "core/metricstream-frontend": {
+      "name": "@checkstack/metricstream-frontend",
+      "version": "0.0.1",
+      "dependencies": {
+        "@checkstack/auth-frontend": "workspace:*",
+        "@checkstack/common": "workspace:*",
+        "@checkstack/frontend-api": "workspace:*",
+        "@checkstack/healthcheck-frontend": "workspace:*",
+        "@checkstack/metricstream-common": "workspace:*",
+        "@checkstack/satellite-common": "workspace:*",
+        "@checkstack/signal-common": "workspace:*",
+        "@checkstack/ui": "workspace:*",
+        "lucide-react": "^1.17.0",
+        "react": "19.2.7",
+        "react-router-dom": "^7.16.0",
+      },
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/react": "^19.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "core/notification-backend": {
       "name": "@checkstack/notification-backend",
       "version": "1.8.1",
@@ -1511,6 +1669,16 @@
         "@checkstack/scripts": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
         "@types/react": "^19.0.0",
+        "typescript": "^5.0.0",
+      },
+    },
+    "core/otlp-wire": {
+      "name": "@checkstack/otlp-wire",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@checkstack/scripts": "workspace:*",
+        "@checkstack/tsconfig": "workspace:*",
+        "@types/bun": "^1.0.0",
         "typescript": "^5.0.0",
       },
     },
@@ -1628,6 +1796,10 @@
         "@checkstack/backend-api": "workspace:*",
         "@checkstack/common": "workspace:*",
         "@checkstack/healthcheck-common": "workspace:*",
+        "@checkstack/ingest-utils": "workspace:*",
+        "@checkstack/logstream-common": "workspace:*",
+        "@checkstack/metricstream-common": "workspace:*",
+        "@checkstack/otlp-wire": "workspace:*",
         "@checkstack/satellite-common": "workspace:*",
         "@checkstack/script-packages-backend": "workspace:*",
         "@checkstack/secrets-common": "workspace:*",
@@ -1666,6 +1838,7 @@
       },
       "devDependencies": {
         "@checkstack/drizzle-helper": "workspace:*",
+        "@checkstack/satellite": "workspace:*",
         "@checkstack/scripts": "workspace:*",
         "@checkstack/test-utils-backend": "workspace:*",
         "@checkstack/tsconfig": "workspace:*",
@@ -3483,6 +3656,8 @@
 
     "@checkstack/infrastructure-frontend": ["@checkstack/infrastructure-frontend@workspace:core/infrastructure-frontend"],
 
+    "@checkstack/ingest-utils": ["@checkstack/ingest-utils@workspace:core/ingest-utils"],
+
     "@checkstack/integration-backend": ["@checkstack/integration-backend@workspace:core/integration-backend"],
 
     "@checkstack/integration-common": ["@checkstack/integration-common@workspace:core/integration-common"],
@@ -3501,11 +3676,23 @@
 
     "@checkstack/integration-webhook-backend": ["@checkstack/integration-webhook-backend@workspace:plugins/integration-webhook-backend"],
 
+    "@checkstack/logstream-backend": ["@checkstack/logstream-backend@workspace:core/logstream-backend"],
+
+    "@checkstack/logstream-common": ["@checkstack/logstream-common@workspace:core/logstream-common"],
+
+    "@checkstack/logstream-frontend": ["@checkstack/logstream-frontend@workspace:core/logstream-frontend"],
+
     "@checkstack/maintenance-backend": ["@checkstack/maintenance-backend@workspace:core/maintenance-backend"],
 
     "@checkstack/maintenance-common": ["@checkstack/maintenance-common@workspace:core/maintenance-common"],
 
     "@checkstack/maintenance-frontend": ["@checkstack/maintenance-frontend@workspace:core/maintenance-frontend"],
+
+    "@checkstack/metricstream-backend": ["@checkstack/metricstream-backend@workspace:core/metricstream-backend"],
+
+    "@checkstack/metricstream-common": ["@checkstack/metricstream-common@workspace:core/metricstream-common"],
+
+    "@checkstack/metricstream-frontend": ["@checkstack/metricstream-frontend@workspace:core/metricstream-frontend"],
 
     "@checkstack/notification-backend": ["@checkstack/notification-backend@workspace:core/notification-backend"],
 
@@ -3532,6 +3719,8 @@
     "@checkstack/notification-webex-backend": ["@checkstack/notification-webex-backend@workspace:plugins/notification-webex-backend"],
 
     "@checkstack/notification-webhook-backend": ["@checkstack/notification-webhook-backend@workspace:plugins/notification-webhook-backend"],
+
+    "@checkstack/otlp-wire": ["@checkstack/otlp-wire@workspace:core/otlp-wire"],
 
     "@checkstack/pluginmanager-common": ["@checkstack/pluginmanager-common@workspace:core/pluginmanager-common"],
 

@@ -1,0 +1,1 @@
+ALTER TABLE "satellites" ADD COLUMN "capabilities" jsonb DEFAULT '[]'::jsonb NOT NULL;

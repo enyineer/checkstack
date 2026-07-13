@@ -5,6 +5,7 @@ import { KeyRound, MapPin, Pencil, Trash2 } from "lucide-react";
 import { GitOpsSourceBadge } from "@checkstack/gitops-frontend";
 import type { ProvenanceLock } from "@checkstack/gitops-frontend";
 import { SatelliteStatusBadge } from "./SatelliteStatusBadge";
+import { CapabilityBadges } from "./CapabilityBadges";
 
 /** Left accent stripe colour by status: position + hue, not colour alone. */
 const ACCENT_BY_STATUS: Record<SatelliteWithStatus["status"], string> = {
@@ -73,6 +74,14 @@ export const SatelliteMobileCard: React.FC<SatelliteMobileCardProps> = ({
         </span>
         {lastSeen && <span>Last seen {lastSeen}</span>}
       </div>
+
+      {satellite.capabilities.length > 0 && (
+        <CapabilityBadges
+          capabilities={satellite.capabilities}
+          className="mt-3 pl-2"
+          showEmpty={false}
+        />
+      )}
 
       <RowActions className="mt-3 pl-2">
         <RowAction
