@@ -63,6 +63,10 @@ const patternMetricConfigSchema = z.object({
     ),
   variableIndex: configNumber({
     "x-options-resolver": LOGSTREAM_VARIABLE_OPTIONS_RESOLVER,
+    // The variable picker resolves against the pattern chosen in the SAME
+    // form; without this the options fetch runs once at mount (patternId
+    // still empty) and never again, leaving the picker permanently empty.
+    "x-depends-on": ["patternId"],
   })
     .int()
     .min(0)
