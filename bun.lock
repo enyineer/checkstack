@@ -4196,7 +4196,7 @@
 
     "@module-federation/third-party-dts-extractor": ["@module-federation/third-party-dts-extractor@2.7.0", "", { "dependencies": { "empathic": "2.0.0", "exsolve": "1.0.8" } }, "sha512-hZJKkngQ4hwe0U+vrT3KOsU11qoHCQK0wB4x1bXoTgpTfV9j5NSuddOyRmwbvXpir9bDWh3xy7ghqsx3mFf3kA=="],
 
-    "@module-federation/vite": ["@module-federation/vite@1.16.14", "", { "dependencies": { "@module-federation/dts-plugin": "2.7.0", "@module-federation/runtime": "2.7.0", "@module-federation/sdk": "2.7.0" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-Y004QqJ4nTnIl+lTtJKi+j2RwReOj124HRqIb8Vbz9CygSdIg+Xc3EjZCdkS2dEfck7ouiDXzPiXtrETzqKN6g=="],
+    "@module-federation/vite": ["@module-federation/vite@1.16.15", "", { "dependencies": { "@module-federation/dts-plugin": "2.7.0", "@module-federation/runtime": "2.7.0", "@module-federation/sdk": "2.7.0" }, "peerDependencies": { "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-XzTEjFbw9H0LeUF48eSnMrsF+ornOp+rpGjaLBYBYePhQFb1cbYaREgrRSsMWPX1xPiqM7BTkLoLY9+P1sF75w=="],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ=="],
 
