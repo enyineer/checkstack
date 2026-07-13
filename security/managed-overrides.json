@@ -41,14 +41,6 @@
       "addedAt": "2026-06-14",
       "removeWhen": "No dependency resolves esbuild below 0.28.1 without this override."
     },
-    "uuid": {
-      "safeFloor": "14.0.0",
-      "severity": "MEDIUM",
-      "advisory": "Added in #210 (extend Trivy scope to MEDIUM and bump vulnerable deps).",
-      "reason": "Pins uuid to the 14.x fixed line. Confirm the exact advisory ID from #210 if refining.",
-      "addedAt": "2026-05-13",
-      "removeWhen": "No dependency resolves uuid below 14.0.0 without this override."
-    },
     "yaml": {
       "safeFloor": "2.9.0",
       "severity": "MEDIUM",
@@ -56,14 +48,6 @@
       "reason": "Forces every consumer onto a fixed yaml release. Confirm the exact advisory ID if refining.",
       "addedAt": "2026-06-06",
       "removeWhen": "No dependency resolves yaml below 2.9.0 without this override."
-    },
-    "undici": {
-      "safeFloor": "7.28.0",
-      "severity": "HIGH",
-      "advisory": "CVE-2026-9678, CVE-2026-9697",
-      "reason": "Auto-remediated by Security Maintenance: undici 7.24.7 had fixable advisories; pinned to the fixed 7.x line.",
-      "addedAt": "2026-06-19",
-      "removeWhen": "No dependency resolves below 7.28.0 without this override."
     }
   },
   "intentional": {
