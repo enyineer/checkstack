@@ -1,5 +1,14 @@
 # @checkstack/dependency-frontend
 
+## 0.8.6
+
+### Patch Changes
+
+- Updated dependencies [6540703]
+  - @checkstack/ui@1.28.1
+  - @checkstack/dashboard-frontend@0.10.10
+  - @checkstack/gitops-frontend@0.7.6
+
 ## 0.8.5
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @checkstack/metricstream-backend
 
+## 0.1.1
+
+### Patch Changes
+
+- @checkstack/secrets-backend@0.3.7
+- @checkstack/satellite-backend@0.9.1
+
 ## 0.1.0
 
 ### Minor Changes
