@@ -10,3 +10,4 @@ this only affects the resolutions baked into the production image.
 Updated dependencies:
 
 - `@ungap/structured-clone` 1.3.2 -> 1.3.3
+- `ignore` 7.0.5 -> 7.0.6
